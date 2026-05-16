@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../../core/config/app_config.dart';
 import '../../core/theme/aruku_theme.dart';
 
 /// Map widget — uses google_maps_flutter when [useRealMap] is true,
@@ -10,14 +11,14 @@ class ArukuMap extends StatelessWidget {
     super.key,
     this.variant = ArukuMapVariant.full,
     this.showRoute = true,
-    this.useRealMap = false,
+    this.useRealMap = AppConfig.useRealMap,
   });
 
   final ArukuMapVariant variant;
   final bool showRoute;
 
-  /// Set true once a Google Maps API key is configured for the platform.
-  /// When false (default), a non-interactive stylized placeholder is drawn.
+  /// 既定は [AppConfig.useRealMap]（`--dart-define=USE_REAL_MAP=true` で true）。
+  /// false のときは非インタラクティブなスタイライズド地図を描画する。
   final bool useRealMap;
 
   @override

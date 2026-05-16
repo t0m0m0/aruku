@@ -8,12 +8,14 @@ import GoogleMaps
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    // TODO: Replace with a real Google Maps SDK iOS API key.
-    // See: https://developers.google.com/maps/documentation/ios-sdk/get-api-key
-    if let key = ProcessInfo.processInfo.environment["GOOGLE_MAPS_API_KEY"], !key.isEmpty {
-      GMSServices.provideAPIKey(key)
-    } else {
-      GMSServices.provideAPIKey("YOUR_IOS_GOOGLE_MAPS_API_KEY")
+    // Key resolution: env var (flutter run override) → Info.plist GMSApiKey
+    // (populated from Secrets.xcconfig). Empty → skip so the app still launches.
+    // See README.md "Google Maps セットアップ".
+    let envKey = ProcessInfo.processInfo.environment["MAPS_API_KEY"]
+    let plistKey = Bundle.main.object(forInfoDictionaryKey: "GMSApiKey") as? String
+    let mapsApiKey = ((envKey?.isEmpty == false) ? envKey : plistKey) ?? ""
+    if !mapsApiKey.isEmpty {
+      GMSServices.provideAPIKey(mapsApiKey)
     }
     GeneratedPluginRegistrant.register(with: self)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)

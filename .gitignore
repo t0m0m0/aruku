@@ -46,4 +46,7 @@ app.*.map.json
 
 /design_handoff_aruku_mvp
 CLAUDE.md
-README.md
+
+# Google Maps API key secrets (copy from *.example, never commit real keys)
+secrets.properties
+ios/Flutter/Secrets.xcconfig
