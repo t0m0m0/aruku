@@ -13,25 +13,20 @@ abstract interface class PlacesService {
 }
 
 class GooglePlacesService implements PlacesService {
-  GooglePlacesService({http.Client? client, String? apiKey})
+  GooglePlacesService({http.Client? client, String? proxyBaseUrl})
     : _client = client ?? http.Client(),
-      _apiKey = apiKey ?? AppConfig.placesApiKey;
+      _proxyBaseUrl = proxyBaseUrl ?? AppConfig.proxyBaseUrl;
 
   final http.Client _client;
-  final String _apiKey;
-
-  static const _autocompleteUrl =
-      'https://maps.googleapis.com/maps/api/place/autocomplete/json';
-  static const _detailsUrl =
-      'https://maps.googleapis.com/maps/api/place/details/json';
+  final String _proxyBaseUrl;
 
   @override
   Future<List<PlacePrediction>> autocomplete(String query) async {
-    if (_apiKey.isEmpty) return [];
-    final uri = Uri.parse(_autocompleteUrl).replace(
+    if (_proxyBaseUrl.isEmpty) return [];
+    final uri = Uri.parse('$_proxyBaseUrl/placesProxy').replace(
       queryParameters: {
+        'action': 'autocomplete',
         'input': query,
-        'key': _apiKey,
         'language': 'ja',
         'components': 'country:jp',
       },
@@ -69,13 +64,10 @@ class GooglePlacesService implements PlacesService {
 
   @override
   Future<GeoPoint?> fetchLatLng(String placeId) async {
-    final uri = Uri.parse(_detailsUrl).replace(
-      queryParameters: {
-        'place_id': placeId,
-        'fields': 'geometry',
-        'key': _apiKey,
-      },
-    );
+    if (_proxyBaseUrl.isEmpty) return null;
+    final uri = Uri.parse(
+      '$_proxyBaseUrl/placesProxy',
+    ).replace(queryParameters: {'action': 'details', 'place_id': placeId});
 
     final response = await _client.get(uri);
     if (response.statusCode != 200) return null;
