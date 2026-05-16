@@ -66,6 +66,37 @@ void main() {
       expect(map.rotateGesturesEnabled, isFalse);
       expect(map.tiltGesturesEnabled, isFalse);
     });
+
+    testWidgets('forwards polylines to GoogleMap', (tester) async {
+      const polyline = Polyline(
+        polylineId: PolylineId('seg0'),
+        points: [LatLng(35.0, 139.0), LatLng(35.1, 139.1)],
+      );
+      await tester.pumpWidget(
+        _host(ArukuMap(useRealMap: true, polylines: {polyline})),
+      );
+      final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
+      expect(map.polylines, contains(polyline));
+    });
+
+    testWidgets('forwards markers to GoogleMap', (tester) async {
+      const marker = Marker(
+        markerId: MarkerId('start'),
+        position: LatLng(35.6679, 139.7038),
+      );
+      await tester.pumpWidget(
+        _host(ArukuMap(useRealMap: true, markers: {marker})),
+      );
+      final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
+      expect(map.markers, contains(marker));
+    });
+
+    testWidgets('defaults to empty polylines and markers', (tester) async {
+      await tester.pumpWidget(_host(const ArukuMap(useRealMap: true)));
+      final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
+      expect(map.polylines, isEmpty);
+      expect(map.markers, isEmpty);
+    });
   });
 
   group('Wakaba map style JSON', () {
