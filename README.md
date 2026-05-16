@@ -31,7 +31,19 @@ cp ios/Flutter/Secrets.xcconfig.example ios/Flutter/Secrets.xcconfig
 - `secrets.properties` … Android（Gradle がビルド時に AndroidManifest へ注入）
 - `ios/Flutter/Secrets.xcconfig` … iOS（xcconfig → Info.plist `GMSApiKey` 経由で読込）
 
-> CI など、ファイルを置かない環境では環境変数 `MAPS_API_KEY` でも代用できます。
+> **CI など、テンプレートをコピーしない環境での代替手段（プラットフォーム差に注意）:**
+>
+> - **Android**: 環境変数 `MAPS_API_KEY` をそのまま利用できます。`secrets.properties`
+>   が無い場合、Gradle が `System.getenv("MAPS_API_KEY")` を読み込みます。
+> - **iOS**: xcconfig はシェル環境変数を直接読み込めません。また
+>   `AppDelegate` のランタイム環境変数フォールバックは `--dart-define` では
+>   設定されません（`--dart-define` は Dart コンパイル定数で `ProcessInfo`
+>   には届きません）。CI では **ビルド前に環境変数から `Secrets.xcconfig` を
+>   生成** してください:
+>
+>   ```sh
+>   echo "MAPS_API_KEY = $MAPS_API_KEY" > ios/Flutter/Secrets.xcconfig
+>   ```
 
 ### 3. ビルド・実行
 
