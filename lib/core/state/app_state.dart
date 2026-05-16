@@ -8,6 +8,7 @@ import '../models/location_state.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
 import '../services/location_service.dart';
+import '../services/route_service.dart';
 
 enum Screen { onboarding, home, search, loading, result, nav }
 
@@ -161,8 +162,20 @@ class AppNotifier extends Notifier<AppState> {
 
   Future<void> startSearch() async {
     state = state.copyWith(screen: Screen.loading);
-    await Future<void>.delayed(const Duration(milliseconds: 1800));
-    state = state.copyWith(screen: Screen.result, route: RoutePlan.mock);
+    final origin = switch (state.locationState) {
+      LocationAvailable(:final position) => position,
+      _ => null,
+    };
+    final plan = await ref
+        .read(routeServiceProvider)
+        .plan(
+          destination: state.destination,
+          destinationLatLng: state.destinationLatLng,
+          departure: state.departure,
+          arrival: state.arrival,
+          origin: origin,
+        );
+    state = state.copyWith(screen: Screen.result, route: plan);
   }
 
   static int _roundTo5(int m) {

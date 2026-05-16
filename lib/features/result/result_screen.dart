@@ -16,7 +16,8 @@ class ResultScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
     final notifier = ref.read(appStateProvider.notifier);
-    final route = ref.watch(appStateProvider).route ?? RoutePlan.mock;
+    final route = ref.watch(appStateProvider).route;
+    if (route == null) return Material(color: c.ivory);
 
     return Material(
       color: c.ivory,
