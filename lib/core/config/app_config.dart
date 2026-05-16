@@ -8,4 +8,8 @@ class AppConfig {
     'USE_REAL_MAP',
     defaultValue: false,
   );
+
+  /// Places Autocomplete / Geocoding 用 API キー。
+  /// `flutter run --dart-define=PLACES_API_KEY=<key>` で指定する。
+  static const String placesApiKey = String.fromEnvironment('PLACES_API_KEY');
 }
