@@ -154,6 +154,12 @@ void main() {
     test('空文字は空リストを返す', () {
       expect(decodePolyline(''), isEmpty);
     });
+
+    test('不正・途中切れ文字列でも例外を投げない', () {
+      expect(() => decodePolyline('???'), returnsNormally);
+      expect(() => decodePolyline('_p~iF'), returnsNormally);
+      expect(decodePolyline('_p~iF'), isA<List<GeoPoint>>());
+    });
   });
 
   group('GoogleRouteService.plan', () {
@@ -351,6 +357,146 @@ void main() {
         ),
         throwsA(isA<RouteException>()),
       );
+    });
+
+    test('transit が OK でも routes 空なら RouteException をスローする', () {
+      final responses = <Map<String, dynamic>>[
+        _directions([
+          _route([_walkStep(6000, 4800)]),
+        ]),
+        {'status': 'OK', 'routes': <dynamic>[]},
+      ];
+      var i = 0;
+      final client = MockClient(
+        (_) async => _jsonResponse(responses[i++], 200),
+      );
+      expect(
+        () => build(client).plan(
+          destination: '渋谷',
+          destinationLatLng: const GeoPoint(35.65, 139.7),
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 0),
+          origin: const GeoPoint(35.7, 139.7),
+        ),
+        throwsA(isA<RouteException>()),
+      );
+    });
+
+    test('予算内が無く徒歩が transit より短ければ徒歩ルートを返す', () async {
+      final responses = <Map<String, dynamic>>[
+        // walking 65 分（予算 60 を僅かに超過）
+        _directions([
+          _route([_walkStep(5000, 3900)]),
+        ]),
+        // transit 代替は全て徒歩より長い（99分・94分）
+        _directions([
+          _route([
+            _walkStep(1000, 600),
+            _transitStep(4000, 4800, line: 'L', dep: 'a', arr: 'b', stops: 2),
+            _walkStep(800, 540),
+          ]),
+          _route([
+            _walkStep(500, 300),
+            _transitStep(5000, 5100, line: 'L', dep: 'c', arr: 'b', stops: 3),
+            _walkStep(300, 240),
+          ]),
+        ]),
+      ];
+      var i = 0;
+      final client = MockClient(
+        (_) async => _jsonResponse(responses[i++], 200),
+      );
+
+      final plan = await build(client).plan(
+        destination: '渋谷',
+        destinationLatLng: const GeoPoint(35.65, 139.7),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0),
+        origin: const GeoPoint(35.7, 139.7),
+      );
+
+      expect(plan.segments, hasLength(1));
+      expect(plan.segments.single.type, SegmentType.walk);
+      expect(plan.totalMin, 65);
+      expect(plan.walkRatio, 1.0);
+    });
+
+    test('現在時刻より前の出発時刻なら departure_time を翌日へ補正する', () async {
+      final responses = <Map<String, dynamic>>[
+        _directions([
+          _route([_walkStep(6000, 4800)]),
+        ]),
+        _directions([
+          _route([
+            _walkStep(1000, 600),
+            _transitStep(4000, 1200, line: 'L', dep: 'a', arr: 'b', stops: 2),
+            _walkStep(800, 540),
+          ]),
+        ]),
+      ];
+      var i = 0;
+      final urls = <Uri>[];
+      final client = MockClient((req) async {
+        urls.add(req.url);
+        return _jsonResponse(responses[i++], 200);
+      });
+      final now = DateTime(2026, 5, 17, 15, 0);
+      final service = GoogleRouteService(
+        client: client,
+        proxyBaseUrl: _proxyBaseUrl,
+        clock: () => now,
+      );
+
+      await service.plan(
+        destination: '渋谷',
+        destinationLatLng: const GeoPoint(35.65, 139.7),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0),
+        origin: const GeoPoint(35.7, 139.7),
+      );
+
+      final epoch = int.parse(urls[1].queryParameters['departure_time']!);
+      final sent = DateTime.fromMillisecondsSinceEpoch(epoch * 1000);
+      expect(sent, DateTime(2026, 5, 18, 9, 0));
+    });
+
+    test('現在時刻より後の出発時刻なら当日のまま', () async {
+      final responses = <Map<String, dynamic>>[
+        _directions([
+          _route([_walkStep(6000, 4800)]),
+        ]),
+        _directions([
+          _route([
+            _walkStep(1000, 600),
+            _transitStep(4000, 1200, line: 'L', dep: 'a', arr: 'b', stops: 2),
+            _walkStep(800, 540),
+          ]),
+        ]),
+      ];
+      var i = 0;
+      final urls = <Uri>[];
+      final client = MockClient((req) async {
+        urls.add(req.url);
+        return _jsonResponse(responses[i++], 200);
+      });
+      final now = DateTime(2026, 5, 17, 7, 0);
+      final service = GoogleRouteService(
+        client: client,
+        proxyBaseUrl: _proxyBaseUrl,
+        clock: () => now,
+      );
+
+      await service.plan(
+        destination: '渋谷',
+        destinationLatLng: const GeoPoint(35.65, 139.7),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0),
+        origin: const GeoPoint(35.7, 139.7),
+      );
+
+      final epoch = int.parse(urls[1].queryParameters['departure_time']!);
+      final sent = DateTime.fromMillisecondsSinceEpoch(epoch * 1000);
+      expect(sent, DateTime(2026, 5, 17, 9, 0));
     });
   });
 }

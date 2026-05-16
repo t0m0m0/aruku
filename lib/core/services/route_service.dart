@@ -115,12 +115,12 @@ List<GeoPoint> decodePolyline(String encoded) {
   int next() {
     var shift = 0;
     var result = 0;
-    int b;
-    do {
-      b = encoded.codeUnitAt(index++) - 63;
+    while (index < encoded.length) {
+      final b = encoded.codeUnitAt(index++) - 63;
       result |= (b & 0x1f) << shift;
       shift += 5;
-    } while (b >= 0x20);
+      if (b < 0x20) break;
+    }
     return (result & 1) != 0 ? ~(result >> 1) : (result >> 1);
   }
 
@@ -134,15 +134,20 @@ List<GeoPoint> decodePolyline(String encoded) {
 
 /// Directions API（プロキシ経由）で予算内かつ徒歩比率最大のルートを生成する。
 class GoogleRouteService implements RouteService {
-  GoogleRouteService({http.Client? client, String? proxyBaseUrl})
-    : _client = client ?? http.Client(),
-      _proxyBaseUrl = (proxyBaseUrl ?? AppConfig.proxyBaseUrl).replaceAll(
-        RegExp(r'/+$'),
-        '',
-      );
+  GoogleRouteService({
+    http.Client? client,
+    String? proxyBaseUrl,
+    DateTime Function()? clock,
+  }) : _client = client ?? http.Client(),
+       _clock = clock ?? DateTime.now,
+       _proxyBaseUrl = (proxyBaseUrl ?? AppConfig.proxyBaseUrl).replaceAll(
+         RegExp(r'/+$'),
+         '',
+       );
 
   final http.Client _client;
   final String _proxyBaseUrl;
+  final DateTime Function() _clock;
 
   static const _kcalPerKm = 57;
 
@@ -190,14 +195,18 @@ class GoogleRouteService implements RouteService {
     final candidates = (transit['routes'] as List<dynamic>)
         .map((r) => _toCandidate(r as Map<String, dynamic>))
         .toList();
+    if (candidates.isEmpty) throw const RouteException('ZERO_RESULTS');
 
     final withinBudget = candidates
         .where((c) => c.totalMin <= budgetMin)
         .toList();
     final chosen = withinBudget.isNotEmpty
         ? withinBudget.reduce((a, b) => a.walkRatio >= b.walkRatio ? a : b)
-        // 段階3: 予算内が無ければ最短ルート（ベストエフォート）。
-        : candidates.reduce((a, b) => a.totalMin <= b.totalMin ? a : b);
+        // 段階3: 予算内が無ければ徒歩を含む全候補から最短（ベストエフォート）。
+        : [
+            walking,
+            ...candidates,
+          ].reduce((a, b) => a.totalMin <= b.totalMin ? a : b);
 
     return _toPlan(chosen, departure, budgetMin);
   }
@@ -332,15 +341,11 @@ class GoogleRouteService implements RouteService {
   }
 
   int _departureEpoch(TimeValue t) {
-    final now = DateTime.now();
-    return DateTime(
-          now.year,
-          now.month,
-          now.day,
-          t.h,
-          t.m,
-        ).millisecondsSinceEpoch ~/
-        1000;
+    final now = _clock();
+    var dt = DateTime(now.year, now.month, now.day, t.h, t.m);
+    // 過去時刻だと transit が劣化/エラーになるため翌日扱いにする。
+    if (dt.isBefore(now)) dt = dt.add(const Duration(days: 1));
+    return dt.millisecondsSinceEpoch ~/ 1000;
   }
 
   String _fmt(TimeValue dep, int addMinutes) {
