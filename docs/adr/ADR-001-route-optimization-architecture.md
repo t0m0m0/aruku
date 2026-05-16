@@ -62,7 +62,7 @@ API コール数は1ルート探索あたり最大2〜5回程度。
 
 1. **Google 推奨:** Directions API・Places API のバックエンドプロキシ経由は Google 公式のベストプラクティス
 2. **実現可能な最大限のキー秘匿:** 地図表示用キーはアプリに必須だが、API 制限で「Maps SDK のみ」に限定できる。Directions/Places キーはアプリから完全排除
-3. **インフラは最小化可能:** Firebase Functions（従量課金）を使えば、#19 のクラウド同期インフラと共用でき、固定費ゼロ
+3. **インフラは最小化可能:** **Firebase Functions**（従量課金）を使えば、#19 のクラウド同期インフラと共用でき、固定費ゼロ
 4. **`RouteService` 抽象と整合:** #7 の設計意図通り、実装を差し替えるだけで対応可能
 
 ### Google Cloud Console でのキー設定
@@ -84,8 +84,17 @@ API コール数は1ルート探索あたり最大2〜5回程度。
 | #10 エラーハンドリング | プロキシエラー・タイムアウト・圏外を端末側で捕捉 |
 | #19 クラウド同期 | Firebase Functions をプロキシと共用することでインフラを統一可能 |
 
+## 採用技術
+
+**バックエンドプロキシ: Firebase Functions（TypeScript）**
+
+- #19（クラウド同期）で導入予定の Firebase プロジェクトと共用
+- 従量課金で固定費ゼロ（無料枠: 200万呼び出し/月）
+- Flutter との親和性が高い
+
 ## 新規追加が必要な作業
 
-- バックエンドプロキシの実装（Firebase Functions 推奨）
-- Google Cloud Console でのキー分離設定
+- Firebase プロジェクト初期化・Functions のセットアップ
+- Directions API / Places API プロキシ関数の実装
+- Google Cloud Console でのキー分離設定（地図用・プロキシ用を別キーに）
 - `places_service.dart` の呼び出し先をプロキシに変更（現状はクライアントから直接 Places API を叩いている）
