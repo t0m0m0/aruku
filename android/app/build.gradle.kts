@@ -1,9 +1,24 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// Google Maps API key: secrets.properties (リポジトリルート) → 環境変数 → 空文字。
+// 空文字でもビルドは通り、地図が表示されないだけ（Dart 側既定はプレースホルダ）。
+val secretsFile = rootProject.file("../secrets.properties")
+val mapsApiKey: String = (
+    if (secretsFile.exists()) {
+        Properties().apply { FileInputStream(secretsFile).use { load(it) } }
+            .getProperty("MAPS_API_KEY")
+    } else {
+        null
+    }
+) ?: System.getenv("MAPS_API_KEY") ?: ""
 
 android {
     namespace = "com.aruku.aruku"
@@ -28,6 +43,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
     }
 
     buildTypes {

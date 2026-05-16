@@ -3,11 +3,11 @@
         android:label="aruku"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
-        <!-- TODO: Replace with a real Google Maps SDK Android API key.
-             See: https://developers.google.com/maps/documentation/android-sdk/get-api-key -->
+        <!-- Injected at build time from secrets.properties (MAPS_API_KEY).
+             See README.md "Google Maps セットアップ". 平文キーはコミットしない。 -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="YOUR_ANDROID_GOOGLE_MAPS_API_KEY"/>
+            android:value="${MAPS_API_KEY}"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"
