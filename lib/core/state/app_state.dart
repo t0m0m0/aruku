@@ -10,7 +10,7 @@ import '../models/time_value.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
 
-enum Screen { onboarding, home, search, loading, result, nav }
+enum Screen { onboarding, home, search, loading, result, nav, error }
 
 @immutable
 class PickerState {
@@ -35,6 +35,7 @@ class AppState {
     required this.picker,
     required this.route,
     required this.locationState,
+    this.routeError,
   });
 
   final Screen screen;
@@ -45,6 +46,7 @@ class AppState {
   final PickerState? picker;
   final RoutePlan? route;
   final LocationState locationState;
+  final String? routeError;
 
   int get budgetMinutes => arrival.totalMinutes - departure.totalMinutes;
 
@@ -63,6 +65,7 @@ class AppState {
     Object? picker = _sentinel,
     Object? route = _sentinel,
     LocationState? locationState,
+    Object? routeError = _sentinel,
   }) {
     return AppState(
       screen: screen ?? this.screen,
@@ -79,6 +82,9 @@ class AppState {
           : picker as PickerState?,
       route: identical(route, _sentinel) ? this.route : route as RoutePlan?,
       locationState: locationState ?? this.locationState,
+      routeError: identical(routeError, _sentinel)
+          ? this.routeError
+          : routeError as String?,
     );
   }
 
@@ -161,21 +167,32 @@ class AppNotifier extends Notifier<AppState> {
   void closePicker() => state = state.copyWith(picker: null);
 
   Future<void> startSearch() async {
-    state = state.copyWith(screen: Screen.loading);
+    state = state.copyWith(screen: Screen.loading, routeError: null);
     final origin = switch (state.locationState) {
       LocationAvailable(:final position) => position,
       _ => null,
     };
-    final plan = await ref
-        .read(routeServiceProvider)
-        .plan(
-          destination: state.destination,
-          destinationLatLng: state.destinationLatLng,
-          departure: state.departure,
-          arrival: state.arrival,
-          origin: origin,
-        );
-    state = state.copyWith(screen: Screen.result, route: plan);
+    try {
+      final plan = await ref
+          .read(routeServiceProvider)
+          .plan(
+            destination: state.destination,
+            destinationLatLng: state.destinationLatLng,
+            departure: state.departure,
+            arrival: state.arrival,
+            origin: origin,
+          );
+      state = state.copyWith(
+        screen: Screen.result,
+        route: plan,
+        routeError: null,
+      );
+    } catch (e) {
+      state = state.copyWith(
+        screen: Screen.error,
+        routeError: 'ルートを取得できませんでした',
+      );
+    }
   }
 
   static int _roundTo5(int m) {
