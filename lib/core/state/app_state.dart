@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/location_state.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
+import '../services/location_service.dart';
 
 enum Screen { onboarding, home, search, loading, result, nav }
 
@@ -27,6 +31,7 @@ class AppState {
     required this.arrival,
     required this.picker,
     required this.route,
+    required this.locationState,
   });
 
   final Screen screen;
@@ -35,8 +40,15 @@ class AppState {
   final TimeValue arrival;
   final PickerState? picker;
   final RoutePlan? route;
+  final LocationState locationState;
 
   int get budgetMinutes => arrival.totalMinutes - departure.totalMinutes;
+
+  String get departureLabelText => switch (locationState) {
+    LocationLoading() => '現在地 · 取得中...',
+    LocationAvailable() => '現在地',
+    LocationDenied() => '位置情報なし',
+  };
 
   AppState copyWith({
     Screen? screen,
@@ -45,6 +57,7 @@ class AppState {
     TimeValue? arrival,
     Object? picker = _sentinel,
     Object? route = _sentinel,
+    LocationState? locationState,
   }) {
     return AppState(
       screen: screen ?? this.screen,
@@ -57,6 +70,7 @@ class AppState {
           ? this.picker
           : picker as PickerState?,
       route: identical(route, _sentinel) ? this.route : route as RoutePlan?,
+      locationState: locationState ?? this.locationState,
     );
   }
 
@@ -69,12 +83,26 @@ class AppState {
     arrival: TimeValue(h: 10, m: 50),
     picker: null,
     route: null,
+    locationState: LocationLoading(),
   );
 }
 
 class AppNotifier extends Notifier<AppState> {
   @override
-  AppState build() => AppState.initial;
+  AppState build() {
+    unawaited(_fetchLocation());
+    return AppState.initial;
+  }
+
+  Future<void> _fetchLocation() async {
+    try {
+      final service = ref.read(locationServiceProvider);
+      final result = await service.request();
+      state = state.copyWith(locationState: result);
+    } catch (_) {
+      state = state.copyWith(locationState: const LocationDenied());
+    }
+  }
 
   void go(Screen s) => state = state.copyWith(screen: s);
 

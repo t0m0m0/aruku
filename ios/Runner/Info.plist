@@ -47,5 +47,7 @@
 	<true/>
 	<key>GMSApiKey</key>
 	<string>$(MAPS_API_KEY)</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>出発地として現在地を使用します。</string>
 </dict>
 </plist>
