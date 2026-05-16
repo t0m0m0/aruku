@@ -19,8 +19,7 @@ class TimePickerSheet extends ConsumerWidget {
 
     final notifier = ref.read(appStateProvider.notifier);
     final dep = state.departure;
-    final curBudget =
-        (picker.h * 60 + picker.m) - (dep.h * 60 + dep.m);
+    final curBudget = (picker.h * 60 + picker.m) - (dep.h * 60 + dep.m);
 
     return Material(
       color: c.paper,
@@ -51,11 +50,14 @@ class TimePickerSheet extends ConsumerWidget {
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text('時刻を選ぶ',
-                          style: jpStyle(
-                              size: 17,
-                              weight: FontWeight.w800,
-                              color: c.ink)),
+                      child: Text(
+                        '時刻を選ぶ',
+                        style: jpStyle(
+                          size: 17,
+                          weight: FontWeight.w800,
+                          color: c.ink,
+                        ),
+                      ),
                     ),
                     InkWell(
                       onTap: notifier.closePicker,
@@ -86,7 +88,8 @@ class TimePickerSheet extends ConsumerWidget {
                         label: '出発時刻',
                         icon: Ic.walk(size: 14, color: c.ink2),
                         activeIcon: Ic.walk(size: 14, color: c.moss700),
-                        onTap: () => notifier.switchPickerMode(PickerMode.depart),
+                        onTap: () =>
+                            notifier.switchPickerMode(PickerMode.depart),
                       ),
                       _ModeButton(
                         active: picker.mode == PickerMode.arrival,
@@ -139,15 +142,17 @@ class TimePickerSheet extends ConsumerWidget {
                               onChange: (v) => notifier.updatePicker(h: v),
                             ),
                           ),
-                          Text(':',
-                              style: numStyle(
-                                  size: 26,
-                                  weight: FontWeight.w500,
-                                  color: c.ink)),
+                          Text(
+                            ':',
+                            style: numStyle(
+                              size: 26,
+                              weight: FontWeight.w500,
+                              color: c.ink,
+                            ),
+                          ),
                           Expanded(
                             child: _Wheel(
-                              values:
-                                  List.generate(12, (i) => i * 5),
+                              values: List.generate(12, (i) => i * 5),
                               current: picker.m,
                               suffix: '分',
                               onChange: (v) => notifier.updatePicker(m: v),
@@ -203,14 +208,18 @@ class TimePickerSheet extends ConsumerWidget {
                     textAlign: TextAlign.center,
                     text: TextSpan(
                       style: jpStyle(
-                          size: 12, weight: FontWeight.w500, color: c.ink3),
+                        size: 12,
+                        weight: FontWeight.w500,
+                        color: c.ink3,
+                      ),
                       children: [
                         const TextSpan(text: '制限時間: '),
                         TextSpan(
                           text: TimeValue.formatBudgetJp(curBudget),
                           style: TextStyle(
-                              color: c.moss700,
-                              fontWeight: FontWeight.w800),
+                            color: c.moss700,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                         const TextSpan(text: ' · 出発 '),
                         TextSpan(
@@ -222,9 +231,14 @@ class TimePickerSheet extends ConsumerWidget {
                   ),
                 )
               else
-                Text('出発をこの時刻に設定',
-                    style: jpStyle(
-                        size: 12, weight: FontWeight.w500, color: c.ink3)),
+                Text(
+                  '出発をこの時刻に設定',
+                  style: jpStyle(
+                    size: 12,
+                    weight: FontWeight.w500,
+                    color: c.ink3,
+                  ),
+                ),
 
               // Confirm
               Padding(
@@ -241,19 +255,21 @@ class TimePickerSheet extends ConsumerWidget {
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: const [
                           BoxShadow(
-                              color: Color(0x5235501A),
-                              blurRadius: 20,
-                              offset: Offset(0, 8)),
+                            color: Color(0x5235501A),
+                            blurRadius: 20,
+                            offset: Offset(0, 8),
+                          ),
                         ],
                       ),
                       child: Center(
                         child: Text(
                           'この時刻に決定',
                           style: jpStyle(
-                              size: 16,
-                              weight: FontWeight.w800,
-                              color: c.ivory,
-                              letterSpacing: 0.06 * 16),
+                            size: 16,
+                            weight: FontWeight.w800,
+                            color: c.ivory,
+                            letterSpacing: 0.06 * 16,
+                          ),
                         ),
                       ),
                     ),
@@ -302,11 +318,14 @@ class _ModeButton extends StatelessWidget {
               children: [
                 active ? activeIcon : icon,
                 const SizedBox(width: 6),
-                Text(label,
-                    style: jpStyle(
-                        size: 13,
-                        weight: FontWeight.w800,
-                        color: active ? c.moss700 : c.ink2)),
+                Text(
+                  label,
+                  style: jpStyle(
+                    size: 13,
+                    weight: FontWeight.w800,
+                    color: active ? c.moss700 : c.ink2,
+                  ),
+                ),
               ],
             ),
           ),
@@ -339,14 +358,14 @@ class _QuickChips extends ConsumerWidget {
         final label = d == 30
             ? '+30分'
             : d == 60
-                ? '+1h'
-                : d == 90
-                    ? '+1.5h'
-                    : d == 120
-                        ? '+2h'
-                        : d == 180
-                            ? '+3h'
-                            : '+半日';
+            ? '+1h'
+            : d == 90
+            ? '+1.5h'
+            : d == 120
+            ? '+2h'
+            : d == 180
+            ? '+3h'
+            : '+半日';
         chips.add(_ChipData(label, total ~/ 60, total % 60));
       }
     }
@@ -365,15 +384,17 @@ class _QuickChips extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
               color: active ? c.moss100 : c.ivory,
-              border: Border.all(
-                  color: active ? c.moss300 : c.hairline),
+              border: Border.all(color: active ? c.moss300 : c.hairline),
               borderRadius: BorderRadius.circular(999),
             ),
-            child: Text(d.label,
-                style: jpStyle(
-                    size: 12,
-                    weight: FontWeight.w700,
-                    color: active ? c.moss700 : c.ink2)),
+            child: Text(
+              d.label,
+              style: jpStyle(
+                size: 12,
+                weight: FontWeight.w700,
+                color: active ? c.moss700 : c.ink2,
+              ),
+            ),
           ),
         );
       }).toList(),
@@ -405,7 +426,8 @@ class _Wheel extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     final controller = FixedExtentScrollController(
-        initialItem: values.indexOf(current));
+      initialItem: values.indexOf(current),
+    );
     return CupertinoPicker(
       scrollController: controller,
       itemExtent: 40,
@@ -422,19 +444,24 @@ class _Wheel extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
             children: [
-              Text(v.toString().padLeft(2, '0'),
-                  style: numStyle(
-                      size: isCenter ? 26 : 20,
-                      weight:
-                          isCenter ? FontWeight.w500 : FontWeight.w400,
-                      color: isCenter ? c.ink : c.ink2)),
+              Text(
+                v.toString().padLeft(2, '0'),
+                style: numStyle(
+                  size: isCenter ? 26 : 20,
+                  weight: isCenter ? FontWeight.w500 : FontWeight.w400,
+                  color: isCenter ? c.ink : c.ink2,
+                ),
+              ),
               if (isCenter) ...[
                 const SizedBox(width: 4),
-                Text(suffix,
-                    style: jpStyle(
-                        size: 12,
-                        weight: FontWeight.w700,
-                        color: c.ink2)),
+                Text(
+                  suffix,
+                  style: jpStyle(
+                    size: 12,
+                    weight: FontWeight.w700,
+                    color: c.ink2,
+                  ),
+                ),
               ],
             ],
           ),

@@ -20,9 +20,13 @@ class _LoadingScreenState extends State<LoadingScreen>
   void initState() {
     super.initState();
     _pulse = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 2400));
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    );
     _bob = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1400));
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _pulse.repeat();
@@ -90,11 +94,9 @@ class _LoadingScreenState extends State<LoadingScreen>
                             AnimatedBuilder(
                               animation: _pulse,
                               builder: (_, _) {
-                                final phase =
-                                    ((_pulse.value + i * 0.16) % 1.0);
+                                final phase = ((_pulse.value + i * 0.16) % 1.0);
                                 final scale = 0.6 + phase * 0.6;
-                                final opacity =
-                                    (1 - phase) * (0.45 / i);
+                                final opacity = (1 - phase) * (0.45 / i);
                                 return Transform.scale(
                                   scale: scale,
                                   child: Opacity(
@@ -105,7 +107,9 @@ class _LoadingScreenState extends State<LoadingScreen>
                                       decoration: BoxDecoration(
                                         shape: BoxShape.circle,
                                         border: Border.all(
-                                            color: c.moss300, width: 2),
+                                          color: c.moss300,
+                                          width: 2,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -127,13 +131,15 @@ class _LoadingScreenState extends State<LoadingScreen>
                                 borderRadius: BorderRadius.circular(32),
                                 boxShadow: const [
                                   BoxShadow(
-                                      color: Color(0x7335501A),
-                                      blurRadius: 40,
-                                      offset: Offset(0, 16)),
+                                    color: Color(0x7335501A),
+                                    blurRadius: 40,
+                                    offset: Offset(0, 16),
+                                  ),
                                 ],
                               ),
                               child: Center(
-                                  child: Ic.walk(size: 48, color: c.ivory)),
+                                child: Ic.walk(size: 48, color: c.ivory),
+                              ),
                             ),
                           );
                         },
@@ -142,13 +148,23 @@ class _LoadingScreenState extends State<LoadingScreen>
                   ),
                 ),
                 const SizedBox(height: 28),
-                Text('歩ける道を、探しています',
-                    style: jpStyle(
-                        size: 22, weight: FontWeight.w800, color: c.ink)),
+                Text(
+                  '歩ける道を、探しています',
+                  style: jpStyle(
+                    size: 22,
+                    weight: FontWeight.w800,
+                    color: c.ink,
+                  ),
+                ),
                 const SizedBox(height: 6),
-                Text('渋谷ヒカリエまで · 制限 1.5時間',
-                    style: jpStyle(
-                        size: 13, weight: FontWeight.w500, color: c.ink3)),
+                Text(
+                  '渋谷ヒカリエまで · 制限 1.5時間',
+                  style: jpStyle(
+                    size: 13,
+                    weight: FontWeight.w500,
+                    color: c.ink3,
+                  ),
+                ),
                 const SizedBox(height: 32),
                 _ProgressSteps(),
               ],
@@ -178,11 +194,14 @@ class _ProgressSteps extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 6),
-          Text(labels[i],
-              style: jpStyle(
-                  size: 11,
-                  weight: FontWeight.w700,
-                  color: i < 2 ? c.moss600 : c.ink3)),
+          Text(
+            labels[i],
+            style: jpStyle(
+              size: 11,
+              weight: FontWeight.w700,
+              color: i < 2 ? c.moss600 : c.ink3,
+            ),
+          ),
           if (i < labels.length - 1) ...[
             const SizedBox(width: 8),
             Container(width: 8, height: 1, color: c.ink4),

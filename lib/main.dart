@@ -14,10 +14,12 @@ import 'features/search/search_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.dark,
-  ));
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+    ),
+  );
   runApp(const ProviderScope(child: ArukuApp()));
 }
 
@@ -78,10 +80,9 @@ class _Root extends ConsumerWidget {
                 fit: StackFit.expand,
                 alignment: Alignment.center,
                 children: <Widget>[
-                  ...previousChildren.map(
-                    (w) => Positioned.fill(child: w),
-                  ),
-                  if (currentChild != null) Positioned.fill(child: currentChild),
+                  ...previousChildren.map((w) => Positioned.fill(child: w)),
+                  if (currentChild != null)
+                    Positioned.fill(child: currentChild),
                 ],
               );
             },
@@ -90,16 +91,14 @@ class _Root extends ConsumerWidget {
                 opacity: anim,
                 child: SlideTransition(
                   position: Tween<Offset>(
-                          begin: const Offset(0, 0.02), end: Offset.zero)
-                      .animate(anim),
+                    begin: const Offset(0, 0.02),
+                    end: Offset.zero,
+                  ).animate(anim),
                   child: child,
                 ),
               );
             },
-            child: KeyedSubtree(
-              key: ValueKey(screen),
-              child: body,
-            ),
+            child: KeyedSubtree(key: ValueKey(screen), child: body),
           ),
           if (pickerOpen) ...[
             Positioned.fill(
@@ -136,8 +135,9 @@ class _PickerSlideInState extends State<_PickerSlideIn>
   void initState() {
     super.initState();
     _ctl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 280))
-      ..forward();
+      vsync: this,
+      duration: const Duration(milliseconds: 280),
+    )..forward();
   }
 
   @override
@@ -149,10 +149,14 @@ class _PickerSlideInState extends State<_PickerSlideIn>
   @override
   Widget build(BuildContext context) {
     final anim = CurvedAnimation(
-        parent: _ctl, curve: const Cubic(0.2, 0.8, 0.2, 1.0));
+      parent: _ctl,
+      curve: const Cubic(0.2, 0.8, 0.2, 1.0),
+    );
     return SlideTransition(
-      position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-          .animate(anim),
+      position: Tween<Offset>(
+        begin: const Offset(0, 1),
+        end: Offset.zero,
+      ).animate(anim),
       child: const TimePickerSheet(),
     );
   }

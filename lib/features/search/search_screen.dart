@@ -60,12 +60,17 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 children: [
                   IconButton(
                     onPressed: () => notifier.go(Screen.home),
-                    icon: Ic.chevron(size: 20, color: c.ink, dir: ChevronDir.left),
+                    icon: Ic.chevron(
+                      size: 20,
+                      color: c.ink,
+                      dir: ChevronDir.left,
+                    ),
                     style: IconButton.styleFrom(
                       backgroundColor: Colors.transparent,
                       fixedSize: const Size(40, 40),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -89,13 +94,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                               onChanged: (_) => setState(() {}),
                               cursorColor: c.moss500,
                               style: jpStyle(
-                                  size: 16,
-                                  weight: FontWeight.w600,
-                                  color: c.ink),
+                                size: 16,
+                                weight: FontWeight.w600,
+                                color: c.ink,
+                              ),
                               decoration: const InputDecoration(
                                 isCollapsed: true,
                                 border: InputBorder.none,
-                                contentPadding: EdgeInsets.symmetric(vertical: 12),
+                                contentPadding: EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
                                 hintText: '目的地を検索',
                               ),
                             ),
@@ -132,12 +140,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                       children: [
                         Ic.history(size: 12, color: c.ink3),
                         const SizedBox(width: 6),
-                        Text('最近の検索',
-                            style: jpStyle(
-                                size: 10,
-                                weight: FontWeight.w800,
-                                color: c.ink3,
-                                letterSpacing: 0.12 * 10)),
+                        Text(
+                          '最近の検索',
+                          style: jpStyle(
+                            size: 10,
+                            weight: FontWeight.w800,
+                            color: c.ink3,
+                            letterSpacing: 0.12 * 10,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -209,21 +220,31 @@ class _SuggestionTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     text: TextSpan(
                       style: jpStyle(
-                          size: 16, weight: FontWeight.w700, color: c.ink),
+                        size: 16,
+                        weight: FontWeight.w700,
+                        color: c.ink,
+                      ),
                       children: [
                         TextSpan(
                           text: sug.match,
                           style: TextStyle(
-                              color: c.moss700, backgroundColor: c.moss100),
+                            color: c.moss700,
+                            backgroundColor: c.moss100,
+                          ),
                         ),
                         TextSpan(text: rest),
                       ],
                     ),
                   ),
                   const SizedBox(height: 2),
-                  Text(sug.sub,
-                      style: jpStyle(
-                          size: 12, weight: FontWeight.w500, color: c.ink3)),
+                  Text(
+                    sug.sub,
+                    style: jpStyle(
+                      size: 12,
+                      weight: FontWeight.w500,
+                      color: c.ink3,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -231,12 +252,22 @@ class _SuggestionTile extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(sug.dist,
-                    style: numStyle(
-                        size: 13, weight: FontWeight.w600, color: c.moss600)),
-                Text('歩なら',
-                    style: jpStyle(
-                        size: 10, weight: FontWeight.w600, color: c.ink3)),
+                Text(
+                  sug.dist,
+                  style: numStyle(
+                    size: 13,
+                    weight: FontWeight.w600,
+                    color: c.moss600,
+                  ),
+                ),
+                Text(
+                  '歩なら',
+                  style: jpStyle(
+                    size: 10,
+                    weight: FontWeight.w600,
+                    color: c.ink3,
+                  ),
+                ),
               ],
             ),
           ],
@@ -286,16 +317,22 @@ class _RecentTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(recent.name,
-                      style: jpStyle(
-                          size: 15,
-                          weight: FontWeight.w700,
-                          color: c.ink)),
-                  Text(recent.sub,
-                      style: jpStyle(
-                          size: 11,
-                          weight: FontWeight.w500,
-                          color: c.ink3)),
+                  Text(
+                    recent.name,
+                    style: jpStyle(
+                      size: 15,
+                      weight: FontWeight.w700,
+                      color: c.ink,
+                    ),
+                  ),
+                  Text(
+                    recent.sub,
+                    style: jpStyle(
+                      size: 11,
+                      weight: FontWeight.w500,
+                      color: c.ink3,
+                    ),
+                  ),
                 ],
               ),
             ),

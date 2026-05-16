@@ -25,7 +25,10 @@ class OnboardingScreen extends ConsumerWidget {
                 width: 460,
                 height: 460,
                 child: CustomPaint(
-                  painter: _BlobPainter(c.moss100.withValues(alpha: 0.55), large: true),
+                  painter: _BlobPainter(
+                    c.moss100.withValues(alpha: 0.55),
+                    large: true,
+                  ),
                 ),
               ),
             ),
@@ -36,7 +39,10 @@ class OnboardingScreen extends ConsumerWidget {
                 width: 320,
                 height: 320,
                 child: CustomPaint(
-                  painter: _BlobPainter(c.moss50.withValues(alpha: 0.6), large: false),
+                  painter: _BlobPainter(
+                    c.moss50.withValues(alpha: 0.6),
+                    large: false,
+                  ),
                 ),
               ),
             ),
@@ -53,12 +59,15 @@ class OnboardingScreen extends ConsumerWidget {
                       children: [
                         const ArukuLogo(size: 36),
                         const SizedBox(width: 10),
-                        Text('あるく',
-                            style: jpStyle(
-                                size: 22,
-                                weight: FontWeight.w800,
-                                color: c.moss700,
-                                letterSpacing: 0.04 * 22)),
+                        Text(
+                          'あるく',
+                          style: jpStyle(
+                            size: 22,
+                            weight: FontWeight.w800,
+                            color: c.moss700,
+                            letterSpacing: 0.04 * 22,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -71,25 +80,28 @@ class OnboardingScreen extends ConsumerWidget {
                         Text(
                           'WALK FIRST · v1.0',
                           style: jpStyle(
-                              size: 11,
-                              weight: FontWeight.w700,
-                              color: c.moss600,
-                              letterSpacing: 0.2 * 11),
+                            size: 11,
+                            weight: FontWeight.w700,
+                            color: c.moss600,
+                            letterSpacing: 0.2 * 11,
+                          ),
                         ),
                         const SizedBox(height: 18),
                         RichText(
                           text: TextSpan(
                             style: jpStyle(
-                                size: 40,
-                                weight: FontWeight.w800,
-                                color: c.ink,
-                                height: 1.18,
-                                letterSpacing: -0.01 * 40),
+                              size: 40,
+                              weight: FontWeight.w800,
+                              color: c.ink,
+                              height: 1.18,
+                              letterSpacing: -0.01 * 40,
+                            ),
                             children: [
                               const TextSpan(text: '電車はなるべく、\n'),
                               TextSpan(
-                                  text: '乗らない',
-                                  style: TextStyle(color: c.moss600)),
+                                text: '乗らない',
+                                style: TextStyle(color: c.moss600),
+                              ),
                               const TextSpan(text: '。'),
                             ],
                           ),
@@ -100,10 +112,11 @@ class OnboardingScreen extends ConsumerWidget {
                           child: Text(
                             '時間内に着く範囲で、\nいちばん歩けるルートを案内します。',
                             style: jpStyle(
-                                size: 16,
-                                weight: FontWeight.w500,
-                                color: c.ink2,
-                                height: 1.7),
+                              size: 16,
+                              weight: FontWeight.w500,
+                              color: c.ink2,
+                              height: 1.7,
+                            ),
                           ),
                         ),
                       ],
@@ -115,12 +128,7 @@ class OnboardingScreen extends ConsumerWidget {
             ),
 
             // Stats teaser
-            Positioned(
-              left: 28,
-              right: 28,
-              top: 410,
-              child: _StatsTeaser(),
-            ),
+            Positioned(left: 28, right: 28, top: 410, child: _StatsTeaser()),
 
             // Pager dots
             Positioned(
@@ -152,12 +160,17 @@ class OnboardingScreen extends ConsumerWidget {
                 children: [
                   _CTAButton(
                     label: 'はじめる',
-                    onPressed: () => ref.read(appStateProvider.notifier).go(Screen.home),
+                    onPressed: () =>
+                        ref.read(appStateProvider.notifier).go(Screen.home),
                   ),
                   const SizedBox(height: 14),
                   Text(
                     '続行で利用規約とプライバシーに同意したことになります',
-                    style: jpStyle(size: 12, weight: FontWeight.w500, color: c.ink3),
+                    style: jpStyle(
+                      size: 12,
+                      weight: FontWeight.w500,
+                      color: c.ink3,
+                    ),
                   ),
                 ],
               ),
@@ -180,9 +193,10 @@ class _StatsTeaser extends StatelessWidget {
         borderRadius: BorderRadius.circular(22),
         boxShadow: const [
           BoxShadow(
-              color: Color(0x1A22361E),
-              blurRadius: 40,
-              offset: Offset(0, 16)),
+            color: Color(0x1A22361E),
+            blurRadius: 40,
+            offset: Offset(0, 16),
+          ),
         ],
         border: Border.all(color: c.hairline),
       ),
@@ -202,31 +216,47 @@ class _StatsTeaser extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('最初の1週間で',
-                    style: jpStyle(
-                        size: 11,
-                        weight: FontWeight.w600,
-                        color: c.ink3,
-                        letterSpacing: 0.06 * 11)),
+                Text(
+                  '最初の1週間で',
+                  style: jpStyle(
+                    size: 11,
+                    weight: FontWeight.w600,
+                    color: c.ink3,
+                    letterSpacing: 0.06 * 11,
+                  ),
+                ),
                 const SizedBox(height: 2),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.baseline,
                   textBaseline: TextBaseline.alphabetic,
                   children: [
-                    Text('1,840',
-                        style: numStyle(
-                            size: 32, weight: FontWeight.w600, color: c.ink)),
+                    Text(
+                      '1,840',
+                      style: numStyle(
+                        size: 32,
+                        weight: FontWeight.w600,
+                        color: c.ink,
+                      ),
+                    ),
                     const SizedBox(width: 6),
-                    Text('kcal',
-                        style: jpStyle(
-                            size: 13, weight: FontWeight.w700, color: c.ink2)),
+                    Text(
+                      'kcal',
+                      style: jpStyle(
+                        size: 13,
+                        weight: FontWeight.w700,
+                        color: c.ink2,
+                      ),
+                    ),
                     const SizedBox(width: 8),
                     Flexible(
-                      child: Text('通勤を歩くだけで',
-                          style: jpStyle(
-                              size: 12,
-                              weight: FontWeight.w500,
-                              color: c.ink3)),
+                      child: Text(
+                        '通勤を歩くだけで',
+                        style: jpStyle(
+                          size: 12,
+                          weight: FontWeight.w500,
+                          color: c.ink3,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -260,19 +290,21 @@ class _CTAButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(18),
             boxShadow: const [
               BoxShadow(
-                  color: Color(0x52496A24),
-                  blurRadius: 24,
-                  offset: Offset(0, 8)),
+                color: Color(0x52496A24),
+                blurRadius: 24,
+                offset: Offset(0, 8),
+              ),
             ],
           ),
           child: Center(
             child: Text(
               label,
               style: jpStyle(
-                  size: 17,
-                  weight: FontWeight.w700,
-                  color: c.ivory,
-                  letterSpacing: 0.04 * 17),
+                size: 17,
+                weight: FontWeight.w700,
+                color: c.ivory,
+                letterSpacing: 0.04 * 17,
+              ),
             ),
           ),
         ),
@@ -292,16 +324,40 @@ class _BlobPainter extends CustomPainter {
     final path = Path();
     if (large) {
       path.moveTo(size.width * 0.5, size.height * 0.075);
-      path.cubicTo(size.width * 0.875, size.height * 0.15, size.width * 0.9,
-          size.height * 0.5, size.width * 0.5, size.height * 0.9);
-      path.cubicTo(size.width * 0.15, size.height * 0.85, size.width * 0.125,
-          size.height * 0.5, size.width * 0.5, size.height * 0.075);
+      path.cubicTo(
+        size.width * 0.875,
+        size.height * 0.15,
+        size.width * 0.9,
+        size.height * 0.5,
+        size.width * 0.5,
+        size.height * 0.9,
+      );
+      path.cubicTo(
+        size.width * 0.15,
+        size.height * 0.85,
+        size.width * 0.125,
+        size.height * 0.5,
+        size.width * 0.5,
+        size.height * 0.075,
+      );
     } else {
       path.moveTo(size.width * 0.25, size.height * 0.05);
-      path.cubicTo(size.width * 0.7, size.height * 0.1, size.width * 0.8,
-          size.height * 0.45, size.width * 0.35, size.height * 0.85);
-      path.cubicTo(size.width * 0.075, size.height * 0.75, size.width * 0.075,
-          size.height * 0.45, size.width * 0.25, size.height * 0.05);
+      path.cubicTo(
+        size.width * 0.7,
+        size.height * 0.1,
+        size.width * 0.8,
+        size.height * 0.45,
+        size.width * 0.35,
+        size.height * 0.85,
+      );
+      path.cubicTo(
+        size.width * 0.075,
+        size.height * 0.75,
+        size.width * 0.075,
+        size.height * 0.45,
+        size.width * 0.25,
+        size.height * 0.05,
+      );
     }
     path.close();
     canvas.drawPath(path, p);
