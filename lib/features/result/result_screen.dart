@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/route_plan.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
+import '../../shared/extensions/route_map_overlays.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_map.dart';
 
@@ -164,7 +165,12 @@ class _JourneyHeader extends StatelessWidget {
             border: Border.all(color: c.hairline),
           ),
           clipBehavior: Clip.antiAlias,
-          child: const ArukuMap(variant: ArukuMapVariant.thumb),
+          child: ArukuMap(
+            variant: ArukuMapVariant.thumb,
+            polylines: route.toPolylines(),
+            markers: route.toMarkers(),
+            routeBounds: route.toBounds(),
+          ),
         ),
         Expanded(
           child: Column(

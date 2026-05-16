@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import 'geo_point.dart';
+
 enum SegmentType { walk, train }
 
 @immutable
@@ -14,6 +16,7 @@ class RouteSegment {
     this.line,
     this.fare,
     this.stops,
+    this.polyline = const [],
   });
 
   final SegmentType type;
@@ -25,6 +28,7 @@ class RouteSegment {
   final String? line;
   final int? fare;
   final int? stops;
+  final List<GeoPoint> polyline;
 }
 
 @immutable
@@ -83,6 +87,12 @@ class RoutePlan {
         km: 2.4,
         minutes: 30,
         kcal: 138,
+        polyline: [
+          GeoPoint(35.6909, 139.7069),
+          GeoPoint(35.6850, 139.7050),
+          GeoPoint(35.6790, 139.7035),
+          GeoPoint(35.6703, 139.7027),
+        ],
       ),
       RouteSegment(
         type: SegmentType.train,
@@ -92,6 +102,11 @@ class RoutePlan {
         line: 'JR山手線',
         fare: 150,
         stops: 1,
+        polyline: [
+          GeoPoint(35.6703, 139.7027),
+          GeoPoint(35.6640, 139.7020),
+          GeoPoint(35.6580, 139.7016),
+        ],
       ),
       RouteSegment(
         type: SegmentType.walk,
@@ -100,6 +115,11 @@ class RoutePlan {
         km: 2.7,
         minutes: 35,
         kcal: 153,
+        polyline: [
+          GeoPoint(35.6580, 139.7016),
+          GeoPoint(35.6585, 139.7025),
+          GeoPoint(35.6592, 139.7031),
+        ],
       ),
     ],
     timelineNodes: [

@@ -7,12 +7,15 @@ import '../../core/theme/aruku_theme.dart';
 
 /// Map widget — uses google_maps_flutter when [useRealMap] is true,
 /// otherwise renders a stylized SVG-like placeholder matching the design.
-class ArukuMap extends StatelessWidget {
+class ArukuMap extends StatefulWidget {
   const ArukuMap({
     super.key,
     this.variant = ArukuMapVariant.full,
     this.showRoute = true,
     this.useRealMap = AppConfig.useRealMap,
+    this.polylines = const {},
+    this.markers = const {},
+    this.routeBounds,
   });
 
   final ArukuMapVariant variant;
@@ -22,37 +25,80 @@ class ArukuMap extends StatelessWidget {
   /// false のときは非インタラクティブなスタイライズド地図を描画する。
   final bool useRealMap;
 
-  /// 渋谷駅付近（デザインの基準エリア）。実ルート連動は後続 ISSUE で対応。
+  final Set<Polyline> polylines;
+  final Set<Marker> markers;
+  final LatLngBounds? routeBounds;
+
+  /// 渋谷駅付近（デザインの基準エリア）。[routeBounds] 未指定時の初期位置。
   static const LatLng _defaultTarget = LatLng(35.6679, 139.7038);
 
   @override
+  State<ArukuMap> createState() => _ArukuMapState();
+}
+
+class _ArukuMapState extends State<ArukuMap> {
+  GoogleMapController? _controller;
+
+  Future<void> _onMapCreated(GoogleMapController controller) async {
+    _controller = controller;
+    await _fitBounds();
+  }
+
+  Future<void> _fitBounds() async {
+    final bounds = widget.routeBounds;
+    if (bounds == null || _controller == null) return;
+    final padding = widget.variant == ArukuMapVariant.thumb ? 16.0 : 48.0;
+    await _controller!.animateCamera(
+      CameraUpdate.newLatLngBounds(bounds, padding),
+    );
+    if (!mounted) return;
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant ArukuMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.routeBounds != widget.routeBounds) {
+      _fitBounds();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (useRealMap) {
-      final interactive = variant != ArukuMapVariant.thumb;
+    if (widget.useRealMap) {
+      final interactive = widget.variant != ArukuMapVariant.thumb;
       return GoogleMap(
         initialCameraPosition: CameraPosition(
-          target: _defaultTarget,
-          zoom: variant.zoom,
-          tilt: variant.tilt,
+          target: ArukuMap._defaultTarget,
+          zoom: widget.variant.zoom,
+          tilt: widget.variant.tilt,
         ),
         style: arukuWakabaMapStyle,
         mapType: MapType.normal,
         myLocationButtonEnabled: false,
         zoomControlsEnabled: false,
         mapToolbarEnabled: false,
-        compassEnabled: variant == ArukuMapVariant.nav,
+        compassEnabled: widget.variant == ArukuMapVariant.nav,
         zoomGesturesEnabled: interactive,
         scrollGesturesEnabled: interactive,
         rotateGesturesEnabled: interactive,
         tiltGesturesEnabled: interactive,
+        polylines: widget.polylines,
+        markers: widget.markers,
+        onMapCreated: _onMapCreated,
       );
     }
     return CustomPaint(
       size: Size.infinite,
       painter: _StylizedMapPainter(
         context,
-        variant: variant,
-        showRoute: showRoute,
+        variant: widget.variant,
+        showRoute: widget.showRoute,
       ),
     );
   }
