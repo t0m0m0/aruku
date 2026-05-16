@@ -33,6 +33,7 @@ class _FakeRouteService implements RouteService {
     required TimeValue departure,
     required TimeValue arrival,
     GeoPoint? origin,
+    void Function(RoutePhase)? onProgress,
   }) async {
     calls++;
     return _fakePlan;
@@ -497,6 +498,88 @@ void main() {
       final epoch = int.parse(urls[1].queryParameters['departure_time']!);
       final sent = DateTime.fromMillisecondsSinceEpoch(epoch * 1000);
       expect(sent, DateTime(2026, 5, 17, 9, 0));
+    });
+  });
+
+  group('RouteService onProgress', () {
+    test('DummyRouteService は段階を順に通知する', () async {
+      final phases = <RoutePhase>[];
+      await DummyRouteService(latency: Duration.zero).plan(
+        destination: '渋谷',
+        destinationLatLng: null,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0),
+        onProgress: phases.add,
+      );
+      expect(phases, [
+        RoutePhase.routing,
+        RoutePhase.walkability,
+        RoutePhase.building,
+      ]);
+    });
+
+    test('GoogleRouteService 全徒歩経路でも段階を順に通知する', () async {
+      final phases = <RoutePhase>[];
+      final client = MockClient(
+        (_) async => _jsonResponse(
+          _directions([
+            _route([_walkStep(5000, 3600)]),
+          ]),
+          200,
+        ),
+      );
+      await GoogleRouteService(
+        client: client,
+        proxyBaseUrl: _proxyBaseUrl,
+      ).plan(
+        destination: '渋谷',
+        destinationLatLng: const GeoPoint(35.65, 139.7),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 0),
+        origin: const GeoPoint(35.7, 139.7),
+        onProgress: phases.add,
+      );
+      expect(phases, [
+        RoutePhase.routing,
+        RoutePhase.walkability,
+        RoutePhase.building,
+      ]);
+    });
+
+    test('GoogleRouteService transit 経路でも段階を順に通知する', () async {
+      final responses = <Map<String, dynamic>>[
+        _directions([
+          _route([_walkStep(6000, 4800)]),
+        ]),
+        _directions([
+          _route([
+            _walkStep(1000, 600),
+            _transitStep(4000, 1200, line: 'L', dep: 'a', arr: 'b', stops: 2),
+            _walkStep(800, 540),
+          ]),
+        ]),
+      ];
+      var i = 0;
+      final client = MockClient(
+        (_) async => _jsonResponse(responses[i++], 200),
+      );
+      final phases = <RoutePhase>[];
+      await GoogleRouteService(
+        client: client,
+        proxyBaseUrl: _proxyBaseUrl,
+      ).plan(
+        destination: '渋谷',
+        destinationLatLng: const GeoPoint(35.65, 139.7),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0),
+        origin: const GeoPoint(35.7, 139.7),
+        onProgress: phases.add,
+      );
+      expect(phases, [
+        RoutePhase.routing,
+        RoutePhase.walkability,
+        RoutePhase.building,
+      ]);
     });
   });
 }

@@ -8,6 +8,9 @@ import '../models/geo_point.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
 
+/// ルート計算の進捗段階。ローディング表示の3ステップに対応する。
+enum RoutePhase { routing, walkability, building }
+
 abstract interface class RouteService {
   Future<RoutePlan> plan({
     required String? destination,
@@ -15,6 +18,7 @@ abstract interface class RouteService {
     required TimeValue departure,
     required TimeValue arrival,
     GeoPoint? origin,
+    void Function(RoutePhase)? onProgress,
   });
 }
 
@@ -31,8 +35,12 @@ class DummyRouteService implements RouteService {
     required TimeValue departure,
     required TimeValue arrival,
     GeoPoint? origin,
+    void Function(RoutePhase)? onProgress,
   }) async {
+    onProgress?.call(RoutePhase.routing);
     await Future<void>.delayed(latency);
+    onProgress?.call(RoutePhase.walkability);
+    onProgress?.call(RoutePhase.building);
     return _sample;
   }
 
@@ -158,6 +166,7 @@ class GoogleRouteService implements RouteService {
     required TimeValue departure,
     required TimeValue arrival,
     GeoPoint? origin,
+    void Function(RoutePhase)? onProgress,
   }) async {
     if (_proxyBaseUrl.isEmpty) throw const RouteException('NO_PROXY');
     if (origin == null) throw const RouteException('NO_ORIGIN');
@@ -170,6 +179,8 @@ class GoogleRouteService implements RouteService {
     final originStr = '${origin.lat},${origin.lng}';
     final budgetMin = arrival.totalMinutes - departure.totalMinutes;
 
+    onProgress?.call(RoutePhase.routing);
+
     // 段階1: 全徒歩。予算内なら徒歩100%が最良。
     final walking = _toCandidate(
       _firstRoute(
@@ -181,6 +192,8 @@ class GoogleRouteService implements RouteService {
       ),
     );
     if (walking.totalMin <= budgetMin) {
+      onProgress?.call(RoutePhase.walkability);
+      onProgress?.call(RoutePhase.building);
       return _toPlan(walking, departure, budgetMin);
     }
 
@@ -197,6 +210,8 @@ class GoogleRouteService implements RouteService {
         .toList();
     if (candidates.isEmpty) throw const RouteException('ZERO_RESULTS');
 
+    onProgress?.call(RoutePhase.walkability);
+
     final withinBudget = candidates
         .where((c) => c.totalMin <= budgetMin)
         .toList();
@@ -208,6 +223,7 @@ class GoogleRouteService implements RouteService {
             ...candidates,
           ].reduce((a, b) => a.totalMin <= b.totalMin ? a : b);
 
+    onProgress?.call(RoutePhase.building);
     return _toPlan(chosen, departure, budgetMin);
   }
 

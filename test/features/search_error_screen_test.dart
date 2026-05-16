@@ -18,6 +18,7 @@ class _ThrowingRouteService implements RouteService {
     required TimeValue departure,
     required TimeValue arrival,
     GeoPoint? origin,
+    void Function(RoutePhase)? onProgress,
   }) async => throw const RouteException('NETWORK');
 }
 
