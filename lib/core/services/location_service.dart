@@ -11,20 +11,24 @@ abstract interface class LocationService {
 class GeolocatorLocationService implements LocationService {
   @override
   Future<LocationState> request() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return const LocationDenied();
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return const LocationDenied();
 
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return const LocationDenied();
+      }
+
+      final pos = await Geolocator.getCurrentPosition();
+      return LocationAvailable(GeoPoint(pos.latitude, pos.longitude));
+    } catch (_) {
       return const LocationDenied();
     }
-
-    final pos = await Geolocator.getCurrentPosition();
-    return LocationAvailable(GeoPoint(pos.latitude, pos.longitude));
   }
 }
 

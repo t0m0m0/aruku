@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -88,14 +90,18 @@ class AppState {
 class AppNotifier extends Notifier<AppState> {
   @override
   AppState build() {
-    _fetchLocation();
+    unawaited(_fetchLocation());
     return AppState.initial;
   }
 
   Future<void> _fetchLocation() async {
-    final service = ref.read(locationServiceProvider);
-    final result = await service.request();
-    state = state.copyWith(locationState: result);
+    try {
+      final service = ref.read(locationServiceProvider);
+      final result = await service.request();
+      state = state.copyWith(locationState: result);
+    } catch (_) {
+      state = state.copyWith(locationState: const LocationDenied());
+    }
   }
 
   void go(Screen s) => state = state.copyWith(screen: s);

@@ -13,6 +13,11 @@ class _FakeLocationService implements LocationService {
   Future<LocationState> request() async => _result;
 }
 
+class _ThrowingLocationService implements LocationService {
+  @override
+  Future<LocationState> request() => Future.error(Exception('GPS error'));
+}
+
 ProviderContainer _makeContainer(LocationService service) {
   return ProviderContainer(
     overrides: [locationServiceProvider.overrideWithValue(service)],
@@ -47,6 +52,17 @@ void main() {
       addTearDown(container.dispose);
 
       container.read(appStateProvider); // プロバイダーを初期化して _fetchLocation を開始
+      await Future<void>.delayed(Duration.zero);
+
+      final updated = container.read(appStateProvider);
+      expect(updated.locationState, isA<LocationDenied>());
+    });
+
+    test('service が例外を投げたとき locationState が LocationDenied になる', () async {
+      final container = _makeContainer(_ThrowingLocationService());
+      addTearDown(container.dispose);
+
+      container.read(appStateProvider);
       await Future<void>.delayed(Duration.zero);
 
       final updated = container.read(appStateProvider);
