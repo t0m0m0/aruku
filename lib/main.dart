@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/state/app_state.dart';
 import 'core/theme/aruku_theme.dart';
+import 'features/error/error_screen.dart';
 import 'features/home/home_screen.dart';
 import 'features/loading/loading_screen.dart';
 import 'features/navigation/nav_screen.dart';
@@ -53,6 +54,7 @@ class _Root extends ConsumerWidget {
       Screen.loading => const LoadingScreen(),
       Screen.result => const ResultScreen(),
       Screen.nav => const NavScreen(),
+      Screen.error => const ErrorScreen(),
     };
 
     return PopScope(
@@ -65,7 +67,8 @@ class _Root extends ConsumerWidget {
         }
         if (screen == Screen.search ||
             screen == Screen.result ||
-            screen == Screen.nav) {
+            screen == Screen.nav ||
+            screen == Screen.error) {
           ref.read(appStateProvider.notifier).go(Screen.home);
         }
       },

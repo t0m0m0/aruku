@@ -17,7 +17,51 @@ class ResultScreen extends ConsumerWidget {
     final c = context.c;
     final notifier = ref.read(appStateProvider.notifier);
     final route = ref.watch(appStateProvider).route;
-    if (route == null) return Material(color: c.ivory);
+    if (route == null) {
+      return Material(
+        color: c.ivory,
+        child: SafeArea(
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'ルートがありません',
+                  style: jpStyle(
+                    size: 18,
+                    weight: FontWeight.w800,
+                    color: c.ink,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Material(
+                  color: c.moss600,
+                  borderRadius: BorderRadius.circular(16),
+                  child: InkWell(
+                    onTap: () => notifier.go(Screen.search),
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 28,
+                        vertical: 14,
+                      ),
+                      child: Text(
+                        '検索に戻る',
+                        style: jpStyle(
+                          size: 15,
+                          weight: FontWeight.w800,
+                          color: c.ivory,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return Material(
       color: c.ivory,
