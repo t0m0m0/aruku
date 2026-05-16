@@ -1,3 +1,4 @@
+import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/route_service.dart';
@@ -24,10 +25,10 @@ class _FakeRouteService implements RouteService {
   @override
   Future<RoutePlan> plan({
     required String? destination,
-    required dynamic destinationLatLng,
+    required GeoPoint? destinationLatLng,
     required TimeValue departure,
     required TimeValue arrival,
-    dynamic origin,
+    GeoPoint? origin,
   }) async {
     calls++;
     return _fakePlan;
