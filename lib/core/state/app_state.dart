@@ -36,6 +36,7 @@ class AppState {
     required this.route,
     required this.locationState,
     this.routeError,
+    this.routePhase,
   });
 
   final Screen screen;
@@ -47,6 +48,7 @@ class AppState {
   final RoutePlan? route;
   final LocationState locationState;
   final String? routeError;
+  final RoutePhase? routePhase;
 
   int get budgetMinutes => arrival.totalMinutes - departure.totalMinutes;
 
@@ -66,6 +68,7 @@ class AppState {
     Object? route = _sentinel,
     LocationState? locationState,
     Object? routeError = _sentinel,
+    Object? routePhase = _sentinel,
   }) {
     return AppState(
       screen: screen ?? this.screen,
@@ -85,6 +88,9 @@ class AppState {
       routeError: identical(routeError, _sentinel)
           ? this.routeError
           : routeError as String?,
+      routePhase: identical(routePhase, _sentinel)
+          ? this.routePhase
+          : routePhase as RoutePhase?,
     );
   }
 
@@ -167,7 +173,11 @@ class AppNotifier extends Notifier<AppState> {
   void closePicker() => state = state.copyWith(picker: null);
 
   Future<void> startSearch() async {
-    state = state.copyWith(screen: Screen.loading, routeError: null);
+    state = state.copyWith(
+      screen: Screen.loading,
+      routeError: null,
+      routePhase: RoutePhase.routing,
+    );
     final origin = switch (state.locationState) {
       LocationAvailable(:final position) => position,
       _ => null,
@@ -181,16 +191,19 @@ class AppNotifier extends Notifier<AppState> {
             departure: state.departure,
             arrival: state.arrival,
             origin: origin,
+            onProgress: (phase) => state = state.copyWith(routePhase: phase),
           );
       state = state.copyWith(
         screen: Screen.result,
         route: plan,
         routeError: null,
+        routePhase: null,
       );
     } catch (e) {
       state = state.copyWith(
         screen: Screen.error,
         routeError: 'ルートを取得できませんでした',
+        routePhase: null,
       );
     }
   }
