@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/services/places_service.dart';
 import '../../core/state/app_state.dart';
+import '../../core/theme/aruku_colors.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
+import 'places_provider.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
@@ -19,7 +22,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   @override
   void initState() {
     super.initState();
-    _ctl = TextEditingController(text: '渋谷');
+    _ctl = TextEditingController();
     WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
   }
 
@@ -30,23 +33,19 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     super.dispose();
   }
 
+  Future<void> _selectPrediction(String placeId, String name) async {
+    final service = ref.read(placesServiceProvider);
+    final latLng = await service.fetchLatLng(placeId);
+    if (!mounted) return;
+    ref.read(appStateProvider.notifier).setDestination(name, latLng: latLng);
+    ref.read(appStateProvider.notifier).go(Screen.home);
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    final query = _ctl.text;
     final notifier = ref.read(appStateProvider.notifier);
-
-    final suggestions = [
-      _Suggestion('渋谷ヒカリエ', '東京都渋谷区渋谷2-21-1', '4.4km', '渋谷'),
-      _Suggestion('渋谷スクランブル交差点', '東京都渋谷区道玄坂2', '4.6km', '渋谷'),
-      _Suggestion('渋谷駅', 'JR・東京メトロ・東急', '4.5km', '渋谷'),
-      _Suggestion('渋谷区役所', '東京都渋谷区宇田川町1', '4.8km', '渋谷'),
-    ];
-    final recents = [
-      _Recent('表参道ヒルズ', '東京都渋谷区神宮前4', _RecentIcon.pin),
-      _Recent('新宿御苑', '東京都新宿区内藤町11', _RecentIcon.leaf),
-      _Recent('東京駅 丸の内中央口', '東京都千代田区丸の内1', _RecentIcon.train),
-    ];
+    final searchState = ref.watch(placesProvider);
 
     return Material(
       color: c.ivory,
@@ -91,7 +90,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                             child: TextField(
                               controller: _ctl,
                               focusNode: _focus,
-                              onChanged: (_) => setState(() {}),
+                              onChanged: (q) {
+                                setState(() {});
+                                ref.read(placesProvider.notifier).search(q);
+                              },
                               cursorColor: c.moss500,
                               style: jpStyle(
                                 size: 16,
@@ -110,7 +112,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                           ),
                           if (_ctl.text.isNotEmpty)
                             InkWell(
-                              onTap: () => setState(() => _ctl.clear()),
+                              onTap: () {
+                                setState(() => _ctl.clear());
+                                ref.read(placesProvider.notifier).search('');
+                              },
                               child: Ic.close(size: 18, color: c.ink3),
                             ),
                         ],
@@ -121,81 +126,203 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               ),
             ),
 
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.only(bottom: 8),
-                children: [
-                  if (query.isNotEmpty)
-                    for (final s in suggestions)
-                      _SuggestionTile(
-                        sug: s,
-                        onTap: () {
-                          notifier.setDestination(s.name);
-                          notifier.go(Screen.home);
-                        },
-                      ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(22, 18, 22, 6),
-                    child: Row(
-                      children: [
-                        Ic.history(size: 12, color: c.ink3),
-                        const SizedBox(width: 6),
-                        Text(
-                          '最近の検索',
-                          style: jpStyle(
-                            size: 10,
-                            weight: FontWeight.w800,
-                            color: c.ink3,
-                            letterSpacing: 0.12 * 10,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  for (final r in recents)
-                    _RecentTile(
-                      recent: r,
-                      onTap: () {
-                        notifier.setDestination(r.name);
-                        notifier.go(Screen.home);
-                      },
-                    ),
-                ],
-              ),
-            ),
+            Expanded(child: _buildBody(c, searchState, notifier)),
           ],
         ),
       ),
     );
   }
-}
 
-class _Suggestion {
-  _Suggestion(this.name, this.sub, this.dist, this.match);
-  final String name;
-  final String sub;
-  final String dist;
-  final String match;
-}
+  Widget _buildBody(
+    ArukuColors c,
+    SearchState searchState,
+    AppNotifier notifier,
+  ) {
+    // 入力中: ローディングまたは候補リスト
+    if (_ctl.text.isNotEmpty) {
+      return switch (searchState.status) {
+        SearchStatus.idle => const SizedBox.shrink(),
+        SearchStatus.loading => _buildLoading(c),
+        SearchStatus.error => _buildError(c, searchState.errorMessage),
+        SearchStatus.success =>
+          searchState.suggestions.isEmpty
+              ? _buildEmpty(c)
+              : _buildSuggestions(c, searchState.suggestions),
+      };
+    }
 
-enum _RecentIcon { pin, leaf, train }
+    // 空欄: 最近の検索（固定）
+    return _buildRecents(c, notifier);
+  }
 
-class _Recent {
-  _Recent(this.name, this.sub, this.icon);
-  final String name;
-  final String sub;
-  final _RecentIcon icon;
+  Widget _buildLoading(ArukuColors c) {
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      children: List.generate(
+        4,
+        (_) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: c.hairline,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      height: 14,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: c.hairline,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      height: 10,
+                      width: 160,
+                      decoration: BoxDecoration(
+                        color: c.hairline,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildError(ArukuColors c, String? message) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Ic.search(size: 32, color: c.ink3),
+          const SizedBox(height: 12),
+          Text(
+            message ?? '検索できませんでした',
+            style: jpStyle(size: 14, weight: FontWeight.w600, color: c.ink3),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '通信状況を確認してください',
+            style: jpStyle(size: 12, weight: FontWeight.w500, color: c.ink3),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmpty(ArukuColors c) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Ic.pin(size: 32, color: c.ink3),
+          const SizedBox(height: 12),
+          Text(
+            '候補が見つかりませんでした',
+            style: jpStyle(size: 14, weight: FontWeight.w600, color: c.ink3),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '別のキーワードで試してください',
+            style: jpStyle(size: 12, weight: FontWeight.w500, color: c.ink3),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSuggestions(ArukuColors c, List suggestions) {
+    return ListView.builder(
+      padding: const EdgeInsets.only(bottom: 8),
+      itemCount: suggestions.length,
+      itemBuilder: (_, i) {
+        final s = suggestions[i];
+        return _SuggestionTile(
+          name: s.name,
+          address: s.address,
+          query: _ctl.text,
+          onTap: () => _selectPrediction(s.placeId, s.name),
+        );
+      },
+    );
+  }
+
+  Widget _buildRecents(ArukuColors c, AppNotifier notifier) {
+    final recents = [
+      _Recent('表参道ヒルズ', '東京都渋谷区神宮前4', _RecentIcon.pin),
+      _Recent('新宿御苑', '東京都新宿区内藤町11', _RecentIcon.leaf),
+      _Recent('東京駅 丸の内中央口', '東京都千代田区丸の内1', _RecentIcon.train),
+    ];
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 8),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(22, 18, 22, 6),
+          child: Row(
+            children: [
+              Ic.history(size: 12, color: c.ink3),
+              const SizedBox(width: 6),
+              Text(
+                '最近の検索',
+                style: jpStyle(
+                  size: 10,
+                  weight: FontWeight.w800,
+                  color: c.ink3,
+                  letterSpacing: 0.12 * 10,
+                ),
+              ),
+            ],
+          ),
+        ),
+        for (final r in recents)
+          _RecentTile(
+            recent: r,
+            onTap: () {
+              notifier.setDestination(r.name);
+              notifier.go(Screen.home);
+            },
+          ),
+      ],
+    );
+  }
 }
 
 class _SuggestionTile extends StatelessWidget {
-  const _SuggestionTile({required this.sug, required this.onTap});
-  final _Suggestion sug;
+  const _SuggestionTile({
+    required this.name,
+    required this.address,
+    required this.query,
+    required this.onTap,
+  });
+
+  final String name;
+  final String address;
+  final String query;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    final rest = sug.name.replaceFirst(sug.match, '');
+    final lowerName = name.toLowerCase();
+    final lowerQuery = query.toLowerCase();
+    final matchStart = lowerName.indexOf(lowerQuery);
+
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -216,29 +343,47 @@ class _SuggestionTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  RichText(
-                    overflow: TextOverflow.ellipsis,
-                    text: TextSpan(
-                      style: jpStyle(
-                        size: 16,
-                        weight: FontWeight.w700,
-                        color: c.ink,
-                      ),
-                      children: [
-                        TextSpan(
-                          text: sug.match,
-                          style: TextStyle(
-                            color: c.moss700,
-                            backgroundColor: c.moss100,
+                  matchStart >= 0
+                      ? RichText(
+                          overflow: TextOverflow.ellipsis,
+                          text: TextSpan(
+                            style: jpStyle(
+                              size: 16,
+                              weight: FontWeight.w700,
+                              color: c.ink,
+                            ),
+                            children: [
+                              if (matchStart > 0)
+                                TextSpan(text: name.substring(0, matchStart)),
+                              TextSpan(
+                                text: name.substring(
+                                  matchStart,
+                                  matchStart + query.length,
+                                ),
+                                style: TextStyle(
+                                  color: c.moss700,
+                                  backgroundColor: c.moss100,
+                                ),
+                              ),
+                              TextSpan(
+                                text: name.substring(matchStart + query.length),
+                              ),
+                            ],
+                          ),
+                        )
+                      : Text(
+                          name,
+                          overflow: TextOverflow.ellipsis,
+                          style: jpStyle(
+                            size: 16,
+                            weight: FontWeight.w700,
+                            color: c.ink,
                           ),
                         ),
-                        TextSpan(text: rest),
-                      ],
-                    ),
-                  ),
                   const SizedBox(height: 2),
                   Text(
-                    sug.sub,
+                    address,
+                    overflow: TextOverflow.ellipsis,
                     style: jpStyle(
                       size: 12,
                       weight: FontWeight.w500,
@@ -248,33 +393,20 @@ class _SuggestionTile extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  sug.dist,
-                  style: numStyle(
-                    size: 13,
-                    weight: FontWeight.w600,
-                    color: c.moss600,
-                  ),
-                ),
-                Text(
-                  '歩なら',
-                  style: jpStyle(
-                    size: 10,
-                    weight: FontWeight.w600,
-                    color: c.ink3,
-                  ),
-                ),
-              ],
-            ),
           ],
         ),
       ),
     );
   }
+}
+
+enum _RecentIcon { pin, leaf, train }
+
+class _Recent {
+  _Recent(this.name, this.sub, this.icon);
+  final String name;
+  final String sub;
+  final _RecentIcon icon;
 }
 
 class _RecentTile extends StatelessWidget {

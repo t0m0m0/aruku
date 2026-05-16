@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/geo_point.dart';
 import '../models/location_state.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
@@ -27,6 +28,7 @@ class AppState {
   const AppState({
     required this.screen,
     required this.destination,
+    required this.destinationLatLng,
     required this.departure,
     required this.arrival,
     required this.picker,
@@ -36,6 +38,7 @@ class AppState {
 
   final Screen screen;
   final String? destination;
+  final GeoPoint? destinationLatLng;
   final TimeValue departure;
   final TimeValue arrival;
   final PickerState? picker;
@@ -53,6 +56,7 @@ class AppState {
   AppState copyWith({
     Screen? screen,
     Object? destination = _sentinel,
+    Object? destinationLatLng = _sentinel,
     TimeValue? departure,
     TimeValue? arrival,
     Object? picker = _sentinel,
@@ -64,6 +68,9 @@ class AppState {
       destination: identical(destination, _sentinel)
           ? this.destination
           : destination as String?,
+      destinationLatLng: identical(destinationLatLng, _sentinel)
+          ? this.destinationLatLng
+          : destinationLatLng as GeoPoint?,
       departure: departure ?? this.departure,
       arrival: arrival ?? this.arrival,
       picker: identical(picker, _sentinel)
@@ -79,6 +86,7 @@ class AppState {
   static const initial = AppState(
     screen: Screen.onboarding,
     destination: '渋谷ヒカリエ',
+    destinationLatLng: null,
     departure: TimeValue(h: 9, m: 32, isNow: true, anchored: true),
     arrival: TimeValue(h: 10, m: 50),
     picker: null,
@@ -106,7 +114,8 @@ class AppNotifier extends Notifier<AppState> {
 
   void go(Screen s) => state = state.copyWith(screen: s);
 
-  void setDestination(String? d) => state = state.copyWith(destination: d);
+  void setDestination(String? name, {GeoPoint? latLng}) =>
+      state = state.copyWith(destination: name, destinationLatLng: latLng);
 
   void openPicker(PickerMode mode) {
     final src = mode == PickerMode.depart ? state.departure : state.arrival;
