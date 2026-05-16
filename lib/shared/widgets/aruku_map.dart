@@ -25,13 +25,8 @@ class ArukuMap extends StatefulWidget {
   /// false のときは非インタラクティブなスタイライズド地図を描画する。
   final bool useRealMap;
 
-  /// 実地図に描画するルートのポリライン（徒歩＝破線 / 電車＝実線）。
   final Set<Polyline> polylines;
-
-  /// 実地図に描画するマーカー（出発・到着ピンなど）。
   final Set<Marker> markers;
-
-  /// 指定時、地図生成後にルート全体が収まるようカメラをフィットさせる。
   final LatLngBounds? routeBounds;
 
   /// 渋谷駅付近（デザインの基準エリア）。[routeBounds] 未指定時の初期位置。
@@ -56,6 +51,13 @@ class _ArukuMapState extends State<ArukuMap> {
     await _controller!.animateCamera(
       CameraUpdate.newLatLngBounds(bounds, padding),
     );
+    if (!mounted) return;
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
   }
 
   @override

@@ -1,4 +1,6 @@
+import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_plan.dart';
+import 'package:aruku/shared/extensions/route_map_overlays.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -21,10 +23,10 @@ void main() {
         fromName: 'A',
         toName: 'B',
         minutes: 10,
-        polyline: [LatLng(35.0, 139.0), LatLng(35.1, 139.1)],
+        polyline: [GeoPoint(35.0, 139.0), GeoPoint(35.1, 139.1)],
       );
       expect(seg.polyline, hasLength(2));
-      expect(seg.polyline.first, const LatLng(35.0, 139.0));
+      expect(seg.polyline.first, const GeoPoint(35.0, 139.0));
     });
   });
 
@@ -107,14 +109,10 @@ void main() {
         for (final m in RoutePlan.mock.toMarkers()) m.markerId.value: m,
       };
       expect(markers.keys, containsAll(<String>['start', 'end']));
-      expect(
-        markers['start']!.position,
-        RoutePlan.mock.segments.first.polyline.first,
-      );
-      expect(
-        markers['end']!.position,
-        RoutePlan.mock.segments.last.polyline.last,
-      );
+      final startGeo = RoutePlan.mock.segments.first.polyline.first;
+      final endGeo = RoutePlan.mock.segments.last.polyline.last;
+      expect(markers['start']!.position, LatLng(startGeo.lat, startGeo.lng));
+      expect(markers['end']!.position, LatLng(endGeo.lat, endGeo.lng));
     });
   });
 
@@ -124,14 +122,14 @@ void main() {
       for (final seg in RoutePlan.mock.segments) {
         for (final p in seg.polyline) {
           expect(
-            p.latitude,
+            p.lat,
             inInclusiveRange(
               bounds.southwest.latitude,
               bounds.northeast.latitude,
             ),
           );
           expect(
-            p.longitude,
+            p.lng,
             inInclusiveRange(
               bounds.southwest.longitude,
               bounds.northeast.longitude,
