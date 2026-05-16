@@ -46,6 +46,7 @@ app.*.map.json
 
 /design_handoff_aruku_mvp
 CLAUDE.md
+.claude/
 
 # Google Maps API key secrets (copy from *.example, never commit real keys)
 secrets.properties
