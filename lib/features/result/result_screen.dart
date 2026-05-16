@@ -164,7 +164,12 @@ class _JourneyHeader extends StatelessWidget {
             border: Border.all(color: c.hairline),
           ),
           clipBehavior: Clip.antiAlias,
-          child: const ArukuMap(variant: ArukuMapVariant.thumb),
+          child: ArukuMap(
+            variant: ArukuMapVariant.thumb,
+            polylines: route.toPolylines(),
+            markers: route.toMarkers(),
+            routeBounds: route.toBounds(),
+          ),
         ),
         Expanded(
           child: Column(
