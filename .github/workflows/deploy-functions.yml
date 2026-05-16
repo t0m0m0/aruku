@@ -63,4 +63,4 @@ jobs:
           service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
 
       - name: Deploy Firebase Functions
-        run: npx --yes firebase-tools@latest deploy --only functions --non-interactive
+        run: npx --yes firebase-tools@15.17.0 deploy --only functions --non-interactive

@@ -44,6 +44,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       if (!mounted) return;
       ref.read(appStateProvider.notifier).setDestination(name, latLng: latLng);
       ref.read(appStateProvider.notifier).go(Screen.home);
+    } on PlacesException {
+      // 座標取得失敗でも目的地名は設定して画面遷移
+      if (!mounted) return;
+      ref.read(appStateProvider.notifier).setDestination(name);
+      ref.read(appStateProvider.notifier).go(Screen.home);
     } finally {
       if (mounted) setState(() => _selecting = false);
     }

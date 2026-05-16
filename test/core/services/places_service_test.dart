@@ -144,15 +144,14 @@ void main() {
       expect(point, isNull);
     });
 
-    test('HTTP エラーのとき null を返す', () async {
+    test('HTTP エラーのとき PlacesException をスローする', () async {
       final client = MockClient((_) async => http.Response('error', 500));
 
       final service = GooglePlacesService(
         client: client,
         proxyBaseUrl: _proxyBaseUrl,
       );
-      final point = await service.fetchLatLng('id');
-      expect(point, isNull);
+      expect(() => service.fetchLatLng('id'), throwsA(isA<PlacesException>()));
     });
   });
 }

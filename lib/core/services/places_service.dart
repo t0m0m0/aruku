@@ -15,7 +15,10 @@ abstract interface class PlacesService {
 class GooglePlacesService implements PlacesService {
   GooglePlacesService({http.Client? client, String? proxyBaseUrl})
     : _client = client ?? http.Client(),
-      _proxyBaseUrl = proxyBaseUrl ?? AppConfig.proxyBaseUrl;
+      _proxyBaseUrl = (proxyBaseUrl ?? AppConfig.proxyBaseUrl).replaceAll(
+        RegExp(r'/+$'),
+        '',
+      );
 
   final http.Client _client;
   final String _proxyBaseUrl;
@@ -70,7 +73,9 @@ class GooglePlacesService implements PlacesService {
     ).replace(queryParameters: {'action': 'details', 'place_id': placeId});
 
     final response = await _client.get(uri);
-    if (response.statusCode != 200) return null;
+    if (response.statusCode != 200) {
+      throw PlacesException('HTTP ${response.statusCode}');
+    }
 
     final body =
         jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
