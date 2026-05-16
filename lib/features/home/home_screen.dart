@@ -121,6 +121,7 @@ class HomeScreen extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: _DestinationCard(
+                departure: state.departureLabelText,
                 destination: destination,
                 onTapDestination: () => notifier.go(Screen.search),
               ),
@@ -275,9 +276,11 @@ class HomeScreen extends ConsumerWidget {
 
 class _DestinationCard extends StatelessWidget {
   const _DestinationCard({
+    required this.departure,
     required this.destination,
     required this.onTapDestination,
   });
+  final String departure;
   final String? destination;
   final VoidCallback onTapDestination;
 
@@ -350,7 +353,7 @@ class _DestinationCard extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            '現在地 · 新宿三丁目',
+                            departure,
                             style: jpStyle(
                               size: 16,
                               weight: FontWeight.w700,
