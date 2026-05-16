@@ -145,6 +145,7 @@ export const directionsProxy = onRequest(async (req, res) => {
   const destination = req.query["destination"] as string | undefined;
   const rawMode = (req.query["mode"] as string | undefined) ?? "walking";
   const departureTime = req.query["departure_time"] as string | undefined;
+  const alternatives = req.query["alternatives"] === "true";
 
   if (!origin || !destination) {
     res.status(400).json({ error: "origin and destination are required" });
@@ -165,6 +166,7 @@ export const directionsProxy = onRequest(async (req, res) => {
     language: "ja",
   };
   if (departureTime) params["departure_time"] = departureTime;
+  if (alternatives) params["alternatives"] = "true";
 
   const data = await fetchJson(buildUrl(DIRECTIONS_URL, params));
   res.json(data);
