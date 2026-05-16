@@ -32,14 +32,38 @@ class ArukuTheme {
   static TextTheme _buildTextTheme(Color ink) {
     final jp = GoogleFonts.mPlusRounded1cTextTheme();
     return jp.copyWith(
-      displayLarge: jp.displayLarge?.copyWith(color: ink, fontWeight: FontWeight.w800),
-      headlineLarge: jp.headlineLarge?.copyWith(color: ink, fontWeight: FontWeight.w800),
-      headlineMedium: jp.headlineMedium?.copyWith(color: ink, fontWeight: FontWeight.w800),
-      titleLarge: jp.titleLarge?.copyWith(color: ink, fontWeight: FontWeight.w800),
-      titleMedium: jp.titleMedium?.copyWith(color: ink, fontWeight: FontWeight.w700),
-      bodyLarge: jp.bodyLarge?.copyWith(color: ink, fontWeight: FontWeight.w500),
-      bodyMedium: jp.bodyMedium?.copyWith(color: ink, fontWeight: FontWeight.w500),
-      labelLarge: jp.labelLarge?.copyWith(color: ink, fontWeight: FontWeight.w700),
+      displayLarge: jp.displayLarge?.copyWith(
+        color: ink,
+        fontWeight: FontWeight.w800,
+      ),
+      headlineLarge: jp.headlineLarge?.copyWith(
+        color: ink,
+        fontWeight: FontWeight.w800,
+      ),
+      headlineMedium: jp.headlineMedium?.copyWith(
+        color: ink,
+        fontWeight: FontWeight.w800,
+      ),
+      titleLarge: jp.titleLarge?.copyWith(
+        color: ink,
+        fontWeight: FontWeight.w800,
+      ),
+      titleMedium: jp.titleMedium?.copyWith(
+        color: ink,
+        fontWeight: FontWeight.w700,
+      ),
+      bodyLarge: jp.bodyLarge?.copyWith(
+        color: ink,
+        fontWeight: FontWeight.w500,
+      ),
+      bodyMedium: jp.bodyMedium?.copyWith(
+        color: ink,
+        fontWeight: FontWeight.w500,
+      ),
+      labelLarge: jp.labelLarge?.copyWith(
+        color: ink,
+        fontWeight: FontWeight.w700,
+      ),
     );
   }
 }

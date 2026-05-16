@@ -14,11 +14,8 @@ class PickerState {
   final int h;
   final int m;
 
-  PickerState copyWith({PickerMode? mode, int? h, int? m}) => PickerState(
-        mode: mode ?? this.mode,
-        h: h ?? this.h,
-        m: m ?? this.m,
-      );
+  PickerState copyWith({PickerMode? mode, int? h, int? m}) =>
+      PickerState(mode: mode ?? this.mode, h: h ?? this.h, m: m ?? this.m);
 }
 
 @immutable
@@ -51,11 +48,14 @@ class AppState {
   }) {
     return AppState(
       screen: screen ?? this.screen,
-      destination:
-          identical(destination, _sentinel) ? this.destination : destination as String?,
+      destination: identical(destination, _sentinel)
+          ? this.destination
+          : destination as String?,
       departure: departure ?? this.departure,
       arrival: arrival ?? this.arrival,
-      picker: identical(picker, _sentinel) ? this.picker : picker as PickerState?,
+      picker: identical(picker, _sentinel)
+          ? this.picker
+          : picker as PickerState?,
       route: identical(route, _sentinel) ? this.route : route as RoutePlan?,
     );
   }
@@ -90,7 +90,9 @@ class AppNotifier extends Notifier<AppState> {
   void updatePicker({int? h, int? m}) {
     final p = state.picker;
     if (p == null) return;
-    state = state.copyWith(picker: p.copyWith(h: h, m: m == null ? null : _roundTo5(m)));
+    state = state.copyWith(
+      picker: p.copyWith(h: h, m: m == null ? null : _roundTo5(m)),
+    );
   }
 
   void switchPickerMode(PickerMode mode) {
@@ -132,5 +134,6 @@ class AppNotifier extends Notifier<AppState> {
   }
 }
 
-final appStateProvider =
-    NotifierProvider<AppNotifier, AppState>(AppNotifier.new);
+final appStateProvider = NotifierProvider<AppNotifier, AppState>(
+  AppNotifier.new,
+);

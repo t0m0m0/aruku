@@ -37,24 +37,29 @@ class HomeScreen extends ConsumerWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('5月15日 (金) · おはようございます',
-                                style: jpStyle(
-                                    size: 12,
-                                    weight: FontWeight.w600,
-                                    color: c.ink3)),
+                            Text(
+                              '5月15日 (金) · おはようございます',
+                              style: jpStyle(
+                                size: 12,
+                                weight: FontWeight.w600,
+                                color: c.ink3,
+                              ),
+                            ),
                             const SizedBox(height: 2),
                             RichText(
                               text: TextSpan(
                                 style: jpStyle(
-                                    size: 24,
-                                    weight: FontWeight.w800,
-                                    color: c.ink,
-                                    height: 1.2),
+                                  size: 24,
+                                  weight: FontWeight.w800,
+                                  color: c.ink,
+                                  height: 1.2,
+                                ),
                                 children: [
                                   const TextSpan(text: '今日も、'),
                                   TextSpan(
-                                      text: '歩こう。',
-                                      style: TextStyle(color: c.moss600)),
+                                    text: '歩こう。',
+                                    style: TextStyle(color: c.moss600),
+                                  ),
                                 ],
                               ),
                             ),
@@ -69,7 +74,9 @@ class HomeScreen extends ConsumerWidget {
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(color: c.hairline),
                         ),
-                        child: Center(child: Ic.settings(size: 20, color: c.ink2)),
+                        child: Center(
+                          child: Ic.settings(size: 20, color: c.ink2),
+                        ),
                       ),
                     ],
                   ),
@@ -86,17 +93,23 @@ class HomeScreen extends ConsumerWidget {
                       children: [
                         Ic.fire(size: 14, color: c.burnt),
                         const SizedBox(width: 6),
-                        Text('12日連続',
-                            style: jpStyle(
-                                size: 12,
-                                weight: FontWeight.w700,
-                                color: c.burnt)),
+                        Text(
+                          '12日連続',
+                          style: jpStyle(
+                            size: 12,
+                            weight: FontWeight.w700,
+                            color: c.burnt,
+                          ),
+                        ),
                         const SizedBox(width: 4),
-                        Text('· 今週 9.4km',
-                            style: jpStyle(
-                                size: 12,
-                                weight: FontWeight.w500,
-                                color: c.burnt.withValues(alpha: 0.7))),
+                        Text(
+                          '· 今週 9.4km',
+                          style: jpStyle(
+                            size: 12,
+                            weight: FontWeight.w500,
+                            color: c.burnt.withValues(alpha: 0.7),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -127,24 +140,30 @@ class HomeScreen extends ConsumerWidget {
                       children: [
                         Ic.clock(size: 12, color: c.ink2),
                         const SizedBox(width: 5),
-                        Text('時間',
-                            style: jpStyle(
-                                size: 11,
-                                weight: FontWeight.w800,
-                                color: c.ink2,
-                                letterSpacing: 0.12 * 11)),
+                        Text(
+                          '時間',
+                          style: jpStyle(
+                            size: 11,
+                            weight: FontWeight.w800,
+                            color: c.ink2,
+                            letterSpacing: 0.12 * 11,
+                          ),
+                        ),
                         const Spacer(),
                         RichText(
                           text: TextSpan(
                             style: jpStyle(
-                                size: 11,
-                                weight: FontWeight.w600,
-                                color: c.ink3),
+                              size: 11,
+                              weight: FontWeight.w600,
+                              color: c.ink3,
+                            ),
                             children: [
                               TextSpan(
                                 text: TimeValue.formatBudget(budget),
                                 style: TextStyle(
-                                    color: c.moss600, fontWeight: FontWeight.w800),
+                                  color: c.moss600,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                               const TextSpan(text: ' 歩いて移動'),
                             ],
@@ -169,14 +188,18 @@ class HomeScreen extends ConsumerWidget {
                               time: dep.format(),
                               sub: dep.isNow ? '今すぐ' : 'タップで変更',
                               anchored: !arr.anchored,
-                              onTap: () => notifier.openPicker(PickerMode.depart),
+                              onTap: () =>
+                                  notifier.openPicker(PickerMode.depart),
                             ),
                           ),
                           SizedBox(
                             width: 28,
                             child: Center(
                               child: Ic.chevron(
-                                  size: 14, color: c.ink3, dir: ChevronDir.right),
+                                size: 14,
+                                color: c.ink3,
+                                dir: ChevronDir.right,
+                              ),
                             ),
                           ),
                           Expanded(
@@ -187,7 +210,8 @@ class HomeScreen extends ConsumerWidget {
                                   ? '指定時刻'
                                   : '+ ${TimeValue.formatBudget(budget)}',
                               anchored: arr.anchored,
-                              onTap: () => notifier.openPicker(PickerMode.arrival),
+                              onTap: () =>
+                                  notifier.openPicker(PickerMode.arrival),
                             ),
                           ),
                         ],
@@ -202,16 +226,34 @@ class HomeScreen extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   color: c.moss50,
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Row(
                   children: const [
-                    _SummaryItem(label: '今日歩いた', value: '3.1', unit: 'km', leading: false),
-                    _SummaryItem(label: '消費', value: '142', unit: 'kcal', leading: true),
-                    _SummaryItem(label: '目標まで', value: '4.4', unit: 'km', leading: true),
+                    _SummaryItem(
+                      label: '今日歩いた',
+                      value: '3.1',
+                      unit: 'km',
+                      leading: false,
+                    ),
+                    _SummaryItem(
+                      label: '消費',
+                      value: '142',
+                      unit: 'kcal',
+                      leading: true,
+                    ),
+                    _SummaryItem(
+                      label: '目標まで',
+                      value: '4.4',
+                      unit: 'km',
+                      leading: true,
+                    ),
                   ],
                 ),
               ),
@@ -249,9 +291,10 @@ class _DestinationCard extends StatelessWidget {
         border: Border.all(color: c.hairline),
         boxShadow: const [
           BoxShadow(
-              color: Color(0x0F22361E),
-              blurRadius: 24,
-              offset: Offset(0, 8)),
+            color: Color(0x0F22361E),
+            blurRadius: 24,
+            offset: Offset(0, 8),
+          ),
         ],
       ),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -297,17 +340,23 @@ class _DestinationCard extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('出発',
-                              style: jpStyle(
-                                  size: 11,
-                                  weight: FontWeight.w600,
-                                  color: c.ink3,
-                                  letterSpacing: 0.04 * 11)),
-                          Text('現在地 · 新宿三丁目',
-                              style: jpStyle(
-                                  size: 16,
-                                  weight: FontWeight.w700,
-                                  color: c.ink)),
+                          Text(
+                            '出発',
+                            style: jpStyle(
+                              size: 11,
+                              weight: FontWeight.w600,
+                              color: c.ink3,
+                              letterSpacing: 0.04 * 11,
+                            ),
+                          ),
+                          Text(
+                            '現在地 · 新宿三丁目',
+                            style: jpStyle(
+                              size: 16,
+                              weight: FontWeight.w700,
+                              color: c.ink,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -330,20 +379,24 @@ class _DestinationCard extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('目的地',
-                                style: jpStyle(
-                                    size: 11,
-                                    weight: FontWeight.w600,
-                                    color: c.ink3,
-                                    letterSpacing: 0.04 * 11)),
+                            Text(
+                              '目的地',
+                              style: jpStyle(
+                                size: 11,
+                                weight: FontWeight.w600,
+                                color: c.ink3,
+                                letterSpacing: 0.04 * 11,
+                              ),
+                            ),
                             Text(
                               destination ?? 'タップして入力',
                               style: jpStyle(
-                                  size: 16,
-                                  weight: destination != null
-                                      ? FontWeight.w700
-                                      : FontWeight.w500,
-                                  color: destination != null ? c.ink : c.ink3),
+                                size: 16,
+                                weight: destination != null
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                                color: destination != null ? c.ink : c.ink3,
+                              ),
                             ),
                           ],
                         ),
@@ -392,7 +445,8 @@ class _TimeField extends StatelessWidget {
           decoration: BoxDecoration(
             color: anchored ? c.moss50 : Colors.transparent,
             border: Border.all(
-                color: anchored ? c.moss200 : Colors.transparent),
+              color: anchored ? c.moss200 : Colors.transparent,
+            ),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Column(
@@ -400,12 +454,15 @@ class _TimeField extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Text(label,
-                      style: jpStyle(
-                          size: 10,
-                          weight: FontWeight.w800,
-                          color: c.ink3,
-                          letterSpacing: 0.08 * 10)),
+                  Text(
+                    label,
+                    style: jpStyle(
+                      size: 10,
+                      weight: FontWeight.w800,
+                      color: c.ink3,
+                      letterSpacing: 0.08 * 10,
+                    ),
+                  ),
                   if (anchored) ...[
                     const SizedBox(width: 4),
                     Container(
@@ -414,11 +471,14 @@ class _TimeField extends StatelessWidget {
                         color: c.moss200,
                         borderRadius: BorderRadius.circular(999),
                       ),
-                      child: Text('固定',
-                          style: jpStyle(
-                              size: 9,
-                              weight: FontWeight.w700,
-                              color: c.moss700)),
+                      child: Text(
+                        '固定',
+                        style: jpStyle(
+                          size: 9,
+                          weight: FontWeight.w700,
+                          color: c.moss700,
+                        ),
+                      ),
                     ),
                   ],
                 ],
@@ -428,17 +488,25 @@ class _TimeField extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.baseline,
                 textBaseline: TextBaseline.alphabetic,
                 children: [
-                  Text(time,
-                      style: numStyle(
-                          size: 20, weight: FontWeight.w500, color: c.ink)),
+                  Text(
+                    time,
+                    style: numStyle(
+                      size: 20,
+                      weight: FontWeight.w500,
+                      color: c.ink,
+                    ),
+                  ),
                   const SizedBox(width: 6),
                   Flexible(
-                    child: Text(sub,
-                        overflow: TextOverflow.ellipsis,
-                        style: jpStyle(
-                            size: 11,
-                            weight: FontWeight.w600,
-                            color: c.ink3)),
+                    child: Text(
+                      sub,
+                      overflow: TextOverflow.ellipsis,
+                      style: jpStyle(
+                        size: 11,
+                        weight: FontWeight.w600,
+                        color: c.ink3,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -476,24 +544,37 @@ class _SummaryItem extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label,
-                style: jpStyle(
-                    size: 10,
-                    weight: FontWeight.w700,
-                    color: c.moss700,
-                    letterSpacing: 0.06 * 10)),
+            Text(
+              label,
+              style: jpStyle(
+                size: 10,
+                weight: FontWeight.w700,
+                color: c.moss700,
+                letterSpacing: 0.06 * 10,
+              ),
+            ),
             const SizedBox(height: 2),
             Row(
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.alphabetic,
               children: [
-                Text(value,
-                    style: numStyle(
-                        size: 22, weight: FontWeight.w600, color: c.moss800)),
+                Text(
+                  value,
+                  style: numStyle(
+                    size: 22,
+                    weight: FontWeight.w600,
+                    color: c.moss800,
+                  ),
+                ),
                 const SizedBox(width: 3),
-                Text(unit,
-                    style: jpStyle(
-                        size: 11, weight: FontWeight.w700, color: c.moss700)),
+                Text(
+                  unit,
+                  style: jpStyle(
+                    size: 11,
+                    weight: FontWeight.w700,
+                    color: c.moss700,
+                  ),
+                ),
               ],
             ),
           ],
@@ -522,9 +603,10 @@ class _SearchCTA extends StatelessWidget {
             borderRadius: BorderRadius.circular(20),
             boxShadow: const [
               BoxShadow(
-                  color: Color(0x5C35501A),
-                  blurRadius: 28,
-                  offset: Offset(0, 10)),
+                color: Color(0x5C35501A),
+                blurRadius: 28,
+                offset: Offset(0, 10),
+              ),
             ],
           ),
           child: Center(
@@ -533,12 +615,15 @@ class _SearchCTA extends StatelessWidget {
               children: [
                 Ic.routes(size: 20, color: c.ivory),
                 const SizedBox(width: 10),
-                Text('ルートを検索',
-                    style: jpStyle(
-                        size: 18,
-                        weight: FontWeight.w800,
-                        color: c.ivory,
-                        letterSpacing: 0.06 * 18)),
+                Text(
+                  'ルートを検索',
+                  style: jpStyle(
+                    size: 18,
+                    weight: FontWeight.w800,
+                    color: c.ivory,
+                    letterSpacing: 0.06 * 18,
+                  ),
+                ),
               ],
             ),
           ),

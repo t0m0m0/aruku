@@ -3,10 +3,7 @@ import 'package:flutter/material.dart';
 /// Aruku icon set — line-style SVG paths drawn as CustomPaint.
 /// All icons share consistent stroke (1.6–1.8), round caps and joins.
 class Ic extends StatelessWidget {
-  const Ic._({
-    required this.painter,
-    required this.size,
-  });
+  const Ic._({required this.painter, required this.size});
 
   final CustomPainter painter;
   final double size;
@@ -24,8 +21,14 @@ class Ic extends StatelessWidget {
       Ic._(size: size, painter: _IconPainter(_walk, color));
   static Widget train({double size = 20, required Color color}) =>
       Ic._(size: size, painter: _IconPainter(_train, color));
-  static Widget pin({double size = 20, required Color color, bool filled = false}) =>
-      Ic._(size: size, painter: _IconPainter(filled ? _pinFilled : _pin, color, filled: filled));
+  static Widget pin({
+    double size = 20,
+    required Color color,
+    bool filled = false,
+  }) => Ic._(
+    size: size,
+    painter: _IconPainter(filled ? _pinFilled : _pin, color, filled: filled),
+  );
   static Widget fire({double size = 20, required Color color}) =>
       Ic._(size: size, painter: _IconPainter(_fire, color, filled: true));
   static Widget settings({double size = 20, required Color color}) =>
@@ -36,8 +39,11 @@ class Ic extends StatelessWidget {
       Ic._(size: size, painter: _IconPainter(_swap, color));
   static Widget clock({double size = 20, required Color color}) =>
       Ic._(size: size, painter: _IconPainter(_clock, color));
-  static Widget chevron({double size = 20, required Color color, required ChevronDir dir}) =>
-      Ic._(size: size, painter: _ChevronPainter(dir, color));
+  static Widget chevron({
+    double size = 20,
+    required Color color,
+    required ChevronDir dir,
+  }) => Ic._(size: size, painter: _ChevronPainter(dir, color));
   static Widget routes({double size = 20, required Color color}) =>
       Ic._(size: size, painter: _IconPainter(_routes, color));
   static Widget close({double size = 20, required Color color}) =>
@@ -131,7 +137,8 @@ class _ChevronPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_ChevronPainter old) => old.dir != dir || old.color != color;
+  bool shouldRepaint(_ChevronPainter old) =>
+      old.dir != dir || old.color != color;
 }
 
 // ── Path definitions (viewBox 24×24) ────────────────────────────────────
@@ -158,7 +165,9 @@ void _walk(Canvas c, Paint p, double s) {
 
 void _train(Canvas c, Paint p, double s) {
   final r = RRect.fromRectAndRadius(
-      Rect.fromLTWH(5.5 * s, 3.5 * s, 13 * s, 14 * s), Radius.circular(3 * s));
+    Rect.fromLTWH(5.5 * s, 3.5 * s, 13 * s, 14 * s),
+    Radius.circular(3 * s),
+  );
   c.drawRRect(r, p);
   c.drawLine(Offset(5.5 * s, 12 * s), Offset(18.5 * s, 12 * s), p);
   c.drawLine(Offset(8 * s, 21 * s), Offset(6 * s, 23 * s), p);
@@ -172,8 +181,11 @@ void _pin(Canvas c, Paint p, double s) {
   final path = Path()
     ..moveTo(12 * s, 22 * s)
     ..cubicTo(5 * s, 14 * s, 5 * s, 10 * s, 5 * s, 10 * s)
-    ..arcToPoint(Offset(19 * s, 10 * s),
-        radius: Radius.circular(7 * s), clockwise: true)
+    ..arcToPoint(
+      Offset(19 * s, 10 * s),
+      radius: Radius.circular(7 * s),
+      clockwise: true,
+    )
     ..cubicTo(19 * s, 10 * s, 19 * s, 14 * s, 12 * s, 22 * s)
     ..close();
   c.drawPath(path, p);
@@ -184,8 +196,11 @@ void _pinFilled(Canvas c, Paint p, double s) {
   final path = Path()
     ..moveTo(12 * s, 22 * s)
     ..cubicTo(5 * s, 14 * s, 5 * s, 10 * s, 5 * s, 10 * s)
-    ..arcToPoint(Offset(19 * s, 10 * s),
-        radius: Radius.circular(7 * s), clockwise: true)
+    ..arcToPoint(
+      Offset(19 * s, 10 * s),
+      radius: Radius.circular(7 * s),
+      clockwise: true,
+    )
     ..cubicTo(19 * s, 10 * s, 19 * s, 14 * s, 12 * s, 22 * s)
     ..close();
   c.drawPath(path, p..style = PaintingStyle.fill);
@@ -277,8 +292,13 @@ void _search(Canvas c, Paint p, double s) {
 }
 
 void _history(Canvas c, Paint p, double s) {
-  c.drawArc(Rect.fromCircle(center: Offset(12 * s, 12 * s), radius: 8 * s),
-      -0.4, 5.6, false, p);
+  c.drawArc(
+    Rect.fromCircle(center: Offset(12 * s, 12 * s), radius: 8 * s),
+    -0.4,
+    5.6,
+    false,
+    p,
+  );
   final arrow = Path()
     ..moveTo(4 * s, 7 * s)
     ..lineTo(4 * s, 11 * s)
@@ -364,11 +384,17 @@ void _layers(Canvas c, Paint p, double s) {
 
 void _pause(Canvas c, Paint p, double s) {
   c.drawRRect(
-      RRect.fromRectAndRadius(
-          Rect.fromLTWH(7 * s, 5 * s, 3 * s, 14 * s), Radius.circular(1 * s)),
-      p);
+    RRect.fromRectAndRadius(
+      Rect.fromLTWH(7 * s, 5 * s, 3 * s, 14 * s),
+      Radius.circular(1 * s),
+    ),
+    p,
+  );
   c.drawRRect(
-      RRect.fromRectAndRadius(
-          Rect.fromLTWH(14 * s, 5 * s, 3 * s, 14 * s), Radius.circular(1 * s)),
-      p);
+    RRect.fromRectAndRadius(
+      Rect.fromLTWH(14 * s, 5 * s, 3 * s, 14 * s),
+      Radius.circular(1 * s),
+    ),
+    p,
+  );
 }

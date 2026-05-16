@@ -28,16 +28,23 @@ class ResultScreen extends ConsumerWidget {
               child: Row(
                 children: [
                   _HeaderButton(
-                    child: Ic.chevron(size: 18, color: c.ink, dir: ChevronDir.left),
+                    child: Ic.chevron(
+                      size: 18,
+                      color: c.ink,
+                      dir: ChevronDir.left,
+                    ),
                     onTap: () => notifier.go(Screen.home),
                   ),
                   Expanded(
                     child: Center(
-                      child: Text('5月15日 (金) · 9:32 出発',
-                          style: jpStyle(
-                              size: 12,
-                              weight: FontWeight.w700,
-                              color: c.ink3)),
+                      child: Text(
+                        '5月15日 (金) · 9:32 出発',
+                        style: jpStyle(
+                          size: 12,
+                          weight: FontWeight.w700,
+                          color: c.ink3,
+                        ),
+                      ),
                     ),
                   ),
                   _HeaderButton(
@@ -59,9 +66,10 @@ class ResultScreen extends ConsumerWidget {
                     border: Border.all(color: c.hairline),
                     boxShadow: const [
                       BoxShadow(
-                          color: Color(0x1422361E),
-                          blurRadius: 28,
-                          offset: Offset(0, 12)),
+                        color: Color(0x1422361E),
+                        blurRadius: 28,
+                        offset: Offset(0, 12),
+                      ),
                     ],
                   ),
                   padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
@@ -130,16 +138,20 @@ class _JourneyHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('FROM',
-                  style: jpStyle(
-                      size: 10,
-                      weight: FontWeight.w800,
-                      color: c.moss600,
-                      letterSpacing: 0.12 * 10)),
+              Text(
+                'FROM',
+                style: jpStyle(
+                  size: 10,
+                  weight: FontWeight.w800,
+                  color: c.moss600,
+                  letterSpacing: 0.12 * 10,
+                ),
+              ),
               const SizedBox(height: 2),
-              Text(route.from,
-                  style: jpStyle(
-                      size: 16, weight: FontWeight.w800, color: c.ink)),
+              Text(
+                route.from,
+                style: jpStyle(size: 16, weight: FontWeight.w800, color: c.ink),
+              ),
             ],
           ),
         ),
@@ -158,17 +170,21 @@ class _JourneyHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text('TO',
-                  style: jpStyle(
-                      size: 10,
-                      weight: FontWeight.w800,
-                      color: c.burnt,
-                      letterSpacing: 0.12 * 10)),
+              Text(
+                'TO',
+                style: jpStyle(
+                  size: 10,
+                  weight: FontWeight.w800,
+                  color: c.burnt,
+                  letterSpacing: 0.12 * 10,
+                ),
+              ),
               const SizedBox(height: 2),
-              Text(route.to,
-                  textAlign: TextAlign.end,
-                  style: jpStyle(
-                      size: 16, weight: FontWeight.w800, color: c.ink)),
+              Text(
+                route.to,
+                textAlign: TextAlign.end,
+                style: jpStyle(size: 16, weight: FontWeight.w800, color: c.ink),
+              ),
             ],
           ),
         ),
@@ -199,15 +215,23 @@ class _TotalsStrip extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('KCAL',
-                    style: jpStyle(
-                        size: 10,
-                        weight: FontWeight.w800,
-                        color: c.burnt,
-                        letterSpacing: 0.1 * 10)),
-                Text('${route.kcal}',
-                    style: numStyle(
-                        size: 38, weight: FontWeight.w500, color: c.burnt)),
+                Text(
+                  'KCAL',
+                  style: jpStyle(
+                    size: 10,
+                    weight: FontWeight.w800,
+                    color: c.burnt,
+                    letterSpacing: 0.1 * 10,
+                  ),
+                ),
+                Text(
+                  '${route.kcal}',
+                  style: numStyle(
+                    size: 38,
+                    weight: FontWeight.w500,
+                    color: c.burnt,
+                  ),
+                ),
               ],
             ),
           ),
@@ -223,27 +247,36 @@ class _TotalsStrip extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('WALK',
-                        style: jpStyle(
-                            size: 10,
-                            weight: FontWeight.w800,
-                            color: c.ink3,
-                            letterSpacing: 0.1 * 10)),
+                    Text(
+                      'WALK',
+                      style: jpStyle(
+                        size: 10,
+                        weight: FontWeight.w800,
+                        color: c.ink3,
+                        letterSpacing: 0.1 * 10,
+                      ),
+                    ),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.baseline,
                       textBaseline: TextBaseline.alphabetic,
                       children: [
-                        Text(route.walkKm.toStringAsFixed(1),
-                            style: numStyle(
-                                size: 22,
-                                weight: FontWeight.w500,
-                                color: c.ink)),
+                        Text(
+                          route.walkKm.toStringAsFixed(1),
+                          style: numStyle(
+                            size: 22,
+                            weight: FontWeight.w500,
+                            color: c.ink,
+                          ),
+                        ),
                         const SizedBox(width: 3),
-                        Text('km',
-                            style: jpStyle(
-                                size: 11,
-                                weight: FontWeight.w700,
-                                color: c.ink)),
+                        Text(
+                          'km',
+                          style: jpStyle(
+                            size: 11,
+                            weight: FontWeight.w700,
+                            color: c.ink,
+                          ),
+                        ),
                       ],
                     ),
                   ],
@@ -263,18 +296,23 @@ class _TotalsStrip extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('TOTAL',
-                        style: jpStyle(
-                            size: 10,
-                            weight: FontWeight.w800,
-                            color: c.ink3,
-                            letterSpacing: 0.1 * 10)),
                     Text(
-                        '${route.totalMin ~/ 60}h${(route.totalMin % 60).toString().padLeft(2, '0')}',
-                        style: numStyle(
-                            size: 22,
-                            weight: FontWeight.w500,
-                            color: c.ink)),
+                      'TOTAL',
+                      style: jpStyle(
+                        size: 10,
+                        weight: FontWeight.w800,
+                        color: c.ink3,
+                        letterSpacing: 0.1 * 10,
+                      ),
+                    ),
+                    Text(
+                      '${route.totalMin ~/ 60}h${(route.totalMin % 60).toString().padLeft(2, '0')}',
+                      style: numStyle(
+                        size: 22,
+                        weight: FontWeight.w500,
+                        color: c.ink,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -313,14 +351,18 @@ class _WalkRatioRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('${(route.walkRatio * 100).round()}% を歩いて移動',
-                  style: jpStyle(
-                      size: 12, weight: FontWeight.w800, color: c.ink)),
+              Text(
+                '${(route.walkRatio * 100).round()}% を歩いて移動',
+                style: jpStyle(size: 12, weight: FontWeight.w800, color: c.ink),
+              ),
               const SizedBox(height: 2),
               Text(
                 '制限 ${(route.budgetMin / 60).toStringAsFixed(1)}時間のうち ${route.totalMin ~/ 60}h${(route.totalMin % 60).toString().padLeft(2, '0')} で到着 · ${route.budgetMin - route.totalMin}分 余裕',
                 style: jpStyle(
-                    size: 11, weight: FontWeight.w500, color: c.ink3),
+                  size: 11,
+                  weight: FontWeight.w500,
+                  color: c.ink3,
+                ),
               ),
             ],
           ),
@@ -421,10 +463,15 @@ class _TimelineNodeRow extends StatelessWidget {
             width: 44,
             child: Padding(
               padding: const EdgeInsets.only(top: 1, right: 4),
-              child: Text(node.time,
-                  textAlign: TextAlign.right,
-                  style: numStyle(
-                      size: 11, weight: FontWeight.w700, color: c.ink3)),
+              child: Text(
+                node.time,
+                textAlign: TextAlign.right,
+                style: numStyle(
+                  size: 11,
+                  weight: FontWeight.w700,
+                  color: c.ink3,
+                ),
+              ),
             ),
           ),
           const SizedBox(width: 14),
@@ -446,15 +493,23 @@ class _TimelineNodeRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(node.place,
-                    style: jpStyle(
-                        size: 13, weight: FontWeight.w700, color: c.ink)),
+                Text(
+                  node.place,
+                  style: jpStyle(
+                    size: 13,
+                    weight: FontWeight.w700,
+                    color: c.ink,
+                  ),
+                ),
                 if (node.sub.isNotEmpty)
-                  Text(node.sub,
-                      style: jpStyle(
-                          size: 11,
-                          weight: FontWeight.w500,
-                          color: c.ink3)),
+                  Text(
+                    node.sub,
+                    style: jpStyle(
+                      size: 11,
+                      weight: FontWeight.w500,
+                      color: c.ink3,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -489,15 +544,15 @@ class _TimelineSegmentRow extends StatelessWidget {
             ),
             Expanded(
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
-                  color:
-                      isWalk ? c.moss50 : c.trainSoft.withValues(alpha: 0.3),
+                  color: isWalk ? c.moss50 : c.trainSoft.withValues(alpha: 0.3),
                   border: Border.all(
-                      color: isWalk
-                          ? c.moss100
-                          : c.train.withValues(alpha: 0.18)),
+                    color: isWalk ? c.moss100 : c.train.withValues(alpha: 0.18),
+                  ),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
@@ -513,26 +568,33 @@ class _TimelineSegmentRow extends StatelessWidget {
                           child: Text(
                             isWalk ? '徒歩' : (seg.line ?? '電車'),
                             style: jpStyle(
-                                size: 13,
-                                weight: FontWeight.w700,
-                                color: c.ink),
+                              size: 13,
+                              weight: FontWeight.w700,
+                              color: c.ink,
+                            ),
                           ),
                         ),
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.baseline,
                           textBaseline: TextBaseline.alphabetic,
                           children: [
-                            Text('${seg.minutes}',
-                                style: numStyle(
-                                    size: 12,
-                                    weight: FontWeight.w800,
-                                    color: color)),
+                            Text(
+                              '${seg.minutes}',
+                              style: numStyle(
+                                size: 12,
+                                weight: FontWeight.w800,
+                                color: color,
+                              ),
+                            ),
                             const SizedBox(width: 1),
-                            Text('min',
-                                style: jpStyle(
-                                    size: 10,
-                                    weight: FontWeight.w700,
-                                    color: color)),
+                            Text(
+                              'min',
+                              style: jpStyle(
+                                size: 10,
+                                weight: FontWeight.w700,
+                                color: color,
+                              ),
+                            ),
                           ],
                         ),
                       ],
@@ -541,24 +603,31 @@ class _TimelineSegmentRow extends StatelessWidget {
                     if (isWalk)
                       Row(
                         children: [
-                          Text('${seg.km!.toStringAsFixed(1)}km',
-                              style: numStyle(
-                                  size: 11,
-                                  weight: FontWeight.w600,
-                                  color: c.ink2)),
+                          Text(
+                            '${seg.km!.toStringAsFixed(1)}km',
+                            style: numStyle(
+                              size: 11,
+                              weight: FontWeight.w600,
+                              color: c.ink2,
+                            ),
+                          ),
                           const SizedBox(width: 8),
-                          Text('·',
-                              style: jpStyle(
-                                  size: 11,
-                                  weight: FontWeight.w600,
-                                  color: c.ink4)),
+                          Text(
+                            '·',
+                            style: jpStyle(
+                              size: 11,
+                              weight: FontWeight.w600,
+                              color: c.ink4,
+                            ),
+                          ),
                           const SizedBox(width: 8),
                           RichText(
                             text: TextSpan(
                               style: jpStyle(
-                                  size: 11,
-                                  weight: FontWeight.w800,
-                                  color: c.burnt),
+                                size: 11,
+                                weight: FontWeight.w800,
+                                color: c.burnt,
+                              ),
                               children: [
                                 const TextSpan(text: '+'),
                                 TextSpan(text: '${seg.kcal}'),
@@ -571,20 +640,25 @@ class _TimelineSegmentRow extends StatelessWidget {
                     else
                       Row(
                         children: [
-                          Text('${seg.fromName} → ${seg.toName}',
-                              style: jpStyle(
-                                  size: 11,
-                                  weight: FontWeight.w600,
-                                  color: c.ink2)),
+                          Text(
+                            '${seg.fromName} → ${seg.toName}',
+                            style: jpStyle(
+                              size: 11,
+                              weight: FontWeight.w600,
+                              color: c.ink2,
+                            ),
+                          ),
                           const SizedBox(width: 8),
-                          Text('·',
-                              style: jpStyle(size: 11, color: c.ink4)),
+                          Text('·', style: jpStyle(size: 11, color: c.ink4)),
                           const SizedBox(width: 8),
-                          Text('¥${seg.fare}',
-                              style: numStyle(
-                                  size: 11,
-                                  weight: FontWeight.w600,
-                                  color: c.ink2)),
+                          Text(
+                            '¥${seg.fare}',
+                            style: numStyle(
+                              size: 11,
+                              weight: FontWeight.w600,
+                              color: c.ink2,
+                            ),
+                          ),
                         ],
                       ),
                   ],
@@ -616,7 +690,11 @@ class _SegLinePainter extends CustomPainter {
       const gap = 4.0;
       double y = 0;
       while (y < size.height) {
-        canvas.drawLine(Offset(x, y), Offset(x, math.min(y + dash, size.height)), paint);
+        canvas.drawLine(
+          Offset(x, y),
+          Offset(x, math.min(y + dash, size.height)),
+          paint,
+        );
         y += dash + gap;
       }
     } else {
@@ -662,9 +740,10 @@ class _CtaRow extends StatelessWidget {
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: const [
                     BoxShadow(
-                        color: Color(0x5235501A),
-                        blurRadius: 20,
-                        offset: Offset(0, 8)),
+                      color: Color(0x5235501A),
+                      blurRadius: 20,
+                      offset: Offset(0, 8),
+                    ),
                   ],
                 ),
                 child: Row(
@@ -672,12 +751,15 @@ class _CtaRow extends StatelessWidget {
                   children: [
                     Ic.arrowUp(size: 18, color: c.ivory),
                     const SizedBox(width: 8),
-                    Text('このルートで歩く',
-                        style: jpStyle(
-                            size: 16,
-                            weight: FontWeight.w800,
-                            color: c.ivory,
-                            letterSpacing: 0.06 * 16)),
+                    Text(
+                      'このルートで歩く',
+                      style: jpStyle(
+                        size: 16,
+                        weight: FontWeight.w800,
+                        color: c.ivory,
+                        letterSpacing: 0.06 * 16,
+                      ),
+                    ),
                   ],
                 ),
               ),
