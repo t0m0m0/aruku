@@ -85,7 +85,7 @@ class AppState {
 
   static const initial = AppState(
     screen: Screen.onboarding,
-    destination: '渋谷ヒカリエ',
+    destination: null,
     destinationLatLng: null,
     departure: TimeValue(h: 9, m: 32, isNow: true, anchored: true),
     arrival: TimeValue(h: 10, m: 50),

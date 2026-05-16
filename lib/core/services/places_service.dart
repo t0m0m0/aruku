@@ -13,10 +13,12 @@ abstract interface class PlacesService {
 }
 
 class GooglePlacesService implements PlacesService {
-  GooglePlacesService({http.Client? client})
-    : _client = client ?? http.Client();
+  GooglePlacesService({http.Client? client, String? apiKey})
+    : _client = client ?? http.Client(),
+      _apiKey = apiKey ?? AppConfig.placesApiKey;
 
   final http.Client _client;
+  final String _apiKey;
 
   static const _autocompleteUrl =
       'https://maps.googleapis.com/maps/api/place/autocomplete/json';
@@ -25,10 +27,11 @@ class GooglePlacesService implements PlacesService {
 
   @override
   Future<List<PlacePrediction>> autocomplete(String query) async {
+    if (_apiKey.isEmpty) return [];
     final uri = Uri.parse(_autocompleteUrl).replace(
       queryParameters: {
         'input': query,
-        'key': AppConfig.placesApiKey,
+        'key': _apiKey,
         'language': 'ja',
         'components': 'country:jp',
       },
@@ -70,7 +73,7 @@ class GooglePlacesService implements PlacesService {
       queryParameters: {
         'place_id': placeId,
         'fields': 'geometry',
-        'key': AppConfig.placesApiKey,
+        'key': _apiKey,
       },
     );
 
@@ -101,6 +104,8 @@ class PlacesException implements Exception {
   String toString() => 'PlacesException($status)';
 }
 
-final placesServiceProvider = Provider<PlacesService>(
-  (_) => GooglePlacesService(),
-);
+final placesServiceProvider = Provider<PlacesService>((ref) {
+  final client = http.Client();
+  ref.onDispose(client.close);
+  return GooglePlacesService(client: client);
+});

@@ -2,6 +2,7 @@ import 'package:aruku/core/models/place_prediction.dart';
 import 'package:aruku/core/services/places_service.dart';
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/features/search/places_provider.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -50,37 +51,43 @@ void main() {
       expect(container.read(placesProvider).status, SearchStatus.idle);
     });
 
-    test('デバウンス後に候補が取得されて success になる', () async {
+    test('デバウンス後に候補が取得されて success になる', () {
       const predictions = [
         PlacePrediction(placeId: 'id1', name: '渋谷駅', address: '東京都渋谷区'),
       ];
       final container = _makeContainer(_FakePlacesService(predictions));
       addTearDown(container.dispose);
 
-      container.read(placesProvider.notifier).search('渋谷');
-      expect(container.read(placesProvider).status, SearchStatus.loading);
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).search('渋谷');
+        expect(container.read(placesProvider).status, SearchStatus.loading);
 
-      // デバウンス (400ms) + 非同期完了を待つ
-      await Future<void>.delayed(const Duration(milliseconds: 500));
+        // デバウンス (400ms) を経過させ、非同期処理をフラッシュ
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
 
-      final state = container.read(placesProvider);
-      expect(state.status, SearchStatus.success);
-      expect(state.suggestions, predictions);
+        final state = container.read(placesProvider);
+        expect(state.status, SearchStatus.success);
+        expect(state.suggestions, predictions);
+      });
     });
 
-    test('PlacesException のとき error 状態になる', () async {
+    test('PlacesException のとき error 状態になる', () {
       final container = _makeContainer(_ErrorPlacesService());
       addTearDown(container.dispose);
 
-      container.read(placesProvider.notifier).search('渋谷');
-      await Future<void>.delayed(const Duration(milliseconds: 500));
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).search('渋谷');
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
 
-      final state = container.read(placesProvider);
-      expect(state.status, SearchStatus.error);
-      expect(state.errorMessage, isNotNull);
+        final state = container.read(placesProvider);
+        expect(state.status, SearchStatus.error);
+        expect(state.errorMessage, isNotNull);
+      });
     });
 
-    test('連続入力でデバウンスがキャンセルされ最後の値のみ取得される', () async {
+    test('連続入力でデバウンスがキャンセルされ最後の値のみ取得される', () {
       var callCount = 0;
       final service = _CountingService(() {
         callCount++;
@@ -89,13 +96,17 @@ void main() {
       final container = _makeContainer(service);
       addTearDown(container.dispose);
 
-      // 素早く 3 回入力
-      container.read(placesProvider.notifier).search('a');
-      container.read(placesProvider.notifier).search('ab');
-      container.read(placesProvider.notifier).search('abc');
+      fakeAsync((fake) {
+        // 素早く 3 回入力
+        container.read(placesProvider.notifier).search('a');
+        container.read(placesProvider.notifier).search('ab');
+        container.read(placesProvider.notifier).search('abc');
 
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-      expect(callCount, 1); // 最後の 1 回のみ API コール
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        expect(callCount, 1); // 最後の 1 回のみ API コール
+      });
     });
   });
 }

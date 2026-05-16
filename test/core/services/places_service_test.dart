@@ -29,7 +29,7 @@ void main() {
         }, 200);
       });
 
-      final service = GooglePlacesService(client: client);
+      final service = GooglePlacesService(client: client, apiKey: 'test_key');
       final results = await service.autocomplete('渋谷');
 
       expect(results, hasLength(1));
@@ -43,7 +43,7 @@ void main() {
             _jsonResponse({'status': 'ZERO_RESULTS', 'predictions': []}, 200),
       );
 
-      final service = GooglePlacesService(client: client);
+      final service = GooglePlacesService(client: client, apiKey: 'test_key');
       final results = await service.autocomplete('xyzxyz');
 
       expect(results, isEmpty);
@@ -55,7 +55,7 @@ void main() {
             _jsonResponse({'status': 'REQUEST_DENIED', 'predictions': []}, 200),
       );
 
-      final service = GooglePlacesService(client: client);
+      final service = GooglePlacesService(client: client, apiKey: 'test_key');
       expect(
         () => service.autocomplete('test'),
         throwsA(isA<PlacesException>()),
@@ -67,7 +67,7 @@ void main() {
         (_) async => http.Response('Internal Server Error', 500),
       );
 
-      final service = GooglePlacesService(client: client);
+      final service = GooglePlacesService(client: client, apiKey: 'test_key');
       expect(
         () => service.autocomplete('test'),
         throwsA(isA<PlacesException>()),
@@ -89,7 +89,7 @@ void main() {
         }, 200);
       });
 
-      final service = GooglePlacesService(client: client);
+      final service = GooglePlacesService(client: client, apiKey: 'test_key');
       final point = await service.fetchLatLng('id_shibuya');
 
       expect(point, isNotNull);
@@ -101,7 +101,7 @@ void main() {
         (_) async => _jsonResponse({'status': 'NOT_FOUND', 'result': {}}, 200),
       );
 
-      final service = GooglePlacesService(client: client);
+      final service = GooglePlacesService(client: client, apiKey: 'test_key');
       final point = await service.fetchLatLng('bad_id');
       expect(point, isNull);
     });
@@ -109,7 +109,7 @@ void main() {
     test('HTTP エラーのとき null を返す', () async {
       final client = MockClient((_) async => http.Response('error', 500));
 
-      final service = GooglePlacesService(client: client);
+      final service = GooglePlacesService(client: client, apiKey: 'test_key');
       final point = await service.fetchLatLng('id');
       expect(point, isNull);
     });

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/models/place_prediction.dart';
 import '../../core/services/places_service.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_colors.dart';
@@ -18,6 +19,7 @@ class SearchScreen extends ConsumerStatefulWidget {
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   late final TextEditingController _ctl;
   final _focus = FocusNode();
+  bool _selecting = false;
 
   @override
   void initState() {
@@ -34,11 +36,17 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   Future<void> _selectPrediction(String placeId, String name) async {
-    final service = ref.read(placesServiceProvider);
-    final latLng = await service.fetchLatLng(placeId);
-    if (!mounted) return;
-    ref.read(appStateProvider.notifier).setDestination(name, latLng: latLng);
-    ref.read(appStateProvider.notifier).go(Screen.home);
+    if (_selecting) return;
+    setState(() => _selecting = true);
+    try {
+      final service = ref.read(placesServiceProvider);
+      final latLng = await service.fetchLatLng(placeId);
+      if (!mounted) return;
+      ref.read(appStateProvider.notifier).setDestination(name, latLng: latLng);
+      ref.read(appStateProvider.notifier).go(Screen.home);
+    } finally {
+      if (mounted) setState(() => _selecting = false);
+    }
   }
 
   @override
@@ -246,19 +254,28 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
-  Widget _buildSuggestions(ArukuColors c, List suggestions) {
-    return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 8),
-      itemCount: suggestions.length,
-      itemBuilder: (_, i) {
-        final s = suggestions[i];
-        return _SuggestionTile(
-          name: s.name,
-          address: s.address,
-          query: _ctl.text,
-          onTap: () => _selectPrediction(s.placeId, s.name),
-        );
-      },
+  Widget _buildSuggestions(ArukuColors c, List<PlacePrediction> suggestions) {
+    return Stack(
+      children: [
+        IgnorePointer(
+          ignoring: _selecting,
+          child: ListView.builder(
+            padding: const EdgeInsets.only(bottom: 8),
+            itemCount: suggestions.length,
+            itemBuilder: (_, i) {
+              final s = suggestions[i];
+              return _SuggestionTile(
+                name: s.name,
+                address: s.address,
+                query: _ctl.text,
+                onTap: () => _selectPrediction(s.placeId, s.name),
+              );
+            },
+          ),
+        ),
+        if (_selecting)
+          Center(child: CircularProgressIndicator(color: c.moss500)),
+      ],
     );
   }
 
