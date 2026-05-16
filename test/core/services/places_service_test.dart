@@ -6,14 +6,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+const _proxyBaseUrl = 'https://proxy.example.com';
+
 http.Response _jsonResponse(Object body, int status) =>
     http.Response.bytes(utf8.encode(jsonEncode(body)), status);
 
 void main() {
   group('GooglePlacesService.autocomplete', () {
-    test('OK レスポンスで PlacePrediction リストを返す', () async {
+    test('プロキシの placesProxy エンドポイントを呼び出す', () async {
       final client = MockClient((request) async {
-        expect(request.url.path, contains('autocomplete'));
+        expect(
+          request.url.toString(),
+          startsWith('$_proxyBaseUrl/placesProxy'),
+        );
+        expect(request.url.queryParameters['action'], 'autocomplete');
+        expect(request.url.queryParameters['input'], '渋谷');
         return _jsonResponse({
           'status': 'OK',
           'predictions': [
@@ -29,7 +36,10 @@ void main() {
         }, 200);
       });
 
-      final service = GooglePlacesService(client: client, apiKey: 'test_key');
+      final service = GooglePlacesService(
+        client: client,
+        proxyBaseUrl: _proxyBaseUrl,
+      );
       final results = await service.autocomplete('渋谷');
 
       expect(results, hasLength(1));
@@ -43,7 +53,10 @@ void main() {
             _jsonResponse({'status': 'ZERO_RESULTS', 'predictions': []}, 200),
       );
 
-      final service = GooglePlacesService(client: client, apiKey: 'test_key');
+      final service = GooglePlacesService(
+        client: client,
+        proxyBaseUrl: _proxyBaseUrl,
+      );
       final results = await service.autocomplete('xyzxyz');
 
       expect(results, isEmpty);
@@ -55,7 +68,10 @@ void main() {
             _jsonResponse({'status': 'REQUEST_DENIED', 'predictions': []}, 200),
       );
 
-      final service = GooglePlacesService(client: client, apiKey: 'test_key');
+      final service = GooglePlacesService(
+        client: client,
+        proxyBaseUrl: _proxyBaseUrl,
+      );
       expect(
         () => service.autocomplete('test'),
         throwsA(isA<PlacesException>()),
@@ -67,18 +83,34 @@ void main() {
         (_) async => http.Response('Internal Server Error', 500),
       );
 
-      final service = GooglePlacesService(client: client, apiKey: 'test_key');
+      final service = GooglePlacesService(
+        client: client,
+        proxyBaseUrl: _proxyBaseUrl,
+      );
       expect(
         () => service.autocomplete('test'),
         throwsA(isA<PlacesException>()),
       );
     });
+
+    test('proxyBaseUrl が空のとき空リストを返す', () async {
+      final client = MockClient((_) async => throw Exception('called'));
+
+      final service = GooglePlacesService(client: client, proxyBaseUrl: '');
+      final results = await service.autocomplete('渋谷');
+      expect(results, isEmpty);
+    });
   });
 
   group('GooglePlacesService.fetchLatLng', () {
-    test('OK レスポンスで GeoPoint を返す', () async {
+    test('プロキシの placesProxy エンドポイントを呼び出す', () async {
       final client = MockClient((request) async {
-        expect(request.url.path, contains('details'));
+        expect(
+          request.url.toString(),
+          startsWith('$_proxyBaseUrl/placesProxy'),
+        );
+        expect(request.url.queryParameters['action'], 'details');
+        expect(request.url.queryParameters['place_id'], 'id_shibuya');
         return _jsonResponse({
           'status': 'OK',
           'result': {
@@ -89,7 +121,10 @@ void main() {
         }, 200);
       });
 
-      final service = GooglePlacesService(client: client, apiKey: 'test_key');
+      final service = GooglePlacesService(
+        client: client,
+        proxyBaseUrl: _proxyBaseUrl,
+      );
       final point = await service.fetchLatLng('id_shibuya');
 
       expect(point, isNotNull);
@@ -101,17 +136,22 @@ void main() {
         (_) async => _jsonResponse({'status': 'NOT_FOUND', 'result': {}}, 200),
       );
 
-      final service = GooglePlacesService(client: client, apiKey: 'test_key');
+      final service = GooglePlacesService(
+        client: client,
+        proxyBaseUrl: _proxyBaseUrl,
+      );
       final point = await service.fetchLatLng('bad_id');
       expect(point, isNull);
     });
 
-    test('HTTP エラーのとき null を返す', () async {
+    test('HTTP エラーのとき PlacesException をスローする', () async {
       final client = MockClient((_) async => http.Response('error', 500));
 
-      final service = GooglePlacesService(client: client, apiKey: 'test_key');
-      final point = await service.fetchLatLng('id');
-      expect(point, isNull);
+      final service = GooglePlacesService(
+        client: client,
+        proxyBaseUrl: _proxyBaseUrl,
+      );
+      expect(() => service.fetchLatLng('id'), throwsA(isA<PlacesException>()));
     });
   });
 }

@@ -9,7 +9,8 @@ class AppConfig {
     defaultValue: false,
   );
 
-  /// Places Autocomplete / Geocoding 用 API キー。
-  /// `flutter run --dart-define=PLACES_API_KEY=<key>` で指定する。
-  static const String placesApiKey = String.fromEnvironment('PLACES_API_KEY');
+  /// Firebase Functions プロキシのベース URL。
+  /// 開発時: `flutter run --dart-define=PROXY_BASE_URL=http://127.0.0.1:5001/{projectId}/{region}`
+  /// 本番時: `flutter run --dart-define=PROXY_BASE_URL=https://{region}-{projectId}.cloudfunctions.net`
+  static const String proxyBaseUrl = String.fromEnvironment('PROXY_BASE_URL');
 }

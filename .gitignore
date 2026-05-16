@@ -51,3 +51,7 @@ CLAUDE.md
 # Google Maps API key secrets (copy from *.example, never commit real keys)
 secrets.properties
 ios/Flutter/Secrets.xcconfig
+
+# Claude Code / FleetView
+.agents/
+skills-lock.json
