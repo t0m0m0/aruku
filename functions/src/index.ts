@@ -3,6 +3,8 @@ import * as http from "http";
 import { onRequest, Request } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 
+import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
+
 const mapsKeySecret = defineSecret("GOOGLE_MAPS_API_KEY");
 
 // ローカル（エミュレーター）は Keychain から export した process.env を使用。
@@ -14,10 +16,9 @@ function getMapsApiKey(): string {
   return mapsKeySecret.value();
 }
 
-const PLACES_AUTOCOMPLETE_URL =
-  "https://maps.googleapis.com/maps/api/place/autocomplete/json";
-const PLACES_DETAILS_URL =
-  "https://maps.googleapis.com/maps/api/place/details/json";
+const PLACES_AUTOCOMPLETE_NEW_URL =
+  "https://places.googleapis.com/v1/places:autocomplete";
+const PLACES_DETAILS_NEW_BASE = "https://places.googleapis.com/v1/places";
 const DIRECTIONS_URL =
   "https://maps.googleapis.com/maps/api/directions/json";
 const GEOCODE_URL =
@@ -77,6 +78,32 @@ function buildUrl(base: string, params: Record<string, string>, key: string): st
   return `${base}?${qs}`;
 }
 
+// Places API (New) 用。エラー時も JSON ボディ（{error:...}）を返すため
+// ステータスコードに関わらずパースして呼び出し側（変換層）へ渡す。
+function requestJsonNew(
+  url: string,
+  method: "GET" | "POST",
+  headers: Record<string, string>,
+  body?: string
+): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, { method, headers }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer) => chunks.push(chunk));
+      res.on("end", () => {
+        try {
+          resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    req.on("error", reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
 // CORS is set to * because clients are Flutter mobile apps which are not subject
 // to browser CORS restrictions. For production, enable Firebase App Check to
 // prevent unauthorized access to this proxy.
@@ -107,10 +134,31 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, r
       res.status(400).json({ error: "input is required" });
       return;
     }
-    const data = await fetchJson(
-      buildUrl(PLACES_AUTOCOMPLETE_URL, { input, language, components }, getMapsApiKey())
+    // レガシー components="country:jp|country:us" を新 API の
+    // includedRegionCodes へ変換する。
+    const regionCodes = components
+      .split("|")
+      .map((c) => c.trim())
+      .filter((c) => c.startsWith("country:"))
+      .map((c) => c.slice("country:".length).toLowerCase())
+      .filter((c) => c.length > 0);
+
+    const data = await requestJsonNew(
+      PLACES_AUTOCOMPLETE_NEW_URL,
+      "POST",
+      {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": getMapsApiKey(),
+      },
+      JSON.stringify({
+        input,
+        languageCode: language,
+        ...(regionCodes.length > 0
+          ? { includedRegionCodes: regionCodes }
+          : {}),
+      })
     );
-    res.json(data);
+    res.json(toLegacyAutocomplete(data));
     return;
   }
 
@@ -120,13 +168,15 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, r
       res.status(400).json({ error: "place_id is required" });
       return;
     }
-    const data = await fetchJson(
-      buildUrl(PLACES_DETAILS_URL, {
-        place_id: placeId,
-        fields: "geometry",
-      }, getMapsApiKey())
+    const data = await requestJsonNew(
+      `${PLACES_DETAILS_NEW_BASE}/${encodeURIComponent(placeId)}`,
+      "GET",
+      {
+        "X-Goog-Api-Key": getMapsApiKey(),
+        "X-Goog-FieldMask": "location",
+      }
     );
-    res.json(data);
+    res.json(toLegacyDetails(data));
     return;
   }
 
