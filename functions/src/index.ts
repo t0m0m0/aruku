@@ -5,6 +5,7 @@ import { defineSecret } from "firebase-functions/params";
 
 import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
 import { toLegacyDirections } from "./routes-transform";
+import { buildRoutesRequestBody } from "./routes-request";
 
 const mapsKeySecret = defineSecret("GOOGLE_MAPS_API_KEY");
 
@@ -37,30 +38,6 @@ const ROUTES_FIELD_MASK = [
   "routes.legs.steps.transitDetails.transitLine.name",
   "routes.legs.steps.transitDetails.stopCount",
 ].join(",");
-
-function toRoutesApiMode(legacyMode: string): string {
-  switch (legacyMode) {
-    case "walking":   return "WALK";
-    case "transit":   return "TRANSIT";
-    case "driving":   return "DRIVE";
-    case "bicycling": return "BICYCLE";
-    default:          return "WALK";
-  }
-}
-
-function toLocationEndpoint(s: string):
-  | { location: { latLng: { latitude: number; longitude: number } } }
-  | { address: string } {
-  const parts = s.split(",").map((p) => parseFloat(p.trim()));
-  if (
-    parts.length === 2 &&
-    !isNaN(parts[0]) &&
-    !isNaN(parts[1])
-  ) {
-    return { location: { latLng: { latitude: parts[0], longitude: parts[1] } } };
-  }
-  return { address: s };
-}
 
 const ALLOWED_MODES = new Set(["walking", "transit", "driving", "bicycling"]);
 
@@ -254,18 +231,13 @@ export const directionsProxy = onRequest({ secrets: [mapsKeySecret] }, async (re
     return;
   }
 
-  const body: Record<string, unknown> = {
-    origin: toLocationEndpoint(origin),
-    destination: toLocationEndpoint(destination),
-    travelMode: toRoutesApiMode(rawMode),
-    computeAlternativeRoutes: alternatives,
-    languageCode: "ja",
-  };
-  if (departureTime) {
-    body["departureTime"] = new Date(
-      parseInt(departureTime, 10) * 1000
-    ).toISOString();
-  }
+  const body = buildRoutesRequestBody({
+    origin,
+    destination,
+    rawMode,
+    alternatives,
+    departureTime,
+  });
 
   const data = await requestJsonNew(
     ROUTES_API_URL,
