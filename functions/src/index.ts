@@ -277,6 +277,18 @@ export const directionsProxy = onRequest({ secrets: [mapsKeySecret] }, async (re
     },
     JSON.stringify(body)
   );
+
+  // Routes API はエラー時も HTTP 200 で {error:...} を返すことがあり、
+  // 変換層が REQUEST_DENIED へ畳むため原因が埋もれる。
+  // API キー制限・課金・無効化などの切り分け用にエラー本体を残す。
+  const record = data as Record<string, unknown> | null;
+  if (record && record["error"]) {
+    console.error(
+      "[directionsProxy] Routes API error:",
+      JSON.stringify(record["error"])
+    );
+  }
+
   res.json(toLegacyDirections(data));
 });
 
