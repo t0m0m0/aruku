@@ -4,6 +4,7 @@ import { onRequest, Request } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 
 import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
+import { toLegacyDirections } from "./routes-transform";
 
 const mapsKeySecret = defineSecret("GOOGLE_MAPS_API_KEY");
 
@@ -19,10 +20,47 @@ function getMapsApiKey(): string {
 const PLACES_AUTOCOMPLETE_NEW_URL =
   "https://places.googleapis.com/v1/places:autocomplete";
 const PLACES_DETAILS_NEW_BASE = "https://places.googleapis.com/v1/places";
-const DIRECTIONS_URL =
-  "https://maps.googleapis.com/maps/api/directions/json";
+const ROUTES_API_URL =
+  "https://routes.googleapis.com/directions/v2:computeRoutes";
 const GEOCODE_URL =
   "https://maps.googleapis.com/maps/api/geocode/json";
+
+const ROUTES_FIELD_MASK = [
+  "routes.legs.startAddress",
+  "routes.legs.endAddress",
+  "routes.legs.steps.distanceMeters",
+  "routes.legs.steps.staticDuration",
+  "routes.legs.steps.polyline.encodedPolyline",
+  "routes.legs.steps.travelMode",
+  "routes.legs.steps.transitDetails.stopDetails.departureStop.name",
+  "routes.legs.steps.transitDetails.stopDetails.arrivalStop.name",
+  "routes.legs.steps.transitDetails.transitLine.name",
+  "routes.legs.steps.transitDetails.stopCount",
+].join(",");
+
+function toRoutesApiMode(legacyMode: string): string {
+  switch (legacyMode) {
+    case "walking":   return "WALK";
+    case "transit":   return "TRANSIT";
+    case "driving":   return "DRIVE";
+    case "bicycling": return "BICYCLE";
+    default:          return "WALK";
+  }
+}
+
+function toLocationEndpoint(s: string):
+  | { location: { latLng: { latitude: number; longitude: number } } }
+  | { address: string } {
+  const parts = s.split(",").map((p) => parseFloat(p.trim()));
+  if (
+    parts.length === 2 &&
+    !isNaN(parts[0]) &&
+    !isNaN(parts[1])
+  ) {
+    return { location: { latLng: { latitude: parts[0], longitude: parts[1] } } };
+  }
+  return { address: s };
+}
 
 const ALLOWED_MODES = new Set(["walking", "transit", "driving", "bicycling"]);
 
@@ -183,7 +221,7 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, r
   res.status(400).json({ error: "action must be autocomplete or details" });
 });
 
-/** Directions API プロキシ（徒歩 / 電車） */
+/** Directions プロキシ（Routes API (New) 経由、レガシー形式で返す） */
 export const directionsProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
@@ -216,17 +254,30 @@ export const directionsProxy = onRequest({ secrets: [mapsKeySecret] }, async (re
     return;
   }
 
-  const params: Record<string, string> = {
-    origin,
-    destination,
-    mode: rawMode,
-    language: "ja",
+  const body: Record<string, unknown> = {
+    origin: toLocationEndpoint(origin),
+    destination: toLocationEndpoint(destination),
+    travelMode: toRoutesApiMode(rawMode),
+    computeAlternativeRoutes: alternatives,
+    languageCode: "ja",
   };
-  if (departureTime) params["departure_time"] = departureTime;
-  if (alternatives) params["alternatives"] = "true";
+  if (departureTime) {
+    body["departureTime"] = new Date(
+      parseInt(departureTime, 10) * 1000
+    ).toISOString();
+  }
 
-  const data = await fetchJson(buildUrl(DIRECTIONS_URL, params, getMapsApiKey()));
-  res.json(data);
+  const data = await requestJsonNew(
+    ROUTES_API_URL,
+    "POST",
+    {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": getMapsApiKey(),
+      "X-Goog-FieldMask": ROUTES_FIELD_MASK,
+    },
+    JSON.stringify(body)
+  );
+  res.json(toLegacyDirections(data));
 });
 
 /** Geocoding API プロキシ */
