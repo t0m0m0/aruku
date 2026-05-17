@@ -119,29 +119,6 @@ void main() {
     });
   });
 
-  group('DummyRouteService', () {
-    test('遅延 0 指定で妥当な RoutePlan を返す', () async {
-      final service = DummyRouteService(latency: Duration.zero);
-      final plan = await service.plan(
-        destination: '渋谷ヒカリエ',
-        destinationLatLng: null,
-        departure: const TimeValue(h: 9, m: 32),
-        arrival: const TimeValue(h: 10, m: 50),
-      );
-
-      expect(plan.segments, isNotEmpty);
-      for (final seg in plan.segments) {
-        expect(seg.polyline, isNotEmpty);
-      }
-      for (var i = 0; i < plan.segments.length - 1; i++) {
-        expect(
-          plan.segments[i].polyline.last,
-          plan.segments[i + 1].polyline.first,
-        );
-      }
-    });
-  });
-
   group('decodePolyline', () {
     test('Google の既知サンプルをデコードする', () {
       final points = decodePolyline(_encoded);
@@ -502,22 +479,6 @@ void main() {
   });
 
   group('RouteService onProgress', () {
-    test('DummyRouteService は段階を順に通知する', () async {
-      final phases = <RoutePhase>[];
-      await DummyRouteService(latency: Duration.zero).plan(
-        destination: '渋谷',
-        destinationLatLng: null,
-        departure: const TimeValue(h: 9, m: 0),
-        arrival: const TimeValue(h: 10, m: 0),
-        onProgress: phases.add,
-      );
-      expect(phases, [
-        RoutePhase.routing,
-        RoutePhase.walkability,
-        RoutePhase.building,
-      ]);
-    });
-
     test('GoogleRouteService 全徒歩経路でも段階を順に通知する', () async {
       final phases = <RoutePhase>[];
       final client = MockClient(
