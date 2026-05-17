@@ -1,4 +1,6 @@
 class AppConstants {
+  AppConstants._();
+
   static const int weeklyKcalEstimate = 1840;
 
   // 出発クイックチップ (label, h, m)

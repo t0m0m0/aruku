@@ -117,8 +117,8 @@ class AppState {
     screen: Screen.onboarding,
     destination: null,
     destinationLatLng: null,
-    departure: TimeValue(h: 9, m: 32, isNow: true, anchored: true),
-    arrival: TimeValue(h: 10, m: 50),
+    departure: TimeValue(h: 0, m: 0, isNow: true, anchored: true),
+    arrival: TimeValue(h: 0, m: 0),
     picker: null,
     route: null,
     locationState: LocationLoading(),
@@ -132,10 +132,8 @@ class AppNotifier extends Notifier<AppState> {
     final now = DateTime.now();
     final depH = now.hour;
     final depM = _roundTo5(now.minute);
-    final arrTotalMin = depH * 60 + depM + 78;
     return AppState.initial.copyWith(
       departure: TimeValue(h: depH, m: depM, isNow: true, anchored: true),
-      arrival: TimeValue(h: arrTotalMin ~/ 60 % 24, m: arrTotalMin % 60),
     );
   }
 
