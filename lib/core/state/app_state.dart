@@ -38,6 +38,10 @@ class AppState {
     required this.locationState,
     this.routeErrorKind,
     this.routePhase,
+    this.streakDays = 0,
+    this.weekKm = 0.0,
+    this.todayKm = 0.0,
+    this.todayKcal = 0,
   });
 
   final Screen screen;
@@ -50,6 +54,10 @@ class AppState {
   final LocationState locationState;
   final RouteErrorKind? routeErrorKind;
   final RoutePhase? routePhase;
+  final int streakDays;
+  final double weekKm;
+  final double todayKm;
+  final int todayKcal;
 
   int get budgetMinutes => arrival.totalMinutes - departure.totalMinutes;
 
@@ -70,6 +78,10 @@ class AppState {
     LocationState? locationState,
     Object? routeErrorKind = _sentinel,
     Object? routePhase = _sentinel,
+    int? streakDays,
+    double? weekKm,
+    double? todayKm,
+    int? todayKcal,
   }) {
     return AppState(
       screen: screen ?? this.screen,
@@ -92,6 +104,10 @@ class AppState {
       routePhase: identical(routePhase, _sentinel)
           ? this.routePhase
           : routePhase as RoutePhase?,
+      streakDays: streakDays ?? this.streakDays,
+      weekKm: weekKm ?? this.weekKm,
+      todayKm: todayKm ?? this.todayKm,
+      todayKcal: todayKcal ?? this.todayKcal,
     );
   }
 

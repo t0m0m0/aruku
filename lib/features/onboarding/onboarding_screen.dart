@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
@@ -77,14 +79,22 @@ class OnboardingScreen extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'WALK FIRST · v1.0',
-                          style: jpStyle(
-                            size: 11,
-                            weight: FontWeight.w700,
-                            color: c.moss600,
-                            letterSpacing: 0.2 * 11,
-                          ),
+                        FutureBuilder<PackageInfo>(
+                          future: PackageInfo.fromPlatform(),
+                          builder: (context, snap) {
+                            final version = snap.hasData
+                                ? snap.data!.version
+                                : '...';
+                            return Text(
+                              'WALK FIRST · v$version',
+                              style: jpStyle(
+                                size: 11,
+                                weight: FontWeight.w700,
+                                color: c.moss600,
+                                letterSpacing: 0.2 * 11,
+                              ),
+                            );
+                          },
                         ),
                         const SizedBox(height: 18),
                         RichText(
@@ -231,7 +241,7 @@ class _StatsTeaser extends StatelessWidget {
                   textBaseline: TextBaseline.alphabetic,
                   children: [
                     Text(
-                      '1,840',
+                      '${AppConstants.weeklyKcalEstimate ~/ 1000},${(AppConstants.weeklyKcalEstimate % 1000).toString().padLeft(3, '0')}',
                       style: numStyle(
                         size: 32,
                         weight: FontWeight.w600,

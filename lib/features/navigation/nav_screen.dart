@@ -13,6 +13,8 @@ class NavScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
     final notifier = ref.read(appStateProvider.notifier);
+    final state = ref.watch(appStateProvider);
+    final route = state.route;
 
     return Material(
       color: c.mapBg,
@@ -35,7 +37,11 @@ class NavScreen extends ConsumerWidget {
                 // Bottom stats bar
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-                  child: _StatsBar(),
+                  child: _StatsBar(
+                    totalKm: route?.totalKm ?? 0.0,
+                    arrivalTime: state.arrival.format(),
+                    consumedKcal: state.todayKcal,
+                  ),
                 ),
               ],
             ),
@@ -127,7 +133,7 @@ class _InstructionCard extends StatelessWidget {
                       textBaseline: TextBaseline.alphabetic,
                       children: [
                         Text(
-                          '200',
+                          '--',
                           style: numStyle(
                             size: 32,
                             weight: FontWeight.w500,
@@ -147,7 +153,7 @@ class _InstructionCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'そのあと右折 · 表参道方面',
+                      '--',
                       style: jpStyle(
                         size: 13,
                         weight: FontWeight.w500,
@@ -190,7 +196,7 @@ class _InstructionCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Text(
-                '1.2 km',
+                '--',
                 style: numStyle(
                   size: 12,
                   weight: FontWeight.w500,
@@ -199,7 +205,7 @@ class _InstructionCard extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               Text(
-                ' 先 · 渋谷川沿いを左へ',
+                '--',
                 style: jpStyle(
                   size: 12,
                   weight: FontWeight.w600,
@@ -215,6 +221,16 @@ class _InstructionCard extends StatelessWidget {
 }
 
 class _StatsBar extends StatelessWidget {
+  const _StatsBar({
+    required this.totalKm,
+    required this.arrivalTime,
+    required this.consumedKcal,
+  });
+
+  final double totalKm;
+  final String arrivalTime;
+  final int consumedKcal;
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -238,7 +254,7 @@ class _StatsBar extends StatelessWidget {
           Row(
             children: [
               Text(
-                '2.1 / 6.2 km',
+                '0.0 / ${totalKm.toStringAsFixed(1)} km',
                 style: numStyle(
                   size: 11,
                   weight: FontWeight.w700,
@@ -260,7 +276,7 @@ class _StatsBar extends StatelessWidget {
                         ),
                       ),
                       FractionallySizedBox(
-                        widthFactor: 0.34,
+                        widthFactor: 0.0,
                         child: Container(
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
@@ -276,7 +292,7 @@ class _StatsBar extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Text(
-                '34%',
+                '0%',
                 style: numStyle(
                   size: 11,
                   weight: FontWeight.w700,
@@ -303,7 +319,7 @@ class _StatsBar extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        '09:42',
+                        arrivalTime,
                         style: numStyle(
                           size: 28,
                           weight: FontWeight.w500,
@@ -334,7 +350,7 @@ class _StatsBar extends StatelessWidget {
                           textBaseline: TextBaseline.alphabetic,
                           children: [
                             Text(
-                              '4.1',
+                              totalKm.toStringAsFixed(1),
                               style: numStyle(
                                 size: 28,
                                 weight: FontWeight.w500,
@@ -377,7 +393,7 @@ class _StatsBar extends StatelessWidget {
                           textBaseline: TextBaseline.alphabetic,
                           children: [
                             Text(
-                              '97',
+                              '$consumedKcal',
                               style: numStyle(
                                 size: 28,
                                 weight: FontWeight.w500,

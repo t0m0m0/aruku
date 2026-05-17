@@ -285,11 +285,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   Widget _buildRecents(ArukuColors c, AppNotifier notifier) {
-    final recents = [
-      _Recent('表参道ヒルズ', '東京都渋谷区神宮前4', _RecentIcon.pin),
-      _Recent('新宿御苑', '東京都新宿区内藤町11', _RecentIcon.leaf),
-      _Recent('東京駅 丸の内中央口', '東京都千代田区丸の内1', _RecentIcon.train),
-    ];
+    const recents = <_Recent>[];
+
+    if (recents.isEmpty) {
+      return const Center(child: SizedBox.shrink());
+    }
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 8),
