@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/models/time_value.dart';
+import '../../core/services/route_service.dart';
+import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_map.dart';
 
-class LoadingScreen extends StatefulWidget {
+class LoadingScreen extends ConsumerStatefulWidget {
   const LoadingScreen({super.key});
 
   @override
-  State<LoadingScreen> createState() => _LoadingScreenState();
+  ConsumerState<LoadingScreen> createState() => _LoadingScreenState();
 }
 
-class _LoadingScreenState extends State<LoadingScreen>
+class _LoadingScreenState extends ConsumerState<LoadingScreen>
     with TickerProviderStateMixin {
   late final AnimationController _pulse;
   late final AnimationController _bob;
@@ -44,6 +48,18 @@ class _LoadingScreenState extends State<LoadingScreen>
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final state = ref.watch(appStateProvider);
+    final budget = TimeValue.formatBudgetJp(state.budgetMinutes);
+    final dest = state.destination;
+    final subtitle = dest != null && dest.isNotEmpty
+        ? '$dest まで · 制限 $budget'
+        : '制限 $budget';
+    final phaseIndex = switch (state.routePhase) {
+      RoutePhase.routing => 0,
+      RoutePhase.walkability => 1,
+      RoutePhase.building => 2,
+      null => 0,
+    };
     return Material(
       color: c.ivory,
       child: Stack(
@@ -158,7 +174,7 @@ class _LoadingScreenState extends State<LoadingScreen>
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '渋谷ヒカリエまで · 制限 1.5時間',
+                  subtitle,
                   style: jpStyle(
                     size: 13,
                     weight: FontWeight.w500,
@@ -166,7 +182,7 @@ class _LoadingScreenState extends State<LoadingScreen>
                   ),
                 ),
                 const SizedBox(height: 32),
-                _ProgressSteps(),
+                _ProgressSteps(phaseIndex: phaseIndex),
               ],
             ),
           ),
@@ -177,6 +193,10 @@ class _LoadingScreenState extends State<LoadingScreen>
 }
 
 class _ProgressSteps extends StatelessWidget {
+  const _ProgressSteps({required this.phaseIndex});
+
+  final int phaseIndex;
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -186,11 +206,12 @@ class _ProgressSteps extends StatelessWidget {
       children: [
         for (int i = 0; i < labels.length; i++) ...[
           Container(
+            key: ValueKey('loading-step-$i-${i <= phaseIndex ? 'on' : 'off'}'),
             width: 7,
             height: 7,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: i < 2 ? c.moss500 : c.ink4,
+              color: i <= phaseIndex ? c.moss500 : c.ink4,
             ),
           ),
           const SizedBox(width: 6),
@@ -199,7 +220,7 @@ class _ProgressSteps extends StatelessWidget {
             style: jpStyle(
               size: 11,
               weight: FontWeight.w700,
-              color: i < 2 ? c.moss600 : c.ink3,
+              color: i <= phaseIndex ? c.moss600 : c.ink3,
             ),
           ),
           if (i < labels.length - 1) ...[
