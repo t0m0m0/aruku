@@ -30,6 +30,7 @@ class _FlakyRouteService implements RouteService {
     required TimeValue departure,
     required TimeValue arrival,
     GeoPoint? origin,
+    void Function(RoutePhase)? onProgress,
   }) async {
     calls++;
     if (calls == 1) throw const RouteException('NETWORK');
