@@ -38,6 +38,10 @@ class AppState {
     required this.locationState,
     this.routeErrorKind,
     this.routePhase,
+    this.streakDays = 0,
+    this.weekKm = 0.0,
+    this.todayKm = 0.0,
+    this.todayKcal = 0,
   });
 
   final Screen screen;
@@ -50,6 +54,10 @@ class AppState {
   final LocationState locationState;
   final RouteErrorKind? routeErrorKind;
   final RoutePhase? routePhase;
+  final int streakDays;
+  final double weekKm;
+  final double todayKm;
+  final int todayKcal;
 
   int get budgetMinutes => arrival.totalMinutes - departure.totalMinutes;
 
@@ -70,6 +78,10 @@ class AppState {
     LocationState? locationState,
     Object? routeErrorKind = _sentinel,
     Object? routePhase = _sentinel,
+    int? streakDays,
+    double? weekKm,
+    double? todayKm,
+    int? todayKcal,
   }) {
     return AppState(
       screen: screen ?? this.screen,
@@ -92,6 +104,10 @@ class AppState {
       routePhase: identical(routePhase, _sentinel)
           ? this.routePhase
           : routePhase as RoutePhase?,
+      streakDays: streakDays ?? this.streakDays,
+      weekKm: weekKm ?? this.weekKm,
+      todayKm: todayKm ?? this.todayKm,
+      todayKcal: todayKcal ?? this.todayKcal,
     );
   }
 
@@ -101,8 +117,8 @@ class AppState {
     screen: Screen.onboarding,
     destination: null,
     destinationLatLng: null,
-    departure: TimeValue(h: 9, m: 32, isNow: true, anchored: true),
-    arrival: TimeValue(h: 10, m: 50),
+    departure: TimeValue(h: 0, m: 0, isNow: true, anchored: true),
+    arrival: TimeValue(h: 0, m: 0),
     picker: null,
     route: null,
     locationState: LocationLoading(),
@@ -113,7 +129,12 @@ class AppNotifier extends Notifier<AppState> {
   @override
   AppState build() {
     unawaited(_fetchLocation());
-    return AppState.initial;
+    final now = DateTime.now();
+    final depH = now.hour;
+    final depM = _roundTo5(now.minute);
+    return AppState.initial.copyWith(
+      departure: TimeValue(h: depH, m: depM, isNow: true, anchored: true),
+    );
   }
 
   Future<void> _fetchLocation() async {

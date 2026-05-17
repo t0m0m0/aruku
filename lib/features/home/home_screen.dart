@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/models/time_value.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
@@ -38,7 +39,7 @@ class HomeScreen extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '5月15日 (金) · おはようございます',
+                              AppConstants.todayGreeting(),
                               style: jpStyle(
                                 size: 12,
                                 weight: FontWeight.w600,
@@ -94,7 +95,7 @@ class HomeScreen extends ConsumerWidget {
                         Ic.fire(size: 14, color: c.burnt),
                         const SizedBox(width: 6),
                         Text(
-                          '12日連続',
+                          '${state.streakDays}日連続',
                           style: jpStyle(
                             size: 12,
                             weight: FontWeight.w700,
@@ -103,7 +104,7 @@ class HomeScreen extends ConsumerWidget {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          '· 今週 9.4km',
+                          '· 今週 ${state.weekKm.toStringAsFixed(1)}km',
                           style: jpStyle(
                             size: 12,
                             weight: FontWeight.w500,
@@ -236,22 +237,24 @@ class HomeScreen extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Row(
-                  children: const [
+                  children: [
                     _SummaryItem(
                       label: '今日歩いた',
-                      value: '3.1',
+                      value: state.todayKm.toStringAsFixed(1),
                       unit: 'km',
                       leading: false,
                     ),
                     _SummaryItem(
                       label: '消費',
-                      value: '142',
+                      value: '${state.todayKcal}',
                       unit: 'kcal',
                       leading: true,
                     ),
                     _SummaryItem(
                       label: '目標まで',
-                      value: '4.4',
+                      value: (10.0 - state.weekKm)
+                          .clamp(0.0, 10.0)
+                          .toStringAsFixed(1),
                       unit: 'km',
                       leading: true,
                     ),

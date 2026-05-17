@@ -285,43 +285,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   Widget _buildRecents(ArukuColors c, AppNotifier notifier) {
-    final recents = [
-      _Recent('表参道ヒルズ', '東京都渋谷区神宮前4', _RecentIcon.pin),
-      _Recent('新宿御苑', '東京都新宿区内藤町11', _RecentIcon.leaf),
-      _Recent('東京駅 丸の内中央口', '東京都千代田区丸の内1', _RecentIcon.train),
-    ];
-
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 8),
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(22, 18, 22, 6),
-          child: Row(
-            children: [
-              Ic.history(size: 12, color: c.ink3),
-              const SizedBox(width: 6),
-              Text(
-                '最近の検索',
-                style: jpStyle(
-                  size: 10,
-                  weight: FontWeight.w800,
-                  color: c.ink3,
-                  letterSpacing: 0.12 * 10,
-                ),
-              ),
-            ],
-          ),
-        ),
-        for (final r in recents)
-          _RecentTile(
-            recent: r,
-            onTap: () {
-              notifier.setDestination(r.name);
-              notifier.go(Screen.home);
-            },
-          ),
-      ],
-    );
+    return const SizedBox.shrink();
   }
 }
 
@@ -408,81 +372,6 @@ class _SuggestionTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: jpStyle(
                       size: 12,
-                      weight: FontWeight.w500,
-                      color: c.ink3,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-enum _RecentIcon { pin, leaf, train }
-
-class _Recent {
-  _Recent(this.name, this.sub, this.icon);
-  final String name;
-  final String sub;
-  final _RecentIcon icon;
-}
-
-class _RecentTile extends StatelessWidget {
-  const _RecentTile({required this.recent, required this.onTap});
-  final _Recent recent;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    Widget icon;
-    switch (recent.icon) {
-      case _RecentIcon.leaf:
-        icon = Ic.leaf(size: 16, color: c.ink3);
-        break;
-      case _RecentIcon.train:
-        icon = Ic.train(size: 16, color: c.ink3);
-        break;
-      case _RecentIcon.pin:
-        icon = Ic.pin(size: 16, color: c.ink3);
-        break;
-    }
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
-        child: Row(
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                border: Border.all(color: c.hairline),
-                borderRadius: BorderRadius.circular(11),
-              ),
-              child: Center(child: icon),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    recent.name,
-                    style: jpStyle(
-                      size: 15,
-                      weight: FontWeight.w700,
-                      color: c.ink,
-                    ),
-                  ),
-                  Text(
-                    recent.sub,
-                    style: jpStyle(
-                      size: 11,
                       weight: FontWeight.w500,
                       color: c.ink3,
                     ),

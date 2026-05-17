@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/models/time_value.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
@@ -346,12 +347,10 @@ class _QuickChips extends ConsumerWidget {
     final notifier = ref.read(appStateProvider.notifier);
     final chips = <_ChipData>[];
     if (picker.mode == PickerMode.depart) {
-      chips.addAll([
-        _ChipData('今すぐ', departure.h, departure.m),
-        _ChipData('10:00', 10, 0),
-        _ChipData('12:00', 12, 0),
-        _ChipData('18:00', 18, 0),
-      ]);
+      chips.add(_ChipData('今すぐ', departure.h, departure.m));
+      for (final t in AppConstants.departTimeChips) {
+        chips.add(_ChipData(t.label, t.h, t.m));
+      }
     } else {
       for (final d in const [30, 60, 90, 120, 180, 360]) {
         final total = (departure.h * 60 + departure.m + d) % (24 * 60);

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/models/route_plan.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
@@ -16,7 +17,8 @@ class ResultScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
     final notifier = ref.read(appStateProvider.notifier);
-    final route = ref.watch(appStateProvider).route;
+    final state = ref.watch(appStateProvider);
+    final route = state.route;
     if (route == null) {
       return Material(
         color: c.ivory,
@@ -84,7 +86,7 @@ class ResultScreen extends ConsumerWidget {
                   Expanded(
                     child: Center(
                       child: Text(
-                        '5月15日 (金) · 9:32 出発',
+                        '${AppConstants.todayDateLabel()} · ${state.departure.format()} 出発',
                         style: jpStyle(
                           size: 12,
                           weight: FontWeight.w700,
