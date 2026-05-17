@@ -1,3 +1,8 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:http/http.dart' as http;
+
 import '../services/route_service.dart';
 
 /// ルート計算失敗の種別。UI の文言と復帰導線の出し分けに使う。
@@ -32,6 +37,7 @@ RouteErrorKind classifyRouteError(Object error) {
       case 'NOT_FOUND':
         return RouteErrorKind.noResults;
       case 'UNKNOWN_ERROR':
+      case 'UNKNOWN':
       case 'OVER_QUERY_LIMIT':
         return RouteErrorKind.network;
     }
@@ -39,13 +45,11 @@ RouteErrorKind classifyRouteError(Object error) {
     // NO_PROXY / REQUEST_DENIED / INVALID_REQUEST など設定・権限系。
     return RouteErrorKind.unknown;
   }
-  // SocketException / TimeoutException など通信系の汎用例外。
-  final name = error.runtimeType.toString();
-  if (name.contains('SocketException') ||
-      name.contains('TimeoutException') ||
-      name.contains('HttpException') ||
-      name.contains('HandshakeException') ||
-      name.contains('ClientException')) {
+  // SocketException / HttpException / HandshakeException など dart:io 系、
+  // TimeoutException、http パッケージの ClientException は通信系として扱う。
+  if (error is IOException ||
+      error is TimeoutException ||
+      error is http.ClientException) {
     return RouteErrorKind.network;
   }
   return RouteErrorKind.unknown;

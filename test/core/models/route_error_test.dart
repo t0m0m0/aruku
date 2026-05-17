@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:aruku/core/models/route_error.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 
 void main() {
   group('classifyRouteError', () {
@@ -42,11 +43,19 @@ void main() {
         RouteErrorKind.network,
       );
       expect(
+        classifyRouteError(const RouteException('UNKNOWN')),
+        RouteErrorKind.network,
+      );
+      expect(
         classifyRouteError(const SocketException('failed')),
         RouteErrorKind.network,
       );
       expect(
         classifyRouteError(TimeoutException('slow')),
+        RouteErrorKind.network,
+      );
+      expect(
+        classifyRouteError(http.ClientException('reset')),
         RouteErrorKind.network,
       );
     });
