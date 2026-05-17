@@ -129,7 +129,14 @@ class AppNotifier extends Notifier<AppState> {
   @override
   AppState build() {
     unawaited(_fetchLocation());
-    return AppState.initial;
+    final now = DateTime.now();
+    final depH = now.hour;
+    final depM = _roundTo5(now.minute);
+    final arrTotalMin = depH * 60 + depM + 78;
+    return AppState.initial.copyWith(
+      departure: TimeValue(h: depH, m: depM, isNow: true, anchored: true),
+      arrival: TimeValue(h: arrTotalMin ~/ 60 % 24, m: arrTotalMin % 60),
+    );
   }
 
   Future<void> _fetchLocation() async {
