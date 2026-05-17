@@ -101,6 +101,12 @@ class ResultScreen extends ConsumerWidget {
               ),
             ),
 
+            if (route.totalMin > route.budgetMin)
+              _OverBudgetBanner(
+                overMin: route.totalMin - route.budgetMin,
+                onChange: () => notifier.go(Screen.search),
+              ),
+
             // Journey card
             Expanded(
               child: Padding(
@@ -137,6 +143,79 @@ class ResultScreen extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _OverBudgetBanner extends StatelessWidget {
+  const _OverBudgetBanner({required this.overMin, required this.onChange});
+  final int overMin;
+  final VoidCallback onChange;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(14, 0, 14, 4),
+      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+      decoration: BoxDecoration(
+        color: c.burnt.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: c.burnt.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        children: [
+          Ic.search(size: 18, color: c.burnt),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '制限時間を$overMin分超過しています',
+                  style: jpStyle(
+                    size: 13,
+                    weight: FontWeight.w800,
+                    color: c.ink,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '予算内で到達できる経路が見つかりませんでした',
+                  style: jpStyle(
+                    size: 11,
+                    weight: FontWeight.w500,
+                    color: c.ink3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Material(
+            color: c.burnt,
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              onTap: onChange,
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                child: Text(
+                  '条件を変更',
+                  style: jpStyle(
+                    size: 12,
+                    weight: FontWeight.w800,
+                    color: c.ivory,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
