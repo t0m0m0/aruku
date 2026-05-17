@@ -7,7 +7,8 @@
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "dev": "npm run build && GOOGLE_MAPS_API_KEY=$(security find-generic-password -a \"$USER\" -s \"GOOGLE_MAPS_API_KEY\" -w) firebase emulators:start --only functions"
+    "dev": "npm run build && GOOGLE_MAPS_API_KEY=$(security find-generic-password -a \"$USER\" -s \"GOOGLE_MAPS_API_KEY\" -w) firebase emulators:start --only functions",
+    "test": "vitest run"
   },
   "engines": {
     "node": "20"
@@ -19,7 +20,8 @@
   },
   "devDependencies": {
     "typescript": "^5.6.3",
-    "@types/node": "^22.10.5"
+    "@types/node": "^22.10.5",
+    "vitest": "^4.1.6"
   },
   "private": true
 }
