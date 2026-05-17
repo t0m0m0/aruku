@@ -198,12 +198,16 @@ describe("toLegacyDirections", () => {
     });
   });
 
-  it("start_address / end_address が無い場合は空文字になる", () => {
+  it("start_address / end_address が無い場合はキーを省略する", () => {
+    // Routes API はレッグにアドレスを返さない。クライアントの
+    // `as String? ?? '出発地'` を効かせるため undefined（キー無し）にする。
     const raw = routesResponse([
       { legs: [{ steps: [walkStep(1000, 600)] }] },
     ]);
-    const result = toLegacyDirections(raw);
-    expect(result.routes[0].legs[0].start_address).toBe("");
-    expect(result.routes[0].legs[0].end_address).toBe("");
+    const leg = toLegacyDirections(raw).routes[0].legs[0];
+    expect(leg.start_address).toBeUndefined();
+    expect(leg.end_address).toBeUndefined();
+    expect("start_address" in leg).toBe(false);
+    expect("end_address" in leg).toBe(false);
   });
 });

@@ -25,9 +25,9 @@ const ROUTES_API_URL =
 const GEOCODE_URL =
   "https://maps.googleapis.com/maps/api/geocode/json";
 
+// Routes API のレッグに startAddress/endAddress は存在しない（座標のみ）。
+// 存在しないパスを field mask に含めると API は 400 を返すため指定しない。
 const ROUTES_FIELD_MASK = [
-  "routes.legs.startAddress",
-  "routes.legs.endAddress",
   "routes.legs.steps.distanceMeters",
   "routes.legs.steps.staticDuration",
   "routes.legs.steps.polyline.encodedPolyline",

@@ -17,9 +17,12 @@ export interface LegacyStep {
   transit_details?: LegacyTransitDetails;
 }
 
+// Routes API はレッグにアドレスを返さない（座標のみ）。
+// start_address/end_address は省略し、クライアント側の
+// '出発地'/'目的地' フォールバック（`as String? ?? ...`）に委ねる。
 export interface LegacyLeg {
-  start_address: string;
-  end_address: string;
+  start_address?: string;
+  end_address?: string;
   steps: LegacyStep[];
 }
 
@@ -110,13 +113,14 @@ function toLegacyLeg(raw: unknown): LegacyLeg | null {
     }
   }
 
-  return {
-    start_address:
-      typeof leg["startAddress"] === "string" ? leg["startAddress"] : "",
-    end_address:
-      typeof leg["endAddress"] === "string" ? leg["endAddress"] : "",
-    steps,
-  };
+  const result: LegacyLeg = { steps };
+  if (typeof leg["startAddress"] === "string") {
+    result.start_address = leg["startAddress"];
+  }
+  if (typeof leg["endAddress"] === "string") {
+    result.end_address = leg["endAddress"];
+  }
+  return result;
 }
 
 function toLegacyRoute(raw: unknown): LegacyRoute | null {
