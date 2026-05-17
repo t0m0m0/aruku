@@ -1,11 +1,18 @@
 import * as https from "https";
 import * as http from "http";
 import { onRequest, Request } from "firebase-functions/v2/https";
+import { defineSecret } from "firebase-functions/params";
 
-if (!process.env.GOOGLE_MAPS_API_KEY) {
-  console.warn("[proxy] GOOGLE_MAPS_API_KEY is not set — all API calls will fail");
+const mapsKeySecret = defineSecret("GOOGLE_MAPS_API_KEY");
+
+// ローカル（エミュレーター）は Keychain から export した process.env を使用。
+// 本番は Secret Manager から取得。
+function getMapsApiKey(): string {
+  if (process.env.FUNCTIONS_EMULATOR === "true") {
+    return process.env.GOOGLE_MAPS_API_KEY ?? "";
+  }
+  return mapsKeySecret.value();
 }
-const MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY ?? "";
 
 const PLACES_AUTOCOMPLETE_URL =
   "https://maps.googleapis.com/maps/api/place/autocomplete/json";
@@ -65,8 +72,8 @@ function fetchJson(url: string): Promise<unknown> {
   });
 }
 
-function buildUrl(base: string, params: Record<string, string>): string {
-  const qs = new URLSearchParams({ ...params, key: MAPS_API_KEY }).toString();
+function buildUrl(base: string, params: Record<string, string>, key: string): string {
+  const qs = new URLSearchParams({ ...params, key }).toString();
   return `${base}?${qs}`;
 }
 
@@ -75,7 +82,7 @@ function buildUrl(base: string, params: Record<string, string>): string {
 // prevent unauthorized access to this proxy.
 
 /** Places Autocomplete / Details プロキシ */
-export const placesProxy = onRequest(async (req, res) => {
+export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Methods", "GET");
@@ -101,7 +108,7 @@ export const placesProxy = onRequest(async (req, res) => {
       return;
     }
     const data = await fetchJson(
-      buildUrl(PLACES_AUTOCOMPLETE_URL, { input, language, components })
+      buildUrl(PLACES_AUTOCOMPLETE_URL, { input, language, components }, getMapsApiKey())
     );
     res.json(data);
     return;
@@ -117,7 +124,7 @@ export const placesProxy = onRequest(async (req, res) => {
       buildUrl(PLACES_DETAILS_URL, {
         place_id: placeId,
         fields: "geometry",
-      })
+      }, getMapsApiKey())
     );
     res.json(data);
     return;
@@ -127,7 +134,7 @@ export const placesProxy = onRequest(async (req, res) => {
 });
 
 /** Directions API プロキシ（徒歩 / 電車） */
-export const directionsProxy = onRequest(async (req, res) => {
+export const directionsProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Methods", "GET");
@@ -168,12 +175,12 @@ export const directionsProxy = onRequest(async (req, res) => {
   if (departureTime) params["departure_time"] = departureTime;
   if (alternatives) params["alternatives"] = "true";
 
-  const data = await fetchJson(buildUrl(DIRECTIONS_URL, params));
+  const data = await fetchJson(buildUrl(DIRECTIONS_URL, params, getMapsApiKey()));
   res.json(data);
 });
 
 /** Geocoding API プロキシ */
-export const geocodeProxy = onRequest(async (req, res) => {
+export const geocodeProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Methods", "GET");
@@ -199,6 +206,6 @@ export const geocodeProxy = onRequest(async (req, res) => {
   if (address) params["address"] = address;
   if (latlng) params["latlng"] = latlng;
 
-  const data = await fetchJson(buildUrl(GEOCODE_URL, params));
+  const data = await fetchJson(buildUrl(GEOCODE_URL, params, getMapsApiKey()));
   res.json(data);
 });
