@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/models/route_error.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
@@ -12,7 +13,25 @@ class ErrorScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
     final notifier = ref.read(appStateProvider.notifier);
-    final message = ref.watch(appStateProvider).routeError ?? 'ルートを取得できませんでした';
+    final kind =
+        ref.watch(appStateProvider).routeErrorKind ?? RouteErrorKind.unknown;
+    final view = routeErrorView(kind);
+
+    final retry = _Action(label: '再試行', onTap: () => notifier.startSearch());
+    final changeConditions = _Action(
+      label: '条件を変更',
+      onTap: () => notifier.go(Screen.search),
+    );
+    final back = _Action(
+      label: '検索に戻る',
+      onTap: () => notifier.go(Screen.search),
+    );
+    final (
+      primary,
+      secondary,
+    ) = view.primaryRecovery == RouteRecovery.changeConditions
+        ? (changeConditions, retry)
+        : (retry, back);
 
     return Material(
       color: c.ivory,
@@ -35,7 +54,7 @@ class ErrorScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  message,
+                  view.title,
                   textAlign: TextAlign.center,
                   style: jpStyle(
                     size: 20,
@@ -45,7 +64,7 @@ class ErrorScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '通信状況を確認してもう一度お試しください',
+                  view.description,
                   textAlign: TextAlign.center,
                   style: jpStyle(
                     size: 13,
@@ -54,14 +73,11 @@ class ErrorScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 32),
-                _PrimaryButton(
-                  label: '再試行',
-                  onTap: () => notifier.startSearch(),
-                ),
+                _PrimaryButton(label: primary.label, onTap: primary.onTap),
                 const SizedBox(height: 12),
                 _SecondaryButton(
-                  label: '検索に戻る',
-                  onTap: () => notifier.go(Screen.search),
+                  label: secondary.label,
+                  onTap: secondary.onTap,
                 ),
               ],
             ),
@@ -70,6 +86,12 @@ class ErrorScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+class _Action {
+  const _Action({required this.label, required this.onTap});
+  final String label;
+  final VoidCallback onTap;
 }
 
 class _PrimaryButton extends StatelessWidget {

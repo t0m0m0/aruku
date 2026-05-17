@@ -11,6 +11,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _ThrowingRouteService implements RouteService {
+  _ThrowingRouteService(this.status);
+  final String status;
+
   @override
   Future<RoutePlan> plan({
     required String? destination,
@@ -19,7 +22,7 @@ class _ThrowingRouteService implements RouteService {
     required TimeValue arrival,
     GeoPoint? origin,
     void Function(RoutePhase)? onProgress,
-  }) async => throw const RouteException('NETWORK');
+  }) async => throw RouteException(status);
 }
 
 Widget _wrap(ProviderContainer container, Widget child) =>
@@ -28,19 +31,23 @@ Widget _wrap(ProviderContainer container, Widget child) =>
       child: MaterialApp(theme: ArukuTheme.light(), home: child),
     );
 
-void main() {
-  testWidgets('ErrorScreen はエラー文言と再試行・検索に戻る導線を表示する', (tester) async {
-    final container = ProviderContainer(
-      overrides: [
-        routeServiceProvider.overrideWithValue(_ThrowingRouteService()),
-      ],
-    );
-    addTearDown(container.dispose);
+ProviderContainer _erroredContainer(String status) {
+  final container = ProviderContainer(
+    overrides: [
+      routeServiceProvider.overrideWithValue(_ThrowingRouteService(status)),
+    ],
+  );
+  addTearDown(container.dispose);
+  return container;
+}
 
+void main() {
+  testWidgets('通信失敗は network 文言と主導線「再試行」を表示する', (tester) async {
+    final container = _erroredContainer('HTTP 500');
     await container.read(appStateProvider.notifier).startSearch();
     await tester.pumpWidget(_wrap(container, const ErrorScreen()));
 
-    expect(find.text('ルートを取得できませんでした'), findsOneWidget);
+    expect(find.text('通信に失敗しました'), findsOneWidget);
     expect(find.text('再試行'), findsOneWidget);
     expect(find.text('検索に戻る'), findsOneWidget);
 
@@ -49,7 +56,29 @@ void main() {
     expect(container.read(appStateProvider).screen, Screen.search);
   });
 
-  testWidgets('ResultScreen は route が null のとき空画面でなく復帰導線を出す', (tester) async {
+  testWidgets('候補なしは noResults 文言と主導線「条件を変更」を表示する', (tester) async {
+    final container = _erroredContainer('ZERO_RESULTS');
+    await container.read(appStateProvider.notifier).startSearch();
+    await tester.pumpWidget(_wrap(container, const ErrorScreen()));
+
+    expect(find.text('ルートが見つかりませんでした'), findsOneWidget);
+    expect(find.text('条件を変更'), findsOneWidget);
+
+    await tester.tap(find.text('条件を変更'));
+    await tester.pump();
+    expect(container.read(appStateProvider).screen, Screen.search);
+  });
+
+  testWidgets('現在地取得失敗は noLocation 文言を表示する', (tester) async {
+    final container = _erroredContainer('NO_ORIGIN');
+    await container.read(appStateProvider.notifier).startSearch();
+    await tester.pumpWidget(_wrap(container, const ErrorScreen()));
+
+    expect(find.text('現在地を取得できませんでした'), findsOneWidget);
+    expect(find.text('再試行'), findsOneWidget);
+  });
+
+  testWidgets('ResultScreen は route が null のとき復帰導線を出す', (tester) async {
     final container = ProviderContainer();
     addTearDown(container.dispose);
 

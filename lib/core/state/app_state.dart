@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/geo_point.dart';
 import '../models/location_state.dart';
+import '../models/route_error.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
 import '../services/location_service.dart';
@@ -35,7 +36,7 @@ class AppState {
     required this.picker,
     required this.route,
     required this.locationState,
-    this.routeError,
+    this.routeErrorKind,
     this.routePhase,
   });
 
@@ -47,7 +48,7 @@ class AppState {
   final PickerState? picker;
   final RoutePlan? route;
   final LocationState locationState;
-  final String? routeError;
+  final RouteErrorKind? routeErrorKind;
   final RoutePhase? routePhase;
 
   int get budgetMinutes => arrival.totalMinutes - departure.totalMinutes;
@@ -67,7 +68,7 @@ class AppState {
     Object? picker = _sentinel,
     Object? route = _sentinel,
     LocationState? locationState,
-    Object? routeError = _sentinel,
+    Object? routeErrorKind = _sentinel,
     Object? routePhase = _sentinel,
   }) {
     return AppState(
@@ -85,9 +86,9 @@ class AppState {
           : picker as PickerState?,
       route: identical(route, _sentinel) ? this.route : route as RoutePlan?,
       locationState: locationState ?? this.locationState,
-      routeError: identical(routeError, _sentinel)
-          ? this.routeError
-          : routeError as String?,
+      routeErrorKind: identical(routeErrorKind, _sentinel)
+          ? this.routeErrorKind
+          : routeErrorKind as RouteErrorKind?,
       routePhase: identical(routePhase, _sentinel)
           ? this.routePhase
           : routePhase as RoutePhase?,
@@ -175,7 +176,7 @@ class AppNotifier extends Notifier<AppState> {
   Future<void> startSearch() async {
     state = state.copyWith(
       screen: Screen.loading,
-      routeError: null,
+      routeErrorKind: null,
       routePhase: RoutePhase.routing,
     );
     final origin = switch (state.locationState) {
@@ -196,13 +197,13 @@ class AppNotifier extends Notifier<AppState> {
       state = state.copyWith(
         screen: Screen.result,
         route: plan,
-        routeError: null,
+        routeErrorKind: null,
         routePhase: null,
       );
     } catch (e) {
       state = state.copyWith(
         screen: Screen.error,
-        routeError: 'ルートを取得できませんでした',
+        routeErrorKind: classifyRouteError(e),
         routePhase: null,
       );
     }
