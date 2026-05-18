@@ -7,6 +7,7 @@ class TimeValue {
     required this.m,
     this.isNow = false,
     this.anchored = false,
+    this.dateOffset = 0,
   });
 
   /// 0–23
@@ -21,15 +22,24 @@ class TimeValue {
   /// True for the side that the user explicitly anchored.
   final bool anchored;
 
+  /// 0 = 今日, 1 = 明日. isNow=true のときは無視される。
+  final int dateOffset;
+
   int get totalMinutes => h * 60 + m;
 
-  TimeValue copyWith({int? h, int? m, bool? isNow, bool? anchored}) =>
-      TimeValue(
-        h: h ?? this.h,
-        m: m ?? this.m,
-        isNow: isNow ?? this.isNow,
-        anchored: anchored ?? this.anchored,
-      );
+  TimeValue copyWith({
+    int? h,
+    int? m,
+    bool? isNow,
+    bool? anchored,
+    int? dateOffset,
+  }) => TimeValue(
+    h: h ?? this.h,
+    m: m ?? this.m,
+    isNow: isNow ?? this.isNow,
+    anchored: anchored ?? this.anchored,
+    dateOffset: dateOffset ?? this.dateOffset,
+  );
 
   String format() =>
       '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';

@@ -24,14 +24,27 @@ enum Screen {
 
 @immutable
 class PickerState {
-  const PickerState({required this.mode, required this.h, required this.m});
+  const PickerState({
+    required this.mode,
+    required this.h,
+    required this.m,
+    this.dateOffset = 0,
+  });
 
   final PickerMode mode;
   final int h;
   final int m;
 
-  PickerState copyWith({PickerMode? mode, int? h, int? m}) =>
-      PickerState(mode: mode ?? this.mode, h: h ?? this.h, m: m ?? this.m);
+  /// 0 = 今日, 1 = 明日
+  final int dateOffset;
+
+  PickerState copyWith({PickerMode? mode, int? h, int? m, int? dateOffset}) =>
+      PickerState(
+        mode: mode ?? this.mode,
+        h: h ?? this.h,
+        m: m ?? this.m,
+        dateOffset: dateOffset ?? this.dateOffset,
+      );
 }
 
 @immutable
@@ -180,22 +193,36 @@ class AppNotifier extends Notifier<AppState> {
   void openPicker(PickerMode mode) {
     final src = mode == PickerMode.depart ? state.departure : state.arrival;
     state = state.copyWith(
-      picker: PickerState(mode: mode, h: src.h, m: _roundTo5(src.m)),
+      picker: PickerState(
+        mode: mode,
+        h: src.h,
+        m: _roundTo5(src.m),
+        dateOffset: src.dateOffset,
+      ),
     );
   }
 
-  void updatePicker({int? h, int? m}) {
+  void updatePicker({int? h, int? m, int? dateOffset}) {
     final p = state.picker;
     if (p == null) return;
     state = state.copyWith(
-      picker: p.copyWith(h: h, m: m == null ? null : _roundTo5(m)),
+      picker: p.copyWith(
+        h: h,
+        m: m == null ? null : _roundTo5(m),
+        dateOffset: dateOffset,
+      ),
     );
   }
 
   void switchPickerMode(PickerMode mode) {
     final src = mode == PickerMode.depart ? state.departure : state.arrival;
     state = state.copyWith(
-      picker: PickerState(mode: mode, h: src.h, m: _roundTo5(src.m)),
+      picker: PickerState(
+        mode: mode,
+        h: src.h,
+        m: _roundTo5(src.m),
+        dateOffset: src.dateOffset,
+      ),
     );
   }
 
@@ -204,14 +231,24 @@ class AppNotifier extends Notifier<AppState> {
     if (p == null) return;
     if (p.mode == PickerMode.depart) {
       state = state.copyWith(
-        departure: TimeValue(h: p.h, m: p.m, anchored: true),
+        departure: TimeValue(
+          h: p.h,
+          m: p.m,
+          anchored: true,
+          dateOffset: p.dateOffset,
+        ),
         arrival: state.arrival.copyWith(anchored: false),
         picker: null,
       );
     } else {
       state = state.copyWith(
         departure: state.departure.copyWith(anchored: false),
-        arrival: TimeValue(h: p.h, m: p.m, anchored: true),
+        arrival: TimeValue(
+          h: p.h,
+          m: p.m,
+          anchored: true,
+          dateOffset: p.dateOffset,
+        ),
         picker: null,
       );
     }
