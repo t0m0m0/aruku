@@ -1,5 +1,9 @@
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/location_state.dart';
+import 'package:aruku/core/models/route_plan.dart';
+import 'package:aruku/core/models/time_value.dart';
+import 'package:aruku/core/services/location_service.dart';
+import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -88,6 +92,82 @@ void main() {
       expect(s.originLatLng, isNull);
     });
   });
+
+  group('AppNotifier.startSearch() の originLatLng 優先', () {
+    test('originLatLng が設定されているとき GPS より優先して plan() に渡される', () async {
+      final service = _CapturingRouteService();
+      final container = ProviderContainer(
+        overrides: [routeServiceProvider.overrideWithValue(service)],
+      );
+      addTearDown(container.dispose);
+
+      container
+          .read(appStateProvider.notifier)
+          .setOrigin('新宿駅', latLng: const GeoPoint(35.689, 139.700));
+      await container.read(appStateProvider.notifier).startSearch();
+
+      expect(service.capturedOrigin, const GeoPoint(35.689, 139.700));
+    });
+
+    test('originLatLng が null のとき GPS 位置を使う', () async {
+      final routeSvc = _CapturingRouteService();
+      final locationSvc = _FakeLocationService(
+        const LocationAvailable(GeoPoint(35.681, 139.766)),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          routeServiceProvider.overrideWithValue(routeSvc),
+          locationServiceProvider.overrideWithValue(locationSvc),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // build() を起動して _fetchLocation() を開始させてから完了を待つ
+      final notifier = container.read(appStateProvider.notifier);
+      await Future<void>.delayed(Duration.zero);
+      await notifier.startSearch();
+
+      expect(routeSvc.capturedOrigin, const GeoPoint(35.681, 139.766));
+    });
+  });
+}
+
+const _dummyPlan = RoutePlan(
+  from: 'A',
+  to: 'B',
+  totalKm: 1,
+  totalMin: 10,
+  budgetMin: 10,
+  kcal: 50,
+  walkKm: 1,
+  walkRatio: 1,
+  segments: [],
+  timelineNodes: [],
+);
+
+class _FakeLocationService implements LocationService {
+  const _FakeLocationService(this.result);
+  final LocationState result;
+
+  @override
+  Future<LocationState> request() async => result;
+}
+
+class _CapturingRouteService implements RouteService {
+  GeoPoint? capturedOrigin;
+
+  @override
+  Future<RoutePlan> plan({
+    required String? destination,
+    required GeoPoint? destinationLatLng,
+    required TimeValue departure,
+    required TimeValue arrival,
+    GeoPoint? origin,
+    void Function(RoutePhase)? onProgress,
+  }) async {
+    capturedOrigin = origin;
+    return _dummyPlan;
+  }
 }
 
 ProviderContainer _makeContainer() {

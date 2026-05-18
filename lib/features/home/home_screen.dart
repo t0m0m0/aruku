@@ -341,7 +341,7 @@ class _DestinationCard extends StatelessWidget {
               InkWell(
                 onTap: onTapDeparture,
                 borderRadius: BorderRadius.circular(12),
-                child: Container(
+                child: Ink(
                   padding: const EdgeInsets.fromLTRB(38, 12, 0, 12),
                   decoration: BoxDecoration(
                     border: Border(bottom: BorderSide(color: c.hairline)),

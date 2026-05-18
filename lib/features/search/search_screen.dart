@@ -68,11 +68,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   void _useCurrentLocation() {
     final notifier = ref.read(appStateProvider.notifier);
-    if (widget.mode == SearchMode.origin) {
-      notifier.setOrigin(null);
-    } else {
-      notifier.setDestination(null);
-    }
+    notifier.setOrigin(null);
     notifier.go(Screen.home);
   }
 
@@ -309,6 +305,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   Widget _buildRecents(ArukuColors c, AppNotifier notifier) {
+    if (widget.mode == SearchMode.destination) return const SizedBox.shrink();
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 8),
       children: [
