@@ -124,6 +124,7 @@ class HomeScreen extends ConsumerWidget {
               child: _DestinationCard(
                 departure: state.departureLabelText,
                 destination: destination,
+                onTapDeparture: () => notifier.go(Screen.searchOrigin),
                 onTapDestination: () => notifier.go(Screen.search),
               ),
             ),
@@ -281,10 +282,12 @@ class _DestinationCard extends StatelessWidget {
   const _DestinationCard({
     required this.departure,
     required this.destination,
+    required this.onTapDeparture,
     required this.onTapDestination,
   });
   final String departure;
   final String? destination;
+  final VoidCallback onTapDeparture;
   final VoidCallback onTapDestination;
 
   @override
@@ -335,42 +338,46 @@ class _DestinationCard extends StatelessWidget {
           Column(
             children: [
               // From
-              Container(
-                padding: const EdgeInsets.fromLTRB(38, 12, 0, 12),
-                decoration: BoxDecoration(
-                  border: Border(bottom: BorderSide(color: c.hairline)),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '出発',
-                            style: jpStyle(
-                              size: 11,
-                              weight: FontWeight.w600,
-                              color: c.ink3,
-                              letterSpacing: 0.04 * 11,
+              InkWell(
+                onTap: onTapDeparture,
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(38, 12, 0, 12),
+                  decoration: BoxDecoration(
+                    border: Border(bottom: BorderSide(color: c.hairline)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '出発',
+                              style: jpStyle(
+                                size: 11,
+                                weight: FontWeight.w600,
+                                color: c.ink3,
+                                letterSpacing: 0.04 * 11,
+                              ),
                             ),
-                          ),
-                          Text(
-                            departure,
-                            style: jpStyle(
-                              size: 16,
-                              weight: FontWeight.w700,
-                              color: c.ink,
+                            Text(
+                              departure,
+                              style: jpStyle(
+                                size: 16,
+                                weight: FontWeight.w700,
+                                color: c.ink,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(6),
-                      child: Ic.compass(size: 20, color: c.ink3),
-                    ),
-                  ],
+                      Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Ic.swap(size: 18, color: c.ink3),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               // To

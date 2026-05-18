@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/models/geo_point.dart';
 import '../../core/models/place_prediction.dart';
 import '../../core/services/places_service.dart';
 import '../../core/state/app_state.dart';
@@ -9,8 +10,12 @@ import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
 import 'places_provider.dart';
 
+enum SearchMode { destination, origin }
+
 class SearchScreen extends ConsumerStatefulWidget {
-  const SearchScreen({super.key});
+  const SearchScreen({super.key, this.mode = SearchMode.destination});
+
+  final SearchMode mode;
 
   @override
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
@@ -42,16 +47,33 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       final service = ref.read(placesServiceProvider);
       final latLng = await service.fetchLatLng(placeId);
       if (!mounted) return;
-      ref.read(appStateProvider.notifier).setDestination(name, latLng: latLng);
-      ref.read(appStateProvider.notifier).go(Screen.home);
+      _applySelection(name, latLng: latLng);
     } on PlacesException {
-      // 座標取得失敗でも目的地名は設定して画面遷移
       if (!mounted) return;
-      ref.read(appStateProvider.notifier).setDestination(name);
-      ref.read(appStateProvider.notifier).go(Screen.home);
+      _applySelection(name);
     } finally {
       if (mounted) setState(() => _selecting = false);
     }
+  }
+
+  void _applySelection(String name, {GeoPoint? latLng}) {
+    final notifier = ref.read(appStateProvider.notifier);
+    if (widget.mode == SearchMode.origin) {
+      notifier.setOrigin(name, latLng: latLng);
+    } else {
+      notifier.setDestination(name, latLng: latLng);
+    }
+    notifier.go(Screen.home);
+  }
+
+  void _useCurrentLocation() {
+    final notifier = ref.read(appStateProvider.notifier);
+    if (widget.mode == SearchMode.origin) {
+      notifier.setOrigin(null);
+    } else {
+      notifier.setDestination(null);
+    }
+    notifier.go(Screen.home);
   }
 
   @override
@@ -113,13 +135,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                                 weight: FontWeight.w600,
                                 color: c.ink,
                               ),
-                              decoration: const InputDecoration(
+                              decoration: InputDecoration(
                                 isCollapsed: true,
                                 border: InputBorder.none,
-                                contentPadding: EdgeInsets.symmetric(
+                                contentPadding: const EdgeInsets.symmetric(
                                   vertical: 12,
                                 ),
-                                hintText: '目的地を検索',
+                                hintText: widget.mode == SearchMode.origin
+                                    ? '出発地を検索'
+                                    : '目的地を検索',
                               ),
                             ),
                           ),
@@ -285,7 +309,39 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   Widget _buildRecents(ArukuColors c, AppNotifier notifier) {
-    return const SizedBox.shrink();
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      children: [
+        InkWell(
+          onTap: _useCurrentLocation,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: c.moss50,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Center(child: Ic.compass(size: 18, color: c.moss600)),
+                ),
+                const SizedBox(width: 14),
+                Text(
+                  '現在地を使う',
+                  style: jpStyle(
+                    size: 16,
+                    weight: FontWeight.w600,
+                    color: c.ink,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
