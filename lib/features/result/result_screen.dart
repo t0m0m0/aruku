@@ -106,7 +106,7 @@ class ResultScreen extends ConsumerWidget {
             if (route.totalMin > route.budgetMin)
               _OverBudgetBanner(
                 overMin: route.totalMin - route.budgetMin,
-                onChange: () => notifier.go(Screen.search),
+                onChange: () => notifier.go(Screen.home),
               ),
 
             // Journey card
