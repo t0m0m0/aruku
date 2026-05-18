@@ -8,7 +8,7 @@ class TimeValue {
     this.isNow = false,
     this.anchored = false,
     this.dateOffset = 0,
-  }) : assert(dateOffset == 0 || dateOffset == 1);
+  }) : assert(dateOffset >= 0);
 
   /// 0–23
   final int h;
@@ -22,7 +22,8 @@ class TimeValue {
   /// True for the side that the user explicitly anchored.
   final bool anchored;
 
-  /// 0 = 今日, 1 = 明日. isNow=true のときは無視される。
+  /// 今日からの日数オフセット。0 = 今日, 1 = 明日, n = n日後。
+  /// isNow=true のときは無視される。
   final int dateOffset;
 
   int get totalMinutes => h * 60 + m;

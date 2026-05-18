@@ -13,6 +13,18 @@ void main() {
       expect(tv.dateOffset, 1);
     });
 
+    test('dateOffset は 1 より大きい任意の日数を指定できる', () {
+      const tv = TimeValue(h: 9, m: 0, dateOffset: 30);
+      expect(tv.dateOffset, 30);
+    });
+
+    test('dateOffset が負の場合は assert で弾かれる', () {
+      expect(
+        () => TimeValue(h: 9, m: 0, dateOffset: -1),
+        throwsA(isA<AssertionError>()),
+      );
+    });
+
     test('copyWith で dateOffset を変更できる', () {
       const tv = TimeValue(h: 9, m: 0, dateOffset: 0);
       final tomorrow = tv.copyWith(dateOffset: 1);
