@@ -1,111 +1,108 @@
+import 'package:aruku/core/models/location_state.dart';
 import 'package:aruku/core/models/time_value.dart';
+import 'package:aruku/core/services/location_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
-import 'package:aruku/features/picker/time_picker_sheet.dart';
+import 'package:aruku/features/home/home_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Widget _wrap(Widget child, {required ProviderContainer container}) {
-  return UncontrolledProviderScope(
-    container: container,
-    child: MaterialApp(
-      theme: ArukuTheme.light(),
-      home: Scaffold(body: child),
-    ),
+ProviderContainer _container() {
+  final container = ProviderContainer(
+    overrides: [
+      locationServiceProvider.overrideWithValue(const _FakeLocationService()),
+    ],
   );
-}
-
-ProviderContainer _containerWithPicker({
-  PickerMode mode = PickerMode.depart,
-  int dateOffset = 0,
-}) {
-  final container = ProviderContainer();
-  final notifier = container.read(appStateProvider.notifier);
-  notifier.openPicker(mode);
-  notifier.updatePicker(dateOffset: dateOffset);
+  addTearDown(container.dispose);
   return container;
 }
 
 void main() {
-  group('TimePickerSheet 日付チップ', () {
-    testWidgets('「今日」「明日」チップが表示される', (tester) async {
-      final container = ProviderContainer();
-      container.read(appStateProvider.notifier).openPicker(PickerMode.depart);
-
-      await tester.pumpWidget(
-        _wrap(const TimePickerSheet(), container: container),
-      );
-      await tester.pump();
-
-      expect(find.text('今日'), findsOneWidget);
-      expect(find.text('明日'), findsOneWidget);
-    });
-
-    testWidgets('デフォルトは「今日」がアクティブ', (tester) async {
-      final container = ProviderContainer();
-      container.read(appStateProvider.notifier).openPicker(PickerMode.depart);
-
-      await tester.pumpWidget(
-        _wrap(const TimePickerSheet(), container: container),
-      );
-      await tester.pump();
-
-      // picker.dateOffset == 0 のはず
-      final state = container.read(appStateProvider);
-      expect(state.picker?.dateOffset, 0);
-    });
-
-    testWidgets('「明日」をタップすると picker.dateOffset が 1 になる', (tester) async {
-      final container = ProviderContainer();
-      container.read(appStateProvider.notifier).openPicker(PickerMode.depart);
-
-      await tester.pumpWidget(
-        _wrap(const TimePickerSheet(), container: container),
-      );
-      await tester.pump();
-
-      await tester.tap(find.text('明日'));
-      await tester.pump();
-
-      final state = container.read(appStateProvider);
-      expect(state.picker?.dateOffset, 1);
-    });
-
-    testWidgets('「今日」をタップすると picker.dateOffset が 0 に戻る', (tester) async {
-      final container = _containerWithPicker(dateOffset: 1);
-
-      await tester.pumpWidget(
-        _wrap(const TimePickerSheet(), container: container),
-      );
-      await tester.pump();
-
-      await tester.tap(find.text('今日'));
-      await tester.pump();
-
-      final state = container.read(appStateProvider);
-      expect(state.picker?.dateOffset, 0);
-    });
-
-    testWidgets('confirmPicker で arrival.dateOffset が picker の値を引き継ぐ', (
-      tester,
-    ) async {
-      final container = ProviderContainer();
+  group('AppNotifier.applyPickedTime', () {
+    test('出発を確定すると departure に値・anchor・dateOffset が入る', () async {
+      final container = _container();
       final notifier = container.read(appStateProvider.notifier);
-      notifier.openPicker(PickerMode.arrival);
-      notifier.updatePicker(dateOffset: 1);
+      await Future<void>.delayed(Duration.zero);
 
-      await tester.pumpWidget(
-        _wrap(const TimePickerSheet(), container: container),
+      notifier.applyPickedTime(
+        mode: PickerMode.depart,
+        h: 9,
+        m: 30,
+        dateOffset: 0,
       );
-      await tester.pump();
-
-      await tester.tap(find.text('この時刻に決定'));
-      await tester.pump();
 
       final state = container.read(appStateProvider);
-      expect(state.picker, isNull);
+      expect(state.departure.h, 9);
+      expect(state.departure.m, 30);
+      expect(state.departure.dateOffset, 0);
+      expect(state.departure.anchored, true);
+      expect(state.arrival.anchored, false);
+    });
+
+    test('到着を確定すると arrival が anchor され departure の anchor が外れる', () async {
+      final container = _container();
+      final notifier = container.read(appStateProvider.notifier);
+      await Future<void>.delayed(Duration.zero);
+
+      notifier.applyPickedTime(
+        mode: PickerMode.arrival,
+        h: 18,
+        m: 0,
+        dateOffset: 1,
+      );
+
+      final state = container.read(appStateProvider);
+      expect(state.arrival.h, 18);
+      expect(state.arrival.m, 0);
       expect(state.arrival.dateOffset, 1);
+      expect(state.arrival.anchored, true);
+      expect(state.departure.anchored, false);
+    });
+
+    test('2日以上先の dateOffset を保持できる', () async {
+      final container = _container();
+      final notifier = container.read(appStateProvider.notifier);
+      await Future<void>.delayed(Duration.zero);
+
+      notifier.applyPickedTime(
+        mode: PickerMode.depart,
+        h: 7,
+        m: 15,
+        dateOffset: 30,
+      );
+
+      expect(container.read(appStateProvider).departure.dateOffset, 30);
     });
   });
+
+  group('HomeScreen 日付・時刻ピッカー', () {
+    testWidgets('出発フィールドのタップで日付ピッカーが開く', (tester) async {
+      final container = _container();
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: ArukuTheme.light(),
+            home: const HomeScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 出発フィールドの sub テキスト「今すぐ」は出発フィールド内で一意。
+      await tester.tap(find.text('今すぐ'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DatePickerDialog), findsOneWidget);
+    });
+  });
+}
+
+class _FakeLocationService implements LocationService {
+  const _FakeLocationService();
+
+  @override
+  Future<LocationState> request() async => const LocationDenied();
 }

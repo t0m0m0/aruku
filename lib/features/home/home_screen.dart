@@ -191,8 +191,12 @@ class HomeScreen extends ConsumerWidget {
                               time: dep.format(),
                               sub: dep.isNow ? '今すぐ' : 'タップで変更',
                               anchored: !arr.anchored,
-                              onTap: () =>
-                                  notifier.openPicker(PickerMode.depart),
+                              onTap: () => _pickDateTime(
+                                context,
+                                ref,
+                                PickerMode.depart,
+                                dep,
+                              ),
                             ),
                           ),
                           SizedBox(
@@ -213,8 +217,12 @@ class HomeScreen extends ConsumerWidget {
                                   ? '指定時刻'
                                   : '+ ${TimeValue.formatBudget(budget)}',
                               anchored: arr.anchored,
-                              onTap: () =>
-                                  notifier.openPicker(PickerMode.arrival),
+                              onTap: () => _pickDateTime(
+                                context,
+                                ref,
+                                PickerMode.arrival,
+                                arr,
+                              ),
                             ),
                           ),
                         ],
@@ -276,6 +284,44 @@ class HomeScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+Future<void> _pickDateTime(
+  BuildContext context,
+  WidgetRef ref,
+  PickerMode mode,
+  TimeValue current,
+) async {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final lastDate = today.add(const Duration(days: 90));
+  final offsetDays = current.isNow ? 0 : current.dateOffset;
+  final initialDate = today.add(Duration(days: offsetDays)).isAfter(lastDate)
+      ? lastDate
+      : today.add(Duration(days: offsetDays));
+
+  final pickedDate = await showDatePicker(
+    context: context,
+    initialDate: initialDate,
+    firstDate: today,
+    lastDate: lastDate,
+  );
+  if (pickedDate == null || !context.mounted) return;
+
+  final pickedTime = await showTimePicker(
+    context: context,
+    initialTime: TimeOfDay(hour: current.h, minute: current.m),
+  );
+  if (pickedTime == null || !context.mounted) return;
+
+  ref
+      .read(appStateProvider.notifier)
+      .applyPickedTime(
+        mode: mode,
+        h: pickedTime.hour,
+        m: pickedTime.minute,
+        dateOffset: pickedDate.difference(today).inDays,
+      );
 }
 
 class _DestinationCard extends StatelessWidget {

@@ -23,31 +23,6 @@ enum Screen {
 }
 
 @immutable
-class PickerState {
-  const PickerState({
-    required this.mode,
-    required this.h,
-    required this.m,
-    this.dateOffset = 0,
-  }) : assert(dateOffset == 0 || dateOffset == 1);
-
-  final PickerMode mode;
-  final int h;
-  final int m;
-
-  /// 0 = 今日, 1 = 明日
-  final int dateOffset;
-
-  PickerState copyWith({PickerMode? mode, int? h, int? m, int? dateOffset}) =>
-      PickerState(
-        mode: mode ?? this.mode,
-        h: h ?? this.h,
-        m: m ?? this.m,
-        dateOffset: dateOffset ?? this.dateOffset,
-      );
-}
-
-@immutable
 class AppState {
   const AppState({
     required this.screen,
@@ -55,7 +30,6 @@ class AppState {
     required this.destinationLatLng,
     required this.departure,
     required this.arrival,
-    required this.picker,
     required this.route,
     required this.locationState,
     this.origin,
@@ -75,7 +49,6 @@ class AppState {
   final GeoPoint? originLatLng;
   final TimeValue departure;
   final TimeValue arrival;
-  final PickerState? picker;
   final RoutePlan? route;
   final LocationState locationState;
   final RouteErrorKind? routeErrorKind;
@@ -104,7 +77,6 @@ class AppState {
     Object? originLatLng = _sentinel,
     TimeValue? departure,
     TimeValue? arrival,
-    Object? picker = _sentinel,
     Object? route = _sentinel,
     LocationState? locationState,
     Object? routeErrorKind = _sentinel,
@@ -128,9 +100,6 @@ class AppState {
           : originLatLng as GeoPoint?,
       departure: departure ?? this.departure,
       arrival: arrival ?? this.arrival,
-      picker: identical(picker, _sentinel)
-          ? this.picker
-          : picker as PickerState?,
       route: identical(route, _sentinel) ? this.route : route as RoutePlan?,
       locationState: locationState ?? this.locationState,
       routeErrorKind: identical(routeErrorKind, _sentinel)
@@ -154,7 +123,6 @@ class AppState {
     destinationLatLng: null,
     departure: TimeValue(h: 0, m: 0, isNow: true, anchored: true),
     arrival: TimeValue(h: 0, m: 0),
-    picker: null,
     route: null,
     locationState: LocationLoading(),
   );
@@ -190,71 +158,31 @@ class AppNotifier extends Notifier<AppState> {
   void setOrigin(String? name, {GeoPoint? latLng}) =>
       state = state.copyWith(origin: name, originLatLng: latLng);
 
-  void openPicker(PickerMode mode) {
-    final src = mode == PickerMode.depart ? state.departure : state.arrival;
-    state = state.copyWith(
-      picker: PickerState(
-        mode: mode,
-        h: src.h,
-        m: _roundTo5(src.m),
-        dateOffset: src.dateOffset,
-      ),
-    );
-  }
-
-  void updatePicker({int? h, int? m, int? dateOffset}) {
-    final p = state.picker;
-    if (p == null) return;
-    state = state.copyWith(
-      picker: p.copyWith(
-        h: h,
-        m: m == null ? null : _roundTo5(m),
-        dateOffset: dateOffset,
-      ),
-    );
-  }
-
-  void switchPickerMode(PickerMode mode) {
-    final src = mode == PickerMode.depart ? state.departure : state.arrival;
-    state = state.copyWith(
-      picker: PickerState(
-        mode: mode,
-        h: src.h,
-        m: _roundTo5(src.m),
-        dateOffset: src.dateOffset,
-      ),
-    );
-  }
-
-  void confirmPicker() {
-    final p = state.picker;
-    if (p == null) return;
-    if (p.mode == PickerMode.depart) {
+  /// 日付・時刻ピッカーで確定した値を出発/到着に反映する。
+  /// 確定した側を anchor し、反対側の anchor を外す。
+  void applyPickedTime({
+    required PickerMode mode,
+    required int h,
+    required int m,
+    required int dateOffset,
+  }) {
+    if (mode == PickerMode.depart) {
       state = state.copyWith(
         departure: TimeValue(
-          h: p.h,
-          m: p.m,
+          h: h,
+          m: m,
           anchored: true,
-          dateOffset: p.dateOffset,
+          dateOffset: dateOffset,
         ),
         arrival: state.arrival.copyWith(anchored: false),
-        picker: null,
       );
     } else {
       state = state.copyWith(
         departure: state.departure.copyWith(anchored: false),
-        arrival: TimeValue(
-          h: p.h,
-          m: p.m,
-          anchored: true,
-          dateOffset: p.dateOffset,
-        ),
-        picker: null,
+        arrival: TimeValue(h: h, m: m, anchored: true, dateOffset: dateOffset),
       );
     }
   }
-
-  void closePicker() => state = state.copyWith(picker: null);
 
   Future<void> startSearch() async {
     state = state.copyWith(
