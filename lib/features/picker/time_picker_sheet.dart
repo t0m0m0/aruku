@@ -104,6 +104,11 @@ class TimePickerSheet extends ConsumerWidget {
                   ),
                 ),
               ),
+              // Date toggle (今日 / 明日)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+                child: _DateToggle(picker: picker),
+              ),
               // Quick chips
               Padding(
                 padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
@@ -466,6 +471,69 @@ class _Wheel extends StatelessWidget {
           ),
         );
       }).toList(),
+    );
+  }
+}
+
+class _DateToggle extends ConsumerWidget {
+  const _DateToggle({required this.picker});
+  final PickerState picker;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(appStateProvider.notifier);
+
+    return Row(
+      children: [
+        _DateChip(
+          label: '今日',
+          active: picker.dateOffset == 0,
+          onTap: () => notifier.updatePicker(dateOffset: 0),
+        ),
+        const SizedBox(width: 8),
+        _DateChip(
+          label: '明日',
+          active: picker.dateOffset == 1,
+          onTap: () => notifier.updatePicker(dateOffset: 1),
+        ),
+      ],
+    );
+  }
+}
+
+class _DateChip extends StatelessWidget {
+  const _DateChip({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+        decoration: BoxDecoration(
+          color: active ? c.moss100 : c.ivory,
+          border: Border.all(color: active ? c.moss300 : c.hairline),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          label,
+          style: jpStyle(
+            size: 13,
+            weight: FontWeight.w700,
+            color: active ? c.moss700 : c.ink2,
+          ),
+        ),
+      ),
     );
   }
 }
