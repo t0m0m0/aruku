@@ -66,7 +66,7 @@ void main() {
 
     await tester.tap(find.text('条件を変更'));
     await tester.pump();
-    expect(container.read(appStateProvider).screen, Screen.search);
+    expect(container.read(appStateProvider).screen, Screen.home);
   });
 
   testWidgets('予算内プランは超過バナーを出さない', (tester) async {

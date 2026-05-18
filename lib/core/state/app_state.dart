@@ -11,7 +11,16 @@ import '../models/time_value.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
 
-enum Screen { onboarding, home, search, loading, result, nav, error }
+enum Screen {
+  onboarding,
+  home,
+  search,
+  searchOrigin,
+  loading,
+  result,
+  nav,
+  error,
+}
 
 @immutable
 class PickerState {
@@ -36,6 +45,8 @@ class AppState {
     required this.picker,
     required this.route,
     required this.locationState,
+    this.origin,
+    this.originLatLng,
     this.routeErrorKind,
     this.routePhase,
     this.streakDays = 0,
@@ -47,6 +58,8 @@ class AppState {
   final Screen screen;
   final String? destination;
   final GeoPoint? destinationLatLng;
+  final String? origin;
+  final GeoPoint? originLatLng;
   final TimeValue departure;
   final TimeValue arrival;
   final PickerState? picker;
@@ -61,16 +74,21 @@ class AppState {
 
   int get budgetMinutes => arrival.totalMinutes - departure.totalMinutes;
 
-  String get departureLabelText => switch (locationState) {
-    LocationLoading() => '現在地 · 取得中...',
-    LocationAvailable() => '現在地',
-    LocationDenied() => '位置情報なし',
-  };
+  String get departureLabelText {
+    if (origin != null) return origin!;
+    return switch (locationState) {
+      LocationLoading() => '現在地 · 取得中...',
+      LocationAvailable() => '現在地',
+      LocationDenied() => '位置情報なし',
+    };
+  }
 
   AppState copyWith({
     Screen? screen,
     Object? destination = _sentinel,
     Object? destinationLatLng = _sentinel,
+    Object? origin = _sentinel,
+    Object? originLatLng = _sentinel,
     TimeValue? departure,
     TimeValue? arrival,
     Object? picker = _sentinel,
@@ -91,6 +109,10 @@ class AppState {
       destinationLatLng: identical(destinationLatLng, _sentinel)
           ? this.destinationLatLng
           : destinationLatLng as GeoPoint?,
+      origin: identical(origin, _sentinel) ? this.origin : origin as String?,
+      originLatLng: identical(originLatLng, _sentinel)
+          ? this.originLatLng
+          : originLatLng as GeoPoint?,
       departure: departure ?? this.departure,
       arrival: arrival ?? this.arrival,
       picker: identical(picker, _sentinel)
@@ -152,6 +174,9 @@ class AppNotifier extends Notifier<AppState> {
   void setDestination(String? name, {GeoPoint? latLng}) =>
       state = state.copyWith(destination: name, destinationLatLng: latLng);
 
+  void setOrigin(String? name, {GeoPoint? latLng}) =>
+      state = state.copyWith(origin: name, originLatLng: latLng);
+
   void openPicker(PickerMode mode) {
     final src = mode == PickerMode.depart ? state.departure : state.arrival;
     state = state.copyWith(
@@ -200,10 +225,12 @@ class AppNotifier extends Notifier<AppState> {
       routeErrorKind: null,
       routePhase: RoutePhase.routing,
     );
-    final origin = switch (state.locationState) {
-      LocationAvailable(:final position) => position,
-      _ => null,
-    };
+    final origin =
+        state.originLatLng ??
+        switch (state.locationState) {
+          LocationAvailable(:final position) => position,
+          _ => null,
+        };
     try {
       final plan = await ref
           .read(routeServiceProvider)

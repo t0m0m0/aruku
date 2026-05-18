@@ -20,7 +20,7 @@ class ErrorScreen extends ConsumerWidget {
     final retry = _Action(label: '再試行', onTap: () => notifier.startSearch());
     final changeConditions = _Action(
       label: '条件を変更',
-      onTap: () => notifier.go(Screen.search),
+      onTap: () => notifier.go(Screen.home),
     );
     final back = _Action(
       label: '検索に戻る',

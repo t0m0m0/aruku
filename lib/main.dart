@@ -51,6 +51,7 @@ class _Root extends ConsumerWidget {
       Screen.onboarding => const OnboardingScreen(),
       Screen.home => const HomeScreen(),
       Screen.search => const SearchScreen(),
+      Screen.searchOrigin => const SearchScreen(mode: SearchMode.origin),
       Screen.loading => const LoadingScreen(),
       Screen.result => const ResultScreen(),
       Screen.nav => const NavScreen(),
@@ -66,6 +67,7 @@ class _Root extends ConsumerWidget {
           return;
         }
         if (screen == Screen.search ||
+            screen == Screen.searchOrigin ||
             screen == Screen.result ||
             screen == Screen.nav ||
             screen == Screen.error) {

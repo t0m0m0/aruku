@@ -66,7 +66,7 @@ void main() {
 
     await tester.tap(find.text('条件を変更'));
     await tester.pump();
-    expect(container.read(appStateProvider).screen, Screen.search);
+    expect(container.read(appStateProvider).screen, Screen.home);
   });
 
   testWidgets('現在地取得失敗は noLocation 文言を表示する', (tester) async {
