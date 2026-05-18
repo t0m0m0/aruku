@@ -515,22 +515,25 @@ class _DateChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return InkWell(
-      onTap: onTap,
+    return Material(
+      color: active ? c.moss100 : c.ivory,
       borderRadius: BorderRadius.circular(999),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
-        decoration: BoxDecoration(
-          color: active ? c.moss100 : c.ivory,
-          border: Border.all(color: active ? c.moss300 : c.hairline),
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Text(
-          label,
-          style: jpStyle(
-            size: 13,
-            weight: FontWeight.w700,
-            color: active ? c.moss700 : c.ink2,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+          decoration: BoxDecoration(
+            border: Border.all(color: active ? c.moss300 : c.hairline),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            label,
+            style: jpStyle(
+              size: 13,
+              weight: FontWeight.w700,
+              color: active ? c.moss700 : c.ink2,
+            ),
           ),
         ),
       ),

@@ -623,5 +623,49 @@ void main() {
       final actual = await captureTransitDepartureTime(tv);
       expect(actual, expected.toString());
     });
+
+    test('isNow=true のとき dateOffset に関わらず当日 epoch を渡す', () async {
+      // isNow=true の場合は dateOffset=0 として扱う
+      const tv = TimeValue(h: 14, m: 0, isNow: true, dateOffset: 0);
+      final expected =
+          DateTime(2024, 6, 1, 14, 0).millisecondsSinceEpoch ~/ 1000;
+      final actual = await captureTransitDepartureTime(tv);
+      expect(actual, expected.toString());
+    });
+  });
+
+  group('GoogleRouteService.plan（budgetMin cross-day）', () {
+    // 出発 23:00（今日, dateOffset=0）/ 到着 00:30（明日, dateOffset=1）→ 予算 90 分
+    test(
+      'departure dateOffset=0 / arrival dateOffset=1 のとき budgetMin を正しく計算する',
+      () async {
+        // 徒歩 60 分のルートが予算内（90 分）に収まることを確認する
+        final client = MockClient(
+          (req) async => _jsonResponse(
+            _directions([
+              _route([_walkStep(4000, 3600)]), // 60 分の徒歩
+            ]),
+            200,
+          ),
+        );
+
+        final service = GoogleRouteService(
+          client: client,
+          proxyBaseUrl: _proxyBaseUrl,
+          clock: () => DateTime(2024, 6, 1, 22, 0),
+        );
+
+        final plan = await service.plan(
+          destination: '目的地',
+          destinationLatLng: const GeoPoint(35.65, 139.7),
+          departure: const TimeValue(h: 23, m: 0, dateOffset: 0),
+          arrival: const TimeValue(h: 0, m: 30, dateOffset: 1),
+          origin: const GeoPoint(35.7, 139.7),
+        );
+
+        // 徒歩のみプランが返れば budgetMin が 90 分と計算されていた証拠
+        expect(plan.walkRatio, 1.0);
+      },
+    );
   });
 }

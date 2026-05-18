@@ -8,7 +8,7 @@ class TimeValue {
     this.isNow = false,
     this.anchored = false,
     this.dateOffset = 0,
-  });
+  }) : assert(dateOffset == 0 || dateOffset == 1);
 
   /// 0–23
   final int h;

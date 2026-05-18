@@ -29,7 +29,7 @@ class PickerState {
     required this.h,
     required this.m,
     this.dateOffset = 0,
-  });
+  }) : assert(dateOffset == 0 || dateOffset == 1);
 
   final PickerMode mode;
   final int h;

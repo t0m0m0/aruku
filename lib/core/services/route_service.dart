@@ -94,7 +94,9 @@ class GoogleRouteService implements RouteService {
       throw const RouteException('NO_DESTINATION');
     }
     final originStr = '${origin.lat},${origin.lng}';
-    final budgetMin = arrival.totalMinutes - departure.totalMinutes;
+    final budgetMin =
+        (arrival.totalMinutes + arrival.dateOffset * 24 * 60) -
+        (departure.totalMinutes + departure.dateOffset * 24 * 60);
 
     onProgress?.call(RoutePhase.routing);
 
@@ -276,8 +278,8 @@ class GoogleRouteService implements RouteService {
   int _departureEpoch(TimeValue t) {
     final now = _clock();
     final base = DateTime(now.year, now.month, now.day, t.h, t.m);
-    return base.add(Duration(days: t.dateOffset)).millisecondsSinceEpoch ~/
-        1000;
+    final offset = t.isNow ? 0 : t.dateOffset;
+    return base.add(Duration(days: offset)).millisecondsSinceEpoch ~/ 1000;
   }
 
   String _fmt(TimeValue dep, int addMinutes) {
