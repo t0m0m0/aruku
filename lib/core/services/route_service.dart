@@ -275,10 +275,9 @@ class GoogleRouteService implements RouteService {
 
   int _departureEpoch(TimeValue t) {
     final now = _clock();
-    var dt = DateTime(now.year, now.month, now.day, t.h, t.m);
-    // 過去時刻だと transit が劣化/エラーになるため翌日扱いにする。
-    if (dt.isBefore(now)) dt = dt.add(const Duration(days: 1));
-    return dt.millisecondsSinceEpoch ~/ 1000;
+    final base = DateTime(now.year, now.month, now.day, t.h, t.m);
+    return base.add(Duration(days: t.dateOffset)).millisecondsSinceEpoch ~/
+        1000;
   }
 
   String _fmt(TimeValue dep, int addMinutes) {

@@ -399,7 +399,7 @@ void main() {
       expect(plan.walkRatio, 1.0);
     });
 
-    test('現在時刻より前の出発時刻なら departure_time を翌日へ補正する', () async {
+    test('dateOffset=0 のとき当日 epoch をそのまま渡す（過去時刻でも自動翌日化しない）', () async {
       final responses = <Map<String, dynamic>>[
         _directions([
           _route([_walkStep(6000, 4800)]),
@@ -425,6 +425,7 @@ void main() {
         clock: () => now,
       );
 
+      // dateOffset=0（デフォルト）→ clock=15:00 でも当日 09:00 epoch をそのまま渡す
       await service.plan(
         destination: '渋谷',
         destinationLatLng: const GeoPoint(35.65, 139.7),
@@ -435,7 +436,7 @@ void main() {
 
       final epoch = int.parse(urls[1].queryParameters['departure_time']!);
       final sent = DateTime.fromMillisecondsSinceEpoch(epoch * 1000);
-      expect(sent, DateTime(2026, 5, 18, 9, 0));
+      expect(sent, DateTime(2026, 5, 17, 9, 0));
     });
 
     test('現在時刻より後の出発時刻なら当日のまま', () async {
@@ -541,6 +542,86 @@ void main() {
         RoutePhase.walkability,
         RoutePhase.building,
       ]);
+    });
+  });
+
+  group('GoogleRouteService._departureEpoch（dateOffset）', () {
+    // clock を 2024-06-01 09:00:00 に固定
+    final fixedNow = DateTime(2024, 6, 1, 9, 0, 0);
+
+    // walking が予算オーバー → transit リクエストを発行させ departure_time を捕捉する
+    Future<String?> captureTransitDepartureTime(TimeValue departure) async {
+      String? capturedDepartureTime;
+      int callCount = 0;
+
+      final client = MockClient((req) async {
+        callCount++;
+        if (callCount == 1) {
+          // 1回目: walking → 予算超過レスポンス
+          return _jsonResponse(
+            _directions([
+              _route([_walkStep(10000, 99999)]),
+            ]),
+            200,
+          );
+        }
+        // 2回目: transit → departure_time を記録して有効レスポンスを返す
+        capturedDepartureTime = req.url.queryParameters['departure_time'];
+        return _jsonResponse(
+          _directions([
+            _route([
+              _transitStep(
+                5000,
+                1200,
+                line: '山手線',
+                dep: '渋谷',
+                arr: '新宿',
+                stops: 3,
+              ),
+            ]),
+          ]),
+          200,
+        );
+      });
+
+      await GoogleRouteService(
+        client: client,
+        proxyBaseUrl: _proxyBaseUrl,
+        clock: () => fixedNow,
+      ).plan(
+        destination: '目的地',
+        destinationLatLng: const GeoPoint(35.65, 139.7),
+        departure: departure,
+        arrival: const TimeValue(h: 23, m: 55),
+        origin: const GeoPoint(35.7, 139.7),
+      );
+
+      return capturedDepartureTime;
+    }
+
+    test('dateOffset=0 のとき当日 epoch を transit に渡す', () async {
+      const tv = TimeValue(h: 14, m: 0, dateOffset: 0);
+      final expected =
+          DateTime(2024, 6, 1, 14, 0).millisecondsSinceEpoch ~/ 1000;
+      final actual = await captureTransitDepartureTime(tv);
+      expect(actual, expected.toString());
+    });
+
+    test('dateOffset=1 のとき翌日 epoch を transit に渡す', () async {
+      const tv = TimeValue(h: 14, m: 0, dateOffset: 1);
+      final expected =
+          DateTime(2024, 6, 2, 14, 0).millisecondsSinceEpoch ~/ 1000;
+      final actual = await captureTransitDepartureTime(tv);
+      expect(actual, expected.toString());
+    });
+
+    test('dateOffset=0 かつ過去時刻（07:00, clock=09:00）でも当日 epoch を渡す', () async {
+      // 従来の自動翌日化を行わず、ユーザーが明示した日付を尊重する
+      const tv = TimeValue(h: 7, m: 0, dateOffset: 0);
+      final expected =
+          DateTime(2024, 6, 1, 7, 0).millisecondsSinceEpoch ~/ 1000;
+      final actual = await captureTransitDepartureTime(tv);
+      expect(actual, expected.toString());
     });
   });
 }
