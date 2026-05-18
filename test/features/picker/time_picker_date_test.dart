@@ -4,6 +4,7 @@ import 'package:aruku/core/services/location_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/features/home/home_screen.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -77,9 +78,10 @@ void main() {
   });
 
   group('HomeScreen 日付・時刻ピッカー', () {
-    testWidgets('出発フィールドのタップで日付ピッカーが開く', (tester) async {
-      final container = _container();
-
+    Future<void> pumpHome(
+      WidgetTester tester,
+      ProviderContainer container,
+    ) async {
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
@@ -90,12 +92,45 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-
       // 出発フィールドの sub テキスト「今すぐ」は出発フィールド内で一意。
       await tester.tap(find.text('今すぐ'));
       await tester.pumpAndSettle();
+    }
 
-      expect(find.byType(DatePickerDialog), findsOneWidget);
+    testWidgets('出発フィールドのタップで連結ホイールと出発/到着タブが開く', (tester) async {
+      final container = _container();
+      await pumpHome(tester, container);
+
+      expect(find.byType(CupertinoDatePicker), findsOneWidget);
+      expect(find.byKey(const Key('seg_depart')), findsOneWidget);
+      expect(find.byKey(const Key('seg_arrival')), findsOneWidget);
+    });
+
+    testWidgets('完了で出発が anchor され到着の anchor が外れる', (tester) async {
+      final container = _container();
+      await pumpHome(tester, container);
+
+      await tester.tap(find.byKey(const Key('picker_done')));
+      await tester.pumpAndSettle();
+
+      final state = container.read(appStateProvider);
+      expect(find.byType(CupertinoDatePicker), findsNothing);
+      expect(state.departure.anchored, true);
+      expect(state.arrival.anchored, false);
+    });
+
+    testWidgets('到着タブに切替えて完了すると arrival が anchor される', (tester) async {
+      final container = _container();
+      await pumpHome(tester, container);
+
+      await tester.tap(find.byKey(const Key('seg_arrival')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('picker_done')));
+      await tester.pumpAndSettle();
+
+      final state = container.read(appStateProvider);
+      expect(state.arrival.anchored, true);
+      expect(state.departure.anchored, false);
     });
   });
 }
