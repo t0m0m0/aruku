@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/geo_point.dart';
+import '../../core/models/location_state.dart';
 import '../../core/models/place_prediction.dart';
 import '../../core/services/places_service.dart';
 import '../../core/state/app_state.dart';
@@ -68,8 +69,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   void _useCurrentLocation() {
     final notifier = ref.read(appStateProvider.notifier);
-    notifier.setOrigin(null);
-    notifier.go(Screen.home);
+    if (widget.mode == SearchMode.origin) {
+      notifier.setOrigin(null);
+      notifier.go(Screen.home);
+      return;
+    }
+    final locationState = ref.read(appStateProvider).locationState;
+    if (locationState case LocationAvailable(:final position)) {
+      notifier.setDestination('現在地', latLng: position);
+      notifier.go(Screen.home);
+    }
   }
 
   @override
@@ -305,7 +314,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   Widget _buildRecents(ArukuColors c, AppNotifier notifier) {
-    if (widget.mode == SearchMode.destination) return const SizedBox.shrink();
+    if (widget.mode == SearchMode.destination) {
+      final locationState = ref.watch(
+        appStateProvider.select((s) => s.locationState),
+      );
+      if (locationState is! LocationAvailable) return const SizedBox.shrink();
+    }
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 8),
       children: [
