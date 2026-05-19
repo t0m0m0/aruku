@@ -7,7 +7,8 @@ class TimeValue {
     required this.m,
     this.isNow = false,
     this.anchored = false,
-  });
+    this.dateOffset = 0,
+  }) : assert(dateOffset >= 0);
 
   /// 0–23
   final int h;
@@ -21,18 +22,39 @@ class TimeValue {
   /// True for the side that the user explicitly anchored.
   final bool anchored;
 
+  /// 今日からの日数オフセット。0 = 今日, 1 = 明日, n = n日後。
+  /// isNow=true のときは無視される。
+  final int dateOffset;
+
   int get totalMinutes => h * 60 + m;
 
-  TimeValue copyWith({int? h, int? m, bool? isNow, bool? anchored}) =>
-      TimeValue(
-        h: h ?? this.h,
-        m: m ?? this.m,
-        isNow: isNow ?? this.isNow,
-        anchored: anchored ?? this.anchored,
-      );
+  TimeValue copyWith({
+    int? h,
+    int? m,
+    bool? isNow,
+    bool? anchored,
+    int? dateOffset,
+  }) => TimeValue(
+    h: h ?? this.h,
+    m: m ?? this.m,
+    isNow: isNow ?? this.isNow,
+    anchored: anchored ?? this.anchored,
+    dateOffset: dateOffset ?? this.dateOffset,
+  );
 
   String format() =>
       '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+
+  /// ホーム画面に出す日付ラベル。当日・「今すぐ」は表示しない（null）。
+  /// 翌日は「明日」、それ以降は「M/D(曜)」。
+  String? dateLabel({DateTime? now}) {
+    if (isNow || dateOffset == 0) return null;
+    if (dateOffset == 1) return '明日';
+    final base = now ?? DateTime.now();
+    final d = DateTime(base.year, base.month, base.day + dateOffset);
+    const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
+    return '${d.month}/${d.day}(${weekdays[d.weekday - 1]})';
+  }
 
   static String formatBudget(int minutes) {
     if (minutes <= 0) return '— ';

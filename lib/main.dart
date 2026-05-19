@@ -9,7 +9,6 @@ import 'features/home/home_screen.dart';
 import 'features/loading/loading_screen.dart';
 import 'features/navigation/nav_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
-import 'features/picker/time_picker_sheet.dart';
 import 'features/result/result_screen.dart';
 import 'features/search/search_screen.dart';
 
@@ -45,7 +44,6 @@ class _Root extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(appStateProvider);
     final screen = state.screen;
-    final pickerOpen = state.picker != null;
 
     final Widget body = switch (screen) {
       Screen.onboarding => const OnboardingScreen(),
@@ -62,10 +60,6 @@ class _Root extends ConsumerWidget {
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        if (pickerOpen) {
-          ref.read(appStateProvider.notifier).closePicker();
-          return;
-        }
         if (screen == Screen.search ||
             screen == Screen.searchOrigin ||
             screen == Screen.result ||
@@ -105,64 +99,8 @@ class _Root extends ConsumerWidget {
             },
             child: KeyedSubtree(key: ValueKey(screen), child: body),
           ),
-          if (pickerOpen) ...[
-            Positioned.fill(
-              child: GestureDetector(
-                onTap: () => ref.read(appStateProvider.notifier).closePicker(),
-                child: Container(color: const Color(0x7314281C)),
-              ),
-            ),
-            const Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: _PickerSlideIn(),
-            ),
-          ],
         ],
       ),
-    );
-  }
-}
-
-class _PickerSlideIn extends StatefulWidget {
-  const _PickerSlideIn();
-
-  @override
-  State<_PickerSlideIn> createState() => _PickerSlideInState();
-}
-
-class _PickerSlideInState extends State<_PickerSlideIn>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctl;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 280),
-    )..forward();
-  }
-
-  @override
-  void dispose() {
-    _ctl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final anim = CurvedAnimation(
-      parent: _ctl,
-      curve: const Cubic(0.2, 0.8, 0.2, 1.0),
-    );
-    return SlideTransition(
-      position: Tween<Offset>(
-        begin: const Offset(0, 1),
-        end: Offset.zero,
-      ).animate(anim),
-      child: const TimePickerSheet(),
     );
   }
 }
