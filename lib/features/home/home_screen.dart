@@ -190,6 +190,7 @@ class HomeScreen extends ConsumerWidget {
                             child: _TimeField(
                               label: '出発',
                               time: dep.format(),
+                              date: dep.dateLabel(),
                               sub: dep.isNow ? '今すぐ' : 'タップで変更',
                               anchored: !arr.anchored,
                               onTap: () =>
@@ -210,6 +211,7 @@ class HomeScreen extends ConsumerWidget {
                             child: _TimeField(
                               label: '到着',
                               time: arr.format(),
+                              date: arr.dateLabel(),
                               sub: arr.anchored
                                   ? '指定時刻'
                                   : '+ ${TimeValue.formatBudget(budget)}',
@@ -439,6 +441,7 @@ class _TimeField extends StatelessWidget {
   const _TimeField({
     required this.label,
     required this.time,
+    required this.date,
     required this.sub,
     required this.anchored,
     required this.onTap,
@@ -446,6 +449,7 @@ class _TimeField extends StatelessWidget {
 
   final String label;
   final String time;
+  final String? date;
   final String sub;
   final bool anchored;
   final VoidCallback onTap;
@@ -501,6 +505,17 @@ class _TimeField extends StatelessWidget {
                   ],
                 ],
               ),
+              if (date != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  date!,
+                  style: jpStyle(
+                    size: 11,
+                    weight: FontWeight.w700,
+                    color: c.moss700,
+                  ),
+                ),
+              ],
               const SizedBox(height: 1),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.baseline,

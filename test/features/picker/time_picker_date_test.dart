@@ -133,6 +133,62 @@ void main() {
       expect(state.departure.anchored, false);
     });
   });
+
+  group('HomeScreen 日付ラベル表示', () {
+    Future<void> pumpHomeRaw(
+      WidgetTester tester,
+      ProviderContainer container,
+    ) async {
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: ArukuTheme.light(),
+            home: const HomeScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('翌日で確定すると時間カードに「明日」が出る', (tester) async {
+      final container = _container();
+      await pumpHomeRaw(tester, container);
+
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(mode: PickerMode.arrival, h: 9, m: 0, dateOffset: 1);
+      await tester.pumpAndSettle();
+
+      expect(find.text('明日'), findsOneWidget);
+    });
+
+    testWidgets('数日先で確定すると M/D(曜) が時間カードに出る', (tester) async {
+      final container = _container();
+      await pumpHomeRaw(tester, container);
+
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(mode: PickerMode.arrival, h: 9, m: 0, dateOffset: 5);
+      await tester.pumpAndSettle();
+
+      final expected = const TimeValue(h: 9, m: 0, dateOffset: 5).dateLabel();
+      expect(expected, isNotNull);
+      expect(find.text(expected!), findsOneWidget);
+    });
+
+    testWidgets('当日（dateOffset=0）で確定すると日付ラベルは出ない', (tester) async {
+      final container = _container();
+      await pumpHomeRaw(tester, container);
+
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(mode: PickerMode.depart, h: 8, m: 0, dateOffset: 0);
+      await tester.pumpAndSettle();
+
+      expect(find.text('明日'), findsNothing);
+    });
+  });
 }
 
 class _FakeLocationService implements LocationService {
