@@ -45,6 +45,17 @@ class TimeValue {
   String format() =>
       '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
 
+  /// ホーム画面に出す日付ラベル。当日・「今すぐ」は表示しない（null）。
+  /// 翌日は「明日」、それ以降は「M/D(曜)」。
+  String? dateLabel({DateTime? now}) {
+    if (isNow || dateOffset == 0) return null;
+    if (dateOffset == 1) return '明日';
+    final base = now ?? DateTime.now();
+    final d = DateTime(base.year, base.month, base.day + dateOffset);
+    const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
+    return '${d.month}/${d.day}(${weekdays[d.weekday - 1]})';
+  }
+
   static String formatBudget(int minutes) {
     if (minutes <= 0) return '— ';
     final h = minutes ~/ 60;

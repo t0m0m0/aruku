@@ -45,4 +45,38 @@ void main() {
       expect(tv.dateOffset, 0);
     });
   });
+
+  group('TimeValue.dateLabel', () {
+    final now = DateTime(2026, 5, 19); // 火曜日
+
+    test('isNow=true は null（「今すぐ」なので日付不要）', () {
+      const tv = TimeValue(h: 8, m: 0, isNow: true, dateOffset: 3);
+      expect(tv.dateLabel(now: now), isNull);
+    });
+
+    test('当日（dateOffset=0）は null（非表示）', () {
+      const tv = TimeValue(h: 8, m: 0, dateOffset: 0);
+      expect(tv.dateLabel(now: now), isNull);
+    });
+
+    test('翌日（dateOffset=1）は「明日」', () {
+      const tv = TimeValue(h: 8, m: 0, dateOffset: 1);
+      expect(tv.dateLabel(now: now), '明日');
+    });
+
+    test('2日先は M/D(曜) 形式', () {
+      const tv = TimeValue(h: 8, m: 0, dateOffset: 2);
+      expect(tv.dateLabel(now: now), '5/21(木)');
+    });
+
+    test('数日先は M/D(曜) 形式（曜日は月〜日で算出）', () {
+      const tv = TimeValue(h: 9, m: 0, dateOffset: 5);
+      expect(tv.dateLabel(now: now), '5/24(日)');
+    });
+
+    test('月をまたぐ dateOffset も正しく算出', () {
+      const tv = TimeValue(h: 9, m: 0, dateOffset: 30);
+      expect(tv.dateLabel(now: now), '6/18(木)');
+    });
+  });
 }
