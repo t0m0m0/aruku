@@ -42,7 +42,8 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
     super.initState();
     final now = DateTime.now();
     _today = DateTime(now.year, now.month, now.day);
-    _minDate = _today;
+    // 過去時刻は選択不可。当日は現在時刻以降、翌日以降は 00:00 から選べる。
+    _minDate = now;
     _maxDate = DateTime(_today.year, _today.month, _today.day + 90, 23, 59);
     _mode = widget.initialMode;
     _selected = _initialFor(_mode);
