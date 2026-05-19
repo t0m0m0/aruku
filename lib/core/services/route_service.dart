@@ -95,8 +95,8 @@ class GoogleRouteService implements RouteService {
     }
     final originStr = '${origin.lat},${origin.lng}';
     final budgetMin =
-        (arrival.totalMinutes + arrival.dateOffset * 24 * 60) -
-        (departure.totalMinutes + departure.dateOffset * 24 * 60);
+        (arrival.totalMinutes + _effectiveOffset(arrival) * 24 * 60) -
+        (departure.totalMinutes + _effectiveOffset(departure) * 24 * 60);
 
     onProgress?.call(RoutePhase.routing);
 
@@ -275,11 +275,16 @@ class GoogleRouteService implements RouteService {
     );
   }
 
+  /// isNow のときは dateOffset を無視して当日扱い。budget 計算と epoch で共有。
+  static int _effectiveOffset(TimeValue t) => t.isNow ? 0 : t.dateOffset;
+
   int _departureEpoch(TimeValue t) {
     final now = _clock();
     final base = DateTime(now.year, now.month, now.day, t.h, t.m);
-    final offset = t.isNow ? 0 : t.dateOffset;
-    return base.add(Duration(days: offset)).millisecondsSinceEpoch ~/ 1000;
+    return base
+            .add(Duration(days: _effectiveOffset(t)))
+            .millisecondsSinceEpoch ~/
+        1000;
   }
 
   String _fmt(TimeValue dep, int addMinutes) {
