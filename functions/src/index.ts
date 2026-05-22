@@ -382,13 +382,15 @@ export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret] }, async (
   );
 
   // RapidAPI/NAVITIME はエラー時に items を含まず {message:...} 等を返す。
-  // 切り分け用にエラー本体をログへ残し、ボディはそのまま透過する。
+  // 認証エラー・クォータ超過と「ルートなし」を区別するため 502 で返す。
   const record = data as Record<string, unknown> | null;
   if (record && record["message"] && !record["items"]) {
     console.error(
       "[navitimeProxy] NAVITIME API error:",
       JSON.stringify(record["message"])
     );
+    res.status(502).json(data);
+    return;
   }
 
   res.json(data);

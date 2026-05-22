@@ -35,9 +35,15 @@ class _NoCoordPlacesService implements PlacesService {
   }
 }
 
-Widget _wrap(ProviderContainer container) => UncontrolledProviderScope(
+Widget _wrap(
+  ProviderContainer container, {
+  SearchMode mode = SearchMode.destination,
+}) => UncontrolledProviderScope(
   container: container,
-  child: MaterialApp(theme: ArukuTheme.light(), home: const SearchScreen()),
+  child: MaterialApp(
+    theme: ArukuTheme.light(),
+    home: SearchScreen(mode: mode),
+  ),
 );
 
 Future<ProviderContainer> _makeContainer(
@@ -100,6 +106,24 @@ void main() {
       final state = container.read(appStateProvider);
       expect(state.destination, isNull);
       expect(state.screen, isNot(Screen.home));
+      expect(find.textContaining('別の候補'), findsOneWidget);
+    });
+  });
+
+  group('SearchScreen 座標が取れない出発地（origin モード）', () {
+    testWidgets('fetchLatLng が null のとき確定せずバナーを表示する', (tester) async {
+      final container = await _makeContainer(tester, _NoCoordPlacesService());
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_wrap(container, mode: SearchMode.origin));
+      await tester.pump();
+
+      await _tapSuggestion(tester);
+
+      final state = container.read(appStateProvider);
+      expect(state.origin, isNull, reason: '確定してはいけない');
+      expect(state.screen, isNot(Screen.home), reason: 'ホームに遷移してはいけない');
+      expect(find.textContaining('この出発地は位置情報'), findsOneWidget);
       expect(find.textContaining('別の候補'), findsOneWidget);
     });
   });

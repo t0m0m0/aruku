@@ -55,9 +55,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       latLng = null;
     }
     if (!mounted) return;
-    // destination は座標必須（NAVITIME route_transit は座標 goal が前提）。
+    // NAVITIME route_transit は start/goal ともに座標必須。
     // 座標が取れない候補は確定させず、別候補の再選択を促す。
-    if (widget.mode == SearchMode.destination && latLng == null) {
+    if (latLng == null) {
       setState(() {
         _selecting = false;
         _pickFailed = true;
@@ -341,7 +341,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
-        'この目的地は位置情報を取得できませんでした。別の候補を選んでください',
+        widget.mode == SearchMode.origin
+            ? 'この出発地は位置情報を取得できませんでした。別の候補を選んでください'
+            : 'この目的地は位置情報を取得できませんでした。別の候補を選んでください',
         style: jpStyle(size: 13, weight: FontWeight.w600, color: c.burnt),
       ),
     );
