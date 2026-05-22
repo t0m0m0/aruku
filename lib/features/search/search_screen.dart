@@ -26,6 +26,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   late final TextEditingController _ctl;
   final _focus = FocusNode();
   bool _selecting = false;
+  bool _pickFailed = false;
 
   @override
   void initState() {
@@ -43,18 +44,28 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   Future<void> _selectPrediction(String placeId, String name) async {
     if (_selecting) return;
-    setState(() => _selecting = true);
+    setState(() {
+      _selecting = true;
+      _pickFailed = false;
+    });
+    GeoPoint? latLng;
     try {
-      final service = ref.read(placesServiceProvider);
-      final latLng = await service.fetchLatLng(placeId);
-      if (!mounted) return;
-      _applySelection(name, latLng: latLng);
+      latLng = await ref.read(placesServiceProvider).fetchLatLng(placeId);
     } on PlacesException {
-      if (!mounted) return;
-      _applySelection(name);
-    } finally {
-      if (mounted) setState(() => _selecting = false);
+      latLng = null;
     }
+    if (!mounted) return;
+    // destination は座標必須（NAVITIME route_transit は座標 goal が前提）。
+    // 座標が取れない候補は確定させず、別候補の再選択を促す。
+    if (widget.mode == SearchMode.destination && latLng == null) {
+      setState(() {
+        _selecting = false;
+        _pickFailed = true;
+      });
+      return;
+    }
+    setState(() => _selecting = false);
+    _applySelection(name, latLng: latLng);
   }
 
   void _applySelection(String name, {GeoPoint? latLng}) {
@@ -131,7 +142,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                               controller: _ctl,
                               focusNode: _focus,
                               onChanged: (q) {
-                                setState(() {});
+                                setState(() => _pickFailed = false);
                                 ref.read(placesProvider.notifier).search(q);
                               },
                               cursorColor: c.moss500,
@@ -289,27 +300,50 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   Widget _buildSuggestions(ArukuColors c, List<PlacePrediction> suggestions) {
-    return Stack(
+    return Column(
       children: [
-        IgnorePointer(
-          ignoring: _selecting,
-          child: ListView.builder(
-            padding: const EdgeInsets.only(bottom: 8),
-            itemCount: suggestions.length,
-            itemBuilder: (_, i) {
-              final s = suggestions[i];
-              return _SuggestionTile(
-                name: s.name,
-                address: s.address,
-                query: _ctl.text,
-                onTap: () => _selectPrediction(s.placeId, s.name),
-              );
-            },
+        if (_pickFailed) _buildPickFailedBanner(c),
+        Expanded(
+          child: Stack(
+            children: [
+              IgnorePointer(
+                ignoring: _selecting,
+                child: ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  itemCount: suggestions.length,
+                  itemBuilder: (_, i) {
+                    final s = suggestions[i];
+                    return _SuggestionTile(
+                      name: s.name,
+                      address: s.address,
+                      query: _ctl.text,
+                      onTap: () => _selectPrediction(s.placeId, s.name),
+                    );
+                  },
+                ),
+              ),
+              if (_selecting)
+                Center(child: CircularProgressIndicator(color: c.moss500)),
+            ],
           ),
         ),
-        if (_selecting)
-          Center(child: CircularProgressIndicator(color: c.moss500)),
       ],
+    );
+  }
+
+  Widget _buildPickFailedBanner(ArukuColors c) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(22, 8, 22, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: c.burntSoft,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        'この目的地は位置情報を取得できませんでした。別の候補を選んでください',
+        style: jpStyle(size: 13, weight: FontWeight.w600, color: c.burnt),
+      ),
     );
   }
 
