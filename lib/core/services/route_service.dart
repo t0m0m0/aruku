@@ -7,6 +7,7 @@ import '../config/app_config.dart';
 import '../models/geo_point.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
+import 'route_plan_builder.dart';
 
 /// ルート計算の進捗段階。ローディング表示の3ステップに対応する。
 enum RoutePhase { routing, walkability, building }
@@ -74,8 +75,6 @@ class GoogleRouteService implements RouteService {
   final String _proxyBaseUrl;
   final DateTime Function() _clock;
 
-  static const _kcalPerKm = 57;
-
   @override
   Future<RoutePlan> plan({
     required String? destination,
@@ -94,9 +93,7 @@ class GoogleRouteService implements RouteService {
       throw const RouteException('NO_DESTINATION');
     }
     final originStr = '${origin.lat},${origin.lng}';
-    final budgetMin =
-        (arrival.totalMinutes + _effectiveOffset(arrival) * 24 * 60) -
-        (departure.totalMinutes + _effectiveOffset(departure) * 24 * 60);
+    final budgetMin = budgetMinutes(departure, arrival);
 
     onProgress?.call(RoutePhase.routing);
 
@@ -113,7 +110,13 @@ class GoogleRouteService implements RouteService {
     if (walking.totalMin <= budgetMin) {
       onProgress?.call(RoutePhase.walkability);
       onProgress?.call(RoutePhase.building);
-      return _toPlan(walking, departure, budgetMin);
+      return buildRoutePlan(
+        from: walking.from,
+        to: walking.to,
+        segments: walking.segments,
+        departure: departure,
+        budgetMin: budgetMin,
+      );
     }
 
     // 段階2: transit + alternatives。予算内かつ徒歩比率最大を選ぶ。
@@ -143,7 +146,13 @@ class GoogleRouteService implements RouteService {
           ].reduce((a, b) => a.totalMin <= b.totalMin ? a : b);
 
     onProgress?.call(RoutePhase.building);
-    return _toPlan(chosen, departure, budgetMin);
+    return buildRoutePlan(
+      from: chosen.from,
+      to: chosen.to,
+      segments: chosen.segments,
+      departure: departure,
+      budgetMin: budgetMin,
+    );
   }
 
   Future<Map<String, dynamic>> _fetch(Map<String, String> params) async {
@@ -206,7 +215,7 @@ class GoogleRouteService implements RouteService {
             toName: to,
             minutes: minutes,
             km: km,
-            kcal: (km * _kcalPerKm).round(),
+            kcal: (km * kcalPerKm).round(),
             polyline: poly,
           ),
         );
@@ -232,66 +241,13 @@ class GoogleRouteService implements RouteService {
     return _Candidate(from: from, to: to, segments: segments);
   }
 
-  RoutePlan _toPlan(_Candidate c, TimeValue departure, int budgetMin) {
-    final totalKm = c.segments.fold<double>(0, (a, s) => a + (s.km ?? 0));
-    final walkKm = c.segments
-        .where((s) => s.type == SegmentType.walk)
-        .fold<double>(0, (a, s) => a + (s.km ?? 0));
-    final totalMin = c.segments.fold<int>(0, (a, s) => a + s.minutes);
-    final kcal = c.segments
-        .where((s) => s.type == SegmentType.walk)
-        .fold<int>(0, (a, s) => a + (s.kcal ?? 0));
-
-    final nodes = <TimelineNode>[
-      TimelineNode(time: _fmt(departure, 0), place: c.from, sub: '出発'),
-    ];
-    var cum = 0;
-    for (var i = 0; i < c.segments.length; i++) {
-      final seg = c.segments[i];
-      cum += seg.minutes;
-      final isLast = i == c.segments.length - 1;
-      nodes.add(
-        TimelineNode(
-          time: _fmt(departure, cum),
-          place: isLast ? c.to : seg.toName,
-          sub: isLast
-              ? (totalMin <= budgetMin ? '到着 · 制限内 ✓' : '到着')
-              : (seg.type == SegmentType.train ? (seg.line ?? '電車') : '徒歩へ'),
-        ),
-      );
-    }
-
-    return RoutePlan(
-      from: c.from,
-      to: c.to,
-      totalKm: totalKm,
-      totalMin: totalMin,
-      budgetMin: budgetMin,
-      kcal: kcal,
-      walkKm: walkKm,
-      walkRatio: totalKm == 0 ? 0 : walkKm / totalKm,
-      segments: c.segments,
-      timelineNodes: nodes,
-    );
-  }
-
-  /// isNow のときは dateOffset を無視して当日扱い。budget 計算と epoch で共有。
-  static int _effectiveOffset(TimeValue t) => t.isNow ? 0 : t.dateOffset;
-
   int _departureEpoch(TimeValue t) {
     final now = _clock();
     final base = DateTime(now.year, now.month, now.day, t.h, t.m);
     return base
-            .add(Duration(days: _effectiveOffset(t)))
+            .add(Duration(days: effectiveOffset(t)))
             .millisecondsSinceEpoch ~/
         1000;
-  }
-
-  String _fmt(TimeValue dep, int addMinutes) {
-    final total = dep.h * 60 + dep.m + addMinutes;
-    final h = (total ~/ 60) % 24;
-    final m = total % 60;
-    return '$h:${m.toString().padLeft(2, '0')}';
   }
 }
 
