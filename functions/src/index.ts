@@ -7,6 +7,7 @@ import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
 import { toLegacyDirections } from "./routes-transform";
 
 const mapsKeySecret = defineSecret("GOOGLE_MAPS_API_KEY");
+const navitimeKeySecret = defineSecret("NAVITIME_RAPIDAPI_KEY");
 
 // ローカル（エミュレーター）は Keychain から export した process.env を使用。
 // 本番は Secret Manager から取得。
@@ -15,6 +16,13 @@ function getMapsApiKey(): string {
     return process.env.GOOGLE_MAPS_API_KEY ?? "";
   }
   return mapsKeySecret.value();
+}
+
+function getNavitimeApiKey(): string {
+  if (process.env.FUNCTIONS_EMULATOR === "true") {
+    return process.env.NAVITIME_RAPIDAPI_KEY ?? "";
+  }
+  return navitimeKeySecret.value();
 }
 
 const PLACES_AUTOCOMPLETE_NEW_URL =
@@ -63,6 +71,21 @@ function toLocationEndpoint(s: string):
 }
 
 const ALLOWED_MODES = new Set(["walking", "transit", "driving", "bicycling"]);
+
+const NAVITIME_HOST = "navitime-route-totalnavi.p.rapidapi.com";
+const NAVITIME_ROUTE_URL = `https://${NAVITIME_HOST}/route_transit`;
+
+// クライアントから透過を許可するパラメータ。datum/coord_unit はサーバ固定。
+const NAVITIME_ALLOWED_PARAMS = ["start", "goal", "start_time", "term", "limit"];
+
+export function buildNavitimeUrl(query: Record<string, string | undefined>): string {
+  const params: Record<string, string> = { datum: "wgs84", coord_unit: "degree" };
+  for (const k of NAVITIME_ALLOWED_PARAMS) {
+    const v = query[k];
+    if (typeof v === "string" && v.length > 0) params[k] = v;
+  }
+  return `${NAVITIME_ROUTE_URL}?${new URLSearchParams(params).toString()}`;
+}
 
 // Per-instance in-memory rate limiter (30 req/min per IP).
 // Note: Firebase Functions may run as multiple instances, so this limit is
@@ -320,5 +343,53 @@ export const geocodeProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, 
   if (latlng) params["latlng"] = latlng;
 
   const data = await fetchJson(buildUrl(GEOCODE_URL, params, getMapsApiKey()));
+  res.json(data);
+});
+
+/** NAVITIME route_transit プロキシ（RapidAPI 経由、レスポンスは無加工で返す） */
+export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret] }, async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  if (req.method === "OPTIONS") {
+    res.set("Access-Control-Allow-Methods", "GET");
+    res.set("Access-Control-Allow-Headers", "Content-Type");
+    res.status(204).send("");
+    return;
+  }
+
+  if (!checkRateLimit(clientIp(req))) {
+    res.status(429).json({ error: "Too many requests" });
+    return;
+  }
+
+  const start = req.query["start"] as string | undefined;
+  const goal = req.query["goal"] as string | undefined;
+  const startTime = req.query["start_time"] as string | undefined;
+
+  if (!start || !goal || !startTime) {
+    res
+      .status(400)
+      .json({ error: "start, goal and start_time are required" });
+    return;
+  }
+
+  const data = await requestJsonNew(
+    buildNavitimeUrl(req.query as Record<string, string | undefined>),
+    "GET",
+    {
+      "X-RapidAPI-Key": getNavitimeApiKey(),
+      "X-RapidAPI-Host": NAVITIME_HOST,
+    }
+  );
+
+  // RapidAPI/NAVITIME はエラー時に items を含まず {message:...} 等を返す。
+  // 切り分け用にエラー本体をログへ残し、ボディはそのまま透過する。
+  const record = data as Record<string, unknown> | null;
+  if (record && record["message"] && !record["items"]) {
+    console.error(
+      "[navitimeProxy] NAVITIME API error:",
+      JSON.stringify(record["message"])
+    );
+  }
+
   res.json(data);
 });
