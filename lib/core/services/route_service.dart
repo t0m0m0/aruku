@@ -7,6 +7,7 @@ import '../config/app_config.dart';
 import '../models/geo_point.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
+import 'navitime_route_service.dart';
 import 'route_plan_builder.dart';
 
 /// ルート計算の進捗段階。ローディング表示の3ステップに対応する。
@@ -269,5 +270,5 @@ class _Candidate {
 final routeServiceProvider = Provider<RouteService>((ref) {
   final client = http.Client();
   ref.onDispose(client.close);
-  return GoogleRouteService(client: client);
+  return NaviTimeRouteService(client: client);
 });
