@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildNavitimeUrl } from "../src/index";
+import { buildNavitimeUrl, buildNavitimeWalkUrl } from "../src/index";
 
 describe("buildNavitimeUrl", () => {
   it("必須パラメータ（start/goal/start_time）を含める", () => {
@@ -51,5 +51,63 @@ describe("buildNavitimeUrl", () => {
     );
     expect(url.searchParams.get("limit")).toBe("5");
     expect(url.searchParams.get("term")).toBe("1440");
+  });
+
+  it("options（railway_calling_at）を透過する", () => {
+    const url = new URL(
+      buildNavitimeUrl({
+        start: "1,1",
+        goal: "2,2",
+        options: "railway_calling_at",
+      })
+    );
+    expect(url.searchParams.get("options")).toBe("railway_calling_at");
+  });
+});
+
+describe("buildNavitimeWalkUrl", () => {
+  it("route_walk エンドポイントへ必須パラメータを含める", () => {
+    const url = new URL(
+      buildNavitimeWalkUrl({ start: "35.7,139.7", goal: "35.65,139.7" })
+    );
+    expect(url.origin + url.pathname).toBe(
+      "https://navitime-route-walk.p.rapidapi.com/route_walk"
+    );
+    expect(url.searchParams.get("start")).toBe("35.7,139.7");
+    expect(url.searchParams.get("goal")).toBe("35.65,139.7");
+  });
+
+  it("既定値（datum=wgs84, coord_unit=degree）を付与する", () => {
+    const url = new URL(buildNavitimeWalkUrl({ start: "1,1", goal: "2,2" }));
+    expect(url.searchParams.get("datum")).toBe("wgs84");
+    expect(url.searchParams.get("coord_unit")).toBe("degree");
+  });
+
+  it("任意パラメータ（speed/condition/shape）を透過する", () => {
+    const url = new URL(
+      buildNavitimeWalkUrl({
+        start: "1,1",
+        goal: "2,2",
+        speed: "5.0",
+        condition: "recommend",
+        shape: "true",
+      })
+    );
+    expect(url.searchParams.get("speed")).toBe("5.0");
+    expect(url.searchParams.get("condition")).toBe("recommend");
+    expect(url.searchParams.get("shape")).toBe("true");
+  });
+
+  it("許可外パラメータは透過しない", () => {
+    const url = new URL(
+      buildNavitimeWalkUrl({
+        start: "1,1",
+        goal: "2,2",
+        key: "leak",
+        arbitrary: "x",
+      } as Record<string, string>)
+    );
+    expect(url.searchParams.has("key")).toBe(false);
+    expect(url.searchParams.has("arbitrary")).toBe(false);
   });
 });

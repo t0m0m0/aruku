@@ -75,16 +75,49 @@ const ALLOWED_MODES = new Set(["walking", "transit", "driving", "bicycling"]);
 const NAVITIME_HOST = "navitime-route-totalnavi.p.rapidapi.com";
 const NAVITIME_ROUTE_URL = `https://${NAVITIME_HOST}/route_transit`;
 
-// クライアントから透過を許可するパラメータ。datum/coord_unit はサーバ固定。
-const NAVITIME_ALLOWED_PARAMS = ["start", "goal", "start_time", "term", "limit"];
+const NAVITIME_WALK_HOST = "navitime-route-walk.p.rapidapi.com";
+const NAVITIME_WALK_URL = `https://${NAVITIME_WALK_HOST}/route_walk`;
 
-export function buildNavitimeUrl(query: Record<string, string | undefined>): string {
+// クライアントから透過を許可するパラメータ。datum/coord_unit はサーバ固定。
+// options=railway_calling_at で乗車列車の途中停車駅を取得する。
+const NAVITIME_ALLOWED_PARAMS = [
+  "start",
+  "goal",
+  "start_time",
+  "term",
+  "limit",
+  "options",
+];
+
+// 徒歩ルート（origin→駅）取得用。time/distance のみ必要なら shape は不要。
+const NAVITIME_WALK_ALLOWED_PARAMS = [
+  "start",
+  "goal",
+  "start_time",
+  "speed",
+  "condition",
+  "shape",
+];
+
+function buildAllowedUrl(
+  base: string,
+  allowed: string[],
+  query: Record<string, string | undefined>
+): string {
   const params: Record<string, string> = { datum: "wgs84", coord_unit: "degree" };
-  for (const k of NAVITIME_ALLOWED_PARAMS) {
+  for (const k of allowed) {
     const v = query[k];
     if (typeof v === "string" && v.length > 0) params[k] = v;
   }
-  return `${NAVITIME_ROUTE_URL}?${new URLSearchParams(params).toString()}`;
+  return `${base}?${new URLSearchParams(params).toString()}`;
+}
+
+export function buildNavitimeUrl(query: Record<string, string | undefined>): string {
+  return buildAllowedUrl(NAVITIME_ROUTE_URL, NAVITIME_ALLOWED_PARAMS, query);
+}
+
+export function buildNavitimeWalkUrl(query: Record<string, string | undefined>): string {
+  return buildAllowedUrl(NAVITIME_WALK_URL, NAVITIME_WALK_ALLOWED_PARAMS, query);
 }
 
 // Per-instance in-memory rate limiter (30 req/min per IP).
@@ -387,6 +420,51 @@ export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret] }, async (
   if (record && record["message"] && !record["items"]) {
     console.error(
       "[navitimeProxy] NAVITIME API error:",
+      JSON.stringify(record["message"])
+    );
+    res.status(502).json(data);
+    return;
+  }
+
+  res.json(data);
+});
+
+/** NAVITIME route_walk プロキシ（origin→駅 の徒歩ルート、レスポンスは無加工で返す） */
+export const navitimeWalkProxy = onRequest({ secrets: [navitimeKeySecret] }, async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  if (req.method === "OPTIONS") {
+    res.set("Access-Control-Allow-Methods", "GET");
+    res.set("Access-Control-Allow-Headers", "Content-Type");
+    res.status(204).send("");
+    return;
+  }
+
+  if (!checkRateLimit(clientIp(req))) {
+    res.status(429).json({ error: "Too many requests" });
+    return;
+  }
+
+  const start = req.query["start"] as string | undefined;
+  const goal = req.query["goal"] as string | undefined;
+
+  if (!start || !goal) {
+    res.status(400).json({ error: "start and goal are required" });
+    return;
+  }
+
+  const data = await requestJsonNew(
+    buildNavitimeWalkUrl(req.query as Record<string, string | undefined>),
+    "GET",
+    {
+      "X-RapidAPI-Key": getNavitimeApiKey(),
+      "X-RapidAPI-Host": NAVITIME_WALK_HOST,
+    }
+  );
+
+  const record = data as Record<string, unknown> | null;
+  if (record && record["message"] && !record["items"]) {
+    console.error(
+      "[navitimeWalkProxy] NAVITIME API error:",
       JSON.stringify(record["message"])
     );
     res.status(502).json(data);
