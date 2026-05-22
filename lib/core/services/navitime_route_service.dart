@@ -144,11 +144,16 @@ class NaviTimeRouteService implements RouteService {
     return _NaviCandidate(from: from, to: to, segments: segments);
   }
 
-  /// 出発時刻を ISO8601（秒なし区切り）へ整形。過去時刻は翌日扱いにする。
+  /// 出発時刻を ISO8601 へ整形。dateOffset（isNow→0）で日付を決定する。
   String _startTime(TimeValue t) {
     final now = _clock();
-    var dt = DateTime(now.year, now.month, now.day, t.h, t.m);
-    if (dt.isBefore(now)) dt = dt.add(const Duration(days: 1));
+    final dt = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      t.h,
+      t.m,
+    ).add(Duration(days: effectiveOffset(t)));
     final y = dt.year.toString().padLeft(4, '0');
     final mo = dt.month.toString().padLeft(2, '0');
     final d = dt.day.toString().padLeft(2, '0');

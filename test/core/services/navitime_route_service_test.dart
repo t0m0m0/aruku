@@ -248,7 +248,7 @@ void main() {
       );
     });
 
-    test('過去時刻の出発は翌日扱いで start_time を送る', () async {
+    test('dateOffset=1 の出発は翌日の start_time を送る', () async {
       String? sentStartTime;
       final client = MockClient((req) async {
         sentStartTime = req.url.queryParameters['start_time'];
@@ -260,15 +260,15 @@ void main() {
         );
       });
 
-      // clock=10:00, departure=9:00（過去）→ 翌日 5/23
-      await build(client, clock: () => DateTime(2026, 5, 22, 10, 0)).plan(
+      await build(client).plan(
         destination: 'B',
         destinationLatLng: const GeoPoint(35.65, 139.7),
-        departure: const TimeValue(h: 9, m: 0),
-        arrival: const TimeValue(h: 11, m: 0),
+        departure: const TimeValue(h: 9, m: 0, dateOffset: 1),
+        arrival: const TimeValue(h: 11, m: 0, dateOffset: 1),
         origin: const GeoPoint(35.7, 139.7),
       );
 
+      // clock=2026-05-22, dateOffset=1 → 翌日 2026-05-23
       expect(sentStartTime, '2026-05-23T09:00:00');
     });
   });
