@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
+import 'package:aruku/core/services/navitime_route_service.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -88,6 +89,15 @@ Map<String, dynamic> _directions(List<Map<String, dynamic>> routes) => {
 };
 
 void main() {
+  group('routeServiceProvider', () {
+    test('既定で NaviTimeRouteService を返す', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      expect(container.read(routeServiceProvider), isA<NaviTimeRouteService>());
+    });
+  });
+
   group('AppNotifier.startSearch + RouteService', () {
     test('RouteService 経由で plan を取得し state.route へ反映する', () async {
       final service = _FakeRouteService();
