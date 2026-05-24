@@ -7,6 +7,7 @@ import '../config/app_config.dart';
 import '../models/geo_point.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
+import 'app_check_http_client.dart';
 import 'navitime_route_service.dart';
 import 'route_plan_builder.dart';
 
@@ -268,7 +269,7 @@ class _Candidate {
 }
 
 final routeServiceProvider = Provider<RouteService>((ref) {
-  final client = http.Client();
+  final client = AppCheckHttpClient(http.Client());
   ref.onDispose(client.close);
   return NaviTimeRouteService(client: client);
 });

@@ -2,9 +2,14 @@ import * as https from "https";
 import * as http from "http";
 import { onRequest, Request } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
+import { Response } from "express";
+import { initializeApp } from "firebase-admin/app";
+import { getAppCheck } from "firebase-admin/app-check";
 
 import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
 import { toLegacyDirections } from "./routes-transform";
+
+initializeApp();
 
 const mapsKeySecret = defineSecret("GOOGLE_MAPS_API_KEY");
 const navitimeKeySecret = defineSecret("NAVITIME_RAPIDAPI_KEY");
@@ -117,6 +122,27 @@ function clientIp(req: Request): string {
   return req.ip ?? "unknown";
 }
 
+// Firebase App Check verification for raw HTTP functions. onRequest (unlike
+// onCall) has no built-in enforceAppCheck, so the X-Firebase-AppCheck header
+// must be verified explicitly. Without a valid token the request is rejected
+// with 401, blocking unauthenticated access to these billable proxies.
+// The emulator is exempted so local development works without App Check setup.
+async function verifyAppCheck(req: Request, res: Response): Promise<boolean> {
+  if (process.env.FUNCTIONS_EMULATOR === "true") return true;
+  const token = req.header("X-Firebase-AppCheck");
+  if (!token) {
+    res.status(401).json({ error: "App Check token missing" });
+    return false;
+  }
+  try {
+    await getAppCheck().verifyToken(token);
+    return true;
+  } catch {
+    res.status(401).json({ error: "App Check token invalid" });
+    return false;
+  }
+}
+
 function fetchJson(url: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const get = url.startsWith("https") ? https.get : http.get;
@@ -166,18 +192,21 @@ function requestJsonNew(
 }
 
 // CORS is set to * because clients are Flutter mobile apps which are not subject
-// to browser CORS restrictions. For production, enable Firebase App Check to
-// prevent unauthorized access to this proxy.
+// to browser CORS restrictions. Unauthorized access is prevented by Firebase
+// App Check: every handler calls verifyAppCheck() to validate the
+// X-Firebase-AppCheck token before doing any billable work.
 
 /** Places Autocomplete / Details プロキシ */
 export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Methods", "GET");
-    res.set("Access-Control-Allow-Headers", "Content-Type");
+    res.set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck");
     res.status(204).send("");
     return;
   }
+
+  if (!(await verifyAppCheck(req, res))) return;
 
   if (!checkRateLimit(clientIp(req))) {
     res.status(429).json({ error: "Too many requests" });
@@ -249,10 +278,12 @@ export const directionsProxy = onRequest({ secrets: [mapsKeySecret] }, async (re
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Methods", "GET");
-    res.set("Access-Control-Allow-Headers", "Content-Type");
+    res.set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck");
     res.status(204).send("");
     return;
   }
+
+  if (!(await verifyAppCheck(req, res))) return;
 
   if (!checkRateLimit(clientIp(req))) {
     res.status(429).json({ error: "Too many requests" });
@@ -320,10 +351,12 @@ export const geocodeProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, 
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Methods", "GET");
-    res.set("Access-Control-Allow-Headers", "Content-Type");
+    res.set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck");
     res.status(204).send("");
     return;
   }
+
+  if (!(await verifyAppCheck(req, res))) return;
 
   if (!checkRateLimit(clientIp(req))) {
     res.status(429).json({ error: "Too many requests" });
@@ -351,10 +384,12 @@ export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret] }, async (
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Methods", "GET");
-    res.set("Access-Control-Allow-Headers", "Content-Type");
+    res.set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck");
     res.status(204).send("");
     return;
   }
+
+  if (!(await verifyAppCheck(req, res))) return;
 
   if (!checkRateLimit(clientIp(req))) {
     res.status(429).json({ error: "Too many requests" });
