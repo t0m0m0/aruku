@@ -164,6 +164,9 @@ class NaviTimeRouteService implements RouteService {
       if (walk1 == null) continue;
       for (final a in indices) {
         if (a <= b) continue;
+        // 乗換をまたぐ b→a は単一乗車として表現できない（路線・乗換・運賃を
+        // 誤る）ため、同一乗車区間内のペアのみ候補化する。
+        if (stops[a].section != stops[b].section) continue;
         final walk2 = toGoal[a]?.segments.first;
         if (walk2 == null) continue;
         final ride = _minutesBetween(stops[a].arr, stops[b].dep);
@@ -282,6 +285,7 @@ class NaviTimeRouteService implements RouteService {
 
     final segments = <RouteSegment>[];
     final stops = <_Stop>[];
+    var trainSection = 0;
 
     for (var i = 0; i < sections.length; i++) {
       final sec = sections[i];
@@ -305,7 +309,8 @@ class NaviTimeRouteService implements RouteService {
         );
       } else {
         final line = sec['line_name'] as String?;
-        stops.addAll(_parseCalling(sec, line));
+        stops.addAll(_parseCalling(sec, line, trainSection));
+        trainSection++;
         segments.add(
           RouteSegment(
             type: SegmentType.train,
@@ -325,12 +330,17 @@ class NaviTimeRouteService implements RouteService {
   }
 
   /// 電車区間の停車駅（座標・発着時刻が揃うもののみ）を順序通りに取得する。
-  /// [line] はその区間から乗車する際の路線名。
-  List<_Stop> _parseCalling(Map<String, dynamic> trainSection, String? line) {
-    final transport = trainSection['transport'];
+  /// [line] はその区間から乗車する際の路線名、[section] は乗車区間の通し番号
+  /// （乗換をまたぐペアを除外するために用いる）。
+  List<_Stop> _parseCalling(
+    Map<String, dynamic> trainSec,
+    String? line,
+    int section,
+  ) {
+    final transport = trainSec['transport'];
     final raw =
         (transport is Map ? transport['calling_at'] : null) ??
-        trainSection['calling_at'];
+        trainSec['calling_at'];
     if (raw is! List) return const [];
 
     final out = <_Stop>[];
@@ -353,6 +363,7 @@ class NaviTimeRouteService implements RouteService {
           arr: fromTime,
           dep: toTime,
           line: line,
+          section: section,
         ),
       );
     }
@@ -411,6 +422,7 @@ class _Stop {
     required this.arr,
     required this.dep,
     required this.line,
+    required this.section,
   });
 
   final String name;
@@ -424,4 +436,7 @@ class _Stop {
 
   /// この駅から乗車する際の路線名。
   final String? line;
+
+  /// この駅が属する乗車区間の通し番号。乗換をまたぐ駅は番号が異なる。
+  final int section;
 }

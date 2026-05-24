@@ -373,6 +373,109 @@ void main() {
       expect(plan.totalMin, 115);
     });
 
+    test('乗換をまたぐ乗車区間（L1の駅→L2の駅）を単一電車として候補化しない', () async {
+      // 出発地→A→(L1: A,B)→B→(乗換)→(L2: B,C,D)→D→目的地。
+      // バグ時は A(L1) で乗り C(L2) で降りる「徒歩最大」候補を 1 本の L1 として
+      // 生成し、乗換と運賃を隠した誤経路が選ばれてしまう。修正後は同一乗車区間内
+      // （C→D）のみが候補化され、正しい単一乗車のハイブリッドが選ばれる。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(200, 2),
+          _point('A'),
+          _trainSection(
+            2000,
+            5,
+            line: 'L1',
+            calling: [
+              _calling(
+                'A',
+                35.52,
+                139.52,
+                '2026-05-22T09:05:00',
+                '2026-05-22T09:05:00',
+              ),
+              _calling(
+                'B',
+                35.55,
+                139.55,
+                '2026-05-22T09:10:00',
+                '2026-05-22T09:10:00',
+              ),
+            ],
+          ),
+          _point('B'),
+          _trainSection(
+            18000,
+            18,
+            line: 'L2',
+            calling: [
+              _calling(
+                'B',
+                35.55,
+                139.55,
+                '2026-05-22T09:12:00',
+                '2026-05-22T09:12:00',
+              ),
+              _calling(
+                'C',
+                35.6,
+                139.6,
+                '2026-05-22T09:20:00',
+                '2026-05-22T09:20:00',
+              ),
+              _calling(
+                'D',
+                35.65,
+                139.65,
+                '2026-05-22T09:30:00',
+                '2026-05-22T09:30:00',
+              ),
+            ],
+          ),
+          _point('D'),
+          _walkSection(200, 2),
+          _point('目的地'),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        walk: {
+          '35.5,139.5;35.66,139.66': _walkResp(200, 16000), // 全徒歩（予算超過）
+          '35.5,139.5;35.52,139.52': _walkResp(90, 7000), // origin→A
+          '35.5,139.5;35.55,139.55': _walkResp(10, 800), // origin→B
+          '35.5,139.5;35.6,139.6': _walkResp(100, 8000), // origin→C
+          '35.5,139.5;35.65,139.65': _walkResp(118, 9500), // origin→D
+          '35.52,139.52;35.66,139.66': _walkResp(200, 16000), // A→goal
+          '35.55,139.55;35.66,139.66': _walkResp(130, 11000), // B→goal
+          '35.6,139.6;35.66,139.66': _walkResp(15, 1200), // C→goal
+          '35.65,139.65;35.66,139.66': _walkResp(3, 200), // D→goal
+        },
+      );
+
+      // 予算120分。バグ時の最大徒歩候補は origin→A(90)+A→C(L1,15)+C→goal(15)=120
+      //（無効）。修正後は origin→C(100)+C→D(L2,10)+D→goal(3)=113 が選ばれる。
+      final plan = await build(client).plan(
+        destination: '目的地',
+        destinationLatLng: const GeoPoint(35.66, 139.66),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 0),
+        origin: const GeoPoint(35.5, 139.5),
+      );
+
+      expect(plan.segments, hasLength(3));
+      expect(plan.segments[0].type, SegmentType.walk);
+      expect(plan.segments[0].minutes, 100);
+      expect(plan.segments[1].type, SegmentType.train);
+      expect(plan.segments[1].fromName, 'C');
+      expect(plan.segments[1].toName, 'D');
+      expect(plan.segments[1].line, 'L2'); // L1 と誤表示しない
+      expect(plan.segments[1].minutes, 10); // 09:30 - 09:20
+      expect(plan.segments[2].type, SegmentType.walk);
+      expect(plan.segments[2].minutes, 3);
+      expect(plan.totalMin, 113);
+    });
+
     test('手前の駅で降りて目的地まで歩く候補で徒歩を増やす', () async {
       // P→M→N の各停。目的地は N から遠い。M で降りて歩く方が徒歩が増える。
       final transit = _navi([
