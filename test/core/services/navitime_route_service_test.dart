@@ -71,17 +71,19 @@ Map<String, dynamic> _walkResp(int minutes, int meters) => {
 };
 
 /// transit と walk をパスで振り分けるモッククライアント。
+/// walk は 'start;goal'（座標）をキーに応答を引く。
 http.Client _mock({
   required Map<String, dynamic> transit,
   int transitStatus = 200,
-  Map<String, Map<String, dynamic>> walkByGoal = const {},
+  Map<String, Map<String, dynamic>> walk = const {},
   Map<String, dynamic>? defaultWalk,
   List<Uri>? log,
 }) => MockClient((req) async {
   log?.add(req.url);
   if (req.url.path.contains('navitimeWalkProxy')) {
+    final start = req.url.queryParameters['start'] ?? '';
     final goal = req.url.queryParameters['goal'] ?? '';
-    return _jsonResponse(walkByGoal[goal] ?? defaultWalk ?? _navi([]), 200);
+    return _jsonResponse(walk['$start;$goal'] ?? defaultWalk ?? _navi([]), 200);
   }
   return _jsonResponse(transit, transitStatus);
 });
@@ -152,7 +154,7 @@ void main() {
       final client = _mock(
         transit: shinagawaToTokyo(),
         // 全徒歩 25分（予算30分内）。
-        walkByGoal: {'35.681,139.767': _walkResp(25, 2000)},
+        walk: {'35.7,139.75;35.681,139.767': _walkResp(25, 2000)},
       );
 
       final plan = await run(client);
@@ -168,9 +170,10 @@ void main() {
       final log = <Uri>[];
       final client = _mock(
         transit: shinagawaToTokyo(),
-        walkByGoal: {
-          '35.681,139.767': _walkResp(92, 7000), // 全徒歩は予算超過
-          '35.666,139.758': _walkResp(22, 1800), // origin→新橋 22分
+        walk: {
+          '35.7,139.75;35.681,139.767': _walkResp(92, 7000), // 全徒歩は予算超過
+          '35.7,139.75;35.666,139.758': _walkResp(22, 1800), // origin→新橋 22分
+          '35.681,139.767;35.681,139.767': _walkResp(0, 0), // 東京で降車（徒歩0）
         },
         log: log,
       );
@@ -184,7 +187,7 @@ void main() {
       expect(plan.segments[1].type, SegmentType.train);
       expect(plan.segments[1].fromName, '新橋駅');
       expect(plan.segments[1].toName, '東京駅');
-      // transit(新橋→東京) = 12 - 5 - (09:09-09:05=4) = 3
+      // 乗車(新橋→東京) = 09:12 - 09:09 = 3 分（時刻表の差）
       expect(plan.segments[1].minutes, 3);
       expect(plan.totalMin, 25);
       expect(plan.timelineNodes.last.sub, contains('制限内'));
@@ -193,9 +196,10 @@ void main() {
     test('電車最短でも予算超過なら最短（標準経路）を返す', () async {
       final client = _mock(
         transit: shinagawaToTokyo(),
-        walkByGoal: {
-          '35.681,139.767': _walkResp(92, 7000),
-          '35.666,139.758': _walkResp(22, 1800),
+        walk: {
+          '35.7,139.75;35.681,139.767': _walkResp(92, 7000),
+          '35.7,139.75;35.666,139.758': _walkResp(22, 1800),
+          '35.681,139.767;35.681,139.767': _walkResp(0, 0),
         },
       );
 
@@ -211,7 +215,7 @@ void main() {
       final log = <Uri>[];
       final client = _mock(
         transit: shinagawaToTokyo(),
-        walkByGoal: {'35.681,139.767': _walkResp(25, 2000)},
+        walk: {'35.7,139.75;35.681,139.767': _walkResp(25, 2000)},
         log: log,
       );
 
@@ -270,8 +274,178 @@ void main() {
       final walkCalls = log
           .where((u) => u.path.contains('navitimeWalkProxy'))
           .length;
-      // 全徒歩1回 + ハイブリッド候補キャップ6回 = 7
-      expect(walkCalls, 7);
+      // 全徒歩1回 + キャップ6駅 ×(origin→駅 / 駅→goal) = 1 + 12 = 13
+      expect(walkCalls, 13);
+    });
+
+    test('乗換で距離の大半が2本目の電車にある場合、乗車を後ろ倒しして徒歩を増やす', () async {
+      // 出発地→A→(L1)→B→(乗換)→(L2)→C→D。距離の大半は L2。
+      // 全徒歩は予算超過だが、C まで歩いて L2 に乗れば予算内で徒歩を最大化できる。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(250, 3),
+          _point('A'),
+          _trainSection(
+            2000,
+            2,
+            line: 'L1',
+            calling: [
+              _calling(
+                'A',
+                35.52,
+                139.52,
+                '2026-05-22T09:03:00',
+                '2026-05-22T09:03:00',
+              ),
+              _calling(
+                'B',
+                35.55,
+                139.55,
+                '2026-05-22T09:05:00',
+                '2026-05-22T09:05:00',
+              ),
+            ],
+          ),
+          _point('B'),
+          _trainSection(
+            20000,
+            33,
+            line: 'L2',
+            calling: [
+              _calling(
+                'B',
+                35.55,
+                139.55,
+                '2026-05-22T09:07:00',
+                '2026-05-22T09:07:00',
+              ),
+              _calling(
+                'C',
+                35.6,
+                139.6,
+                '2026-05-22T09:20:00',
+                '2026-05-22T09:20:00',
+              ),
+              _calling(
+                'D',
+                35.65,
+                139.65,
+                '2026-05-22T09:40:00',
+                '2026-05-22T09:40:00',
+              ),
+            ],
+          ),
+          _point('D'),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        walk: {
+          '35.5,139.5;35.65,139.65': _walkResp(200, 16000), // 全徒歩（予算超過）
+          '35.5,139.5;35.52,139.52': _walkResp(40, 3000), // origin→A
+          '35.5,139.5;35.55,139.55': _walkResp(60, 5000), // origin→B
+          '35.5,139.5;35.6,139.6': _walkResp(95, 8000), // origin→C
+          '35.52,139.52;35.65,139.65': _walkResp(170, 14000), // A→goal
+          '35.55,139.55;35.65,139.65': _walkResp(130, 11000), // B→goal
+          '35.6,139.6;35.65,139.65': _walkResp(30, 2500), // C→goal
+          '35.65,139.65;35.65,139.65': _walkResp(0, 0), // D で降車（徒歩0）
+        },
+      );
+
+      // 予算120分。出発地→C まで歩いて(95分) L2 で D へ(20分) = 115分。
+      final plan = await build(client).plan(
+        destination: '目的地',
+        destinationLatLng: const GeoPoint(35.65, 139.65),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 0),
+        origin: const GeoPoint(35.5, 139.5),
+      );
+
+      expect(plan.segments, hasLength(2));
+      expect(plan.segments[0].type, SegmentType.walk);
+      expect(plan.segments[0].minutes, 95);
+      expect(plan.segments[0].toName, 'C');
+      expect(plan.segments[1].type, SegmentType.train);
+      expect(plan.segments[1].fromName, 'C');
+      expect(plan.segments[1].minutes, 20); // 09:40 - 09:20
+      expect(plan.segments[1].line, 'L2');
+      expect(plan.totalMin, 115);
+    });
+
+    test('手前の駅で降りて目的地まで歩く候補で徒歩を増やす', () async {
+      // P→M→N の各停。目的地は N から遠い。M で降りて歩く方が徒歩が増える。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(400, 5),
+          _point('P'),
+          _trainSection(
+            12000,
+            30,
+            line: 'L',
+            calling: [
+              _calling(
+                'P',
+                35.55,
+                139.55,
+                '2026-05-22T09:05:00',
+                '2026-05-22T09:05:00',
+              ),
+              _calling(
+                'M',
+                35.62,
+                139.62,
+                '2026-05-22T09:20:00',
+                '2026-05-22T09:20:00',
+              ),
+              _calling(
+                'N',
+                35.68,
+                139.68,
+                '2026-05-22T09:35:00',
+                '2026-05-22T09:35:00',
+              ),
+            ],
+          ),
+          _point('N'),
+          _walkSection(1200, 15),
+          _point('目的地'),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        walk: {
+          '35.5,139.5;35.78,139.78': _walkResp(200, 16000), // 全徒歩（予算超過）
+          '35.5,139.5;35.55,139.55': _walkResp(8, 600), // origin→P
+          '35.5,139.5;35.62,139.62': _walkResp(200, 16000), // origin→M（予算超過）
+          '35.5,139.5;35.68,139.68': _walkResp(200, 16000), // origin→N（予算超過）
+          '35.55,139.55;35.78,139.78': _walkResp(160, 13000), // P→goal
+          '35.62,139.62;35.78,139.78': _walkResp(90, 7000), // M→goal
+          '35.68,139.68;35.78,139.78': _walkResp(40, 3000), // N→goal
+        },
+      );
+
+      // 予算120分。P まで歩き(8分) M で降りて(乗車15分) 目的地まで歩く(90分) = 113分。
+      final plan = await build(client).plan(
+        destination: '目的地',
+        destinationLatLng: const GeoPoint(35.78, 139.78),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 0),
+        origin: const GeoPoint(35.5, 139.5),
+      );
+
+      expect(plan.segments, hasLength(3));
+      expect(plan.segments[0].type, SegmentType.walk);
+      expect(plan.segments[0].minutes, 8);
+      expect(plan.segments[1].type, SegmentType.train);
+      expect(plan.segments[1].fromName, 'P');
+      expect(plan.segments[1].toName, 'M');
+      expect(plan.segments[1].minutes, 15); // 09:20 - 09:05
+      expect(plan.segments[2].type, SegmentType.walk);
+      expect(plan.segments[2].minutes, 90);
+      expect(plan.segments[2].toName, '目的地');
+      expect(plan.totalMin, 113);
     });
 
     test('items が空なら ZERO_RESULTS', () async {
@@ -349,7 +523,7 @@ void main() {
       final log = <Uri>[];
       final client = _mock(
         transit: shinagawaToTokyo(),
-        walkByGoal: {'35.681,139.767': _walkResp(25, 2000)},
+        walk: {'35.7,139.75;35.681,139.767': _walkResp(25, 2000)},
         log: log,
       );
 

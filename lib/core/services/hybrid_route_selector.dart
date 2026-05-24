@@ -50,17 +50,6 @@ RouteCandidate selectBestRoute({
   return candidates.reduce((a, b) => a.totalMin <= b.totalMin ? a : b);
 }
 
-/// 駅 S から目的地までの所要分。標準経路の合計から「最初の徒歩」と
-/// 「station0→S の乗車スキップ分」を差し引く。負値は 0 にクランプする。
-int transitMinutesFromStation({
-  required int standardTotalMin,
-  required int firstWalkMin,
-  required int rideSkipMin,
-}) {
-  final v = standardTotalMin - firstWalkMin - rideSkipMin;
-  return v < 0 ? 0 : v;
-}
-
 const double _earthRadiusKm = 6371.0088;
 
 /// 2点間の大圏距離（km）。徒歩区間の距離概算に用いる。

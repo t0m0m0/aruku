@@ -115,67 +115,90 @@ class NaviTimeRouteService implements RouteService {
     );
   }
 
-  /// 標準乗換経路のうち、途中駅候補を持つ最短経路をハイブリッドの基準にする。
+  /// 停車駅タイムラインを持つ最短の標準経路をハイブリッドの基準にする。
   _TransitParse? _baseForHybrid(List<_TransitParse> parsed) {
     _TransitParse? best;
     for (final p in parsed) {
-      if (p.firstTrainIndex < 0 || p.calling.length < 3) continue;
+      if (p.stops.length < 2) continue;
       if (best == null || p.totalMin < best.totalMin) best = p;
     }
     return best;
   }
 
-  /// 基準経路の途中停車駅を goal 側（=徒歩が長い側）から評価し、予算内に収まる
-  /// 最初（=徒歩最大）の駅で打ち切る。評価数は [_maxHybridCandidates] でキャップ。
+  /// 基準経路の停車駅から「乗車駅 b → 降車駅 a（b より後方）」の全分割を候補化する。
+  /// 各駅で origin→駅 と 駅→goal の徒歩を取得し、乗車時間は時刻表の差で求める。
+  /// これにより乗車を後ろ倒し（徒歩を増やす）したり、手前で降りて目的地まで歩く
+  /// 候補が同じ土俵に並ぶ。徒歩 API の呼び出しは [_maxHybridCandidates] 駅でキャップ。
   Future<List<RouteCandidate>> _buildHybrids(
     _TransitParse base,
     GeoPoint origin,
     GeoPoint goal,
     int budgetMin,
   ) async {
-    final calling = base.calling;
-    final station0 = calling.first;
-    final firstWalkMin = base.segments
-        .take(base.firstTrainIndex)
-        .fold<int>(0, (a, s) => a + s.minutes);
+    final stops = base.stops;
+    final indices = _sampleIndices(stops.length, _maxHybridCandidates);
+
+    // 各停車駅の origin→駅 / 駅→goal 徒歩を並列取得（座標でキャッシュ）。
+    final originCache = <String, Future<RouteCandidate?>>{};
+    final goalCache = <String, Future<RouteCandidate?>>{};
+    Future<RouteCandidate?> originWalk(_Stop s) => originCache.putIfAbsent(
+      _key(s.coord),
+      () => _tryWalk(origin, s.coord, fromName: base.from, toName: s.name),
+    );
+    Future<RouteCandidate?> goalWalk(_Stop s) => goalCache.putIfAbsent(
+      _key(s.coord),
+      () => _tryWalk(s.coord, goal, fromName: s.name, toName: base.to),
+    );
+
+    final fromOrigin = <int, RouteCandidate?>{};
+    final toGoal = <int, RouteCandidate?>{};
+    await Future.wait([
+      for (final i in indices)
+        originWalk(stops[i]).then((v) => fromOrigin[i] = v),
+      for (final i in indices) goalWalk(stops[i]).then((v) => toGoal[i] = v),
+    ]);
 
     final result = <RouteCandidate>[];
-    var fetched = 0;
-    for (var i = calling.length - 2; i >= 1; i--) {
-      if (fetched >= _maxHybridCandidates) break;
-      fetched++;
-      final s = calling[i];
-      final walk = await _tryWalk(
-        origin,
-        s.coord,
-        fromName: base.from,
-        toName: s.name,
-      );
-      if (walk == null) continue;
-
-      final transitMin = transitMinutesFromStation(
-        standardTotalMin: base.totalMin,
-        firstWalkMin: firstWalkMin,
-        rideSkipMin: _minutesBetween(s.toTime, station0.toTime),
-      );
-      final trainSeg = RouteSegment(
-        type: SegmentType.train,
-        fromName: s.name,
-        toName: base.to,
-        minutes: transitMin,
-        km: haversineKm(s.coord, goal),
-        line: base.firstTrainLine,
-        stops: calling.length - 1 - i,
-      );
-      final hybrid = RouteCandidate(
-        from: base.from,
-        to: base.to,
-        segments: [walk.segments.first, trainSeg],
-      );
-      result.add(hybrid);
-      if (hybrid.totalMin <= budgetMin) break;
+    for (final b in indices) {
+      final walk1 = fromOrigin[b]?.segments.first;
+      if (walk1 == null) continue;
+      for (final a in indices) {
+        if (a <= b) continue;
+        final walk2 = toGoal[a]?.segments.first;
+        if (walk2 == null) continue;
+        final ride = _minutesBetween(stops[a].arr, stops[b].dep);
+        if (ride < 0) continue;
+        final segments = <RouteSegment>[
+          if (walk1.minutes > 0) walk1,
+          RouteSegment(
+            type: SegmentType.train,
+            fromName: stops[b].name,
+            toName: stops[a].name,
+            minutes: ride,
+            km: haversineKm(stops[b].coord, stops[a].coord),
+            line: stops[b].line,
+            stops: a - b,
+          ),
+          if (walk2.minutes > 0) walk2,
+        ];
+        result.add(
+          RouteCandidate(from: base.from, to: base.to, segments: segments),
+        );
+      }
     }
     return result;
+  }
+
+  String _key(GeoPoint p) => '${p.lat},${p.lng}';
+
+  /// [n] 個の停車駅から最大 [cap] 個を等間隔に抽出する（両端を含む）。
+  List<int> _sampleIndices(int n, int cap) {
+    if (n <= cap) return [for (var i = 0; i < n; i++) i];
+    final out = <int>{};
+    for (var k = 0; k < cap; k++) {
+      out.add((k * (n - 1) / (cap - 1)).round());
+    }
+    return out.toList()..sort();
   }
 
   Future<Map<String, dynamic>> _fetchTransit(
@@ -258,9 +281,7 @@ class NaviTimeRouteService implements RouteService {
     String nameAt(int i) => sections[i]['name'] as String? ?? '';
 
     final segments = <RouteSegment>[];
-    var firstTrainIndex = -1;
-    String? firstTrainLine;
-    var calling = const <_Calling>[];
+    final stops = <_Stop>[];
 
     for (var i = 0; i < sections.length; i++) {
       final sec = sections[i];
@@ -283,11 +304,8 @@ class NaviTimeRouteService implements RouteService {
           ),
         );
       } else {
-        if (firstTrainIndex < 0) {
-          firstTrainIndex = segments.length;
-          firstTrainLine = sec['line_name'] as String?;
-          calling = _parseCalling(sec);
-        }
+        final line = sec['line_name'] as String?;
+        stops.addAll(_parseCalling(sec, line));
         segments.add(
           RouteSegment(
             type: SegmentType.train,
@@ -295,7 +313,7 @@ class NaviTimeRouteService implements RouteService {
             toName: toName,
             minutes: minutes,
             km: km,
-            line: sec['line_name'] as String?,
+            line: line,
             stops: (sec['stop_count'] as num?)?.toInt(),
             fare: (sec['fare'] as num?)?.toInt(),
           ),
@@ -303,25 +321,19 @@ class NaviTimeRouteService implements RouteService {
       }
     }
 
-    return _TransitParse(
-      from: from,
-      to: to,
-      segments: segments,
-      firstTrainIndex: firstTrainIndex,
-      firstTrainLine: firstTrainLine,
-      calling: calling,
-    );
+    return _TransitParse(from: from, to: to, segments: segments, stops: stops);
   }
 
-  /// 乗車列車の途中停車駅（座標・発着時刻が揃うもののみ）を取得する。
-  List<_Calling> _parseCalling(Map<String, dynamic> trainSection) {
+  /// 電車区間の停車駅（座標・発着時刻が揃うもののみ）を順序通りに取得する。
+  /// [line] はその区間から乗車する際の路線名。
+  List<_Stop> _parseCalling(Map<String, dynamic> trainSection, String? line) {
     final transport = trainSection['transport'];
     final raw =
         (transport is Map ? transport['calling_at'] : null) ??
         trainSection['calling_at'];
     if (raw is! List) return const [];
 
-    final out = <_Calling>[];
+    final out = <_Stop>[];
     for (final e in raw) {
       if (e is! Map) continue;
       final coord = e['coord'];
@@ -335,11 +347,12 @@ class NaviTimeRouteService implements RouteService {
         continue;
       }
       out.add(
-        _Calling(
+        _Stop(
           name: e['name'] as String? ?? '',
           coord: GeoPoint(lat, lon),
-          fromTime: fromTime,
-          toTime: toTime,
+          arr: fromTime,
+          dep: toTime,
+          line: line,
         ),
       );
     }
@@ -368,23 +381,21 @@ class NaviTimeRouteService implements RouteService {
   }
 }
 
-/// 解析済みの標準乗換経路。ハイブリッド構築に必要な乗車列車情報を保持する。
+/// 解析済みの標準乗換経路。ハイブリッド構築に必要な停車駅タイムラインを保持する。
 class _TransitParse {
   _TransitParse({
     required this.from,
     required this.to,
     required this.segments,
-    required this.firstTrainIndex,
-    required this.firstTrainLine,
-    required this.calling,
+    required this.stops,
   });
 
   final String from;
   final String to;
   final List<RouteSegment> segments;
-  final int firstTrainIndex;
-  final String? firstTrainLine;
-  final List<_Calling> calling;
+
+  /// 経路上の全電車区間の停車駅を出発側から順に並べたもの。
+  final List<_Stop> stops;
 
   int get totalMin => segments.fold(0, (a, s) => a + s.minutes);
 
@@ -392,17 +403,25 @@ class _TransitParse {
       RouteCandidate(from: from, to: to, segments: segments);
 }
 
-/// 乗車列車の停車駅（途中駅含む）。
-class _Calling {
-  _Calling({
+/// 経路上の停車駅。乗車・降車の候補点になる。
+class _Stop {
+  _Stop({
     required this.name,
     required this.coord,
-    required this.fromTime,
-    required this.toTime,
+    required this.arr,
+    required this.dep,
+    required this.line,
   });
 
   final String name;
   final GeoPoint coord;
-  final DateTime fromTime;
-  final DateTime toTime;
+
+  /// この駅への到着時刻（降車に使用）。
+  final DateTime arr;
+
+  /// この駅からの発車時刻（乗車に使用）。
+  final DateTime dep;
+
+  /// この駅から乗車する際の路線名。
+  final String? line;
 }

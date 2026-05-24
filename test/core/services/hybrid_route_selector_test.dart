@@ -86,32 +86,6 @@ void main() {
     });
   });
 
-  group('transitMinutesFromStation', () {
-    test('標準合計から最初の徒歩と乗車スキップ分を引く', () {
-      // 標準: 徒歩8 + 乗車(station0→alight)20 + 残り5 = 33
-      // station0→S を 12分スキップ → transit(S→goal) = 33 - 8 - 12 = 13
-      expect(
-        transitMinutesFromStation(
-          standardTotalMin: 33,
-          firstWalkMin: 8,
-          rideSkipMin: 12,
-        ),
-        13,
-      );
-    });
-
-    test('負値は0でクランプする', () {
-      expect(
-        transitMinutesFromStation(
-          standardTotalMin: 10,
-          firstWalkMin: 8,
-          rideSkipMin: 5,
-        ),
-        0,
-      );
-    });
-  });
-
   group('haversineKm', () {
     test('同一点は0', () {
       expect(
