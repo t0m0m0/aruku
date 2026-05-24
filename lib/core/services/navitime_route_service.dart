@@ -178,7 +178,7 @@ class NaviTimeRouteService implements RouteService {
             fromName: stops[b].name,
             toName: stops[a].name,
             minutes: ride,
-            km: haversineKm(stops[b].coord, stops[a].coord),
+            km: _railKm(stops, b, a),
             line: stops[b].line,
             stops: a - b,
           ),
@@ -190,6 +190,16 @@ class NaviTimeRouteService implements RouteService {
       }
     }
     return result;
+  }
+
+  /// 乗車区間 [b]→[a]（同一区間・連続インデックス）の距離概算。途中停車駅を
+  /// 結ぶ折れ線長で、始終点の直線距離より実鉄道距離に近い値を返す。
+  double _railKm(List<_Stop> stops, int b, int a) {
+    var km = 0.0;
+    for (var i = b; i < a; i++) {
+      km += haversineKm(stops[i].coord, stops[i + 1].coord);
+    }
+    return km;
   }
 
   String _key(GeoPoint p) => '${p.lat},${p.lng}';

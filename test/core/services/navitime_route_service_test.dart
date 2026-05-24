@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
+import 'package:aruku/core/services/hybrid_route_selector.dart';
 import 'package:aruku/core/services/navitime_route_service.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -474,6 +475,96 @@ void main() {
       expect(plan.segments[2].type, SegmentType.walk);
       expect(plan.segments[2].minutes, 3);
       expect(plan.totalMin, 113);
+    });
+
+    test('途中停車駅を通る乗車区間の距離は停車駅を結ぶ折れ線長で概算する', () async {
+      // X0→X1→X2→X3 を通しで乗車。区間距離は始終点の直線ではなく
+      // 各停車駅を結ぶ折れ線長（直線より長い）で求める。
+      const x0 = GeoPoint(35.5, 139.5);
+      const x1 = GeoPoint(35.55, 139.55);
+      const x2 = GeoPoint(35.6, 139.6);
+      const x3 = GeoPoint(35.65, 139.65);
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(100, 1),
+          _point('X0'),
+          _trainSection(
+            15000,
+            10,
+            line: 'L',
+            calling: [
+              _calling(
+                'X0',
+                x0.lat,
+                x0.lng,
+                '2026-05-22T09:05:00',
+                '2026-05-22T09:05:00',
+              ),
+              _calling(
+                'X1',
+                x1.lat,
+                x1.lng,
+                '2026-05-22T09:08:00',
+                '2026-05-22T09:08:00',
+              ),
+              _calling(
+                'X2',
+                x2.lat,
+                x2.lng,
+                '2026-05-22T09:11:00',
+                '2026-05-22T09:11:00',
+              ),
+              _calling(
+                'X3',
+                x3.lat,
+                x3.lng,
+                '2026-05-22T09:15:00',
+                '2026-05-22T09:15:00',
+              ),
+            ],
+          ),
+          _point('X3'),
+          _walkSection(100, 1),
+          _point('目的地'),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        walk: {
+          '35.49,139.49;35.66,139.66': _walkResp(300, 24000), // 全徒歩（予算超過）
+          '35.49,139.49;35.5,139.5': _walkResp(100, 8000), // origin→X0（最大）
+          '35.49,139.49;35.55,139.55': _walkResp(10, 800),
+          '35.49,139.49;35.6,139.6': _walkResp(5, 400),
+          '35.49,139.49;35.65,139.65': _walkResp(5, 400),
+          '35.5,139.5;35.66,139.66': _walkResp(5, 400),
+          '35.55,139.55;35.66,139.66': _walkResp(5, 400),
+          '35.6,139.6;35.66,139.66': _walkResp(5, 400),
+          '35.65,139.65;35.66,139.66': _walkResp(80, 6000), // X3→goal
+        },
+      );
+
+      // 予算200分。origin→X0(100)+X0→X3(乗車10)+X3→goal(80)=190 が徒歩最大。
+      final plan = await build(client).plan(
+        destination: '目的地',
+        destinationLatLng: const GeoPoint(35.66, 139.66),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 12, m: 20),
+        origin: const GeoPoint(35.49, 139.49),
+      );
+
+      expect(plan.segments, hasLength(3));
+      final train = plan.segments[1];
+      expect(train.type, SegmentType.train);
+      expect(train.fromName, 'X0');
+      expect(train.toName, 'X3');
+      expect(train.stops, 3);
+
+      final polyline =
+          haversineKm(x0, x1) + haversineKm(x1, x2) + haversineKm(x2, x3);
+      expect(train.km, closeTo(polyline, 1e-9));
+      // 折れ線長は始終点の直線距離より長い。
+      expect(train.km, greaterThan(haversineKm(x0, x3)));
     });
 
     test('手前の駅で降りて目的地まで歩く候補で徒歩を増やす', () async {
