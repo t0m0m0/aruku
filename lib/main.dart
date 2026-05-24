@@ -17,14 +17,7 @@ import 'features/search/search_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-  // App Check トークンを取得し、Cloud Functions プロキシ（課金 API）への
-  // 未認証アクセスを遮断する。debug ビルドは debug プロバイダを使い、
-  // Firebase Console でデバッグトークンを登録して開発する。
-  await FirebaseAppCheck.instance.activate(
-    androidProvider:
-        kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
-    appleProvider: kDebugMode ? AppleProvider.debug : AppleProvider.appAttest,
-  );
+  await _activateAppCheck();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -32,6 +25,22 @@ Future<void> main() async {
     ),
   );
   runApp(const ProviderScope(child: ArukuApp()));
+}
+
+// App Check で Cloud Functions プロキシ（課金 API）への未認証アクセスを遮断する。
+// debug ビルドは debug プロバイダを使い、Firebase Console でデバッグトークンを
+// 登録して開発する。
+Future<void> _activateAppCheck() {
+  if (kDebugMode) {
+    return FirebaseAppCheck.instance.activate(
+      androidProvider: AndroidProvider.debug,
+      appleProvider: AppleProvider.debug,
+    );
+  }
+  return FirebaseAppCheck.instance.activate(
+    androidProvider: AndroidProvider.playIntegrity,
+    appleProvider: AppleProvider.appAttest,
+  );
 }
 
 class ArukuApp extends StatelessWidget {
