@@ -58,7 +58,7 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyDN05OJX7aqH9oW6kFBnqzdVlf_O6ik_o8',
+    apiKey: 'AIzaSyAkzmW0Gj8I3T32pW-qFMLbahgASQ6YGH4',
     appId: '1:174669528481:ios:98b31bea7d420d858f9fe0',
     messagingSenderId: '174669528481',
     projectId: 'aruku-app',
