@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 import '../models/geo_point.dart';
 import '../models/place_prediction.dart';
+import 'app_check_http_client.dart';
 
 abstract interface class PlacesService {
   Future<List<PlacePrediction>> autocomplete(String query);
@@ -102,7 +103,7 @@ class PlacesException implements Exception {
 }
 
 final placesServiceProvider = Provider<PlacesService>((ref) {
-  final client = http.Client();
+  final client = AppCheckHttpClient(http.Client());
   ref.onDispose(client.close);
   return GooglePlacesService(client: client);
 });
