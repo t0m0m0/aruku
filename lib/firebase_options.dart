@@ -50,7 +50,8 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyCSUu1GT1_3G1AlyDD-56bblyAbBpIVnsA',
+    // API キーはリポジトリに含めず、--dart-define で注入する。
+    apiKey: String.fromEnvironment('FIREBASE_ANDROID_API_KEY'),
     appId: '1:174669528481:android:46086feb0a8db9e18f9fe0',
     messagingSenderId: '174669528481',
     projectId: 'aruku-app',
@@ -58,7 +59,8 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyAkzmW0Gj8I3T32pW-qFMLbahgASQ6YGH4',
+    // API キーはリポジトリに含めず、--dart-define で注入する。
+    apiKey: String.fromEnvironment('FIREBASE_IOS_API_KEY'),
     appId: '1:174669528481:ios:98b31bea7d420d858f9fe0',
     messagingSenderId: '174669528481',
     projectId: 'aruku-app',
