@@ -52,6 +52,10 @@ CLAUDE.md
 secrets.properties
 ios/Flutter/Secrets.xcconfig
 
+# Firebase config (contains project API keys; never commit)
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+
 # Claude Code / FleetView
 .agents/
 skills-lock.json
