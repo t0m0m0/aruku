@@ -1,3 +1,6 @@
+import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,9 +14,12 @@ import 'features/navigation/nav_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/result/result_screen.dart';
 import 'features/search/search_screen.dart';
+import 'firebase_options.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await _activateAppCheck();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -21,6 +27,22 @@ void main() {
     ),
   );
   runApp(const ProviderScope(child: ArukuApp()));
+}
+
+// App Check で Cloud Functions プロキシ（課金 API）への未認証アクセスを遮断する。
+// debug ビルドは debug プロバイダを使い、Firebase Console でデバッグトークンを
+// 登録して開発する。
+Future<void> _activateAppCheck() {
+  if (kDebugMode) {
+    return FirebaseAppCheck.instance.activate(
+      providerAndroid: const AndroidDebugProvider(),
+      providerApple: const AppleDebugProvider(),
+    );
+  }
+  return FirebaseAppCheck.instance.activate(
+    providerAndroid: const AndroidPlayIntegrityProvider(),
+    providerApple: const AppleAppAttestProvider(),
+  );
 }
 
 class ArukuApp extends StatelessWidget {
