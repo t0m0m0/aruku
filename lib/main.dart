@@ -14,10 +14,11 @@ import 'features/navigation/nav_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/result/result_screen.dart';
 import 'features/search/search_screen.dart';
+import 'firebase_options.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await _activateAppCheck();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
