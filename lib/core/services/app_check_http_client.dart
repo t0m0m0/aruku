@@ -14,7 +14,16 @@ class AppCheckHttpClient extends http.BaseClient {
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    final token = await FirebaseAppCheck.instance.getToken();
+    // getToken はプラットフォーム未登録（例: iOS デバッグで App Check 未設定）
+    // 等で例外を投げうる。ここで握りつぶしてもプロキシ側が本番ではトークンを
+    // 必須化しており（未トークンは 401）、安全側に倒れる。例外を伝播させると
+    // リクエスト自体が落ち、エミュレータ等の検証免除環境まで巻き添えになる。
+    String? token;
+    try {
+      token = await FirebaseAppCheck.instance.getToken();
+    } catch (_) {
+      token = null;
+    }
     if (token != null) {
       request.headers['X-Firebase-AppCheck'] = token;
     }
