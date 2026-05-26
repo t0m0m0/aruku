@@ -6,6 +6,9 @@ import '../models/location_state.dart';
 
 abstract interface class LocationService {
   Future<LocationState> request();
+
+  /// ナビ中の現在地を連続取得するストリーム。
+  Stream<GeoPoint> positionStream();
 }
 
 class GeolocatorLocationService implements LocationService {
@@ -30,6 +33,14 @@ class GeolocatorLocationService implements LocationService {
       return const LocationDenied();
     }
   }
+
+  @override
+  Stream<GeoPoint> positionStream() => Geolocator.getPositionStream(
+    locationSettings: const LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 5,
+    ),
+  ).map((p) => GeoPoint(p.latitude, p.longitude));
 }
 
 final locationServiceProvider = Provider<LocationService>(

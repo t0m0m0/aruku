@@ -1,3 +1,4 @@
+import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/location_state.dart';
 import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/location_service.dart';
@@ -196,4 +197,7 @@ class _FakeLocationService implements LocationService {
 
   @override
   Future<LocationState> request() async => const LocationDenied();
+
+  @override
+  Stream<GeoPoint> positionStream() => const Stream.empty();
 }

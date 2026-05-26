@@ -34,6 +34,7 @@ class AppState {
     required this.locationState,
     this.origin,
     this.originLatLng,
+    this.currentPosition,
     this.routeErrorKind,
     this.routePhase,
     this.streakDays = 0,
@@ -47,6 +48,9 @@ class AppState {
   final GeoPoint? destinationLatLng;
   final String? origin;
   final GeoPoint? originLatLng;
+
+  /// ナビ中の最新の現在地。nav 以外では null。
+  final GeoPoint? currentPosition;
   final TimeValue departure;
   final TimeValue arrival;
   final RoutePlan? route;
@@ -75,6 +79,7 @@ class AppState {
     Object? destinationLatLng = _sentinel,
     Object? origin = _sentinel,
     Object? originLatLng = _sentinel,
+    Object? currentPosition = _sentinel,
     TimeValue? departure,
     TimeValue? arrival,
     Object? route = _sentinel,
@@ -98,6 +103,9 @@ class AppState {
       originLatLng: identical(originLatLng, _sentinel)
           ? this.originLatLng
           : originLatLng as GeoPoint?,
+      currentPosition: identical(currentPosition, _sentinel)
+          ? this.currentPosition
+          : currentPosition as GeoPoint?,
       departure: departure ?? this.departure,
       arrival: arrival ?? this.arrival,
       route: identical(route, _sentinel) ? this.route : route as RoutePlan?,
@@ -129,8 +137,11 @@ class AppState {
 }
 
 class AppNotifier extends Notifier<AppState> {
+  StreamSubscription<GeoPoint>? _posSub;
+
   @override
   AppState build() {
+    ref.onDispose(() => _posSub?.cancel());
     unawaited(_fetchLocation());
     final now = DateTime.now();
     final depH = now.hour;
@@ -150,7 +161,30 @@ class AppNotifier extends Notifier<AppState> {
     }
   }
 
-  void go(Screen s) => state = state.copyWith(screen: s);
+  void go(Screen s) {
+    state = state.copyWith(screen: s);
+    if (s == Screen.nav) {
+      _startTracking();
+    } else {
+      _stopTracking();
+    }
+  }
+
+  void _startTracking() {
+    if (_posSub != null) return;
+    _posSub = ref
+        .read(locationServiceProvider)
+        .positionStream()
+        .listen((p) => state = state.copyWith(currentPosition: p));
+  }
+
+  void _stopTracking() {
+    _posSub?.cancel();
+    _posSub = null;
+    if (state.currentPosition != null) {
+      state = state.copyWith(currentPosition: null);
+    }
+  }
 
   void setDestination(String? name, {GeoPoint? latLng}) =>
       state = state.copyWith(destination: name, destinationLatLng: latLng);
