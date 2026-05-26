@@ -223,6 +223,7 @@ class NaviTimeRouteService implements RouteService {
     'goal': '${goal.lat},${goal.lng}',
     'start_time': _startTime(departure),
     'options': 'railway_calling_at',
+    'shape': 'true',
   });
 
   /// origin→dest の徒歩を Route(walk) で取得して単一の徒歩区間候補にする。
@@ -237,12 +238,13 @@ class NaviTimeRouteService implements RouteService {
       final body = await _fetch('navitimeWalkProxy', {
         'start': '${origin.lat},${origin.lng}',
         'goal': '${dest.lat},${dest.lng}',
+        'shape': 'true',
       });
       final items = body['items'] as List<dynamic>? ?? const [];
       if (items.isEmpty) return null;
+      final item = items.first as Map<String, dynamic>;
       final move =
-          ((items.first as Map<String, dynamic>)['summary']
-                  as Map<String, dynamic>?)?['move']
+          (item['summary'] as Map<String, dynamic>?)?['move']
               as Map<String, dynamic>?;
       final minutes = (move?['time'] as num?)?.toInt();
       if (minutes == null) return null;
@@ -258,6 +260,7 @@ class NaviTimeRouteService implements RouteService {
             minutes: minutes,
             km: km,
             kcal: (km * kcalPerKm).round(),
+            polyline: _parseWalkShape(item),
           ),
         ],
       );
@@ -315,6 +318,7 @@ class NaviTimeRouteService implements RouteService {
             minutes: minutes,
             km: km,
             kcal: (km * kcalPerKm).round(),
+            polyline: _parseShape(sec),
           ),
         );
       } else {
@@ -331,6 +335,7 @@ class NaviTimeRouteService implements RouteService {
             line: line,
             stops: (sec['stop_count'] as num?)?.toInt(),
             fare: (sec['fare'] as num?)?.toInt(),
+            polyline: _parseShape(sec),
           ),
         );
       }
@@ -376,6 +381,40 @@ class NaviTimeRouteService implements RouteService {
           section: section,
         ),
       );
+    }
+    return out;
+  }
+
+  /// move セクションの shape（GeoJSON LineString）を座標列へ変換する。
+  /// NAVITIME は coordinates を [lng, lat] 順で返す。未知形状は空（地図線なし）。
+  List<GeoPoint> _parseShape(Map<String, dynamic> section) {
+    final shape = section['shape'];
+    final coords = shape is Map ? shape['coordinates'] : shape;
+    if (coords is! List) return const [];
+    final out = <GeoPoint>[];
+    for (final c in coords) {
+      if (c is List && c.length >= 2) {
+        final lng = (c[0] as num?)?.toDouble();
+        final lat = (c[1] as num?)?.toDouble();
+        if (lat != null && lng != null) out.add(GeoPoint(lat, lng));
+      } else if (c is Map) {
+        final lat = (c['lat'] as num?)?.toDouble();
+        final lng = ((c['lon'] as num?) ?? (c['lng'] as num?))?.toDouble();
+        if (lat != null && lng != null) out.add(GeoPoint(lat, lng));
+      }
+    }
+    return out;
+  }
+
+  /// route_walk レスポンスの全 move セクションの shape を連結する。
+  List<GeoPoint> _parseWalkShape(Map<String, dynamic> item) {
+    final sections = item['sections'];
+    if (sections is! List) return const [];
+    final out = <GeoPoint>[];
+    for (final s in sections) {
+      if (s is Map<String, dynamic> && s['type'] == 'move') {
+        out.addAll(_parseShape(s));
+      }
     }
     return out;
   }

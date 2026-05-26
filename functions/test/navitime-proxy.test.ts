@@ -63,6 +63,13 @@ describe("buildNavitimeUrl", () => {
     );
     expect(url.searchParams.get("options")).toBe("railway_calling_at");
   });
+
+  it("shape を透過する（ナビ用ジオメトリ取得）", () => {
+    const url = new URL(
+      buildNavitimeUrl({ start: "1,1", goal: "2,2", shape: "true" })
+    );
+    expect(url.searchParams.get("shape")).toBe("true");
+  });
 });
 
 describe("buildNavitimeWalkUrl", () => {

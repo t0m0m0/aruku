@@ -17,11 +17,22 @@ http.Response _jsonResponse(Object body, int status) =>
 
 Map<String, dynamic> _point(String name) => {'type': 'point', 'name': name};
 
-Map<String, dynamic> _walkSection(int meters, int minutes) => {
+/// GeoJSON LineString。NAVITIME は coordinates を [lng, lat] 順で返す。
+Map<String, dynamic> _shape(List<List<double>> lngLat) => {
+  'type': 'LineString',
+  'coordinates': lngLat,
+};
+
+Map<String, dynamic> _walkSection(
+  int meters,
+  int minutes, {
+  List<List<double>>? shape,
+}) => {
   'type': 'move',
   'move': 'walk',
   'distance': meters,
   'time': minutes,
+  if (shape != null) 'shape': _shape(shape),
 };
 
 Map<String, dynamic> _calling(
@@ -43,6 +54,7 @@ Map<String, dynamic> _trainSection(
   required String line,
   int? stops,
   List<Map<String, dynamic>>? calling,
+  List<List<double>>? shape,
 }) => {
   'type': 'move',
   'move': 'local_train',
@@ -51,6 +63,7 @@ Map<String, dynamic> _trainSection(
   'line_name': line,
   'stop_count': ?stops,
   if (calling != null) 'transport': {'calling_at': calling},
+  if (shape != null) 'shape': _shape(shape),
 };
 
 Map<String, dynamic> _item(List<Map<String, dynamic>> sections) => {
@@ -61,12 +74,20 @@ Map<String, dynamic> _navi(List<Map<String, dynamic>> items) => {
   'items': items,
 };
 
-Map<String, dynamic> _walkResp(int minutes, int meters) => {
+Map<String, dynamic> _walkResp(
+  int minutes,
+  int meters, {
+  List<List<double>>? shape,
+}) => {
   'items': [
     {
       'summary': {
         'move': {'time': minutes, 'distance': meters},
       },
+      if (shape != null)
+        'sections': [
+          {'type': 'move', 'move': 'walk', 'shape': _shape(shape)},
+        ],
     },
   ],
 };
@@ -640,6 +661,91 @@ void main() {
       expect(plan.segments[2].minutes, 90);
       expect(plan.segments[2].toName, '目的地');
       expect(plan.totalMin, 113);
+    });
+
+    test('transit セクションの shape を polyline に格納する', () async {
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(
+            400,
+            5,
+            shape: [
+              [139.75, 35.7],
+              [139.738, 35.628],
+            ],
+          ),
+          _point('品川駅'),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            shape: [
+              [139.738, 35.628],
+              [139.767, 35.681],
+            ],
+          ),
+          _point('東京駅'),
+        ]),
+      ]);
+      // 全徒歩は予算超過にして標準経路（徒歩+電車）を選ばせる。
+      final client = _mock(transit: transit, defaultWalk: _walkResp(92, 7000));
+
+      final plan = await run(client, arrivalH: 9, arrivalM: 3);
+
+      expect(plan.segments, hasLength(2));
+      expect(plan.segments[0].polyline, hasLength(2));
+      expect(plan.segments[0].polyline.first, const GeoPoint(35.7, 139.75));
+      expect(plan.segments[1].polyline, hasLength(2));
+      expect(plan.segments[1].polyline.last, const GeoPoint(35.681, 139.767));
+    });
+
+    test('全徒歩経路に walk レスポンスの shape を polyline に格納する', () async {
+      final client = _mock(
+        transit: shinagawaToTokyo(),
+        walk: {
+          '35.7,139.75;35.681,139.767': _walkResp(
+            25,
+            2000,
+            shape: [
+              [139.75, 35.7],
+              [139.76, 35.69],
+              [139.767, 35.681],
+            ],
+          ),
+        },
+      );
+
+      final plan = await run(client);
+
+      expect(plan.segments, hasLength(1));
+      expect(plan.segments.first.type, SegmentType.walk);
+      expect(plan.segments.first.polyline, hasLength(3));
+      expect(plan.segments.first.polyline.first, const GeoPoint(35.7, 139.75));
+      expect(
+        plan.segments.first.polyline.last,
+        const GeoPoint(35.681, 139.767),
+      );
+    });
+
+    test('transit/walk リクエストに shape=true を付与する', () async {
+      final log = <Uri>[];
+      final client = _mock(
+        transit: shinagawaToTokyo(),
+        walk: {'35.7,139.75;35.681,139.767': _walkResp(25, 2000)},
+        log: log,
+      );
+
+      await run(client);
+
+      final transitUri = log.firstWhere(
+        (u) => u.path.contains('navitimeProxy'),
+      );
+      expect(transitUri.queryParameters['shape'], 'true');
+      final walkUri = log.firstWhere(
+        (u) => u.path.contains('navitimeWalkProxy'),
+      );
+      expect(walkUri.queryParameters['shape'], 'true');
     });
 
     test('items が空なら ZERO_RESULTS', () async {
