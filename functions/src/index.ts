@@ -120,7 +120,7 @@ function clientIp(req: Request): string {
 // must be verified explicitly. Without a valid token the request is rejected
 // with 401, blocking unauthenticated access to these billable proxies.
 // The emulator is exempted so local development works without App Check setup.
-async function verifyAppCheck(req: Request, res: Response): Promise<boolean> {
+export async function verifyAppCheck(req: Request, res: Response): Promise<boolean> {
   if (process.env.FUNCTIONS_EMULATOR === "true") return true;
   const token = req.header("X-Firebase-AppCheck");
   if (!token) {
@@ -301,10 +301,12 @@ export const navitimeWalkProxy = onRequest({ secrets: [navitimeKeySecret] }, asy
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Methods", "GET");
-    res.set("Access-Control-Allow-Headers", "Content-Type");
+    res.set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck");
     res.status(204).send("");
     return;
   }
+
+  if (!(await verifyAppCheck(req, res))) return;
 
   if (!checkRateLimit(clientIp(req), WALK_RATE_LIMIT)) {
     res.status(429).json({ error: "Too many requests" });
