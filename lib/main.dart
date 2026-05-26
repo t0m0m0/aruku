@@ -18,6 +18,7 @@ import 'firebase_options.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _assertFirebaseKeyPresent();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await _activateAppCheck();
   SystemChrome.setSystemUIOverlayStyle(
@@ -27,6 +28,23 @@ Future<void> main() async {
     ),
   );
   runApp(const ProviderScope(child: ArukuApp()));
+}
+
+// API キーは --dart-define-from-file=dart_defines.json で注入する。渡し忘れると
+// String.fromEnvironment は空文字を返し、Firebase 初期化が分かりにくく失敗する。
+// debug ビルドのみ早期に検出してセットアップ漏れを明示する（release では assert
+// は除去され、本番ビルドは CI 等で確実にキーを注入する前提）。
+void _assertFirebaseKeyPresent() {
+  assert(() {
+    if (DefaultFirebaseOptions.currentPlatform.apiKey.isEmpty) {
+      throw StateError(
+        'Firebase API キーが空です。'
+        '--dart-define-from-file=dart_defines.json を付けて起動してください'
+        '（dart_defines.example.json 参照）。',
+      );
+    }
+    return true;
+  }());
 }
 
 // App Check で Cloud Functions プロキシ（課金 API）への未認証アクセスを遮断する。
