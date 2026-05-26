@@ -1,5 +1,4 @@
 import * as https from "https";
-import * as http from "http";
 import { onRequest, Request } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import { Response } from "express";
@@ -7,7 +6,6 @@ import { initializeApp } from "firebase-admin/app";
 import { getAppCheck } from "firebase-admin/app-check";
 
 import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
-import { toLegacyDirections } from "./routes-transform";
 
 initializeApp();
 
@@ -33,49 +31,6 @@ function getNavitimeApiKey(): string {
 const PLACES_AUTOCOMPLETE_NEW_URL =
   "https://places.googleapis.com/v1/places:autocomplete";
 const PLACES_DETAILS_NEW_BASE = "https://places.googleapis.com/v1/places";
-const ROUTES_API_URL =
-  "https://routes.googleapis.com/directions/v2:computeRoutes";
-const GEOCODE_URL =
-  "https://maps.googleapis.com/maps/api/geocode/json";
-
-// Routes API のレッグに startAddress/endAddress は存在しない（座標のみ）。
-// 存在しないパスを field mask に含めると API は 400 を返すため指定しない。
-const ROUTES_FIELD_MASK = [
-  "routes.legs.steps.distanceMeters",
-  "routes.legs.steps.staticDuration",
-  "routes.legs.steps.polyline.encodedPolyline",
-  "routes.legs.steps.travelMode",
-  "routes.legs.steps.transitDetails.stopDetails.departureStop.name",
-  "routes.legs.steps.transitDetails.stopDetails.arrivalStop.name",
-  "routes.legs.steps.transitDetails.transitLine.name",
-  "routes.legs.steps.transitDetails.stopCount",
-].join(",");
-
-function toRoutesApiMode(legacyMode: string): string {
-  switch (legacyMode) {
-    case "walking":   return "WALK";
-    case "transit":   return "TRANSIT";
-    case "driving":   return "DRIVE";
-    case "bicycling": return "BICYCLE";
-    default:          return "WALK";
-  }
-}
-
-function toLocationEndpoint(s: string):
-  | { location: { latLng: { latitude: number; longitude: number } } }
-  | { address: string } {
-  const parts = s.split(",").map((p) => parseFloat(p.trim()));
-  if (
-    parts.length === 2 &&
-    !isNaN(parts[0]) &&
-    !isNaN(parts[1])
-  ) {
-    return { location: { latLng: { latitude: parts[0], longitude: parts[1] } } };
-  }
-  return { address: s };
-}
-
-const ALLOWED_MODES = new Set(["walking", "transit", "driving", "bicycling"]);
 
 const NAVITIME_HOST = "navitime-route-totalnavi.p.rapidapi.com";
 const NAVITIME_ROUTE_URL = `https://${NAVITIME_HOST}/route_transit`;
@@ -179,28 +134,6 @@ async function verifyAppCheck(req: Request, res: Response): Promise<boolean> {
     res.status(401).json({ error: "App Check token invalid" });
     return false;
   }
-}
-
-function fetchJson(url: string): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const get = url.startsWith("https") ? https.get : http.get;
-    get(url, (res) => {
-      const chunks: Buffer[] = [];
-      res.on("data", (chunk: Buffer) => chunks.push(chunk));
-      res.on("end", () => {
-        try {
-          resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-        } catch (e) {
-          reject(e);
-        }
-      });
-    }).on("error", reject);
-  });
-}
-
-function buildUrl(base: string, params: Record<string, string>, key: string): string {
-  const qs = new URLSearchParams({ ...params, key }).toString();
-  return `${base}?${qs}`;
 }
 
 // Places API (New) 用。エラー時も JSON ボディ（{error:...}）を返すため
@@ -309,112 +242,6 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, r
   }
 
   res.status(400).json({ error: "action must be autocomplete or details" });
-});
-
-/** Directions プロキシ（Routes API (New) 経由、レガシー形式で返す） */
-export const directionsProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Methods", "GET");
-    res.set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck");
-    res.status(204).send("");
-    return;
-  }
-
-  if (!(await verifyAppCheck(req, res))) return;
-
-  if (!checkRateLimit(clientIp(req))) {
-    res.status(429).json({ error: "Too many requests" });
-    return;
-  }
-
-  const origin = req.query["origin"] as string | undefined;
-  const destination = req.query["destination"] as string | undefined;
-  const rawMode = (req.query["mode"] as string | undefined) ?? "walking";
-  const departureTime = req.query["departure_time"] as string | undefined;
-  const alternatives = req.query["alternatives"] === "true";
-
-  if (!origin || !destination) {
-    res.status(400).json({ error: "origin and destination are required" });
-    return;
-  }
-
-  if (!ALLOWED_MODES.has(rawMode)) {
-    res
-      .status(400)
-      .json({ error: `mode must be one of: ${[...ALLOWED_MODES].join(", ")}` });
-    return;
-  }
-
-  const body: Record<string, unknown> = {
-    origin: toLocationEndpoint(origin),
-    destination: toLocationEndpoint(destination),
-    travelMode: toRoutesApiMode(rawMode),
-    computeAlternativeRoutes: alternatives,
-    languageCode: "ja",
-  };
-  if (departureTime) {
-    body["departureTime"] = new Date(
-      parseInt(departureTime, 10) * 1000
-    ).toISOString();
-  }
-
-  const data = await requestJsonNew(
-    ROUTES_API_URL,
-    "POST",
-    {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": getMapsApiKey(),
-      "X-Goog-FieldMask": ROUTES_FIELD_MASK,
-    },
-    JSON.stringify(body)
-  );
-
-  // Routes API はエラー時も HTTP 200 で {error:...} を返すことがあり、
-  // 変換層が REQUEST_DENIED へ畳むため原因が埋もれる。
-  // API キー制限・課金・無効化などの切り分け用にエラー本体を残す。
-  const record = data as Record<string, unknown> | null;
-  if (record && record["error"]) {
-    console.error(
-      "[directionsProxy] Routes API error:",
-      JSON.stringify(record["error"])
-    );
-  }
-
-  res.json(toLegacyDirections(data));
-});
-
-/** Geocoding API プロキシ */
-export const geocodeProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Methods", "GET");
-    res.set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck");
-    res.status(204).send("");
-    return;
-  }
-
-  if (!(await verifyAppCheck(req, res))) return;
-
-  if (!checkRateLimit(clientIp(req))) {
-    res.status(429).json({ error: "Too many requests" });
-    return;
-  }
-
-  const address = req.query["address"] as string | undefined;
-  const latlng = req.query["latlng"] as string | undefined;
-
-  if (!address && !latlng) {
-    res.status(400).json({ error: "address or latlng is required" });
-    return;
-  }
-
-  const params: Record<string, string> = { language: "ja" };
-  if (address) params["address"] = address;
-  if (latlng) params["latlng"] = latlng;
-
-  const data = await fetchJson(buildUrl(GEOCODE_URL, params, getMapsApiKey()));
-  res.json(data);
 });
 
 /** NAVITIME route_transit プロキシ（RapidAPI 経由、レスポンスは無加工で返す） */
