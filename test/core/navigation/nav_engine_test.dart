@@ -1,0 +1,186 @@
+import 'package:aruku/core/models/geo_point.dart';
+import 'package:aruku/core/models/route_plan.dart';
+import 'package:aruku/core/navigation/nav_engine.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+RoutePlan _route({
+  required List<RouteSegment> segments,
+  int kcal = 100,
+  int totalMin = 30,
+  double totalKm = 2.2,
+  double walkKm = 2.2,
+}) => RoutePlan(
+  from: 'A',
+  to: 'B',
+  totalKm: totalKm,
+  totalMin: totalMin,
+  budgetMin: 60,
+  kcal: kcal,
+  walkKm: walkKm,
+  walkRatio: walkKm / totalKm,
+  segments: segments,
+  timelineNodes: const [],
+);
+
+void main() {
+  group('NavManeuver.label', () {
+    test('日本語ラベルを返す', () {
+      expect(NavManeuver.straight.label, '直進');
+      expect(NavManeuver.left.label, '左折');
+      expect(NavManeuver.right.label, '右折');
+      expect(NavManeuver.slightLeft.label, '斜め左');
+      expect(NavManeuver.slightRight.label, '斜め右');
+      expect(NavManeuver.arrive.label, 'まもなく到着');
+    });
+  });
+
+  group('computeGuidance', () {
+    // L字: 東へ進み→左折して北上。頂点で 90 度左折。
+    const lShape = [GeoPoint(0, 0), GeoPoint(0, 0.01), GeoPoint(0.01, 0.01)];
+    final lRoute = _route(
+      segments: const [
+        RouteSegment(
+          type: SegmentType.walk,
+          fromName: 'A',
+          toName: 'B',
+          minutes: 30,
+          km: 2.2,
+          kcal: 100,
+          polyline: lShape,
+        ),
+      ],
+    );
+
+    test('曲がり手前では次の曲がりが左折・その次は到着', () {
+      final g = computeGuidance(
+        route: lRoute,
+        current: const GeoPoint(0, 0.001),
+      );
+      expect(g.currentManeuver, NavManeuver.left);
+      expect(g.nextManeuver, NavManeuver.arrive);
+      expect(g.distanceToNextTurnM, greaterThan(0));
+    });
+
+    test('曲がりを過ぎると到着案内になる', () {
+      final g = computeGuidance(
+        route: lRoute,
+        current: const GeoPoint(0.005, 0.01),
+      );
+      expect(g.currentManeuver, NavManeuver.arrive);
+      expect(g.nextManeuver, isNull);
+    });
+
+    test('前進すると進捗↑・残距離↓・消費kcal↑', () {
+      final near = computeGuidance(
+        route: lRoute,
+        current: const GeoPoint(0, 0.001),
+      );
+      final far = computeGuidance(
+        route: lRoute,
+        current: const GeoPoint(0.009, 0.01),
+      );
+      expect(far.progress, greaterThan(near.progress));
+      expect(far.remainingKm, lessThan(near.remainingKm));
+      expect(far.consumedKcal, greaterThanOrEqualTo(near.consumedKcal));
+      expect(far.progress, inInclusiveRange(0.0, 1.0));
+    });
+
+    test('ETA は進捗に応じて減る', () {
+      final near = computeGuidance(
+        route: lRoute,
+        current: const GeoPoint(0, 0.001),
+      );
+      final far = computeGuidance(
+        route: lRoute,
+        current: const GeoPoint(0.009, 0.01),
+      );
+      expect(far.etaMinutesRemaining, lessThan(near.etaMinutesRemaining));
+      expect(near.etaMinutesRemaining, lessThanOrEqualTo(30));
+    });
+
+    test('直線経路は開始時点から到着案内', () {
+      final straight = _route(
+        segments: const [
+          RouteSegment(
+            type: SegmentType.walk,
+            fromName: 'A',
+            toName: 'B',
+            minutes: 20,
+            km: 1.1,
+            kcal: 60,
+            polyline: [GeoPoint(0, 0), GeoPoint(0, 0.01)],
+          ),
+        ],
+        totalKm: 1.1,
+        walkKm: 1.1,
+      );
+      final g = computeGuidance(
+        route: straight,
+        current: const GeoPoint(0, 0.0),
+      );
+      expect(g.currentManeuver, NavManeuver.arrive);
+    });
+
+    test('消費kcalは徒歩距離比のみで按分する（電車区間は加算しない）', () {
+      // 徒歩(東へ)→電車(北へ)→徒歩(東へ)。kcal は徒歩2区間のみ。
+      final mixed = _route(
+        kcal: 200,
+        totalKm: 3.3,
+        walkKm: 2.2,
+        segments: const [
+          RouteSegment(
+            type: SegmentType.walk,
+            fromName: 'A',
+            toName: 'S1',
+            minutes: 15,
+            km: 1.1,
+            kcal: 100,
+            polyline: [GeoPoint(0, 0), GeoPoint(0, 0.01)],
+          ),
+          RouteSegment(
+            type: SegmentType.train,
+            fromName: 'S1',
+            toName: 'S2',
+            minutes: 5,
+            km: 1.1,
+            polyline: [GeoPoint(0, 0.01), GeoPoint(0.01, 0.01)],
+          ),
+          RouteSegment(
+            type: SegmentType.walk,
+            fromName: 'S2',
+            toName: 'B',
+            minutes: 15,
+            km: 1.1,
+            kcal: 100,
+            polyline: [GeoPoint(0.01, 0.01), GeoPoint(0.01, 0.02)],
+          ),
+        ],
+      );
+      // 1本目の徒歩を歩き切った地点（電車乗車直前）。徒歩進捗はちょうど半分。
+      final g = computeGuidance(
+        route: mixed,
+        current: const GeoPoint(0, 0.0099),
+      );
+      expect(g.consumedKcal, closeTo(100, 10));
+    });
+
+    test('ポリラインが空でも破綻しない', () {
+      final empty = _route(
+        segments: const [
+          RouteSegment(
+            type: SegmentType.walk,
+            fromName: 'A',
+            toName: 'B',
+            minutes: 20,
+            km: 1.0,
+            kcal: 50,
+          ),
+        ],
+      );
+      final g = computeGuidance(route: empty, current: const GeoPoint(0, 0));
+      expect(g.progress, 0);
+      expect(g.currentManeuver, NavManeuver.arrive);
+      expect(g.etaMinutesRemaining, 30);
+    });
+  });
+}
