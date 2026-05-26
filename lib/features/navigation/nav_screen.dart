@@ -9,16 +9,55 @@ import '../../shared/extensions/route_map_overlays.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_map.dart';
 
-class NavScreen extends ConsumerWidget {
+class NavScreen extends ConsumerStatefulWidget {
   const NavScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<NavScreen> createState() => _NavScreenState();
+}
+
+class _NavScreenState extends ConsumerState<NavScreen> {
+  GoogleMapController? _mapController;
+  MapType _mapType = MapType.normal;
+
+  void _toggleLayer() {
+    setState(() {
+      _mapType = _mapType == MapType.normal ? MapType.hybrid : MapType.normal;
+    });
+  }
+
+  /// コンパス: 現在地を中心に北向き（bearing 0）へ戻す。
+  void _resetNorth() {
+    final pos = ref.read(appStateProvider).currentPosition;
+    final controller = _mapController;
+    if (pos == null || controller == null) return;
+    controller.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: LatLng(pos.lat, pos.lng),
+          zoom: ArukuMapVariant.nav.zoom,
+          tilt: ArukuMapVariant.nav.tilt,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.c;
     final notifier = ref.read(appStateProvider.notifier);
     final state = ref.watch(appStateProvider);
     final route = state.route;
     final current = state.currentPosition;
+
+    // 実移動に追従して地図カメラを現在地へ寄せる。
+    ref.listen(appStateProvider.select((s) => s.currentPosition), (_, next) {
+      if (next != null) {
+        _mapController?.animateCamera(
+          CameraUpdate.newLatLng(LatLng(next.lat, next.lng)),
+        );
+      }
+    });
 
     final guidance = (route != null && current != null)
         ? computeGuidance(route: route, current: current)
@@ -48,6 +87,8 @@ class NavScreen extends ConsumerWidget {
               polylines: route?.toPolylines() ?? const {},
               markers: markers,
               routeBounds: route?.toBounds(),
+              mapType: _mapType,
+              onMapReady: (controller) => _mapController = controller,
             ),
           ),
 
@@ -88,9 +129,17 @@ class NavScreen extends ConsumerWidget {
             top: 220,
             child: Column(
               children: [
-                _NavChip(icon: Ic.layers(size: 20, color: context.c.ink2)),
+                _NavChip(
+                  key: const Key('nav-layer-chip'),
+                  icon: Ic.layers(size: 20, color: c.ink2),
+                  onTap: _toggleLayer,
+                ),
                 const SizedBox(height: 8),
-                _NavChip(icon: Ic.compass(size: 20, color: context.c.ink2)),
+                _NavChip(
+                  key: const Key('nav-compass-chip'),
+                  icon: Ic.compass(size: 20, color: c.ink2),
+                  onTap: _resetNorth,
+                ),
               ],
             ),
           ),
@@ -108,26 +157,22 @@ String _formatArrival(int minutesRemaining) {
 }
 
 class _NavChip extends StatelessWidget {
-  const _NavChip({required this.icon});
+  const _NavChip({super.key, required this.icon, this.onTap});
   final Widget icon;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        color: const Color(0xE6FFFDF3),
+    return Material(
+      color: const Color(0xE6FFFDF3),
+      borderRadius: BorderRadius.circular(14),
+      elevation: 2,
+      shadowColor: const Color(0x1F000000),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(14),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x1F000000),
-            blurRadius: 8,
-            offset: Offset(0, 2),
-          ),
-        ],
+        child: SizedBox(width: 44, height: 44, child: Center(child: icon)),
       ),
-      child: Center(child: icon),
     );
   }
 }

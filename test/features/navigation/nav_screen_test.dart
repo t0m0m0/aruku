@@ -3,9 +3,11 @@ import 'package:aruku/core/navigation/nav_engine.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/features/navigation/nav_screen.dart';
+import 'package:aruku/shared/widgets/aruku_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../support/route_plan_fixtures.dart';
 
@@ -65,5 +67,21 @@ void main() {
     expect(after, isNot(before));
     expect(find.text(after), findsOneWidget);
     expect(find.text(before), findsNothing);
+  });
+
+  testWidgets('レイヤーチップで地図種別が通常↔航空写真に切り替わる', (tester) async {
+    await tester.pumpWidget(wrap(_NavNotifier(navState())));
+    await tester.pump();
+
+    ArukuMap mapWidget() => tester.widget<ArukuMap>(find.byType(ArukuMap));
+    expect(mapWidget().mapType, MapType.normal);
+
+    await tester.tap(find.byKey(const Key('nav-layer-chip')));
+    await tester.pump();
+    expect(mapWidget().mapType, MapType.hybrid);
+
+    await tester.tap(find.byKey(const Key('nav-layer-chip')));
+    await tester.pump();
+    expect(mapWidget().mapType, MapType.normal);
   });
 }

@@ -16,6 +16,8 @@ class ArukuMap extends StatefulWidget {
     this.polylines = const {},
     this.markers = const {},
     this.routeBounds,
+    this.mapType = MapType.normal,
+    this.onMapReady,
   });
 
   final ArukuMapVariant variant;
@@ -29,6 +31,12 @@ class ArukuMap extends StatefulWidget {
   final Set<Marker> markers;
   final LatLngBounds? routeBounds;
 
+  /// 地図の表示種別（通常/航空写真など）。レイヤー切替に用いる。
+  final MapType mapType;
+
+  /// 実地図のコントローラ準備完了時に呼ばれる（カメラ操作用）。
+  final void Function(GoogleMapController controller)? onMapReady;
+
   /// 渋谷駅付近（デザインの基準エリア）。[routeBounds] 未指定時の初期位置。
   static const LatLng _defaultTarget = LatLng(35.6679, 139.7038);
 
@@ -41,6 +49,7 @@ class _ArukuMapState extends State<ArukuMap> {
 
   Future<void> _onMapCreated(GoogleMapController controller) async {
     _controller = controller;
+    widget.onMapReady?.call(controller);
     await _fitBounds();
   }
 
@@ -79,7 +88,7 @@ class _ArukuMapState extends State<ArukuMap> {
           tilt: widget.variant.tilt,
         ),
         style: arukuWakabaMapStyle,
-        mapType: MapType.normal,
+        mapType: widget.mapType,
         myLocationButtonEnabled: false,
         zoomControlsEnabled: false,
         mapToolbarEnabled: false,
