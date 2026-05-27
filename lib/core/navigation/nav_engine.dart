@@ -134,7 +134,7 @@ NavGuidance computeGuidance({
       : (route.kcal * (traveledWalk / totalWalk)).round();
 
   // 曲がり地点（末尾に arrive を必ず付ける）。
-  final events = _maneuvers(pts, edgeLen)
+  final events = _maneuvers(pts, edgeLen, flat.walkPoint)
     ..add(_Maneuver(NavManeuver.arrive, totalLen));
 
   var k = events.indexWhere((e) => e.distanceAlong > s + 1.0);
@@ -174,12 +174,19 @@ _FlatPath _flatten(RoutePlan route) {
 }
 
 /// 連続する辺の方位差から曲がり地点を抽出する。
-List<_Maneuver> _maneuvers(List<GeoPoint> pts, List<double> edgeLen) {
+/// ターン案内は徒歩区間のみを対象にし、電車などの線形カーブは除外する。
+List<_Maneuver> _maneuvers(
+  List<GeoPoint> pts,
+  List<double> edgeLen,
+  List<bool> walk,
+) {
   final out = <_Maneuver>[];
   var cum = 0.0;
   for (var i = 1; i < pts.length - 1; i++) {
     cum += edgeLen[i - 1];
     if (edgeLen[i - 1] == 0 || edgeLen[i] == 0) continue;
+    // 前後の辺がともに徒歩のときだけ曲がりとして扱う。
+    if (!(walk[i - 1] && walk[i] && walk[i + 1])) continue;
     final b1 = bearingDegrees(pts[i - 1], pts[i]);
     final b2 = bearingDegrees(pts[i], pts[i + 1]);
     final diff = ((b2 - b1 + 540) % 360) - 180; // 正=右, 負=左

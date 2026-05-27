@@ -182,5 +182,98 @@ void main() {
       expect(g.currentManeuver, NavManeuver.arrive);
       expect(g.etaMinutesRemaining, 30);
     });
+
+    test('電車区間の線形カーブは曲がり案内に含めない（徒歩区間のみ対象）', () {
+      // 徒歩(東)→電車(北→東で右カーブ)→徒歩(北)。電車のカーブを誤検出しない。
+      final mixed = _route(
+        totalKm: 3.0,
+        walkKm: 2.0,
+        segments: const [
+          RouteSegment(
+            type: SegmentType.walk,
+            fromName: 'A',
+            toName: 'S1',
+            minutes: 10,
+            km: 1.0,
+            kcal: 50,
+            polyline: [GeoPoint(0, 0), GeoPoint(0, 0.01)],
+          ),
+          RouteSegment(
+            type: SegmentType.train,
+            fromName: 'S1',
+            toName: 'S2',
+            minutes: 5,
+            km: 1.0,
+            polyline: [
+              GeoPoint(0, 0.01),
+              GeoPoint(0.01, 0.01),
+              GeoPoint(0.01, 0.02),
+            ],
+          ),
+          RouteSegment(
+            type: SegmentType.walk,
+            fromName: 'S2',
+            toName: 'B',
+            minutes: 10,
+            km: 1.0,
+            kcal: 50,
+            polyline: [GeoPoint(0.01, 0.02), GeoPoint(0.02, 0.02)],
+          ),
+        ],
+      );
+      // 第1徒歩区間を歩行中。電車の 90 度カーブを「右折」と案内しない。
+      final g = computeGuidance(
+        route: mixed,
+        current: const GeoPoint(0, 0.005),
+      );
+      expect(g.currentManeuver, NavManeuver.arrive);
+      expect(g.nextManeuver, isNull);
+    });
+
+    test('電車区間の後の徒歩区間の曲がりは案内する', () {
+      // 徒歩(東)→電車(北)→徒歩(東→北で左折)。徒歩の曲がりは残す。
+      final mixed = _route(
+        totalKm: 3.0,
+        walkKm: 2.0,
+        segments: const [
+          RouteSegment(
+            type: SegmentType.walk,
+            fromName: 'A',
+            toName: 'S1',
+            minutes: 10,
+            km: 1.0,
+            kcal: 50,
+            polyline: [GeoPoint(0, 0), GeoPoint(0, 0.01)],
+          ),
+          RouteSegment(
+            type: SegmentType.train,
+            fromName: 'S1',
+            toName: 'S2',
+            minutes: 5,
+            km: 1.0,
+            polyline: [GeoPoint(0, 0.01), GeoPoint(0.01, 0.01)],
+          ),
+          RouteSegment(
+            type: SegmentType.walk,
+            fromName: 'S2',
+            toName: 'B',
+            minutes: 10,
+            km: 1.0,
+            kcal: 50,
+            polyline: [
+              GeoPoint(0.01, 0.01),
+              GeoPoint(0.01, 0.02),
+              GeoPoint(0.02, 0.02),
+            ],
+          ),
+        ],
+      );
+      // 第2徒歩区間の入口。区間内の左折を案内する。
+      final g = computeGuidance(
+        route: mixed,
+        current: const GeoPoint(0.01, 0.011),
+      );
+      expect(g.currentManeuver, NavManeuver.left);
+    });
   });
 }
