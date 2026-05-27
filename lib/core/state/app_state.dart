@@ -175,7 +175,12 @@ class AppNotifier extends Notifier<AppState> {
     _posSub = ref
         .read(locationServiceProvider)
         .positionStream()
-        .listen((p) => state = state.copyWith(currentPosition: p));
+        .listen(
+          (p) => state = state.copyWith(currentPosition: p),
+          // GPS 喪失や位置サービス停止で流れる一時的なエラーは無視し、
+          // 未捕捉例外を防ぐ。最後に取得した現在地を保持する。
+          onError: (_) {},
+        );
   }
 
   void _stopTracking() {

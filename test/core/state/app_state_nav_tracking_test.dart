@@ -73,5 +73,32 @@ void main() {
 
       expect(container.read(appStateProvider).currentPosition, isNull);
     });
+
+    test('位置ストリームのエラーで破綻せず最後の現在地を保持する', () async {
+      final controller = StreamController<GeoPoint>.broadcast();
+      addTearDown(controller.close);
+      final container = ProviderContainer(
+        overrides: [
+          locationServiceProvider.overrideWithValue(
+            _StreamLocationService(controller),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final notifier = container.read(appStateProvider.notifier);
+      notifier.go(Screen.nav);
+      controller.add(const GeoPoint(35.0, 139.0));
+      await Future<void>.delayed(Duration.zero);
+
+      // GPS 喪失などでストリームがエラーを流しても未捕捉例外にならない。
+      controller.addError(Exception('GPS lost'));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        container.read(appStateProvider).currentPosition,
+        const GeoPoint(35.0, 139.0),
+      );
+    });
   });
 }
