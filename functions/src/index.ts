@@ -40,6 +40,7 @@ const NAVITIME_WALK_URL = `https://${NAVITIME_WALK_HOST}/route_walk`;
 
 // クライアントから透過を許可するパラメータ。datum/coord_unit はサーバ固定。
 // options=railway_calling_at で乗車列車の途中停車駅を取得する。
+// shape=true でナビ用の区間ジオメトリ（折れ線座標）を取得する。
 const NAVITIME_ALLOWED_PARAMS = [
   "start",
   "goal",
@@ -47,6 +48,7 @@ const NAVITIME_ALLOWED_PARAMS = [
   "term",
   "limit",
   "options",
+  "shape",
 ];
 
 // 徒歩ルート（origin→駅）取得用。time/distance のみ必要なら shape は不要。

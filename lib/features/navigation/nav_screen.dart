@@ -1,27 +1,96 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../../core/navigation/nav_engine.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
+import '../../shared/extensions/route_map_overlays.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_map.dart';
 
-class NavScreen extends ConsumerWidget {
+class NavScreen extends ConsumerStatefulWidget {
   const NavScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<NavScreen> createState() => _NavScreenState();
+}
+
+class _NavScreenState extends ConsumerState<NavScreen> {
+  GoogleMapController? _mapController;
+  MapType _mapType = MapType.normal;
+
+  void _toggleLayer() {
+    setState(() {
+      _mapType = _mapType == MapType.normal ? MapType.hybrid : MapType.normal;
+    });
+  }
+
+  /// コンパス: 現在地を中心に北向き（bearing 0）へ戻す。
+  void _resetNorth() {
+    final pos = ref.read(appStateProvider).currentPosition;
+    final controller = _mapController;
+    if (pos == null || controller == null) return;
+    controller.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: LatLng(pos.lat, pos.lng),
+          zoom: ArukuMapVariant.nav.zoom,
+          tilt: ArukuMapVariant.nav.tilt,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.c;
     final notifier = ref.read(appStateProvider.notifier);
     final state = ref.watch(appStateProvider);
     final route = state.route;
+    final current = state.currentPosition;
+
+    // 実移動に追従して地図カメラを現在地へ寄せる。
+    ref.listen(appStateProvider.select((s) => s.currentPosition), (_, next) {
+      if (next != null) {
+        _mapController?.animateCamera(
+          CameraUpdate.newLatLng(LatLng(next.lat, next.lng)),
+        );
+      }
+    });
+
+    final guidance = (route != null && current != null)
+        ? computeGuidance(route: route, current: current)
+        : null;
+
+    final totalKm = route?.totalKm ?? 0.0;
+    final markers = <Marker>{
+      if (route != null) ...route.toMarkers(),
+      if (current != null)
+        Marker(
+          markerId: const MarkerId('current'),
+          position: LatLng(current.lat, current.lng),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueAzure,
+          ),
+        ),
+    };
 
     return Material(
       color: c.mapBg,
       child: Stack(
         children: [
           // Full-bleed map
-          const Positioned.fill(child: ArukuMap(variant: ArukuMapVariant.nav)),
+          Positioned.fill(
+            child: ArukuMap(
+              variant: ArukuMapVariant.nav,
+              polylines: route?.toPolylines() ?? const {},
+              markers: markers,
+              routeBounds: route?.toBounds(),
+              mapType: _mapType,
+              onMapReady: (controller) => _mapController = controller,
+            ),
+          ),
 
           SafeArea(
             child: Column(
@@ -30,6 +99,8 @@ class NavScreen extends ConsumerWidget {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
                   child: _InstructionCard(
+                    guidance: guidance,
+                    destination: route?.to,
                     onClose: () => notifier.go(Screen.home),
                   ),
                 ),
@@ -38,9 +109,14 @@ class NavScreen extends ConsumerWidget {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                   child: _StatsBar(
-                    totalKm: route?.totalKm ?? 0.0,
-                    arrivalTime: state.arrival.format(),
-                    consumedKcal: state.todayKcal,
+                    traveledKm: guidance?.traveledKm ?? 0.0,
+                    totalKm: totalKm,
+                    progress: guidance?.progress ?? 0.0,
+                    remainingKm: guidance?.remainingKm ?? totalKm,
+                    arrivalTime: guidance != null
+                        ? _formatArrival(guidance.etaMinutesRemaining)
+                        : state.arrival.format(),
+                    consumedKcal: guidance?.consumedKcal ?? state.todayKcal,
                   ),
                 ),
               ],
@@ -53,9 +129,17 @@ class NavScreen extends ConsumerWidget {
             top: 220,
             child: Column(
               children: [
-                _NavChip(icon: Ic.layers(size: 20, color: context.c.ink2)),
+                _NavChip(
+                  key: const Key('nav-layer-chip'),
+                  icon: Ic.layers(size: 20, color: c.ink2),
+                  onTap: _toggleLayer,
+                ),
                 const SizedBox(height: 8),
-                _NavChip(icon: Ic.compass(size: 20, color: context.c.ink2)),
+                _NavChip(
+                  key: const Key('nav-compass-chip'),
+                  icon: Ic.compass(size: 20, color: c.ink2),
+                  onTap: _resetNorth,
+                ),
               ],
             ),
           ),
@@ -65,38 +149,49 @@ class NavScreen extends ConsumerWidget {
   }
 }
 
+/// 現在時刻に残り分を足した到着予定時刻を "HH:mm" で返す。
+String _formatArrival(int minutesRemaining) {
+  final t = DateTime.now().add(Duration(minutes: minutesRemaining));
+  return '${t.hour.toString().padLeft(2, '0')}:'
+      '${t.minute.toString().padLeft(2, '0')}';
+}
+
 class _NavChip extends StatelessWidget {
-  const _NavChip({required this.icon});
+  const _NavChip({super.key, required this.icon, this.onTap});
   final Widget icon;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: BoxDecoration(
-        color: const Color(0xE6FFFDF3),
+    return Material(
+      color: const Color(0xE6FFFDF3),
+      borderRadius: BorderRadius.circular(14),
+      elevation: 2,
+      shadowColor: const Color(0x1F000000),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(14),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x1F000000),
-            blurRadius: 8,
-            offset: Offset(0, 2),
-          ),
-        ],
+        child: SizedBox(width: 44, height: 44, child: Center(child: icon)),
       ),
-      child: Center(child: icon),
     );
   }
 }
 
 class _InstructionCard extends StatelessWidget {
-  const _InstructionCard({required this.onClose});
+  const _InstructionCard({
+    required this.onClose,
+    this.guidance,
+    this.destination,
+  });
   final VoidCallback onClose;
+  final NavGuidance? guidance;
+  final String? destination;
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final g = guidance;
+    final hasNext = g?.nextManeuver != null;
     return Column(
       children: [
         Container(
@@ -133,7 +228,7 @@ class _InstructionCard extends StatelessWidget {
                       textBaseline: TextBaseline.alphabetic,
                       children: [
                         Text(
-                          '--',
+                          g != null ? '${g.distanceToNextTurnM}' : '--',
                           style: numStyle(
                             size: 32,
                             weight: FontWeight.w500,
@@ -142,7 +237,7 @@ class _InstructionCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          'm 直進',
+                          'm ${g?.currentManeuver.label ?? '直進'}',
                           style: jpStyle(
                             size: 14,
                             weight: FontWeight.w700,
@@ -153,7 +248,7 @@ class _InstructionCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '--',
+                      destination != null ? '$destination まで' : '--',
                       style: jpStyle(
                         size: 13,
                         weight: FontWeight.w500,
@@ -196,7 +291,7 @@ class _InstructionCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Text(
-                '--',
+                hasNext ? '${g!.distanceToNextTurnNextM}m' : '--',
                 style: numStyle(
                   size: 12,
                   weight: FontWeight.w500,
@@ -205,7 +300,7 @@ class _InstructionCard extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               Text(
-                '--',
+                g?.nextManeuver?.label ?? '--',
                 style: jpStyle(
                   size: 12,
                   weight: FontWeight.w600,
@@ -222,12 +317,18 @@ class _InstructionCard extends StatelessWidget {
 
 class _StatsBar extends StatelessWidget {
   const _StatsBar({
+    required this.traveledKm,
     required this.totalKm,
+    required this.progress,
+    required this.remainingKm,
     required this.arrivalTime,
     required this.consumedKcal,
   });
 
+  final double traveledKm;
   final double totalKm;
+  final double progress;
+  final double remainingKm;
   final String arrivalTime;
   final int consumedKcal;
 
@@ -254,7 +355,8 @@ class _StatsBar extends StatelessWidget {
           Row(
             children: [
               Text(
-                '0.0 / ${totalKm.toStringAsFixed(1)} km',
+                '${traveledKm.toStringAsFixed(1)} / '
+                '${totalKm.toStringAsFixed(1)} km',
                 style: numStyle(
                   size: 11,
                   weight: FontWeight.w700,
@@ -276,7 +378,7 @@ class _StatsBar extends StatelessWidget {
                         ),
                       ),
                       FractionallySizedBox(
-                        widthFactor: 0.0,
+                        widthFactor: progress.clamp(0.0, 1.0),
                         child: Container(
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
@@ -292,7 +394,7 @@ class _StatsBar extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Text(
-                '0%',
+                '${(progress * 100).round()}%',
                 style: numStyle(
                   size: 11,
                   weight: FontWeight.w700,
@@ -350,7 +452,7 @@ class _StatsBar extends StatelessWidget {
                           textBaseline: TextBaseline.alphabetic,
                           children: [
                             Text(
-                              totalKm.toStringAsFixed(1),
+                              remainingKm.toStringAsFixed(1),
                               style: numStyle(
                                 size: 28,
                                 weight: FontWeight.w500,
