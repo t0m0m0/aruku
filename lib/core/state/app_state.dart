@@ -192,7 +192,13 @@ class AppNotifier extends Notifier<AppState> {
           );
         },
         // センサー欠如や一時的なエラーで未捕捉例外を出さない。
-        onError: (_) {},
+        // デバッグ時のみ原因切り分けのためログに残す。
+        onError: (Object e) {
+          assert(() {
+            debugPrint('activity stream error: $e');
+            return true;
+          }());
+        },
       );
     } catch (_) {
       // 権限要求やセンサー初期化の失敗は計測なしとして無視する。

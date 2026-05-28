@@ -14,14 +14,13 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
+    // アプリが購読するのは Pedometer.stepCountStream（step_count チャネル）のみ。
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    for (final channel in const ['step_count', 'pedestrian_status']) {
-      messenger.setMockStreamHandler(
-        EventChannel(channel),
-        MockStreamHandler.inline(onListen: (_, _) {}, onCancel: (_) {}),
-      );
-    }
+    messenger.setMockStreamHandler(
+      const EventChannel('step_count'),
+      MockStreamHandler.inline(onListen: (_, _) {}, onCancel: (_) {}),
+    );
   });
 
   await testMain();

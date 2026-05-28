@@ -243,7 +243,7 @@ class HomeScreen extends ConsumerWidget {
                 child: Row(
                   children: [
                     _SummaryItem(
-                      label: '今日の歩数',
+                      label: '歩数',
                       value: '${state.todaySteps}',
                       unit: '歩',
                       leading: false,
@@ -585,6 +585,8 @@ class _SummaryItem extends StatelessWidget {
           children: [
             Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: jpStyle(
                 size: 10,
                 weight: FontWeight.w700,

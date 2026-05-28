@@ -62,7 +62,7 @@ void main() {
     });
     await tester.pump();
 
-    expect(find.text('今日の歩数'), findsOneWidget);
+    expect(find.text('歩数'), findsOneWidget);
     expect(find.text('2000'), findsOneWidget);
     expect(find.text('歩'), findsOneWidget);
   });
