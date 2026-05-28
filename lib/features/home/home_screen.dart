@@ -243,10 +243,16 @@ class HomeScreen extends ConsumerWidget {
                 child: Row(
                   children: [
                     _SummaryItem(
+                      label: '歩数',
+                      value: '${state.todaySteps}',
+                      unit: '歩',
+                      leading: false,
+                    ),
+                    _SummaryItem(
                       label: '今日歩いた',
                       value: state.todayKm.toStringAsFixed(1),
                       unit: 'km',
-                      leading: false,
+                      leading: true,
                     ),
                     _SummaryItem(
                       label: '消費',
@@ -579,6 +585,8 @@ class _SummaryItem extends StatelessWidget {
           children: [
             Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: jpStyle(
                 size: 10,
                 weight: FontWeight.w700,
@@ -591,12 +599,18 @@ class _SummaryItem extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.alphabetic,
               children: [
-                Text(
-                  value,
-                  style: numStyle(
-                    size: 22,
-                    weight: FontWeight.w600,
-                    color: c.moss800,
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      value,
+                      style: numStyle(
+                        size: 22,
+                        weight: FontWeight.w600,
+                        color: c.moss800,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 3),
