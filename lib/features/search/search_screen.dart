@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/geo_point.dart';
 import '../../core/models/location_state.dart';
 import '../../core/models/place_prediction.dart';
+import '../../core/models/recent_destination.dart';
 import '../../core/services/places_service.dart';
 import '../../core/state/app_state.dart';
+import '../../core/state/recents_provider.dart';
 import '../../core/theme/aruku_colors.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
@@ -42,7 +46,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     super.dispose();
   }
 
-  Future<void> _selectPrediction(String placeId, String name) async {
+  Future<void> _selectPrediction(PlacePrediction prediction) async {
     if (_selecting) return;
     setState(() {
       _selecting = true;
@@ -50,7 +54,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     });
     GeoPoint? latLng;
     try {
-      latLng = await ref.read(placesServiceProvider).fetchLatLng(placeId);
+      latLng = await ref
+          .read(placesServiceProvider)
+          .fetchLatLng(prediction.placeId);
     } on PlacesException {
       latLng = null;
     }
@@ -65,7 +71,22 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       return;
     }
     setState(() => _selecting = false);
-    _applySelection(name, latLng: latLng);
+    if (widget.mode == SearchMode.destination) {
+      _rememberRecent(
+        RecentDestination(
+          name: prediction.name,
+          placeId: prediction.placeId,
+          latLng: latLng,
+          address: prediction.address,
+        ),
+      );
+    }
+    _applySelection(prediction.name, latLng: latLng);
+  }
+
+  void _rememberRecent(RecentDestination dest) {
+    // 失敗は履歴に残らないだけなので呼び出し元で待たない。
+    unawaited(ref.read(recentsProvider.notifier).add(dest));
   }
 
   void _applySelection(String name, {GeoPoint? latLng}) {
@@ -317,7 +338,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                       name: s.name,
                       address: s.address,
                       query: _ctl.text,
-                      onTap: () => _selectPrediction(s.placeId, s.name),
+                      onTap: () => _selectPrediction(s),
                     );
                   },
                 ),
@@ -350,43 +371,138 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   Widget _buildRecents(ArukuColors c, AppNotifier notifier) {
-    if (widget.mode == SearchMode.destination) {
-      final locationState = ref.watch(
-        appStateProvider.select((s) => s.locationState),
-      );
-      if (locationState is! LocationAvailable) return const SizedBox.shrink();
+    final locationAvailable =
+        ref.watch(appStateProvider.select((s) => s.locationState))
+            is LocationAvailable;
+    // 出発地モードでは位置情報が無くても「現在地を使う」を提示する。
+    final showCurrentLocation =
+        widget.mode == SearchMode.origin || locationAvailable;
+
+    // 履歴は目的地のみ。出発地モードでは表示しない。
+    final recents = widget.mode == SearchMode.destination
+        ? ref.watch(recentsProvider).value ?? const <RecentDestination>[]
+        : const <RecentDestination>[];
+
+    if (!showCurrentLocation && recents.isEmpty) {
+      return const SizedBox.shrink();
     }
+
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 8),
       children: [
-        InkWell(
-          onTap: _useCurrentLocation,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
-            child: Row(
-              children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: c.moss50,
-                    borderRadius: BorderRadius.circular(12),
+        if (showCurrentLocation)
+          InkWell(
+            onTap: _useCurrentLocation,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: c.moss50,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Center(
+                      child: Ic.compass(size: 18, color: c.moss600),
+                    ),
                   ),
-                  child: Center(child: Ic.compass(size: 18, color: c.moss600)),
-                ),
-                const SizedBox(width: 14),
+                  const SizedBox(width: 14),
+                  Text(
+                    '現在地を使う',
+                    style: jpStyle(
+                      size: 16,
+                      weight: FontWeight.w600,
+                      color: c.ink,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        if (recents.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 16, 22, 6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
                 Text(
-                  '現在地を使う',
+                  '最近の目的地',
                   style: jpStyle(
-                    size: 16,
-                    weight: FontWeight.w600,
-                    color: c.ink,
+                    size: 12,
+                    weight: FontWeight.w700,
+                    color: c.ink3,
+                  ),
+                ),
+                InkWell(
+                  onTap: () =>
+                      unawaited(ref.read(recentsProvider.notifier).clear()),
+                  child: Text(
+                    '履歴を消去',
+                    style: jpStyle(
+                      size: 12,
+                      weight: FontWeight.w600,
+                      color: c.ink3,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-        ),
+          for (final r in recents)
+            InkWell(
+              onTap: () => _applySelection(r.name, latLng: r.latLng),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 22,
+                  vertical: 12,
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: c.moss50,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Center(child: Ic.pin(size: 18, color: c.moss600)),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            r.name,
+                            overflow: TextOverflow.ellipsis,
+                            style: jpStyle(
+                              size: 16,
+                              weight: FontWeight.w700,
+                              color: c.ink,
+                            ),
+                          ),
+                          if (r.address != null && r.address!.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              r.address!,
+                              overflow: TextOverflow.ellipsis,
+                              style: jpStyle(
+                                size: 12,
+                                weight: FontWeight.w500,
+                                color: c.ink3,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
       ],
     );
   }
