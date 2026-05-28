@@ -49,5 +49,7 @@
 	<string>$(MAPS_API_KEY)</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>出発地として現在地を使用します。</string>
+	<key>NSMotionUsageDescription</key>
+	<string>歩数・距離・消費カロリーの計測に使用します。</string>
 </dict>
 </plist>
