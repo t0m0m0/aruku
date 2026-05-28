@@ -77,4 +77,20 @@ void main() {
     await repo.clear();
     expect(await repo.load(), isEmpty);
   });
+
+  test('並行 add でも書き込みが失われず全件保存される', () async {
+    final repo = await makeRepo();
+    await Future.wait([
+      for (var i = 0; i < 5; i++) repo.add(dest('place_$i', placeId: 'id_$i')),
+    ]);
+    final list = await repo.load();
+    expect(list.length, 5);
+    expect(list.map((e) => e.placeId).toSet(), {
+      'id_0',
+      'id_1',
+      'id_2',
+      'id_3',
+      'id_4',
+    });
+  });
 }

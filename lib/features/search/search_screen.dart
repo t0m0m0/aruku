@@ -89,6 +89,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     unawaited(ref.read(recentsProvider.notifier).add(dest));
   }
 
+  // 履歴タイルからの再選択。再訪したものを最新として先頭に繰り上げる。
+  void _selectRecent(RecentDestination r) {
+    _rememberRecent(r);
+    _applySelection(r.name, latLng: r.latLng);
+  }
+
   void _applySelection(String name, {GeoPoint? latLng}) {
     final notifier = ref.read(appStateProvider.notifier);
     if (widget.mode == SearchMode.origin) {
@@ -452,7 +458,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           ),
           for (final r in recents)
             InkWell(
-              onTap: () => _applySelection(r.name, latLng: r.latLng),
+              onTap: () => _selectRecent(r),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 22,

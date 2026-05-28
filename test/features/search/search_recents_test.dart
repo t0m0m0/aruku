@@ -141,6 +141,36 @@ void main() {
       expect(raw, contains('p_new'));
     });
 
+    testWidgets('履歴タイルをタップすると最新として先頭に繰り上がる', (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'recents.destinations.v1': jsonEncode([
+          {'name': '東京駅', 'placeId': 'p1', 'lat': 35.681, 'lng': 139.767},
+          {'name': '渋谷駅', 'placeId': 'p2', 'lat': 35.658, 'lng': 139.701},
+        ]),
+      });
+
+      final container = await _makeContainer(tester);
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_wrap(container));
+      await tester.pump();
+
+      // 2番目の「渋谷駅」をタップ。
+      await tester.tap(find.text('渋谷駅'));
+      await tester.pump();
+      // 繰り上げの保存は fire-and-forget なので完了を待つ。
+      await tester.runAsync(() async {
+        await Future<void>.delayed(Duration.zero);
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('recents.destinations.v1')!;
+      final ids = (jsonDecode(raw) as List)
+          .map((e) => (e as Map)['placeId'])
+          .toList();
+      expect(ids, ['p2', 'p1']);
+    });
+
     testWidgets('「現在地を使う」では履歴に追加されない', (tester) async {
       final container = await _makeContainer(tester);
       addTearDown(container.dispose);
