@@ -7,6 +7,7 @@ import 'package:aruku/core/services/hybrid_route_selector.dart';
 import 'package:aruku/core/services/navitime_route_service.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
@@ -78,20 +79,19 @@ Map<String, dynamic> _navi(List<Map<String, dynamic>> items) => {
   'items': items,
 };
 
+/// Google Routes API computeRoutes の徒歩レスポンス。[shape] は [lat, lng] の
+/// 座標列で、encodedPolyline へエンコードして格納する（shape 省略時は polyline
+/// を返さず、サービスは origin/dest 直線へ縮退する）。
 Map<String, dynamic> _walkResp(
   int minutes,
   int meters, {
   List<List<double>>? shape,
 }) => {
-  'items': [
+  'routes': [
     {
-      'summary': {
-        'move': {'time': minutes, 'distance': meters},
-      },
-      if (shape != null)
-        'sections': [
-          {'type': 'move', 'move': 'walk', 'shape': _shape(shape)},
-        ],
+      'distanceMeters': meters,
+      'duration': '${minutes * 60}s',
+      if (shape != null) 'polyline': {'encodedPolyline': encodePolyline(shape)},
     },
   ],
 };
@@ -106,7 +106,7 @@ http.Client _mock({
   List<Uri>? log,
 }) => MockClient((req) async {
   log?.add(req.url);
-  if (req.url.path.contains('navitimeWalkProxy')) {
+  if (req.url.path.contains('googleWalkProxy')) {
     final start = req.url.queryParameters['start'] ?? '';
     final goal = req.url.queryParameters['goal'] ?? '';
     return _jsonResponse(walk['$start;$goal'] ?? defaultWalk ?? _navi([]), 200);
@@ -298,7 +298,7 @@ void main() {
       await run(client, arrivalH: 9, arrivalM: 2); // 予算2分
 
       final walkCalls = log
-          .where((u) => u.path.contains('navitimeWalkProxy'))
+          .where((u) => u.path.contains('googleWalkProxy'))
           .length;
       // 全徒歩1回 + キャップ6駅 ×(origin→駅 / 駅→goal) = 1 + 12 = 13
       expect(walkCalls, 13);
@@ -711,10 +711,11 @@ void main() {
           '35.7,139.75;35.681,139.767': _walkResp(
             25,
             2000,
+            // Google の encodedPolyline は [lat, lng] 順でデコードされる。
             shape: [
-              [139.75, 35.7],
-              [139.76, 35.69],
-              [139.767, 35.681],
+              [35.7, 139.75],
+              [35.69, 139.76],
+              [35.681, 139.767],
             ],
           ),
         },
@@ -732,7 +733,7 @@ void main() {
       );
     });
 
-    test('transit/walk リクエストに shape=true を付与する', () async {
+    test('transit は shape=true、徒歩は googleWalkProxy に start/goal を送る', () async {
       final log = <Uri>[];
       final client = _mock(
         transit: shinagawaToTokyo(),
@@ -746,10 +747,9 @@ void main() {
         (u) => u.path.contains('navitimeProxy'),
       );
       expect(transitUri.queryParameters['shape'], 'true');
-      final walkUri = log.firstWhere(
-        (u) => u.path.contains('navitimeWalkProxy'),
-      );
-      expect(walkUri.queryParameters['shape'], 'true');
+      final walkUri = log.firstWhere((u) => u.path.contains('googleWalkProxy'));
+      expect(walkUri.queryParameters['start'], '35.7,139.75');
+      expect(walkUri.queryParameters['goal'], '35.681,139.767');
     });
 
     test('shape が無い transit は地点座標から polyline を合成する', () async {
@@ -878,7 +878,7 @@ void main() {
     test('徒歩 API が落ちても標準経路で継続する', () async {
       // walk は常に 500 を返す → _tryWalk は null。標準経路へ縮退。
       final client = MockClient((req) async {
-        if (req.url.path.contains('navitimeWalkProxy')) {
+        if (req.url.path.contains('googleWalkProxy')) {
           return _jsonResponse(const {}, 500);
         }
         return _jsonResponse(shinagawaToTokyo(), 200);

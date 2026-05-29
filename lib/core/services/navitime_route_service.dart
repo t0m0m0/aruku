@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
@@ -228,8 +229,11 @@ class NaviTimeRouteService implements RouteService {
     'shape': 'true',
   });
 
-  /// origin→dest の徒歩を Route(walk) で取得して単一の徒歩区間候補にする。
-  /// 徒歩 API はハイブリッド探索の補助であり、失敗時は null（標準経路へ縮退）。
+  /// origin→dest の徒歩を Google Routes API（computeRoutes, travelMode=WALK,
+  /// プロキシ経由）で取得して単一の徒歩区間候補にする。NAVITIME は徒歩 shape を
+  /// 返さないため、街路追従ジオメトリは Google から得る。所要時間・距離も同一
+  /// レスポンスから取り、徒歩区間の値を Google に統一する。
+  /// 失敗時は null（標準経路へ縮退）。
   Future<RouteCandidate?> _tryWalk(
     GeoPoint origin,
     GeoPoint dest, {
@@ -237,21 +241,17 @@ class NaviTimeRouteService implements RouteService {
     required String toName,
   }) async {
     try {
-      final body = await _fetch('navitimeWalkProxy', {
+      final body = await _fetch('googleWalkProxy', {
         'start': '${origin.lat},${origin.lng}',
         'goal': '${dest.lat},${dest.lng}',
-        'shape': 'true',
       });
-      final items = body['items'] as List<dynamic>? ?? const [];
-      if (items.isEmpty) return null;
-      final item = items.first as Map<String, dynamic>;
-      final move =
-          (item['summary'] as Map<String, dynamic>?)?['move']
-              as Map<String, dynamic>?;
-      final minutes = (move?['time'] as num?)?.toInt();
+      final routes = body['routes'] as List<dynamic>? ?? const [];
+      if (routes.isEmpty) return null;
+      final route = routes.first as Map<String, dynamic>;
+      final minutes = _parseDurationMin(route['duration']);
       if (minutes == null) return null;
-      final km = ((move?['distance'] as num?)?.toInt() ?? 0) / 1000.0;
-      final shape = _parseWalkShape(item);
+      final km = ((route['distanceMeters'] as num?)?.toInt() ?? 0) / 1000.0;
+      final shape = _parseEncodedPolyline(route['polyline']);
       return RouteCandidate(
         from: fromName,
         to: toName,
@@ -263,7 +263,7 @@ class NaviTimeRouteService implements RouteService {
             minutes: minutes,
             km: km,
             kcal: (km * kcalPerKm).round(),
-            // shape が無ければ origin→dest を直線で結ぶ。
+            // polyline が無ければ origin→dest を直線で結ぶ。
             polyline: shape.isNotEmpty ? shape : [origin, dest],
           ),
         ],
@@ -271,6 +271,25 @@ class NaviTimeRouteService implements RouteService {
     } on RouteException {
       return null;
     }
+  }
+
+  /// Google Routes の duration（"123s" 形式の文字列）を分へ丸める。
+  int? _parseDurationMin(Object? duration) {
+    if (duration is! String) return null;
+    final seconds = int.tryParse(duration.replaceAll('s', ''));
+    if (seconds == null) return null;
+    return (seconds / 60).round();
+  }
+
+  /// Google Routes の polyline.encodedPolyline をデコードして座標列にする。
+  /// decodePolyline は [lat, lng] 順のペアを返す。
+  List<GeoPoint> _parseEncodedPolyline(Object? polyline) {
+    final encoded = polyline is Map ? polyline['encodedPolyline'] : null;
+    if (encoded is! String || encoded.isEmpty) return const [];
+    return [
+      for (final p in decodePolyline(encoded))
+        GeoPoint(p[0].toDouble(), p[1].toDouble()),
+    ];
   }
 
   Future<Map<String, dynamic>> _fetch(
@@ -458,19 +477,6 @@ class NaviTimeRouteService implements RouteService {
   List<GeoPoint> _lineFrom(List<GeoPoint?> points) {
     final out = [for (final p in points) ?p];
     return out.length >= 2 ? out : const [];
-  }
-
-  /// route_walk レスポンスの全 move セクションの shape を連結する。
-  List<GeoPoint> _parseWalkShape(Map<String, dynamic> item) {
-    final sections = item['sections'];
-    if (sections is! List) return const [];
-    final out = <GeoPoint>[];
-    for (final s in sections) {
-      if (s is Map<String, dynamic> && s['type'] == 'move') {
-        out.addAll(_parseShape(s));
-      }
-    }
-    return out;
   }
 
   int _minutesBetween(DateTime later, DateTime earlier) =>
