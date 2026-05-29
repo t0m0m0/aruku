@@ -29,7 +29,7 @@ class NaviTimeRouteService implements RouteService {
   final String _proxyBaseUrl;
   final DateTime Function() _clock;
 
-  /// ハイブリッド候補駅の評価上限（= 徒歩 API 呼び出し回数の上限）。
+  /// ハイブリッド候補の評価駅数の上限（組合せ爆発を抑えるサンプル数）。
   static const int _maxHybridCandidates = 6;
 
   @override
@@ -65,65 +65,48 @@ class NaviTimeRouteService implements RouteService {
       for (final p in parsed) p.toCandidate(),
     ];
 
-    // 徒歩区間を Google ジオメトリで作った候補（全徒歩・ハイブリッド）。確定後の
-    // 徒歩ジオメトリ上書きで二重取得しないよう、identity で記録する。
-    final googleBacked = <RouteCandidate>{};
-
     // 全徒歩。予算内なら徒歩 100% が最良のためハイブリッド探索を省く。
-    final fullWalk = await _tryWalk(
+    // 選定フェーズの徒歩は直線距離ベースの推定（Google を呼ばない）。
+    final fullWalk = _estimateWalk(
       origin,
       destinationLatLng,
       fromName: parsed.first.from,
       toName: parsed.first.to,
     );
-    if (fullWalk != null) {
-      candidates.add(fullWalk);
-      googleBacked.add(fullWalk);
-      if (fullWalk.totalMin <= budgetMin) {
-        return _finalize(
-          selectBestRoute(candidates: candidates, budgetMin: budgetMin),
-          googleBacked,
-          departure,
-          budgetMin,
-          onProgress,
-        );
-      }
+    candidates.add(fullWalk);
+    if (fullWalk.totalMin <= budgetMin) {
+      return _finalize(
+        selectBestRoute(candidates: candidates, budgetMin: budgetMin),
+        departure,
+        budgetMin,
+        onProgress,
+      );
     }
 
     // 途中駅まで歩いて乗車するハイブリッド候補を追加する。
     final base = _baseForHybrid(parsed);
     if (base != null) {
-      final hybrids = await _buildHybrids(
-        base,
-        origin,
-        destinationLatLng,
-        budgetMin,
-      );
-      candidates.addAll(hybrids);
-      googleBacked.addAll(hybrids);
+      candidates.addAll(_buildHybrids(base, origin, destinationLatLng));
     }
 
     return _finalize(
       selectBestRoute(candidates: candidates, budgetMin: budgetMin),
-      googleBacked,
       departure,
       budgetMin,
       onProgress,
     );
   }
 
-  /// 確定経路を RoutePlan へ。NAVITIME 由来（端点直線）の徒歩区間を持つ標準乗換
-  /// 候補のみ、表示する1経路ぶんの徒歩ジオメトリを Google で街路追従に上書きする。
+  /// 確定経路を RoutePlan へ。選定は直線距離ベースの推定で行うため、表示する
+  /// 1 経路ぶんの徒歩区間だけ Google Routes で街路追従ジオメトリ・所要時間・
+  /// 距離に上書きする（Google 呼び出しは採用経路の徒歩区間数ぶんのみ）。
   Future<RoutePlan> _finalize(
     RouteCandidate chosen,
-    Set<RouteCandidate> googleBacked,
     TimeValue departure,
     int budgetMin,
     void Function(RoutePhase)? onProgress,
   ) async {
-    final route = googleBacked.contains(chosen)
-        ? chosen
-        : await _enrichWalkGeometry(chosen);
+    final route = await _enrichWalkGeometry(chosen);
     return _build(route, departure, budgetMin, onProgress);
   }
 
@@ -176,49 +159,47 @@ class NaviTimeRouteService implements RouteService {
   }
 
   /// 基準経路の停車駅から「乗車駅 b → 降車駅 a（b より後方）」の全分割を候補化する。
-  /// 各駅で origin→駅 と 駅→goal の徒歩を取得し、乗車時間は時刻表の差で求める。
-  /// これにより乗車を後ろ倒し（徒歩を増やす）したり、手前で降りて目的地まで歩く
-  /// 候補が同じ土俵に並ぶ。徒歩 API の呼び出しは [_maxHybridCandidates] 駅でキャップ。
-  Future<List<RouteCandidate>> _buildHybrids(
+  /// 各駅の origin→駅 / 駅→goal 徒歩は直線距離ベースで推定（Google を呼ばない）し、
+  /// 乗車時間は時刻表の差で求める。これにより乗車を後ろ倒し（徒歩を増やす）したり、
+  /// 手前で降りて目的地まで歩く候補が同じ土俵に並ぶ。生成する候補は
+  /// [_maxHybridCandidates] 駅のサンプルで組合せ爆発を抑える。
+  List<RouteCandidate> _buildHybrids(
     _TransitParse base,
     GeoPoint origin,
     GeoPoint goal,
-    int budgetMin,
-  ) async {
+  ) {
     final stops = base.stops;
     final indices = _sampleIndices(stops.length, _maxHybridCandidates);
 
-    // 各停車駅の origin→駅 / 駅→goal 徒歩を並列取得（座標でキャッシュ）。
-    final originCache = <String, Future<RouteCandidate?>>{};
-    final goalCache = <String, Future<RouteCandidate?>>{};
-    Future<RouteCandidate?> originWalk(_Stop s) => originCache.putIfAbsent(
-      _key(s.coord),
-      () => _tryWalk(origin, s.coord, fromName: base.from, toName: s.name),
-    );
-    Future<RouteCandidate?> goalWalk(_Stop s) => goalCache.putIfAbsent(
-      _key(s.coord),
-      () => _tryWalk(s.coord, goal, fromName: s.name, toName: base.to),
-    );
-
-    final fromOrigin = <int, RouteCandidate?>{};
-    final toGoal = <int, RouteCandidate?>{};
-    await Future.wait([
+    // 各停車駅の origin→駅 / 駅→goal 徒歩を直線距離から推定する。
+    final fromOrigin = <int, RouteSegment>{
       for (final i in indices)
-        originWalk(stops[i]).then((v) => fromOrigin[i] = v),
-      for (final i in indices) goalWalk(stops[i]).then((v) => toGoal[i] = v),
-    ]);
+        i: _estimateWalk(
+          origin,
+          stops[i].coord,
+          fromName: base.from,
+          toName: stops[i].name,
+        ).segments.first,
+    };
+    final toGoal = <int, RouteSegment>{
+      for (final i in indices)
+        i: _estimateWalk(
+          stops[i].coord,
+          goal,
+          fromName: stops[i].name,
+          toName: base.to,
+        ).segments.first,
+    };
 
     final result = <RouteCandidate>[];
     for (final b in indices) {
-      final walk1 = fromOrigin[b]?.segments.first;
-      if (walk1 == null) continue;
+      final walk1 = fromOrigin[b]!;
       for (final a in indices) {
         if (a <= b) continue;
         // 乗換をまたぐ b→a は単一乗車として表現できない（路線・乗換・運賃を
         // 誤る）ため、同一乗車区間内のペアのみ候補化する。
         if (stops[a].section != stops[b].section) continue;
-        final walk2 = toGoal[a]?.segments.first;
-        if (walk2 == null) continue;
+        final walk2 = toGoal[a]!;
         final ride = _minutesBetween(stops[a].arr, stops[b].dep);
         if (ride < 0) continue;
         final segments = <RouteSegment>[
@@ -254,8 +235,6 @@ class NaviTimeRouteService implements RouteService {
     return km;
   }
 
-  String _key(GeoPoint p) => '${p.lat},${p.lng}';
-
   /// [n] 個の停車駅から最大 [cap] 個を等間隔に抽出する（両端を含む）。
   List<int> _sampleIndices(int n, int cap) {
     if (n <= cap) return [for (var i = 0; i < n; i++) i];
@@ -277,6 +256,34 @@ class NaviTimeRouteService implements RouteService {
     'options': 'railway_calling_at',
     'shape': 'true',
   });
+
+  /// origin→dest を直線距離から推定した徒歩区間候補にする（API 呼び出しなし）。
+  /// 候補選定フェーズ用。確定経路に選ばれれば [_enrichWalkGeometry] が Google の
+  /// 街路追従ジオメトリ・所要時間・距離へ上書きする。polyline は端点直線。
+  RouteCandidate _estimateWalk(
+    GeoPoint origin,
+    GeoPoint dest, {
+    required String fromName,
+    required String toName,
+  }) {
+    final km = haversineKm(origin, dest);
+    final minutes = (km * 1000 / walkMetersPerMinute).round();
+    return RouteCandidate(
+      from: fromName,
+      to: toName,
+      segments: [
+        RouteSegment(
+          type: SegmentType.walk,
+          fromName: fromName,
+          toName: toName,
+          minutes: minutes,
+          km: km,
+          kcal: (km * kcalPerKm).round(),
+          polyline: [origin, dest],
+        ),
+      ],
+    );
+  }
 
   /// origin→dest の徒歩を Google Routes API（computeRoutes, travelMode=WALK,
   /// プロキシ経由）で取得して単一の徒歩区間候補にする。NAVITIME は徒歩 shape を
