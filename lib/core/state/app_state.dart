@@ -279,6 +279,9 @@ class AppNotifier extends Notifier<AppState> {
     _offRouteFixes++;
     if (_offRouteFixes < kRerouteSustainFixes) return;
 
+    // クールダウン中はあえて _offRouteFixes をリセットしない。まだ逸脱が
+    // 続いている状態なので、クールダウン明けの最初のフィックスで（再度
+    // 連続を待たずに）すぐ再検索できるようにするため。
     final last = _lastRerouteAt;
     if (last != null && DateTime.now().difference(last) < kRerouteCooldown) {
       return;
@@ -314,7 +317,9 @@ class AppNotifier extends Notifier<AppState> {
       state = state.copyWith(isRerouting: false);
     } finally {
       _offRouteFixes = 0;
-      _lastRerouteAt = DateTime.now();
+      // クールダウンは再検索「開始時刻」を起点にする。完了時刻だと
+      // ネットワーク遅延ぶんだけ窓が伸び、実効クールダウンがブレるため。
+      _lastRerouteAt = now;
     }
   }
 

@@ -194,5 +194,35 @@ void main() {
       expect(s.container.read(appStateProvider).route, sampleRoutePlan);
       expect(s.container.read(appStateProvider).isRerouting, isFalse);
     });
+
+    test('クールダウン中は連続して再検索しない', () async {
+      final s = setup();
+      addTearDown(s.pos.close);
+      addTearDown(s.container.dispose);
+
+      final notifier = s.container.read(appStateProvider.notifier);
+      notifier.setDestination('渋谷', latLng: const GeoPoint(35.658, 139.701));
+      await notifier.startSearch();
+      notifier.go(Screen.nav);
+
+      // 1 回目の再検索を発火させる。
+      for (var i = 0; i < 3; i++) {
+        s.pos.add(offRoute);
+        await tick();
+      }
+      await tick();
+      expect(s.route.calls, 2);
+
+      // 直後に別方向へ逸脱が続いても、30 秒のクールダウン内なので
+      // 再検索は走らない（再検索後のルートからも外れた遠方の点を使う）。
+      const farOff = GeoPoint(35.50, 139.60);
+      for (var i = 0; i < 5; i++) {
+        s.pos.add(farOff);
+        await tick();
+      }
+      await tick();
+
+      expect(s.route.calls, 2);
+    });
   });
 }
