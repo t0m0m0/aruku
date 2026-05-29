@@ -43,9 +43,6 @@ const ROUTES_FIELD_MASK =
 const NAVITIME_HOST = "navitime-route-totalnavi.p.rapidapi.com";
 const NAVITIME_ROUTE_URL = `https://${NAVITIME_HOST}/route_transit`;
 
-const NAVITIME_WALK_HOST = "navitime-route-walk.p.rapidapi.com";
-const NAVITIME_WALK_URL = `https://${NAVITIME_WALK_HOST}/route_walk`;
-
 // クライアントから透過を許可するパラメータ。datum/coord_unit はサーバ固定。
 // options=railway_calling_at で乗車列車の途中停車駅を取得する。
 // shape=true でナビ用の区間ジオメトリ（折れ線座標）を取得する。
@@ -56,16 +53,6 @@ const NAVITIME_ALLOWED_PARAMS = [
   "term",
   "limit",
   "options",
-  "shape",
-];
-
-// 徒歩ルート（origin→駅）取得用。time/distance のみ必要なら shape は不要。
-const NAVITIME_WALK_ALLOWED_PARAMS = [
-  "start",
-  "goal",
-  "start_time",
-  "speed",
-  "condition",
   "shape",
 ];
 
@@ -84,10 +71,6 @@ function buildAllowedUrl(
 
 export function buildNavitimeUrl(query: Record<string, string | undefined>): string {
   return buildAllowedUrl(NAVITIME_ROUTE_URL, NAVITIME_ALLOWED_PARAMS, query);
-}
-
-export function buildNavitimeWalkUrl(query: Record<string, string | undefined>): string {
-  return buildAllowedUrl(NAVITIME_WALK_URL, NAVITIME_WALK_ALLOWED_PARAMS, query);
 }
 
 /** "lat,lng" 形式の座標を Routes API の waypoint へ変換する。不正な値は null。 */
@@ -331,52 +314,6 @@ export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret] }, async (
   res.json(data);
 });
 
-/** NAVITIME route_walk プロキシ（origin→駅 の徒歩ルート、レスポンスは無加工で返す） */
-export const navitimeWalkProxy = onRequest({ secrets: [navitimeKeySecret] }, async (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Methods", "GET");
-    res.set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck");
-    res.status(204).send("");
-    return;
-  }
-
-  if (!(await verifyAppCheck(req, res))) return;
-
-  if (!checkRateLimit(clientIp(req), WALK_RATE_LIMIT)) {
-    res.status(429).json({ error: "Too many requests" });
-    return;
-  }
-
-  const start = req.query["start"] as string | undefined;
-  const goal = req.query["goal"] as string | undefined;
-
-  if (!start || !goal) {
-    res.status(400).json({ error: "start and goal are required" });
-    return;
-  }
-
-  const data = await requestJsonNew(
-    buildNavitimeWalkUrl(req.query as Record<string, string | undefined>),
-    "GET",
-    {
-      "X-RapidAPI-Key": getNavitimeApiKey(),
-      "X-RapidAPI-Host": NAVITIME_WALK_HOST,
-    }
-  );
-
-  const record = data as Record<string, unknown> | null;
-  if (record && record["message"] && !record["items"]) {
-    console.error(
-      "[navitimeWalkProxy] NAVITIME API error:",
-      JSON.stringify(record["message"])
-    );
-    res.status(502).json(data);
-    return;
-  }
-
-  res.json(data);
-});
 
 /**
  * Google Routes 徒歩プロキシ。start/goal（"lat,lng"）から computeRoutes を
