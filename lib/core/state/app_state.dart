@@ -9,9 +9,19 @@ import '../models/location_state.dart';
 import '../models/route_error.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
+import '../navigation/nav_engine.dart';
 import '../services/activity_service.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
+
+/// 経路からこの距離（m）を超えて外れたらオフルートとみなす。GPS のブレは無視する。
+const double kRerouteThresholdMeters = 50;
+
+/// 自動再検索を発火するまでに必要な連続オフルート回数。瞬間的なノイズを除外する。
+const int kRerouteSustainFixes = 3;
+
+/// 一度再検索したら次まで空けるクールダウン。API 呼び出しの多発を防ぐ。
+const Duration kRerouteCooldown = Duration(seconds: 30);
 
 enum Screen {
   onboarding,
@@ -44,6 +54,7 @@ class AppState {
     this.todaySteps = 0,
     this.todayKm = 0.0,
     this.todayKcal = 0,
+    this.isRerouting = false,
   });
 
   final Screen screen;
@@ -65,6 +76,9 @@ class AppState {
   final int todaySteps;
   final double todayKm;
   final int todayKcal;
+
+  /// オフルートからの自動再検索が進行中か。
+  final bool isRerouting;
 
   int get budgetMinutes => arrival.totalMinutes - departure.totalMinutes;
 
@@ -95,6 +109,7 @@ class AppState {
     int? todaySteps,
     double? todayKm,
     int? todayKcal,
+    bool? isRerouting,
   }) {
     return AppState(
       screen: screen ?? this.screen,
@@ -126,6 +141,7 @@ class AppState {
       todaySteps: todaySteps ?? this.todaySteps,
       todayKm: todayKm ?? this.todayKm,
       todayKcal: todayKcal ?? this.todayKcal,
+      isRerouting: isRerouting ?? this.isRerouting,
     );
   }
 
@@ -146,6 +162,12 @@ class AppNotifier extends Notifier<AppState> {
   StreamSubscription<GeoPoint>? _posSub;
   StreamSubscription<ActivitySnapshot>? _activitySub;
   bool _disposed = false;
+
+  /// 連続してオフルートと判定された回数。閾値内に戻るとリセットする。
+  int _offRouteFixes = 0;
+
+  /// 直近で自動再検索を実行した時刻。クールダウン判定に使う。
+  DateTime? _lastRerouteAt;
 
   @override
   AppState build() {
@@ -220,7 +242,7 @@ class AppNotifier extends Notifier<AppState> {
         .read(locationServiceProvider)
         .positionStream()
         .listen(
-          (p) => state = state.copyWith(currentPosition: p),
+          _onPosition,
           // GPS 喪失や位置サービス停止で流れる一時的なエラーは無視し、
           // 未捕捉例外を防ぐ。最後に取得した現在地を保持する。
           onError: (_) {},
@@ -230,8 +252,69 @@ class AppNotifier extends Notifier<AppState> {
   void _stopTracking() {
     _posSub?.cancel();
     _posSub = null;
+    _offRouteFixes = 0;
     if (state.currentPosition != null) {
       state = state.copyWith(currentPosition: null);
+    }
+  }
+
+  /// 現在地の更新を反映し、オフルートが継続していれば自動再検索を起動する。
+  void _onPosition(GeoPoint p) {
+    state = state.copyWith(currentPosition: p);
+    _maybeReroute(p);
+  }
+
+  /// 経路からの逸脱が [kRerouteSustainFixes] 回続いたら、クールダウンと
+  /// 多重実行を避けつつ現在地起点の再検索を起動する。
+  void _maybeReroute(GeoPoint p) {
+    final route = state.route;
+    if (route == null || state.isRerouting) return;
+
+    final offRoute = computeGuidance(route: route, current: p).offRouteMeters;
+    if (offRoute <= kRerouteThresholdMeters) {
+      _offRouteFixes = 0;
+      return;
+    }
+
+    _offRouteFixes++;
+    if (_offRouteFixes < kRerouteSustainFixes) return;
+
+    final last = _lastRerouteAt;
+    if (last != null && DateTime.now().difference(last) < kRerouteCooldown) {
+      return;
+    }
+
+    unawaited(_reroute(p));
+  }
+
+  /// 現在地 [from] を起点に同じ目的地へルートを再計算し、成功時に差し替える。
+  /// 失敗時は旧ルートを保持する（圏外などで案内が消えないように）。
+  Future<void> _reroute(GeoPoint from) async {
+    state = state.copyWith(isRerouting: true);
+    final now = DateTime.now();
+    try {
+      final plan = await ref
+          .read(routeServiceProvider)
+          .plan(
+            destination: state.destination,
+            destinationLatLng: state.destinationLatLng,
+            departure: TimeValue(
+              h: now.hour,
+              m: _roundTo5(now.minute),
+              isNow: true,
+              anchored: true,
+            ),
+            arrival: state.arrival,
+            origin: from,
+          );
+      if (_disposed) return;
+      state = state.copyWith(route: plan, isRerouting: false);
+    } catch (_) {
+      if (_disposed) return;
+      state = state.copyWith(isRerouting: false);
+    } finally {
+      _offRouteFixes = 0;
+      _lastRerouteAt = DateTime.now();
     }
   }
 
