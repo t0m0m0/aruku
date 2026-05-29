@@ -812,6 +812,57 @@ void main() {
       ]);
     });
 
+    test('shape が無い電車は発着時刻が欠落した停車駅も polyline に含める', () async {
+      // _callingCoords は _parseCalling と異なり時刻フィルタを掛けない。
+      // 中間駅(新橋)の時刻が欠けても座標があれば線を繋ぐことを検証する。
+      final transit = _navi([
+        _item([
+          _point('出発地', lat: 35.7, lon: 139.75),
+          _walkSection(400, 5),
+          _point('品川駅', lat: 35.628, lon: 139.738),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            calling: [
+              _calling(
+                '品川駅',
+                35.628,
+                139.738,
+                '2026-05-22T09:05:00',
+                '2026-05-22T09:05:00',
+              ),
+              // 時刻欠落（座標のみ）→ _parseCalling では除外されるが線には残す。
+              {
+                'name': '新橋駅',
+                'coord': {'lat': 35.666, 'lon': 139.758},
+              },
+              _calling(
+                '東京駅',
+                35.681,
+                139.767,
+                '2026-05-22T09:12:00',
+                '2026-05-22T09:12:00',
+              ),
+            ],
+          ),
+          _point('東京駅', lat: 35.681, lon: 139.767),
+        ]),
+      ]);
+      final client = _mock(transit: transit, defaultWalk: _walkResp(92, 7000));
+
+      final plan = await run(client, arrivalH: 9, arrivalM: 3);
+
+      expect(plan.segments, hasLength(2));
+      expect(plan.segments[1].type, SegmentType.train);
+      expect(plan.segments[1].polyline, const [
+        GeoPoint(35.628, 139.738),
+        GeoPoint(35.666, 139.758),
+        GeoPoint(35.681, 139.767),
+      ]);
+    });
+
     test('shape が無い全徒歩は origin/dest を結ぶ polyline を持つ', () async {
       final client = _mock(
         transit: shinagawaToTokyo(),
