@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
@@ -64,6 +65,10 @@ class NaviTimeRouteService implements RouteService {
       for (final p in parsed) p.toCandidate(),
     ];
 
+    // 徒歩区間を Google ジオメトリで作った候補（全徒歩・ハイブリッド）。確定後の
+    // 徒歩ジオメトリ上書きで二重取得しないよう、identity で記録する。
+    final googleBacked = <RouteCandidate>{};
+
     // 全徒歩。予算内なら徒歩 100% が最良のためハイブリッド探索を省く。
     final fullWalk = await _tryWalk(
       origin,
@@ -73,9 +78,11 @@ class NaviTimeRouteService implements RouteService {
     );
     if (fullWalk != null) {
       candidates.add(fullWalk);
+      googleBacked.add(fullWalk);
       if (fullWalk.totalMin <= budgetMin) {
-        return _build(
+        return _finalize(
           selectBestRoute(candidates: candidates, budgetMin: budgetMin),
+          googleBacked,
           departure,
           budgetMin,
           onProgress,
@@ -86,17 +93,60 @@ class NaviTimeRouteService implements RouteService {
     // 途中駅まで歩いて乗車するハイブリッド候補を追加する。
     final base = _baseForHybrid(parsed);
     if (base != null) {
-      candidates.addAll(
-        await _buildHybrids(base, origin, destinationLatLng, budgetMin),
+      final hybrids = await _buildHybrids(
+        base,
+        origin,
+        destinationLatLng,
+        budgetMin,
       );
+      candidates.addAll(hybrids);
+      googleBacked.addAll(hybrids);
     }
 
-    return _build(
+    return _finalize(
       selectBestRoute(candidates: candidates, budgetMin: budgetMin),
+      googleBacked,
       departure,
       budgetMin,
       onProgress,
     );
+  }
+
+  /// 確定経路を RoutePlan へ。NAVITIME 由来（端点直線）の徒歩区間を持つ標準乗換
+  /// 候補のみ、表示する1経路ぶんの徒歩ジオメトリを Google で街路追従に上書きする。
+  Future<RoutePlan> _finalize(
+    RouteCandidate chosen,
+    Set<RouteCandidate> googleBacked,
+    TimeValue departure,
+    int budgetMin,
+    void Function(RoutePhase)? onProgress,
+  ) async {
+    final route = googleBacked.contains(chosen)
+        ? chosen
+        : await _enrichWalkGeometry(chosen);
+    return _build(route, departure, budgetMin, onProgress);
+  }
+
+  /// 確定経路の徒歩区間を Google Routes の街路ジオメトリ・所要時間・距離で
+  /// 上書きする。標準乗換候補の徒歩は NAVITIME 由来（shape 無し→端点直線）の
+  /// ため、区間端点（polyline の両端）を start/goal に再取得して街路追従へそろえる。
+  /// 取得失敗時は元の直線を保つ（線を欠落させない）。座標を持たない区間は対象外。
+  Future<RouteCandidate> _enrichWalkGeometry(RouteCandidate chosen) async {
+    final segments = <RouteSegment>[];
+    for (final seg in chosen.segments) {
+      if (seg.type != SegmentType.walk || seg.polyline.length < 2) {
+        segments.add(seg);
+        continue;
+      }
+      final walk = await _tryWalk(
+        seg.polyline.first,
+        seg.polyline.last,
+        fromName: seg.fromName,
+        toName: seg.toName,
+      );
+      segments.add(walk?.segments.first ?? seg);
+    }
+    return RouteCandidate(from: chosen.from, to: chosen.to, segments: segments);
   }
 
   RoutePlan _build(
@@ -181,6 +231,8 @@ class NaviTimeRouteService implements RouteService {
             km: _railKm(stops, b, a),
             line: stops[b].line,
             stops: a - b,
+            // 乗車区間 b→a の停車駅座標を折れ線にする（shape 代替）。
+            polyline: [for (var i = b; i <= a; i++) stops[i].coord],
           ),
           if (walk2.minutes > 0) walk2,
         ];
@@ -226,8 +278,11 @@ class NaviTimeRouteService implements RouteService {
     'shape': 'true',
   });
 
-  /// origin→dest の徒歩を Route(walk) で取得して単一の徒歩区間候補にする。
-  /// 徒歩 API はハイブリッド探索の補助であり、失敗時は null（標準経路へ縮退）。
+  /// origin→dest の徒歩を Google Routes API（computeRoutes, travelMode=WALK,
+  /// プロキシ経由）で取得して単一の徒歩区間候補にする。NAVITIME は徒歩 shape を
+  /// 返さないため、街路追従ジオメトリは Google から得る。所要時間・距離も同一
+  /// レスポンスから取り、徒歩区間の値を Google に統一する。
+  /// 失敗時は null（標準経路へ縮退）。
   Future<RouteCandidate?> _tryWalk(
     GeoPoint origin,
     GeoPoint dest, {
@@ -235,20 +290,17 @@ class NaviTimeRouteService implements RouteService {
     required String toName,
   }) async {
     try {
-      final body = await _fetch('navitimeWalkProxy', {
+      final body = await _fetch('googleWalkProxy', {
         'start': '${origin.lat},${origin.lng}',
         'goal': '${dest.lat},${dest.lng}',
-        'shape': 'true',
       });
-      final items = body['items'] as List<dynamic>? ?? const [];
-      if (items.isEmpty) return null;
-      final item = items.first as Map<String, dynamic>;
-      final move =
-          (item['summary'] as Map<String, dynamic>?)?['move']
-              as Map<String, dynamic>?;
-      final minutes = (move?['time'] as num?)?.toInt();
+      final routes = body['routes'] as List<dynamic>? ?? const [];
+      if (routes.isEmpty) return null;
+      final route = routes.first as Map<String, dynamic>;
+      final minutes = _parseDurationMin(route['duration']);
       if (minutes == null) return null;
-      final km = ((move?['distance'] as num?)?.toInt() ?? 0) / 1000.0;
+      final km = ((route['distanceMeters'] as num?)?.toInt() ?? 0) / 1000.0;
+      final shape = _parseEncodedPolyline(route['polyline']);
       return RouteCandidate(
         from: fromName,
         to: toName,
@@ -260,13 +312,33 @@ class NaviTimeRouteService implements RouteService {
             minutes: minutes,
             km: km,
             kcal: (km * kcalPerKm).round(),
-            polyline: _parseWalkShape(item),
+            // polyline が無ければ origin→dest を直線で結ぶ。
+            polyline: shape.isNotEmpty ? shape : [origin, dest],
           ),
         ],
       );
     } on RouteException {
       return null;
     }
+  }
+
+  /// Google Routes の duration（"123s" 形式の文字列）を分へ丸める。
+  int? _parseDurationMin(Object? duration) {
+    if (duration is! String) return null;
+    final seconds = int.tryParse(duration.replaceAll('s', ''));
+    if (seconds == null) return null;
+    return (seconds / 60).round();
+  }
+
+  /// Google Routes の polyline.encodedPolyline をデコードして座標列にする。
+  /// decodePolyline は [lat, lng] 順のペアを返す。
+  List<GeoPoint> _parseEncodedPolyline(Object? polyline) {
+    final encoded = polyline is Map ? polyline['encodedPolyline'] : null;
+    if (encoded is! String || encoded.isEmpty) return const [];
+    return [
+      for (final p in decodePolyline(encoded))
+        GeoPoint(p[0].toDouble(), p[1].toDouble()),
+    ];
   }
 
   Future<Map<String, dynamic>> _fetch(
@@ -309,6 +381,13 @@ class NaviTimeRouteService implements RouteService {
       final fromName = i > 0 ? nameAt(i - 1) : from;
       final toName = i + 1 < sections.length ? nameAt(i + 1) : to;
 
+      // shape（街路追従ジオメトリ）が無い場合に備え、前後の point 座標を控える。
+      final prevCoord = i > 0 ? _coordOf(sections[i - 1]) : null;
+      final nextCoord = i + 1 < sections.length
+          ? _coordOf(sections[i + 1])
+          : null;
+      final shape = _parseShape(sec);
+
       if (sec['move'] == 'walk') {
         segments.add(
           RouteSegment(
@@ -318,13 +397,18 @@ class NaviTimeRouteService implements RouteService {
             minutes: minutes,
             km: km,
             kcal: (km * kcalPerKm).round(),
-            polyline: _parseShape(sec),
+            // shape が無ければ区間端点を直線で結ぶ。
+            polyline: shape.isNotEmpty
+                ? shape
+                : _lineFrom([prevCoord, nextCoord]),
           ),
         );
       } else {
         final line = sec['line_name'] as String?;
         stops.addAll(_parseCalling(sec, line, trainSection));
         trainSection++;
+        // shape が無ければ停車駅(calling_at)座標、それも無ければ端点で代替。
+        final calling = _callingCoords(sec);
         segments.add(
           RouteSegment(
             type: SegmentType.train,
@@ -334,8 +418,12 @@ class NaviTimeRouteService implements RouteService {
             km: km,
             line: line,
             stops: (sec['stop_count'] as num?)?.toInt(),
-            fare: (sec['fare'] as num?)?.toInt(),
-            polyline: _parseShape(sec),
+            fare: _fareOf(sec),
+            polyline: shape.isNotEmpty
+                ? shape
+                : (calling.length >= 2
+                      ? calling
+                      : _lineFrom([prevCoord, nextCoord])),
           ),
         );
       }
@@ -406,17 +494,70 @@ class NaviTimeRouteService implements RouteService {
     return out;
   }
 
-  /// route_walk レスポンスの全 move セクションの shape を連結する。
-  List<GeoPoint> _parseWalkShape(Map<String, dynamic> item) {
-    final sections = item['sections'];
-    if (sections is! List) return const [];
+  /// point セクション等の coord（{lat, lon|lng}）を GeoPoint へ変換する。
+  GeoPoint? _coordOf(Map<String, dynamic> section) {
+    final c = section['coord'];
+    if (c is! Map) return null;
+    final lat = (c['lat'] as num?)?.toDouble();
+    final lon = ((c['lon'] as num?) ?? (c['lng'] as num?))?.toDouble();
+    if (lat == null || lon == null) return null;
+    return GeoPoint(lat, lon);
+  }
+
+  /// move（電車）セクションの運賃を取り出す。NAVITIME は運賃を
+  /// `section.transport.fare` に格納する（calling_at と同じ階層）。互換のため
+  /// section 直下の fare も後方で参照する。
+  int? _fareOf(Map<String, dynamic> section) {
+    final transport = section['transport'];
+    final fare = transport is Map ? transport['fare'] : null;
+    return _parseFare(fare ?? section['fare']);
+  }
+
+  /// NAVITIME の運賃は数値ではなく「unit_{料金区分ID}」をキーに持つオブジェクト
+  /// （例: {"unit_0": 170, "unit_48": 165}）で返る。unit_48 が IC カード運賃、
+  /// unit_0 が普通(きっぷ)運賃。IC 運賃を優先し、無ければ普通運賃、いずれも
+  /// 無ければ最初に見つかった数値の運賃区分を採る。古い想定どおり数値で来た
+  /// 場合にも備える。取り出せなければ null（運賃非表示）。
+  int? _parseFare(dynamic fare) {
+    if (fare is num) return fare.toInt();
+    if (fare is Map) {
+      for (final key in const ['unit_48', 'unit_0']) {
+        final v = fare[key];
+        if (v is num) return v.toInt();
+      }
+      for (final v in fare.values) {
+        if (v is num) return v.toInt();
+      }
+    }
+    return null;
+  }
+
+  /// move（電車）セクションの calling_at 駅座標を順序通りに取得する。
+  /// shape が無いときの代替ジオメトリ（折れ線）に用いる。
+  ///
+  /// [_parseCalling] とは目的が異なり、こちらは発着時刻フィルタを掛けない。
+  /// 時刻が欠落した駅でも座標があれば線を繋ぎたいため（線の見た目を優先）。
+  /// 一方 [_parseCalling] は所要時間算出に時刻が要るため時刻欠落駅を除外する。
+  List<GeoPoint> _callingCoords(Map<String, dynamic> sec) {
+    final transport = sec['transport'];
+    final raw =
+        (transport is Map ? transport['calling_at'] : null) ??
+        sec['calling_at'];
+    if (raw is! List) return const [];
     final out = <GeoPoint>[];
-    for (final s in sections) {
-      if (s is Map<String, dynamic> && s['type'] == 'move') {
-        out.addAll(_parseShape(s));
+    for (final e in raw) {
+      if (e is Map<String, dynamic>) {
+        final p = _coordOf(e);
+        if (p != null) out.add(p);
       }
     }
     return out;
+  }
+
+  /// null を除いた座標が2点以上あれば折れ線（直線）にする。1点以下は空。
+  List<GeoPoint> _lineFrom(List<GeoPoint?> points) {
+    final out = [for (final p in points) ?p];
+    return out.length >= 2 ? out : const [];
   }
 
   int _minutesBetween(DateTime later, DateTime earlier) =>

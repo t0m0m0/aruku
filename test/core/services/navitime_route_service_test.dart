@@ -7,6 +7,7 @@ import 'package:aruku/core/services/hybrid_route_selector.dart';
 import 'package:aruku/core/services/navitime_route_service.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
@@ -15,7 +16,11 @@ const _proxyBaseUrl = 'https://proxy.example.com';
 http.Response _jsonResponse(Object body, int status) =>
     http.Response.bytes(utf8.encode(jsonEncode(body)), status);
 
-Map<String, dynamic> _point(String name) => {'type': 'point', 'name': name};
+Map<String, dynamic> _point(String name, {double? lat, double? lon}) => {
+  'type': 'point',
+  'name': name,
+  if (lat != null && lon != null) 'coord': {'lat': lat, 'lon': lon},
+};
 
 /// GeoJSON LineString。NAVITIME は coordinates を [lng, lat] 順で返す。
 Map<String, dynamic> _shape(List<List<double>> lngLat) => {
@@ -55,6 +60,7 @@ Map<String, dynamic> _trainSection(
   int? stops,
   List<Map<String, dynamic>>? calling,
   List<List<double>>? shape,
+  Map<String, dynamic>? fare,
 }) => {
   'type': 'move',
   'move': 'local_train',
@@ -62,7 +68,9 @@ Map<String, dynamic> _trainSection(
   'time': minutes,
   'line_name': line,
   'stop_count': ?stops,
-  if (calling != null) 'transport': {'calling_at': calling},
+  // 実 API では calling_at も fare も transport 配下に入る。
+  if (calling != null || fare != null)
+    'transport': {'calling_at': ?calling, 'fare': ?fare},
   if (shape != null) 'shape': _shape(shape),
 };
 
@@ -74,20 +82,19 @@ Map<String, dynamic> _navi(List<Map<String, dynamic>> items) => {
   'items': items,
 };
 
+/// Google Routes API computeRoutes の徒歩レスポンス。[shape] は [lat, lng] の
+/// 座標列で、encodedPolyline へエンコードして格納する（shape 省略時は polyline
+/// を返さず、サービスは origin/dest 直線へ縮退する）。
 Map<String, dynamic> _walkResp(
   int minutes,
   int meters, {
   List<List<double>>? shape,
 }) => {
-  'items': [
+  'routes': [
     {
-      'summary': {
-        'move': {'time': minutes, 'distance': meters},
-      },
-      if (shape != null)
-        'sections': [
-          {'type': 'move', 'move': 'walk', 'shape': _shape(shape)},
-        ],
+      'distanceMeters': meters,
+      'duration': '${minutes * 60}s',
+      if (shape != null) 'polyline': {'encodedPolyline': encodePolyline(shape)},
     },
   ],
 };
@@ -102,7 +109,7 @@ http.Client _mock({
   List<Uri>? log,
 }) => MockClient((req) async {
   log?.add(req.url);
-  if (req.url.path.contains('navitimeWalkProxy')) {
+  if (req.url.path.contains('googleWalkProxy')) {
     final start = req.url.queryParameters['start'] ?? '';
     final goal = req.url.queryParameters['goal'] ?? '';
     return _jsonResponse(walk['$start;$goal'] ?? defaultWalk ?? _navi([]), 200);
@@ -233,6 +240,41 @@ void main() {
       expect(plan.segments[1].line, 'JR山手線');
     });
 
+    Future<RoutePlan> planWithFare(Map<String, dynamic> fare) {
+      final client = _mock(
+        transit: _navi([
+          _item([
+            _point('出発地'),
+            _walkSection(400, 5),
+            _point('品川駅'),
+            _trainSection(6000, 7, line: 'JR山手線', stops: 2, fare: fare),
+            _point('東京駅'),
+          ]),
+        ]),
+        // 全徒歩も区間徒歩も予算超過させ、標準経路（電車区間つき）を返させる。
+        defaultWalk: _walkResp(92, 7000),
+      );
+      return run(client, arrivalH: 9, arrivalM: 3);
+    }
+
+    test('電車区間の fare オブジェクトから IC 運賃(unit_48)を優先して取り出す', () async {
+      final plan = await planWithFare({'unit_0': 170, 'unit_48': 165});
+
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.fare, 165);
+    });
+
+    test('IC 運賃(unit_48)が無ければ普通運賃(unit_0)へフォールバックする', () async {
+      final plan = await planWithFare({'unit_0': 170});
+
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.fare, 170);
+    });
+
     test('transit には options=railway_calling_at を付与する', () async {
       final log = <Uri>[];
       final client = _mock(
@@ -294,7 +336,7 @@ void main() {
       await run(client, arrivalH: 9, arrivalM: 2); // 予算2分
 
       final walkCalls = log
-          .where((u) => u.path.contains('navitimeWalkProxy'))
+          .where((u) => u.path.contains('googleWalkProxy'))
           .length;
       // 全徒歩1回 + キャップ6駅 ×(origin→駅 / 駅→goal) = 1 + 12 = 13
       expect(walkCalls, 13);
@@ -707,10 +749,11 @@ void main() {
           '35.7,139.75;35.681,139.767': _walkResp(
             25,
             2000,
+            // Google の encodedPolyline は [lat, lng] 順でデコードされる。
             shape: [
-              [139.75, 35.7],
-              [139.76, 35.69],
-              [139.767, 35.681],
+              [35.7, 139.75],
+              [35.69, 139.76],
+              [35.681, 139.767],
             ],
           ),
         },
@@ -728,7 +771,7 @@ void main() {
       );
     });
 
-    test('transit/walk リクエストに shape=true を付与する', () async {
+    test('transit は shape=true、徒歩は googleWalkProxy に start/goal を送る', () async {
       final log = <Uri>[];
       final client = _mock(
         transit: shinagawaToTokyo(),
@@ -742,10 +785,264 @@ void main() {
         (u) => u.path.contains('navitimeProxy'),
       );
       expect(transitUri.queryParameters['shape'], 'true');
-      final walkUri = log.firstWhere(
-        (u) => u.path.contains('navitimeWalkProxy'),
+      final walkUri = log.firstWhere((u) => u.path.contains('googleWalkProxy'));
+      expect(walkUri.queryParameters['start'], '35.7,139.75');
+      expect(walkUri.queryParameters['goal'], '35.681,139.767');
+    });
+
+    test('shape が無い transit は地点座標から polyline を合成する', () async {
+      // NaviTime RapidAPI は shape=true でもジオメトリを返さない。地点座標
+      // （point の coord と calling_at）から粗い折れ線を合成するフォールバック。
+      final transit = _navi([
+        _item([
+          _point('出発地', lat: 35.7, lon: 139.75),
+          _walkSection(400, 5), // shape なし
+          _point('品川駅', lat: 35.628, lon: 139.738),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            calling: [
+              _calling(
+                '品川駅',
+                35.628,
+                139.738,
+                '2026-05-22T09:05:00',
+                '2026-05-22T09:05:00',
+              ),
+              _calling(
+                '新橋駅',
+                35.666,
+                139.758,
+                '2026-05-22T09:09:00',
+                '2026-05-22T09:09:00',
+              ),
+              _calling(
+                '東京駅',
+                35.681,
+                139.767,
+                '2026-05-22T09:12:00',
+                '2026-05-22T09:12:00',
+              ),
+            ],
+          ), // shape なし
+          _point('東京駅', lat: 35.681, lon: 139.767),
+        ]),
+      ]);
+      final client = _mock(transit: transit, defaultWalk: _walkResp(92, 7000));
+
+      final plan = await run(client, arrivalH: 9, arrivalM: 3);
+
+      expect(plan.segments, hasLength(2));
+      // 徒歩区間は前後の地点座標を直線で結ぶ。
+      expect(plan.segments[0].type, SegmentType.walk);
+      expect(plan.segments[0].polyline, const [
+        GeoPoint(35.7, 139.75),
+        GeoPoint(35.628, 139.738),
+      ]);
+      // 電車区間は停車駅(calling_at)座標を連結する。
+      expect(plan.segments[1].type, SegmentType.train);
+      expect(plan.segments[1].polyline, const [
+        GeoPoint(35.628, 139.738),
+        GeoPoint(35.666, 139.758),
+        GeoPoint(35.681, 139.767),
+      ]);
+    });
+
+    test('shape が無い電車は発着時刻が欠落した停車駅も polyline に含める', () async {
+      // _callingCoords は _parseCalling と異なり時刻フィルタを掛けない。
+      // 中間駅(新橋)の時刻が欠けても座標があれば線を繋ぐことを検証する。
+      final transit = _navi([
+        _item([
+          _point('出発地', lat: 35.7, lon: 139.75),
+          _walkSection(400, 5),
+          _point('品川駅', lat: 35.628, lon: 139.738),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            calling: [
+              _calling(
+                '品川駅',
+                35.628,
+                139.738,
+                '2026-05-22T09:05:00',
+                '2026-05-22T09:05:00',
+              ),
+              // 時刻欠落（座標のみ）→ _parseCalling では除外されるが線には残す。
+              {
+                'name': '新橋駅',
+                'coord': {'lat': 35.666, 'lon': 139.758},
+              },
+              _calling(
+                '東京駅',
+                35.681,
+                139.767,
+                '2026-05-22T09:12:00',
+                '2026-05-22T09:12:00',
+              ),
+            ],
+          ),
+          _point('東京駅', lat: 35.681, lon: 139.767),
+        ]),
+      ]);
+      final client = _mock(transit: transit, defaultWalk: _walkResp(92, 7000));
+
+      final plan = await run(client, arrivalH: 9, arrivalM: 3);
+
+      expect(plan.segments, hasLength(2));
+      expect(plan.segments[1].type, SegmentType.train);
+      expect(plan.segments[1].polyline, const [
+        GeoPoint(35.628, 139.738),
+        GeoPoint(35.666, 139.758),
+        GeoPoint(35.681, 139.767),
+      ]);
+    });
+
+    test('shape が無い全徒歩は origin/dest を結ぶ polyline を持つ', () async {
+      final client = _mock(
+        transit: shinagawaToTokyo(),
+        // shape なし・予算内の全徒歩。
+        walk: {'35.7,139.75;35.681,139.767': _walkResp(25, 2000)},
       );
-      expect(walkUri.queryParameters['shape'], 'true');
+
+      final plan = await run(client);
+
+      expect(plan.segments, hasLength(1));
+      expect(plan.segments.first.type, SegmentType.walk);
+      expect(plan.segments.first.polyline, const [
+        GeoPoint(35.7, 139.75),
+        GeoPoint(35.681, 139.767),
+      ]);
+    });
+
+    test('shape が無いハイブリッドの各区間に polyline を合成する', () async {
+      final client = _mock(
+        transit: shinagawaToTokyo(),
+        walk: {
+          '35.7,139.75;35.681,139.767': _walkResp(92, 7000),
+          '35.7,139.75;35.666,139.758': _walkResp(22, 1800),
+          '35.681,139.767;35.681,139.767': _walkResp(0, 0),
+        },
+      );
+
+      final plan = await run(client); // 予算30分 → ハイブリッド
+
+      expect(plan.segments, hasLength(2));
+      // 徒歩区間は origin→乗車駅 を直線で結ぶ。
+      expect(plan.segments[0].type, SegmentType.walk);
+      expect(plan.segments[0].polyline, const [
+        GeoPoint(35.7, 139.75),
+        GeoPoint(35.666, 139.758),
+      ]);
+      // 電車区間は停車駅座標(新橋→東京)を連結する。
+      expect(plan.segments[1].type, SegmentType.train);
+      expect(plan.segments[1].polyline, const [
+        GeoPoint(35.666, 139.758),
+        GeoPoint(35.681, 139.767),
+      ]);
+    });
+
+    // 出発地・品川・東京（各地点に座標を持つ）標準経路。徒歩 shape は無い。
+    // 標準経路選択時の徒歩ジオメトリ上書きを検証するために用いる。
+    Map<String, dynamic> shinagawaWithCoords() => _navi([
+      _item([
+        _point('出発地', lat: 35.7, lon: 139.75),
+        _walkSection(400, 5), // shape なし
+        _point('品川駅', lat: 35.628, lon: 139.738),
+        _trainSection(
+          6000,
+          7,
+          line: 'JR山手線',
+          stops: 2,
+          calling: [
+            _calling(
+              '品川駅',
+              35.628,
+              139.738,
+              '2026-05-22T09:05:00',
+              '2026-05-22T09:05:00',
+            ),
+            _calling(
+              '東京駅',
+              35.681,
+              139.767,
+              '2026-05-22T09:12:00',
+              '2026-05-22T09:12:00',
+            ),
+          ],
+        ),
+        _point('東京駅', lat: 35.681, lon: 139.767),
+      ]),
+    ]);
+
+    test('標準経路の徒歩区間を Google の街路ジオメトリで上書きする', () async {
+      // 標準乗換が選ばれると徒歩は NAVITIME 由来（shape 無し→端点直線）になる。
+      // 表示する1経路ぶんだけ googleWalkProxy を引き直し、街路追従ジオメトリと
+      // Google の所要時間・距離へそろえる。
+      final client = _mock(
+        transit: shinagawaWithCoords(),
+        defaultWalk: _walkResp(92, 7000), // 全徒歩・ハイブリッドは予算超過
+        walk: {
+          // 確定経路の徒歩（出発地→品川駅）の街路ジオメトリ。
+          '35.7,139.75;35.628,139.738': _walkResp(
+            6,
+            480,
+            shape: [
+              [35.7, 139.75],
+              [35.66, 139.744],
+              [35.628, 139.738],
+            ],
+          ),
+        },
+      );
+
+      final plan = await run(client, arrivalH: 9, arrivalM: 3); // 予算3分 → 標準
+
+      expect(plan.segments, hasLength(2));
+      final walk = plan.segments[0];
+      expect(walk.type, SegmentType.walk);
+      // 端点直線(2点)ではなく Google の街路折れ線(3点)。
+      expect(walk.polyline, hasLength(3));
+      expect(walk.polyline[1], const GeoPoint(35.66, 139.744));
+      // 所要時間・距離も Google 値へそろう。
+      expect(walk.minutes, 6);
+      expect(walk.km, closeTo(0.48, 1e-9));
+      // 電車区間は従来どおり calling_at 座標。
+      expect(plan.segments[1].type, SegmentType.train);
+      expect(plan.segments[1].polyline, const [
+        GeoPoint(35.628, 139.738),
+        GeoPoint(35.681, 139.767),
+      ]);
+    });
+
+    test('徒歩ジオメトリの Google 取得に失敗したら端点直線を保つ', () async {
+      // 確定経路の徒歩取得が失敗しても線を消さず、NAVITIME 由来の端点直線と
+      // 所要時間を保つ（サイレントに区間を欠落させない）。
+      final client = MockClient((req) async {
+        if (req.url.path.contains('googleWalkProxy')) {
+          final start = req.url.queryParameters['start'];
+          final goal = req.url.queryParameters['goal'];
+          // 確定経路の徒歩（出発地→品川駅）だけ失敗させる。
+          if (start == '35.7,139.75' && goal == '35.628,139.738') {
+            return _jsonResponse(const {}, 500);
+          }
+          return _jsonResponse(_walkResp(92, 7000), 200); // 他は予算超過
+        }
+        return _jsonResponse(shinagawaWithCoords(), 200);
+      });
+
+      final plan = await run(client, arrivalH: 9, arrivalM: 3);
+
+      final walk = plan.segments[0];
+      expect(walk.type, SegmentType.walk);
+      expect(walk.polyline, const [
+        GeoPoint(35.7, 139.75),
+        GeoPoint(35.628, 139.738),
+      ]);
+      expect(walk.minutes, 5); // NAVITIME 値を保持
     });
 
     test('items が空なら ZERO_RESULTS', () async {
@@ -770,7 +1067,7 @@ void main() {
     test('徒歩 API が落ちても標準経路で継続する', () async {
       // walk は常に 500 を返す → _tryWalk は null。標準経路へ縮退。
       final client = MockClient((req) async {
-        if (req.url.path.contains('navitimeWalkProxy')) {
+        if (req.url.path.contains('googleWalkProxy')) {
           return _jsonResponse(const {}, 500);
         }
         return _jsonResponse(shinagawaToTokyo(), 200);

@@ -32,11 +32,16 @@ const PLACES_AUTOCOMPLETE_NEW_URL =
   "https://places.googleapis.com/v1/places:autocomplete";
 const PLACES_DETAILS_NEW_BASE = "https://places.googleapis.com/v1/places";
 
+// Google Routes API。徒歩ルートの街路追従ジオメトリ（encodedPolyline）と
+// 距離・所要時間を返す。NAVITIME が徒歩 shape を返さないため徒歩線はここから得る。
+const ROUTES_COMPUTE_URL =
+  "https://routes.googleapis.com/directions/v2:computeRoutes";
+// 課金は FieldMask で要求したフィールドに依存する。徒歩線・距離・時間のみ取得。
+const ROUTES_FIELD_MASK =
+  "routes.polyline.encodedPolyline,routes.distanceMeters,routes.duration";
+
 const NAVITIME_HOST = "navitime-route-totalnavi.p.rapidapi.com";
 const NAVITIME_ROUTE_URL = `https://${NAVITIME_HOST}/route_transit`;
-
-const NAVITIME_WALK_HOST = "navitime-route-walk.p.rapidapi.com";
-const NAVITIME_WALK_URL = `https://${NAVITIME_WALK_HOST}/route_walk`;
 
 // クライアントから透過を許可するパラメータ。datum/coord_unit はサーバ固定。
 // options=railway_calling_at で乗車列車の途中停車駅を取得する。
@@ -48,16 +53,6 @@ const NAVITIME_ALLOWED_PARAMS = [
   "term",
   "limit",
   "options",
-  "shape",
-];
-
-// 徒歩ルート（origin→駅）取得用。time/distance のみ必要なら shape は不要。
-const NAVITIME_WALK_ALLOWED_PARAMS = [
-  "start",
-  "goal",
-  "start_time",
-  "speed",
-  "condition",
   "shape",
 ];
 
@@ -78,8 +73,29 @@ export function buildNavitimeUrl(query: Record<string, string | undefined>): str
   return buildAllowedUrl(NAVITIME_ROUTE_URL, NAVITIME_ALLOWED_PARAMS, query);
 }
 
-export function buildNavitimeWalkUrl(query: Record<string, string | undefined>): string {
-  return buildAllowedUrl(NAVITIME_WALK_URL, NAVITIME_WALK_ALLOWED_PARAMS, query);
+/** "lat,lng" 形式の座標を Routes API の waypoint へ変換する。不正な値は null。 */
+function parseLatLng(
+  value: string | undefined
+): { latitude: number; longitude: number } | null {
+  if (typeof value !== "string") return null;
+  const parts = value.split(",");
+  if (parts.length !== 2) return null;
+  const latitude = Number(parts[0]);
+  const longitude = Number(parts[1]);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return { latitude, longitude };
+}
+
+/** Routes API computeRoutes（徒歩）のリクエストボディを生成する。 */
+export function buildRoutesWalkBody(
+  start: { latitude: number; longitude: number },
+  goal: { latitude: number; longitude: number }
+): string {
+  return JSON.stringify({
+    origin: { location: { latLng: start } },
+    destination: { location: { latLng: goal } },
+    travelMode: "WALK",
+  });
 }
 
 // Per-instance in-memory rate limiter (30 req/min per IP).
@@ -298,8 +314,13 @@ export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret] }, async (
   res.json(data);
 });
 
-/** NAVITIME route_walk プロキシ（origin→駅 の徒歩ルート、レスポンスは無加工で返す） */
-export const navitimeWalkProxy = onRequest({ secrets: [navitimeKeySecret] }, async (req, res) => {
+
+/**
+ * Google Routes 徒歩プロキシ。start/goal（"lat,lng"）から computeRoutes を
+ * travelMode=WALK で叩き、街路追従の encodedPolyline・距離・所要時間を返す。
+ * レスポンスは無加工で返す（変換はクライアント側）。
+ */
+export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Methods", "GET");
@@ -315,28 +336,34 @@ export const navitimeWalkProxy = onRequest({ secrets: [navitimeKeySecret] }, asy
     return;
   }
 
-  const start = req.query["start"] as string | undefined;
-  const goal = req.query["goal"] as string | undefined;
+  const start = parseLatLng(req.query["start"] as string | undefined);
+  const goal = parseLatLng(req.query["goal"] as string | undefined);
 
   if (!start || !goal) {
-    res.status(400).json({ error: "start and goal are required" });
+    res
+      .status(400)
+      .json({ error: "start and goal are required as 'lat,lng'" });
     return;
   }
 
   const data = await requestJsonNew(
-    buildNavitimeWalkUrl(req.query as Record<string, string | undefined>),
-    "GET",
+    ROUTES_COMPUTE_URL,
+    "POST",
     {
-      "X-RapidAPI-Key": getNavitimeApiKey(),
-      "X-RapidAPI-Host": NAVITIME_WALK_HOST,
-    }
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": getMapsApiKey(),
+      "X-Goog-FieldMask": ROUTES_FIELD_MASK,
+    },
+    buildRoutesWalkBody(start, goal)
   );
 
+  // Routes API はエラー時 {error:{...}} を返し routes を含まない。
+  // 認証・クォータ等の失敗を「ルートなし」と区別するため 502 で返す。
   const record = data as Record<string, unknown> | null;
-  if (record && record["message"] && !record["items"]) {
+  if (record && record["error"] && !record["routes"]) {
     console.error(
-      "[navitimeWalkProxy] NAVITIME API error:",
-      JSON.stringify(record["message"])
+      "[googleWalkProxy] Routes API error:",
+      JSON.stringify(record["error"])
     );
     res.status(502).json(data);
     return;
