@@ -8,6 +8,24 @@ import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/logo.dart';
 
+/// 下部に固定するドット行とCTAの位置。各ページ本文の下部余白
+/// [_pageBottomReserve] はこれらと重ならないよう確保するため、
+/// いずれかを変更する場合は合わせて調整すること。
+const double _dotsBottom = 188;
+const double _ctaBottom = 64;
+const double _pageBottomReserve = 220;
+
+/// 起動ごとに一度だけ解決すればよいため、ページ再ビルードで
+/// future を作り直さないようトップレベルでキャッシュする。
+final Future<PackageInfo> _packageInfoFuture = PackageInfo.fromPlatform();
+
+/// カードの落ち影に使う共通カラー。
+const _cardShadow = BoxShadow(
+  color: Color(0x1A22361E),
+  blurRadius: 40,
+  offset: Offset(0, 16),
+);
+
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
 
@@ -114,7 +132,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             Positioned(
               left: 0,
               right: 0,
-              bottom: 188,
+              bottom: _dotsBottom,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: List.generate(_pageCount, (i) {
@@ -139,7 +157,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             Positioned(
               left: 24,
               right: 24,
-              bottom: 64,
+              bottom: _ctaBottom,
               child: Column(
                 children: [
                   _CTAButton(label: isLast ? 'はじめる' : '次へ', onPressed: _onCta),
@@ -182,7 +200,7 @@ class _OnboardPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(32, 84, 32, 220),
+      padding: const EdgeInsets.fromLTRB(32, 84, 32, _pageBottomReserve),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -225,7 +243,7 @@ class _CorePage extends StatelessWidget {
     final c = context.c;
     return _OnboardPage(
       eyebrow: FutureBuilder<PackageInfo>(
-        future: PackageInfo.fromPlatform(),
+        future: _packageInfoFuture,
         builder: (context, snap) {
           final version = snap.hasData ? snap.data!.version : '...';
           return Text(
@@ -326,6 +344,47 @@ class _Eyebrow extends StatelessWidget {
   }
 }
 
+/// カードの共通外殻（余白・角丸・落ち影・枠線）。
+class _Card extends StatelessWidget {
+  const _Card({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+      decoration: BoxDecoration(
+        color: c.paper,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: const [_cardShadow],
+        border: Border.all(color: c.hairline),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// カード左側の角丸アイコン枠（56x56）。
+class _CardIcon extends StatelessWidget {
+  const _CardIcon({required this.icon, required this.bg});
+  final Widget icon;
+  final Color bg;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Center(child: icon),
+    );
+  }
+}
+
 class _FeatureCard extends StatelessWidget {
   const _FeatureCard({
     required this.icon,
@@ -342,31 +401,10 @@ class _FeatureCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
-      decoration: BoxDecoration(
-        color: c.paper,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x1A22361E),
-            blurRadius: 40,
-            offset: Offset(0, 16),
-          ),
-        ],
-        border: Border.all(color: c.hairline),
-      ),
+    return _Card(
       child: Row(
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: iconBg,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Center(child: icon),
-          ),
+          _CardIcon(icon: icon, bg: iconBg),
           const SizedBox(width: 18),
           Expanded(
             child: Column(
@@ -402,30 +440,12 @@ class _StatsTeaser extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
-      decoration: BoxDecoration(
-        color: c.paper,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x1A22361E),
-            blurRadius: 40,
-            offset: Offset(0, 16),
-          ),
-        ],
-        border: Border.all(color: c.hairline),
-      ),
+    return _Card(
       child: Row(
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: c.burntSoft,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Center(child: Ic.fire(size: 28, color: c.burnt)),
+          _CardIcon(
+            icon: Ic.fire(size: 28, color: c.burnt),
+            bg: c.burntSoft,
           ),
           const SizedBox(width: 18),
           Expanded(
