@@ -104,6 +104,11 @@ class _NavScreenState extends ConsumerState<NavScreen> {
                     onClose: () => notifier.go(Screen.home),
                   ),
                 ),
+                if (state.isRerouting)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(12, 8, 12, 0),
+                    child: _RerouteBanner(),
+                  ),
                 const Spacer(),
                 // Bottom stats bar
                 Padding(
@@ -315,6 +320,39 @@ class _InstructionCard extends StatelessWidget {
   }
 }
 
+/// オフルートからの自動再検索中に表示する軽量バナー。
+class _RerouteBanner extends StatelessWidget {
+  const _RerouteBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: c.paper,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: c.hairline),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2, color: c.moss600),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            'ルートを再検索中…',
+            style: jpStyle(size: 13, weight: FontWeight.w700, color: c.moss700),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _StatsBar extends StatelessWidget {
   const _StatsBar({
     required this.traveledKm,
@@ -515,31 +553,6 @@ class _StatsBar extends StatelessWidget {
                         ),
                       ],
                     ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            height: 48,
-            decoration: BoxDecoration(
-              color: c.moss100,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Ic.pause(size: 16, color: c.moss700),
-                const SizedBox(width: 8),
-                Text(
-                  '一時停止 · 寄り道',
-                  style: jpStyle(
-                    size: 14,
-                    weight: FontWeight.w800,
-                    color: c.moss700,
-                    letterSpacing: 0.06 * 14,
                   ),
                 ),
               ],
