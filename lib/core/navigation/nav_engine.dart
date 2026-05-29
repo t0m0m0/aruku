@@ -33,6 +33,7 @@ class NavGuidance {
     required this.distanceToNextTurnNextM,
     required this.etaMinutesRemaining,
     required this.consumedKcal,
+    required this.offRouteMeters,
   });
 
   /// 0–1 の進捗率。
@@ -55,6 +56,9 @@ class NavGuidance {
 
   /// これまでに消費したカロリー（徒歩距離比で按分）。
   final int consumedKcal;
+
+  /// 現在地から経路までの最短距離（メートル）。オフルート判定に使う。
+  final double offRouteMeters;
 }
 
 /// 曲がりとして認識する最小角度。これ未満は直進扱い。
@@ -98,6 +102,7 @@ NavGuidance computeGuidance({
       distanceToNextTurnNextM: null,
       etaMinutesRemaining: route.totalMin,
       consumedKcal: 0,
+      offRouteMeters: 0,
     );
   }
 
@@ -157,6 +162,7 @@ NavGuidance computeGuidance({
         : (next.distanceAlong - s).clamp(0, totalLen).round(),
     etaMinutesRemaining: (route.totalMin * (1 - progress)).round(),
     consumedKcal: consumedKcal,
+    offRouteMeters: snap.offsetMeters,
   );
 }
 

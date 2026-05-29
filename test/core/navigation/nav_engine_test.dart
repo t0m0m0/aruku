@@ -276,4 +276,39 @@ void main() {
       expect(g.currentManeuver, NavManeuver.left);
     });
   });
+
+  group('offRouteMeters', () {
+    final straight = _route(
+      segments: const [
+        RouteSegment(
+          type: SegmentType.walk,
+          fromName: 'A',
+          toName: 'B',
+          minutes: 20,
+          km: 1.1,
+          kcal: 60,
+          polyline: [GeoPoint(0, 0), GeoPoint(0, 0.01)],
+        ),
+      ],
+      totalKm: 1.1,
+      walkKm: 1.1,
+    );
+
+    test('経路上の点では逸脱距離はほぼ 0', () {
+      final g = computeGuidance(
+        route: straight,
+        current: const GeoPoint(0, 0.005),
+      );
+      expect(g.offRouteMeters, lessThan(1.0));
+    });
+
+    test('経路から大きく外れると逸脱距離が増える', () {
+      final g = computeGuidance(
+        route: straight,
+        current: const GeoPoint(0.005, 0.005),
+      );
+      // 緯度 0.005 度 ≈ 約 556m の横ずれ。
+      expect(g.offRouteMeters, greaterThan(100.0));
+    });
+  });
 }
