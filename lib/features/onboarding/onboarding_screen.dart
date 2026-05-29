@@ -8,12 +8,57 @@ import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/logo.dart';
 
-class OnboardingScreen extends ConsumerWidget {
+/// 下部に固定するドット行とCTAの位置。各ページ本文の下部余白
+/// [_pageBottomReserve] はこれらと重ならないよう確保するため、
+/// いずれかを変更する場合は合わせて調整すること。
+const double _dotsBottom = 188;
+const double _ctaBottom = 64;
+const double _pageBottomReserve = 220;
+
+/// 起動ごとに一度だけ解決すればよいため、ページ再ビルードで
+/// future を作り直さないようトップレベルでキャッシュする。
+final Future<PackageInfo> _packageInfoFuture = PackageInfo.fromPlatform();
+
+/// カードの落ち影に使う共通カラー。
+const _cardShadow = BoxShadow(
+  color: Color(0x1A22361E),
+  blurRadius: 40,
+  offset: Offset(0, 16),
+);
+
+class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
+}
+
+class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
+  static const _pageCount = 3;
+  final _controller = PageController();
+  int _page = 0;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onCta() {
+    if (_page >= _pageCount - 1) {
+      ref.read(appStateProvider.notifier).go(Screen.home);
+      return;
+    }
+    _controller.nextPage(
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.c;
+    final isLast = _page == _pageCount - 1;
     return Material(
       color: c.ivory,
       child: SafeArea(
@@ -49,111 +94,58 @@ class OnboardingScreen extends ConsumerWidget {
               ),
             ),
 
-            // Content
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            // Logo header (全ページ共通で固定)
+            Positioned(
+              top: 12,
+              left: 28,
+              child: Row(
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 28),
-                    child: Row(
-                      children: [
-                        const ArukuLogo(size: 36),
-                        const SizedBox(width: 10),
-                        Text(
-                          'あるく',
-                          style: jpStyle(
-                            size: 22,
-                            weight: FontWeight.w800,
-                            color: c.moss700,
-                            letterSpacing: 0.04 * 22,
-                          ),
-                        ),
-                      ],
+                  const ArukuLogo(size: 36),
+                  const SizedBox(width: 10),
+                  Text(
+                    'あるく',
+                    style: jpStyle(
+                      size: 22,
+                      weight: FontWeight.w800,
+                      color: c.moss700,
+                      letterSpacing: 0.04 * 22,
                     ),
                   ),
-                  const SizedBox(height: 64),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 32),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        FutureBuilder<PackageInfo>(
-                          future: PackageInfo.fromPlatform(),
-                          builder: (context, snap) {
-                            final version = snap.hasData
-                                ? snap.data!.version
-                                : '...';
-                            return Text(
-                              'WALK FIRST · v$version',
-                              style: jpStyle(
-                                size: 11,
-                                weight: FontWeight.w700,
-                                color: c.moss600,
-                                letterSpacing: 0.2 * 11,
-                              ),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 18),
-                        RichText(
-                          text: TextSpan(
-                            style: jpStyle(
-                              size: 40,
-                              weight: FontWeight.w800,
-                              color: c.ink,
-                              height: 1.18,
-                              letterSpacing: -0.01 * 40,
-                            ),
-                            children: [
-                              const TextSpan(text: '電車はなるべく、\n'),
-                              TextSpan(
-                                text: '乗らない',
-                                style: TextStyle(color: c.moss600),
-                              ),
-                              const TextSpan(text: '。'),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-                        SizedBox(
-                          width: 290,
-                          child: Text(
-                            '時間内に着く範囲で、\nいちばん歩けるルートを案内します。',
-                            style: jpStyle(
-                              size: 16,
-                              weight: FontWeight.w500,
-                              color: c.ink2,
-                              height: 1.7,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Spacer(),
                 ],
               ),
             ),
 
-            // Stats teaser
-            Positioned(left: 28, right: 28, top: 410, child: _StatsTeaser()),
+            // Swipeable pages
+            Positioned.fill(
+              child: PageView(
+                controller: _controller,
+                onPageChanged: (i) => setState(() => _page = i),
+                children: const [
+                  _CorePage(key: Key('onboard-page-0')),
+                  _HowToPage(key: Key('onboard-page-1')),
+                  _RecordPage(key: Key('onboard-page-2')),
+                ],
+              ),
+            ),
 
-            // Pager dots
+            // Pager dots (現在ページと連動)
             Positioned(
               left: 0,
               right: 0,
-              bottom: 188,
+              bottom: _dotsBottom,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(3, (i) {
-                  return Container(
+                children: List.generate(_pageCount, (i) {
+                  final active = i == _page;
+                  return AnimatedContainer(
+                    key: Key('onboard-dot-$i'),
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOut,
                     margin: const EdgeInsets.symmetric(horizontal: 3.5),
-                    width: i == 0 ? 26 : 7,
+                    width: active ? 26 : 7,
                     height: 7,
                     decoration: BoxDecoration(
-                      color: i == 0 ? c.moss500 : c.moss200,
+                      color: active ? c.moss500 : c.moss200,
                       borderRadius: BorderRadius.circular(999),
                     ),
                   );
@@ -165,14 +157,10 @@ class OnboardingScreen extends ConsumerWidget {
             Positioned(
               left: 24,
               right: 24,
-              bottom: 64,
+              bottom: _ctaBottom,
               child: Column(
                 children: [
-                  _CTAButton(
-                    label: 'はじめる',
-                    onPressed: () =>
-                        ref.read(appStateProvider.notifier).go(Screen.home),
-                  ),
+                  _CTAButton(label: isLast ? 'はじめる' : '次へ', onPressed: _onCta),
                   const SizedBox(height: 14),
                   Text(
                     '続行で利用規約とプライバシーに同意したことになります',
@@ -192,7 +180,175 @@ class OnboardingScreen extends ConsumerWidget {
   }
 }
 
-class _StatsTeaser extends StatelessWidget {
+/// オンボーディング各ページの共通レイアウト。
+/// ロゴヘッダーと下部のドット／CTA を避けるための余白を確保し、
+/// 小さな画面でもあふれないようスクロール可能にする。
+class _OnboardPage extends StatelessWidget {
+  const _OnboardPage({
+    required this.eyebrow,
+    required this.title,
+    required this.description,
+    this.visual,
+  });
+
+  final Widget eyebrow;
+  final List<TextSpan> title;
+  final String description;
+  final Widget? visual;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(32, 84, 32, _pageBottomReserve),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          eyebrow,
+          const SizedBox(height: 18),
+          RichText(
+            text: TextSpan(
+              style: jpStyle(
+                size: 38,
+                weight: FontWeight.w800,
+                color: c.ink,
+                height: 1.18,
+                letterSpacing: -0.01 * 38,
+              ),
+              children: title,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            description,
+            style: jpStyle(
+              size: 16,
+              weight: FontWeight.w500,
+              color: c.ink2,
+              height: 1.7,
+            ),
+          ),
+          if (visual != null) ...[const SizedBox(height: 28), visual!],
+        ],
+      ),
+    );
+  }
+}
+
+class _CorePage extends StatelessWidget {
+  const _CorePage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return _OnboardPage(
+      eyebrow: FutureBuilder<PackageInfo>(
+        future: _packageInfoFuture,
+        builder: (context, snap) {
+          final version = snap.hasData ? snap.data!.version : '...';
+          return Text(
+            'WALK FIRST · v$version',
+            style: jpStyle(
+              size: 11,
+              weight: FontWeight.w700,
+              color: c.moss600,
+              letterSpacing: 0.2 * 11,
+            ),
+          );
+        },
+      ),
+      title: [
+        const TextSpan(text: '電車はなるべく、\n'),
+        TextSpan(
+          text: '乗らない',
+          style: TextStyle(color: c.moss600),
+        ),
+        const TextSpan(text: '。'),
+      ],
+      description: '時間内に着く範囲で、\nいちばん歩けるルートを案内します。',
+      visual: _StatsTeaser(),
+    );
+  }
+}
+
+class _HowToPage extends StatelessWidget {
+  const _HowToPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return _OnboardPage(
+      eyebrow: _Eyebrow('HOW IT WORKS', color: c.moss600),
+      title: [
+        const TextSpan(text: '着く時間を、\n'),
+        TextSpan(
+          text: '指定するだけ',
+          style: TextStyle(color: c.moss600),
+        ),
+        const TextSpan(text: '。'),
+      ],
+      description: 'あとはアプリが、間に合う範囲で\nいちばん歩けるルートを選びます。',
+      visual: _FeatureCard(
+        icon: Ic.clock(size: 28, color: c.moss600),
+        iconBg: c.moss50,
+        title: '到着時刻をセット',
+        subtitle: '出発／到着のどちらでも指定できます',
+      ),
+    );
+  }
+}
+
+class _RecordPage extends StatelessWidget {
+  const _RecordPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return _OnboardPage(
+      eyebrow: _Eyebrow('YOUR RECORD', color: c.moss600),
+      title: [
+        const TextSpan(text: '歩いた分だけ、\n'),
+        TextSpan(
+          text: '残る',
+          style: TextStyle(color: c.moss600),
+        ),
+        const TextSpan(text: '。'),
+      ],
+      description: '歩数・距離・消費カロリーを記録して、\n続けた歩みを可視化します。',
+      visual: _FeatureCard(
+        icon: Ic.walk(size: 28, color: c.burnt),
+        iconBg: c.burntSoft,
+        title: '毎日の歩みを記録',
+        subtitle: '歩数・距離・カロリーをまとめて確認',
+      ),
+    );
+  }
+}
+
+class _Eyebrow extends StatelessWidget {
+  const _Eyebrow(this.text, {required this.color});
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: jpStyle(
+        size: 11,
+        weight: FontWeight.w700,
+        color: color,
+        letterSpacing: 0.2 * 11,
+      ),
+    );
+  }
+}
+
+/// カードの共通外殻（余白・角丸・落ち影・枠線）。
+class _Card extends StatelessWidget {
+  const _Card({required this.child});
+  final Widget child;
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -201,25 +357,95 @@ class _StatsTeaser extends StatelessWidget {
       decoration: BoxDecoration(
         color: c.paper,
         borderRadius: BorderRadius.circular(22),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x1A22361E),
-            blurRadius: 40,
-            offset: Offset(0, 16),
-          ),
-        ],
+        boxShadow: const [_cardShadow],
         border: Border.all(color: c.hairline),
       ),
+      child: child,
+    );
+  }
+}
+
+/// カード左側の角丸アイコン枠（56x56）。
+class _CardIcon extends StatelessWidget {
+  const _CardIcon({required this.icon, required this.bg});
+  final Widget icon;
+  final Color bg;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Center(child: icon),
+    );
+  }
+}
+
+class _FeatureCard extends StatelessWidget {
+  const _FeatureCard({
+    required this.icon,
+    required this.iconBg,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final Widget icon;
+  final Color iconBg;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return _Card(
       child: Row(
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: c.burntSoft,
-              borderRadius: BorderRadius.circular(16),
+          _CardIcon(icon: icon, bg: iconBg),
+          const SizedBox(width: 18),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: jpStyle(
+                    size: 15,
+                    weight: FontWeight.w700,
+                    color: c.ink,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: jpStyle(
+                    size: 12,
+                    weight: FontWeight.w500,
+                    color: c.ink3,
+                  ),
+                ),
+              ],
             ),
-            child: Center(child: Ic.fire(size: 28, color: c.burnt)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatsTeaser extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return _Card(
+      child: Row(
+        children: [
+          _CardIcon(
+            icon: Ic.fire(size: 28, color: c.burnt),
+            bg: c.burntSoft,
           ),
           const SizedBox(width: 18),
           Expanded(
