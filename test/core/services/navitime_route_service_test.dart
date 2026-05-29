@@ -60,6 +60,7 @@ Map<String, dynamic> _trainSection(
   int? stops,
   List<Map<String, dynamic>>? calling,
   List<List<double>>? shape,
+  Map<String, dynamic>? fare,
 }) => {
   'type': 'move',
   'move': 'local_train',
@@ -69,6 +70,7 @@ Map<String, dynamic> _trainSection(
   'stop_count': ?stops,
   if (calling != null) 'transport': {'calling_at': calling},
   if (shape != null) 'shape': _shape(shape),
+  'fare': ?fare,
 };
 
 Map<String, dynamic> _item(List<Map<String, dynamic>> sections) => {
@@ -235,6 +237,35 @@ void main() {
       expect(plan.totalMin, 12);
       expect(plan.segments, hasLength(2));
       expect(plan.segments[1].line, 'JR山手線');
+    });
+
+    test('電車区間の fare オブジェクトから普通運賃(unit_0)を取り出す', () async {
+      final client = _mock(
+        transit: _navi([
+          _item([
+            _point('出発地'),
+            _walkSection(400, 5),
+            _point('品川駅'),
+            _trainSection(
+              6000,
+              7,
+              line: 'JR山手線',
+              stops: 2,
+              fare: {'unit_0': 170, 'unit_48': 165},
+            ),
+            _point('東京駅'),
+          ]),
+        ]),
+        // 全徒歩も区間徒歩も予算超過させ、標準経路（電車区間つき）を返させる。
+        defaultWalk: _walkResp(92, 7000),
+      );
+
+      final plan = await run(client, arrivalH: 9, arrivalM: 3);
+
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.fare, 170);
     });
 
     test('transit には options=railway_calling_at を付与する', () async {

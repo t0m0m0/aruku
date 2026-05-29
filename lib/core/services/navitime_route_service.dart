@@ -418,7 +418,7 @@ class NaviTimeRouteService implements RouteService {
             km: km,
             line: line,
             stops: (sec['stop_count'] as num?)?.toInt(),
-            fare: (sec['fare'] as num?)?.toInt(),
+            fare: _parseFare(sec['fare']),
             polyline: shape.isNotEmpty
                 ? shape
                 : (calling.length >= 2
@@ -502,6 +502,22 @@ class NaviTimeRouteService implements RouteService {
     final lon = ((c['lon'] as num?) ?? (c['lng'] as num?))?.toDouble();
     if (lat == null || lon == null) return null;
     return GeoPoint(lat, lon);
+  }
+
+  /// NAVITIME の運賃は数値ではなく「unit_{料金区分ID}」をキーに持つオブジェクト
+  /// （例: {"unit_0": 170, "unit_48": 165}）で返る。unit_0 が普通運賃。
+  /// 古い想定どおり数値で来た場合にも備える。取り出せなければ null（運賃非表示）。
+  int? _parseFare(dynamic fare) {
+    if (fare is num) return fare.toInt();
+    if (fare is Map) {
+      final regular = fare['unit_0'];
+      if (regular is num) return regular.toInt();
+      // unit_0 が無い場合は最初に見つかった数値の運賃区分で代替する。
+      for (final v in fare.values) {
+        if (v is num) return v.toInt();
+      }
+    }
+    return null;
   }
 
   /// move（電車）セクションの calling_at 駅座標を順序通りに取得する。
