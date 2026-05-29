@@ -418,7 +418,7 @@ class NaviTimeRouteService implements RouteService {
             km: km,
             line: line,
             stops: (sec['stop_count'] as num?)?.toInt(),
-            fare: _parseFare(sec['fare']),
+            fare: _fareOf(sec),
             polyline: shape.isNotEmpty
                 ? shape
                 : (calling.length >= 2
@@ -502,6 +502,15 @@ class NaviTimeRouteService implements RouteService {
     final lon = ((c['lon'] as num?) ?? (c['lng'] as num?))?.toDouble();
     if (lat == null || lon == null) return null;
     return GeoPoint(lat, lon);
+  }
+
+  /// move（電車）セクションの運賃を取り出す。NAVITIME は運賃を
+  /// `section.transport.fare` に格納する（calling_at と同じ階層）。互換のため
+  /// section 直下の fare も後方で参照する。
+  int? _fareOf(Map<String, dynamic> section) {
+    final transport = section['transport'];
+    final fare = transport is Map ? transport['fare'] : null;
+    return _parseFare(fare ?? section['fare']);
   }
 
   /// NAVITIME の運賃は数値ではなく「unit_{料金区分ID}」をキーに持つオブジェクト

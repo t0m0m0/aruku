@@ -68,9 +68,10 @@ Map<String, dynamic> _trainSection(
   'time': minutes,
   'line_name': line,
   'stop_count': ?stops,
-  if (calling != null) 'transport': {'calling_at': calling},
+  // 実 API では calling_at も fare も transport 配下に入る。
+  if (calling != null || fare != null)
+    'transport': {'calling_at': ?calling, 'fare': ?fare},
   if (shape != null) 'shape': _shape(shape),
-  'fare': ?fare,
 };
 
 Map<String, dynamic> _item(List<Map<String, dynamic>> sections) => {
