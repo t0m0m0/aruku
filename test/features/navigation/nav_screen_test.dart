@@ -84,4 +84,11 @@ void main() {
     await tester.pump();
     expect(mapWidget().mapType, MapType.normal);
   });
+
+  testWidgets('「一時停止 · 寄り道」ボタンは表示しない', (tester) async {
+    await tester.pumpWidget(wrap(_NavNotifier(navState())));
+    await tester.pump();
+
+    expect(find.text('一時停止 · 寄り道'), findsNothing);
+  });
 }
