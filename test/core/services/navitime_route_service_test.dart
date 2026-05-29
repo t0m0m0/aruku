@@ -239,28 +239,34 @@ void main() {
       expect(plan.segments[1].line, 'JR山手線');
     });
 
-    test('電車区間の fare オブジェクトから普通運賃(unit_0)を取り出す', () async {
+    Future<RoutePlan> planWithFare(Map<String, dynamic> fare) {
       final client = _mock(
         transit: _navi([
           _item([
             _point('出発地'),
             _walkSection(400, 5),
             _point('品川駅'),
-            _trainSection(
-              6000,
-              7,
-              line: 'JR山手線',
-              stops: 2,
-              fare: {'unit_0': 170, 'unit_48': 165},
-            ),
+            _trainSection(6000, 7, line: 'JR山手線', stops: 2, fare: fare),
             _point('東京駅'),
           ]),
         ]),
         // 全徒歩も区間徒歩も予算超過させ、標準経路（電車区間つき）を返させる。
         defaultWalk: _walkResp(92, 7000),
       );
+      return run(client, arrivalH: 9, arrivalM: 3);
+    }
 
-      final plan = await run(client, arrivalH: 9, arrivalM: 3);
+    test('電車区間の fare オブジェクトから IC 運賃(unit_48)を優先して取り出す', () async {
+      final plan = await planWithFare({'unit_0': 170, 'unit_48': 165});
+
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.fare, 165);
+    });
+
+    test('IC 運賃(unit_48)が無ければ普通運賃(unit_0)へフォールバックする', () async {
+      final plan = await planWithFare({'unit_0': 170});
 
       final train = plan.segments.firstWhere(
         (s) => s.type == SegmentType.train,
