@@ -307,9 +307,9 @@ class _RecordPage extends StatelessWidget {
     return _OnboardPage(
       eyebrow: _Eyebrow('YOUR RECORD', color: c.moss600),
       title: [
-        const TextSpan(text: '歩いた分だけ、\n'),
+        const TextSpan(text: 'あなたの歩みを、\n'),
         TextSpan(
-          text: '残る',
+          text: '記録する',
           style: TextStyle(color: c.moss600),
         ),
         const TextSpan(text: '。'),
