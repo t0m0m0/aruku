@@ -65,6 +65,10 @@ class NaviTimeRouteService implements RouteService {
       for (final p in parsed) p.toCandidate(),
     ];
 
+    // 徒歩区間を Google ジオメトリで作った候補（全徒歩・ハイブリッド）。確定後の
+    // 徒歩ジオメトリ上書きで二重取得しないよう、identity で記録する。
+    final googleBacked = <RouteCandidate>{};
+
     // 全徒歩。予算内なら徒歩 100% が最良のためハイブリッド探索を省く。
     final fullWalk = await _tryWalk(
       origin,
@@ -74,9 +78,11 @@ class NaviTimeRouteService implements RouteService {
     );
     if (fullWalk != null) {
       candidates.add(fullWalk);
+      googleBacked.add(fullWalk);
       if (fullWalk.totalMin <= budgetMin) {
-        return _build(
+        return _finalize(
           selectBestRoute(candidates: candidates, budgetMin: budgetMin),
+          googleBacked,
           departure,
           budgetMin,
           onProgress,
@@ -87,17 +93,60 @@ class NaviTimeRouteService implements RouteService {
     // 途中駅まで歩いて乗車するハイブリッド候補を追加する。
     final base = _baseForHybrid(parsed);
     if (base != null) {
-      candidates.addAll(
-        await _buildHybrids(base, origin, destinationLatLng, budgetMin),
+      final hybrids = await _buildHybrids(
+        base,
+        origin,
+        destinationLatLng,
+        budgetMin,
       );
+      candidates.addAll(hybrids);
+      googleBacked.addAll(hybrids);
     }
 
-    return _build(
+    return _finalize(
       selectBestRoute(candidates: candidates, budgetMin: budgetMin),
+      googleBacked,
       departure,
       budgetMin,
       onProgress,
     );
+  }
+
+  /// 確定経路を RoutePlan へ。NAVITIME 由来（端点直線）の徒歩区間を持つ標準乗換
+  /// 候補のみ、表示する1経路ぶんの徒歩ジオメトリを Google で街路追従に上書きする。
+  Future<RoutePlan> _finalize(
+    RouteCandidate chosen,
+    Set<RouteCandidate> googleBacked,
+    TimeValue departure,
+    int budgetMin,
+    void Function(RoutePhase)? onProgress,
+  ) async {
+    final route = googleBacked.contains(chosen)
+        ? chosen
+        : await _enrichWalkGeometry(chosen);
+    return _build(route, departure, budgetMin, onProgress);
+  }
+
+  /// 確定経路の徒歩区間を Google Routes の街路ジオメトリ・所要時間・距離で
+  /// 上書きする。標準乗換候補の徒歩は NAVITIME 由来（shape 無し→端点直線）の
+  /// ため、区間端点（polyline の両端）を start/goal に再取得して街路追従へそろえる。
+  /// 取得失敗時は元の直線を保つ（線を欠落させない）。座標を持たない区間は対象外。
+  Future<RouteCandidate> _enrichWalkGeometry(RouteCandidate chosen) async {
+    final segments = <RouteSegment>[];
+    for (final seg in chosen.segments) {
+      if (seg.type != SegmentType.walk || seg.polyline.length < 2) {
+        segments.add(seg);
+        continue;
+      }
+      final walk = await _tryWalk(
+        seg.polyline.first,
+        seg.polyline.last,
+        fromName: seg.fromName,
+        toName: seg.toName,
+      );
+      segments.add(walk?.segments.first ?? seg);
+    }
+    return RouteCandidate(from: chosen.from, to: chosen.to, segments: segments);
   }
 
   RoutePlan _build(
