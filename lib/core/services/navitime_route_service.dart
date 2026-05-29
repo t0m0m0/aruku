@@ -181,6 +181,8 @@ class NaviTimeRouteService implements RouteService {
             km: _railKm(stops, b, a),
             line: stops[b].line,
             stops: a - b,
+            // 乗車区間 b→a の停車駅座標を折れ線にする（shape 代替）。
+            polyline: [for (var i = b; i <= a; i++) stops[i].coord],
           ),
           if (walk2.minutes > 0) walk2,
         ];
@@ -249,6 +251,7 @@ class NaviTimeRouteService implements RouteService {
       final minutes = (move?['time'] as num?)?.toInt();
       if (minutes == null) return null;
       final km = ((move?['distance'] as num?)?.toInt() ?? 0) / 1000.0;
+      final shape = _parseWalkShape(item);
       return RouteCandidate(
         from: fromName,
         to: toName,
@@ -260,7 +263,8 @@ class NaviTimeRouteService implements RouteService {
             minutes: minutes,
             km: km,
             kcal: (km * kcalPerKm).round(),
-            polyline: _parseWalkShape(item),
+            // shape が無ければ origin→dest を直線で結ぶ。
+            polyline: shape.isNotEmpty ? shape : [origin, dest],
           ),
         ],
       );
@@ -309,6 +313,13 @@ class NaviTimeRouteService implements RouteService {
       final fromName = i > 0 ? nameAt(i - 1) : from;
       final toName = i + 1 < sections.length ? nameAt(i + 1) : to;
 
+      // shape（街路追従ジオメトリ）が無い場合に備え、前後の point 座標を控える。
+      final prevCoord = i > 0 ? _coordOf(sections[i - 1]) : null;
+      final nextCoord = i + 1 < sections.length
+          ? _coordOf(sections[i + 1])
+          : null;
+      final shape = _parseShape(sec);
+
       if (sec['move'] == 'walk') {
         segments.add(
           RouteSegment(
@@ -318,13 +329,18 @@ class NaviTimeRouteService implements RouteService {
             minutes: minutes,
             km: km,
             kcal: (km * kcalPerKm).round(),
-            polyline: _parseShape(sec),
+            // shape が無ければ区間端点を直線で結ぶ。
+            polyline: shape.isNotEmpty
+                ? shape
+                : _lineFrom([prevCoord, nextCoord]),
           ),
         );
       } else {
         final line = sec['line_name'] as String?;
         stops.addAll(_parseCalling(sec, line, trainSection));
         trainSection++;
+        // shape が無ければ停車駅(calling_at)座標、それも無ければ端点で代替。
+        final calling = _callingCoords(sec);
         segments.add(
           RouteSegment(
             type: SegmentType.train,
@@ -335,7 +351,11 @@ class NaviTimeRouteService implements RouteService {
             line: line,
             stops: (sec['stop_count'] as num?)?.toInt(),
             fare: (sec['fare'] as num?)?.toInt(),
-            polyline: _parseShape(sec),
+            polyline: shape.isNotEmpty
+                ? shape
+                : (calling.length >= 2
+                      ? calling
+                      : _lineFrom([prevCoord, nextCoord])),
           ),
         );
       }
@@ -404,6 +424,40 @@ class NaviTimeRouteService implements RouteService {
       }
     }
     return out;
+  }
+
+  /// point セクション等の coord（{lat, lon|lng}）を GeoPoint へ変換する。
+  GeoPoint? _coordOf(Map<String, dynamic> section) {
+    final c = section['coord'];
+    if (c is! Map) return null;
+    final lat = (c['lat'] as num?)?.toDouble();
+    final lon = ((c['lon'] as num?) ?? (c['lng'] as num?))?.toDouble();
+    if (lat == null || lon == null) return null;
+    return GeoPoint(lat, lon);
+  }
+
+  /// move（電車）セクションの calling_at 駅座標を順序通りに取得する。
+  /// shape が無いときの代替ジオメトリに用いる（時刻欠落の駅も座標があれば含む）。
+  List<GeoPoint> _callingCoords(Map<String, dynamic> sec) {
+    final transport = sec['transport'];
+    final raw =
+        (transport is Map ? transport['calling_at'] : null) ??
+        sec['calling_at'];
+    if (raw is! List) return const [];
+    final out = <GeoPoint>[];
+    for (final e in raw) {
+      if (e is Map<String, dynamic>) {
+        final p = _coordOf(e);
+        if (p != null) out.add(p);
+      }
+    }
+    return out;
+  }
+
+  /// null を除いた座標が2点以上あれば折れ線（直線）にする。1点以下は空。
+  List<GeoPoint> _lineFrom(List<GeoPoint?> points) {
+    final out = [for (final p in points) ?p];
+    return out.length >= 2 ? out : const [];
   }
 
   /// route_walk レスポンスの全 move セクションの shape を連結する。

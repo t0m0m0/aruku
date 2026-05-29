@@ -15,7 +15,11 @@ const _proxyBaseUrl = 'https://proxy.example.com';
 http.Response _jsonResponse(Object body, int status) =>
     http.Response.bytes(utf8.encode(jsonEncode(body)), status);
 
-Map<String, dynamic> _point(String name) => {'type': 'point', 'name': name};
+Map<String, dynamic> _point(String name, {double? lat, double? lon}) => {
+  'type': 'point',
+  'name': name,
+  if (lat != null && lon != null) 'coord': {'lat': lat, 'lon': lon},
+};
 
 /// GeoJSON LineString。NAVITIME は coordinates を [lng, lat] 順で返す。
 Map<String, dynamic> _shape(List<List<double>> lngLat) => {
@@ -746,6 +750,110 @@ void main() {
         (u) => u.path.contains('navitimeWalkProxy'),
       );
       expect(walkUri.queryParameters['shape'], 'true');
+    });
+
+    test('shape が無い transit は地点座標から polyline を合成する', () async {
+      // NaviTime RapidAPI は shape=true でもジオメトリを返さない。地点座標
+      // （point の coord と calling_at）から粗い折れ線を合成するフォールバック。
+      final transit = _navi([
+        _item([
+          _point('出発地', lat: 35.7, lon: 139.75),
+          _walkSection(400, 5), // shape なし
+          _point('品川駅', lat: 35.628, lon: 139.738),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            calling: [
+              _calling(
+                '品川駅',
+                35.628,
+                139.738,
+                '2026-05-22T09:05:00',
+                '2026-05-22T09:05:00',
+              ),
+              _calling(
+                '新橋駅',
+                35.666,
+                139.758,
+                '2026-05-22T09:09:00',
+                '2026-05-22T09:09:00',
+              ),
+              _calling(
+                '東京駅',
+                35.681,
+                139.767,
+                '2026-05-22T09:12:00',
+                '2026-05-22T09:12:00',
+              ),
+            ],
+          ), // shape なし
+          _point('東京駅', lat: 35.681, lon: 139.767),
+        ]),
+      ]);
+      final client = _mock(transit: transit, defaultWalk: _walkResp(92, 7000));
+
+      final plan = await run(client, arrivalH: 9, arrivalM: 3);
+
+      expect(plan.segments, hasLength(2));
+      // 徒歩区間は前後の地点座標を直線で結ぶ。
+      expect(plan.segments[0].type, SegmentType.walk);
+      expect(plan.segments[0].polyline, const [
+        GeoPoint(35.7, 139.75),
+        GeoPoint(35.628, 139.738),
+      ]);
+      // 電車区間は停車駅(calling_at)座標を連結する。
+      expect(plan.segments[1].type, SegmentType.train);
+      expect(plan.segments[1].polyline, const [
+        GeoPoint(35.628, 139.738),
+        GeoPoint(35.666, 139.758),
+        GeoPoint(35.681, 139.767),
+      ]);
+    });
+
+    test('shape が無い全徒歩は origin/dest を結ぶ polyline を持つ', () async {
+      final client = _mock(
+        transit: shinagawaToTokyo(),
+        // shape なし・予算内の全徒歩。
+        walk: {'35.7,139.75;35.681,139.767': _walkResp(25, 2000)},
+      );
+
+      final plan = await run(client);
+
+      expect(plan.segments, hasLength(1));
+      expect(plan.segments.first.type, SegmentType.walk);
+      expect(plan.segments.first.polyline, const [
+        GeoPoint(35.7, 139.75),
+        GeoPoint(35.681, 139.767),
+      ]);
+    });
+
+    test('shape が無いハイブリッドの各区間に polyline を合成する', () async {
+      final client = _mock(
+        transit: shinagawaToTokyo(),
+        walk: {
+          '35.7,139.75;35.681,139.767': _walkResp(92, 7000),
+          '35.7,139.75;35.666,139.758': _walkResp(22, 1800),
+          '35.681,139.767;35.681,139.767': _walkResp(0, 0),
+        },
+      );
+
+      final plan = await run(client); // 予算30分 → ハイブリッド
+
+      expect(plan.segments, hasLength(2));
+      // 徒歩区間は origin→乗車駅 を直線で結ぶ。
+      expect(plan.segments[0].type, SegmentType.walk);
+      expect(plan.segments[0].polyline, const [
+        GeoPoint(35.7, 139.75),
+        GeoPoint(35.666, 139.758),
+      ]);
+      // 電車区間は停車駅座標(新橋→東京)を連結する。
+      expect(plan.segments[1].type, SegmentType.train);
+      expect(plan.segments[1].polyline, const [
+        GeoPoint(35.666, 139.758),
+        GeoPoint(35.681, 139.767),
+      ]);
     });
 
     test('items が空なら ZERO_RESULTS', () async {
