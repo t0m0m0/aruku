@@ -562,9 +562,9 @@ class NaviTimeRouteService implements RouteService {
   /// move（電車）セクションの calling_at 駅座標を順序通りに取得する。
   /// shape が無いときの代替ジオメトリ（折れ線）に用いる。
   ///
-  /// [_parseCalling] とは目的が異なり、こちらは発着時刻フィルタを掛けない。
-  /// 時刻が欠落した駅でも座標があれば線を繋ぎたいため（線の見た目を優先）。
-  /// 一方 [_parseCalling] は所要時間算出に時刻が要るため時刻欠落駅を除外する。
+  /// [_parseCalling] とは目的が異なり、こちらは _Stop を作らず座標だけを集める。
+  /// どちらも時刻が欠落した駅でも座標があれば残す（[_parseCalling] の時刻欠落駅は
+  /// 所要時間を [_rideMinutes] が距離から概算する）。
   List<GeoPoint> _callingCoords(Map<String, dynamic> sec) {
     final transport = sec['transport'];
     final raw =
