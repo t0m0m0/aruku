@@ -5,6 +5,7 @@ import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/hybrid_route_selector.dart';
 import 'package:aruku/core/services/navitime_route_service.dart';
+import 'package:aruku/core/services/route_plan_builder.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
@@ -51,6 +52,12 @@ Map<String, dynamic> _calling(
   'coord': {'lat': lat, 'lon': lon},
   'from_time': fromTime,
   'to_time': toTime,
+};
+
+/// 座標のみで発着時刻を持たない calling_at（プロキシ/RapidAPI のデータ欠落を模す）。
+Map<String, dynamic> _callingNoTime(String name, double lat, double lon) => {
+  'name': name,
+  'coord': {'lat': lat, 'lon': lon},
 };
 
 Map<String, dynamic> _trainSection(
@@ -277,6 +284,66 @@ void main() {
       // 乗車(新橋→東京) = 09:12 - 09:09 = 3 分（時刻表の差）
       expect(plan.segments[1].minutes, 3);
       expect(plan.totalMin, 25);
+      expect(plan.timelineNodes.last.sub, contains('制限内'));
+    });
+
+    test('calling_at の発着時刻が欠落しても座標からハイブリッドを生成し徒歩を最大化する', () async {
+      // プロキシ/RapidAPI 由来データは calling_at の時刻が欠けることがある。時刻が
+      // 無くても座標があれば乗車時間を距離から概算してハイブリッドを生成し、予算が
+      // 余ったまま徒歩最小の標準乗換へ縮退しないことを検証する（#67 再発防止）。
+      // 構成は「全徒歩が予算超過なら…ハイブリッドを返す」と同じで calling_at が時刻なし。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(2000, 25),
+          _point('品川駅'),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            calling: [
+              _callingNoTime('品川駅', 35.62, 139.75),
+              _callingNoTime('新橋駅', 35.66, 139.75),
+              _callingNoTime('東京駅', 35.74, 139.75),
+            ],
+          ),
+          _point('東京駅'),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        // 確定経路（出発地→新橋）の徒歩を Google で 22分へ上書き。
+        walk: {'35.6,139.75;35.66,139.75': _walkResp(22, 1800)},
+      );
+
+      final plan = await build(client).plan(
+        destination: '東京',
+        destinationLatLng: const GeoPoint(35.74, 139.75),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 0), // 予算120分
+        origin: const GeoPoint(35.60, 139.75),
+      );
+
+      // 時刻欠落で base==null → ハイブリッド非生成だと標準乗換（品川乗車・徒歩25分）
+      // しか残らず予算が大量に余る。修正後は新橋まで歩いて乗るハイブリッドを選ぶ。
+      expect(plan.segments, hasLength(2));
+      expect(plan.segments[0].type, SegmentType.walk);
+      expect(plan.segments[0].minutes, 22);
+      expect(plan.segments[1].type, SegmentType.train);
+      expect(plan.segments[1].fromName, '新橋駅'); // 品川（徒歩最小）ではない
+      expect(plan.segments[1].toName, '東京駅');
+      // 時刻が無い区間の乗車時間は停車駅折れ線長 ÷ trainMetersPerMinute で概算する。
+      final expectedRide =
+          (haversineKm(
+                    const GeoPoint(35.66, 139.75),
+                    const GeoPoint(35.74, 139.75),
+                  ) *
+                  1000 /
+                  trainMetersPerMinute)
+              .round();
+      expect(plan.segments[1].minutes, expectedRide);
+      expect(plan.totalMin, 22 + expectedRide);
       expect(plan.timelineNodes.last.sub, contains('制限内'));
     });
 
