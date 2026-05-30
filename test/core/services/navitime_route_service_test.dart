@@ -280,6 +280,45 @@ void main() {
       expect(plan.timelineNodes.last.sub, contains('制限内'));
     });
 
+    test('逆戻り（目的地と逆方向）の item は直進 item があれば採用しない', () async {
+      // 出発地(35.50)→目的地(35.70) は北向き。直進 item は北駅(35.60)経由、
+      // 逆戻り item は出発地より南の南駅(35.30＝目的地と逆方向)経由。逆戻りは
+      // 徒歩が多く（フィルタ無しなら徒歩最大で選ばれてしまう）が、進行方向の
+      // 後方へ戻るため除外され、直進 item が採用されることを検証する。
+      // calling_at は付けず（ハイブリッド非生成）、駅は前後 point 座標で表す。
+      final transit = _navi([
+        _item([
+          _point('出発地', lat: 35.50, lon: 139.50),
+          _walkSection(800, 10),
+          _point('北駅', lat: 35.60, lon: 139.50),
+          _trainSection(8000, 8, line: 'L'),
+          _point('東京駅', lat: 35.70, lon: 139.50),
+        ]),
+        _item([
+          _point('出発地', lat: 35.50, lon: 139.50),
+          _walkSection(16000, 30),
+          _point('南駅', lat: 35.30, lon: 139.50),
+          _trainSection(30000, 8, line: 'L'),
+          _point('東京駅', lat: 35.70, lon: 139.50),
+        ]),
+      ]);
+      // 全徒歩(直線約277分)は予算40分超過。確定経路(出発地→北駅)の徒歩を上書き。
+      final client = _mock(transit: transit, defaultWalk: _walkResp(10, 800));
+
+      final plan = await build(client).plan(
+        destination: '東京',
+        destinationLatLng: const GeoPoint(35.70, 139.50),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 9, m: 40), // 予算40分（両 item とも予算内）
+        origin: const GeoPoint(35.50, 139.50),
+      );
+
+      expect(plan.segments, hasLength(2));
+      expect(plan.segments[1].type, SegmentType.train);
+      expect(plan.segments[1].fromName, '北駅'); // 南駅(逆戻り)ではない
+      expect(plan.totalMin, 18); // 徒歩10 + 乗車8
+    });
+
     test('電車最短でも予算超過なら最短（標準経路）を返す', () async {
       final client = _mock(
         transit: shinagawaToTokyo(),

@@ -84,6 +84,103 @@ void main() {
 
       expect(best, same(exact));
     });
+
+    test('逆戻り（目的地と逆方向）の電車区間を含む候補は、直進候補があれば選ばない', () {
+      const origin = GeoPoint(35.50, 139.50);
+      const goal = GeoPoint(35.70, 139.50); // 出発地の北
+
+      // 逆戻り: 出発地より南（目的地と逆方向）の駅を経由する。徒歩は多いが迂回。
+      final backtrack = _candidate([
+        _walk(20),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: '南駅',
+          toName: 'goal',
+          minutes: 10,
+          km: 30,
+          line: 'L',
+          polyline: const [GeoPoint(35.30, 139.50), GeoPoint(35.70, 139.50)],
+        ),
+      ]);
+
+      // 直進: 目的地方向（北）へ進む駅のみ。徒歩は少ない。
+      final straight = _candidate([
+        _walk(10),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: '北駅',
+          toName: 'goal',
+          minutes: 8,
+          km: 10,
+          line: 'L',
+          polyline: const [GeoPoint(35.60, 139.50), GeoPoint(35.70, 139.50)],
+        ),
+      ]);
+
+      final best = selectBestRoute(
+        candidates: [backtrack, straight],
+        budgetMin: 60,
+        origin: origin,
+        goal: goal,
+      );
+
+      // フィルタ無しなら徒歩最大の backtrack が選ばれるが、逆戻りは除外される。
+      expect(best, same(straight));
+    });
+
+    test('全候補が逆戻りなら従来どおり最短へ縮退する', () {
+      const origin = GeoPoint(35.50, 139.50);
+      const goal = GeoPoint(35.70, 139.50);
+
+      RouteCandidate detour(int minutes) => _candidate([
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: '南駅',
+          toName: 'goal',
+          minutes: minutes,
+          km: 30,
+          line: 'L',
+          polyline: const [GeoPoint(35.30, 139.50), GeoPoint(35.70, 139.50)],
+        ),
+      ]);
+      final longDetour = detour(40);
+      final shortDetour = detour(25);
+
+      final best = selectBestRoute(
+        candidates: [longDetour, shortDetour],
+        budgetMin: 30,
+        origin: origin,
+        goal: goal,
+      );
+
+      // 全候補が逆戻り → 除外せず予算内最短（25分）を残す。
+      expect(best, same(shortDetour));
+    });
+
+    test('origin/goal 未指定なら方向フィルタを掛けない（後方互換）', () {
+      const goal = GeoPoint(35.70, 139.50);
+      final backtrack = _candidate([
+        _walk(20),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: '南駅',
+          toName: 'goal',
+          minutes: 10,
+          km: 30,
+          line: 'L',
+          polyline: const [GeoPoint(35.30, 139.50), goal],
+        ),
+      ]);
+      final straight = _candidate([_walk(10), _train(8)]);
+
+      // origin/goal を渡さなければ従来どおり徒歩最大が選ばれる。
+      final best = selectBestRoute(
+        candidates: [backtrack, straight],
+        budgetMin: 60,
+      );
+
+      expect(best, same(backtrack));
+    });
   });
 
   group('haversineKm', () {
