@@ -9,6 +9,12 @@ const int kcalPerKm = 57;
 /// Routes の実測へ上書きされる。
 const double walkMetersPerMinute = 80.0;
 
+/// 電車の平均速度（分速メートル）。calling_at に発着時刻が無い停車駅では時刻表の
+/// 差で乗車時間を出せないため、停車駅を結ぶ折れ線長からこの速度で概算する
+/// （各停・乗換・停車を含む実効平均 30km/h ≒ 500m/分）。時刻が揃う停車駅は
+/// 精度の高い時刻表の差を優先する。
+const double trainMetersPerMinute = 500.0;
+
 /// isNow のときは dateOffset を無視して当日扱い。budget 計算と epoch で共有。
 int effectiveOffset(TimeValue t) => t.isNow ? 0 : t.dateOffset;
 

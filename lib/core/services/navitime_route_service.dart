@@ -170,7 +170,8 @@ class NaviTimeRouteService implements RouteService {
 
   /// 基準経路の停車駅から「乗車駅 b → 降車駅 a（b より後方）」の全分割を候補化する。
   /// 各駅の origin→駅 / 駅→goal 徒歩は直線距離ベースで推定（Google を呼ばない）し、
-  /// 乗車時間は時刻表の差で求める。これにより乗車を後ろ倒し（徒歩を増やす）したり、
+  /// 乗車時間は [_rideMinutes]（時刻表の差、無ければ距離から概算）で求める。
+  /// これにより乗車を後ろ倒し（徒歩を増やす）したり、
   /// 手前で降りて目的地まで歩く候補が同じ土俵に並ぶ。生成する候補は
   /// [_maxHybridCandidates] 駅のサンプルで組合せ爆発を抑える。
   List<RouteCandidate> _buildHybrids(
@@ -210,7 +211,7 @@ class NaviTimeRouteService implements RouteService {
         // 誤る）ため、同一乗車区間内のペアのみ候補化する。
         if (stops[a].section != stops[b].section) continue;
         final walk2 = toGoal[a]!;
-        final ride = _minutesBetween(stops[a].arr, stops[b].dep);
+        final ride = _rideMinutes(stops, b, a);
         if (ride < 0) continue;
         final segments = <RouteSegment>[
           if (walk1.minutes > 0) walk1,
@@ -233,6 +234,16 @@ class NaviTimeRouteService implements RouteService {
       }
     }
     return result;
+  }
+
+  /// 乗車区間 [b]→[a] の所要時間（分）。両端の発着時刻が揃えば時刻表の差を使い、
+  /// どちらかが欠落していれば停車駅折れ線長を [trainMetersPerMinute] で割って概算する
+  /// （calling_at の時刻欠落でハイブリッドを取りこぼさないため #67）。
+  int _rideMinutes(List<_Stop> stops, int b, int a) {
+    final dep = stops[b].dep;
+    final arr = stops[a].arr;
+    if (dep != null && arr != null) return _minutesBetween(arr, dep);
+    return (_railKm(stops, b, a) * 1000 / trainMetersPerMinute).round();
   }
 
   /// 乗車区間 [b]→[a]（同一区間・連続インデックス）の距離概算。途中停車駅を
@@ -449,7 +460,10 @@ class NaviTimeRouteService implements RouteService {
     return _TransitParse(from: from, to: to, segments: segments, stops: stops);
   }
 
-  /// 電車区間の停車駅（座標・発着時刻が揃うもののみ）を順序通りに取得する。
+  /// 電車区間の停車駅（座標を持つもの）を順序通りに取得する。発着時刻は欠落しても
+  /// 座標があれば残す（プロキシ/RapidAPI 由来データは時刻が欠けることがあり、それで
+  /// 停車駅を捨てるとハイブリッド候補が生成されず予算が余る #67 の再発要因になる）。
+  /// 時刻が無い区間の乗車時間は [_rideMinutes] が距離から概算する。
   /// [line] はその区間から乗車する際の路線名、[section] は乗車区間の通し番号
   /// （乗換をまたぐペアを除外するために用いる）。
   List<_Stop> _parseCalling(
@@ -471,17 +485,13 @@ class NaviTimeRouteService implements RouteService {
       final lon = coord is Map
           ? ((coord['lon'] as num?) ?? (coord['lng'] as num?))?.toDouble()
           : null;
-      final fromTime = DateTime.tryParse(e['from_time'] as String? ?? '');
-      final toTime = DateTime.tryParse(e['to_time'] as String? ?? '');
-      if (lat == null || lon == null || fromTime == null || toTime == null) {
-        continue;
-      }
+      if (lat == null || lon == null) continue;
       out.add(
         _Stop(
           name: e['name'] as String? ?? '',
           coord: GeoPoint(lat, lon),
-          arr: fromTime,
-          dep: toTime,
+          arr: DateTime.tryParse(e['from_time'] as String? ?? ''),
+          dep: DateTime.tryParse(e['to_time'] as String? ?? ''),
           line: line,
           section: section,
         ),
@@ -552,9 +562,9 @@ class NaviTimeRouteService implements RouteService {
   /// move（電車）セクションの calling_at 駅座標を順序通りに取得する。
   /// shape が無いときの代替ジオメトリ（折れ線）に用いる。
   ///
-  /// [_parseCalling] とは目的が異なり、こちらは発着時刻フィルタを掛けない。
-  /// 時刻が欠落した駅でも座標があれば線を繋ぎたいため（線の見た目を優先）。
-  /// 一方 [_parseCalling] は所要時間算出に時刻が要るため時刻欠落駅を除外する。
+  /// [_parseCalling] とは目的が異なり、こちらは _Stop を作らず座標だけを集める。
+  /// どちらも時刻が欠落した駅でも座標があれば残す（[_parseCalling] の時刻欠落駅は
+  /// 所要時間を [_rideMinutes] が距離から概算する）。
   List<GeoPoint> _callingCoords(Map<String, dynamic> sec) {
     final transport = sec['transport'];
     final raw =
@@ -635,11 +645,11 @@ class _Stop {
   final String name;
   final GeoPoint coord;
 
-  /// この駅への到着時刻（降車に使用）。
-  final DateTime arr;
+  /// この駅への到着時刻（降車に使用）。calling_at に時刻が無ければ null。
+  final DateTime? arr;
 
-  /// この駅からの発車時刻（乗車に使用）。
-  final DateTime dep;
+  /// この駅からの発車時刻（乗車に使用）。calling_at に時刻が無ければ null。
+  final DateTime? dep;
 
   /// この駅から乗車する際の路線名。
   final String? line;
