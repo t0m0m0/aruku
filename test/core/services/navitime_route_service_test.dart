@@ -195,6 +195,24 @@ void main() {
       expect(plan.timelineNodes.last.sub, contains('制限内'));
     });
 
+    test('全徒歩採用時 Google 呼び出しは確定の1区間のみ（選定では呼ばない）', () async {
+      final log = <Uri>[];
+      final client = _mock(
+        transit: shinagawaToTokyo(),
+        // 全徒歩の直線距離推定（約33分）は予算40分内 → 全徒歩を採用。
+        walk: {'35.7,139.75;35.681,139.767': _walkResp(25, 2000)},
+        log: log,
+      );
+
+      await run(client, arrivalM: 40);
+
+      final walkCalls = log
+          .where((u) => u.path.contains('googleWalkProxy'))
+          .length;
+      // 選定は直線距離推定で行い Google を呼ばない。確定した全徒歩1区間ぶんのみ。
+      expect(walkCalls, 1);
+    });
+
     test('全徒歩が予算超過なら途中駅まで歩くハイブリッドを返す', () async {
       // 目的地(東京)は遠く全徒歩は直線推定でも予算超過。品川を過ぎて新橋まで
       // 歩き(直線推定83分)、新橋→東京を乗車する候補が予算内で徒歩を最大化する。
