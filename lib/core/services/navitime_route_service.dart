@@ -76,7 +76,12 @@ class NaviTimeRouteService implements RouteService {
     candidates.add(fullWalk);
     if (fullWalk.totalMin <= budgetMin) {
       return _finalize(
-        selectBestRoute(candidates: candidates, budgetMin: budgetMin),
+        selectBestRoute(
+          candidates: candidates,
+          budgetMin: budgetMin,
+          origin: origin,
+          goal: destinationLatLng,
+        ),
         departure,
         budgetMin,
         onProgress,
@@ -90,7 +95,12 @@ class NaviTimeRouteService implements RouteService {
     }
 
     return _finalize(
-      selectBestRoute(candidates: candidates, budgetMin: budgetMin),
+      selectBestRoute(
+        candidates: candidates,
+        budgetMin: budgetMin,
+        origin: origin,
+        goal: destinationLatLng,
+      ),
       departure,
       budgetMin,
       onProgress,
