@@ -69,17 +69,24 @@ RouteCandidate selectBestRoute({
 /// 候補の電車区間に、出発地より進行方向(origin→goal)の後方へ
 /// [maxBacktrackRatio] × 直線距離(origin→goal) を超えて戻る駅を含むか。
 /// 徒歩区間は判定しない（目的地へ近づくための短い徒歩を弾かないため）。
+///
+/// 電車区間の polyline は停車駅座標で構成される前提（transit は shape を返さず、
+/// 停車駅を結ぶ折れ線で合成される）。将来 transit shape が有効になり線路追従の
+/// 細かな頂点が入ると、一時的に後方へカーブする1頂点でも候補全体が除外され得る
+/// 点に注意（その場合は判定対象を停車駅へ限定する必要がある）。
 bool _isBacktrackDetour(
   RouteCandidate c,
   GeoPoint origin,
   GeoPoint goal,
   double maxBacktrackRatio,
 ) {
-  final limit = -maxBacktrackRatio * haversineKm(origin, goal);
+  final dog = haversineKm(origin, goal);
+  if (dog == 0) return false;
+  final limit = -maxBacktrackRatio * dog;
   for (final seg in c.segments) {
     if (seg.type != SegmentType.train) continue;
     for (final p in seg.polyline) {
-      if (_advanceKm(origin, goal, p) < limit) return true;
+      if (_advanceKm(origin, goal, dog, p) < limit) return true;
     }
   }
   return false;
@@ -87,10 +94,9 @@ bool _isBacktrackDetour(
 
 /// 点 [p] の、origin→goal 方向への射影長（km）。前方なら正、出発地より後方
 /// （目的地と逆方向）なら負。余弦定理で origin→p ベクトルを origin→goal 方向へ
-/// 射影して求める。origin と goal が同一点なら 0。
-double _advanceKm(GeoPoint origin, GeoPoint goal, GeoPoint p) {
-  final dog = haversineKm(origin, goal);
-  if (dog == 0) return 0;
+/// 射影して求める。[dog] は origin→goal 距離（呼び出し側で算出済みを渡す）。
+/// 球面距離を平面の余弦定理へ投入する近似だが、都市スケールでは十分。
+double _advanceKm(GeoPoint origin, GeoPoint goal, double dog, GeoPoint p) {
   final dop = haversineKm(origin, p);
   final dpg = haversineKm(p, goal);
   return (dop * dop + dog * dog - dpg * dpg) / (2 * dog);

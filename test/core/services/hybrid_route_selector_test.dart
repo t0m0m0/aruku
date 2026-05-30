@@ -157,6 +157,48 @@ void main() {
       expect(best, same(shortDetour));
     });
 
+    test('逆戻り閾値の境界: 閾値以内の後退は採用、超過は除外', () {
+      // origin→goal は緯度0.50度ぶん北向き（直線距離 D）。
+      // maxBacktrackRatio=0.10 なら後退の許容は 0.10×D = 緯度0.05度ぶん。
+      const origin = GeoPoint(35.50, 139.50);
+      const goal = GeoPoint(36.00, 139.50);
+
+      RouteCandidate back(double stationLat) => _candidate([
+        _walk(20), // 徒歩最大: フィルタ無しなら必ず選ばれる
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: '後退駅',
+          toName: 'goal',
+          minutes: 10,
+          km: 30,
+          line: 'L',
+          polyline: [GeoPoint(stationLat, 139.50), goal],
+        ),
+      ]);
+      final straight = _candidate([_walk(5), _train(8)]);
+
+      // 35.46 は origin(35.50)より 0.04度 後退 → 許容内(0.05度)で採用される。
+      final withinBack = back(35.46);
+      final within = selectBestRoute(
+        candidates: [withinBack, straight],
+        budgetMin: 60,
+        origin: origin,
+        goal: goal,
+        maxBacktrackRatio: 0.10,
+      );
+      expect(within, same(withinBack));
+
+      // 35.44 は 0.06度 後退 → 許容(0.05度)超過で除外され、直進が選ばれる。
+      final over = selectBestRoute(
+        candidates: [back(35.44), straight],
+        budgetMin: 60,
+        origin: origin,
+        goal: goal,
+        maxBacktrackRatio: 0.10,
+      );
+      expect(over, same(straight));
+    });
+
     test('origin/goal 未指定なら方向フィルタを掛けない（後方互換）', () {
       const goal = GeoPoint(35.70, 139.50);
       final backtrack = _candidate([
