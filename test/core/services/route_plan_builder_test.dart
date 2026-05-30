@@ -91,6 +91,46 @@ void main() {
         '10:00',
       ]);
       expect(plan.totalMin, 60);
+      // 電車1ノードは乗車前の待ち（9:05着→9:10発=5分）を路線名に前置きする。
+      expect(plan.timelineNodes[2].sub, '5分待ち · 1号線');
+    });
+
+    test('待ち時間が無い電車ノードは路線名のみ表示する', () {
+      final segments = [
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '出発地',
+          toName: 'A駅',
+          minutes: 5,
+        ),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'A駅',
+          toName: 'B駅',
+          minutes: 15,
+          line: '○○線',
+          // 9:05 着・9:05 発で待ち 0。
+          depTime: DateTime(2026, 5, 22, 9, 5),
+          arrTime: DateTime(2026, 5, 22, 9, 20),
+        ),
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: 'B駅',
+          toName: '目的地',
+          minutes: 3,
+        ),
+      ];
+
+      final plan = buildRoutePlan(
+        from: '出発地',
+        to: '目的地',
+        segments: segments,
+        departure: const TimeValue(h: 9, m: 0),
+        budgetMin: 60,
+        departureAt: DateTime(2026, 5, 22, 9, 0),
+      );
+
+      expect(plan.timelineNodes[2].sub, '○○線');
     });
 
     test('発着時刻が無い電車区間は累積所要分にフォールバックする', () {
