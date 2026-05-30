@@ -4,6 +4,11 @@ import '../models/time_value.dart';
 /// 徒歩 1km あたりの消費カロリー。徒歩区間のみに適用する。
 const int kcalPerKm = 57;
 
+/// 徒歩の平均速度（分速メートル）。候補選定フェーズで直線距離から所要時間を
+/// 概算するのに使う（不動産表示の慣行 80m/分）。確定経路の表示値は Google
+/// Routes の実測へ上書きされる。
+const double walkMetersPerMinute = 80.0;
+
 /// isNow のときは dateOffset を無視して当日扱い。budget 計算と epoch で共有。
 int effectiveOffset(TimeValue t) => t.isNow ? 0 : t.dateOffset;
 

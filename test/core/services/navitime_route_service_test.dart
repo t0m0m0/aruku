@@ -182,11 +182,11 @@ void main() {
     test('全徒歩が予算内なら全徒歩を返す', () async {
       final client = _mock(
         transit: shinagawaToTokyo(),
-        // 全徒歩 25分（予算30分内）。
+        // 全徒歩の直線距離推定（約33分）は予算40分内。確定後に Google で 25分へ上書き。
         walk: {'35.7,139.75;35.681,139.767': _walkResp(25, 2000)},
       );
 
-      final plan = await run(client);
+      final plan = await run(client, arrivalM: 40);
 
       expect(plan.segments, hasLength(1));
       expect(plan.segments.first.type, SegmentType.walk);
@@ -195,24 +195,82 @@ void main() {
       expect(plan.timelineNodes.last.sub, contains('制限内'));
     });
 
-    test('全徒歩が予算超過なら途中駅まで歩くハイブリッドを返す', () async {
+    test('全徒歩採用時 Google 呼び出しは確定の1区間のみ（選定では呼ばない）', () async {
       final log = <Uri>[];
       final client = _mock(
         transit: shinagawaToTokyo(),
-        walk: {
-          '35.7,139.75;35.681,139.767': _walkResp(92, 7000), // 全徒歩は予算超過
-          '35.7,139.75;35.666,139.758': _walkResp(22, 1800), // origin→新橋 22分
-          '35.681,139.767;35.681,139.767': _walkResp(0, 0), // 東京で降車（徒歩0）
-        },
+        // 全徒歩の直線距離推定（約33分）は予算40分内 → 全徒歩を採用。
+        walk: {'35.7,139.75;35.681,139.767': _walkResp(25, 2000)},
         log: log,
       );
 
-      final plan = await run(client); // 予算30分
+      await run(client, arrivalM: 40);
+
+      final walkCalls = log
+          .where((u) => u.path.contains('googleWalkProxy'))
+          .length;
+      // 選定は直線距離推定で行い Google を呼ばない。確定した全徒歩1区間ぶんのみ。
+      expect(walkCalls, 1);
+    });
+
+    test('全徒歩が予算超過なら途中駅まで歩くハイブリッドを返す', () async {
+      // 目的地(東京)は遠く全徒歩は直線推定でも予算超過。品川を過ぎて新橋まで
+      // 歩き(直線推定83分)、新橋→東京を乗車する候補が予算内で徒歩を最大化する。
+      // 各駅は経度固定の直線上に配置し推定徒歩時間を緯度差で素直に比較する。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(2000, 25),
+          _point('品川駅'),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            calling: [
+              _calling(
+                '品川駅',
+                35.62,
+                139.75,
+                '2026-05-22T09:05:00',
+                '2026-05-22T09:05:00',
+              ),
+              _calling(
+                '新橋駅',
+                35.66,
+                139.75,
+                '2026-05-22T09:09:00',
+                '2026-05-22T09:09:00',
+              ),
+              _calling(
+                '東京駅',
+                35.74,
+                139.75,
+                '2026-05-22T09:12:00',
+                '2026-05-22T09:12:00',
+              ),
+            ],
+          ),
+          _point('東京駅'),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        // 確定経路（出発地→新橋）の徒歩を Google で 22分へ上書き。
+        walk: {'35.6,139.75;35.66,139.75': _walkResp(22, 1800)},
+      );
+
+      final plan = await build(client).plan(
+        destination: '東京',
+        destinationLatLng: const GeoPoint(35.74, 139.75),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 0), // 予算120分
+        origin: const GeoPoint(35.60, 139.75),
+      );
 
       expect(plan.segments, hasLength(2));
       expect(plan.segments[0].type, SegmentType.walk);
       expect(plan.segments[0].minutes, 22);
-      expect(plan.segments[0].minutes, greaterThan(20));
       expect(plan.segments[1].type, SegmentType.train);
       expect(plan.segments[1].fromName, '新橋駅');
       expect(plan.segments[1].toName, '東京駅');
@@ -291,8 +349,10 @@ void main() {
       expect(transitUri.queryParameters['options'], 'railway_calling_at');
     });
 
-    test('ハイブリッド候補の評価は上限（6駅）を超えない', () async {
-      // 中間駅を8つ持つ経路。予算2分で全て不成立 → 徒歩呼び出しはキャップに従う。
+    test('Google 徒歩呼び出しは採用経路の徒歩区間数ぶんのみ（選定では呼ばない）', () async {
+      // 中間駅を8つ持つ経路。候補選定（全徒歩・ハイブリッド）は直線距離ベースの
+      // 推定で行い Google を呼ばない。Google computeRoutes は確定経路の徒歩区間
+      // だけに対して呼ぶ（案A: 13 → 1〜2 回）。
       final calling = <Map<String, dynamic>>[
         _calling(
           'S0',
@@ -319,32 +379,37 @@ void main() {
       ];
       final transit = _navi([
         _item([
-          _point('出発地'),
+          _point('出発地', lat: 35.50, lon: 139.60),
           _walkSection(400, 5),
-          _point('S0'),
+          _point('S0', lat: 35.60, lon: 139.70),
           _trainSection(8000, 9, line: 'L', calling: calling),
-          _point('東京駅'),
+          _point('東京駅', lat: 35.681, lon: 139.767),
         ]),
       ]);
       final log = <Uri>[];
       final client = _mock(
         transit: transit,
-        defaultWalk: _walkResp(50, 4000), // どの徒歩も予算超過
+        defaultWalk: _walkResp(50, 4000),
         log: log,
       );
 
-      await run(client, arrivalH: 9, arrivalM: 2); // 予算2分
+      final plan = await run(client, arrivalH: 9, arrivalM: 2); // 予算2分
 
       final walkCalls = log
           .where((u) => u.path.contains('googleWalkProxy'))
           .length;
-      // 全徒歩1回 + キャップ6駅 ×(origin→駅 / 駅→goal) = 1 + 12 = 13
-      expect(walkCalls, 13);
+      final walkSegments = plan.segments
+          .where((s) => s.type == SegmentType.walk)
+          .length;
+      // 採用経路の徒歩区間数ぶんだけ（≤2）。旧実装の 13 回から削減。
+      expect(walkCalls, walkSegments);
+      expect(walkCalls, lessThanOrEqualTo(2));
     });
 
     test('乗換で距離の大半が2本目の電車にある場合、乗車を後ろ倒しして徒歩を増やす', () async {
-      // 出発地→A→(L1)→B→(乗換)→(L2)→C→D。距離の大半は L2。
-      // 全徒歩は予算超過だが、C まで歩いて L2 に乗れば予算内で徒歩を最大化できる。
+      // 出発地→A→(L1)→B→(乗換)→(L2)→C→D。距離の大半は L2（C→D が長い）。
+      // 全徒歩は遠すぎ予算超過。C まで歩いて L2 で D（=目的地）へ乗る候補が、より
+      // 手前で乗る候補が予算超過になる中で徒歩を最大化する。駅は経度固定の直線上。
       final transit = _navi([
         _item([
           _point('出発地'),
@@ -358,14 +423,14 @@ void main() {
               _calling(
                 'A',
                 35.52,
-                139.52,
+                139.50,
                 '2026-05-22T09:03:00',
                 '2026-05-22T09:03:00',
               ),
               _calling(
                 'B',
                 35.55,
-                139.55,
+                139.50,
                 '2026-05-22T09:05:00',
                 '2026-05-22T09:05:00',
               ),
@@ -380,21 +445,21 @@ void main() {
               _calling(
                 'B',
                 35.55,
-                139.55,
+                139.50,
                 '2026-05-22T09:07:00',
                 '2026-05-22T09:07:00',
               ),
               _calling(
                 'C',
-                35.6,
-                139.6,
+                35.58,
+                139.50,
                 '2026-05-22T09:20:00',
                 '2026-05-22T09:20:00',
               ),
               _calling(
                 'D',
-                35.65,
-                139.65,
+                35.70,
+                139.50,
                 '2026-05-22T09:40:00',
                 '2026-05-22T09:40:00',
               ),
@@ -405,25 +470,17 @@ void main() {
       ]);
       final client = _mock(
         transit: transit,
-        walk: {
-          '35.5,139.5;35.65,139.65': _walkResp(200, 16000), // 全徒歩（予算超過）
-          '35.5,139.5;35.52,139.52': _walkResp(40, 3000), // origin→A
-          '35.5,139.5;35.55,139.55': _walkResp(60, 5000), // origin→B
-          '35.5,139.5;35.6,139.6': _walkResp(95, 8000), // origin→C
-          '35.52,139.52;35.65,139.65': _walkResp(170, 14000), // A→goal
-          '35.55,139.55;35.65,139.65': _walkResp(130, 11000), // B→goal
-          '35.6,139.6;35.65,139.65': _walkResp(30, 2500), // C→goal
-          '35.65,139.65;35.65,139.65': _walkResp(0, 0), // D で降車（徒歩0）
-        },
+        // 確定経路（出発地→C）の徒歩だけ Google で 95分へ上書き。
+        walk: {'35.5,139.5;35.58,139.5': _walkResp(95, 8000)},
       );
 
-      // 予算120分。出発地→C まで歩いて(95分) L2 で D へ(20分) = 115分。
+      // 予算150分。出発地→C まで歩き(確定後95分) L2 で D へ(20分) = 115分。
       final plan = await build(client).plan(
         destination: '目的地',
-        destinationLatLng: const GeoPoint(35.65, 139.65),
+        destinationLatLng: const GeoPoint(35.70, 139.50),
         departure: const TimeValue(h: 9, m: 0),
-        arrival: const TimeValue(h: 11, m: 0),
-        origin: const GeoPoint(35.5, 139.5),
+        arrival: const TimeValue(h: 11, m: 30),
+        origin: const GeoPoint(35.50, 139.50),
       );
 
       expect(plan.segments, hasLength(2));
@@ -455,14 +512,14 @@ void main() {
               _calling(
                 'A',
                 35.52,
-                139.52,
+                139.50,
                 '2026-05-22T09:05:00',
                 '2026-05-22T09:05:00',
               ),
               _calling(
                 'B',
                 35.55,
-                139.55,
+                139.50,
                 '2026-05-22T09:10:00',
                 '2026-05-22T09:10:00',
               ),
@@ -477,21 +534,21 @@ void main() {
               _calling(
                 'B',
                 35.55,
-                139.55,
+                139.50,
                 '2026-05-22T09:12:00',
                 '2026-05-22T09:12:00',
               ),
               _calling(
                 'C',
-                35.6,
-                139.6,
+                35.58,
+                139.50,
                 '2026-05-22T09:20:00',
                 '2026-05-22T09:20:00',
               ),
               _calling(
                 'D',
-                35.65,
-                139.65,
+                35.62,
+                139.50,
                 '2026-05-22T09:30:00',
                 '2026-05-22T09:30:00',
               ),
@@ -504,27 +561,22 @@ void main() {
       ]);
       final client = _mock(
         transit: transit,
+        // 確定経路（出発地→C, D→目的地）の徒歩だけ Google で上書き。
         walk: {
-          '35.5,139.5;35.66,139.66': _walkResp(200, 16000), // 全徒歩（予算超過）
-          '35.5,139.5;35.52,139.52': _walkResp(90, 7000), // origin→A
-          '35.5,139.5;35.55,139.55': _walkResp(10, 800), // origin→B
-          '35.5,139.5;35.6,139.6': _walkResp(100, 8000), // origin→C
-          '35.5,139.5;35.65,139.65': _walkResp(118, 9500), // origin→D
-          '35.52,139.52;35.66,139.66': _walkResp(200, 16000), // A→goal
-          '35.55,139.55;35.66,139.66': _walkResp(130, 11000), // B→goal
-          '35.6,139.6;35.66,139.66': _walkResp(15, 1200), // C→goal
-          '35.65,139.65;35.66,139.66': _walkResp(3, 200), // D→goal
+          '35.5,139.5;35.58,139.5': _walkResp(100, 8000), // origin→C
+          '35.62,139.5;35.64,139.5': _walkResp(3, 200), // D→goal
         },
       );
 
-      // 予算120分。バグ時の最大徒歩候補は origin→A(90)+A→C(L1,15)+C→goal(15)=120
-      //（無効）。修正後は origin→C(100)+C→D(L2,10)+D→goal(3)=113 が選ばれる。
+      // 予算150分。バグ時は A(L1)で乗り C(L2)で降りる候補を 1 本の L1 として誤生成
+      //（同一乗車区間でないため除外すべき）。正しくは origin→C(100)+C→D(L2,10)
+      // +D→goal(3)=113 が選ばれる。駅は経度固定の直線上。
       final plan = await build(client).plan(
         destination: '目的地',
-        destinationLatLng: const GeoPoint(35.66, 139.66),
+        destinationLatLng: const GeoPoint(35.64, 139.50),
         departure: const TimeValue(h: 9, m: 0),
-        arrival: const TimeValue(h: 11, m: 0),
-        origin: const GeoPoint(35.5, 139.5),
+        arrival: const TimeValue(h: 11, m: 30),
+        origin: const GeoPoint(35.50, 139.50),
       );
 
       expect(plan.segments, hasLength(3));
@@ -542,11 +594,12 @@ void main() {
 
     test('途中停車駅を通る乗車区間の距離は停車駅を結ぶ折れ線長で概算する', () async {
       // X0→X1→X2→X3 を通しで乗車。区間距離は始終点の直線ではなく
-      // 各停車駅を結ぶ折れ線長（直線より長い）で求める。
-      const x0 = GeoPoint(35.5, 139.5);
-      const x1 = GeoPoint(35.55, 139.55);
-      const x2 = GeoPoint(35.6, 139.6);
-      const x3 = GeoPoint(35.65, 139.65);
+      // 各停車駅を結ぶ折れ線長（直線より長い）で求める。駅は経度を振った
+      // ジグザグ配置にして折れ線長 > 直線距離を成り立たせる。
+      const x0 = GeoPoint(35.50, 139.50);
+      const x1 = GeoPoint(35.53, 139.54);
+      const x2 = GeoPoint(35.56, 139.50);
+      const x3 = GeoPoint(35.59, 139.54);
       final transit = _navi([
         _item([
           _point('出発地'),
@@ -592,27 +645,17 @@ void main() {
           _point('目的地'),
         ]),
       ]);
-      final client = _mock(
-        transit: transit,
-        walk: {
-          '35.49,139.49;35.66,139.66': _walkResp(300, 24000), // 全徒歩（予算超過）
-          '35.49,139.49;35.5,139.5': _walkResp(100, 8000), // origin→X0（最大）
-          '35.49,139.49;35.55,139.55': _walkResp(10, 800),
-          '35.49,139.49;35.6,139.6': _walkResp(5, 400),
-          '35.49,139.49;35.65,139.65': _walkResp(5, 400),
-          '35.5,139.5;35.66,139.66': _walkResp(5, 400),
-          '35.55,139.55;35.66,139.66': _walkResp(5, 400),
-          '35.6,139.6;35.66,139.66': _walkResp(5, 400),
-          '35.65,139.65;35.66,139.66': _walkResp(80, 6000), // X3→goal
-        },
-      );
+      // 確定経路の徒歩（出発地→X0, X3→目的地）の値は問わないため Google 応答は
+      // 用意しない（推定値のまま）。検証対象は電車区間の折れ線距離。
+      final client = _mock(transit: transit);
 
-      // 予算200分。origin→X0(100)+X0→X3(乗車10)+X3→goal(80)=190 が徒歩最大。
+      // 予算230分。X0 まで歩き X0→X3 を通しで乗り X3 から目的地へ歩く候補だけが
+      // 予算内（手前で降りる候補は目的地まで歩きすぎて予算超過）。
       final plan = await build(client).plan(
         destination: '目的地',
-        destinationLatLng: const GeoPoint(35.66, 139.66),
+        destinationLatLng: const GeoPoint(35.72, 139.54),
         departure: const TimeValue(h: 9, m: 0),
-        arrival: const TimeValue(h: 12, m: 20),
+        arrival: const TimeValue(h: 12, m: 50),
         origin: const GeoPoint(35.49, 139.49),
       );
 
@@ -632,6 +675,7 @@ void main() {
 
     test('手前の駅で降りて目的地まで歩く候補で徒歩を増やす', () async {
       // P→M→N の各停。目的地は N から遠い。M で降りて歩く方が徒歩が増える。
+      // 終点 N まで乗ると目的地まで歩きすぎて予算超過。駅は経度固定の直線上。
       final transit = _navi([
         _item([
           _point('出発地'),
@@ -644,22 +688,22 @@ void main() {
             calling: [
               _calling(
                 'P',
-                35.55,
-                139.55,
+                35.52,
+                139.50,
                 '2026-05-22T09:05:00',
                 '2026-05-22T09:05:00',
               ),
               _calling(
                 'M',
-                35.62,
-                139.62,
+                35.54,
+                139.50,
                 '2026-05-22T09:20:00',
                 '2026-05-22T09:20:00',
               ),
               _calling(
                 'N',
-                35.68,
-                139.68,
+                35.60,
+                139.50,
                 '2026-05-22T09:35:00',
                 '2026-05-22T09:35:00',
               ),
@@ -672,24 +716,20 @@ void main() {
       ]);
       final client = _mock(
         transit: transit,
+        // 確定経路（出発地→P, M→目的地）の徒歩だけ Google で上書き。
         walk: {
-          '35.5,139.5;35.78,139.78': _walkResp(200, 16000), // 全徒歩（予算超過）
-          '35.5,139.5;35.55,139.55': _walkResp(8, 600), // origin→P
-          '35.5,139.5;35.62,139.62': _walkResp(200, 16000), // origin→M（予算超過）
-          '35.5,139.5;35.68,139.68': _walkResp(200, 16000), // origin→N（予算超過）
-          '35.55,139.55;35.78,139.78': _walkResp(160, 13000), // P→goal
-          '35.62,139.62;35.78,139.78': _walkResp(90, 7000), // M→goal
-          '35.68,139.68;35.78,139.78': _walkResp(40, 3000), // N→goal
+          '35.5,139.5;35.52,139.5': _walkResp(8, 600), // origin→P
+          '35.54,139.5;35.8,139.5': _walkResp(90, 7000), // M→goal
         },
       );
 
-      // 予算120分。P まで歩き(8分) M で降りて(乗車15分) 目的地まで歩く(90分) = 113分。
+      // 予算410分。P まで歩き(8分) M で降りて(乗車15分) 目的地まで歩く(90分) = 113分。
       final plan = await build(client).plan(
         destination: '目的地',
-        destinationLatLng: const GeoPoint(35.78, 139.78),
+        destinationLatLng: const GeoPoint(35.80, 139.50),
         departure: const TimeValue(h: 9, m: 0),
-        arrival: const TimeValue(h: 11, m: 0),
-        origin: const GeoPoint(35.5, 139.5),
+        arrival: const TimeValue(h: 15, m: 50),
+        origin: const GeoPoint(35.50, 139.50),
       );
 
       expect(plan.segments, hasLength(3));
@@ -759,7 +799,7 @@ void main() {
         },
       );
 
-      final plan = await run(client);
+      final plan = await run(client, arrivalM: 40);
 
       expect(plan.segments, hasLength(1));
       expect(plan.segments.first.type, SegmentType.walk);
@@ -779,7 +819,7 @@ void main() {
         log: log,
       );
 
-      await run(client);
+      await run(client, arrivalM: 40); // 全徒歩を採用し確定徒歩を Google で引く
 
       final transitUri = log.firstWhere(
         (u) => u.path.contains('navitimeProxy'),
@@ -908,7 +948,7 @@ void main() {
         walk: {'35.7,139.75;35.681,139.767': _walkResp(25, 2000)},
       );
 
-      final plan = await run(client);
+      final plan = await run(client, arrivalM: 40);
 
       expect(plan.segments, hasLength(1));
       expect(plan.segments.first.type, SegmentType.walk);
@@ -919,29 +959,71 @@ void main() {
     });
 
     test('shape が無いハイブリッドの各区間に polyline を合成する', () async {
+      // 目的地(東京)は遠く全徒歩は予算超過。新橋まで歩いて乗車するハイブリッドが
+      // 選ばれる。shape が無いため徒歩は端点直線、電車は停車駅座標を連結する。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(2000, 25),
+          _point('品川駅'),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            calling: [
+              _calling(
+                '品川駅',
+                35.62,
+                139.75,
+                '2026-05-22T09:05:00',
+                '2026-05-22T09:05:00',
+              ),
+              _calling(
+                '新橋駅',
+                35.66,
+                139.75,
+                '2026-05-22T09:09:00',
+                '2026-05-22T09:09:00',
+              ),
+              _calling(
+                '東京駅',
+                35.74,
+                139.75,
+                '2026-05-22T09:12:00',
+                '2026-05-22T09:12:00',
+              ),
+            ],
+          ),
+          _point('東京駅'),
+        ]),
+      ]);
+      // shape 無しの Google 応答 → 確定徒歩は端点直線へ縮退。
       final client = _mock(
-        transit: shinagawaToTokyo(),
-        walk: {
-          '35.7,139.75;35.681,139.767': _walkResp(92, 7000),
-          '35.7,139.75;35.666,139.758': _walkResp(22, 1800),
-          '35.681,139.767;35.681,139.767': _walkResp(0, 0),
-        },
+        transit: transit,
+        walk: {'35.6,139.75;35.66,139.75': _walkResp(22, 1800)},
       );
 
-      final plan = await run(client); // 予算30分 → ハイブリッド
+      final plan = await build(client).plan(
+        destination: '東京',
+        destinationLatLng: const GeoPoint(35.74, 139.75),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 0), // 予算120分 → ハイブリッド
+        origin: const GeoPoint(35.60, 139.75),
+      );
 
       expect(plan.segments, hasLength(2));
       // 徒歩区間は origin→乗車駅 を直線で結ぶ。
       expect(plan.segments[0].type, SegmentType.walk);
       expect(plan.segments[0].polyline, const [
-        GeoPoint(35.7, 139.75),
-        GeoPoint(35.666, 139.758),
+        GeoPoint(35.60, 139.75),
+        GeoPoint(35.66, 139.75),
       ]);
       // 電車区間は停車駅座標(新橋→東京)を連結する。
       expect(plan.segments[1].type, SegmentType.train);
       expect(plan.segments[1].polyline, const [
-        GeoPoint(35.666, 139.758),
-        GeoPoint(35.681, 139.767),
+        GeoPoint(35.66, 139.75),
+        GeoPoint(35.74, 139.75),
       ]);
     });
 

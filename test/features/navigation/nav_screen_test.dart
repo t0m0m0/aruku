@@ -69,6 +69,19 @@ void main() {
     expect(find.text(before), findsNothing);
   });
 
+  testWidgets('終了ボタンをタップするとホームへ戻る', (tester) async {
+    final notifier = _NavNotifier(navState());
+    await tester.pumpWidget(wrap(notifier));
+    await tester.pump();
+
+    expect(find.text('終了'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('nav-exit-button')));
+    await tester.pump();
+
+    expect(notifier.state.screen, Screen.home);
+  });
+
   testWidgets('レイヤーチップで地図種別が通常↔航空写真に切り替わる', (tester) async {
     await tester.pumpWidget(wrap(_NavNotifier(navState())));
     await tester.pump();
