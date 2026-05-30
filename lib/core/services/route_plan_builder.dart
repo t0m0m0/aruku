@@ -43,9 +43,11 @@ String formatClock(TimeValue dep, int addMinutes) {
   if (anchor != null && dep != null && arr != null) {
     final boardRel = dep.difference(anchor).inMinutes;
     final ride = arr.difference(anchor).inMinutes - boardRel;
-    // 駅に着く前に発車する区間は乗車できない＝待ち無し。降車が始発前等の
-    // 不整合データ（ride < 0）は所要分にフォールバックする。
+    // 降車が始発前等の不整合データ（ride < 0）は所要分にフォールバックする。
     if (ride >= 0) {
+      // boardRel <= cum は予定列車の発車後に駅着＝乗り遅れ。次列車の時刻表は
+      // 持たないため待ち無しとし、実到着 cum に乗車時間 ride を足して同じ乗車
+      // 時間の後続列車に乗る近似で進める（次列車の待ちは反映せず到着は楽観側）。
       final wait = boardRel > cum ? boardRel - cum : 0;
       return (cum: cum + wait + ride, wait: wait);
     }

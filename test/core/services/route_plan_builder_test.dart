@@ -191,5 +191,102 @@ void main() {
       expect(plan.timelineNodes.last.time, '9:18');
       expect(plan.totalMin, 18);
     });
+
+    test('予定列車の発車後に駅着（乗り遅れ）なら待ち無しで乗車時間を足す', () {
+      // 徒歩20分で駅着 9:20 だが、予定列車は 9:12 発・9:30 着（乗車18分）。
+      // 次列車の時刻は持たないため、待ち無しで実到着 9:20 + 乗車18分 = 9:38。
+      // 末尾に徒歩3分を足し、電車ノード（非最終）の sub を検証できるようにする。
+      final segments = [
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '出発地',
+          toName: 'A駅',
+          minutes: 20,
+        ),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'A駅',
+          toName: 'B駅',
+          minutes: 18,
+          line: '○○線',
+          depTime: DateTime(2026, 5, 22, 9, 12),
+          arrTime: DateTime(2026, 5, 22, 9, 30),
+        ),
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: 'B駅',
+          toName: '目的地',
+          minutes: 3,
+        ),
+      ];
+
+      final plan = buildRoutePlan(
+        from: '出発地',
+        to: '目的地',
+        segments: segments,
+        departure: const TimeValue(h: 9, m: 0),
+        budgetMin: 60,
+        departureAt: DateTime(2026, 5, 22, 9, 0),
+      );
+
+      expect(plan.timelineNodes.map((n) => n.time).toList(), [
+        '9:00',
+        '9:20',
+        '9:38',
+        '9:41',
+      ]);
+      expect(plan.totalMin, 41);
+      // 乗り遅れは待ち無し扱いなので「○分待ち」を前置きしない。
+      expect(plan.timelineNodes[2].sub, '○○線');
+    });
+
+    test('時刻表区間が前段の概算（フォールバック）に続いても発車時刻で待ちを算出する', () {
+      // 1本目は発着時刻なし＝所要分で概算（9:00+20=9:20着）。2本目は時刻表
+      // 9:35発・10:00着。乗換待ちは発車時刻基準で 9:35-9:20=15分。
+      // 末尾に徒歩2分を足し、2号線ノード（非最終）の sub を検証できるようにする。
+      final segments = [
+        const RouteSegment(
+          type: SegmentType.train,
+          fromName: 'A駅',
+          toName: 'B駅',
+          minutes: 20,
+          line: '1号線',
+        ),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'B駅',
+          toName: 'C駅',
+          minutes: 25,
+          line: '2号線',
+          depTime: DateTime(2026, 5, 22, 9, 35),
+          arrTime: DateTime(2026, 5, 22, 10, 0),
+        ),
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: 'C駅',
+          toName: '目的地',
+          minutes: 2,
+        ),
+      ];
+
+      final plan = buildRoutePlan(
+        from: 'A駅',
+        to: '目的地',
+        segments: segments,
+        departure: const TimeValue(h: 9, m: 0),
+        budgetMin: 90,
+        departureAt: DateTime(2026, 5, 22, 9, 0),
+      );
+
+      expect(plan.timelineNodes.map((n) => n.time).toList(), [
+        '9:00',
+        '9:20',
+        '10:00',
+        '10:02',
+      ]);
+      expect(plan.totalMin, 62);
+      // 2号線ノードは概算到着 9:20 → 発車 9:35 の 15分待ちを前置きする。
+      expect(plan.timelineNodes[2].sub, '15分待ち · 2号線');
+    });
   });
 }
