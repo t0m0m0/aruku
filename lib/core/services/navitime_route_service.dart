@@ -155,6 +155,7 @@ class NaviTimeRouteService implements RouteService {
       segments: chosen.segments,
       departure: departure,
       budgetMin: budgetMin,
+      departureAt: _departureDateTime(departure),
     );
   }
 
@@ -223,6 +224,9 @@ class NaviTimeRouteService implements RouteService {
             km: _railKm(stops, b, a),
             line: stops[b].line,
             stops: a - b,
+            // 時刻表が揃えば乗車駅 dep・降車駅 arr の絶対時刻を持たせる（#65）。
+            depTime: stops[b].dep,
+            arrTime: stops[a].arr,
             // 乗車区間 b→a の停車駅座標を折れ線にする（shape 代替）。
             polyline: [for (var i = b; i <= a; i++) stops[i].coord],
           ),
@@ -433,10 +437,13 @@ class NaviTimeRouteService implements RouteService {
         );
       } else {
         final line = sec['line_name'] as String?;
-        stops.addAll(_parseCalling(sec, line, trainSection));
+        final sectionStops = _parseCalling(sec, line, trainSection);
+        stops.addAll(sectionStops);
         trainSection++;
         // shape が無ければ停車駅(calling_at)座標、それも無ければ端点で代替。
         final calling = _callingCoords(sec);
+        // 時刻表が揃えば乗車（始駅 dep）・降車（終駅 arr）の絶対時刻を持たせ、
+        // タイムラインの乗車前・乗換待ちを反映する（#65）。
         segments.add(
           RouteSegment(
             type: SegmentType.train,
@@ -447,6 +454,8 @@ class NaviTimeRouteService implements RouteService {
             line: line,
             stops: (sec['stop_count'] as num?)?.toInt(),
             fare: _fareOf(sec),
+            depTime: sectionStops.isNotEmpty ? sectionStops.first.dep : null,
+            arrTime: sectionStops.isNotEmpty ? sectionStops.last.arr : null,
             polyline: shape.isNotEmpty
                 ? shape
                 : (calling.length >= 2
@@ -590,16 +599,23 @@ class NaviTimeRouteService implements RouteService {
   int _minutesBetween(DateTime later, DateTime earlier) =>
       (later.difference(earlier).inSeconds / 60).round();
 
-  /// 出発時刻を ISO8601 へ整形。dateOffset（isNow→0）で日付を決定する。
-  String _startTime(TimeValue t) {
+  /// 出発の絶対時刻。dateOffset（isNow→0）で日付を決定する。NAVITIME の
+  /// 時刻表（calling_at の from_time/to_time）と同じ基準でタイムラインの
+  /// 待ち時間を算出するための基点に使う（#65）。
+  DateTime _departureDateTime(TimeValue t) {
     final now = _clock();
-    final dt = DateTime(
+    return DateTime(
       now.year,
       now.month,
       now.day,
       t.h,
       t.m,
     ).add(Duration(days: effectiveOffset(t)));
+  }
+
+  /// 出発時刻を ISO8601 へ整形。dateOffset（isNow→0）で日付を決定する。
+  String _startTime(TimeValue t) {
+    final dt = _departureDateTime(t);
     final y = dt.year.toString().padLeft(4, '0');
     final mo = dt.month.toString().padLeft(2, '0');
     final d = dt.day.toString().padLeft(2, '0');
