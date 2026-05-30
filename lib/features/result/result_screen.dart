@@ -184,7 +184,7 @@ class _OverBudgetBanner extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '予算内で到達できる経路が見つかりませんでした',
+                  '時間内で到達できる経路が見つかりませんでした',
                   style: jpStyle(
                     size: 11,
                     weight: FontWeight.w500,
