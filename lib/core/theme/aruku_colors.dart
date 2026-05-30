@@ -27,6 +27,8 @@ class ArukuColors extends ThemeExtension<ArukuColors> {
     required this.trainSoft,
     required this.burnt,
     required this.burntSoft,
+    required this.danger,
+    required this.dangerSoft,
     required this.gold,
     required this.mapBg,
     required this.mapRoad,
@@ -59,6 +61,8 @@ class ArukuColors extends ThemeExtension<ArukuColors> {
   final Color trainSoft;
   final Color burnt;
   final Color burntSoft;
+  final Color danger;
+  final Color dangerSoft;
   final Color gold;
   final Color mapBg;
   final Color mapRoad;
@@ -92,6 +96,8 @@ class ArukuColors extends ThemeExtension<ArukuColors> {
     trainSoft: Color(0xFFC9D8E8),
     burnt: Color(0xFFF08338),
     burntSoft: Color(0xFFFCE2CE),
+    danger: Color(0xFFC8412F),
+    dangerSoft: Color(0xFFF8DAD4),
     gold: Color(0xFFD2A03A),
     mapBg: Color(0xFFEFEBDD),
     mapRoad: Color(0xFFFFFFFF),

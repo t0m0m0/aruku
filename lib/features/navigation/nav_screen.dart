@@ -101,7 +101,6 @@ class _NavScreenState extends ConsumerState<NavScreen> {
                   child: _InstructionCard(
                     guidance: guidance,
                     destination: route?.to,
-                    onClose: () => notifier.go(Screen.home),
                   ),
                 ),
                 if (state.isRerouting)
@@ -122,6 +121,7 @@ class _NavScreenState extends ConsumerState<NavScreen> {
                         ? _formatArrival(guidance.etaMinutesRemaining)
                         : state.arrival.format(),
                     consumedKcal: guidance?.consumedKcal ?? state.todayKcal,
+                    onExit: () => notifier.go(Screen.home),
                   ),
                 ),
               ],
@@ -183,12 +183,7 @@ class _NavChip extends StatelessWidget {
 }
 
 class _InstructionCard extends StatelessWidget {
-  const _InstructionCard({
-    required this.onClose,
-    this.guidance,
-    this.destination,
-  });
-  final VoidCallback onClose;
+  const _InstructionCard({this.guidance, this.destination});
   final NavGuidance? guidance;
   final String? destination;
 
@@ -261,19 +256,6 @@ class _InstructionCard extends StatelessWidget {
                       ),
                     ),
                   ],
-                ),
-              ),
-              InkWell(
-                onTap: onClose,
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: const Color(0x24FFFFFF),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Center(child: Ic.close(size: 18, color: c.ivory)),
                 ),
               ),
             ],
@@ -361,6 +343,7 @@ class _StatsBar extends StatelessWidget {
     required this.remainingKm,
     required this.arrivalTime,
     required this.consumedKcal,
+    required this.onExit,
   });
 
   final double traveledKm;
@@ -369,6 +352,7 @@ class _StatsBar extends StatelessWidget {
   final double remainingKm;
   final String arrivalTime;
   final int consumedKcal;
+  final VoidCallback onExit;
 
   @override
   Widget build(BuildContext context) {
@@ -556,6 +540,36 @@ class _StatsBar extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Material(
+            color: c.dangerSoft,
+            borderRadius: BorderRadius.circular(16),
+            child: InkWell(
+              key: const Key('nav-exit-button'),
+              onTap: onExit,
+              borderRadius: BorderRadius.circular(16),
+              child: SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Ic.close(size: 16, color: c.danger),
+                    const SizedBox(width: 8),
+                    Text(
+                      '終了',
+                      style: jpStyle(
+                        size: 14,
+                        weight: FontWeight.w800,
+                        color: c.danger,
+                        letterSpacing: 0.06 * 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ],
