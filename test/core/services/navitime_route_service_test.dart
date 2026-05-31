@@ -287,6 +287,64 @@ void main() {
       expect(plan.timelineNodes.last.sub, contains('制限内'));
     });
 
+    test('徒歩で駅着後、発車までの待ち時間を到着時刻に反映する（#65）', () async {
+      // 出発地→A駅(徒歩・確定後5分=9:05着) → A駅 09:15発/B駅 09:30着。
+      // 駅着(9:05)から発車(9:15)まで10分待つため、到着は累積分(9:20)ではなく
+      // 時刻表どおり 9:30 になる。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(1100, 14),
+          _point('A駅'),
+          _trainSection(
+            6000,
+            15,
+            line: '○○線',
+            stops: 1,
+            calling: [
+              _calling(
+                'A駅',
+                35.51,
+                139.50,
+                '2026-05-22T09:15:00',
+                '2026-05-22T09:15:00',
+              ),
+              _calling(
+                'B駅',
+                35.70,
+                139.50,
+                '2026-05-22T09:30:00',
+                '2026-05-22T09:30:00',
+              ),
+            ],
+          ),
+          _point('B駅'),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        // 確定経路（出発地→A駅）の徒歩を Google で 5分へ上書き。
+        walk: {'35.5,139.5;35.51,139.5': _walkResp(5, 400)},
+      );
+
+      final plan = await build(client).plan(
+        destination: 'B駅',
+        destinationLatLng: const GeoPoint(35.70, 139.50),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0), // 予算60分
+        origin: const GeoPoint(35.50, 139.50),
+      );
+
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.depTime, DateTime(2026, 5, 22, 9, 15));
+      expect(train.arrTime, DateTime(2026, 5, 22, 9, 30));
+      // 待ち時間込みで 9:30 着・総30分（累積分なら 9:20・20分）。
+      expect(plan.timelineNodes.last.time, '9:30');
+      expect(plan.totalMin, 30);
+    });
+
     test('calling_at の発着時刻が欠落しても座標からハイブリッドを生成し徒歩を最大化する', () async {
       // プロキシ/RapidAPI 由来データは calling_at の時刻が欠けることがある。時刻が
       // 無くても座標があれば乗車時間を距離から概算してハイブリッドを生成し、予算が

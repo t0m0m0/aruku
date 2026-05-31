@@ -17,6 +17,8 @@ class RouteSegment {
     this.fare,
     this.stops,
     this.polyline = const [],
+    this.depTime,
+    this.arrTime,
   });
 
   final SegmentType type;
@@ -29,6 +31,13 @@ class RouteSegment {
   final int? fare;
   final int? stops;
   final List<GeoPoint> polyline;
+
+  /// この区間の出発（電車は乗車）絶対時刻。時刻表データが揃う電車区間でのみ設定し、
+  /// 徒歩・時刻欠落の概算区間では null（タイムラインは累積所要分にフォールバック）。
+  final DateTime? depTime;
+
+  /// この区間の到着（電車は降車）絶対時刻。設定条件は [depTime] と同じ。
+  final DateTime? arrTime;
 }
 
 @immutable
