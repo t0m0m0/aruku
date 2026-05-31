@@ -61,8 +61,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   Future<void> _persistCompletion() async {
-    final repo = await ref.read(onboardingRepositoryProvider.future);
-    await repo.markCompleted();
+    // fire-and-forget で呼ばれるため、書き込み失敗が unhandled async error に
+    // ならないよう握り潰す。失敗時は次回起動で再びオンボーディングが出るだけ。
+    try {
+      final repo = await ref.read(onboardingRepositoryProvider.future);
+      await repo.markCompleted();
+    } catch (e) {
+      debugPrint('onboarding completion persist error: $e');
+    }
   }
 
   @override
