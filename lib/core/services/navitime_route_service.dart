@@ -223,6 +223,7 @@ class NaviTimeRouteService implements RouteService {
             minutes: ride,
             km: _railKm(stops, b, a),
             line: stops[b].line,
+            fare: _proratedFare(stops, b, a),
             stops: a - b,
             // 時刻表が揃えば乗車駅 dep・降車駅 arr の絶対時刻を持たせる（#65）。
             depTime: stops[b].dep,
@@ -258,6 +259,27 @@ class NaviTimeRouteService implements RouteService {
       km += haversineKm(stops[i].coord, stops[i + 1].coord);
     }
     return km;
+  }
+
+  /// ハイブリッド乗車区間 [b]→[a] の運賃。セクション全体の運賃を、乗車区間の
+  /// 鉄道距離 ÷ セクション全体の鉄道距離で按分する（途中駅から短く乗る場合に
+  /// 全区間運賃をそのまま使うと過大になるため #71）。運賃が取得できない区間や
+  /// セクション距離が 0 の場合はセクション運賃をそのまま返す（null も許容）。
+  int? _proratedFare(List<_Stop> stops, int b, int a) {
+    final fare = stops[b].fare;
+    if (fare == null) return null;
+    final section = stops[b].section;
+    var first = b;
+    var last = a;
+    while (first > 0 && stops[first - 1].section == section) {
+      first--;
+    }
+    while (last < stops.length - 1 && stops[last + 1].section == section) {
+      last++;
+    }
+    final fullKm = _railKm(stops, first, last);
+    if (fullKm <= 0) return fare;
+    return (fare * _railKm(stops, b, a) / fullKm).round();
   }
 
   /// [n] 個の停車駅から最大 [cap] 個を等間隔に抽出する（両端を含む）。
@@ -486,6 +508,8 @@ class NaviTimeRouteService implements RouteService {
         trainSec['calling_at'];
     if (raw is! List) return const [];
 
+    // セクション運賃は全停車駅で共通。ハイブリッドの距離按分の基準にする。
+    final sectionFare = _fareOf(trainSec);
     final out = <_Stop>[];
     for (final e in raw) {
       if (e is! Map) continue;
@@ -503,6 +527,7 @@ class NaviTimeRouteService implements RouteService {
           dep: DateTime.tryParse(e['to_time'] as String? ?? ''),
           line: line,
           section: section,
+          fare: sectionFare,
         ),
       );
     }
@@ -656,6 +681,7 @@ class _Stop {
     required this.dep,
     required this.line,
     required this.section,
+    required this.fare,
   });
 
   final String name;
@@ -672,4 +698,8 @@ class _Stop {
 
   /// この駅が属する乗車区間の通し番号。乗換をまたぐ駅は番号が異なる。
   final int section;
+
+  /// この駅が属する乗車区間（セクション）全体の運賃。ハイブリッドの一部区間
+  /// 運賃を距離按分するための基準。取得できなければ null。
+  final int? fare;
 }
