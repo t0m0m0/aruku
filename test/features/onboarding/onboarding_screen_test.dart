@@ -1,9 +1,11 @@
+import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/features/onboarding/onboarding_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// build() で位置取得・活動量計測を起動せず、初期状態をそのまま返す
 /// テスト用 Notifier。
@@ -13,6 +15,12 @@ class _TestNotifier extends AppNotifier {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   ProviderContainer makeContainer(WidgetTester tester) {
     final container = ProviderContainer(
       overrides: [appStateProvider.overrideWith(_TestNotifier.new)],
@@ -89,5 +97,24 @@ void main() {
     await tester.pump();
 
     expect(container.read(appStateProvider).screen, Screen.home);
+  });
+
+  testWidgets('「はじめる」で完了状態が永続化される', (tester) async {
+    final container = makeContainer(tester);
+    await tester.pumpWidget(wrap(container));
+    await tester.pump();
+
+    await tester.tap(find.text('次へ'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('次へ'));
+    await tester.pumpAndSettle();
+
+    final repo = await container.read(onboardingRepositoryProvider.future);
+    expect(repo.isCompleted(), isFalse);
+
+    await tester.tap(find.text('はじめる'));
+    await tester.pumpAndSettle();
+
+    expect(repo.isCompleted(), isTrue);
   });
 }
