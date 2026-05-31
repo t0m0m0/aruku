@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/services/onboarding_repository.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
@@ -46,6 +49,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   void _onCta() {
     if (_page >= _pageCount - 1) {
+      // 完了フラグの永続化はディスク待ちで遷移を遅らせないよう背景で行う。
+      unawaited(_persistCompletion());
       ref.read(appStateProvider.notifier).go(Screen.home);
       return;
     }
@@ -53,6 +58,17 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       duration: const Duration(milliseconds: 320),
       curve: Curves.easeOutCubic,
     );
+  }
+
+  Future<void> _persistCompletion() async {
+    // fire-and-forget で呼ばれるため、書き込み失敗が unhandled async error に
+    // ならないよう握り潰す。失敗時は次回起動で再びオンボーディングが出るだけ。
+    try {
+      final repo = await ref.read(onboardingRepositoryProvider.future);
+      await repo.markCompleted();
+    } catch (e) {
+      debugPrint('onboarding completion persist error: $e');
+    }
   }
 
   @override

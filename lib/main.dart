@@ -4,7 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/services/onboarding_repository.dart';
+import 'core/services/recents_repository.dart';
 import 'core/state/app_state.dart';
 import 'core/theme/aruku_theme.dart';
 import 'features/error/error_screen.dart';
@@ -27,7 +30,20 @@ Future<void> main() async {
       statusBarIconBrightness: Brightness.dark,
     ),
   );
-  runApp(const ProviderScope(child: ArukuApp()));
+  // オンボーディングのチラつきを避けるため、初期画面の判定に使う完了フラグを
+  // 起動前に同期的に読めるよう SharedPreferences を先読みして注入する。
+  final prefs = await SharedPreferences.getInstance();
+  runApp(
+    ProviderScope(
+      overrides: [
+        sharedPreferencesProvider.overrideWith((ref) => prefs),
+        onboardingCompletedProvider.overrideWithValue(
+          OnboardingRepository(prefs).isCompleted(),
+        ),
+      ],
+      child: const ArukuApp(),
+    ),
+  );
 }
 
 // API キーは --dart-define-from-file=dart_defines.json で注入する。渡し忘れると
