@@ -12,6 +12,7 @@ import '../models/time_value.dart';
 import '../navigation/nav_engine.dart';
 import '../services/activity_service.dart';
 import '../services/location_service.dart';
+import '../services/onboarding_repository.dart';
 import '../services/route_service.dart';
 
 /// 経路からこの距離（m）を超えて外れたらオフルートとみなす。GPS のブレは無視する。
@@ -181,7 +182,12 @@ class AppNotifier extends Notifier<AppState> {
     final now = DateTime.now();
     final depH = now.hour;
     final depM = _roundTo5(now.minute);
+    // 完了済みならオンボーディングを飛ばして home から開始する。
+    final initialScreen = ref.read(onboardingCompletedProvider)
+        ? Screen.home
+        : Screen.onboarding;
     return AppState.initial.copyWith(
+      screen: initialScreen,
       departure: TimeValue(h: depH, m: depM, isNow: true, anchored: true),
     );
   }
