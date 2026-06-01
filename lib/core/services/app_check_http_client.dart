@@ -33,7 +33,8 @@ class AppCheckHttpClient extends http.BaseClient {
     } catch (_) {
       token = null;
     }
-    if (token != null) {
+    // 空文字列は未トークンと同義（プロキシ側で検証不能）のため付与しない。
+    if (token != null && token.isNotEmpty) {
       request.headers['X-Firebase-AppCheck'] = token;
     }
     return _inner.send(request);

@@ -70,6 +70,18 @@ void main() {
         isFalse,
       );
     });
+
+    test('トークンが空文字列の場合はヘッダを付与しない', () async {
+      final inner = _FakeInnerClient();
+      final client = AppCheckHttpClient(inner, tokenProvider: () async => '');
+
+      await client.send(_request());
+
+      expect(
+        inner.lastRequest!.headers.containsKey('X-Firebase-AppCheck'),
+        isFalse,
+      );
+    });
   });
 
   group('AppCheckHttpClient.close', () {
