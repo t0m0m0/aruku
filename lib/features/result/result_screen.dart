@@ -780,17 +780,21 @@ class _TimelineSegmentRow extends StatelessWidget {
                               color: c.ink2,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Text('·', style: jpStyle(size: 11, color: c.ink4)),
-                          const SizedBox(width: 8),
-                          Text(
-                            '¥${seg.fare}',
-                            style: numStyle(
-                              size: 11,
-                              weight: FontWeight.w600,
-                              color: c.ink2,
+                          // 運賃はハイブリッド区間などで欠落し得る。null のときは
+                          // 区切りと運賃を出さず「¥null」表示を防ぐ。
+                          if (seg.fare != null) ...[
+                            const SizedBox(width: 8),
+                            Text('·', style: jpStyle(size: 11, color: c.ink4)),
+                            const SizedBox(width: 8),
+                            Text(
+                              '¥${seg.fare}',
+                              style: numStyle(
+                                size: 11,
+                                weight: FontWeight.w600,
+                                color: c.ink2,
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                   ],

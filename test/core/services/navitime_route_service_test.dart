@@ -497,6 +497,61 @@ void main() {
       expect(train.fare, 170);
     });
 
+    test('ハイブリッド区間の運賃をセクション運賃から乗車距離で按分する', () async {
+      // 途中駅(新橋)まで歩いて乗るハイブリッドは、元セクション全体(品川→東京)の
+      // 運賃 165 円をそのまま使うと過大になる。乗車距離(新橋→東京)で按分する。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(2000, 25),
+          _point('品川駅'),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            fare: {'unit_48': 165},
+            calling: [
+              _callingNoTime('品川駅', 35.62, 139.75),
+              _callingNoTime('新橋駅', 35.66, 139.75),
+              _callingNoTime('東京駅', 35.74, 139.75),
+            ],
+          ),
+          _point('東京駅'),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        walk: {'35.6,139.75;35.66,139.75': _walkResp(22, 1800)},
+      );
+
+      final plan = await build(client).plan(
+        destination: '東京',
+        destinationLatLng: const GeoPoint(35.74, 139.75),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 0),
+        origin: const GeoPoint(35.60, 139.75),
+      );
+
+      expect(plan.segments, hasLength(2));
+      final train = plan.segments[1];
+      expect(train.type, SegmentType.train);
+      expect(train.fromName, '新橋駅'); // 途中駅から乗車
+      expect(train.toName, '東京駅');
+      // 乗車(新橋→東京)km ÷ セクション全体(品川→新橋→東京)km で 165 円を按分。
+      final rideKm = haversineKm(
+        const GeoPoint(35.66, 139.75),
+        const GeoPoint(35.74, 139.75),
+      );
+      final fullKm =
+          haversineKm(
+            const GeoPoint(35.62, 139.75),
+            const GeoPoint(35.66, 139.75),
+          ) +
+          rideKm;
+      expect(train.fare, (165 * rideKm / fullKm).round());
+    });
+
     test('transit には options=railway_calling_at を付与する', () async {
       final log = <Uri>[];
       final client = _mock(
