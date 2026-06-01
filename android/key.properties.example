@@ -1,0 +1,15 @@
+# Android リリース署名設定。
+# このファイルを android/key.properties にコピーして実値を設定する。
+#   cp android/key.properties.example android/key.properties
+# key.properties と keystore(.jks) は .gitignore 済。絶対にコミットしないこと。
+#
+# keystore の生成例（一度だけ実行し、安全な場所に保管する）:
+#   keytool -genkey -v -keystore ~/aruku-release.jks \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias aruku
+#
+# storeFile はアプリモジュール（android/app）基準の相対パス、または絶対パスを指定する。
+# 迷う場合は絶対パスを推奨。
+storeFile=/absolute/path/to/aruku-release.jks
+storePassword=YOUR_KEYSTORE_PASSWORD
+keyAlias=aruku
+keyPassword=YOUR_KEY_PASSWORD
