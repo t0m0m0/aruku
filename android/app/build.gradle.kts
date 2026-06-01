@@ -23,6 +23,13 @@ val mapsApiKey: String = (
     }
 ) ?: System.getenv("MAPS_API_KEY") ?: ""
 
+// リリース署名設定: android/key.properties が存在すれば本番鍵で署名する。
+// 未配置の開発環境では null のままとし、`flutter run --release` が debug 鍵で
+// 動くよう従来どおりフォールバックする（MAPS_API_KEY と同じ「空でも通る」方針）。
+val keystoreProperties: Properties? = rootProject.file("key.properties").let { f ->
+    if (f.exists()) Properties().apply { FileInputStream(f).use { load(it) } } else null
+}
+
 android {
     namespace = "com.aruku.aruku"
     compileSdk = flutter.compileSdkVersion
@@ -49,11 +56,27 @@ android {
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
     }
 
+    signingConfigs {
+        // key.properties がある場合のみ release 署名設定を生成する。
+        keystoreProperties?.let { props ->
+            create("release") {
+                storeFile = file(props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // 本番鍵があればそれで署名。未配置の開発環境では debug 鍵に
+            // フォールバックし `flutter run --release` を壊さない。
+            signingConfig = if (keystoreProperties != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }
