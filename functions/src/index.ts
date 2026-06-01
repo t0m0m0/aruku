@@ -109,7 +109,7 @@ const RATE_LIMIT = 30;
 // 数回/分の検索を許容できるよう専用の高めの上限を設ける。
 const WALK_RATE_LIMIT = 90;
 
-function checkRateLimit(ip: string, limit: number = RATE_LIMIT): boolean {
+export function checkRateLimit(ip: string, limit: number = RATE_LIMIT): boolean {
   const now = Date.now();
   if (_rateLimitMap.size > 1000) {
     for (const [k, v] of _rateLimitMap) {
@@ -126,7 +126,17 @@ function checkRateLimit(ip: string, limit: number = RATE_LIMIT): boolean {
   return true;
 }
 
-function clientIp(req: Request): string {
+/** テスト用: レート制限の内部状態を初期化する。 */
+export function resetRateLimit(): void {
+  _rateLimitMap.clear();
+}
+
+/** テスト用: レート制限マップの現在のエントリ数を返す。 */
+export function rateLimitMapSize(): number {
+  return _rateLimitMap.size;
+}
+
+export function clientIp(req: Request): string {
   const fwd = req.headers["x-forwarded-for"];
   if (typeof fwd === "string") return fwd.split(",")[0].trim();
   if (Array.isArray(fwd)) return fwd[0].trim();
