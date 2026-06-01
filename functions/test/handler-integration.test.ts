@@ -7,6 +7,8 @@ import {
   vi,
 } from "vitest";
 import { EventEmitter } from "events";
+import type { HttpsFunction, Request } from "firebase-functions/v2/https";
+import type { Response } from "express";
 
 // vi.mock はホイストされるため、参照する mock 関数は vi.hoisted で先に生成する。
 const { httpsRequestMock, verifyTokenMock } = vi.hoisted(() => ({
@@ -92,10 +94,16 @@ function makeReq(opts: {
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyReq = any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyRes = any;
+// onRequest ハンドラ（HttpsFunction）を最小フェイクの req/res で起動する。
+// フェイクはハンドラが参照するプロパティのみを備えた意図的な部分実装のため、
+// 実型への変換はこのヘルパー内の 1 箇所に閉じ込める。
+async function invokeHandler(
+  handler: HttpsFunction,
+  req: ReturnType<typeof makeReq>,
+  res: CapturedRes
+): Promise<void> {
+  await handler(req as unknown as Request, res as unknown as Response);
+}
 
 describe("ハンドラ統合（502 分岐・透過）", () => {
   const original = process.env.FUNCTIONS_EMULATOR;
@@ -115,9 +123,10 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
   it("navitimeProxy: message かつ items 無しは 502 で返す", async () => {
     mockUpstream({ message: "Too many requests" });
     const res = makeRes();
-    await (navitimeProxy as AnyRes)(
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }) as AnyReq,
-      res as AnyRes
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      res
     );
     expect(res.statusCode).toBe(502);
     expect(res.body).toEqual({ message: "Too many requests" });
@@ -127,9 +136,10 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
     const payload = { items: [{ summary: {} }] };
     mockUpstream(payload);
     const res = makeRes();
-    await (navitimeProxy as AnyRes)(
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }) as AnyReq,
-      res as AnyRes
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      res
     );
     expect(res.statusCode).toBeUndefined();
     expect(res.body).toEqual(payload);
@@ -137,10 +147,7 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
 
   it("navitimeProxy: 必須パラメータ欠落は 400 で上流を呼ばない", async () => {
     const res = makeRes();
-    await (navitimeProxy as AnyRes)(
-      makeReq({ query: { start: "1,1" } }) as AnyReq,
-      res as AnyRes
-    );
+    await invokeHandler(navitimeProxy, makeReq({ query: { start: "1,1" } }), res);
     expect(res.statusCode).toBe(400);
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
@@ -148,9 +155,10 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
   it("googleWalkProxy: error かつ routes 無しは 502 で返す", async () => {
     mockUpstream({ error: { code: 403, status: "PERMISSION_DENIED" } });
     const res = makeRes();
-    await (googleWalkProxy as AnyRes)(
-      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }) as AnyReq,
-      res as AnyRes
+    await invokeHandler(
+      googleWalkProxy,
+      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }),
+      res
     );
     expect(res.statusCode).toBe(502);
     expect(res.body).toEqual({
@@ -162,9 +170,10 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
     const payload = { routes: [{ distanceMeters: 100 }] };
     mockUpstream(payload);
     const res = makeRes();
-    await (googleWalkProxy as AnyRes)(
-      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }) as AnyReq,
-      res as AnyRes
+    await invokeHandler(
+      googleWalkProxy,
+      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }),
+      res
     );
     expect(res.statusCode).toBeUndefined();
     expect(res.body).toEqual(payload);
@@ -172,9 +181,10 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
 
   it("googleWalkProxy: 不正な座標は 400 で上流を呼ばない", async () => {
     const res = makeRes();
-    await (googleWalkProxy as AnyRes)(
-      makeReq({ query: { start: "not-a-coord", goal: "35.6,139.7" } }) as AnyReq,
-      res as AnyRes
+    await invokeHandler(
+      googleWalkProxy,
+      makeReq({ query: { start: "not-a-coord", goal: "35.6,139.7" } }),
+      res
     );
     expect(res.statusCode).toBe(400);
     expect(httpsRequestMock).not.toHaveBeenCalled();
@@ -184,12 +194,13 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
     // 同一 IP で上限(30)まで消費しておき、ハンドラ到達時に 429 とする。
     for (let i = 0; i < 30; i++) checkRateLimit("9.9.9.9");
     const res = makeRes();
-    await (navitimeProxy as AnyRes)(
+    await invokeHandler(
+      navitimeProxy,
       makeReq({
         query: { start: "1,1", goal: "2,2", start_time: "t" },
         forwardedFor: "9.9.9.9",
-      }) as AnyReq,
-      res as AnyRes
+      }),
+      res
     );
     expect(res.statusCode).toBe(429);
     expect(httpsRequestMock).not.toHaveBeenCalled();
@@ -214,9 +225,10 @@ describe("ハンドラ統合（App Check 401）", () => {
 
   it("トークン欠落時は 401 を返し上流を呼ばない", async () => {
     const res = makeRes();
-    await (navitimeProxy as AnyRes)(
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }) as AnyReq,
-      res as AnyRes
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      res
     );
     expect(res.statusCode).toBe(401);
     expect(res.body).toEqual({ error: "App Check token missing" });
@@ -226,12 +238,13 @@ describe("ハンドラ統合（App Check 401）", () => {
   it("無効なトークン時は 401 を返し上流を呼ばない", async () => {
     verifyTokenMock.mockRejectedValue(new Error("invalid"));
     const res = makeRes();
-    await (googleWalkProxy as AnyRes)(
+    await invokeHandler(
+      googleWalkProxy,
       makeReq({
         query: { start: "35.7,139.7", goal: "35.6,139.7" },
         token: "bad",
-      }) as AnyReq,
-      res as AnyRes
+      }),
+      res
     );
     expect(res.statusCode).toBe(401);
     expect(res.body).toEqual({ error: "App Check token invalid" });
