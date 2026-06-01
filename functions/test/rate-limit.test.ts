@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  checkRateLimit,
+  checkRateLimitInMemory,
   rateLimitMapSize,
   resetRateLimit,
 } from "../src/index";
 
-describe("checkRateLimit", () => {
+// インメモリ実装（エミュレータ用フォールバック）の単体テスト。本番の Firestore
+// 実装は rate-limit-firestore.test.ts で検証する。
+const checkRateLimit = checkRateLimitInMemory;
+
+describe("checkRateLimitInMemory", () => {
   beforeEach(() => {
     resetRateLimit();
   });

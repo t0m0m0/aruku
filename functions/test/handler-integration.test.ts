@@ -197,7 +197,8 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
 
   it("レート制限超過時は 429 を返し上流を呼ばない", async () => {
     // 同一 IP で上限(30)まで消費しておき、ハンドラ到達時に 429 とする。
-    for (let i = 0; i < 30; i++) checkRateLimit("9.9.9.9");
+    // エミュレータ扱いのためインメモリ実装にディスパッチされる。
+    for (let i = 0; i < 30; i++) await checkRateLimit("9.9.9.9");
     const res = makeRes();
     await invokeHandler(
       navitimeProxy,
