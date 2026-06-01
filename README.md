@@ -94,3 +94,6 @@ flutter build appbundle --release
 | `secrets.properties` / `ios/Flutter/Secrets.xcconfig` | なし（gitignore）| 実キー。コミット禁止 |
 | `android/key.properties.example` | あり | テンプレート（プレースホルダのみ）|
 | `android/key.properties` / `*.jks` / `*.keystore` | なし（gitignore）| 署名鍵。コミット禁止 |
+
+公開前のセキュリティ対策（API キー制限・App Check enforcement・署名/証明書ピンニング検討）は
+[docs/security_hardening.md](docs/security_hardening.md) を参照（Issue #75）。
