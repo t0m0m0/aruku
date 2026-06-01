@@ -214,6 +214,7 @@ class NaviTimeRouteService implements RouteService {
         final walk2 = toGoal[a]!;
         final ride = _rideMinutes(stops, b, a);
         if (ride < 0) continue;
+        final rideKm = _railKm(stops, b, a);
         final segments = <RouteSegment>[
           if (walk1.minutes > 0) walk1,
           RouteSegment(
@@ -221,9 +222,9 @@ class NaviTimeRouteService implements RouteService {
             fromName: stops[b].name,
             toName: stops[a].name,
             minutes: ride,
-            km: _railKm(stops, b, a),
+            km: rideKm,
             line: stops[b].line,
-            fare: _proratedFare(stops, b, a),
+            fare: _proratedFare(stops, b, a, rideKm),
             stops: a - b,
             // 時刻表が揃えば乗車駅 dep・降車駅 arr の絶対時刻を持たせる（#65）。
             depTime: stops[b].dep,
@@ -261,11 +262,12 @@ class NaviTimeRouteService implements RouteService {
     return km;
   }
 
-  /// ハイブリッド乗車区間 [b]→[a] の運賃。セクション全体の運賃を、乗車区間の
-  /// 鉄道距離 ÷ セクション全体の鉄道距離で按分する（途中駅から短く乗る場合に
-  /// 全区間運賃をそのまま使うと過大になるため #71）。運賃が取得できない区間や
-  /// セクション距離が 0 の場合はセクション運賃をそのまま返す（null も許容）。
-  int? _proratedFare(List<_Stop> stops, int b, int a) {
+  /// ハイブリッド乗車区間 [b]→[a]（鉄道距離 [rideKm]）の運賃。セクション全体の
+  /// 運賃を、乗車区間の鉄道距離 ÷ セクション全体の鉄道距離で按分する（途中駅から
+  /// 短く乗る場合に全区間運賃をそのまま使うと過大になるため #71）。運賃が取得
+  /// できない区間やセクション距離が 0 の場合はセクション運賃をそのまま返す（null
+  /// も許容）。同一 section は stops 配列上で連続している前提で前後に拡張する。
+  int? _proratedFare(List<_Stop> stops, int b, int a, double rideKm) {
     final fare = stops[b].fare;
     if (fare == null) return null;
     final section = stops[b].section;
@@ -279,7 +281,7 @@ class NaviTimeRouteService implements RouteService {
     }
     final fullKm = _railKm(stops, first, last);
     if (fullKm <= 0) return fare;
-    return (fare * _railKm(stops, b, a) / fullKm).round();
+    return (fare * rideKm / fullKm).round();
   }
 
   /// [n] 個の停車駅から最大 [cap] 個を等間隔に抽出する（両端を含む）。
@@ -697,6 +699,7 @@ class _Stop {
   final String? line;
 
   /// この駅が属する乗車区間の通し番号。乗換をまたぐ駅は番号が異なる。
+  /// 同一 section の駅は stops 配列上で連続する（運賃按分が前提にする不変条件）。
   final int section;
 
   /// この駅が属する乗車区間（セクション）全体の運賃。ハイブリッドの一部区間
