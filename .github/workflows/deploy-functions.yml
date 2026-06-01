@@ -11,6 +11,7 @@ on:
     paths:
       - 'functions/**'
       - 'firebase.json'
+      - '.github/workflows/deploy-functions.yml'
 
 permissions:
   contents: read
@@ -35,6 +36,10 @@ jobs:
 
       - name: Build TypeScript
         run: npm run build
+        working-directory: functions
+
+      - name: Run tests
+        run: npm test
         working-directory: functions
 
   deploy:
