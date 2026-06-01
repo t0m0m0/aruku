@@ -11,6 +11,7 @@ on:
     paths:
       - 'functions/**'
       - 'firebase.json'
+      - '.github/workflows/deploy-functions.yml'
 
 permissions:
   contents: read
