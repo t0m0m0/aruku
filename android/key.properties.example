@@ -7,7 +7,8 @@
 #   keytool -genkey -v -keystore ~/aruku-release.jks \
 #     -keyalg RSA -keysize 2048 -validity 10000 -alias aruku
 #
-# storeFile は key.properties からの相対パス、または絶対パスを指定する。
+# storeFile はアプリモジュール（android/app）基準の相対パス、または絶対パスを指定する。
+# 迷う場合は絶対パスを推奨。
 storeFile=/absolute/path/to/aruku-release.jks
 storePassword=YOUR_KEYSTORE_PASSWORD
 keyAlias=aruku
