@@ -64,9 +64,33 @@ flutter run --dart-define=USE_REAL_MAP=true
 
 （既定では実地図を有効化しません。地図 UI の本格統合・テーマ適用は別 ISSUE で対応します）
 
+## リリースビルド（Android 署名）
+
+リリースビルドは本番署名鍵で署名します。`android/key.properties` を配置すると
+Gradle がその keystore で `release` を署名し、未配置の開発環境では debug 鍵に
+フォールバックして `flutter run --release` を壊しません。
+
+```sh
+# 1. keystore を生成（一度だけ。安全な場所に保管しコミットしない）
+keytool -genkey -v -keystore ~/aruku-release.jks \
+  -keyalg RSA -keysize 2048 -validity 10000 -alias aruku
+
+# 2. テンプレートをコピーして実値を設定
+cp android/key.properties.example android/key.properties
+#   storeFile / storePassword / keyAlias / keyPassword を編集
+
+# 3. 署名済みリリースをビルド
+flutter build appbundle --release
+```
+
+`android/key.properties` と keystore（`*.jks` / `*.keystore`）は gitignore 済みです。
+**絶対にコミットしないでください。**
+
 ## 秘匿情報の取り扱い
 
 | ファイル | 追跡 | 内容 |
 |---|---|---|
 | `secrets.properties.example` / `ios/Flutter/Secrets.xcconfig.example` | あり | テンプレート（プレースホルダのみ）|
 | `secrets.properties` / `ios/Flutter/Secrets.xcconfig` | なし（gitignore）| 実キー。コミット禁止 |
+| `android/key.properties.example` | あり | テンプレート（プレースホルダのみ）|
+| `android/key.properties` / `*.jks` / `*.keystore` | なし（gitignore）| 署名鍵。コミット禁止 |
