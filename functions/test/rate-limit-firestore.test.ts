@@ -88,9 +88,12 @@ describe("checkRateLimitFirestore", () => {
 
   it("IPv6 アドレスもドキュメント ID として扱える", async () => {
     const ipv6 = "2001:db8::1";
-    expect(await checkRateLimitFirestore(ipv6)).toBe(true);
-    // 同一 IP として継続カウントされる。
+    // 複数回呼んでも同一 ID へ写像され、ドキュメントは増えずカウントだけ進む。
+    for (let i = 0; i < 5; i++) {
+      expect(await checkRateLimitFirestore(ipv6)).toBe(true);
+    }
     expect(store.size).toBe(1);
+    expect([...store.values()][0].count).toBe(5);
   });
 
   it("Firestore 例外時はフェイルオープン(true)し、ログを残す", async () => {
