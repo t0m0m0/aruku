@@ -7,6 +7,7 @@ import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/extensions/route_map_overlays.dart';
 import '../../shared/icons/ic.dart';
+import '../../shared/widgets/aruku_button.dart';
 import '../../shared/widgets/aruku_map.dart';
 
 class NavScreen extends ConsumerStatefulWidget {
@@ -543,33 +544,19 @@ class _StatsBar extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          Material(
-            color: c.dangerSoft,
-            borderRadius: BorderRadius.circular(16),
-            child: InkWell(
-              key: const Key('nav-exit-button'),
-              onTap: onExit,
-              borderRadius: BorderRadius.circular(16),
-              child: SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Ic.close(size: 16, color: c.danger),
-                    const SizedBox(width: 8),
-                    Text(
-                      '終了',
-                      style: jpStyle(
-                        size: 14,
-                        weight: FontWeight.w800,
-                        color: c.danger,
-                        letterSpacing: 0.06 * 14,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+          ArukuButton(
+            key: const Key('nav-exit-button'),
+            label: '終了',
+            onPressed: onExit,
+            icon: Ic.close(size: 16, color: c.danger),
+            iconGap: 8,
+            backgroundColor: c.dangerSoft,
+            height: 48,
+            textStyle: jpStyle(
+              size: 14,
+              weight: FontWeight.w800,
+              color: c.danger,
+              letterSpacing: 0.06 * 14,
             ),
           ),
         ],
