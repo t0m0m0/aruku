@@ -97,3 +97,40 @@ flutter build appbundle --release
 
 公開前のセキュリティ対策（API キー制限・App Check enforcement・署名/証明書ピンニング検討）は
 [docs/security_hardening.md](docs/security_hardening.md) を参照（Issue #75）。
+
+## レートリミッタ（Firestore）
+
+Cloud Functions のプロキシは IP 単位のレート制限（標準 30 req/min、徒歩ルートは 90 req/min）を
+Firestore で管理します。インスタンスローカルな Map では複数インスタンスへスケールした際に上限が
+事実上緩くなるため、`rateLimits` コレクションのドキュメントをトランザクションで更新し、インスタンス
+横断で一貫した上限を強制します（Issue #76）。エミュレータ実行時はインメモリ実装にフォールバックし、
+Firestore エミュレータは不要です。
+
+本番で機能させるには Firestore データベースのプロビジョニングが一度だけ必要です。
+
+```bash
+# 1. Firestore データベースを作成（ネイティブモード。未作成の場合のみ）
+#    既に Firestore コンソールで作成済みならスキップ可。
+gcloud firestore databases create --location=asia-northeast1 --project aruku-app
+
+# 2. セキュリティルールをデプロイ（rateLimits を含む全コレクションを
+#    クライアントから全面拒否。Admin SDK のみがアクセスする）
+npx -y firebase-tools@latest deploy --only firestore:rules
+
+# 3. TTL ポリシーを設定し、期限切れドキュメントを自動削除（無限増殖を防止）
+gcloud firestore fields ttls update expireAt \
+  --collection-group=rateLimits --enable-ttl --project aruku-app
+```
+
+ドキュメントは `{ count, resetAt, expireAt }` を持ち、`expireAt`（Timestamp）が TTL の対象です。
+Firestore 呼び出しが失敗した場合はフェイルオープン（リクエスト通過）し、`console.error` に記録します。
+一次の濫用防止は App Check が担うため、レートリミッタ障害でプロキシ全体が停止することはありません。
+
+### 制約・トレードオフ
+
+- **同一 IP バースト時の挙動**: 同一 IP は常に同一ドキュメント `rateLimits/{ip}` を更新するため、
+  バースト時にトランザクションがホットドキュメント上で競合します。Firestore の自動リトライが枯渇すると
+  例外となりフェイルオープン（通過）するため、最も制限したいバースト局面で上限が緩む可能性があります。
+  これは設計上許容しており、その局面の一次防御は App Check が担います。
+- **レイテンシ・コスト**: 各プロキシ呼び出しごとに Firestore トランザクション（1 read + 1 write）が発生し、
+  呼び出しレイテンシと Firestore 課金が増えます。課金 API の濫用防止という保険のためのコストです。

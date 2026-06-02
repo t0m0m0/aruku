@@ -6,6 +6,18 @@ import { initializeApp } from "firebase-admin/app";
 import { getAppCheck } from "firebase-admin/app-check";
 
 import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
+import { checkRateLimit, WALK_RATE_LIMIT } from "./rate-limiter";
+
+// レート制限ユーティリティはテスト互換のため再エクスポートする。
+export {
+  checkRateLimit,
+  checkRateLimitInMemory,
+  checkRateLimitFirestore,
+  resetRateLimit,
+  rateLimitMapSize,
+  RATE_LIMIT,
+  WALK_RATE_LIMIT,
+} from "./rate-limiter";
 
 initializeApp();
 
@@ -98,44 +110,6 @@ export function buildRoutesWalkBody(
   });
 }
 
-// Per-instance in-memory rate limiter (30 req/min per IP).
-// Note: Firebase Functions may run as multiple instances, so this limit is
-// per-instance. For cross-instance enforcement, enable Firebase App Check.
-const _rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT = 30;
-
-// route_walk はハイブリッド経路探索で 1 検索あたり最大 13 回ファンアウトする
-// サブリソースのため、標準の上限ではすぐ 429 になり機能が縮退する。
-// 数回/分の検索を許容できるよう専用の高めの上限を設ける。
-const WALK_RATE_LIMIT = 90;
-
-export function checkRateLimit(ip: string, limit: number = RATE_LIMIT): boolean {
-  const now = Date.now();
-  if (_rateLimitMap.size > 1000) {
-    for (const [k, v] of _rateLimitMap) {
-      if (now > v.resetAt) _rateLimitMap.delete(k);
-    }
-  }
-  const entry = _rateLimitMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    _rateLimitMap.set(ip, { count: 1, resetAt: now + 60_000 });
-    return true;
-  }
-  if (entry.count >= limit) return false;
-  entry.count++;
-  return true;
-}
-
-/** テスト用: レート制限の内部状態を初期化する。 */
-export function resetRateLimit(): void {
-  _rateLimitMap.clear();
-}
-
-/** テスト用: レート制限マップの現在のエントリ数を返す。 */
-export function rateLimitMapSize(): number {
-  return _rateLimitMap.size;
-}
-
 export function clientIp(req: Request): string {
   const fwd = req.headers["x-forwarded-for"];
   if (typeof fwd === "string") return fwd.split(",")[0].trim();
@@ -207,7 +181,7 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, r
 
   if (!(await verifyAppCheck(req, res))) return;
 
-  if (!checkRateLimit(clientIp(req))) {
+  if (!(await checkRateLimit(clientIp(req)))) {
     res.status(429).json({ error: "Too many requests" });
     return;
   }
@@ -284,7 +258,7 @@ export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret] }, async (
 
   if (!(await verifyAppCheck(req, res))) return;
 
-  if (!checkRateLimit(clientIp(req))) {
+  if (!(await checkRateLimit(clientIp(req)))) {
     res.status(429).json({ error: "Too many requests" });
     return;
   }
@@ -341,7 +315,7 @@ export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret] }, async (re
 
   if (!(await verifyAppCheck(req, res))) return;
 
-  if (!checkRateLimit(clientIp(req), WALK_RATE_LIMIT)) {
+  if (!(await checkRateLimit(clientIp(req), WALK_RATE_LIMIT))) {
     res.status(429).json({ error: "Too many requests" });
     return;
   }
