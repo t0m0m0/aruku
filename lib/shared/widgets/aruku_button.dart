@@ -43,7 +43,10 @@ class ArukuButton extends StatelessWidget {
   /// Overrides the variant's default background color.
   final Color? backgroundColor;
 
-  /// Overrides the variant's default text/icon color.
+  /// Overrides the color of the label's *default* text style.
+  ///
+  /// Note: this does **not** tint [icon] (the caller controls the icon's
+  /// color), and it is ignored entirely when [textStyle] is provided.
   final Color? foregroundColor;
 
   /// Overrides the outlined variant's default border color.

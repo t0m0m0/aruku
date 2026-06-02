@@ -7,6 +7,11 @@ import '../../core/theme/aruku_theme.dart';
 /// Consolidates the repeated
 /// `Container(decoration: BoxDecoration(rounded/hairline/shadow))` card
 /// pattern into a single, theme-aware widget.
+///
+/// Backed by a plain [Container], so it intentionally does **not** model
+/// Material elevation or `shadowColor`. Surfaces that need ink elevation
+/// (e.g. an elevated chip) should use [Material] directly rather than this
+/// card. Custom drop shadows are still supported via [shadow].
 class ArukuCard extends StatelessWidget {
   const ArukuCard({
     super.key,
