@@ -9,6 +9,7 @@ import '../../core/theme/aruku_theme.dart';
 import '../../shared/extensions/route_map_overlays.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
+import '../../shared/widgets/aruku_card.dart';
 import '../../shared/widgets/aruku_map.dart';
 
 class ResultScreen extends ConsumerWidget {
@@ -114,19 +115,15 @@ class ResultScreen extends ConsumerWidget {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: c.paper,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: c.hairline),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x1422361E),
-                        blurRadius: 28,
-                        offset: Offset(0, 12),
-                      ),
-                    ],
-                  ),
+                child: ArukuCard(
+                  borderRadius: 24,
+                  shadow: const [
+                    BoxShadow(
+                      color: Color(0x1422361E),
+                      blurRadius: 28,
+                      offset: Offset(0, 12),
+                    ),
+                  ],
                   padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
                   child: Column(
                     children: [
@@ -284,13 +281,11 @@ class _JourneyHeader extends StatelessWidget {
           ),
         ),
         // Thumb map
-        Container(
+        ArukuCard(
           width: 76,
           height: 76,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: c.hairline),
-          ),
+          borderRadius: 16,
+          color: Colors.transparent,
           clipBehavior: Clip.antiAlias,
           child: ArukuMap(
             variant: ArukuMapVariant.thumb,

@@ -7,6 +7,7 @@ import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
+import '../../shared/widgets/aruku_card.dart';
 import '../picker/date_time_picker_sheet.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -69,14 +70,10 @@ class HomeScreen extends ConsumerWidget {
                           ],
                         ),
                       ),
-                      Container(
+                      ArukuCard(
                         width: 44,
                         height: 44,
-                        decoration: BoxDecoration(
-                          color: c.paper,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: c.hairline),
-                        ),
+                        borderRadius: 14,
                         child: Center(
                           child: Ic.settings(size: 20, color: c.ink2),
                         ),
@@ -177,12 +174,7 @@ class HomeScreen extends ConsumerWidget {
                       ],
                     ),
                   ),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: c.paper,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: c.hairline),
-                    ),
+                  ArukuCard(
                     padding: const EdgeInsets.all(6),
                     child: IntrinsicHeight(
                       child: Row(
@@ -307,19 +299,15 @@ class _DestinationCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Container(
-      decoration: BoxDecoration(
-        color: c.paper,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: c.hairline),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0F22361E),
-            blurRadius: 24,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
+    return ArukuCard(
+      borderRadius: 22,
+      shadow: const [
+        BoxShadow(
+          color: Color(0x0F22361E),
+          blurRadius: 24,
+          offset: Offset(0, 8),
+        ),
+      ],
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       child: Stack(
         children: [

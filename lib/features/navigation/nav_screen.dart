@@ -8,6 +8,7 @@ import '../../core/theme/aruku_theme.dart';
 import '../../shared/extensions/route_map_overlays.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
+import '../../shared/widgets/aruku_card.dart';
 import '../../shared/widgets/aruku_map.dart';
 
 class NavScreen extends ConsumerStatefulWidget {
@@ -310,13 +311,9 @@ class _RerouteBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Container(
+    return ArukuCard(
+      borderRadius: 14,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: c.paper,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: c.hairline),
-      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -358,20 +355,16 @@ class _StatsBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Container(
+    return ArukuCard(
+      borderRadius: 22,
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-      decoration: BoxDecoration(
-        color: c.paper,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: c.hairline),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x2E000000),
-            blurRadius: 40,
-            offset: Offset(0, 16),
-          ),
-        ],
-      ),
+      shadow: const [
+        BoxShadow(
+          color: Color(0x2E000000),
+          blurRadius: 40,
+          offset: Offset(0, 16),
+        ),
+      ],
       child: Column(
         children: [
           // Progress

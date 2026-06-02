@@ -10,6 +10,7 @@ import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
+import '../../shared/widgets/aruku_card.dart';
 import '../../shared/widgets/logo.dart';
 
 /// 下部に固定するドット行とCTAの位置。各ページ本文の下部余白
@@ -368,15 +369,10 @@ class _Card extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.c;
-    return Container(
+    return ArukuCard(
+      borderRadius: 22,
       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
-      decoration: BoxDecoration(
-        color: c.paper,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: const [_cardShadow],
-        border: Border.all(color: c.hairline),
-      ),
+      shadow: const [_cardShadow],
       child: child,
     );
   }
