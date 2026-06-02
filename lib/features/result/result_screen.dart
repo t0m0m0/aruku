@@ -8,6 +8,7 @@ import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/extensions/route_map_overlays.dart';
 import '../../shared/icons/ic.dart';
+import '../../shared/widgets/aruku_button.dart';
 import '../../shared/widgets/aruku_map.dart';
 
 class ResultScreen extends ConsumerWidget {
@@ -864,41 +865,23 @@ class _CtaRow extends StatelessWidget {
         ),
         const SizedBox(width: 10),
         Expanded(
-          child: Material(
-            color: c.moss600,
-            borderRadius: BorderRadius.circular(16),
-            child: InkWell(
-              onTap: onNav,
-              borderRadius: BorderRadius.circular(16),
-              child: Ink(
-                height: 52,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x5235501A),
-                      blurRadius: 20,
-                      offset: Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Ic.arrowUp(size: 18, color: c.ivory),
-                    const SizedBox(width: 8),
-                    Text(
-                      'このルートで歩く',
-                      style: jpStyle(
-                        size: 16,
-                        weight: FontWeight.w800,
-                        color: c.ivory,
-                        letterSpacing: 0.06 * 16,
-                      ),
-                    ),
-                  ],
-                ),
+          child: ArukuButton(
+            label: 'このルートで歩く',
+            onPressed: onNav,
+            icon: Ic.arrowUp(size: 18, color: c.ivory),
+            iconGap: 8,
+            shadow: const [
+              BoxShadow(
+                color: Color(0x5235501A),
+                blurRadius: 20,
+                offset: Offset(0, 8),
               ),
+            ],
+            textStyle: jpStyle(
+              size: 16,
+              weight: FontWeight.w800,
+              color: c.ivory,
+              letterSpacing: 0.06 * 16,
             ),
           ),
         ),

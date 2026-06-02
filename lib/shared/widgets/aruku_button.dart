@@ -29,6 +29,7 @@ class ArukuButton extends StatelessWidget {
     this.textStyle,
     this.height = 52,
     this.borderRadius = 16,
+    this.iconGap = 10,
     this.fullWidth = true,
   });
 
@@ -56,6 +57,10 @@ class ArukuButton extends StatelessWidget {
 
   final double height;
   final double borderRadius;
+
+  /// Horizontal gap between [icon] and the label.
+  final double iconGap;
+
   final bool fullWidth;
 
   @override
@@ -83,7 +88,11 @@ class ArukuButton extends StatelessWidget {
         : Row(
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
-            children: [icon!, const SizedBox(width: 10), label],
+            children: [
+              icon!,
+              SizedBox(width: iconGap),
+              label,
+            ],
           );
 
     return Material(

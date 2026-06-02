@@ -102,6 +102,27 @@ void main() {
       expect(decoration.border, isNotNull);
     });
 
+    testWidgets('uses a custom iconGap between icon and label', (tester) async {
+      await tester.pumpWidget(
+        _host(
+          ArukuButton(
+            label: '歩く',
+            icon: const Icon(Icons.directions_walk),
+            iconGap: 8,
+            onPressed: () {},
+          ),
+        ),
+      );
+      final row = tester.widget<Row>(
+        find.descendant(
+          of: find.byType(ArukuButton),
+          matching: find.byType(Row),
+        ),
+      );
+      final gap = row.children[1] as SizedBox;
+      expect(gap.width, 8);
+    });
+
     testWidgets('applies a custom shadow', (tester) async {
       await tester.pumpWidget(
         _host(
