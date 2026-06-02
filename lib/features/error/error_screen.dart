@@ -5,6 +5,7 @@ import '../../core/models/route_error.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
+import '../../shared/widgets/aruku_button.dart';
 
 class ErrorScreen extends ConsumerWidget {
   const ErrorScreen({super.key});
@@ -73,11 +74,12 @@ class ErrorScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 32),
-                _PrimaryButton(label: primary.label, onTap: primary.onTap),
+                ArukuButton(label: primary.label, onPressed: primary.onTap),
                 const SizedBox(height: 12),
-                _SecondaryButton(
+                ArukuButton(
                   label: secondary.label,
-                  onTap: secondary.onTap,
+                  onPressed: secondary.onTap,
+                  variant: ArukuButtonVariant.outlined,
                 ),
               ],
             ),
@@ -92,65 +94,4 @@ class _Action {
   const _Action({required this.label, required this.onTap});
   final String label;
   final VoidCallback onTap;
-}
-
-class _PrimaryButton extends StatelessWidget {
-  const _PrimaryButton({required this.label, required this.onTap});
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    return Material(
-      color: c.moss600,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          width: double.infinity,
-          height: 52,
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: jpStyle(size: 16, weight: FontWeight.w800, color: c.ivory),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SecondaryButton extends StatelessWidget {
-  const _SecondaryButton({required this.label, required this.onTap});
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    return Material(
-      color: c.paper,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Ink(
-          width: double.infinity,
-          height: 52,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: c.hairline),
-          ),
-          child: Center(
-            child: Text(
-              label,
-              style: jpStyle(size: 16, weight: FontWeight.w700, color: c.ink),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
