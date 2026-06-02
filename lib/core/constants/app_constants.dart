@@ -3,6 +3,9 @@ class AppConstants {
 
   static const int weeklyKcalEstimate = 1840;
 
+  /// 週間ウォーキング目標距離（km）。
+  static const double weeklyGoalKm = 10.0;
+
   // 出発クイックチップ (label, h, m)
   static const List<({String label, int h, int m})> departTimeChips = [
     (label: '10:00', h: 10, m: 0),

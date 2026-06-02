@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'aruku_tokens.dart';
+
 /// Aruku design tokens — Wakaba (default) theme.
 /// See design_handoff_aruku_mvp/design-reference/tokens.css
 @immutable
@@ -91,8 +93,8 @@ class ArukuColors extends ThemeExtension<ArukuColors> {
     ink3: Color(0xFF8A9583),
     ink4: Color(0xFFC8CFC1),
     hairline: Color(0x141D2418),
-    walk: Color(0xFF4F9527),
-    train: Color(0xFF3E6792),
+    walk: ArukuTokens.routeWalk,
+    train: ArukuTokens.routeTrain,
     trainSoft: Color(0xFFC9D8E8),
     burnt: Color(0xFFF08338),
     burntSoft: Color(0xFFFCE2CE),

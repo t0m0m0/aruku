@@ -257,8 +257,8 @@ class HomeScreen extends ConsumerWidget {
                     ),
                     _SummaryItem(
                       label: '目標まで',
-                      value: (10.0 - state.weekKm)
-                          .clamp(0.0, 10.0)
+                      value: (AppConstants.weeklyGoalKm - state.weekKm)
+                          .clamp(0.0, AppConstants.weeklyGoalKm)
                           .toStringAsFixed(1),
                       unit: 'km',
                       leading: true,
