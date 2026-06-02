@@ -1,10 +1,10 @@
-import 'package:flutter/painting.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../core/models/route_plan.dart';
+import '../../core/theme/aruku_colors.dart';
 
-const _walkColor = Color(0xFF4F9527);
-const _trainColor = Color(0xFF3E6792);
+const _walkColor = ArukuColors.routeWalk;
+const _trainColor = ArukuColors.routeTrain;
 
 extension RouteMapOverlays on RoutePlan {
   Set<Polyline> toPolylines() {

@@ -22,7 +22,7 @@ class ArukuLogo extends StatelessWidget {
         borderRadius: BorderRadius.circular(size / 3),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x3836501E),
+            color: ArukuColors.shadowLogo,
             blurRadius: 12,
             offset: Offset(0, 4),
           ),

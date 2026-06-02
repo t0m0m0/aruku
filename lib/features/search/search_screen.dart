@@ -10,7 +10,6 @@ import '../../core/models/recent_destination.dart';
 import '../../core/services/places_service.dart';
 import '../../core/state/app_state.dart';
 import '../../core/state/recents_provider.dart';
-import '../../core/theme/aruku_colors.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
 import 'places_provider.dart';

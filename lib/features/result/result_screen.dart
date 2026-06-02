@@ -122,7 +122,7 @@ class ResultScreen extends ConsumerWidget {
                   borderRadius: 24,
                   shadow: const [
                     BoxShadow(
-                      color: Color(0x1422361E),
+                      color: ArukuColors.shadowCard,
                       blurRadius: 28,
                       offset: Offset(0, 12),
                     ),
@@ -352,7 +352,7 @@ class _CtaRow extends StatelessWidget {
             iconGap: 8,
             shadow: const [
               BoxShadow(
-                color: Color(0x5235501A),
+                color: ArukuColors.shadowCtaResult,
                 blurRadius: 20,
                 offset: Offset(0, 8),
               ),

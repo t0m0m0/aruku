@@ -3,6 +3,8 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'aruku_colors.dart';
 
+export 'aruku_colors.dart' show ArukuColors;
+
 /// Aruku — Wakaba theme.
 class ArukuTheme {
   static ThemeData light() {

@@ -8,10 +8,10 @@ class _NavChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: const Color(0xE6FFFDF3),
+      color: ArukuColors.navChipSurface,
       borderRadius: BorderRadius.circular(14),
       elevation: 2,
-      shadowColor: const Color(0x1F000000),
+      shadowColor: ArukuColors.shadowChip,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(14),
@@ -40,7 +40,7 @@ class _InstructionCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(22),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x4D22361E),
+                color: ArukuColors.shadowFloating,
                 blurRadius: 30,
                 offset: Offset(0, 12),
               ),
@@ -52,7 +52,7 @@ class _InstructionCard extends StatelessWidget {
                 width: 60,
                 height: 60,
                 decoration: BoxDecoration(
-                  color: const Color(0x24FFFFFF),
+                  color: ArukuColors.glassWhite,
                   borderRadius: BorderRadius.circular(18),
                 ),
                 child: Center(child: Ic.arrowUp(size: 32, color: c.ivory)),
@@ -105,14 +105,14 @@ class _InstructionCard extends StatelessWidget {
           margin: const EdgeInsets.symmetric(horizontal: 12),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: const BoxDecoration(
-            color: Color(0xC722361E),
+            color: ArukuColors.navPreviewSurface,
             borderRadius: BorderRadius.vertical(bottom: Radius.circular(14)),
           ),
           child: Row(
             children: [
               Ic.chevron(
                 size: 14,
-                color: const Color(0xD9FFFFFF),
+                color: ArukuColors.onMossStrong,
                 dir: ChevronDir.right,
               ),
               const SizedBox(width: 8),
@@ -121,7 +121,7 @@ class _InstructionCard extends StatelessWidget {
                 style: numStyle(
                   size: 12,
                   weight: FontWeight.w500,
-                  color: const Color(0xD9FFFFFF),
+                  color: ArukuColors.onMossStrong,
                 ),
               ),
               const SizedBox(width: 4),
@@ -130,7 +130,7 @@ class _InstructionCard extends StatelessWidget {
                 style: jpStyle(
                   size: 12,
                   weight: FontWeight.w600,
-                  color: const Color(0xD9FFFFFF),
+                  color: ArukuColors.onMossStrong,
                 ),
               ),
             ],
@@ -197,7 +197,7 @@ class _StatsBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       shadow: const [
         BoxShadow(
-          color: Color(0x2E000000),
+          color: ArukuColors.shadowSheet,
           blurRadius: 40,
           offset: Offset(0, 16),
         ),

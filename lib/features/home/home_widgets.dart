@@ -19,7 +19,7 @@ class _DestinationCard extends StatelessWidget {
       borderRadius: 22,
       shadow: const [
         BoxShadow(
-          color: Color(0x0F22361E),
+          color: ArukuColors.shadowCardSubtle,
           blurRadius: 24,
           offset: Offset(0, 8),
         ),
@@ -351,7 +351,7 @@ class _SearchCTA extends StatelessWidget {
       borderRadius: 20,
       shadow: const [
         BoxShadow(
-          color: Color(0x5C35501A),
+          color: ArukuColors.shadowCtaPrimary,
           blurRadius: 28,
           offset: Offset(0, 10),
         ),

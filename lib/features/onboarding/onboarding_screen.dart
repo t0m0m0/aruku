@@ -29,7 +29,7 @@ final Future<PackageInfo> _packageInfoFuture = PackageInfo.fromPlatform();
 
 /// カードの落ち影に使う共通カラー。
 const _cardShadow = BoxShadow(
-  color: Color(0x1A22361E),
+  color: ArukuColors.shadowCardSoft,
   blurRadius: 40,
   offset: Offset(0, 16),
 );

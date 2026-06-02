@@ -1,4 +1,3 @@
-import 'package:aruku/core/theme/aruku_colors.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/shared/widgets/aruku_button.dart';
 import 'package:flutter/material.dart';

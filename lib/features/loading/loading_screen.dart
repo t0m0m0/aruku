@@ -147,7 +147,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
                                 borderRadius: BorderRadius.circular(32),
                                 boxShadow: const [
                                   BoxShadow(
-                                    color: Color(0x7335501A),
+                                    color: ArukuColors.shadowGlow,
                                     blurRadius: 40,
                                     offset: Offset(0, 16),
                                   ),
