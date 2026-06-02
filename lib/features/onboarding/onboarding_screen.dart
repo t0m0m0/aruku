@@ -9,6 +9,7 @@ import '../../core/services/onboarding_repository.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
+import '../../shared/widgets/aruku_button.dart';
 import '../../shared/widgets/logo.dart';
 
 /// 下部に固定するドット行とCTAの位置。各ページ本文の下部余白
@@ -529,37 +530,24 @@ class _CTAButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Material(
-      color: c.moss500,
-      borderRadius: BorderRadius.circular(18),
-      elevation: 0,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(18),
-        child: Ink(
-          height: 56,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x52496A24),
-                blurRadius: 24,
-                offset: Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Center(
-            child: Text(
-              label,
-              style: jpStyle(
-                size: 17,
-                weight: FontWeight.w700,
-                color: c.ivory,
-                letterSpacing: 0.04 * 17,
-              ),
-            ),
-          ),
+    return ArukuButton(
+      label: label,
+      onPressed: onPressed,
+      backgroundColor: c.moss500,
+      height: 56,
+      borderRadius: 18,
+      shadow: const [
+        BoxShadow(
+          color: Color(0x52496A24),
+          blurRadius: 24,
+          offset: Offset(0, 8),
         ),
+      ],
+      textStyle: jpStyle(
+        size: 17,
+        weight: FontWeight.w700,
+        color: c.ivory,
+        letterSpacing: 0.04 * 17,
       ),
     );
   }
