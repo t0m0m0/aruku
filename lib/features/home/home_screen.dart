@@ -6,6 +6,7 @@ import '../../core/models/time_value.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
+import '../../shared/widgets/aruku_button.dart';
 import '../picker/date_time_picker_sheet.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -638,43 +639,24 @@ class _SearchCTA extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Material(
-      color: c.moss600,
-      borderRadius: BorderRadius.circular(20),
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(20),
-        child: Ink(
-          height: 60,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x5C35501A),
-                blurRadius: 28,
-                offset: Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Center(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Ic.routes(size: 20, color: c.ivory),
-                const SizedBox(width: 10),
-                Text(
-                  'ルートを検索',
-                  style: jpStyle(
-                    size: 18,
-                    weight: FontWeight.w800,
-                    color: c.ivory,
-                    letterSpacing: 0.06 * 18,
-                  ),
-                ),
-              ],
-            ),
-          ),
+    return ArukuButton(
+      label: 'ルートを検索',
+      onPressed: onPressed,
+      icon: Ic.routes(size: 20, color: c.ivory),
+      height: 60,
+      borderRadius: 20,
+      shadow: const [
+        BoxShadow(
+          color: Color(0x5C35501A),
+          blurRadius: 28,
+          offset: Offset(0, 10),
         ),
+      ],
+      textStyle: jpStyle(
+        size: 18,
+        weight: FontWeight.w800,
+        color: c.ivory,
+        letterSpacing: 0.06 * 18,
       ),
     );
   }
