@@ -191,7 +191,7 @@ class _CTAButton extends StatelessWidget {
       borderRadius: 18,
       shadow: const [
         BoxShadow(
-          color: ArukuColors.shadowCtaOnboarding,
+          color: ArukuTokens.shadowCtaOnboarding,
           blurRadius: 24,
           offset: Offset(0, 8),
         ),

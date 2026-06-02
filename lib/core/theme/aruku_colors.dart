@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'aruku_tokens.dart';
+
 /// Aruku design tokens — Wakaba (default) theme.
 /// See design_handoff_aruku_mvp/design-reference/tokens.css
 @immutable
@@ -72,62 +74,6 @@ class ArukuColors extends ThemeExtension<ArukuColors> {
   final Color mapBuild;
   final Color mapLabel;
 
-  // --- Route segment palette (shared by theme + map overlays) ---
-  /// 徒歩区間のポリライン / `walk` テーマ色。
-  static const Color routeWalk = Color(0xFF4F9527);
-
-  /// 鉄道区間のポリライン / `train` テーマ色。
-  static const Color routeTrain = Color(0xFF3E6792);
-
-  // --- Elevation (shadow) tokens ---
-  // テーマ非依存のため const コンテキスト（const [BoxShadow(...)]）で使える。
-  // アルファ値はコンポーネントごとの「浮き具合」を表す。
-  /// ホームのサマリーカードなど、ごく控えめな落ち影。
-  static const Color shadowCardSubtle = Color(0x0F22361E);
-
-  /// 結果画面のカードの落ち影。
-  static const Color shadowCard = Color(0x1422361E);
-
-  /// オンボーディングのカードの落ち影。
-  static const Color shadowCardSoft = Color(0x1A22361E);
-
-  /// ナビの案内カードなど、強く浮かせる落ち影。
-  static const Color shadowFloating = Color(0x4D22361E);
-
-  /// ナビのチップ（Material elevation）の影。
-  static const Color shadowChip = Color(0x1F000000);
-
-  /// ナビ終了シートの影。
-  static const Color shadowSheet = Color(0x2E000000);
-
-  /// ホームの主要 CTA ボタンの影。
-  static const Color shadowCtaPrimary = Color(0x5C35501A);
-
-  /// 結果画面の CTA ボタンの影。
-  static const Color shadowCtaResult = Color(0x5235501A);
-
-  /// オンボーディングの CTA ボタンの影。
-  static const Color shadowCtaOnboarding = Color(0x52496A24);
-
-  /// ローディングのアイコンのグロー影。
-  static const Color shadowGlow = Color(0x7335501A);
-
-  /// ロゴの落ち影。
-  static const Color shadowLogo = Color(0x3836501E);
-
-  // --- Overlay / surface tokens ---
-  /// ナビのチップの半透明サーフェス。
-  static const Color navChipSurface = Color(0xE6FFFDF3);
-
-  /// ナビの次々案内プレビューの濃緑サーフェス。
-  static const Color navPreviewSurface = Color(0xC722361E);
-
-  /// 濃色サーフェス上に重ねる半透明の白タイル。
-  static const Color glassWhite = Color(0x24FFFFFF);
-
-  /// 濃色（moss）背景上のテキスト/アイコン用の強い白。
-  static const Color onMossStrong = Color(0xD9FFFFFF);
-
   // Wakaba (若葉) — the chosen default per README
   static const wakaba = ArukuColors(
     moss50: Color(0xFFEEF8E0),
@@ -147,8 +93,8 @@ class ArukuColors extends ThemeExtension<ArukuColors> {
     ink3: Color(0xFF8A9583),
     ink4: Color(0xFFC8CFC1),
     hairline: Color(0x141D2418),
-    walk: routeWalk,
-    train: routeTrain,
+    walk: ArukuTokens.routeWalk,
+    train: ArukuTokens.routeTrain,
     trainSoft: Color(0xFFC9D8E8),
     burnt: Color(0xFFF08338),
     burntSoft: Color(0xFFFCE2CE),
