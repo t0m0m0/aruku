@@ -1,6 +1,6 @@
+import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/place_prediction.dart';
 import 'package:aruku/core/services/places_service.dart';
-import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/features/search/places_provider.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

@@ -66,16 +66,16 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
         fit: StackFit.expand,
         children: [
           // Dimmed map background (decorative — exclude from semantics)
-          Opacity(
+          const Opacity(
             opacity: 0.35,
             child: ColorFiltered(
-              colorFilter: const ColorFilter.matrix([
+              colorFilter: ColorFilter.matrix([
                 0.7, 0.21, 0.07, 0, 0, //
                 0.07, 0.86, 0.07, 0, 0, //
                 0.07, 0.21, 0.72, 0, 0, //
                 0, 0, 0, 1, 0,
               ]),
-              child: const ArukuMap(showRoute: false),
+              child: ArukuMap(showRoute: false),
             ),
           ),
           // Radial fade veil
