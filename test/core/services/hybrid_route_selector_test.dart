@@ -92,28 +92,28 @@ void main() {
       // 逆戻り: 出発地より南（目的地と逆方向）の駅を経由する。徒歩は多いが迂回。
       final backtrack = _candidate([
         _walk(20),
-        RouteSegment(
+        const RouteSegment(
           type: SegmentType.train,
           fromName: '南駅',
           toName: 'goal',
           minutes: 10,
           km: 30,
           line: 'L',
-          polyline: const [GeoPoint(35.30, 139.50), GeoPoint(35.70, 139.50)],
+          polyline: [GeoPoint(35.30, 139.50), GeoPoint(35.70, 139.50)],
         ),
       ]);
 
       // 直進: 目的地方向（北）へ進む駅のみ。徒歩は少ない。
       final straight = _candidate([
         _walk(10),
-        RouteSegment(
+        const RouteSegment(
           type: SegmentType.train,
           fromName: '北駅',
           toName: 'goal',
           minutes: 8,
           km: 10,
           line: 'L',
-          polyline: const [GeoPoint(35.60, 139.50), GeoPoint(35.70, 139.50)],
+          polyline: [GeoPoint(35.60, 139.50), GeoPoint(35.70, 139.50)],
         ),
       ]);
 
@@ -203,14 +203,14 @@ void main() {
       const goal = GeoPoint(35.70, 139.50);
       final backtrack = _candidate([
         _walk(20),
-        RouteSegment(
+        const RouteSegment(
           type: SegmentType.train,
           fromName: '南駅',
           toName: 'goal',
           minutes: 10,
           km: 30,
           line: 'L',
-          polyline: const [GeoPoint(35.30, 139.50), goal],
+          polyline: [GeoPoint(35.30, 139.50), goal],
         ),
       ]);
       final straight = _candidate([_walk(10), _train(8)]);

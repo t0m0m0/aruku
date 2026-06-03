@@ -111,8 +111,8 @@ void main() {
 
     test('originLatLng が null のとき GPS 位置を使う', () async {
       final routeSvc = _CapturingRouteService();
-      final locationSvc = _FakeLocationService(
-        const LocationAvailable(GeoPoint(35.681, 139.766)),
+      const locationSvc = _FakeLocationService(
+        LocationAvailable(GeoPoint(35.681, 139.766)),
       );
       final container = ProviderContainer(
         overrides: [
