@@ -6,13 +6,6 @@ class AppConstants {
   /// 週間ウォーキング目標距離（km）。
   static const double weeklyGoalKm = 10.0;
 
-  // 出発クイックチップ (label, h, m)
-  static const List<({String label, int h, int m})> departTimeChips = [
-    (label: '10:00', h: 10, m: 0),
-    (label: '12:00', h: 12, m: 0),
-    (label: '18:00', h: 18, m: 0),
-  ];
-
   static String todayDateLabel() {
     final now = DateTime.now();
     const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
