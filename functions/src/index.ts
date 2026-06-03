@@ -1,4 +1,5 @@
 import * as https from "https";
+import { setGlobalOptions } from "firebase-functions/v2";
 import { onRequest, Request } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import { Response } from "express";
@@ -20,6 +21,11 @@ export {
 } from "./rate-limiter";
 
 initializeApp();
+
+// NAVITIME（日本の公共交通）向けアプリのため日本リージョンへ明示デプロイする。
+// 既定の us-central1 は日本から遠く往復遅延が大きい。各 onRequest 定義より前に
+// 呼ぶ必要があるため initializeApp 直後に置く。
+setGlobalOptions({ region: "asia-northeast1" });
 
 const mapsKeySecret = defineSecret("GOOGLE_MAPS_API_KEY");
 const navitimeKeySecret = defineSecret("NAVITIME_RAPIDAPI_KEY");
