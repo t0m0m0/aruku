@@ -4,13 +4,16 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/activity_snapshot.dart';
+import '../models/daily_activity.dart';
 import '../models/geo_point.dart';
 import '../models/location_state.dart';
 import '../models/route_error.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
 import '../navigation/nav_engine.dart';
+import '../services/activity_log_repository.dart';
 import '../services/activity_service.dart';
+import '../services/activity_stats.dart';
 import '../services/location_service.dart';
 import '../services/onboarding_repository.dart';
 import '../services/route_service.dart';
@@ -164,6 +167,16 @@ class AppNotifier extends Notifier<AppState> {
   StreamSubscription<ActivitySnapshot>? _activitySub;
   bool _disposed = false;
 
+  /// 日次活動履歴のリポジトリ。永続化が使えない場合は null（メモリのみ動作）。
+  ActivityLogRepository? _activityLog;
+
+  /// 集計に使う活動履歴のメモリ上のキャッシュ。
+  List<DailyActivity> _history = const [];
+
+  /// 今セッション開始時点で今日に既に記録されていた歩数。
+  /// セッションの累積歩数はこの値に積んで当日累計にする。
+  int _todayBaseSteps = 0;
+
   /// 連続してオフルートと判定された回数。閾値内に戻るとリセットする。
   int _offRouteFixes = 0;
 
@@ -204,21 +217,16 @@ class AppNotifier extends Notifier<AppState> {
     }
   }
 
-  /// 歩数センサーの権限を要求し、許可されたら活動量を購読して
-  /// todaySteps / todayKm / todayKcal を更新する。
+  /// 永続化された活動履歴を読み込み、ストリーク/週次/当日の集計を反映する。
+  /// 並行して歩数センサーを購読し、セッション歩数を当日累計へ積む。
+  /// 履歴ロードの I/O で購読確立を遅らせない（初回計測を取りこぼさない）。
   Future<void> _startActivityTracking() async {
+    unawaited(_loadActivityHistory());
     try {
       final service = ref.read(activityServiceProvider);
       if (!await service.requestPermission() || _disposed) return;
       _activitySub = service.sessionActivityStream().listen(
-        (snap) {
-          if (_disposed) return;
-          state = state.copyWith(
-            todaySteps: snap.steps,
-            todayKm: snap.km,
-            todayKcal: snap.kcal,
-          );
-        },
+        _onActivity,
         // センサー欠如や一時的なエラーで未捕捉例外を出さない。
         // デバッグ時のみ原因切り分けのためログに残す。
         onError: (Object e) {
@@ -231,6 +239,60 @@ class AppNotifier extends Notifier<AppState> {
     } catch (_) {
       // 権限要求やセンサー初期化の失敗は計測なしとして無視する。
     }
+  }
+
+  /// 履歴をロードして起動時点の集計を反映する。永続化が使えない環境
+  /// （プラグイン未登録のテスト等）ではメモリのみで計測を続行する。
+  Future<void> _loadActivityHistory() async {
+    try {
+      final repo = await ref.read(activityLogRepositoryProvider.future);
+      if (_disposed) return;
+      _activityLog = repo;
+      _history = await repo.load();
+      if (_disposed) return;
+      _todayBaseSteps = _todayStepsOf(_history);
+      _applyActivityStats();
+    } catch (_) {
+      // 永続化が使えない場合はメモリ上の履歴（空）で継続する。
+    }
+  }
+
+  /// セッションの累積歩数 [snap] を当日の既存歩数へ積み、履歴を更新・永続化して
+  /// ストリーク/週次/当日の集計を再計算する。
+  void _onActivity(ActivitySnapshot snap) {
+    if (_disposed) return;
+    final now = DateTime.now();
+    final entry = DailyActivity(date: now, steps: _todayBaseSteps + snap.steps);
+    _history = [
+      for (final e in _history)
+        if (e.dateKey != entry.dateKey) e,
+      entry,
+    ];
+    final log = _activityLog;
+    if (log != null) unawaited(log.upsert(entry, now: now));
+    _applyActivityStats(now);
+  }
+
+  /// メモリ上の履歴から [now]（既定は現在）時点の集計を state へ反映する。
+  void _applyActivityStats([DateTime? now]) {
+    final today = now ?? DateTime.now();
+    final snap = ActivitySnapshot.fromSteps(_todayStepsOf(_history, today));
+    state = state.copyWith(
+      streakDays: computeStreak(_history, today),
+      weekKm: weekKm(_history, today),
+      todaySteps: snap.steps,
+      todayKm: snap.km,
+      todayKcal: snap.kcal,
+    );
+  }
+
+  /// 履歴から [now]（既定は現在）の当日の歩数を返す。未記録なら 0。
+  int _todayStepsOf(List<DailyActivity> history, [DateTime? now]) {
+    final today = DailyActivity(date: now ?? DateTime.now(), steps: 0).dateKey;
+    for (final e in history) {
+      if (e.dateKey == today) return e.steps;
+    }
+    return 0;
   }
 
   void go(Screen s) {

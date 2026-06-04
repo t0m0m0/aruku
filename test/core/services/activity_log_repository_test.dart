@@ -49,7 +49,7 @@ void main() {
     final repo = await makeRepo();
     final today = DateTime(2026, 6, 3);
     final old = today.subtract(
-      Duration(days: ActivityLogRepository.retentionDays + 5),
+      const Duration(days: ActivityLogRepository.retentionDays + 5),
     );
     await repo.upsert(DailyActivity(date: old, steps: 100), now: today);
     await repo.upsert(DailyActivity(date: today, steps: 200), now: today);
