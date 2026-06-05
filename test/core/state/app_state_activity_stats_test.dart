@@ -119,4 +119,36 @@ void main() {
     final today = persisted.firstWhere((e) => e.steps == 1500);
     expect(today.steps, 1500);
   });
+
+  test('履歴ロード完了前に届いたセッション歩数も基準歩数へ正しく加算される', () async {
+    final repo = await seedRepo([DailyActivity(date: daysAgo(0), steps: 1000)]);
+    // 履歴ロードを遅延させ、購読確立後・ロード完了前に計測が届く状況を作る。
+    final container = ProviderContainer(
+      overrides: [
+        activityLogRepositoryProvider.overrideWith((ref) async {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          return repo;
+        }),
+        activityServiceProvider.overrideWithValue(
+          _FakeActivityService(controller),
+        ),
+        locationServiceProvider.overrideWithValue(_FakeLocationService()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    container.read(appStateProvider);
+    // 購読は確立済み、履歴ロードはまだ遅延中。
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    // ロード完了前にセッション歩数が届く。
+    controller.add(ActivitySnapshot.fromSteps(500));
+    await Future<void>.delayed(Duration.zero);
+
+    // ロード完了後に基準歩数(1000)へ加算されているはず（500 で上書きしない）。
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+
+    expect(container.read(appStateProvider).todaySteps, 1500);
+  });
 }

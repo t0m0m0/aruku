@@ -177,6 +177,13 @@ class AppNotifier extends Notifier<AppState> {
   /// セッションの累積歩数はこの値に積んで当日累計にする。
   int _todayBaseSteps = 0;
 
+  /// 履歴ロードが完了し基準歩数が確定したか。完了前に届いた計測は
+  /// [_pendingActivity] に保持し、ロード後にまとめて反映する。
+  bool _historyLoaded = false;
+
+  /// ロード完了前に届いた最新のセッション計測（累積値）。
+  ActivitySnapshot? _pendingActivity;
+
   /// 連続してオフルートと判定された回数。閾値内に戻るとリセットする。
   int _offRouteFixes = 0;
 
@@ -254,13 +261,31 @@ class AppNotifier extends Notifier<AppState> {
       _applyActivityStats();
     } catch (_) {
       // 永続化が使えない場合はメモリ上の履歴（空）で継続する。
+    } finally {
+      _flushPendingActivity();
     }
+  }
+
+  /// 基準歩数の確定を記録し、ロード中に保留していた計測を反映する。
+  /// ロード失敗時もメモリのみで計測を続行できるよう必ず確定させる。
+  void _flushPendingActivity() {
+    if (_disposed || _historyLoaded) return;
+    _historyLoaded = true;
+    final pending = _pendingActivity;
+    _pendingActivity = null;
+    if (pending != null) _onActivity(pending);
   }
 
   /// セッションの累積歩数 [snap] を当日の既存歩数へ積み、履歴を更新・永続化して
   /// ストリーク/週次/当日の集計を再計算する。
   void _onActivity(ActivitySnapshot snap) {
     if (_disposed) return;
+    // 基準歩数の確定前に届いた計測は最新値だけ保持し、ロード後に反映する。
+    // （セッション歩数は累積値なので最新の 1 件で十分。二重計上を防ぐ）
+    if (!_historyLoaded) {
+      _pendingActivity = snap;
+      return;
+    }
     final now = DateTime.now();
     final entry = DailyActivity(date: now, steps: _todayBaseSteps + snap.steps);
     _history = [
@@ -269,7 +294,18 @@ class AppNotifier extends Notifier<AppState> {
       entry,
     ];
     final log = _activityLog;
-    if (log != null) unawaited(log.upsert(entry, now: now));
+    if (log != null) {
+      // 永続化はベストエフォート。集計はメモリ上の履歴を真実とするため、
+      // 保存失敗で未捕捉例外を投げない（デバッグ時のみ原因をログに残す）。
+      unawaited(
+        log.upsert(entry, now: now).catchError((Object e) {
+          assert(() {
+            debugPrint('activity persist error: $e');
+            return true;
+          }());
+        }),
+      );
+    }
     _applyActivityStats(now);
   }
 

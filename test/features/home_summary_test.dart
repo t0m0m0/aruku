@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:aruku/core/models/activity_snapshot.dart';
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/location_state.dart';
+import 'package:aruku/core/services/activity_log_repository.dart';
 import 'package:aruku/core/services/activity_service.dart';
 import 'package:aruku/core/services/location_service.dart';
 import 'package:aruku/core/state/app_state.dart';
@@ -11,6 +12,7 @@ import 'package:aruku/features/home/home_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeLocationService implements LocationService {
   @override
@@ -39,6 +41,8 @@ Widget _wrap(ProviderContainer container) => UncontrolledProviderScope(
 
 void main() {
   testWidgets('計測した歩数がサマリーに表示される', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final repo = ActivityLogRepository(await SharedPreferences.getInstance());
     final controller = StreamController<ActivitySnapshot>();
     final container = ProviderContainer(
       overrides: [
@@ -46,6 +50,9 @@ void main() {
           _FakeActivityService(controller),
         ),
         locationServiceProvider.overrideWithValue(_FakeLocationService()),
+        // 履歴ロードをマイクロタスクで解決させ、実時間待ちを避ける
+        // （runAsync 中の実待機は google_fonts の実ネットワーク取得を誘発する）。
+        activityLogRepositoryProvider.overrideWith((ref) async => repo),
       ],
     );
     addTearDown(container.dispose);
@@ -55,7 +62,7 @@ void main() {
     await tester.pumpWidget(_wrap(container));
 
     await tester.runAsync(() async {
-      // 権限要求の await を解決して購読を確立し、歩数を流す。
+      // 権限要求と履歴ロード（共にマイクロタスク）を解決して購読を確立。
       await Future<void>.delayed(Duration.zero);
       controller.add(ActivitySnapshot.fromSteps(2000));
       await Future<void>.delayed(Duration.zero);

@@ -8,6 +8,7 @@ import 'package:aruku/core/services/location_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeLocationService implements LocationService {
   @override
@@ -44,6 +45,10 @@ ProviderContainer _makeContainer(ActivityService activity) {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   group('AppNotifier + ActivityService 統合', () {
     test('ストリームの値で todaySteps/km/kcal が更新される', () async {
       final controller = StreamController<ActivitySnapshot>();
@@ -55,7 +60,8 @@ void main() {
       await Future<void>.delayed(Duration.zero); // 権限要求 await を解決
 
       controller.add(ActivitySnapshot.fromSteps(1000));
-      await Future<void>.delayed(Duration.zero);
+      // 履歴ロード完了後に当日歩数へ反映される（ロード前の計測は保留される）。
+      await Future<void>.delayed(const Duration(milliseconds: 10));
 
       final s = container.read(appStateProvider);
       expect(s.todaySteps, 1000);
