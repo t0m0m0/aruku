@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/models/favorite_place.dart';
 import '../../core/models/geo_point.dart';
 import '../../core/models/location_state.dart';
 import '../../core/models/place_prediction.dart';
 import '../../core/models/recent_destination.dart';
 import '../../core/services/places_service.dart';
 import '../../core/state/app_state.dart';
+import '../../core/state/favorites_provider.dart';
 import '../../core/state/recents_provider.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
@@ -94,6 +96,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   void _selectRecent(RecentDestination r) {
     _rememberRecent(r);
     _applySelection(r.name, latLng: r.latLng);
+  }
+
+  // お気に入りタイルからの選択。履歴にも残しつつ目的地に設定する。
+  void _selectFavorite(FavoritePlace f) {
+    _rememberRecent(
+      RecentDestination(name: f.name, placeId: f.placeId, latLng: f.latLng),
+    );
+    _applySelection(f.name, latLng: f.latLng);
   }
 
   void _applySelection(String name, {GeoPoint? latLng}) {
@@ -385,12 +395,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final showCurrentLocation =
         widget.mode == SearchMode.origin || locationAvailable;
 
-    // 履歴は目的地のみ。出発地モードでは表示しない。
+    // 履歴・お気に入りは目的地のみ。出発地モードでは表示しない。
     final recents = widget.mode == SearchMode.destination
         ? ref.watch(recentsProvider).value ?? const <RecentDestination>[]
         : const <RecentDestination>[];
+    final favorites = widget.mode == SearchMode.destination
+        ? ref.watch(favoritesProvider).value ?? const <FavoritePlace>[]
+        : const <FavoritePlace>[];
 
-    if (!showCurrentLocation && recents.isEmpty) {
+    if (!showCurrentLocation && recents.isEmpty && favorites.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -428,6 +441,56 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               ),
             ),
           ),
+        if (favorites.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 16, 22, 6),
+            child: Text(
+              'お気に入り',
+              style: jpStyle(size: 12, weight: FontWeight.w700, color: c.ink3),
+            ),
+          ),
+          for (final f in favorites)
+            InkWell(
+              onTap: () => _selectFavorite(f),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 22,
+                  vertical: 12,
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: c.moss50,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Center(
+                        child: Ic.star(
+                          size: 18,
+                          color: c.moss600,
+                          filled: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        f.name,
+                        overflow: TextOverflow.ellipsis,
+                        style: jpStyle(
+                          size: 16,
+                          weight: FontWeight.w700,
+                          color: c.ink,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
         if (recents.isNotEmpty) ...[
           Padding(
             padding: const EdgeInsets.fromLTRB(22, 16, 22, 6),
