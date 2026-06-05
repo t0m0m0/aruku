@@ -58,8 +58,14 @@ class Ic extends StatelessWidget {
       Ic._(size: size, painter: _IconPainter(_leaf, color));
   static Widget sparkle({double size = 20, required Color color}) =>
       Ic._(size: size, painter: _IconPainter(_sparkle, color, filled: true));
-  static Widget star({double size = 20, required Color color}) =>
-      Ic._(size: size, painter: _IconPainter(_star, color));
+  static Widget star({
+    double size = 20,
+    required Color color,
+    bool filled = false,
+  }) => Ic._(
+    size: size,
+    painter: _IconPainter(_star, color, filled: filled),
+  );
   static Widget arrowUp({double size = 20, required Color color}) =>
       Ic._(size: size, painter: _IconPainter(_arrowUp, color));
   static Widget layers({double size = 20, required Color color}) =>
