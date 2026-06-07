@@ -100,6 +100,38 @@ void main() {
       expect(state.screen, Screen.home);
     });
 
+    testWidgets('末尾のスターをタップすると解除され、選択は発生しない', (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'favorites.places.v1': jsonEncode([
+          {'name': '渋谷駅', 'placeId': 'p2', 'lat': 35.658, 'lng': 139.701},
+        ]),
+      });
+
+      final container = await _makeContainer(tester);
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_wrap(container));
+      await tester.pump();
+
+      // 解除は fire-and-forget の永続化を伴うため、実 I/O を完了させる。
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(const ValueKey('favorite-remove-id:p2')));
+        while (container.read(favoritesProvider).value?.isNotEmpty ?? false) {
+          await Future<void>.delayed(const Duration(milliseconds: 1));
+        }
+      });
+      await tester.pump();
+
+      // 解除されてセクションごと消える。
+      expect(container.read(favoritesProvider).value, isEmpty);
+      expect(find.text('お気に入り'), findsNothing);
+      expect(find.text('渋谷駅'), findsNothing);
+      // 解除タップでは目的地選択・ホーム遷移は起きない。
+      final state = container.read(appStateProvider);
+      expect(state.destination, isNull);
+      expect(state.screen, isNot(Screen.home));
+    });
+
     testWidgets('お気に入りが無ければセクションは出ない', (tester) async {
       final container = await _makeContainer(tester);
       addTearDown(container.dispose);

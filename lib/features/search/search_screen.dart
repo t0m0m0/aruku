@@ -106,6 +106,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     _applySelection(f.name, latLng: f.latLng);
   }
 
+  // お気に入りタイル末尾のスターからの解除。失敗しても再表示されるだけなので待たない。
+  void _removeFavorite(FavoritePlace f) {
+    unawaited(ref.read(favoritesProvider.notifier).remove(f));
+  }
+
   void _applySelection(String name, {GeoPoint? latLng}) {
     final notifier = ref.read(appStateProvider.notifier);
     if (widget.mode == SearchMode.origin) {
@@ -483,6 +488,21 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                           size: 16,
                           weight: FontWeight.w700,
                           color: c.ink,
+                        ),
+                      ),
+                    ),
+                    // 末尾のスターで解除。タイル本体のタップ（選択）とは
+                    // 別ジェスチャとして扱われ、こちらが優先される。
+                    InkWell(
+                      key: ValueKey('favorite-remove-${f.dedupeKey}'),
+                      onTap: () => _removeFavorite(f),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Ic.star(
+                          size: 18,
+                          color: c.moss600,
+                          filled: true,
                         ),
                       ),
                     ),
