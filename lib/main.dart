@@ -10,6 +10,7 @@ import 'core/services/onboarding_repository.dart';
 import 'core/services/recents_repository.dart';
 import 'core/state/app_state.dart';
 import 'core/theme/aruku_theme.dart';
+import 'features/auth/auth_screen.dart';
 import 'features/error/error_screen.dart';
 import 'features/home/home_screen.dart';
 import 'features/loading/loading_screen.dart';
@@ -106,6 +107,7 @@ class _Root extends ConsumerWidget {
       Screen.onboarding => const OnboardingScreen(),
       Screen.home => const HomeScreen(),
       Screen.settings => const SettingsScreen(),
+      Screen.auth => const AuthScreen(),
       Screen.search => const SearchScreen(),
       Screen.searchOrigin => const SearchScreen(mode: SearchMode.origin),
       Screen.loading => const LoadingScreen(),
@@ -118,7 +120,10 @@ class _Root extends ConsumerWidget {
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        if (screen == Screen.settings ||
+        // 認証は設定から開くため、戻るは設定へ。それ以外はホームへ。
+        if (screen == Screen.auth) {
+          ref.read(appStateProvider.notifier).go(Screen.settings);
+        } else if (screen == Screen.settings ||
             screen == Screen.search ||
             screen == Screen.searchOrigin ||
             screen == Screen.result ||

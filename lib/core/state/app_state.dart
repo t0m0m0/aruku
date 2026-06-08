@@ -31,6 +31,7 @@ enum Screen {
   onboarding,
   home,
   settings,
+  auth,
   search,
   searchOrigin,
   loading,
