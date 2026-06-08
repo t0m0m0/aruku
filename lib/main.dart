@@ -17,6 +17,7 @@ import 'features/navigation/nav_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/result/result_screen.dart';
 import 'features/search/search_screen.dart';
+import 'features/settings/settings_screen.dart';
 import 'firebase_options.dart';
 
 Future<void> main() async {
@@ -104,6 +105,7 @@ class _Root extends ConsumerWidget {
     final Widget body = switch (screen) {
       Screen.onboarding => const OnboardingScreen(),
       Screen.home => const HomeScreen(),
+      Screen.settings => const SettingsScreen(),
       Screen.search => const SearchScreen(),
       Screen.searchOrigin => const SearchScreen(mode: SearchMode.origin),
       Screen.loading => const LoadingScreen(),
@@ -116,7 +118,8 @@ class _Root extends ConsumerWidget {
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        if (screen == Screen.search ||
+        if (screen == Screen.settings ||
+            screen == Screen.search ||
             screen == Screen.searchOrigin ||
             screen == Screen.result ||
             screen == Screen.nav ||

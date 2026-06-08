@@ -30,6 +30,7 @@ const Duration kRerouteCooldown = Duration(seconds: 30);
 enum Screen {
   onboarding,
   home,
+  settings,
   search,
   searchOrigin,
   loading,
