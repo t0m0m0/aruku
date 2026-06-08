@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/models/favorite_place.dart';
 import '../../core/models/route_plan.dart';
 import '../../core/state/app_state.dart';
+import '../../core/state/favorites_provider.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/extensions/route_map_overlays.dart';
 import '../../shared/icons/ic.dart';
@@ -23,6 +27,8 @@ class ResultScreen extends ConsumerWidget {
     final c = context.c;
     final notifier = ref.read(appStateProvider.notifier);
     final state = ref.watch(appStateProvider);
+    final favorites =
+        ref.watch(favoritesProvider).value ?? const <FavoritePlace>[];
     final route = state.route;
     if (route == null) {
       return Material(
@@ -100,9 +106,27 @@ class ResultScreen extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  _HeaderButton(
-                    child: Ic.star(size: 18, color: c.ink),
-                    onTap: () {},
+                  Builder(
+                    builder: (context) {
+                      final place = FavoritePlace(
+                        name: state.destination ?? route.to,
+                        latLng: state.destinationLatLng,
+                      );
+                      final isFav = favorites.any(
+                        (e) => e.dedupeKey == place.dedupeKey,
+                      );
+                      return _HeaderButton(
+                        key: const ValueKey('result-star-button'),
+                        child: Ic.star(
+                          size: 18,
+                          color: isFav ? c.moss600 : c.ink,
+                          filled: isFav,
+                        ),
+                        onTap: () => unawaited(
+                          ref.read(favoritesProvider.notifier).toggle(place),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -225,7 +249,7 @@ class _OverBudgetBanner extends StatelessWidget {
 }
 
 class _HeaderButton extends StatelessWidget {
-  const _HeaderButton({required this.child, required this.onTap});
+  const _HeaderButton({required this.child, required this.onTap, super.key});
   final Widget child;
   final VoidCallback onTap;
 
