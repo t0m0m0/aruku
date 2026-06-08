@@ -1,0 +1,58 @@
+import 'package:aruku/core/models/app_settings.dart';
+import 'package:aruku/core/services/recents_repository.dart';
+import 'package:aruku/core/services/settings_repository.dart';
+import 'package:aruku/core/state/settings_provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
+  Future<ProviderContainer> makeContainer() async {
+    final prefs = await SharedPreferences.getInstance();
+    return ProviderContainer(
+      overrides: [sharedPreferencesProvider.overrideWith((ref) => prefs)],
+    );
+  }
+
+  test('初期ロードは defaults', () async {
+    final container = await makeContainer();
+    addTearDown(container.dispose);
+
+    final settings = await container.read(settingsProvider.future);
+    expect(settings, AppSettings.defaults);
+  });
+
+  test('setUnit で単位が変わり永続化される', () async {
+    final container = await makeContainer();
+    addTearDown(container.dispose);
+    await container.read(settingsProvider.future);
+
+    await container.read(settingsProvider.notifier).setUnit(DistanceUnit.miles);
+
+    expect(container.read(settingsProvider).value!.unit, DistanceUnit.miles);
+
+    // 永続化されている（リポジトリから読み直しても残る）。
+    final repo = await container.read(settingsRepositoryProvider.future);
+    expect(repo.load().unit, DistanceUnit.miles);
+  });
+
+  test('setNotifications / setDefaultBudget が反映される', () async {
+    final container = await makeContainer();
+    addTearDown(container.dispose);
+    await container.read(settingsProvider.future);
+
+    final notifier = container.read(settingsProvider.notifier);
+    await notifier.setNotifications(false);
+    await notifier.setDefaultBudget(90);
+
+    final s = container.read(settingsProvider).value!;
+    expect(s.notificationsEnabled, isFalse);
+    expect(s.defaultBudgetMinutes, 90);
+  });
+}
