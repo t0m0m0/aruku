@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/models/app_settings.dart';
+import '../../core/models/auth_user.dart';
 import '../../core/state/app_state.dart';
+import '../../core/state/auth_provider.dart';
 import '../../core/state/settings_provider.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
@@ -26,6 +28,7 @@ class SettingsScreen extends ConsumerWidget {
     final settingsAsync = ref.watch(settingsProvider);
     final settings = settingsAsync.value ?? AppSettings.defaults;
     final settingsNotifier = ref.read(settingsProvider.notifier);
+    final user = ref.watch(authProvider).value;
 
     return Material(
       color: c.ivory,
@@ -107,15 +110,9 @@ class SettingsScreen extends ConsumerWidget {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  const _SettingsSection(
+                  _SettingsSection(
                     title: 'アカウント',
-                    children: [
-                      _LinkRow(
-                        label: 'ログイン / アカウント連携',
-                        trailing: '準備中',
-                        onTap: null,
-                      ),
-                    ],
+                    children: [_buildAccountRow(ref, user)],
                   ),
                 ],
               ),
@@ -123,6 +120,32 @@ class SettingsScreen extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+
+  /// 認証状態に応じたアカウント行を作る。
+  /// 未ログインはログイン導線、ゲストはログイン（昇格）導線、
+  /// メールユーザーはメール表示とログアウトを出す。
+  Widget _buildAccountRow(WidgetRef ref, AuthUser? user) {
+    final appNotifier = ref.read(appStateProvider.notifier);
+    if (user == null) {
+      return _LinkRow(
+        label: 'ログイン / アカウント作成',
+        trailing: '',
+        onTap: () => appNotifier.go(Screen.auth),
+      );
+    }
+    if (user.isGuest) {
+      return _LinkRow(
+        label: 'ゲストとして利用中',
+        trailing: 'ログイン',
+        onTap: () => appNotifier.go(Screen.auth),
+      );
+    }
+    return _LinkRow(
+      label: user.label,
+      trailing: 'ログアウト',
+      onTap: () => ref.read(authProvider.notifier).signOut(),
     );
   }
 }
