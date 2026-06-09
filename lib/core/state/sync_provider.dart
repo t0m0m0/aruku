@@ -85,7 +85,13 @@ class SyncNotifier extends Notifier<SyncStatus> {
       final syncedAt = DateTime.now().toUtc();
       await meta.setSyncedAt(syncedAt);
       state = SyncStatus(phase: SyncPhase.success, lastSyncedAt: syncedAt);
-    } catch (_) {
+    } catch (e) {
+      // 同期失敗は UI（失敗・再試行）で表面化する。原因切り分けのため
+      // デバッグ時のみログに残す。
+      assert(() {
+        debugPrint('sync error: $e');
+        return true;
+      }());
       state = state.copyWith(phase: SyncPhase.error);
     }
   }
