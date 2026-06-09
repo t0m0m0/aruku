@@ -9,6 +9,7 @@ import 'package:aruku/core/services/location_service.dart';
 import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:aruku/core/services/settings_repository.dart';
+import 'package:aruku/core/services/sync_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/state/auth_provider.dart';
 import 'package:aruku/core/state/settings_provider.dart';
@@ -21,6 +22,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/fake_auth_service.dart';
+import '../support/fake_sync_service.dart';
 
 class _FakeLocationService implements LocationService {
   @override
@@ -38,7 +40,10 @@ class _FakeActivityService implements ActivityService {
   Stream<ActivitySnapshot> sessionActivityStream() => const Stream.empty();
 }
 
-Future<ProviderContainer> _container({AuthService? auth}) async {
+Future<ProviderContainer> _container({
+  AuthService? auth,
+  FakeSyncService? sync,
+}) async {
   final prefs = await SharedPreferences.getInstance();
   return ProviderContainer(
     overrides: [
@@ -47,6 +52,7 @@ Future<ProviderContainer> _container({AuthService? auth}) async {
       locationServiceProvider.overrideWithValue(_FakeLocationService()),
       activityServiceProvider.overrideWithValue(_FakeActivityService()),
       authServiceProvider.overrideWithValue(auth ?? FakeAuthService()),
+      syncServiceProvider.overrideWithValue(sync ?? FakeSyncService()),
     ],
   );
 }
@@ -175,5 +181,39 @@ void main() {
 
     expect(container.read(authProvider).value, isNull);
     expect(find.text('ログイン / アカウント作成'), findsOneWidget);
+  });
+
+  testWidgets('ログイン済みはクラウド同期行を表示し、タップで同期する', (tester) async {
+    final fake = FakeAuthService(
+      initialUser: const AuthUser(uid: 'u1', email: 'a@example.com'),
+    );
+    addTearDown(fake.dispose);
+    final sync = FakeSyncService();
+    final container = await _container(auth: fake, sync: sync);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('クラウド同期'), findsOneWidget);
+
+    await tester.tap(find.text('今すぐ同期'));
+    await tester.pumpAndSettle();
+
+    // リモート無しなのでローカルがアップロードされる。
+    expect(sync.pushCount, greaterThan(0));
+  });
+
+  testWidgets('ゲストはクラウド同期行を表示しない', (tester) async {
+    final fake = FakeAuthService(initialUser: const AuthUser(uid: 'g1'));
+    addTearDown(fake.dispose);
+    final container = await _container(auth: fake);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('クラウド同期'), findsNothing);
+    expect(find.text('ゲストとして利用中'), findsOneWidget);
   });
 }

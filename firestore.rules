@@ -1,11 +1,20 @@
 rules_version = '2';
 
-// このプロジェクトの Firestore はサーバ専用（Cloud Functions の Admin SDK のみが
+// このプロジェクトの Firestore は原則サーバ専用（Cloud Functions の Admin SDK のみが
 // 利用する）。レートリミッタの rateLimits コレクションを含め、クライアント SDK から
-// の読み書きは全面拒否する。Admin SDK はセキュリティルールをバイパスするため、
+// の読み書きは既定で全面拒否する。Admin SDK はセキュリティルールをバイパスするため、
 // レートリミッタの動作には影響しない。
+//
+// 例外として、アカウント同期（履歴・設定・お気に入り・ストリーク）のために
+// userSync/{uid} ドキュメントのみ、認証済みの本人による読み書きを許可する。
 service cloud.firestore {
   match /databases/{database}/documents {
+    // ユーザーごとのクラウド同期ドキュメント。本人だけが読み書きできる。
+    match /userSync/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // 上記以外は全面拒否（サーバ専用）。
     match /{document=**} {
       allow read, write: if false;
     }

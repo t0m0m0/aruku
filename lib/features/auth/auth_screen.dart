@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/services/auth_error.dart';
 import '../../core/state/app_state.dart';
 import '../../core/state/auth_provider.dart';
+import '../../core/state/sync_provider.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
@@ -73,6 +76,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     try {
       await op();
       if (!mounted) return;
+      // ログイン直後にクラウド同期を走らせる（本物のアカウントのみ）。
+      final user = ref.read(authProvider).value;
+      if (user != null && !user.isGuest) {
+        unawaited(ref.read(syncProvider.notifier).sync());
+      }
       ref.read(appStateProvider.notifier).go(Screen.settings);
     } on AuthException catch (e) {
       if (!mounted) return;

@@ -7,6 +7,7 @@ import '../../core/models/auth_user.dart';
 import '../../core/state/app_state.dart';
 import '../../core/state/auth_provider.dart';
 import '../../core/state/settings_provider.dart';
+import '../../core/state/sync_provider.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_card.dart';
@@ -112,7 +113,13 @@ class SettingsScreen extends ConsumerWidget {
                   const SizedBox(height: 16),
                   _SettingsSection(
                     title: 'アカウント',
-                    children: [_buildAccountRow(ref, user)],
+                    children: [
+                      _buildAccountRow(ref, user),
+                      if (user != null && !user.isGuest) ...[
+                        const _RowDivider(),
+                        _buildSyncRow(ref),
+                      ],
+                    ],
                   ),
                 ],
               ),
@@ -146,6 +153,23 @@ class SettingsScreen extends ConsumerWidget {
       label: user.label,
       trailing: 'ログアウト',
       onTap: () => ref.read(authProvider.notifier).signOut(),
+    );
+  }
+
+  /// クラウド同期の状態表示とトリガー行。同期中は再実行を抑止する。
+  Widget _buildSyncRow(WidgetRef ref) {
+    final status = ref.watch(syncProvider);
+    final syncing = status.phase == SyncPhase.syncing;
+    final trailing = switch (status.phase) {
+      SyncPhase.syncing => '同期中…',
+      SyncPhase.success => '同期済み',
+      SyncPhase.error => '失敗・再試行',
+      SyncPhase.idle => '今すぐ同期',
+    };
+    return _LinkRow(
+      label: 'クラウド同期',
+      trailing: trailing,
+      onTap: syncing ? null : () => ref.read(syncProvider.notifier).sync(),
     );
   }
 }
