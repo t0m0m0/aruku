@@ -57,6 +57,21 @@ class ActivityLogRepository {
     });
   }
 
+  /// 履歴を丸ごと差し替える（クラウド同期の適用など）。
+  /// 日付昇順に整え、保持期間を超える古い日付は切り捨てる。
+  Future<void> replaceAll(List<DailyActivity> items, {DateTime? now}) {
+    return _serialize(() async {
+      final cutoff = (now ?? DateTime.now()).subtract(
+        const Duration(days: retentionDays),
+      );
+      final next = [
+        for (final e in items)
+          if (!e.date.isBefore(cutoff)) e,
+      ]..sort((a, b) => a.date.compareTo(b.date));
+      await _save(next);
+    });
+  }
+
   /// 書き込み系操作を直前の操作完了後に実行し、load→save の競合を防ぐ。
   Future<void> _serialize(Future<void> Function() action) {
     final result = _writeLock.then((_) => action());

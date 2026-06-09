@@ -49,6 +49,17 @@ class RecentsRepository {
     return _serialize(() => _prefs.remove(_key));
   }
 
+  /// 一覧を丸ごと差し替える（クラウド同期の適用など）。
+  /// [maxItems] を超える分は先頭から切り詰める。
+  Future<void> replaceAll(List<RecentDestination> items) {
+    return _serialize(() {
+      final clipped = items.length > maxItems
+          ? items.sublist(0, maxItems)
+          : items;
+      return _save(clipped.toList(growable: false));
+    });
+  }
+
   /// 書き込み系操作を直前の操作完了後に実行し、load→save の競合を防ぐ。
   Future<void> _serialize(Future<void> Function() action) {
     final result = _writeLock.then((_) => action());

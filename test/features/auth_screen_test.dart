@@ -5,6 +5,7 @@ import 'package:aruku/core/services/activity_service.dart';
 import 'package:aruku/core/services/auth_error.dart';
 import 'package:aruku/core/services/auth_service.dart';
 import 'package:aruku/core/services/location_service.dart';
+import 'package:aruku/core/services/sync_service.dart';
 import 'package:aruku/core/state/auth_provider.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/features/auth/auth_screen.dart';
@@ -14,6 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/fake_auth_service.dart';
+import '../support/fake_sync_service.dart';
 
 class _FakeLocationService implements LocationService {
   @override
@@ -40,6 +42,7 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         authServiceProvider.overrideWithValue(fake),
+        syncServiceProvider.overrideWithValue(FakeSyncService()),
         locationServiceProvider.overrideWithValue(_FakeLocationService()),
         activityServiceProvider.overrideWithValue(_FakeActivityService()),
       ],
