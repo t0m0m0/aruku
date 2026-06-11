@@ -46,6 +46,24 @@ void main() {
     });
   });
 
+  group('TimeValue.formatBudget', () {
+    test('60分未満は「分」のみ', () {
+      expect(TimeValue.formatBudget(45), '45分');
+    });
+
+    test('60分以上は「時間」と「分」（分は2桁ゼロ埋め）', () {
+      expect(TimeValue.formatBudget(90), '1時間 30分');
+    });
+
+    test('ちょうど時間単位でも分は2桁で表示', () {
+      expect(TimeValue.formatBudget(120), '2時間 00分');
+    });
+
+    test('0以下はプレースホルダ', () {
+      expect(TimeValue.formatBudget(0), '— ');
+    });
+  });
+
   group('TimeValue.dateLabel', () {
     final now = DateTime(2026, 5, 19); // 火曜日
 

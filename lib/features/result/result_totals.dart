@@ -23,20 +23,20 @@ class _TotalsStrip extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
+                  '${route.kcal}',
+                  style: numStyle(
+                    size: 38,
+                    weight: FontWeight.w500,
+                    color: c.burnt,
+                  ),
+                ),
+                Text(
                   'KCAL',
                   style: jpStyle(
                     size: 10,
                     weight: FontWeight.w800,
                     color: c.burnt,
                     letterSpacing: 0.1 * 10,
-                  ),
-                ),
-                Text(
-                  '${route.kcal}',
-                  style: numStyle(
-                    size: 38,
-                    weight: FontWeight.w500,
-                    color: c.burnt,
                   ),
                 ),
               ],
@@ -54,15 +54,6 @@ class _TotalsStrip extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'WALK',
-                      style: jpStyle(
-                        size: 10,
-                        weight: FontWeight.w800,
-                        color: c.ink3,
-                        letterSpacing: 0.1 * 10,
-                      ),
-                    ),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.baseline,
                       textBaseline: TextBaseline.alphabetic,
@@ -104,16 +95,7 @@ class _TotalsStrip extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'TOTAL',
-                      style: jpStyle(
-                        size: 10,
-                        weight: FontWeight.w800,
-                        color: c.ink3,
-                        letterSpacing: 0.1 * 10,
-                      ),
-                    ),
-                    Text(
-                      '${route.totalMin ~/ 60}h${(route.totalMin % 60).toString().padLeft(2, '0')}',
+                      TimeValue.formatBudget(route.totalMin),
                       style: numStyle(
                         size: 22,
                         weight: FontWeight.w500,
@@ -164,7 +146,7 @@ class _WalkRatioRow extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                '制限 ${(route.budgetMin / 60).toStringAsFixed(1)}時間のうち ${route.totalMin ~/ 60}h${(route.totalMin % 60).toString().padLeft(2, '0')} で到着 · ${route.budgetMin - route.totalMin}分 余裕',
+                '制限 ${TimeValue.formatBudget(route.budgetMin)}のうち ${TimeValue.formatBudget(route.totalMin)} で到着 · ${route.budgetMin - route.totalMin}分 余裕',
                 style: jpStyle(
                   size: 11,
                   weight: FontWeight.w500,

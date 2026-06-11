@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/models/favorite_place.dart';
 import '../../core/models/route_plan.dart';
+import '../../core/models/time_value.dart';
 import '../../core/state/app_state.dart';
 import '../../core/state/favorites_provider.dart';
 import '../../core/theme/aruku_theme.dart';

@@ -18,10 +18,13 @@ const double trainMetersPerMinute = 500.0;
 /// isNow のときは dateOffset を無視して当日扱い。budget 計算と epoch で共有。
 int effectiveOffset(TimeValue t) => t.isNow ? 0 : t.dateOffset;
 
+/// 当日0時基準の絶対分。isNow / dateOffset を踏まえ日跨ぎ計算の共通基準にする。
+int absoluteMinutes(TimeValue t) =>
+    t.totalMinutes + effectiveOffset(t) * 24 * 60;
+
 /// 出発〜到着の予算（分）。日跨ぎ（dateOffset / isNow）を考慮する。
 int budgetMinutes(TimeValue departure, TimeValue arrival) =>
-    (arrival.totalMinutes + effectiveOffset(arrival) * 24 * 60) -
-    (departure.totalMinutes + effectiveOffset(departure) * 24 * 60);
+    absoluteMinutes(arrival) - absoluteMinutes(departure);
 
 /// 出発時刻 + 経過分を "h:mm" へ整形（時は24で剰余）。
 String formatClock(TimeValue dep, int addMinutes) {

@@ -35,6 +35,7 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
   late final DateTime _today;
   late final DateTime _minDate;
   late final DateTime _maxDate;
+  late final DateTime _arrivalMin;
   late PickerMode _mode;
   late DateTime _selected;
 
@@ -50,15 +51,40 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
     // 過去時刻は選択不可。秒は落として分単位の下限にする（1分刻みで選べる）。
     _minDate = DateTime(now.year, now.month, now.day, now.hour, now.minute);
     _maxDate = DateTime(_today.year, _today.month, _today.day + 90, 23, 59);
+    _arrivalMin = _computeArrivalMin();
     _mode = widget.initialMode;
     _selected = _initialFor(_mode);
   }
 
+  /// 到着タブのホイール下限を算出する。「出発 < 到着」を保つため出発+最小ギャップを
+  /// 下限にして、出発より前を選べなくする。出発はモーダル表示中に変わらないため
+  /// initState で一度だけ呼び、build ごとの ref.read を避ける。
+  DateTime _computeArrivalMin() {
+    final dep = ref.read(appStateProvider).departure;
+    final depDt = dep.isNow
+        ? _minDate
+        : DateTime(
+            _today.year,
+            _today.month,
+            _today.day + dep.dateOffset,
+            dep.h,
+            dep.m,
+          );
+    final floor = depDt.add(const Duration(minutes: kMinBudgetMinutes));
+    final lower = floor.isAfter(_minDate) ? floor : _minDate;
+    return lower.isAfter(_maxDate) ? _maxDate : lower;
+  }
+
+  /// ホイールの下限。到着タブはキャッシュした出発基準、出発タブは現在時刻が下限。
+  DateTime _minFor(PickerMode mode) =>
+      mode == PickerMode.arrival ? _arrivalMin : _minDate;
+
   DateTime _initialFor(PickerMode mode) {
+    final min = _minFor(mode);
     final state = ref.read(appStateProvider);
     final t = mode == PickerMode.depart ? state.departure : state.arrival;
     // isNow は記憶した丸め値ではなく、開いた時点の現在時刻（分単位）に合わせる。
-    if (t.isNow) return _minDate;
+    if (t.isNow) return min;
     final dt = DateTime(
       _today.year,
       _today.month,
@@ -66,7 +92,7 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
       t.h,
       t.m,
     );
-    if (dt.isBefore(_minDate)) return _minDate;
+    if (dt.isBefore(min)) return min;
     if (dt.isAfter(_maxDate)) return _maxDate;
     return dt;
   }
@@ -161,7 +187,7 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
                 key: ValueKey('${_mode}_$_pickerEpoch'),
                 mode: CupertinoDatePickerMode.dateAndTime,
                 use24hFormat: true,
-                minimumDate: _minDate,
+                minimumDate: _minFor(_mode),
                 maximumDate: _maxDate,
                 initialDateTime: _selected,
                 onDateTimeChanged: (d) => _selected = d,

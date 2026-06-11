@@ -26,6 +26,38 @@ const double kRerouteThresholdMeters = 50;
 /// いつでも調整できるため、設定では持たず固定のシード値とする。
 const int kInitialBudgetMinutes = 60;
 
+/// 出発と到着の最小ギャップ（分）。これにより常に「出発 < 到着」を保証する。
+const int kMinBudgetMinutes = 1;
+
+/// 当日0時基準の絶対分から TimeValue を復元する（isNow は付かない）。
+TimeValue _timeValueFromAbs(int abs) =>
+    TimeValue(h: (abs ~/ 60) % 24, m: abs % 60, dateOffset: abs ~/ (24 * 60));
+
+/// 出発を変更したときの到着。予算が最小ギャップ未満になる場合のみ、変更前の予算を
+/// 保ったまま到着を後ろへずらす（カレンダー式）。前へ動かして予算が広がる場合は据置。
+TimeValue _arrivalAfterDeparture(
+  TimeValue newDeparture,
+  TimeValue oldDeparture,
+  TimeValue arrival,
+) {
+  final newDepAbs = planner.absoluteMinutes(newDeparture);
+  if (planner.absoluteMinutes(arrival) - newDepAbs >= kMinBudgetMinutes) {
+    return arrival;
+  }
+  final oldBudget =
+      planner.absoluteMinutes(arrival) - planner.absoluteMinutes(oldDeparture);
+  final keep = oldBudget >= kMinBudgetMinutes ? oldBudget : kMinBudgetMinutes;
+  return _timeValueFromAbs(newDepAbs + keep);
+}
+
+/// 到着を変更したときの到着。出発 + 最小ギャップを下回らないようクランプする。
+TimeValue _clampArrivalAfterDeparture(TimeValue departure, TimeValue arrival) {
+  final minAbs = planner.absoluteMinutes(departure) + kMinBudgetMinutes;
+  return planner.absoluteMinutes(arrival) >= minAbs
+      ? arrival
+      : _timeValueFromAbs(minAbs);
+}
+
 /// 自動再検索を発火するまでに必要な連続オフルート回数。瞬間的なノイズを除外する。
 const int kRerouteSustainFixes = 3;
 
@@ -466,9 +498,20 @@ class AppNotifier extends Notifier<AppState> {
     required int dateOffset,
   }) {
     final picked = TimeValue(h: h, m: m, dateOffset: dateOffset);
+    // 常に「出発 < 到着」を保つ。出発変更時は到着を後ろへ自動シフト（予算維持）、
+    // 到着変更時は出発+最小ギャップへクランプする。
     state = mode == PickerMode.depart
-        ? state.copyWith(departure: picked)
-        : state.copyWith(arrival: picked);
+        ? state.copyWith(
+            departure: picked,
+            arrival: _arrivalAfterDeparture(
+              picked,
+              state.departure,
+              state.arrival,
+            ),
+          )
+        : state.copyWith(
+            arrival: _clampArrivalAfterDeparture(state.departure, picked),
+          );
   }
 
   Future<void> startSearch() async {
