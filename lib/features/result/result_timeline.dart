@@ -95,6 +95,25 @@ class _TimelineSegmentRow extends StatelessWidget {
   const _TimelineSegmentRow({required this.seg});
   final RouteSegment seg;
 
+  /// 区間所要分を「大きい数字＋小さい単位」で組む。60分以上は n時m分 へ分解する。
+  List<Widget> _durationParts(int minutes, Color color) {
+    final num = numStyle(size: 12, weight: FontWeight.w800, color: color);
+    final unit = jpStyle(size: 10, weight: FontWeight.w700, color: color);
+    if (minutes >= 60) {
+      return [
+        Text('${minutes ~/ 60}', style: num),
+        Text('時', style: unit),
+        Text((minutes % 60).toString().padLeft(2, '0'), style: num),
+        Text('分', style: unit),
+      ];
+    }
+    return [
+      Text('$minutes', style: num),
+      const SizedBox(width: 1),
+      Text('分', style: unit),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -149,25 +168,7 @@ class _TimelineSegmentRow extends StatelessWidget {
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.baseline,
                           textBaseline: TextBaseline.alphabetic,
-                          children: [
-                            Text(
-                              '${seg.minutes}',
-                              style: numStyle(
-                                size: 12,
-                                weight: FontWeight.w800,
-                                color: color,
-                              ),
-                            ),
-                            const SizedBox(width: 1),
-                            Text(
-                              '分',
-                              style: jpStyle(
-                                size: 10,
-                                weight: FontWeight.w700,
-                                color: color,
-                              ),
-                            ),
-                          ],
+                          children: _durationParts(seg.minutes, color),
                         ),
                       ],
                     ),
