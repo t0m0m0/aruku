@@ -97,6 +97,17 @@ class AppState {
     };
   }
 
+  /// 経路の出発ノードに表示する出発地名。手動指定の出発地、または位置が確定済みの
+  /// 「現在地」を返す。取得中・位置情報なしの過渡値は表示に適さないため null を返し、
+  /// NAVITIME 解析値（フォールバック）へ委ねる。
+  String? get departureNameForRoute {
+    if (origin != null) return origin;
+    return switch (locationState) {
+      LocationAvailable() => '現在地',
+      LocationLoading() || LocationDenied() => null,
+    };
+  }
+
   AppState copyWith({
     Screen? screen,
     Object? destination = _sentinel,
@@ -418,7 +429,7 @@ class AppNotifier extends Notifier<AppState> {
             ),
             arrival: state.arrival,
             origin: from,
-            originName: state.departureLabelText,
+            originName: state.departureNameForRoute,
           );
       if (_disposed) return;
       state = state.copyWith(route: plan, isRerouting: false);
@@ -486,7 +497,7 @@ class AppNotifier extends Notifier<AppState> {
             departure: state.departure,
             arrival: state.arrival,
             origin: origin,
-            originName: state.departureLabelText,
+            originName: state.departureNameForRoute,
             onProgress: (phase) => state = state.copyWith(routePhase: phase),
           );
       state = state.copyWith(
