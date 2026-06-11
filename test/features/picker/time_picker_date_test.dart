@@ -269,6 +269,35 @@ void main() {
       expect(find.byType(CupertinoDatePicker), findsNothing);
     });
 
+    testWidgets('到着ピッカーの下限は出発+1分になり、出発より前を選べない', (tester) async {
+      final container = _container();
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: ArukuTheme.light(),
+            home: const HomeScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      // 出発を遠い未来へ固定し、現在時刻ではなく出発が下限を決めることを確かめる。
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(mode: PickerMode.depart, h: 10, m: 0, dateOffset: 5);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('time_field_arrival')));
+      await tester.pumpAndSettle();
+
+      final picker = tester.widget<CupertinoDatePicker>(
+        find.byType(CupertinoDatePicker),
+      );
+      final now = DateTime.now();
+      final expectedMin = DateTime(now.year, now.month, now.day + 5, 10, 1);
+      expect(picker.minimumDate, expectedMin);
+    });
+
     testWidgets('出発タブでは「現在時刻」ボタンが出る', (tester) async {
       final container = _container();
       await pumpHome(tester, container);

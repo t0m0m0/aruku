@@ -54,11 +54,31 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
     _selected = _initialFor(_mode);
   }
 
+  /// ホイールの下限。到着タブでは「出発 < 到着」を保つため出発+最小ギャップを
+  /// 下限にして、出発より前を選べなくする。出発タブは現在時刻のみが下限。
+  DateTime _minFor(PickerMode mode) {
+    if (mode != PickerMode.arrival) return _minDate;
+    final dep = ref.read(appStateProvider).departure;
+    final depDt = dep.isNow
+        ? _minDate
+        : DateTime(
+            _today.year,
+            _today.month,
+            _today.day + dep.dateOffset,
+            dep.h,
+            dep.m,
+          );
+    final floor = depDt.add(const Duration(minutes: kMinBudgetMinutes));
+    final lower = floor.isAfter(_minDate) ? floor : _minDate;
+    return lower.isAfter(_maxDate) ? _maxDate : lower;
+  }
+
   DateTime _initialFor(PickerMode mode) {
+    final min = _minFor(mode);
     final state = ref.read(appStateProvider);
     final t = mode == PickerMode.depart ? state.departure : state.arrival;
     // isNow は記憶した丸め値ではなく、開いた時点の現在時刻（分単位）に合わせる。
-    if (t.isNow) return _minDate;
+    if (t.isNow) return min;
     final dt = DateTime(
       _today.year,
       _today.month,
@@ -66,7 +86,7 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
       t.h,
       t.m,
     );
-    if (dt.isBefore(_minDate)) return _minDate;
+    if (dt.isBefore(min)) return min;
     if (dt.isAfter(_maxDate)) return _maxDate;
     return dt;
   }
@@ -161,7 +181,7 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
                 key: ValueKey('${_mode}_$_pickerEpoch'),
                 mode: CupertinoDatePickerMode.dateAndTime,
                 use24hFormat: true,
-                minimumDate: _minDate,
+                minimumDate: _minFor(_mode),
                 maximumDate: _maxDate,
                 initialDateTime: _selected,
                 onDateTimeChanged: (d) => _selected = d,
