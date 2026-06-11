@@ -18,12 +18,12 @@ void main() {
   test('toJson / fromJson でラウンドトリップする', () {
     final data = sample(
       updatedAt: DateTime.utc(2026, 6, 8, 12),
-      settings: const AppSettings(unit: DistanceUnit.miles),
+      settings: const AppSettings(notificationsEnabled: false),
     );
     final restored = SyncData.fromJson(data.toJson());
 
     expect(restored.updatedAt, data.updatedAt);
-    expect(restored.settings.unit, DistanceUnit.miles);
+    expect(restored.settings.notificationsEnabled, isFalse);
     expect(restored.favorites.single.name, '東京駅');
     expect(restored.recents.single.name, '渋谷駅');
     expect(restored.activity.single.steps, 1200);
@@ -42,7 +42,7 @@ void main() {
       final older = sample(updatedAt: DateTime.utc(2026, 6, 1));
       final newer = sample(
         updatedAt: DateTime.utc(2026, 6, 8),
-        settings: const AppSettings(unit: DistanceUnit.miles),
+        settings: const AppSettings(notificationsEnabled: false),
       );
 
       expect(SyncData.mergeLww(local: older, remote: newer), same(newer));

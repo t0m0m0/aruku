@@ -14,7 +14,7 @@ import '../../shared/widgets/aruku_card.dart';
 
 part 'settings_widgets.dart';
 
-/// 設定画面。単位・通知を変更でき、変更は即時に永続化される。
+/// 設定画面。通知を変更でき、変更は即時に永続化される。
 /// 権限とアカウントへの導線も併せて提供する。
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -70,16 +70,6 @@ class SettingsScreen extends ConsumerWidget {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
                 children: [
-                  _SettingsSection(
-                    title: '移動',
-                    children: [
-                      _UnitRow(
-                        value: settings.unit,
-                        onChanged: settingsNotifier.setUnit,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
                   _SettingsSection(
                     title: '通知',
                     children: [

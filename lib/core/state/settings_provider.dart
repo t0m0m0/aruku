@@ -12,9 +12,6 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
     return repo.load();
   }
 
-  Future<void> setUnit(DistanceUnit unit) =>
-      _update((s) => s.copyWith(unit: unit));
-
   Future<void> setNotifications(bool enabled) =>
       _update((s) => s.copyWith(notificationsEnabled: enabled));
 

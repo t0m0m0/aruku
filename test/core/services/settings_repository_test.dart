@@ -22,12 +22,11 @@ void main() {
 
   test('save した設定が永続化され、別インスタンスからも読める', () async {
     final prefs = await SharedPreferences.getInstance();
-    await SettingsRepository(prefs).save(
-      const AppSettings(unit: DistanceUnit.miles, notificationsEnabled: false),
-    );
+    await SettingsRepository(
+      prefs,
+    ).save(const AppSettings(notificationsEnabled: false));
 
     final loaded = SettingsRepository(prefs).load();
-    expect(loaded.unit, DistanceUnit.miles);
     expect(loaded.notificationsEnabled, isFalse);
   });
 
