@@ -13,4 +13,11 @@ class AppConfig {
   /// 開発時: `flutter run --dart-define=PROXY_BASE_URL=http://127.0.0.1:5001/{projectId}/asia-northeast1`
   /// 本番時: `flutter run --dart-define=PROXY_BASE_URL=https://asia-northeast1-{projectId}.cloudfunctions.net`
   static const String proxyBaseUrl = String.fromEnvironment('PROXY_BASE_URL');
+
+  /// デバッグビルド用 App Check トークン。
+  /// `dart_defines.json` の APP_CHECK_DEBUG_TOKEN に設定し、
+  /// 同じ値を Firebase Console → App Check → デバッグトークン に登録する。
+  static const String appCheckDebugToken = String.fromEnvironment(
+    'APP_CHECK_DEBUG_TOKEN',
+  );
 }

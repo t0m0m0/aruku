@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/config/app_config.dart';
 import 'core/services/onboarding_repository.dart';
 import 'core/services/recents_repository.dart';
 import 'core/state/app_state.dart';
@@ -70,9 +71,14 @@ void _assertFirebaseKeyPresent() {
 // 登録して開発する。
 Future<void> _activateAppCheck() {
   if (kDebugMode) {
+    const token = AppConfig.appCheckDebugToken;
     return FirebaseAppCheck.instance.activate(
-      providerAndroid: const AndroidDebugProvider(),
-      providerApple: const AppleDebugProvider(),
+      providerAndroid: AndroidDebugProvider(
+        debugToken: token.isEmpty ? null : token,
+      ),
+      providerApple: AppleDebugProvider(
+        debugToken: token.isEmpty ? null : token,
+      ),
     );
   }
   return FirebaseAppCheck.instance.activate(
