@@ -164,7 +164,6 @@ class HomeScreen extends ConsumerWidget {
                               time: dep.format(),
                               date: dep.dateLabel(),
                               sub: dep.isNow ? '今すぐ' : 'タップで変更',
-                              anchored: !arr.anchored,
                               onTap: () =>
                                   _pickDateTime(context, PickerMode.depart),
                             ),
@@ -184,10 +183,7 @@ class HomeScreen extends ConsumerWidget {
                               label: '到着',
                               time: arr.format(),
                               date: arr.dateLabel(),
-                              sub: arr.anchored
-                                  ? '指定時刻'
-                                  : '+ ${TimeValue.formatBudget(budget)}',
-                              anchored: arr.anchored,
+                              sub: 'タップで変更',
                               onTap: () =>
                                   _pickDateTime(context, PickerMode.arrival),
                             ),

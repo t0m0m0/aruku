@@ -236,7 +236,6 @@ class _TimeField extends StatelessWidget {
     required this.time,
     required this.date,
     required this.sub,
-    required this.anchored,
     required this.onTap,
   });
 
@@ -244,7 +243,6 @@ class _TimeField extends StatelessWidget {
   final String time;
   final String? date;
   final String sub;
-  final bool anchored;
   final VoidCallback onTap;
 
   @override
@@ -257,46 +255,17 @@ class _TimeField extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: anchored ? c.moss50 : Colors.transparent,
-            border: Border.all(
-              color: anchored ? c.moss200 : Colors.transparent,
-            ),
-            borderRadius: BorderRadius.circular(12),
-          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Text(
-                    label,
-                    style: jpStyle(
-                      size: 11,
-                      weight: FontWeight.w800,
-                      color: c.ink2,
-                      letterSpacing: 0.08 * 11,
-                    ),
-                  ),
-                  if (anchored) ...[
-                    const SizedBox(width: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5),
-                      decoration: BoxDecoration(
-                        color: c.moss200,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        '固定',
-                        style: jpStyle(
-                          size: 9,
-                          weight: FontWeight.w700,
-                          color: c.moss700,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
+              Text(
+                label,
+                style: jpStyle(
+                  size: 11,
+                  weight: FontWeight.w800,
+                  color: c.ink2,
+                  letterSpacing: 0.08 * 11,
+                ),
               ),
               if (date != null) ...[
                 const SizedBox(height: 2),

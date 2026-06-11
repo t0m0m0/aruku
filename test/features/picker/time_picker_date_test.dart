@@ -135,6 +135,48 @@ void main() {
     });
   });
 
+  group('HomeScreen 固定バッジ撤去', () {
+    Future<void> pumpHomeRaw(
+      WidgetTester tester,
+      ProviderContainer container,
+    ) async {
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: ArukuTheme.light(),
+            home: const HomeScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('初期表示で「固定」バッジは出ない', (tester) async {
+      final container = _container();
+      await pumpHomeRaw(tester, container);
+
+      expect(find.text('固定'), findsNothing);
+    });
+
+    testWidgets('到着を確定しても「固定」バッジは出ない', (tester) async {
+      final container = _container();
+      await pumpHomeRaw(tester, container);
+
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(
+            mode: PickerMode.arrival,
+            h: 18,
+            m: 0,
+            dateOffset: 0,
+          );
+      await tester.pumpAndSettle();
+
+      expect(find.text('固定'), findsNothing);
+    });
+  });
+
   group('HomeScreen 日付ラベル表示', () {
     Future<void> pumpHomeRaw(
       WidgetTester tester,
