@@ -123,6 +123,49 @@ void main() {
 
       expect(find.byType(CupertinoDatePicker), findsNothing);
     });
+
+    testWidgets('出発タブでは「現在時刻」ボタンが出る', (tester) async {
+      final container = _container();
+      await pumpHome(tester, container);
+
+      expect(find.byKey(const Key('picker_now')), findsOneWidget);
+    });
+
+    testWidgets('到着タブに切替えると「現在時刻」ボタンは消える', (tester) async {
+      final container = _container();
+      await pumpHome(tester, container);
+
+      await tester.tap(find.byKey(const Key('seg_arrival')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('picker_now')), findsNothing);
+    });
+
+    testWidgets('「現在時刻」タップではシートは閉じず、完了で現在時刻（分単位）が入る', (tester) async {
+      final container = _container();
+      await pumpHome(tester, container);
+
+      final before = DateTime.now();
+      await tester.tap(find.byKey(const Key('picker_now')));
+      await tester.pumpAndSettle();
+
+      // シートは閉じない（ホイールを現在時刻に合わせるだけ）。
+      expect(find.byType(CupertinoDatePicker), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('picker_done')));
+      await tester.pumpAndSettle();
+      final after = DateTime.now();
+
+      // 5分丸めではなく、現在時刻の分がそのまま入る。
+      final dep = container.read(appStateProvider).departure;
+      final depMinutes = dep.h * 60 + dep.m;
+      expect(
+        depMinutes,
+        greaterThanOrEqualTo(before.hour * 60 + before.minute),
+      );
+      expect(depMinutes, lessThanOrEqualTo(after.hour * 60 + after.minute));
+      expect(dep.dateOffset, 0);
+    });
   });
 
   group('HomeScreen 固定バッジ撤去', () {
