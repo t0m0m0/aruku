@@ -220,7 +220,7 @@ class AppNotifier extends Notifier<AppState> {
     unawaited(_startActivityTracking());
     final now = DateTime.now();
     final depH = now.hour;
-    final depM = _roundTo5(now.minute);
+    final depM = now.minute;
     // 完了済みならオンボーディングを飛ばして home から開始する。
     final initialScreen = ref.read(onboardingCompletedProvider)
         ? Screen.home
@@ -434,11 +434,7 @@ class AppNotifier extends Notifier<AppState> {
           .plan(
             destination: state.destination,
             destinationLatLng: state.destinationLatLng,
-            departure: TimeValue(
-              h: now.hour,
-              m: _roundTo5(now.minute),
-              isNow: true,
-            ),
+            departure: TimeValue(h: now.hour, m: now.minute, isNow: true),
             arrival: state.arrival,
             origin: from,
             originName: state.departureNameForRoute,
@@ -512,11 +508,6 @@ class AppNotifier extends Notifier<AppState> {
         routePhase: null,
       );
     }
-  }
-
-  static int _roundTo5(int m) {
-    final rounded = ((m + 2) ~/ 5) * 5;
-    return rounded.clamp(0, 55);
   }
 }
 
