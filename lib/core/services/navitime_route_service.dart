@@ -39,6 +39,7 @@ class NaviTimeRouteService implements RouteService {
     required TimeValue departure,
     required TimeValue arrival,
     GeoPoint? origin,
+    String? originName,
     void Function(RoutePhase)? onProgress,
   }) async {
     if (_proxyBaseUrl.isEmpty) throw const RouteException('NO_PROXY');
@@ -85,6 +86,8 @@ class NaviTimeRouteService implements RouteService {
         departure,
         budgetMin,
         onProgress,
+        fromName: originName,
+        toName: destination,
       );
     }
 
@@ -104,6 +107,8 @@ class NaviTimeRouteService implements RouteService {
       departure,
       budgetMin,
       onProgress,
+      fromName: originName,
+      toName: destination,
     );
   }
 
@@ -114,10 +119,19 @@ class NaviTimeRouteService implements RouteService {
     RouteCandidate chosen,
     TimeValue departure,
     int budgetMin,
-    void Function(RoutePhase)? onProgress,
-  ) async {
+    void Function(RoutePhase)? onProgress, {
+    String? fromName,
+    String? toName,
+  }) async {
     final route = await _enrichWalkGeometry(chosen);
-    return _build(route, departure, budgetMin, onProgress);
+    return _build(
+      route,
+      departure,
+      budgetMin,
+      onProgress,
+      fromName: fromName,
+      toName: toName,
+    );
   }
 
   /// 確定経路の徒歩区間を Google Routes の街路ジオメトリ・所要時間・距離で
@@ -146,17 +160,28 @@ class NaviTimeRouteService implements RouteService {
     RouteCandidate chosen,
     TimeValue departure,
     int budgetMin,
-    void Function(RoutePhase)? onProgress,
-  ) {
+    void Function(RoutePhase)? onProgress, {
+    String? fromName,
+    String? toName,
+  }) {
     onProgress?.call(RoutePhase.building);
     return buildRoutePlan(
-      from: chosen.from,
-      to: chosen.to,
+      // アプリが持つ実際の出発地・目的地名を優先する。NAVITIME は座標問い合わせ
+      // だと地点名を "start"/"goal" で返すため、解析値はフォールバックに留める。
+      from: _displayName(fromName, chosen.from),
+      to: _displayName(toName, chosen.to),
       segments: chosen.segments,
       departure: departure,
       budgetMin: budgetMin,
       departureAt: _departureDateTime(departure),
     );
+  }
+
+  /// 表示名を決める。アプリ由来の [override] が空でなければそれを、無ければ
+  /// NAVITIME 解析値 [fallback] を使う。
+  String _displayName(String? override, String fallback) {
+    final name = override?.trim();
+    return (name != null && name.isNotEmpty) ? name : fallback;
   }
 
   /// 停車駅タイムラインを持つ最短の標準経路をハイブリッドの基準にする。

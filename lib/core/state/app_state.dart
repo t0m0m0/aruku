@@ -418,6 +418,7 @@ class AppNotifier extends Notifier<AppState> {
             ),
             arrival: state.arrival,
             origin: from,
+            originName: state.departureLabelText,
           );
       if (_disposed) return;
       state = state.copyWith(route: plan, isRerouting: false);
@@ -485,6 +486,7 @@ class AppNotifier extends Notifier<AppState> {
             departure: state.departure,
             arrival: state.arrival,
             origin: origin,
+            originName: state.departureLabelText,
             onProgress: (phase) => state = state.copyWith(routePhase: phase),
           );
       state = state.copyWith(

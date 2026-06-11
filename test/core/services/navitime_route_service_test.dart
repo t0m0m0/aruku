@@ -202,6 +202,56 @@ void main() {
       expect(plan.timelineNodes.last.sub, contains('制限内'));
     });
 
+    test('出発地・目的地名は NAVITIME の start/goal でなく実名を使う', () async {
+      // NAVITIME は座標問い合わせだと地点名を "start"/"goal" で返す。アプリが
+      // 持つ実際の出発地・目的地名（originName / destination）で上書きする。
+      final transit = _navi([
+        _item([
+          _point('start'),
+          _walkSection(400, 5),
+          _point('品川駅'),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            calling: [
+              _calling(
+                '品川駅',
+                35.628,
+                139.738,
+                '2026-05-22T09:05:00',
+                '2026-05-22T09:05:00',
+              ),
+              _calling(
+                '東京駅',
+                35.681,
+                139.767,
+                '2026-05-22T09:12:00',
+                '2026-05-22T09:12:00',
+              ),
+            ],
+          ),
+          _point('goal'),
+        ]),
+      ]);
+      final client = _mock(transit: transit);
+
+      final plan = await build(client).plan(
+        destination: '東京駅',
+        destinationLatLng: const GeoPoint(35.681, 139.767),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 9, m: 30),
+        origin: const GeoPoint(35.7, 139.75),
+        originName: '自宅',
+      );
+
+      expect(plan.from, '自宅');
+      expect(plan.to, '東京駅');
+      expect(plan.timelineNodes.first.place, '自宅');
+      expect(plan.timelineNodes.last.place, '東京駅');
+    });
+
     test('全徒歩採用時 Google 呼び出しは確定の1区間のみ（選定では呼ばない）', () async {
       final log = <Uri>[];
       final client = _mock(
