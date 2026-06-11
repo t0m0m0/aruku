@@ -431,9 +431,27 @@ void main() {
       final container = _container();
       await pumpHomeRaw(tester, container);
 
-      container
-          .read(appStateProvider.notifier)
-          .applyPickedTime(mode: PickerMode.depart, h: 8, m: 0, dateOffset: 0);
+      final notifier = container.read(appStateProvider.notifier);
+      // 初期 arrival が深夜実行で dateOffset=1 になる場合があるため、
+      // 先に到着を遠い未来へ逃がしてクランプを回避してから当日へ揃える。
+      notifier.applyPickedTime(
+        mode: PickerMode.arrival,
+        h: 23,
+        m: 0,
+        dateOffset: 30,
+      );
+      notifier.applyPickedTime(
+        mode: PickerMode.depart,
+        h: 8,
+        m: 0,
+        dateOffset: 0,
+      );
+      notifier.applyPickedTime(
+        mode: PickerMode.arrival,
+        h: 9,
+        m: 0,
+        dateOffset: 0,
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('明日'), findsNothing);
