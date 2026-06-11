@@ -214,8 +214,7 @@ class AppNotifier extends Notifier<AppState> {
     final initialScreen = ref.read(onboardingCompletedProvider)
         ? Screen.home
         : Screen.onboarding;
-    // 初期到着時刻は「出発 + 既定予算」をシードにする。日跨ぎは dateOffset に
-    // 繰り上げる。
+    // 日跨ぎ（深夜出発）は arrival の dateOffset に繰り上げる。
     final arrivalTotal = depH * 60 + depM + kInitialBudgetMinutes;
     return AppState.initial.copyWith(
       screen: initialScreen,

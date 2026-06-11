@@ -289,4 +289,38 @@ void main() {
       expect(plan.timelineNodes[2].sub, '15分待ち · 2号線');
     });
   });
+
+  group('budgetMinutes', () {
+    test('同日内は到着−出発の差をそのまま返す', () {
+      expect(
+        budgetMinutes(
+          const TimeValue(h: 9, m: 0),
+          const TimeValue(h: 10, m: 30),
+        ),
+        90,
+      );
+    });
+
+    test('到着が翌日(dateOffset:1)なら日跨ぎ分を加算する', () {
+      // 23:55 出発 → 翌 0:55 着。dateOffset で +1440 され予算は 60 分。
+      expect(
+        budgetMinutes(
+          const TimeValue(h: 23, m: 55),
+          const TimeValue(h: 0, m: 55, dateOffset: 1),
+        ),
+        60,
+      );
+    });
+
+    test('出発が isNow なら dateOffset を無視して当日扱いにする', () {
+      // 出発 isNow は当日固定（offset 無視）、到着 dateOffset:1 のみ繰り上がる。
+      expect(
+        budgetMinutes(
+          const TimeValue(h: 23, m: 55, isNow: true, dateOffset: 3),
+          const TimeValue(h: 0, m: 55, dateOffset: 1),
+        ),
+        60,
+      );
+    });
+  });
 }
