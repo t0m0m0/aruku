@@ -70,7 +70,12 @@ class FailingRouteService implements RouteService {
     GeoPoint? origin,
     String? originName,
     void Function(RoutePhase)? onProgress,
-  }) async => throw _error;
+  }) async {
+    // Duration.zero にすることでタイマー経由の非同期になり、
+    // pump()（タイマーを進めない）中に loading 状態を観測できる。
+    await Future<void>.delayed(Duration.zero);
+    throw _error;
+  }
 }
 
 /// アプリ全体のルーティングを再現するテスト用ルートウィジェット。

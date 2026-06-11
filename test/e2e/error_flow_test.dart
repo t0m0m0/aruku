@@ -124,5 +124,8 @@ void main() {
     await tester.pump(); // loading 状態になる
 
     expect(container.read(appStateProvider).screen, Screen.loading);
+
+    // 残タイマーを消化してテストフレームワークの invariant を満たす
+    await tester.pumpAndSettle();
   });
 }
