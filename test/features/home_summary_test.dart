@@ -69,8 +69,9 @@ void main() {
     });
     await tester.pump();
 
-    expect(find.text('歩数'), findsOneWidget);
-    expect(find.text('2000'), findsOneWidget);
-    expect(find.text('歩'), findsOneWidget);
+    // v2: 歩数は週間目標カード内に 3 桁区切りで表示される。
+    expect(find.byKey(const Key('home-weekly-goal')), findsOneWidget);
+    expect(find.text('2,000'), findsOneWidget);
+    expect(find.textContaining('歩'), findsWidgets);
   });
 }
