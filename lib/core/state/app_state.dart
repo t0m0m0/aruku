@@ -214,6 +214,9 @@ class AppNotifier extends Notifier<AppState> {
     );
   }
 
+  /// 現在地を再取得する。ホームのコンパスボタンから明示的に再要求するため公開する。
+  Future<void> refreshLocation() => _fetchLocation();
+
   Future<void> _fetchLocation() async {
     try {
       final service = ref.read(locationServiceProvider);
