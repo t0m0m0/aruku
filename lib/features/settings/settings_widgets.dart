@@ -29,16 +29,6 @@ class _SettingsSection extends StatelessWidget {
   }
 }
 
-/// 項目間の区切り線。
-class _RowDivider extends StatelessWidget {
-  const _RowDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Divider(height: 1, thickness: 1, color: context.c.hairline);
-  }
-}
-
 /// オン/オフを切り替える行。
 class _SwitchRow extends StatelessWidget {
   const _SwitchRow({
