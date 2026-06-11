@@ -74,6 +74,33 @@ void main() {
     });
   });
 
+  group('AppNotifier.setDepartureNow', () {
+    test('出発を現在時刻（5分丸め）・isNow=true にする', () async {
+      final container = _container();
+      final notifier = container.read(appStateProvider.notifier);
+      await Future<void>.delayed(Duration.zero);
+
+      // まず出発を任意時刻に変えて isNow を落とす。
+      notifier.applyPickedTime(
+        mode: PickerMode.depart,
+        h: 5,
+        m: 7,
+        dateOffset: 3,
+      );
+      expect(container.read(appStateProvider).departure.isNow, isFalse);
+
+      notifier.setDepartureNow();
+
+      final now = DateTime.now();
+      final expectedM = (((now.minute + 2) ~/ 5) * 5).clamp(0, 55);
+      final dep = container.read(appStateProvider).departure;
+      expect(dep.isNow, isTrue);
+      expect(dep.h, now.hour);
+      expect(dep.m, expectedM);
+      expect(dep.dateOffset, 0);
+    });
+  });
+
   group('HomeScreen 日付・時刻ピッカー', () {
     Future<void> pumpHome(
       WidgetTester tester,
@@ -122,6 +149,40 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(CupertinoDatePicker), findsNothing);
+    });
+
+    testWidgets('出発タブでは「現在時刻」ボタンが出る', (tester) async {
+      final container = _container();
+      await pumpHome(tester, container);
+
+      expect(find.byKey(const Key('picker_now')), findsOneWidget);
+    });
+
+    testWidgets('到着タブに切替えると「現在時刻」ボタンは消える', (tester) async {
+      final container = _container();
+      await pumpHome(tester, container);
+
+      await tester.tap(find.byKey(const Key('seg_arrival')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('picker_now')), findsNothing);
+    });
+
+    testWidgets('「現在時刻」タップで出発が isNow になりシートが閉じる', (tester) async {
+      final container = _container();
+      await pumpHome(tester, container);
+
+      // 一度別時刻を確定してから開き直し、isNow が落ちた状態を作る。
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(mode: PickerMode.depart, h: 6, m: 0, dateOffset: 0);
+      expect(container.read(appStateProvider).departure.isNow, isFalse);
+
+      await tester.tap(find.byKey(const Key('picker_now')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CupertinoDatePicker), findsNothing);
+      expect(container.read(appStateProvider).departure.isNow, isTrue);
     });
   });
 

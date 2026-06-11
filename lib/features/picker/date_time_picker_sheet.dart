@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/time_value.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
+import '../../shared/icons/ic.dart';
 
 /// 日付＋時刻を1つのホイールで選ぶ Cupertino 風シートを開く。
 /// [initialMode] は最初に選択される出発/到着タブ。
@@ -79,6 +80,12 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
     Navigator.of(context).pop();
   }
 
+  /// 出発を現在時刻（isNow）へ戻してシートを閉じる。出発タブ専用。
+  void _setNow() {
+    ref.read(appStateProvider.notifier).setDepartureNow();
+    Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -144,6 +151,17 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
                 onDateTimeChanged: (d) => _selected = d,
               ),
             ),
+            if (_mode == PickerMode.depart)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
+                child: Align(
+                  alignment: Alignment.center,
+                  child: _NowButton(
+                    key: const Key('picker_now'),
+                    onTap: _setNow,
+                  ),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 10, 18, 8),
               child: Row(
@@ -185,6 +203,44 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
           size: 14,
           weight: FontWeight.w800,
           color: active ? c.moss700 : c.ink2,
+        ),
+      ),
+    );
+  }
+}
+
+/// 出発を現在時刻に戻すための控えめなピル型ボタン。
+class _NowButton extends StatelessWidget {
+  const _NowButton({super.key, required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Material(
+      color: c.moss50,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Ic.clock(size: 13, color: c.moss700),
+              const SizedBox(width: 6),
+              Text(
+                '現在時刻',
+                style: jpStyle(
+                  size: 13,
+                  weight: FontWeight.w800,
+                  color: c.moss700,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
