@@ -39,43 +39,6 @@ class _RowDivider extends StatelessWidget {
   }
 }
 
-/// 距離の表示単位を選ぶ行。
-class _UnitRow extends StatelessWidget {
-  const _UnitRow({required this.value, required this.onChanged});
-
-  final DistanceUnit value;
-  final ValueChanged<DistanceUnit> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              '距離の単位',
-              style: jpStyle(size: 15, weight: FontWeight.w600, color: c.ink),
-            ),
-          ),
-          _ChoiceChip(
-            label: 'km',
-            selected: value == DistanceUnit.kilometers,
-            onTap: () => onChanged(DistanceUnit.kilometers),
-          ),
-          const SizedBox(width: 8),
-          _ChoiceChip(
-            label: 'mi',
-            selected: value == DistanceUnit.miles,
-            onTap: () => onChanged(DistanceUnit.miles),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// オン/オフを切り替える行。
 class _SwitchRow extends StatelessWidget {
   const _SwitchRow({
@@ -152,43 +115,6 @@ class _LinkRow extends StatelessWidget {
             const SizedBox(width: 4),
             Ic.chevron(size: 16, color: c.ink3, dir: ChevronDir.right),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 選択状態を持つ小さなチップ。
-class _ChoiceChip extends StatelessWidget {
-  const _ChoiceChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? c.moss500 : c.paper,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: selected ? c.moss500 : c.hairline),
-        ),
-        child: Text(
-          label,
-          style: jpStyle(
-            size: 14,
-            weight: FontWeight.w700,
-            color: selected ? Colors.white : c.ink2,
-          ),
         ),
       ),
     );

@@ -28,29 +28,20 @@ void main() {
     expect(settings, AppSettings.defaults);
   });
 
-  test('setUnit で単位が変わり永続化される', () async {
+  test('setNotifications で値が変わり永続化される', () async {
     final container = await makeContainer();
     addTearDown(container.dispose);
     await container.read(settingsProvider.future);
 
-    await container.read(settingsProvider.notifier).setUnit(DistanceUnit.miles);
+    await container.read(settingsProvider.notifier).setNotifications(false);
 
-    expect(container.read(settingsProvider).value!.unit, DistanceUnit.miles);
+    expect(
+      container.read(settingsProvider).value!.notificationsEnabled,
+      isFalse,
+    );
 
     // 永続化されている（リポジトリから読み直しても残る）。
     final repo = await container.read(settingsRepositoryProvider.future);
-    expect(repo.load().unit, DistanceUnit.miles);
-  });
-
-  test('setNotifications が反映される', () async {
-    final container = await makeContainer();
-    addTearDown(container.dispose);
-    await container.read(settingsProvider.future);
-
-    final notifier = container.read(settingsProvider.notifier);
-    await notifier.setNotifications(false);
-
-    final s = container.read(settingsProvider).value!;
-    expect(s.notificationsEnabled, isFalse);
+    expect(repo.load().notificationsEnabled, isFalse);
   });
 }

@@ -80,7 +80,7 @@ void main() {
     sync.store['u1'] = remoteSnapshot(
       updatedAt: DateTime.utc(2030, 1, 1),
       favorites: const [FavoritePlace(name: '京都駅', placeId: 'k1')],
-      settings: const AppSettings(unit: DistanceUnit.miles),
+      settings: const AppSettings(notificationsEnabled: false),
     );
     final container = await makeContainer(
       user: const AuthUser(uid: 'u1', email: 'a@example.com'),
@@ -93,7 +93,7 @@ void main() {
       settingsRepositoryProvider.future,
     );
     expect((await favRepo.load()).single.name, '京都駅');
-    expect(settingsRepo.load().unit, DistanceUnit.miles);
+    expect(settingsRepo.load().notificationsEnabled, isFalse);
   });
 
   test('ローカルが新しければリモートを上書きする', () async {
