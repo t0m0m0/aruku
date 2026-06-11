@@ -35,6 +35,7 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
   late final DateTime _today;
   late final DateTime _minDate;
   late final DateTime _maxDate;
+  late final DateTime _arrivalMin;
   late PickerMode _mode;
   late DateTime _selected;
 
@@ -50,14 +51,15 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
     // 過去時刻は選択不可。秒は落として分単位の下限にする（1分刻みで選べる）。
     _minDate = DateTime(now.year, now.month, now.day, now.hour, now.minute);
     _maxDate = DateTime(_today.year, _today.month, _today.day + 90, 23, 59);
+    _arrivalMin = _computeArrivalMin();
     _mode = widget.initialMode;
     _selected = _initialFor(_mode);
   }
 
-  /// ホイールの下限。到着タブでは「出発 < 到着」を保つため出発+最小ギャップを
-  /// 下限にして、出発より前を選べなくする。出発タブは現在時刻のみが下限。
-  DateTime _minFor(PickerMode mode) {
-    if (mode != PickerMode.arrival) return _minDate;
+  /// 到着タブのホイール下限を算出する。「出発 < 到着」を保つため出発+最小ギャップを
+  /// 下限にして、出発より前を選べなくする。出発はモーダル表示中に変わらないため
+  /// initState で一度だけ呼び、build ごとの ref.read を避ける。
+  DateTime _computeArrivalMin() {
     final dep = ref.read(appStateProvider).departure;
     final depDt = dep.isNow
         ? _minDate
@@ -72,6 +74,10 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
     final lower = floor.isAfter(_minDate) ? floor : _minDate;
     return lower.isAfter(_maxDate) ? _maxDate : lower;
   }
+
+  /// ホイールの下限。到着タブはキャッシュした出発基準、出発タブは現在時刻が下限。
+  DateTime _minFor(PickerMode mode) =>
+      mode == PickerMode.arrival ? _arrivalMin : _minDate;
 
   DateTime _initialFor(PickerMode mode) {
     final min = _minFor(mode);
