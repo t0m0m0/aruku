@@ -9,7 +9,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'core/config/app_config.dart';
 import 'core/services/onboarding_repository.dart';
 import 'core/services/recents_repository.dart';
-import 'core/services/settings_repository.dart';
 import 'core/state/app_state.dart';
 import 'core/theme/aruku_theme.dart';
 import 'features/auth/auth_screen.dart';
@@ -43,10 +42,6 @@ Future<void> main() async {
         sharedPreferencesProvider.overrideWith((ref) => prefs),
         onboardingCompletedProvider.overrideWithValue(
           OnboardingRepository(prefs).isCompleted(),
-        ),
-        // 初期到着時刻のシードに使う時間予算を保存値から先読みして注入する。
-        defaultBudgetMinutesProvider.overrideWithValue(
-          SettingsRepository(prefs).load().defaultBudgetMinutes,
         ),
       ],
       child: const ArukuApp(),

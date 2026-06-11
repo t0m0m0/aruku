@@ -37,10 +37,3 @@ final settingsRepositoryProvider = FutureProvider<SettingsRepository>((
   final prefs = await ref.watch(sharedPreferencesProvider.future);
   return SettingsRepository(prefs);
 });
-
-/// 起動時の初期到着時刻（時間予算）を同期的に決めるための値。
-/// オンボーディング完了フラグと同様、main で保存値を先読みして注入する。
-/// 未注入時は [AppSettings.defaults] の値にフォールバックする。
-final defaultBudgetMinutesProvider = Provider<int>(
-  (ref) => AppSettings.defaults.defaultBudgetMinutes,
-);

@@ -18,10 +18,13 @@ import '../services/location_service.dart';
 import '../services/onboarding_repository.dart';
 import '../services/route_plan_builder.dart' as planner;
 import '../services/route_service.dart';
-import '../services/settings_repository.dart';
 
 /// 経路からこの距離（m）を超えて外れたらオフルートとみなす。GPS のブレは無視する。
 const double kRerouteThresholdMeters = 50;
+
+/// 起動時の初期到着時刻を「出発 + この分数」で算出する。ユーザーはホーム画面で
+/// いつでも調整できるため、設定では持たず固定のシード値とする。
+const int kInitialBudgetMinutes = 60;
 
 /// 自動再検索を発火するまでに必要な連続オフルート回数。瞬間的なノイズを除外する。
 const int kRerouteSustainFixes = 3;
@@ -211,10 +214,9 @@ class AppNotifier extends Notifier<AppState> {
     final initialScreen = ref.read(onboardingCompletedProvider)
         ? Screen.home
         : Screen.onboarding;
-    // 設定の「時間予算」を初期到着時刻のシードにする（出発 + 予算）。
-    // 日跨ぎは dateOffset に繰り上げる。
-    final budget = ref.read(defaultBudgetMinutesProvider);
-    final arrivalTotal = depH * 60 + depM + budget;
+    // 初期到着時刻は「出発 + 既定予算」をシードにする。日跨ぎは dateOffset に
+    // 繰り上げる。
+    final arrivalTotal = depH * 60 + depM + kInitialBudgetMinutes;
     return AppState.initial.copyWith(
       screen: initialScreen,
       departure: TimeValue(h: depH, m: depM, isNow: true, anchored: true),
