@@ -232,17 +232,16 @@ class _IconHitState extends State<_IconHit> {
 
 class _TimeField extends StatelessWidget {
   const _TimeField({
+    super.key,
     required this.label,
     required this.time,
     required this.date,
-    required this.sub,
     required this.onTap,
   });
 
   final String label;
   final String time;
   final String? date;
-  final String sub;
   final VoidCallback onTap;
 
   @override
@@ -279,31 +278,13 @@ class _TimeField extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 1),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(
-                    time,
-                    style: numStyle(
-                      size: 21,
-                      weight: FontWeight.w500,
-                      color: c.ink,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      sub,
-                      overflow: TextOverflow.ellipsis,
-                      style: jpStyle(
-                        size: 13,
-                        weight: FontWeight.w600,
-                        color: c.ink2,
-                      ),
-                    ),
-                  ),
-                ],
+              Text(
+                time,
+                style: numStyle(
+                  size: 21,
+                  weight: FontWeight.w500,
+                  color: c.ink,
+                ),
               ),
             ],
           ),

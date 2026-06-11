@@ -89,8 +89,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      // 出発フィールドの sub テキスト「今すぐ」は出発フィールド内で一意。
-      await tester.tap(find.text('今すぐ'));
+      await tester.tap(find.byKey(const Key('time_field_depart')));
       await tester.pumpAndSettle();
     }
 
