@@ -29,10 +29,6 @@ const int kInitialBudgetMinutes = 60;
 /// 出発と到着の最小ギャップ（分）。これにより常に「出発 < 到着」を保証する。
 const int kMinBudgetMinutes = 1;
 
-/// dateOffset / isNow を含めた当日0時基準の絶対分。
-int _absMinutes(TimeValue t) =>
-    t.totalMinutes + planner.effectiveOffset(t) * 24 * 60;
-
 /// 当日0時基準の絶対分から TimeValue を復元する（isNow は付かない）。
 TimeValue _timeValueFromAbs(int abs) =>
     TimeValue(h: (abs ~/ 60) % 24, m: abs % 60, dateOffset: abs ~/ (24 * 60));
@@ -44,17 +40,22 @@ TimeValue _arrivalAfterDeparture(
   TimeValue oldDeparture,
   TimeValue arrival,
 ) {
-  final newDepAbs = _absMinutes(newDeparture);
-  if (_absMinutes(arrival) - newDepAbs >= kMinBudgetMinutes) return arrival;
-  final oldBudget = _absMinutes(arrival) - _absMinutes(oldDeparture);
+  final newDepAbs = planner.absoluteMinutes(newDeparture);
+  if (planner.absoluteMinutes(arrival) - newDepAbs >= kMinBudgetMinutes) {
+    return arrival;
+  }
+  final oldBudget =
+      planner.absoluteMinutes(arrival) - planner.absoluteMinutes(oldDeparture);
   final keep = oldBudget >= kMinBudgetMinutes ? oldBudget : kMinBudgetMinutes;
   return _timeValueFromAbs(newDepAbs + keep);
 }
 
 /// 到着を変更したときの到着。出発 + 最小ギャップを下回らないようクランプする。
 TimeValue _clampArrivalAfterDeparture(TimeValue departure, TimeValue arrival) {
-  final minAbs = _absMinutes(departure) + kMinBudgetMinutes;
-  return _absMinutes(arrival) >= minAbs ? arrival : _timeValueFromAbs(minAbs);
+  final minAbs = planner.absoluteMinutes(departure) + kMinBudgetMinutes;
+  return planner.absoluteMinutes(arrival) >= minAbs
+      ? arrival
+      : _timeValueFromAbs(minAbs);
 }
 
 /// 自動再検索を発火するまでに必要な連続オフルート回数。瞬間的なノイズを除外する。
