@@ -50,7 +50,7 @@ class TimeValue {
     if (minutes <= 0) return '— ';
     final h = minutes ~/ 60;
     final m = minutes % 60;
-    if (h > 0) return '$h時 ${m.toString().padLeft(2, '0')}分';
+    if (h > 0) return '$h時間 ${m.toString().padLeft(2, '0')}分';
     return '$m分';
   }
 

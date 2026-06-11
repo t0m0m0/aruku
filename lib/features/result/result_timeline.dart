@@ -102,7 +102,7 @@ class _TimelineSegmentRow extends StatelessWidget {
     if (minutes >= 60) {
       return [
         Text('${minutes ~/ 60}', style: num),
-        Text('時', style: unit),
+        Text('時間', style: unit),
         Text((minutes % 60).toString().padLeft(2, '0'), style: num),
         Text('分', style: unit),
       ];

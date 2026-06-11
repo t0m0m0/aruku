@@ -71,11 +71,11 @@ Future<void> _pump(WidgetTester tester, ProviderContainer container) async {
 
 void main() {
   group('結果画面の所要時間表記', () {
-    testWidgets('TOTAL は60分以上を n時m分 で表示する', (tester) async {
+    testWidgets('TOTAL は60分以上を n時間m分 で表示する', (tester) async {
       final container = _containerFor(_planWith(totalMin: 100, budgetMin: 120));
       await _pump(tester, container);
 
-      expect(find.text('1時 40分'), findsOneWidget);
+      expect(find.text('1時間 40分'), findsOneWidget);
     });
 
     testWidgets('TOTAL は60分未満を「分」のみで表示し 0時 を出さない', (tester) async {
@@ -90,9 +90,9 @@ void main() {
       final container = _containerFor(_planWith(totalMin: 75, budgetMin: 120));
       await _pump(tester, container);
 
-      // 75分 ではなく 1時15分 に分解される。
+      // 75分 ではなく 1時間15分 に分解される。
       expect(find.text('75'), findsNothing);
-      expect(find.text('時'), findsWidgets);
+      expect(find.text('時間'), findsWidgets);
       expect(find.text('15'), findsWidgets);
     });
   });
