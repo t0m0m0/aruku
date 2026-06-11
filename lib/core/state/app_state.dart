@@ -174,7 +174,7 @@ class AppState {
     screen: Screen.onboarding,
     destination: null,
     destinationLatLng: null,
-    departure: TimeValue(h: 0, m: 0, isNow: true, anchored: true),
+    departure: TimeValue(h: 0, m: 0, isNow: true),
     arrival: TimeValue(h: 0, m: 0),
     route: null,
     locationState: LocationLoading(),
@@ -229,7 +229,7 @@ class AppNotifier extends Notifier<AppState> {
     final arrivalTotal = depH * 60 + depM + kInitialBudgetMinutes;
     return AppState.initial.copyWith(
       screen: initialScreen,
-      departure: TimeValue(h: depH, m: depM, isNow: true, anchored: true),
+      departure: TimeValue(h: depH, m: depM, isNow: true),
       arrival: TimeValue(
         h: (arrivalTotal ~/ 60) % 24,
         m: arrivalTotal % 60,
@@ -438,7 +438,6 @@ class AppNotifier extends Notifier<AppState> {
               h: now.hour,
               m: _roundTo5(now.minute),
               isNow: true,
-              anchored: true,
             ),
             arrival: state.arrival,
             origin: from,
@@ -464,29 +463,16 @@ class AppNotifier extends Notifier<AppState> {
       state = state.copyWith(origin: name, originLatLng: latLng);
 
   /// 日付・時刻ピッカーで確定した値を出発/到着に反映する。
-  /// 確定した側を anchor し、反対側の anchor を外す。
   void applyPickedTime({
     required PickerMode mode,
     required int h,
     required int m,
     required int dateOffset,
   }) {
-    if (mode == PickerMode.depart) {
-      state = state.copyWith(
-        departure: TimeValue(
-          h: h,
-          m: m,
-          anchored: true,
-          dateOffset: dateOffset,
-        ),
-        arrival: state.arrival.copyWith(anchored: false),
-      );
-    } else {
-      state = state.copyWith(
-        departure: state.departure.copyWith(anchored: false),
-        arrival: TimeValue(h: h, m: m, anchored: true, dateOffset: dateOffset),
-      );
-    }
+    final picked = TimeValue(h: h, m: m, dateOffset: dateOffset);
+    state = mode == PickerMode.depart
+        ? state.copyWith(departure: picked)
+        : state.copyWith(arrival: picked);
   }
 
   Future<void> startSearch() async {

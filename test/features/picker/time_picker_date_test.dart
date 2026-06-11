@@ -22,7 +22,7 @@ ProviderContainer _container() {
 
 void main() {
   group('AppNotifier.applyPickedTime', () {
-    test('出発を確定すると departure に値・anchor・dateOffset が入る', () async {
+    test('出発を確定すると departure に値・dateOffset が入る', () async {
       final container = _container();
       final notifier = container.read(appStateProvider.notifier);
       await Future<void>.delayed(Duration.zero);
@@ -38,11 +38,9 @@ void main() {
       expect(state.departure.h, 9);
       expect(state.departure.m, 30);
       expect(state.departure.dateOffset, 0);
-      expect(state.departure.anchored, true);
-      expect(state.arrival.anchored, false);
     });
 
-    test('到着を確定すると arrival が anchor され departure の anchor が外れる', () async {
+    test('到着を確定すると arrival に値・dateOffset が入る', () async {
       final container = _container();
       final notifier = container.read(appStateProvider.notifier);
       await Future<void>.delayed(Duration.zero);
@@ -58,8 +56,6 @@ void main() {
       expect(state.arrival.h, 18);
       expect(state.arrival.m, 0);
       expect(state.arrival.dateOffset, 1);
-      expect(state.arrival.anchored, true);
-      expect(state.departure.anchored, false);
     });
 
     test('2日以上先の dateOffset を保持できる', () async {
@@ -93,8 +89,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      // 出発フィールドの sub テキスト「今すぐ」は出発フィールド内で一意。
-      await tester.tap(find.text('今すぐ'));
+      await tester.tap(find.byKey(const Key('time_field_depart')));
       await tester.pumpAndSettle();
     }
 
@@ -107,20 +102,17 @@ void main() {
       expect(find.byKey(const Key('seg_arrival')), findsOneWidget);
     });
 
-    testWidgets('完了で出発が anchor され到着の anchor が外れる', (tester) async {
+    testWidgets('完了でピッカーが閉じる', (tester) async {
       final container = _container();
       await pumpHome(tester, container);
 
       await tester.tap(find.byKey(const Key('picker_done')));
       await tester.pumpAndSettle();
 
-      final state = container.read(appStateProvider);
       expect(find.byType(CupertinoDatePicker), findsNothing);
-      expect(state.departure.anchored, true);
-      expect(state.arrival.anchored, false);
     });
 
-    testWidgets('到着タブに切替えて完了すると arrival が anchor される', (tester) async {
+    testWidgets('到着タブに切替えて完了すると arrival に値が入る', (tester) async {
       final container = _container();
       await pumpHome(tester, container);
 
@@ -129,9 +121,49 @@ void main() {
       await tester.tap(find.byKey(const Key('picker_done')));
       await tester.pumpAndSettle();
 
-      final state = container.read(appStateProvider);
-      expect(state.arrival.anchored, true);
-      expect(state.departure.anchored, false);
+      expect(find.byType(CupertinoDatePicker), findsNothing);
+    });
+  });
+
+  group('HomeScreen 固定バッジ撤去', () {
+    Future<void> pumpHomeRaw(
+      WidgetTester tester,
+      ProviderContainer container,
+    ) async {
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: ArukuTheme.light(),
+            home: const HomeScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('初期表示で「固定」バッジは出ない', (tester) async {
+      final container = _container();
+      await pumpHomeRaw(tester, container);
+
+      expect(find.text('固定'), findsNothing);
+    });
+
+    testWidgets('到着を確定しても「固定」バッジは出ない', (tester) async {
+      final container = _container();
+      await pumpHomeRaw(tester, container);
+
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(
+            mode: PickerMode.arrival,
+            h: 18,
+            m: 0,
+            dateOffset: 0,
+          );
+      await tester.pumpAndSettle();
+
+      expect(find.text('固定'), findsNothing);
     });
   });
 

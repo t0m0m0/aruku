@@ -160,11 +160,10 @@ class HomeScreen extends ConsumerWidget {
                         children: [
                           Expanded(
                             child: _TimeField(
+                              key: const Key('time_field_depart'),
                               label: '出発',
                               time: dep.format(),
                               date: dep.dateLabel(),
-                              sub: dep.isNow ? '今すぐ' : 'タップで変更',
-                              anchored: !arr.anchored,
                               onTap: () =>
                                   _pickDateTime(context, PickerMode.depart),
                             ),
@@ -181,13 +180,10 @@ class HomeScreen extends ConsumerWidget {
                           ),
                           Expanded(
                             child: _TimeField(
+                              key: const Key('time_field_arrival'),
                               label: '到着',
                               time: arr.format(),
                               date: arr.dateLabel(),
-                              sub: arr.anchored
-                                  ? '指定時刻'
-                                  : '+ ${TimeValue.formatBudget(budget)}',
-                              anchored: arr.anchored,
                               onTap: () =>
                                   _pickDateTime(context, PickerMode.arrival),
                             ),
