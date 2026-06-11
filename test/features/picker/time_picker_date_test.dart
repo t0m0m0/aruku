@@ -74,6 +74,151 @@ void main() {
     });
   });
 
+  group('AppNotifier.applyPickedTime 出発<到着の保証', () {
+    /// 出発=10:00 / 到着=11:00（予算60分）の決め打ち状態を作る。
+    /// 実時刻に依存しないよう、まず到着を遠い未来へ逃がしてから設定する。
+    Future<AppNotifier> setup(ProviderContainer container) async {
+      final notifier = container.read(appStateProvider.notifier);
+      await Future<void>.delayed(Duration.zero);
+      notifier.applyPickedTime(
+        mode: PickerMode.arrival,
+        h: 23,
+        m: 0,
+        dateOffset: 30,
+      );
+      notifier.applyPickedTime(
+        mode: PickerMode.depart,
+        h: 10,
+        m: 0,
+        dateOffset: 0,
+      );
+      notifier.applyPickedTime(
+        mode: PickerMode.arrival,
+        h: 11,
+        m: 0,
+        dateOffset: 0,
+      );
+      return notifier;
+    }
+
+    test('出発を到着以降に動かすと到着が後ろへずれ、予算が保たれる', () async {
+      final container = _container();
+      final notifier = await setup(container);
+      expect(container.read(appStateProvider).budgetMinutes, 60);
+
+      notifier.applyPickedTime(
+        mode: PickerMode.depart,
+        h: 12,
+        m: 0,
+        dateOffset: 0,
+      );
+
+      final state = container.read(appStateProvider);
+      expect(state.departure.h, 12);
+      expect(state.arrival.h, 13);
+      expect(state.arrival.m, 0);
+      expect(state.arrival.dateOffset, 0);
+      expect(state.budgetMinutes, 60);
+    });
+
+    test('出発を前へ動かすと到着は不変で予算が広がる', () async {
+      final container = _container();
+      final notifier = await setup(container);
+
+      notifier.applyPickedTime(
+        mode: PickerMode.depart,
+        h: 9,
+        m: 0,
+        dateOffset: 0,
+      );
+
+      final state = container.read(appStateProvider);
+      expect(state.arrival.h, 11);
+      expect(state.arrival.m, 0);
+      expect(state.budgetMinutes, 120);
+    });
+
+    test('到着を出発より前にすると 出発+1分 にクランプされる', () async {
+      final container = _container();
+      final notifier = await setup(container);
+
+      notifier.applyPickedTime(
+        mode: PickerMode.arrival,
+        h: 9,
+        m: 0,
+        dateOffset: 0,
+      );
+
+      final state = container.read(appStateProvider);
+      expect(state.arrival.h, 10);
+      expect(state.arrival.m, 1);
+      expect(state.arrival.dateOffset, 0);
+      expect(state.budgetMinutes, 1);
+    });
+
+    test('予算が最小(1分)でも出発を動かすと1分ギャップが保たれる', () async {
+      final container = _container();
+      final notifier = await setup(container);
+      notifier.applyPickedTime(
+        mode: PickerMode.arrival,
+        h: 10,
+        m: 1,
+        dateOffset: 0,
+      );
+      expect(container.read(appStateProvider).budgetMinutes, 1);
+
+      notifier.applyPickedTime(
+        mode: PickerMode.depart,
+        h: 12,
+        m: 0,
+        dateOffset: 0,
+      );
+
+      final state = container.read(appStateProvider);
+      expect(state.arrival.h, 12);
+      expect(state.arrival.m, 1);
+      expect(state.budgetMinutes, 1);
+    });
+
+    test('日跨ぎ: 深夜に出発を動かすと到着が翌日へ繰り上がる', () async {
+      final container = _container();
+      final notifier = container.read(appStateProvider.notifier);
+      await Future<void>.delayed(Duration.zero);
+      notifier.applyPickedTime(
+        mode: PickerMode.arrival,
+        h: 23,
+        m: 0,
+        dateOffset: 30,
+      );
+      notifier.applyPickedTime(
+        mode: PickerMode.depart,
+        h: 23,
+        m: 30,
+        dateOffset: 0,
+      );
+      notifier.applyPickedTime(
+        mode: PickerMode.arrival,
+        h: 23,
+        m: 40,
+        dateOffset: 0,
+      );
+      expect(container.read(appStateProvider).budgetMinutes, 10);
+
+      notifier.applyPickedTime(
+        mode: PickerMode.depart,
+        h: 23,
+        m: 55,
+        dateOffset: 0,
+      );
+
+      final state = container.read(appStateProvider);
+      expect(state.arrival.h, 0);
+      expect(state.arrival.m, 5);
+      expect(state.arrival.dateOffset, 1);
+      expect(state.budgetMinutes, 10);
+    });
+  });
+
   group('HomeScreen 日付・時刻ピッカー', () {
     Future<void> pumpHome(
       WidgetTester tester,
