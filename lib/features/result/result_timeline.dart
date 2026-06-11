@@ -160,7 +160,7 @@ class _TimelineSegmentRow extends StatelessWidget {
                             ),
                             const SizedBox(width: 1),
                             Text(
-                              'min',
+                              '分',
                               style: jpStyle(
                                 size: 10,
                                 weight: FontWeight.w700,

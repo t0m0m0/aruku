@@ -113,7 +113,7 @@ class _TotalsStrip extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '${route.totalMin ~/ 60}h${(route.totalMin % 60).toString().padLeft(2, '0')}',
+                      '${route.totalMin ~/ 60}時${(route.totalMin % 60).toString().padLeft(2, '0')}分',
                       style: numStyle(
                         size: 22,
                         weight: FontWeight.w500,
@@ -164,7 +164,7 @@ class _WalkRatioRow extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                '制限 ${(route.budgetMin / 60).toStringAsFixed(1)}時間のうち ${route.totalMin ~/ 60}h${(route.totalMin % 60).toString().padLeft(2, '0')} で到着 · ${route.budgetMin - route.totalMin}分 余裕',
+                '制限 ${(route.budgetMin / 60).toStringAsFixed(1)}時間のうち ${route.totalMin ~/ 60}時${(route.totalMin % 60).toString().padLeft(2, '0')}分 で到着 · ${route.budgetMin - route.totalMin}分 余裕',
                 style: jpStyle(
                   size: 11,
                   weight: FontWeight.w500,
