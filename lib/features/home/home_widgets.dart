@@ -137,16 +137,22 @@ class _DestinationCard extends StatelessWidget {
                           ],
                         ),
                       ),
-                      // 検索チップ（moss50 角丸）
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: c.moss50,
-                          borderRadius: BorderRadius.circular(11),
-                        ),
-                        child: Center(
-                          child: Ic.search(size: 17, color: c.moss600),
+                      // 検索チップ（moss50 角丸）— コンパスと同じく 44px タップ
+                      // 領域＋ボタン意味付けで一貫させる。
+                      _IconHit(
+                        key: const Key('home-destination-search'),
+                        label: '目的地を検索',
+                        onTap: onTapDestination,
+                        child: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: c.moss50,
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                          child: Center(
+                            child: Ic.search(size: 17, color: c.moss600),
+                          ),
                         ),
                       ),
                     ],
@@ -162,7 +168,8 @@ class _DestinationCard extends StatelessWidget {
 }
 
 /// 44px の最小タップ領域を確保したアイコンボタン（HIG 準拠）。
-class _IconHit extends StatelessWidget {
+/// [onTap] が Future を返す間はスピナーを表示し、二重タップを抑止する。
+class _IconHit extends StatefulWidget {
   const _IconHit({
     super.key,
     required this.label,
@@ -170,18 +177,54 @@ class _IconHit extends StatelessWidget {
     required this.child,
   });
   final String label;
-  final VoidCallback onTap;
+  final FutureOr<void> Function() onTap;
   final Widget child;
 
   @override
+  State<_IconHit> createState() => _IconHitState();
+}
+
+class _IconHitState extends State<_IconHit> {
+  bool _busy = false;
+
+  Future<void> _handleTap() async {
+    if (_busy) return;
+    final result = widget.onTap();
+    if (result is! Future) return; // 同期処理ならスピナーは出さない。
+    setState(() => _busy = true);
+    try {
+      await result;
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final c = context.c;
     return Semantics(
       button: true,
-      label: label,
+      label: widget.label,
+      enabled: !_busy,
       child: InkResponse(
-        onTap: onTap,
+        onTap: _busy ? null : _handleTap,
         radius: 24,
-        child: SizedBox(width: 44, height: 44, child: Center(child: child)),
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: Center(
+            child: _busy
+                ? SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(c.ink2),
+                    ),
+                  )
+                : widget.child,
+          ),
+        ),
       ),
     );
   }

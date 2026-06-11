@@ -15,8 +15,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeLocationService implements LocationService {
+  int requestCount = 0;
+
   @override
-  Future<LocationState> request() async => const LocationDenied();
+  Future<LocationState> request() async {
+    requestCount++;
+    return const LocationDenied();
+  }
 
   @override
   Stream<GeoPoint> positionStream() => const Stream.empty();
@@ -42,6 +47,7 @@ Widget _wrap(ProviderContainer container) => UncontrolledProviderScope(
 Future<ProviderContainer> _pumpHome(
   WidgetTester tester, {
   StreamController<ActivitySnapshot>? controller,
+  _FakeLocationService? location,
 }) async {
   SharedPreferences.setMockInitialValues({});
   final repo = ActivityLogRepository(await SharedPreferences.getInstance());
@@ -49,7 +55,9 @@ Future<ProviderContainer> _pumpHome(
   final container = ProviderContainer(
     overrides: [
       activityServiceProvider.overrideWithValue(_FakeActivityService(ctrl)),
-      locationServiceProvider.overrideWithValue(_FakeLocationService()),
+      locationServiceProvider.overrideWithValue(
+        location ?? _FakeLocationService(),
+      ),
       activityLogRepositoryProvider.overrideWith((ref) async => repo),
     ],
   );
@@ -119,5 +127,19 @@ void main() {
 
     expect(find.text('2,000'), findsOneWidget);
     expect(find.textContaining('歩'), findsWidgets);
+  });
+
+  testWidgets('コンパスボタンを押すと現在地を再取得する', (tester) async {
+    final location = _FakeLocationService();
+    await _pumpHome(tester, location: location);
+
+    // build() の初回取得で 1 回呼ばれている。
+    expect(location.requestCount, 1);
+
+    await tester.tap(find.byKey(const Key('home-origin-compass')));
+    await tester.pump();
+
+    // 押下で再取得（refreshLocation）が走り、もう 1 回呼ばれる。
+    expect(location.requestCount, 2);
   });
 }
