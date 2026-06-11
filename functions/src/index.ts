@@ -132,13 +132,15 @@ export async function verifyAppCheck(req: Request, res: Response): Promise<boole
   if (process.env.FUNCTIONS_EMULATOR === "true") return true;
   const token = req.header("X-Firebase-AppCheck");
   if (!token) {
+    console.warn("AppCheck: token missing");
     res.status(401).json({ error: "App Check token missing" });
     return false;
   }
   try {
     await getAppCheck().verifyToken(token);
     return true;
-  } catch {
+  } catch (e) {
+    console.warn("AppCheck: token invalid", e);
     res.status(401).json({ error: "App Check token invalid" });
     return false;
   }

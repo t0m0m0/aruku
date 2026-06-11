@@ -20,6 +20,7 @@ class _FixedRouteService implements RouteService {
     required TimeValue departure,
     required TimeValue arrival,
     GeoPoint? origin,
+    String? originName,
     void Function(RoutePhase)? onProgress,
   }) async => result;
 }
