@@ -431,10 +431,18 @@ class _TodayLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    final label = jpStyle(size: 13, weight: FontWeight.w600, color: c.ink2);
-    final num = numStyle(size: 13, weight: FontWeight.w700, color: c.ink2);
+    final labelStyle = jpStyle(
+      size: 13,
+      weight: FontWeight.w600,
+      color: c.ink2,
+    );
+    final numberStyle = numStyle(
+      size: 13,
+      weight: FontWeight.w700,
+      color: c.ink2,
+    );
     Text t(String s, {bool number = false}) =>
-        Text(s, style: number ? num : label);
+        Text(s, style: number ? numberStyle : labelStyle);
 
     return Wrap(
       spacing: 4,
@@ -495,14 +503,8 @@ class _GoalRingPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = stroke
       ..strokeCap = StrokeCap.round;
-    const start = -3.14159265358979 / 2; // -90°
-    canvas.drawArc(
-      rect,
-      start,
-      2 * 3.14159265358979 * pct,
-      false,
-      progressPaint,
-    );
+    const start = -math.pi / 2; // -90°
+    canvas.drawArc(rect, start, 2 * math.pi * pct, false, progressPaint);
   }
 
   @override
