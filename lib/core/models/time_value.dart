@@ -50,8 +50,8 @@ class TimeValue {
     if (minutes <= 0) return '— ';
     final h = minutes ~/ 60;
     final m = minutes % 60;
-    if (h > 0) return '${h}h ${m.toString().padLeft(2, '0')}m';
-    return '${m}m';
+    if (h > 0) return '$h時 ${m.toString().padLeft(2, '0')}分';
+    return '$m分';
   }
 
   static String formatBudgetJp(int minutes) {
