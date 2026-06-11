@@ -39,48 +39,6 @@ class _RowDivider extends StatelessWidget {
   }
 }
 
-/// 既定の時間予算を選ぶ行。候補をチップで横並びにする。
-class _BudgetRow extends StatelessWidget {
-  const _BudgetRow({
-    required this.value,
-    required this.choices,
-    required this.onChanged,
-  });
-
-  final int value;
-  final List<int> choices;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '時間予算の既定',
-            style: jpStyle(size: 15, weight: FontWeight.w600, color: c.ink),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final m in choices)
-                _ChoiceChip(
-                  label: '$m分',
-                  selected: m == value,
-                  onTap: () => onChanged(m),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// 距離の表示単位を選ぶ行。
 class _UnitRow extends StatelessWidget {
   const _UnitRow({required this.value, required this.onChanged});

@@ -10,7 +10,6 @@ class AppSettings {
   const AppSettings({
     this.unit = DistanceUnit.kilometers,
     this.notificationsEnabled = true,
-    this.defaultBudgetMinutes = 60,
   });
 
   /// 距離の表示単位。
@@ -19,33 +18,23 @@ class AppSettings {
   /// 通知の許可フラグ。
   final bool notificationsEnabled;
 
-  /// 経路検索時の既定の時間予算（分）。
-  final int defaultBudgetMinutes;
-
   static const AppSettings defaults = AppSettings();
 
-  AppSettings copyWith({
-    DistanceUnit? unit,
-    bool? notificationsEnabled,
-    int? defaultBudgetMinutes,
-  }) {
+  AppSettings copyWith({DistanceUnit? unit, bool? notificationsEnabled}) {
     return AppSettings(
       unit: unit ?? this.unit,
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
-      defaultBudgetMinutes: defaultBudgetMinutes ?? this.defaultBudgetMinutes,
     );
   }
 
   Map<String, dynamic> toJson() => {
     'unit': unit.name,
     'notificationsEnabled': notificationsEnabled,
-    'defaultBudgetMinutes': defaultBudgetMinutes,
   };
 
   static AppSettings fromJson(Map<String, dynamic> json) {
     final unitName = json['unit'];
     final notifications = json['notificationsEnabled'];
-    final budget = json['defaultBudgetMinutes'];
     return AppSettings(
       unit: DistanceUnit.values.firstWhere(
         (u) => u.name == unitName,
@@ -54,9 +43,6 @@ class AppSettings {
       notificationsEnabled: notifications is bool
           ? notifications
           : defaults.notificationsEnabled,
-      defaultBudgetMinutes: budget is int
-          ? budget
-          : defaults.defaultBudgetMinutes,
     );
   }
 
@@ -65,10 +51,8 @@ class AppSettings {
       identical(this, other) ||
       other is AppSettings &&
           unit == other.unit &&
-          notificationsEnabled == other.notificationsEnabled &&
-          defaultBudgetMinutes == other.defaultBudgetMinutes;
+          notificationsEnabled == other.notificationsEnabled;
 
   @override
-  int get hashCode =>
-      Object.hash(unit, notificationsEnabled, defaultBudgetMinutes);
+  int get hashCode => Object.hash(unit, notificationsEnabled);
 }

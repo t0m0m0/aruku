@@ -14,13 +14,10 @@ import '../../shared/widgets/aruku_card.dart';
 
 part 'settings_widgets.dart';
 
-/// 設定画面。単位・通知・既定の時間予算を変更でき、変更は即時に永続化される。
+/// 設定画面。単位・通知を変更でき、変更は即時に永続化される。
 /// 権限とアカウントへの導線も併せて提供する。
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
-
-  /// 既定の時間予算として選べる候補（分）。
-  static const List<int> _budgetChoices = [30, 45, 60, 90, 120];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -76,12 +73,6 @@ class SettingsScreen extends ConsumerWidget {
                   _SettingsSection(
                     title: '移動',
                     children: [
-                      _BudgetRow(
-                        value: settings.defaultBudgetMinutes,
-                        choices: _budgetChoices,
-                        onChanged: settingsNotifier.setDefaultBudget,
-                      ),
-                      const _RowDivider(),
                       _UnitRow(
                         value: settings.unit,
                         onChanged: settingsNotifier.setUnit,
