@@ -38,13 +38,17 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
   late PickerMode _mode;
   late DateTime _selected;
 
+  /// 「現在時刻」ボタンなどでホイールを差し替えるたびに増やし、
+  /// CupertinoDatePicker の key を変えて initialDateTime を反映させる。
+  int _pickerEpoch = 0;
+
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
     _today = DateTime(now.year, now.month, now.day);
-    // 過去時刻は選択不可。当日は現在時刻以降、翌日以降は 00:00 から選べる。
-    _minDate = now;
+    // 過去時刻は選択不可。秒は落として分単位の下限にする（1分刻みで選べる）。
+    _minDate = DateTime(now.year, now.month, now.day, now.hour, now.minute);
     _maxDate = DateTime(_today.year, _today.month, _today.day + 90, 23, 59);
     _mode = widget.initialMode;
     _selected = _initialFor(_mode);
@@ -53,11 +57,12 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
   DateTime _initialFor(PickerMode mode) {
     final state = ref.read(appStateProvider);
     final t = mode == PickerMode.depart ? state.departure : state.arrival;
-    final offsetDays = t.isNow ? 0 : t.dateOffset;
+    // isNow は記憶した丸め値ではなく、開いた時点の現在時刻（分単位）に合わせる。
+    if (t.isNow) return _minDate;
     final dt = DateTime(
       _today.year,
       _today.month,
-      _today.day + offsetDays,
+      _today.day + t.dateOffset,
       t.h,
       t.m,
     );
@@ -80,10 +85,21 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
     Navigator.of(context).pop();
   }
 
-  /// 出発を現在時刻（isNow）へ戻してシートを閉じる。出発タブ専用。
+  /// 日付ピッカーのホイールを現在時刻（分単位）へ合わせる。出発タブ専用。
+  /// シートは閉じず、確定はユーザーの「完了」に委ねる。
   void _setNow() {
-    ref.read(appStateProvider.notifier).setDepartureNow();
-    Navigator.of(context).pop();
+    final now = DateTime.now();
+    final nowMinute = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      now.hour,
+      now.minute,
+    );
+    setState(() {
+      _selected = nowMinute.isBefore(_minDate) ? _minDate : nowMinute;
+      _pickerEpoch++;
+    });
   }
 
   @override
@@ -142,7 +158,7 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
             SizedBox(
               height: 216,
               child: CupertinoDatePicker(
-                key: ValueKey(_mode),
+                key: ValueKey('${_mode}_$_pickerEpoch'),
                 mode: CupertinoDatePickerMode.dateAndTime,
                 use24hFormat: true,
                 minimumDate: _minDate,

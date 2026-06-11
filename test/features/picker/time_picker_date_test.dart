@@ -74,33 +74,6 @@ void main() {
     });
   });
 
-  group('AppNotifier.setDepartureNow', () {
-    test('出発を現在時刻（5分丸め）・isNow=true にする', () async {
-      final container = _container();
-      final notifier = container.read(appStateProvider.notifier);
-      await Future<void>.delayed(Duration.zero);
-
-      // まず出発を任意時刻に変えて isNow を落とす。
-      notifier.applyPickedTime(
-        mode: PickerMode.depart,
-        h: 5,
-        m: 7,
-        dateOffset: 3,
-      );
-      expect(container.read(appStateProvider).departure.isNow, isFalse);
-
-      notifier.setDepartureNow();
-
-      final now = DateTime.now();
-      final expectedM = (((now.minute + 2) ~/ 5) * 5).clamp(0, 55);
-      final dep = container.read(appStateProvider).departure;
-      expect(dep.isNow, isTrue);
-      expect(dep.h, now.hour);
-      expect(dep.m, expectedM);
-      expect(dep.dateOffset, 0);
-    });
-  });
-
   group('HomeScreen 日付・時刻ピッカー', () {
     Future<void> pumpHome(
       WidgetTester tester,
@@ -168,21 +141,30 @@ void main() {
       expect(find.byKey(const Key('picker_now')), findsNothing);
     });
 
-    testWidgets('「現在時刻」タップで出発が isNow になりシートが閉じる', (tester) async {
+    testWidgets('「現在時刻」タップではシートは閉じず、完了で現在時刻（分単位）が入る', (tester) async {
       final container = _container();
       await pumpHome(tester, container);
 
-      // 一度別時刻を確定してから開き直し、isNow が落ちた状態を作る。
-      container
-          .read(appStateProvider.notifier)
-          .applyPickedTime(mode: PickerMode.depart, h: 6, m: 0, dateOffset: 0);
-      expect(container.read(appStateProvider).departure.isNow, isFalse);
-
+      final before = DateTime.now();
       await tester.tap(find.byKey(const Key('picker_now')));
       await tester.pumpAndSettle();
 
-      expect(find.byType(CupertinoDatePicker), findsNothing);
-      expect(container.read(appStateProvider).departure.isNow, isTrue);
+      // シートは閉じない（ホイールを現在時刻に合わせるだけ）。
+      expect(find.byType(CupertinoDatePicker), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('picker_done')));
+      await tester.pumpAndSettle();
+      final after = DateTime.now();
+
+      // 5分丸めではなく、現在時刻の分がそのまま入る。
+      final dep = container.read(appStateProvider).departure;
+      final depMinutes = dep.h * 60 + dep.m;
+      expect(
+        depMinutes,
+        greaterThanOrEqualTo(before.hour * 60 + before.minute),
+      );
+      expect(depMinutes, lessThanOrEqualTo(after.hour * 60 + after.minute));
+      expect(dep.dateOffset, 0);
     });
   });
 

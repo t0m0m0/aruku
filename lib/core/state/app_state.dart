@@ -475,15 +475,6 @@ class AppNotifier extends Notifier<AppState> {
         : state.copyWith(arrival: picked);
   }
 
-  /// 出発を現在時刻（5分丸め）に戻し、isNow を立てる。リルート時と同じく
-  /// 到着は据え置く。一度ピッカーで出発を指定したあと「現在時刻」へ戻す手段。
-  void setDepartureNow() {
-    final now = DateTime.now();
-    state = state.copyWith(
-      departure: TimeValue(h: now.hour, m: _roundTo5(now.minute), isNow: true),
-    );
-  }
-
   Future<void> startSearch() async {
     state = state.copyWith(
       screen: Screen.loading,
