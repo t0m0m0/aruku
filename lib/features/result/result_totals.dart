@@ -23,20 +23,20 @@ class _TotalsStrip extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
+                  '${route.kcal}',
+                  style: numStyle(
+                    size: 38,
+                    weight: FontWeight.w500,
+                    color: c.burnt,
+                  ),
+                ),
+                Text(
                   'KCAL',
                   style: jpStyle(
                     size: 10,
                     weight: FontWeight.w800,
                     color: c.burnt,
                     letterSpacing: 0.1 * 10,
-                  ),
-                ),
-                Text(
-                  '${route.kcal}',
-                  style: numStyle(
-                    size: 38,
-                    weight: FontWeight.w500,
-                    color: c.burnt,
                   ),
                 ),
               ],
@@ -54,15 +54,6 @@ class _TotalsStrip extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'WALK',
-                      style: jpStyle(
-                        size: 10,
-                        weight: FontWeight.w800,
-                        color: c.ink3,
-                        letterSpacing: 0.1 * 10,
-                      ),
-                    ),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.baseline,
                       textBaseline: TextBaseline.alphabetic,
@@ -103,15 +94,6 @@ class _TotalsStrip extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'TOTAL',
-                      style: jpStyle(
-                        size: 10,
-                        weight: FontWeight.w800,
-                        color: c.ink3,
-                        letterSpacing: 0.1 * 10,
-                      ),
-                    ),
                     Text(
                       TimeValue.formatBudget(route.totalMin),
                       style: numStyle(
