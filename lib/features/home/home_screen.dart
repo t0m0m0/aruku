@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -11,6 +14,14 @@ import '../../shared/widgets/aruku_card.dart';
 import '../picker/date_time_picker_sheet.dart';
 
 part 'home_widgets.dart';
+
+/// HIG 準拠のレイアウト定数（v2 `aruku-v2.css` の `--gutter` / `--safe-bottom` /
+/// 8pt グリッドに対応）。画面全体で水平マージンをこの値に揃える。
+const double _gutter = 20;
+const double _safeBottom = 36;
+const double _sp2 = 8;
+const double _sp3 = 12;
+const double _sp6 = 24;
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -31,93 +42,55 @@ class HomeScreen extends ConsumerWidget {
         bottom: false,
         child: Column(
           children: [
-            // Greeting header
+            // Greeting header（ストリークチップは下部の目標カードへ統合）
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 6, 24, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: const EdgeInsets.fromLTRB(_gutter, _sp2, _gutter, _sp3),
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              AppConstants.todayGreeting(),
-                              style: jpStyle(
-                                size: 12,
-                                weight: FontWeight.w600,
-                                color: c.ink3,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            RichText(
-                              text: TextSpan(
-                                style: jpStyle(
-                                  size: 24,
-                                  weight: FontWeight.w800,
-                                  color: c.ink,
-                                  height: 1.2,
-                                ),
-                                children: [
-                                  const TextSpan(text: '今日も、'),
-                                  TextSpan(
-                                    text: '歩こう。',
-                                    style: TextStyle(color: c.moss600),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      GestureDetector(
-                        key: const Key('home-settings-button'),
-                        onTap: () => notifier.go(Screen.settings),
-                        behavior: HitTestBehavior.opaque,
-                        child: ArukuCard(
-                          width: 44,
-                          height: 44,
-                          borderRadius: 14,
-                          child: Center(
-                            child: Ic.settings(size: 20, color: c.ink2),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  // streak chip
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(8, 5, 12, 5),
-                    decoration: BoxDecoration(
-                      color: c.burntSoft,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Ic.fire(size: 14, color: c.burnt),
-                        const SizedBox(width: 6),
                         Text(
-                          '${state.streakDays}日連続',
+                          AppConstants.todayGreeting(),
                           style: jpStyle(
-                            size: 12,
-                            weight: FontWeight.w700,
-                            color: c.burnt,
+                            size: 13,
+                            weight: FontWeight.w600,
+                            color: c.ink2,
                           ),
                         ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '· 今週 ${state.weekKm.toStringAsFixed(1)}km',
-                          style: jpStyle(
-                            size: 12,
-                            weight: FontWeight.w500,
-                            color: c.burnt.withValues(alpha: 0.7),
+                        const SizedBox(height: 2),
+                        RichText(
+                          text: TextSpan(
+                            style: jpStyle(
+                              size: 24,
+                              weight: FontWeight.w800,
+                              color: c.ink,
+                              height: 1.2,
+                            ),
+                            children: [
+                              const TextSpan(text: '今日も、'),
+                              TextSpan(
+                                text: '歩こう。',
+                                style: TextStyle(color: c.moss600),
+                              ),
+                            ],
                           ),
                         ),
                       ],
+                    ),
+                  ),
+                  GestureDetector(
+                    key: const Key('home-settings-button'),
+                    onTap: () => notifier.go(Screen.settings),
+                    behavior: HitTestBehavior.opaque,
+                    child: ArukuCard(
+                      width: 44,
+                      height: 44,
+                      borderRadius: 14,
+                      child: Center(
+                        child: Ic.settings(size: 20, color: c.ink2),
+                      ),
                     ),
                   ),
                 ],
@@ -126,25 +99,24 @@ class HomeScreen extends ConsumerWidget {
 
             // Destination card
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: _gutter),
               child: _DestinationCard(
                 departure: state.departureLabelText,
                 destination: destination,
                 onTapDeparture: () => notifier.go(Screen.searchOrigin),
                 onTapDestination: () => notifier.go(Screen.search),
+                onRefreshLocation: notifier.refreshLocation,
               ),
             ),
 
-            const SizedBox(height: 14),
-
             // Time card
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.fromLTRB(_gutter, _sp6, _gutter, 0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                    padding: const EdgeInsets.fromLTRB(4, 0, 4, _sp2),
                     child: Row(
                       children: [
                         Ic.clock(size: 12, color: c.ink2),
@@ -164,7 +136,7 @@ class HomeScreen extends ConsumerWidget {
                             style: jpStyle(
                               size: 11,
                               weight: FontWeight.w600,
-                              color: c.ink3,
+                              color: c.ink2,
                             ),
                             children: [
                               TextSpan(
@@ -174,7 +146,7 @@ class HomeScreen extends ConsumerWidget {
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
-                              const TextSpan(text: ' 歩いて移動'),
+                              const TextSpan(text: ' 歩ける'),
                             ],
                           ),
                         ),
@@ -228,57 +200,34 @@ class HomeScreen extends ConsumerWidget {
               ),
             ),
 
-            // Today summary
+            const Spacer(),
+
+            // Weekly goal card — bottom, above CTA
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: c.moss50,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  children: [
-                    _SummaryItem(
-                      label: '歩数',
-                      value: '${state.todaySteps}',
-                      unit: '歩',
-                      leading: false,
-                    ),
-                    _SummaryItem(
-                      label: '今日歩いた',
-                      value: state.todayKm.toStringAsFixed(1),
-                      unit: 'km',
-                      leading: true,
-                    ),
-                    _SummaryItem(
-                      label: '消費',
-                      value: '${state.todayKcal}',
-                      unit: 'kcal',
-                      leading: true,
-                    ),
-                    _SummaryItem(
-                      label: '目標まで',
-                      value: (AppConstants.weeklyGoalKm - state.weekKm)
-                          .clamp(0.0, AppConstants.weeklyGoalKm)
-                          .toStringAsFixed(1),
-                      unit: 'km',
-                      leading: true,
-                    ),
-                  ],
-                ),
+              padding: const EdgeInsets.fromLTRB(_gutter, 0, _gutter, _sp6),
+              child: _WeeklyGoalCard(
+                weekKm: state.weekKm,
+                todayKm: state.todayKm,
+                todaySteps: state.todaySteps,
+                todayKcal: state.todayKcal,
+                streakDays: state.streakDays,
               ),
             ),
 
-            const Spacer(),
-
-            // CTA
+            // CTA — 目的地の有無でラベル・アイコン・遷移先が変わる
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 38),
-              child: _SearchCTA(onPressed: () => notifier.startSearch()),
+              padding: const EdgeInsets.fromLTRB(
+                _gutter,
+                0,
+                _gutter,
+                _safeBottom,
+              ),
+              child: _SearchCTA(
+                hasDestination: destination != null,
+                onPressed: destination != null
+                    ? () => notifier.startSearch()
+                    : () => notifier.go(Screen.search),
+              ),
             ),
           ],
         ),
