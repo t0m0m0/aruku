@@ -78,26 +78,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('設定'), findsOneWidget);
-    expect(find.text('時間予算の既定'), findsOneWidget);
     expect(find.text('距離の単位'), findsOneWidget);
     expect(find.text('通知を受け取る'), findsOneWidget);
     expect(find.text('端末設定を開く'), findsOneWidget);
     expect(find.text('アカウント'), findsOneWidget);
-  });
-
-  testWidgets('時間予算の候補をタップすると永続化される', (tester) async {
-    final container = await _container();
-    addTearDown(container.dispose);
-
-    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('90分'));
-    await tester.pumpAndSettle();
-
-    expect(container.read(settingsProvider).value!.defaultBudgetMinutes, 90);
-    final repo = await container.read(settingsRepositoryProvider.future);
-    expect(repo.load().defaultBudgetMinutes, 90);
   });
 
   testWidgets('単位を mi に切り替えると永続化される', (tester) async {

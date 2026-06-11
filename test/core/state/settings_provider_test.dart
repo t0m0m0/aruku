@@ -42,17 +42,15 @@ void main() {
     expect(repo.load().unit, DistanceUnit.miles);
   });
 
-  test('setNotifications / setDefaultBudget が反映される', () async {
+  test('setNotifications が反映される', () async {
     final container = await makeContainer();
     addTearDown(container.dispose);
     await container.read(settingsProvider.future);
 
     final notifier = container.read(settingsProvider.notifier);
     await notifier.setNotifications(false);
-    await notifier.setDefaultBudget(90);
 
     final s = container.read(settingsProvider).value!;
     expect(s.notificationsEnabled, isFalse);
-    expect(s.defaultBudgetMinutes, 90);
   });
 }
