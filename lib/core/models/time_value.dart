@@ -6,7 +6,6 @@ class TimeValue {
     required this.h,
     required this.m,
     this.isNow = false,
-    this.anchored = false,
     this.dateOffset = 0,
   }) : assert(dateOffset >= 0);
 
@@ -19,28 +18,19 @@ class TimeValue {
   /// Departure side: "current time" — auto-derived.
   final bool isNow;
 
-  /// True for the side that the user explicitly anchored.
-  final bool anchored;
-
   /// 今日からの日数オフセット。0 = 今日, 1 = 明日, n = n日後。
   /// isNow=true のときは無視される。
   final int dateOffset;
 
   int get totalMinutes => h * 60 + m;
 
-  TimeValue copyWith({
-    int? h,
-    int? m,
-    bool? isNow,
-    bool? anchored,
-    int? dateOffset,
-  }) => TimeValue(
-    h: h ?? this.h,
-    m: m ?? this.m,
-    isNow: isNow ?? this.isNow,
-    anchored: anchored ?? this.anchored,
-    dateOffset: dateOffset ?? this.dateOffset,
-  );
+  TimeValue copyWith({int? h, int? m, bool? isNow, int? dateOffset}) =>
+      TimeValue(
+        h: h ?? this.h,
+        m: m ?? this.m,
+        isNow: isNow ?? this.isNow,
+        dateOffset: dateOffset ?? this.dateOffset,
+      );
 
   String format() =>
       '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';

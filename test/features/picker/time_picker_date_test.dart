@@ -22,7 +22,7 @@ ProviderContainer _container() {
 
 void main() {
   group('AppNotifier.applyPickedTime', () {
-    test('出発を確定すると departure に値・anchor・dateOffset が入る', () async {
+    test('出発を確定すると departure に値・dateOffset が入る', () async {
       final container = _container();
       final notifier = container.read(appStateProvider.notifier);
       await Future<void>.delayed(Duration.zero);
@@ -38,11 +38,9 @@ void main() {
       expect(state.departure.h, 9);
       expect(state.departure.m, 30);
       expect(state.departure.dateOffset, 0);
-      expect(state.departure.anchored, true);
-      expect(state.arrival.anchored, false);
     });
 
-    test('到着を確定すると arrival が anchor され departure の anchor が外れる', () async {
+    test('到着を確定すると arrival に値・dateOffset が入る', () async {
       final container = _container();
       final notifier = container.read(appStateProvider.notifier);
       await Future<void>.delayed(Duration.zero);
@@ -58,8 +56,6 @@ void main() {
       expect(state.arrival.h, 18);
       expect(state.arrival.m, 0);
       expect(state.arrival.dateOffset, 1);
-      expect(state.arrival.anchored, true);
-      expect(state.departure.anchored, false);
     });
 
     test('2日以上先の dateOffset を保持できる', () async {
@@ -107,20 +103,17 @@ void main() {
       expect(find.byKey(const Key('seg_arrival')), findsOneWidget);
     });
 
-    testWidgets('完了で出発が anchor され到着の anchor が外れる', (tester) async {
+    testWidgets('完了でピッカーが閉じる', (tester) async {
       final container = _container();
       await pumpHome(tester, container);
 
       await tester.tap(find.byKey(const Key('picker_done')));
       await tester.pumpAndSettle();
 
-      final state = container.read(appStateProvider);
       expect(find.byType(CupertinoDatePicker), findsNothing);
-      expect(state.departure.anchored, true);
-      expect(state.arrival.anchored, false);
     });
 
-    testWidgets('到着タブに切替えて完了すると arrival が anchor される', (tester) async {
+    testWidgets('到着タブに切替えて完了すると arrival に値が入る', (tester) async {
       final container = _container();
       await pumpHome(tester, container);
 
@@ -129,9 +122,7 @@ void main() {
       await tester.tap(find.byKey(const Key('picker_done')));
       await tester.pumpAndSettle();
 
-      final state = container.read(appStateProvider);
-      expect(state.arrival.anchored, true);
-      expect(state.departure.anchored, false);
+      expect(find.byType(CupertinoDatePicker), findsNothing);
     });
   });
 
