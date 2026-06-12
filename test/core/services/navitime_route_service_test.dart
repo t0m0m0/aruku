@@ -124,6 +124,30 @@ http.Client _mock({
   return _jsonResponse(transit, transitStatus);
 });
 
+/// すべての徒歩リクエストを直線距離 × [detour] の道なり実測で返すモック。
+/// 都市の道なり迂回を一様に再現し、「直線推定では予算内・実測で超過」する
+/// 徒歩寄り候補が密に並ぶ状況を作る（不具合A・B の再現）。
+http.Client _inflatingMock(
+  Map<String, dynamic> transit, {
+  double detour = 1.4,
+}) => MockClient((req) async {
+  if (!req.url.path.contains('googleWalkProxy')) {
+    return _jsonResponse(transit, 200);
+  }
+  GeoPoint pt(String? s) {
+    final p = (s ?? '').split(',');
+    return GeoPoint(double.parse(p[0]), double.parse(p[1]));
+  }
+
+  final km = haversineKm(
+    pt(req.url.queryParameters['start']),
+    pt(req.url.queryParameters['goal']),
+  );
+  final meters = (km * 1000 * detour).round();
+  final minutes = (km * 1000 / walkMetersPerMinute * detour).round();
+  return _jsonResponse(_walkResp(minutes, meters), 200);
+});
+
 void main() {
   group('NaviTimeRouteService.plan', () {
     NaviTimeRouteService build(
@@ -268,6 +292,70 @@ void main() {
           .length;
       // 選定は直線距離推定で行い Google を呼ばない。確定した全徒歩1区間ぶんのみ。
       expect(walkCalls, 1);
+    });
+
+    test('密な停車駅で全徒歩が推定内・実測超過でも予算内の徒歩最大ルートを返す（不具合A・B）', () async {
+      // 実機再現: 直線推定では全徒歩が予算内だが Google 実測（道なり1.4倍）で超過する。
+      // 乗降点が密だと「推定内・実測超過」の徒歩寄り候補が試行上限を超えて並び、
+      // 旧実装は使い切ると最初の選定＝全徒歩（遅刻）をそのまま返していた。修正後は
+      // 実測の迂回率を学習し、予算内で歩けるだけ歩くハイブリッドへ収束する。
+      //
+      // origin(35.50)→goal(35.70) は直線約22.2km・推定278分。予算345分なら推定では
+      // 全徒歩が入るが実測389分で超過。経度固定の直線上に10駅(時刻なし)を並べる。
+      final lats = <double>[
+        35.52,
+        35.54,
+        35.56,
+        35.58,
+        35.60,
+        35.62,
+        35.64,
+        35.66,
+        35.68,
+        35.695,
+      ];
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(2700, 34),
+          _point('S0'),
+          _trainSection(
+            20000,
+            25,
+            line: 'L',
+            calling: [
+              for (var i = 0; i < lats.length; i++)
+                _callingNoTime('S$i', lats[i], 139.50),
+            ],
+          ),
+          _point('S9'),
+          _walkSection(600, 7),
+          _point('目的地'),
+        ]),
+      ]);
+      final client = _inflatingMock(transit);
+
+      final plan = await build(client).plan(
+        destination: '目的地',
+        destinationLatLng: const GeoPoint(35.70, 139.50),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 14, m: 45), // 予算345分
+        origin: const GeoPoint(35.50, 139.50),
+      );
+
+      // 旧実装は全徒歩(1区間・実測約389分)を返し予算超過。修正後は予算内に収め、
+      // 鉄道を挟んで徒歩を最大化する（全徒歩でも徒歩最小の標準乗換でもない）。
+      expect(plan.totalMin, lessThanOrEqualTo(345));
+      expect(
+        plan.segments.where((s) => s.type == SegmentType.train),
+        isNotEmpty,
+      );
+      final walkMin = plan.segments
+          .where((s) => s.type == SegmentType.walk)
+          .fold<int>(0, (a, s) => a + s.minutes);
+      expect(walkMin, greaterThan(150));
+      expect(plan.walkRatio, greaterThan(0.5));
+      expect(plan.timelineNodes.last.sub, contains('制限内'));
     });
 
     test('全徒歩が予算超過なら途中駅まで歩くハイブリッドを返す', () async {
