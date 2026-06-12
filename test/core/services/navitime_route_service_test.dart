@@ -2213,12 +2213,12 @@ void main() {
     });
 
     test('実測失敗（null）は負キャッシュせず、同一レッグの再要求で再度コールする（#116）', () async {
-      // 予算180では出発地→S1 レッグを共有する候補が連続で選び直される。このレッグの
+      // 予算180では出発地→S0 レッグを共有する候補が連続で選び直される。このレッグの
       // 実測を毎回失敗（routes 空）させても、失敗は負キャッシュしないため再要求のたびに
       // 再コールされる（成功レッグはキャッシュされ重複しない）。
-      const s1Pair = '35.5,139.5;35.52,139.5';
+      const s0Pair = '35.5,139.5;35.52,139.5';
       final log = <Uri>[];
-      await build(cacheMock(log: log, failPair: s1Pair)).plan(
+      await build(cacheMock(log: log, failPair: s0Pair)).plan(
         destination: '目的地',
         destinationLatLng: const GeoPoint(35.70, 139.50),
         departure: const TimeValue(h: 9, m: 0),
@@ -2232,10 +2232,10 @@ void main() {
         counts[p] = (counts[p] ?? 0) + 1;
       }
       // 失敗レッグは2回要求され、いずれも実コールされる（負キャッシュしない）。
-      expect(counts[s1Pair], 2);
+      expect(counts[s0Pair], 2);
       // 成功した他レッグは1回ずつ（負キャッシュではなく正キャッシュは効く）。
       expect(
-        counts.entries.where((e) => e.key != s1Pair && e.value > 1),
+        counts.entries.where((e) => e.key != s0Pair && e.value > 1),
         isEmpty,
       );
     });

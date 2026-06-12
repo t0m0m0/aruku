@@ -649,9 +649,9 @@ class NaviTimeRouteService implements RouteService {
     // レッグ単位キャッシュ（#116）。座標を 5 桁（≒1.1m）に丸めた文字列キーで引く。
     // ヒット時は実測ジオメトリ・所要・距離を再利用しつつ、表示名は要求側（候補側）の
     // fromName/toName へ差し替える（同一座標でも候補により表示名は異なり得る）。
-    final key = cache == null ? null : _walkCacheKey(origin, dest);
-    if (key != null) {
-      final hit = cache![key];
+    if (cache != null) {
+      final key = _walkCacheKey(origin, dest);
+      final hit = cache[key];
       if (hit != null) return _renameWalk(hit, fromName, toName);
     }
     try {
@@ -684,7 +684,7 @@ class NaviTimeRouteService implements RouteService {
       );
       // 実測成功のみキャッシュ。失敗（下の null 返却）は負キャッシュしないため、
       // 一時的なネットワーク失敗が検索全体へ波及しない（同一レッグは再試行され得る）。
-      if (key != null) cache![key] = result;
+      if (cache != null) cache[_walkCacheKey(origin, dest)] = result;
       return result;
     } on RouteException {
       return null;
@@ -703,29 +703,13 @@ class NaviTimeRouteService implements RouteService {
     RouteCandidate cached,
     String fromName,
     String toName,
-  ) {
-    final s = cached.segments.first;
-    return RouteCandidate(
-      from: fromName,
-      to: toName,
-      segments: [
-        RouteSegment(
-          type: s.type,
-          fromName: fromName,
-          toName: toName,
-          minutes: s.minutes,
-          km: s.km,
-          kcal: s.kcal,
-          line: s.line,
-          fare: s.fare,
-          stops: s.stops,
-          polyline: s.polyline,
-          depTime: s.depTime,
-          arrTime: s.arrTime,
-        ),
-      ],
-    );
-  }
+  ) => RouteCandidate(
+    from: fromName,
+    to: toName,
+    segments: [
+      cached.segments.first.copyWith(fromName: fromName, toName: toName),
+    ],
+  );
 
   /// Google Routes の duration（"123s" 形式の文字列）を分へ丸める。
   int? _parseDurationMin(Object? duration) {
