@@ -76,6 +76,36 @@ int arrivalMinutes(List<RouteSegment> segments, DateTime? departureAt) {
   return cum;
 }
 
+/// 徒歩実測を反映した [segments] を出発絶対時刻 [departureAt] で進め、時刻表が
+/// 揃う電車区間のうち「予定列車に乗り遅れる」最初の区間を返す（無ければ null）。
+/// 乗り遅れの基準は [_advance] と同一で、区間到着時点の累積分が時刻表の発車相対分を
+/// 超える（`cum > boardRel`）こと。発車相対分ちょうどに着く場合は乗車できる扱いで
+/// 対象外。返り値の [cumBefore] はその区間に着くまでの実累積分で、乗車駅からの
+/// 時刻表再照会の start_time（出発 + cumBefore）を組むのに使う（#115）。
+/// 発着時刻が欠落した電車区間は時刻表が無く乗り遅れを判定できないため対象外。
+({int index, int cumBefore})? firstMissedTrain(
+  List<RouteSegment> segments,
+  DateTime departureAt,
+) {
+  var cum = 0;
+  for (var i = 0; i < segments.length; i++) {
+    final seg = segments[i];
+    final dep = seg.depTime;
+    final arr = seg.arrTime;
+    if (seg.type == SegmentType.train && dep != null && arr != null) {
+      final boardRel = dep.difference(departureAt).inMinutes;
+      final ride = arr.difference(departureAt).inMinutes - boardRel;
+      // ride < 0 は不整合データ（_advance も所要分へフォールバックする）。乗り遅れは
+      // 駅着が発車相対分を超える場合のみ（同時刻は待ち0で乗車できるため除外）。
+      if (ride >= 0 && cum > boardRel) {
+        return (index: i, cumBefore: cum);
+      }
+    }
+    cum = _advance(cum, seg, departureAt).cum;
+  }
+  return null;
+}
+
 /// 電車区間ノードの補足文。乗車前に待ちがあれば「○分待ち · 路線名」と前置きする。
 String _trainSub(String? line, int wait) {
   final name = line ?? '電車';

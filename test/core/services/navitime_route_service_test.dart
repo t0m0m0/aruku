@@ -148,6 +148,54 @@ http.Client _inflatingMock(
   return _jsonResponse(_walkResp(minutes, meters), 200);
 });
 
+/// transit を start 座標でルーティングするモック（乗り遅れ再照会の差し替え検証用）。
+/// navitimeProxy は 'lat,lng' をキーに transit 応答を引き、無ければ [defaultTransit]。
+/// 徒歩は `_mock` 同様 'start;goal' をキーに walk マップ／defaultWalk で応答する。
+http.Client _requeryMock({
+  required Map<String, Map<String, dynamic>> transitByStart,
+  required Map<String, dynamic> defaultTransit,
+  Map<String, Map<String, dynamic>> walk = const {},
+  Map<String, dynamic>? defaultWalk,
+  List<Uri>? log,
+}) => MockClient((req) async {
+  log?.add(req.url);
+  if (req.url.path.contains('googleWalkProxy')) {
+    final start = req.url.queryParameters['start'] ?? '';
+    final goal = req.url.queryParameters['goal'] ?? '';
+    return _jsonResponse(walk['$start;$goal'] ?? defaultWalk ?? _navi([]), 200);
+  }
+  final start = req.url.queryParameters['start'] ?? '';
+  return _jsonResponse(transitByStart[start] ?? defaultTransit, 200);
+});
+
+/// 乗車駅 [bName]→降車駅 [aName] の単一電車だけを持つ再照会用 transit（#115）。
+/// 乗車駅からの時刻表再照会レスポンスを模す。発着時刻 [dep]/[arr] で乗車時間が決まる
+/// （区間の meters/minutes は概算フォールバック用で時刻が揃うこのケースでは未使用）。
+Map<String, dynamic> _requeryTrain({
+  required String line,
+  required String bName,
+  required double bLat,
+  required String aName,
+  required double aLat,
+  required String dep,
+  required String arr,
+  double lon = 139.75,
+}) => _navi([
+  _item([
+    _point(bName),
+    _trainSection(
+      1,
+      1,
+      line: line,
+      calling: [
+        _calling(bName, bLat, lon, dep, dep),
+        _calling(aName, aLat, lon, arr, arr),
+      ],
+    ),
+    _point(aName),
+  ]),
+]);
+
 void main() {
   group('NaviTimeRouteService.plan', () {
     NaviTimeRouteService build(
@@ -399,8 +447,21 @@ void main() {
           _point('東京駅'),
         ]),
       ]);
-      final client = _mock(
-        transit: transit,
+      // 実測徒歩22分で新橋着 09:22 は基準の 09:09 発に乗り遅れる。乗車駅 新橋からの
+      // 再照会で 09:22 発・09:25 着の実在列車（乗車3分）が見つかり予算内で確定する（#115）。
+      final client = _requeryMock(
+        defaultTransit: transit,
+        transitByStart: {
+          '35.66,139.75': _requeryTrain(
+            line: 'JR山手線',
+            bName: '新橋駅',
+            bLat: 35.66,
+            aName: '東京駅',
+            aLat: 35.74,
+            dep: '2026-05-22T09:22:00',
+            arr: '2026-05-22T09:25:00',
+          ),
+        },
         // 確定経路（出発地→新橋）の徒歩を Google で 22分へ上書き。
         walk: {'35.6,139.75;35.66,139.75': _walkResp(22, 1800)},
       );
@@ -419,7 +480,7 @@ void main() {
       expect(plan.segments[1].type, SegmentType.train);
       expect(plan.segments[1].fromName, '新橋駅');
       expect(plan.segments[1].toName, '東京駅');
-      // 乗車(新橋→東京) = 09:12 - 09:09 = 3 分（時刻表の差）
+      // 乗車(新橋→東京) = 再照会列車 09:25 - 09:22 = 3 分。
       expect(plan.segments[1].minutes, 3);
       expect(plan.totalMin, 25);
       expect(plan.timelineNodes.last.sub, contains('制限内'));
@@ -499,6 +560,261 @@ void main() {
       expect(plan.timelineNodes.last.sub, contains('制限内'));
     });
 
+    // 乗り遅れ再照会（#115）の基準シナリオ。経度固定の直線上に origin→P0→P1→P2 を
+    // 置き、徒歩最大化では P1 まで歩いて乗車する候補が選ばれる。基準時刻表では P1 は
+    // 09:08 発だが、実測徒歩で 09:30 着＝乗り遅れる。乗車駅 P1 からの時刻表を再照会して
+    // 実在列車で再判定する。P2(35.7) は目的地に一致し降車後の徒歩は生じない。
+    Map<String, dynamic> missedTrainBase() => _navi([
+      _item([
+        _point('出発地'),
+        _walkSection(800, 10),
+        _point('P0'),
+        _trainSection(
+          18000,
+          20,
+          line: 'L',
+          calling: [
+            _calling(
+              'P0',
+              35.52,
+              139.75,
+              '2026-05-22T09:05:00',
+              '2026-05-22T09:05:00',
+            ),
+            _calling(
+              'P1',
+              35.55,
+              139.75,
+              '2026-05-22T09:08:00',
+              '2026-05-22T09:08:00',
+            ),
+            _calling(
+              'P2',
+              35.70,
+              139.75,
+              '2026-05-22T09:25:00',
+              '2026-05-22T09:25:00',
+            ),
+          ],
+        ),
+        _point('P2'),
+      ]),
+    ]);
+
+    test('乗り遅れ→再照会した実在列車でも予算内ならその実時刻で確定する（#115）', () async {
+      // P1 まで歩いて 09:30 着（基準09:08発に乗り遅れ）。乗車駅 P1 からの再照会で
+      // 09:31 発・09:48 着の実在列車が見つかり、予算内なのでその実時刻で確定する。
+      final log = <Uri>[];
+      final client = _requeryMock(
+        transitByStart: {
+          // P1(35.55) 乗車駅からの再照会＝09:31発の実在列車。
+          '35.55,139.75': _navi([
+            _item([
+              _point('P1'),
+              _trainSection(
+                15000,
+                17,
+                line: 'L',
+                calling: [
+                  _calling(
+                    'P1',
+                    35.55,
+                    139.75,
+                    '2026-05-22T09:31:00',
+                    '2026-05-22T09:31:00',
+                  ),
+                  _calling(
+                    'P2',
+                    35.70,
+                    139.75,
+                    '2026-05-22T09:48:00',
+                    '2026-05-22T09:48:00',
+                  ),
+                ],
+              ),
+              _point('P2'),
+            ]),
+          ]),
+        },
+        defaultTransit: missedTrainBase(),
+        // P1 まで実測30分（基準09:08発に乗り遅れ）。
+        walk: {'35.5,139.75;35.55,139.75': _walkResp(30, 2400)},
+        defaultWalk: _walkResp(25, 2000),
+        log: log,
+      );
+
+      final plan = await build(client).plan(
+        destination: 'P2',
+        destinationLatLng: const GeoPoint(35.70, 139.75),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 0), // 予算120分
+        origin: const GeoPoint(35.50, 139.75),
+      );
+
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.fromName, 'P1');
+      expect(train.toName, 'P2');
+      // 基準の 09:08 でなく再照会した実在列車 09:31 発・09:48 着。
+      expect(train.depTime, DateTime(2026, 5, 22, 9, 31));
+      expect(train.arrTime, DateTime(2026, 5, 22, 9, 48));
+      // 徒歩30分(09:30着)→09:31発→09:48着 = 48分。駅到着前に発車する列車は出さない。
+      expect(plan.totalMin, 48);
+      expect(plan.timelineNodes.last.sub, contains('制限内'));
+    });
+
+    test('乗り遅れ→再照会した次列車が予算超過なら予算内の代替へフォールバックする（#115）', () async {
+      // P1 乗車は再照会の次列車が 10:00発・11:30着で予算120分を超過。より歩かない
+      // P0 乗車の候補へフォールバックし、P0 からの再照会(09:26発)で予算内に収める。
+      final client = _requeryMock(
+        transitByStart: {
+          // P1 からの次列車は遅く予算超過。
+          '35.55,139.75': _navi([
+            _item([
+              _point('P1'),
+              _trainSection(
+                15000,
+                90,
+                line: 'L',
+                calling: [
+                  _calling(
+                    'P1',
+                    35.55,
+                    139.75,
+                    '2026-05-22T10:00:00',
+                    '2026-05-22T10:00:00',
+                  ),
+                  _calling(
+                    'P2',
+                    35.70,
+                    139.75,
+                    '2026-05-22T11:30:00',
+                    '2026-05-22T11:30:00',
+                  ),
+                ],
+              ),
+              _point('P2'),
+            ]),
+          ]),
+          // P0(35.52) からの再照会＝09:26発の実在列車（予算内）。
+          '35.52,139.75': _navi([
+            _item([
+              _point('P0'),
+              _trainSection(
+                18000,
+                20,
+                line: 'L',
+                calling: [
+                  _calling(
+                    'P0',
+                    35.52,
+                    139.75,
+                    '2026-05-22T09:26:00',
+                    '2026-05-22T09:26:00',
+                  ),
+                  _calling(
+                    'P2',
+                    35.70,
+                    139.75,
+                    '2026-05-22T09:46:00',
+                    '2026-05-22T09:46:00',
+                  ),
+                ],
+              ),
+              _point('P2'),
+            ]),
+          ]),
+        },
+        defaultTransit: missedTrainBase(),
+        walk: {
+          '35.5,139.75;35.55,139.75': _walkResp(30, 2400), // origin→P1 実測30分
+          '35.5,139.75;35.52,139.75': _walkResp(25, 2000), // origin→P0 実測25分
+        },
+        defaultWalk: _walkResp(25, 2000),
+      );
+
+      final plan = await build(client).plan(
+        destination: 'P2',
+        destinationLatLng: const GeoPoint(35.70, 139.75),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 0), // 予算120分
+        origin: const GeoPoint(35.50, 139.75),
+      );
+
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      // 予算超過の P1 乗車でなく、より歩かない P0 乗車へフォールバック。
+      expect(train.fromName, 'P0');
+      expect(train.depTime, DateTime(2026, 5, 22, 9, 26));
+      expect(plan.totalMin, lessThanOrEqualTo(120));
+      // 徒歩25分(09:25着)→09:26発→09:46着 = 46分。
+      expect(plan.totalMin, 46);
+      expect(plan.timelineNodes.last.sub, contains('制限内'));
+    });
+
+    test('乗り遅れの無い経路では NAVITIME 再照会が発生しない（#115）', () async {
+      // Q まで歩いて 09:30 着、列車は 09:40 発（10分待ち）で乗り遅れない。再照会せず
+      // 基準の時刻表のまま確定する。navitimeProxy は初回の1回だけ呼ばれる。
+      final log = <Uri>[];
+      final client = _requeryMock(
+        transitByStart: const {},
+        defaultTransit: _navi([
+          _item([
+            _point('出発地'),
+            _walkSection(800, 10),
+            _point('Q'),
+            _trainSection(
+              15000,
+              15,
+              line: 'L',
+              calling: [
+                _calling(
+                  'Q',
+                  35.55,
+                  139.75,
+                  '2026-05-22T09:40:00',
+                  '2026-05-22T09:40:00',
+                ),
+                _calling(
+                  'R',
+                  35.70,
+                  139.75,
+                  '2026-05-22T09:55:00',
+                  '2026-05-22T09:55:00',
+                ),
+              ],
+            ),
+            _point('R'),
+          ]),
+        ]),
+        walk: {'35.5,139.75;35.55,139.75': _walkResp(30, 2400)}, // Q まで実測30分
+        defaultWalk: _walkResp(25, 2000),
+        log: log,
+      );
+
+      final plan = await build(client).plan(
+        destination: 'R',
+        destinationLatLng: const GeoPoint(35.70, 139.75),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 40), // 予算100分
+        origin: const GeoPoint(35.50, 139.75),
+      );
+
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.fromName, 'Q');
+      // 09:40発・09:55着（基準のまま）。徒歩30分(09:30着)→10分待ち→09:55着=55分。
+      expect(train.depTime, DateTime(2026, 5, 22, 9, 40));
+      expect(plan.totalMin, 55);
+      final naviCalls = log
+          .where((u) => u.path.contains('navitimeProxy'))
+          .length;
+      expect(naviCalls, 1); // 乗り遅れ無し＝再照会ゼロ
+    });
+
     test('サンプル上限を超える停車駅でも飛ばさず徒歩最大の乗車駅を選ぶ（不具合A-b）', () async {
       // 不具合A-b: ハイブリッドの乗降点が _maxHybridCandidates=6 駅サンプルに
       // 制限され、6駅に入らない停車駅で乗車する徒歩最大候補を取りこぼしていた。
@@ -532,7 +848,23 @@ void main() {
           _point('目的地'),
         ]),
       ]);
-      final client = _mock(transit: transit);
+      // 推定徒歩15分で P3 着 09:15 は基準 09:08 発に乗り遅れ。乗車駅 P3 からの再照会で
+      // 実在列車（09:20発・09:25着）に差し替えても予算内（#115）。
+      final client = _requeryMock(
+        defaultTransit: transit,
+        transitByStart: {
+          '35.511,139.7': _requeryTrain(
+            line: 'L',
+            bName: 'P3',
+            bLat: 35.511,
+            aName: 'P6',
+            aLat: 35.557,
+            dep: '2026-05-22T09:20:00',
+            arr: '2026-05-22T09:25:00',
+            lon: 139.70,
+          ),
+        },
+      );
 
       final plan = await build(client).plan(
         destination: '目的地',
@@ -951,8 +1283,22 @@ void main() {
           _point('D'),
         ]),
       ]);
-      final client = _mock(
-        transit: transit,
+      // 実測95分で C 着 10:35 は基準 09:20 発に乗り遅れ。乗車駅 C からの再照会で
+      // 10:35 発・10:55 着の実在 L2 列車（乗車20分）に差し替えて予算内で確定する（#115）。
+      final client = _requeryMock(
+        defaultTransit: transit,
+        transitByStart: {
+          '35.58,139.5': _requeryTrain(
+            line: 'L2',
+            bName: 'C',
+            bLat: 35.58,
+            aName: 'D',
+            aLat: 35.70,
+            dep: '2026-05-22T10:35:00',
+            arr: '2026-05-22T10:55:00',
+            lon: 139.50,
+          ),
+        },
         // 確定経路（出発地→C）の徒歩だけ Google で 95分へ上書き。
         walk: {'35.5,139.5;35.58,139.5': _walkResp(95, 8000)},
       );
@@ -1042,8 +1388,22 @@ void main() {
           _point('目的地'),
         ]),
       ]);
-      final client = _mock(
-        transit: transit,
+      // 実測100分で C 着 10:40 は基準 09:20 発に乗り遅れ。乗車駅 C からの再照会で
+      // 10:40 発・10:50 着の実在 L2 列車（乗車10分）に差し替える（#115）。
+      final client = _requeryMock(
+        defaultTransit: transit,
+        transitByStart: {
+          '35.58,139.5': _requeryTrain(
+            line: 'L2',
+            bName: 'C',
+            bLat: 35.58,
+            aName: 'D',
+            aLat: 35.62,
+            dep: '2026-05-22T10:40:00',
+            arr: '2026-05-22T10:50:00',
+            lon: 139.50,
+          ),
+        },
         // 確定経路（出発地→C, D→目的地）の徒歩だけ Google で上書き。
         walk: {
           '35.5,139.5;35.58,139.5': _walkResp(100, 8000), // origin→C
@@ -1129,8 +1489,41 @@ void main() {
         ]),
       ]);
       // 確定経路の徒歩（出発地→X0, X3→目的地）の値は問わないため Google 応答は
-      // 用意しない（推定値のまま）。検証対象は電車区間の折れ線距離。
-      final client = _mock(transit: transit);
+      // 用意しない（推定値のまま）。検証対象は電車区間の折れ線距離。推定徒歩18分で
+      // X0 着 09:18 は基準 09:05 発に乗り遅れ、乗車駅 X0 からの再照会で実在列車に
+      // 差し替える（#115）。差し替えは発着時刻のみで polyline（折れ線距離）は保つ。
+      final client = _requeryMock(
+        defaultTransit: transit,
+        transitByStart: {
+          '35.5,139.5': _navi([
+            _item([
+              _point('X0'),
+              _trainSection(
+                1,
+                1,
+                line: 'L',
+                calling: [
+                  _calling(
+                    'X0',
+                    x0.lat,
+                    x0.lng,
+                    '2026-05-22T09:18:00',
+                    '2026-05-22T09:18:00',
+                  ),
+                  _calling(
+                    'X3',
+                    x3.lat,
+                    x3.lng,
+                    '2026-05-22T09:28:00',
+                    '2026-05-22T09:28:00',
+                  ),
+                ],
+              ),
+              _point('X3'),
+            ]),
+          ]),
+        },
+      );
 
       // 予算230分。X0 まで歩き X0→X3 を通しで乗り X3 から目的地へ歩く候補だけが
       // 予算内（手前で降りる候補は目的地まで歩きすぎて予算超過）。
@@ -1197,8 +1590,22 @@ void main() {
           _point('目的地'),
         ]),
       ]);
-      final client = _mock(
-        transit: transit,
+      // 実測8分で P 着 09:08 は基準 09:05 発に僅かに乗り遅れ。乗車駅 P からの再照会で
+      // 09:08 発・09:23 着の実在列車（乗車15分）に差し替える（#115）。
+      final client = _requeryMock(
+        defaultTransit: transit,
+        transitByStart: {
+          '35.52,139.5': _requeryTrain(
+            line: 'L',
+            bName: 'P',
+            bLat: 35.52,
+            aName: 'M',
+            aLat: 35.54,
+            dep: '2026-05-22T09:08:00',
+            arr: '2026-05-22T09:23:00',
+            lon: 139.50,
+          ),
+        },
         // 確定経路（出発地→P, M→目的地）の徒歩だけ Google で上書き。
         walk: {
           '35.5,139.5;35.52,139.5': _walkResp(8, 600), // origin→P
@@ -1481,9 +1888,21 @@ void main() {
           _point('東京駅'),
         ]),
       ]);
-      // shape 無しの Google 応答 → 確定徒歩は端点直線へ縮退。
-      final client = _mock(
-        transit: transit,
+      // shape 無しの Google 応答 → 確定徒歩は端点直線へ縮退。実測22分で新橋着 09:22 は
+      // 基準09:09発に乗り遅れ、乗車駅 新橋からの再照会で実在列車に差し替える（#115）。
+      final client = _requeryMock(
+        defaultTransit: transit,
+        transitByStart: {
+          '35.66,139.75': _requeryTrain(
+            line: 'JR山手線',
+            bName: '新橋駅',
+            bLat: 35.66,
+            aName: '東京駅',
+            aLat: 35.74,
+            dep: '2026-05-22T09:22:00',
+            arr: '2026-05-22T09:25:00',
+          ),
+        },
         walk: {'35.6,139.75;35.66,139.75': _walkResp(22, 1800)},
       );
 
