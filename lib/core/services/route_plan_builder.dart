@@ -82,7 +82,7 @@ int arrivalMinutes(List<RouteSegment> segments, DateTime? departureAt) {
 /// 超える（`cum > boardRel`）こと。発車相対分ちょうどに着く場合は乗車できる扱いで
 /// 対象外。返り値の [cumBefore] はその区間に着くまでの実累積分で、乗車駅からの
 /// 時刻表再照会の start_time（出発 + cumBefore）を組むのに使う（#115）。
-/// 発着時刻が欠落した区間・[anchor] 無しは時刻表が無く乗り遅れを判定できない。
+/// 発着時刻が欠落した電車区間は時刻表が無く乗り遅れを判定できないため対象外。
 ({int index, int cumBefore})? firstMissedTrain(
   List<RouteSegment> segments,
   DateTime departureAt,

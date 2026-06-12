@@ -126,6 +126,9 @@ class NaviTimeRouteService implements RouteService {
   /// （#115）。1 試行 = 採用候補1経路ぶんの再照会1回。乗り遅れの無い経路では発生
   /// しない。実測徒歩の上書きと同様、確定しかけた候補にのみ働くため [_maxEnrichAttempts]
   /// と同等に抑えれば十分。NAVITIME コールを増やしすぎないよう上限で抑える。
+  /// 注意: 上限到達後の乗り遅れ候補は再照会せず楽観時刻表のまま確定し得る（安全側の
+  /// 除外ではなく楽観側へ縮退する）。実運用では候補数的に到達しない想定だが、上限は
+  /// 偽陽性（乗れない列車の確定）を許す方向に効くため安易に下げないこと。
   static const int _maxRefetchAttempts = 8;
 
   /// 候補集合から確定経路を選び RoutePlan へ。選定は直線距離ベースの推定で行うため、
@@ -359,13 +362,20 @@ class NaviTimeRouteService implements RouteService {
       depTime: real.dep,
       arrTime: real.arr,
     );
+    final segments = [
+      for (var i = 0; i < enriched.segments.length; i++)
+        if (i == missed.index) replaced else enriched.segments[i],
+    ];
+    // 多区間経路で最初の乗り遅れ区間を遅い実在列車へ差し替えると、再照会していない
+    // 下流の電車区間が借用時刻表のまま乗り遅れ（接続崩れ）になり得る。その場合は
+    // 楽観評価（_advance の待ち0・同乗車時間近似）で下流を確定しないよう候補ごと
+    // 除外し、呼び出し側の次善フォールバックに委ねる（乗れない列車を確定しない）。
+    // ハイブリッドは単一電車のためここは常に null（差し替え1区間で完結する）。
+    if (firstMissedTrain(segments, departureAt) != null) return null;
     return RouteCandidate(
       from: enriched.from,
       to: enriched.to,
-      segments: [
-        for (var i = 0; i < enriched.segments.length; i++)
-          if (i == missed.index) replaced else enriched.segments[i],
-      ],
+      segments: segments,
     );
   }
 
@@ -373,6 +383,9 @@ class NaviTimeRouteService implements RouteService {
   /// 以降に発車し、同一乗車区間内で降車駅 [alightName] に停車する実在列車の発着時刻を
   /// 探す。MVP は別路線・別降車駅の経路を採らず、見つからなければ null（候補を除外）。
   /// [notBefore] より前に発車する列車（＝駅着前に出てしまい乗れない）は除外する。
+  /// [items] は route_transit が最早接続を先頭に返す前提で、最初に条件を満たした列車を
+  /// 採る（dep でソートし直さない）。順序が崩れると最早でない列車を拾い不要な
+  /// フォールバックを招き得るが、乗れない列車は確定しないため正確性は保たれる。
   ({DateTime dep, DateTime arr})? _findRealBoarding(
     List<Map<String, dynamic>> items, {
     required String? line,
