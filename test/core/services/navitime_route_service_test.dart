@@ -2121,5 +2121,142 @@ void main() {
       );
       expect(transitUri.queryParameters['start_time'], '2026-05-23T09:00:00');
     });
+
+    // #116: 徒歩実測をレッグ単位（start/goal 座標ペア）で plan() スコープに
+    // キャッシュし、選び直しループの重複コールを排除する。
+
+    // 密な停車駅の直線上経路（出発地→S0..S9→目的地）。再選定を誘発するための共通土台。
+    final cacheLats = <double>[
+      35.52, 35.54, 35.56, 35.58, 35.60, //
+      35.62, 35.64, 35.66, 35.68, 35.695,
+    ];
+    Map<String, dynamic> cacheTransit() => _navi([
+      _item([
+        _point('出発地'),
+        _walkSection(2700, 34),
+        _point('S0'),
+        _trainSection(
+          20000,
+          25,
+          line: 'L',
+          calling: [
+            for (var i = 0; i < cacheLats.length; i++)
+              _callingNoTime('S$i', cacheLats[i], 139.50),
+          ],
+        ),
+        _point('S9'),
+        _walkSection(600, 7),
+        _point('目的地'),
+      ]),
+    ]);
+
+    /// 非均一 detour（目的地側1.9・出発地側1.1）で実測する徒歩モック。単一スカラの
+    /// 迂回率学習を外し、確定が1段選び直されて隣接候補が片側の徒歩レッグを共有する
+    /// 状況を作る。[failPair] に一致する start;goal は失敗（routes 空）を返す。
+    /// [log] に全リクエスト URL を記録する。
+    http.Client cacheMock({List<Uri>? log, String? failPair}) =>
+        MockClient((req) async {
+          log?.add(req.url);
+          if (!req.url.path.contains('googleWalkProxy')) {
+            return _jsonResponse(cacheTransit(), 200);
+          }
+          final startQ = req.url.queryParameters['start'] ?? '';
+          final goalQ = req.url.queryParameters['goal'] ?? '';
+          if (failPair != null && '$startQ;$goalQ' == failPair) {
+            return _jsonResponse(_navi([]), 200);
+          }
+          GeoPoint pt(String s) {
+            final p = s.split(',');
+            return GeoPoint(double.parse(p[0]), double.parse(p[1]));
+          }
+
+          final km = haversineKm(pt(startQ), pt(goalQ));
+          final isGoalSide = (pt(goalQ).lat - 35.70).abs() < 1e-6;
+          final detour = isGoalSide ? 1.9 : 1.1;
+          final meters = (km * 1000 * detour).round();
+          final minutes = (km * 1000 / walkMetersPerMinute * detour).round();
+          return _jsonResponse(_walkResp(minutes, meters), 200);
+        });
+
+    List<String> walkPairsOf(List<Uri> log) => log
+        .where((u) => u.path.contains('googleWalkProxy'))
+        .map(
+          (u) => '${u.queryParameters['start']};${u.queryParameters['goal']}',
+        )
+        .toList();
+
+    test('共有レッグを持つ候補を選び直すとき、徒歩実測はユニークレッグ数だけ呼ぶ（#116）', () async {
+      // 全徒歩→ハイブリッドへ1段選び直され、確定候補と中間候補が S9→目的地 レッグを
+      // 共有する。レッグ単位キャッシュ無しでは同レッグを試行ごとに測り直し 4 コール
+      // （うち1重複）になるが、キャッシュでユニーク3レッグまで実コールを抑える。
+      final log = <Uri>[];
+      final plan = await build(cacheMock(log: log)).plan(
+        destination: '目的地',
+        destinationLatLng: const GeoPoint(35.70, 139.50),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 0), // 予算120分
+        origin: const GeoPoint(35.50, 139.50),
+      );
+
+      final pairs = walkPairsOf(log);
+      final unique = pairs.toSet();
+      // 重複コールが無い（コール数＝ユニークレッグ数）。
+      expect(pairs.length, unique.length);
+      // シナリオ固定: キャッシュ無しなら 4 コール（S9→目的地 が2回）になるところ 3。
+      expect(pairs.length, 3);
+      // 経路自体は予算内のハイブリッドに収束している（共有レッグの再利用が正しい）。
+      expect(plan.totalMin, lessThanOrEqualTo(120));
+      expect(
+        plan.segments.where((s) => s.type == SegmentType.train),
+        isNotEmpty,
+      );
+    });
+
+    test('実測失敗（null）は負キャッシュせず、同一レッグの再要求で再度コールする（#116）', () async {
+      // 予算180では出発地→S0 レッグを共有する候補が連続で選び直される。このレッグの
+      // 実測を毎回失敗（routes 空）させても、失敗は負キャッシュしないため再要求のたびに
+      // 再コールされる（成功レッグはキャッシュされ重複しない）。
+      const s0Pair = '35.5,139.5;35.52,139.5';
+      final log = <Uri>[];
+      await build(cacheMock(log: log, failPair: s0Pair)).plan(
+        destination: '目的地',
+        destinationLatLng: const GeoPoint(35.70, 139.50),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 12, m: 0), // 予算180分
+        origin: const GeoPoint(35.50, 139.50),
+      );
+
+      final pairs = walkPairsOf(log);
+      final counts = <String, int>{};
+      for (final p in pairs) {
+        counts[p] = (counts[p] ?? 0) + 1;
+      }
+      // 失敗レッグは2回要求され、いずれも実コールされる（負キャッシュしない）。
+      expect(counts[s0Pair], 2);
+      // 成功した他レッグは1回ずつ（負キャッシュではなく正キャッシュは効く）。
+      expect(
+        counts.entries.where((e) => e.key != s0Pair && e.value > 1),
+        isEmpty,
+      );
+    });
+
+    test('キャッシュヒット時の徒歩区間表示名は候補側の fromName/toName を使う（#116）', () async {
+      // 選び直しで S9→目的地 レッグは中間候補が先に実測し、確定候補（S1乗車・S9降車）が
+      // キャッシュヒットで再利用する。ヒット時も表示名は候補側（'S9'→'目的地'）で差し替える。
+      final plan = await build(cacheMock()).plan(
+        destination: '目的地',
+        destinationLatLng: const GeoPoint(35.70, 139.50),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 0), // 予算120分
+        origin: const GeoPoint(35.50, 139.50),
+      );
+
+      final walks = plan.segments
+          .where((s) => s.type == SegmentType.walk)
+          .toList();
+      expect(walks.first.fromName, '出発地');
+      expect(walks.last.fromName, 'S9');
+      expect(walks.last.toName, '目的地');
+    });
   });
 }

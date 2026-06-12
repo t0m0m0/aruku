@@ -38,6 +38,21 @@ class RouteSegment {
 
   /// この区間の到着（電車は降車）絶対時刻。設定条件は [depTime] と同じ。
   final DateTime? arrTime;
+
+  RouteSegment copyWith({String? fromName, String? toName}) => RouteSegment(
+    type: type,
+    fromName: fromName ?? this.fromName,
+    toName: toName ?? this.toName,
+    minutes: minutes,
+    km: km,
+    kcal: kcal,
+    line: line,
+    fare: fare,
+    stops: stops,
+    polyline: polyline,
+    depTime: depTime,
+    arrTime: arrTime,
+  );
 }
 
 @immutable
