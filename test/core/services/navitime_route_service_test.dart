@@ -337,6 +337,132 @@ void main() {
       expect(plan.timelineNodes.last.sub, contains('制限内'));
     });
 
+    test('全徒歩が直線推定では予算内でも Google実測で超過するなら予算内の代替を返す', () async {
+      // 不具合B: 予算ゲートが直線推定の全徒歩時間で「間に合う」と誤判定し、
+      // ハイブリッド/鉄道との比較を打ち切って全徒歩を確定 → 確定後に Google の
+      // 道なり実測で膨らみ予算超過、という遅刻ルートを返していた。間に合う鉄道/
+      // ハイブリッドが在る限り、徒歩を短くしてでも予算内の候補を返すべき。
+      //
+      // origin(35.60)→goal(35.70) 直線約11.1km。全徒歩の直線推定は約139分で
+      // 予算150分内だが、Google 実測は170分で超過する。経度固定の直線上に駅を
+      // 置き、間に合う鉄道（P0 09:08発→P3 09:20着）を用意する。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(600, 7),
+          _point('P0'),
+          _trainSection(
+            9000,
+            12,
+            line: 'テスト線',
+            stops: 3,
+            calling: [
+              _calling(
+                'P0',
+                35.605,
+                139.75,
+                '2026-05-22T09:08:00',
+                '2026-05-22T09:08:00',
+              ),
+              _calling(
+                'P1',
+                35.64,
+                139.75,
+                '2026-05-22T09:12:00',
+                '2026-05-22T09:12:00',
+              ),
+              _calling(
+                'P2',
+                35.68,
+                139.75,
+                '2026-05-22T09:16:00',
+                '2026-05-22T09:16:00',
+              ),
+              _calling(
+                'P3',
+                35.695,
+                139.75,
+                '2026-05-22T09:20:00',
+                '2026-05-22T09:20:00',
+              ),
+            ],
+          ),
+          _point('P3'),
+          _walkSection(600, 7),
+          _point('目的地'),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        // 全徒歩(origin→goal) は直線推定139分に対し Google 実測170分で予算超過。
+        walk: {'35.6,139.75;35.7,139.75': _walkResp(170, 13600)},
+      );
+
+      final plan = await build(client).plan(
+        destination: '目的地',
+        destinationLatLng: const GeoPoint(35.70, 139.75),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 30), // 予算150分
+        origin: const GeoPoint(35.60, 139.75),
+      );
+
+      // 全徒歩(170分)で超過させず、予算150分内の候補を返す。
+      expect(plan.totalMin, lessThanOrEqualTo(150));
+      expect(plan.timelineNodes.last.sub, contains('制限内'));
+    });
+
+    test('サンプル上限を超える停車駅でも飛ばさず徒歩最大の乗車駅を選ぶ（不具合A-b）', () async {
+      // 不具合A-b: ハイブリッドの乗降点が _maxHybridCandidates=6 駅サンプルに
+      // 制限され、6駅に入らない停車駅で乗車する徒歩最大候補を取りこぼしていた。
+      //
+      // 7駅(P0..P6)を、出発地寄りに密集(P0..P3)→急行で長距離ジャンプ(P3→P4)→
+      // 目的地寄りに密集(P4..P6) と非一様に配置する。6駅サンプリングは index3(=P3)
+      // を飛ばす（{0,1,2,4,5,6} を抽出）。徒歩を最大化するには「急行に乗る直前の
+      // P3 まで目一杯歩いて乗車→P4 で降りて目的地まで歩く」のが最適だが、P3 が
+      // 候補に無いと一つ手前の P2 までしか歩けず徒歩を取りこぼす。急行区間は徒歩だと
+      // 予算超過のため必ず乗る必要があり、乗車駅の選択が徒歩量を直接左右する。
+      List<Map<String, dynamic>> calling() => [
+        for (final (name, lat, t) in const [
+          ('P0', 35.502, '09:05'),
+          ('P1', 35.505, '09:06'),
+          ('P2', 35.508, '09:07'),
+          ('P3', 35.511, '09:08'), // 急行に乗る直前（サンプルで飛ばされる index3）
+          ('P4', 35.551, '09:11'), // 急行で一気にジャンプ
+          ('P5', 35.554, '09:12'),
+          ('P6', 35.557, '09:13'),
+        ])
+          _calling(name, lat, 139.70, '2026-05-22T$t:00', '2026-05-22T$t:00'),
+      ];
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(220, 3),
+          _point('P0'),
+          _trainSection(6100, 8, line: 'L', calling: calling()),
+          _point('P6'),
+          _walkSection(330, 4),
+          _point('目的地'),
+        ]),
+      ]);
+      final client = _mock(transit: transit);
+
+      final plan = await build(client).plan(
+        destination: '目的地',
+        destinationLatLng: const GeoPoint(35.560, 139.70),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 9, m: 35), // 予算35分
+        origin: const GeoPoint(35.500, 139.70),
+      );
+
+      // 6駅サンプルでは飛ばされる P3 で乗車する候補を選び、徒歩を最大化する
+      // （サンプル上限のままだと一つ手前の P2 乗車になり徒歩を取りこぼす）。
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.fromName, 'P3');
+      expect(plan.totalMin, lessThanOrEqualTo(35));
+    });
+
     test('徒歩で駅着後、発車までの待ち時間を到着時刻に反映する（#65）', () async {
       // 出発地→A駅(徒歩・確定後5分=9:05着) → A駅 09:15発/B駅 09:30着。
       // 駅着(9:05)から発車(9:15)まで10分待つため、到着は累積分(9:20)ではなく
