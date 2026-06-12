@@ -158,6 +158,11 @@ class NaviTimeRouteService implements RouteService {
   }) async {
     final departureAt = _departureDateTime(departure);
     final pool = [...candidates];
+    // この plan() 1回のスコープで徒歩実測をレッグ単位にキャッシュする（#116）。
+    // 選び直しは隣接候補で徒歩レッグの片側が一致しやすく、同じ start/goal 座標ペアへ
+    // 試行回数ぶんの Google コールが重複していた。リクエストローカルに持ち回って
+    // ユニークレッグ数まで実コールを抑える。失敗（null）は負キャッシュしない。
+    final walkCache = <String, RouteCandidate>{};
     // 徒歩の道なり迂回率（実測/推定）。最初の実測超過から学習し選定へ反映する。
     var walkDetour = 1.0;
     // 乗り遅れ再照会の実行回数（[_maxRefetchAttempts] で上限管理する）。
@@ -184,7 +189,7 @@ class NaviTimeRouteService implements RouteService {
       // これ以上探しても収まらないため即確定する（無駄な実測を避ける）。
       final withinByEstimate =
           arrivalMinutes(pick.segments, departureAt) <= budgetMin;
-      var enriched = await _enrichWalkGeometry(pick);
+      var enriched = await _enrichWalkGeometry(pick, walkCache);
 
       // 確定しかけ（推定・実測徒歩ともに予算内）の候補が予定列車に乗り遅れるなら、
       // 乗車駅からの時刻表を NAVITIME へ再照会し、実在列車の発着で当該区間を差し替えて
@@ -239,7 +244,7 @@ class NaviTimeRouteService implements RouteService {
           : b,
     );
     return _build(
-      await _enrichWalkGeometry(shortest),
+      await _enrichWalkGeometry(shortest, walkCache),
       departure,
       budgetMin,
       onProgress,
@@ -295,7 +300,10 @@ class NaviTimeRouteService implements RouteService {
   /// 上書きする。標準乗換候補の徒歩は NAVITIME 由来（shape 無し→端点直線）の
   /// ため、区間端点（polyline の両端）を start/goal に再取得して街路追従へそろえる。
   /// 取得失敗時は元の直線を保つ（線を欠落させない）。座標を持たない区間は対象外。
-  Future<RouteCandidate> _enrichWalkGeometry(RouteCandidate chosen) async {
+  Future<RouteCandidate> _enrichWalkGeometry(
+    RouteCandidate chosen,
+    Map<String, RouteCandidate> cache,
+  ) async {
     final segments = <RouteSegment>[];
     for (final seg in chosen.segments) {
       if (seg.type != SegmentType.walk || seg.polyline.length < 2) {
@@ -307,6 +315,7 @@ class NaviTimeRouteService implements RouteService {
         seg.polyline.last,
         fromName: seg.fromName,
         toName: seg.toName,
+        cache: cache,
       );
       segments.add(walk?.segments.first ?? seg);
     }
@@ -635,7 +644,16 @@ class NaviTimeRouteService implements RouteService {
     GeoPoint dest, {
     required String fromName,
     required String toName,
+    Map<String, RouteCandidate>? cache,
   }) async {
+    // レッグ単位キャッシュ（#116）。座標を 5 桁（≒1.1m）に丸めた文字列キーで引く。
+    // ヒット時は実測ジオメトリ・所要・距離を再利用しつつ、表示名は要求側（候補側）の
+    // fromName/toName へ差し替える（同一座標でも候補により表示名は異なり得る）。
+    final key = cache == null ? null : _walkCacheKey(origin, dest);
+    if (key != null) {
+      final hit = cache![key];
+      if (hit != null) return _renameWalk(hit, fromName, toName);
+    }
     try {
       final body = await _fetch('googleWalkProxy', {
         'start': '${origin.lat},${origin.lng}',
@@ -648,7 +666,7 @@ class NaviTimeRouteService implements RouteService {
       if (minutes == null) return null;
       final km = ((route['distanceMeters'] as num?)?.toInt() ?? 0) / 1000.0;
       final shape = _parseEncodedPolyline(route['polyline']);
-      return RouteCandidate(
+      final result = RouteCandidate(
         from: fromName,
         to: toName,
         segments: [
@@ -664,9 +682,49 @@ class NaviTimeRouteService implements RouteService {
           ),
         ],
       );
+      // 実測成功のみキャッシュ。失敗（下の null 返却）は負キャッシュしないため、
+      // 一時的なネットワーク失敗が検索全体へ波及しない（同一レッグは再試行され得る）。
+      if (key != null) cache![key] = result;
+      return result;
     } on RouteException {
       return null;
     }
+  }
+
+  /// 徒歩実測キャッシュのキー。座標の浮動小数同値性に依存しないよう小数5桁
+  /// （≒1.1m 精度）へ丸めた start|goal 文字列にする。
+  String _walkCacheKey(GeoPoint origin, GeoPoint dest) =>
+      '${origin.lat.toStringAsFixed(5)},${origin.lng.toStringAsFixed(5)}'
+      '|${dest.lat.toStringAsFixed(5)},${dest.lng.toStringAsFixed(5)}';
+
+  /// キャッシュ済み徒歩区間 [cached] を、要求側の表示名 [fromName]/[toName] で
+  /// 差し替えた候補にする。実測値（所要・距離・kcal・polyline）はそのまま再利用する。
+  RouteCandidate _renameWalk(
+    RouteCandidate cached,
+    String fromName,
+    String toName,
+  ) {
+    final s = cached.segments.first;
+    return RouteCandidate(
+      from: fromName,
+      to: toName,
+      segments: [
+        RouteSegment(
+          type: s.type,
+          fromName: fromName,
+          toName: toName,
+          minutes: s.minutes,
+          km: s.km,
+          kcal: s.kcal,
+          line: s.line,
+          fare: s.fare,
+          stops: s.stops,
+          polyline: s.polyline,
+          depTime: s.depTime,
+          arrTime: s.arrTime,
+        ),
+      ],
+    );
   }
 
   /// Google Routes の duration（"123s" 形式の文字列）を分へ丸める。
