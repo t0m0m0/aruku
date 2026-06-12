@@ -210,7 +210,9 @@ class _OverBudgetBanner extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '時間内で到達できる経路が見つかりませんでした',
+                  // 予算内に間に合う経路が無いため best-effort（最短）を表示して
+                  // いる状態。検索失敗のように見せず、最短経路を出している旨を伝える。
+                  '時間内に到達できる経路がないため、最短の経路を表示しています',
                   style: jpStyle(
                     size: 11,
                     weight: FontWeight.w500,
