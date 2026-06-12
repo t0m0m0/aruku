@@ -337,6 +337,80 @@ void main() {
       expect(plan.timelineNodes.last.sub, contains('制限内'));
     });
 
+    test('全徒歩が直線推定では予算内でも Google実測で超過するなら予算内の代替を返す', () async {
+      // 不具合B: 予算ゲートが直線推定の全徒歩時間で「間に合う」と誤判定し、
+      // ハイブリッド/鉄道との比較を打ち切って全徒歩を確定 → 確定後に Google の
+      // 道なり実測で膨らみ予算超過、という遅刻ルートを返していた。間に合う鉄道/
+      // ハイブリッドが在る限り、徒歩を短くしてでも予算内の候補を返すべき。
+      //
+      // origin(35.60)→goal(35.70) 直線約11.1km。全徒歩の直線推定は約139分で
+      // 予算150分内だが、Google 実測は170分で超過する。経度固定の直線上に駅を
+      // 置き、間に合う鉄道（P0 09:08発→P3 09:20着）を用意する。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(600, 7),
+          _point('P0'),
+          _trainSection(
+            9000,
+            12,
+            line: 'テスト線',
+            stops: 3,
+            calling: [
+              _calling(
+                'P0',
+                35.605,
+                139.75,
+                '2026-05-22T09:08:00',
+                '2026-05-22T09:08:00',
+              ),
+              _calling(
+                'P1',
+                35.64,
+                139.75,
+                '2026-05-22T09:12:00',
+                '2026-05-22T09:12:00',
+              ),
+              _calling(
+                'P2',
+                35.68,
+                139.75,
+                '2026-05-22T09:16:00',
+                '2026-05-22T09:16:00',
+              ),
+              _calling(
+                'P3',
+                35.695,
+                139.75,
+                '2026-05-22T09:20:00',
+                '2026-05-22T09:20:00',
+              ),
+            ],
+          ),
+          _point('P3'),
+          _walkSection(600, 7),
+          _point('目的地'),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        // 全徒歩(origin→goal) は直線推定139分に対し Google 実測170分で予算超過。
+        walk: {'35.6,139.75;35.7,139.75': _walkResp(170, 13600)},
+      );
+
+      final plan = await build(client).plan(
+        destination: '目的地',
+        destinationLatLng: const GeoPoint(35.70, 139.75),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 30), // 予算150分
+        origin: const GeoPoint(35.60, 139.75),
+      );
+
+      // 全徒歩(170分)で超過させず、予算150分内の候補を返す。
+      expect(plan.totalMin, lessThanOrEqualTo(150));
+      expect(plan.timelineNodes.last.sub, contains('制限内'));
+    });
+
     test('徒歩で駅着後、発車までの待ち時間を到着時刻に反映する（#65）', () async {
       // 出発地→A駅(徒歩・確定後5分=9:05着) → A駅 09:15発/B駅 09:30着。
       // 駅着(9:05)から発車(9:15)まで10分待つため、到着は累積分(9:20)ではなく

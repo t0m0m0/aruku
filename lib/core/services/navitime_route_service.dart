@@ -66,8 +66,7 @@ class NaviTimeRouteService implements RouteService {
       for (final p in parsed) p.toCandidate(),
     ];
 
-    // 全徒歩。予算内なら徒歩 100% が最良のためハイブリッド探索を省く。
-    // 選定フェーズの徒歩は直線距離ベースの推定（Google を呼ばない）。
+    // 全徒歩。選定フェーズの徒歩は直線距離ベースの推定（Google を呼ばない）。
     final fullWalk = _estimateWalk(
       origin,
       destinationLatLng,
@@ -75,59 +74,88 @@ class NaviTimeRouteService implements RouteService {
       toName: parsed.first.to,
     );
     candidates.add(fullWalk);
-    if (fullWalk.totalMin <= budgetMin) {
-      return _finalize(
-        selectBestRoute(
-          candidates: candidates,
-          budgetMin: budgetMin,
-          origin: origin,
-          goal: destinationLatLng,
-          departureAt: _departureDateTime(departure),
-        ),
-        departure,
-        budgetMin,
-        onProgress,
-        fromName: originName,
-        toName: destination,
-      );
-    }
 
-    // 途中駅まで歩いて乗車するハイブリッド候補を追加する。
+    // 途中駅まで歩いて乗車するハイブリッド候補を追加する。全徒歩が直線推定で
+    // 予算内でも、確定後の Google 実測で超過しうる（不具合B）。鉄道/ハイブリッド
+    // との比較を打ち切らず常に候補を出し揃え、_finalize の再判定で予算内へ
+    // フォールバックできるようにする。ハイブリッド構築は直線推定のみで Google を
+    // 呼ばないため、全徒歩が予算内のケースでも追加コストはほぼ無い。
     final base = _baseForHybrid(parsed);
     if (base != null) {
       candidates.addAll(_buildHybrids(base, origin, destinationLatLng));
     }
 
     return _finalize(
-      selectBestRoute(
-        candidates: candidates,
-        budgetMin: budgetMin,
-        origin: origin,
-        goal: destinationLatLng,
-        departureAt: _departureDateTime(departure),
-      ),
-      departure,
+      candidates,
       budgetMin,
-      onProgress,
+      departure,
+      origin: origin,
+      goal: destinationLatLng,
+      onProgress: onProgress,
       fromName: originName,
       toName: destination,
     );
   }
 
-  /// 確定経路を RoutePlan へ。選定は直線距離ベースの推定で行うため、表示する
-  /// 1 経路ぶんの徒歩区間だけ Google Routes で街路追従ジオメトリ・所要時間・
+  /// 採用経路の確定徒歩を実測（Google）後の実到着時刻で予算を再判定する試行上限。
+  /// 1 試行 = 採用候補1経路の徒歩区間ぶんの Google 呼び出し。間に合う候補が在る限り
+  /// 予算内へ選び直すが、Google 呼び出しを増やしすぎないよう上限で抑える。
+  static const int _maxEnrichAttempts = 4;
+
+  /// 候補集合から確定経路を選び RoutePlan へ。選定は直線距離ベースの推定で行うため、
+  /// 表示する 1 経路ぶんの徒歩区間だけ Google Routes で街路追従ジオメトリ・所要時間・
   /// 距離に上書きする（Google 呼び出しは採用経路の徒歩区間数ぶんのみ）。
+  ///
+  /// 予算内と見積もった候補が実測で超過した場合は、その候補を除いて予算内の次善へ
+  /// 選び直す（間に合う候補が在る限り遅刻ルートを返さない・不具合B）。元から予算内
+  /// 候補が無い（best-effort）選定なら、これ以上探しても収まらないためそのまま確定する。
   Future<RoutePlan> _finalize(
-    RouteCandidate chosen,
-    TimeValue departure,
+    List<RouteCandidate> candidates,
     int budgetMin,
-    void Function(RoutePhase)? onProgress, {
+    TimeValue departure, {
+    required GeoPoint origin,
+    required GeoPoint goal,
+    void Function(RoutePhase)? onProgress,
     String? fromName,
     String? toName,
   }) async {
-    final route = await _enrichWalkGeometry(chosen);
+    final departureAt = _departureDateTime(departure);
+    final pool = [...candidates];
+    RouteCandidate? fallback; // 予算内が尽きたときの最終手段（最初の選定結果）。
+
+    for (
+      var attempt = 0;
+      attempt < _maxEnrichAttempts && pool.isNotEmpty;
+      attempt++
+    ) {
+      final pick = selectBestRoute(
+        candidates: pool,
+        budgetMin: budgetMin,
+        origin: origin,
+        goal: goal,
+        departureAt: departureAt,
+      );
+      final withinByEstimate =
+          arrivalMinutes(pick.segments, departureAt) <= budgetMin;
+      final enriched = await _enrichWalkGeometry(pick);
+      fallback ??= enriched;
+      final withinByActual =
+          arrivalMinutes(enriched.segments, departureAt) <= budgetMin;
+      if (withinByActual || !withinByEstimate) {
+        return _build(
+          enriched,
+          departure,
+          budgetMin,
+          onProgress,
+          fromName: fromName,
+          toName: toName,
+        );
+      }
+      // 予算内見積もりが実測で超過 → その候補を除いて選び直す。
+      pool.remove(pick);
+    }
     return _build(
-      route,
+      fallback!,
       departure,
       budgetMin,
       onProgress,
