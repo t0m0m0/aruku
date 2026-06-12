@@ -122,6 +122,12 @@ class NaviTimeRouteService implements RouteService {
   /// 必要な試行数も増える。徒歩を取りこぼさないよう、密化に合わせて上限を広げる。
   static const int _maxEnrichAttempts = 8;
 
+  /// 乗り遅れ候補を採用しかけた際に乗車駅の時刻表を NAVITIME へ再照会する試行上限
+  /// （#115）。1 試行 = 採用候補1経路ぶんの再照会1回。乗り遅れの無い経路では発生
+  /// しない。実測徒歩の上書きと同様、確定しかけた候補にのみ働くため [_maxEnrichAttempts]
+  /// と同等に抑えれば十分。NAVITIME コールを増やしすぎないよう上限で抑える。
+  static const int _maxRefetchAttempts = 8;
+
   /// 候補集合から確定経路を選び RoutePlan へ。選定は直線距離ベースの推定で行うため、
   /// 表示する 1 経路ぶんの徒歩区間だけ Google Routes で街路追従ジオメトリ・所要時間・
   /// 距離に上書きする（Google 呼び出しは採用経路の徒歩区間数ぶんのみ）。
@@ -151,6 +157,8 @@ class NaviTimeRouteService implements RouteService {
     final pool = [...candidates];
     // 徒歩の道なり迂回率（実測/推定）。最初の実測超過から学習し選定へ反映する。
     var walkDetour = 1.0;
+    // 乗り遅れ再照会の実行回数（[_maxRefetchAttempts] で上限管理する）。
+    var refetches = 0;
 
     for (
       var attempt = 0;
@@ -173,7 +181,33 @@ class NaviTimeRouteService implements RouteService {
       // これ以上探しても収まらないため即確定する（無駄な実測を避ける）。
       final withinByEstimate =
           arrivalMinutes(pick.segments, departureAt) <= budgetMin;
-      final enriched = await _enrichWalkGeometry(pick);
+      var enriched = await _enrichWalkGeometry(pick);
+
+      // 確定しかけ（推定・実測徒歩ともに予算内）の候補が予定列車に乗り遅れるなら、
+      // 乗車駅からの時刻表を NAVITIME へ再照会し、実在列車の発着で当該区間を差し替えて
+      // 実到着を再判定する（#115）。乗り遅れの無い経路や best-effort（!withinByEstimate）
+      // では再照会しない。再照会で実在列車を確認できなければ遅刻列車を確定せず除外する。
+      if (withinByEstimate &&
+          refetches < _maxRefetchAttempts &&
+          arrivalMinutes(enriched.segments, departureAt) <= budgetMin) {
+        final missed = firstMissedTrain(enriched.segments, departureAt);
+        if (missed != null) {
+          refetches++;
+          final real = await _refetchMissedTrain(
+            enriched,
+            missed,
+            goal,
+            departureAt,
+          );
+          if (real == null) {
+            // 実在の後続列車を確認できない → 当該候補を除外して次善へ。
+            pool.remove(pick);
+            continue;
+          }
+          enriched = real;
+        }
+      }
+
       final withinByActual =
           arrivalMinutes(enriched.segments, departureAt) <= budgetMin;
       if (withinByActual || !withinByEstimate) {
@@ -186,7 +220,8 @@ class NaviTimeRouteService implements RouteService {
           toName: toName,
         );
       }
-      // 予算内見積もりが実測で超過 → 迂回率を学習し、その候補を除いて選び直す。
+      // 予算内見積もりが実測（徒歩の道なり迂回・再照会した実在列車の待ち）で超過
+      // → 迂回率を学習し、その候補を除いて選び直す。
       walkDetour = _learnDetour(walkDetour, pick, enriched);
       pool.remove(pick);
     }
@@ -273,6 +308,96 @@ class NaviTimeRouteService implements RouteService {
       segments.add(walk?.segments.first ?? seg);
     }
     return RouteCandidate(from: chosen.from, to: chosen.to, segments: segments);
+  }
+
+  /// 確定しかけた候補 [enriched] の乗り遅れ電車区間 [missed] を、乗車駅からの時刻表を
+  /// NAVITIME に再照会して実在列車の発着時刻へ差し替える（#115）。乗車駅座標は当該
+  /// 区間 polyline の先頭、再照会の出発時刻は出発 [departureAt] + 駅着までの実累積分。
+  /// 同一路線・同一降車駅を含み、駅着以降に発車する実在列車が見つかればその dep/arr で
+  /// 区間を差し替えた候補を返す。見つからなければ null（呼び出し側が候補を除外し次善へ）。
+  /// 運賃・距離・polyline・停車数は元の按分値を保ち、発着時刻と乗車時間だけ実データへ。
+  Future<RouteCandidate?> _refetchMissedTrain(
+    RouteCandidate enriched,
+    ({int index, int cumBefore}) missed,
+    GeoPoint goal,
+    DateTime departureAt,
+  ) async {
+    final train = enriched.segments[missed.index];
+    if (train.polyline.isEmpty) return null;
+    final board = train.polyline.first;
+    final startTime = departureAt.add(Duration(minutes: missed.cumBefore));
+
+    final Map<String, dynamic> body;
+    try {
+      body = await _fetchTransitAt(board, goal, startTime);
+    } on RouteException {
+      return null;
+    }
+    final items = (body['items'] as List<dynamic>? ?? const [])
+        .cast<Map<String, dynamic>>();
+    final real = _findRealBoarding(
+      items,
+      line: train.line,
+      boardName: train.fromName,
+      alightName: train.toName,
+      notBefore: startTime,
+    );
+    if (real == null) return null;
+    final ride = _minutesBetween(real.arr, real.dep);
+    if (ride < 0) return null;
+
+    final replaced = RouteSegment(
+      type: SegmentType.train,
+      fromName: train.fromName,
+      toName: train.toName,
+      minutes: ride,
+      km: train.km,
+      line: train.line,
+      fare: train.fare,
+      stops: train.stops,
+      polyline: train.polyline,
+      depTime: real.dep,
+      arrTime: real.arr,
+    );
+    return RouteCandidate(
+      from: enriched.from,
+      to: enriched.to,
+      segments: [
+        for (var i = 0; i < enriched.segments.length; i++)
+          if (i == missed.index) replaced else enriched.segments[i],
+      ],
+    );
+  }
+
+  /// 再照会レスポンス [items] から、乗車駅 [boardName]（同一路線 [line]）を [notBefore]
+  /// 以降に発車し、同一乗車区間内で降車駅 [alightName] に停車する実在列車の発着時刻を
+  /// 探す。MVP は別路線・別降車駅の経路を採らず、見つからなければ null（候補を除外）。
+  /// [notBefore] より前に発車する列車（＝駅着前に出てしまい乗れない）は除外する。
+  ({DateTime dep, DateTime arr})? _findRealBoarding(
+    List<Map<String, dynamic>> items, {
+    required String? line,
+    required String boardName,
+    required String alightName,
+    required DateTime notBefore,
+  }) {
+    for (final item in items) {
+      final stops = _parseTransit(item).stops;
+      for (var b = 0; b < stops.length; b++) {
+        final boarding = stops[b];
+        if (boarding.name != boardName || boarding.dep == null) continue;
+        if (line != null && boarding.line != line) continue;
+        if (boarding.dep!.isBefore(notBefore)) continue;
+        for (var a = b + 1; a < stops.length; a++) {
+          final alighting = stops[a];
+          // 同一乗車区間を外れたら（乗換）この乗車では a へ行けない。
+          if (alighting.section != boarding.section) break;
+          if (alighting.name == alightName && alighting.arr != null) {
+            return (dep: boarding.dep!, arr: alighting.arr!);
+          }
+        }
+      }
+    }
+    return null;
   }
 
   RoutePlan _build(
@@ -442,10 +567,19 @@ class NaviTimeRouteService implements RouteService {
     GeoPoint origin,
     GeoPoint goal,
     TimeValue departure,
+  ) => _fetchTransitAt(origin, goal, _departureDateTime(departure));
+
+  /// 乗車駅などの絶対時刻 [startTime] を起点に route_transit を引く（乗り遅れ再照会
+  /// #115 と通常照会の共通経路）。クエリは [_fetchTransit] と同形で start_time だけ
+  /// 任意の絶対時刻に差し替える。
+  Future<Map<String, dynamic>> _fetchTransitAt(
+    GeoPoint start,
+    GeoPoint goal,
+    DateTime startTime,
   ) => _fetch('navitimeProxy', {
-    'start': '${origin.lat},${origin.lng}',
+    'start': '${start.lat},${start.lng}',
     'goal': '${goal.lat},${goal.lng}',
-    'start_time': _startTime(departure),
+    'start_time': _formatStartTime(startTime),
     'options': 'railway_calling_at',
     'shape': 'true',
   });
@@ -784,9 +918,8 @@ class NaviTimeRouteService implements RouteService {
     ).add(Duration(days: effectiveOffset(t)));
   }
 
-  /// 出発時刻を ISO8601 へ整形。dateOffset（isNow→0）で日付を決定する。
-  String _startTime(TimeValue t) {
-    final dt = _departureDateTime(t);
+  /// 絶対時刻を NAVITIME の start_time（ISO8601・秒0固定）へ整形する。
+  String _formatStartTime(DateTime dt) {
     final y = dt.year.toString().padLeft(4, '0');
     final mo = dt.month.toString().padLeft(2, '0');
     final d = dt.day.toString().padLeft(2, '0');
