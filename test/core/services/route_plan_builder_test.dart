@@ -290,6 +290,131 @@ void main() {
     });
   });
 
+  group('firstMissedTrain', () {
+    test('予定列車の発車後に駅着なら乗り遅れ区間を返す', () {
+      // 徒歩20分で駅着(累積20分)。予定列車は 9:12 発（発車相対12分）→ 20 > 12 で乗り遅れ。
+      final segments = [
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '出発地',
+          toName: 'A駅',
+          minutes: 20,
+        ),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'A駅',
+          toName: 'B駅',
+          minutes: 18,
+          line: '○○線',
+          depTime: DateTime(2026, 5, 22, 9, 12),
+          arrTime: DateTime(2026, 5, 22, 9, 30),
+        ),
+      ];
+
+      final missed = firstMissedTrain(segments, DateTime(2026, 5, 22, 9, 0));
+
+      expect(missed, isNotNull);
+      expect(missed!.index, 1);
+      expect(missed.cumBefore, 20); // 駅着までの実累積分（再照会の start_time 算出に使う）
+    });
+
+    test('発車前に駅着なら乗り遅れなし（null）', () {
+      // 徒歩5分で駅着(累積5分) < 発車相対12分 → 間に合う。
+      final segments = [
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '出発地',
+          toName: 'A駅',
+          minutes: 5,
+        ),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'A駅',
+          toName: 'B駅',
+          minutes: 18,
+          line: '○○線',
+          depTime: DateTime(2026, 5, 22, 9, 12),
+          arrTime: DateTime(2026, 5, 22, 9, 30),
+        ),
+      ];
+
+      expect(firstMissedTrain(segments, DateTime(2026, 5, 22, 9, 0)), isNull);
+    });
+
+    test('駅着と発車が同時刻（累積==発車相対）は乗り遅れにしない', () {
+      // 累積12分 == 発車相対12分 → ちょうど乗車（待ち0）。_advance と同基準で乗り遅れ扱いしない。
+      final segments = [
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '出発地',
+          toName: 'A駅',
+          minutes: 12,
+        ),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'A駅',
+          toName: 'B駅',
+          minutes: 18,
+          line: '○○線',
+          depTime: DateTime(2026, 5, 22, 9, 12),
+          arrTime: DateTime(2026, 5, 22, 9, 30),
+        ),
+      ];
+
+      expect(firstMissedTrain(segments, DateTime(2026, 5, 22, 9, 0)), isNull);
+    });
+
+    test('発着時刻が無い電車区間は乗り遅れ判定の対象外（null）', () {
+      final segments = [
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '出発地',
+          toName: 'A駅',
+          minutes: 30,
+        ),
+        const RouteSegment(
+          type: SegmentType.train,
+          fromName: 'A駅',
+          toName: 'B駅',
+          minutes: 18,
+          line: '○○線',
+        ),
+      ];
+
+      expect(firstMissedTrain(segments, DateTime(2026, 5, 22, 9, 0)), isNull);
+    });
+
+    test('departureAt 起点で先行区間の待ちを吸収した累積で判定する', () {
+      // 1本目: 9:10発・9:25着（待ち含む）。2本目: 駅着9:25 > 発車相対(9:20=20分)で乗り遅れ。
+      final segments = [
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'S1',
+          toName: 'S2',
+          minutes: 15,
+          line: '1号線',
+          depTime: DateTime(2026, 5, 22, 9, 10),
+          arrTime: DateTime(2026, 5, 22, 9, 25),
+        ),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'S2',
+          toName: 'S3',
+          minutes: 10,
+          line: '2号線',
+          depTime: DateTime(2026, 5, 22, 9, 20), // 9:25着より前に発車＝乗り遅れ
+          arrTime: DateTime(2026, 5, 22, 9, 30),
+        ),
+      ];
+
+      final missed = firstMissedTrain(segments, DateTime(2026, 5, 22, 9, 0));
+
+      expect(missed, isNotNull);
+      expect(missed!.index, 1);
+      expect(missed.cumBefore, 25); // S2 着までの累積（9:25）
+    });
+  });
+
   group('budgetMinutes', () {
     test('同日内は到着−出発の差をそのまま返す', () {
       expect(
