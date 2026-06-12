@@ -116,6 +116,14 @@ class NaviTimeRouteService implements RouteService {
   /// 予算内と見積もった候補が実測で超過した場合は、その候補を除いて予算内の次善へ
   /// 選び直す（間に合う候補が在る限り遅刻ルートを返さない・不具合B）。元から予算内
   /// 候補が無い（best-effort）選定なら、これ以上探しても収まらないためそのまま確定する。
+  ///
+  /// 選定の徒歩は直線推定（楽観）で、実測（道なり）はこれを一定倍率で上回る。乗降点を
+  /// 密化すると「推定内・実測超過」の徒歩寄り候補が試行上限を超えて並び、徒歩最大の
+  /// 全徒歩から1段ずつ剥がす旧方式では底（間に合う鉄道）へ到達できず遅刻ルートを
+  /// 返していた。そこで最初の実測超過から徒歩の道なり迂回率（実測/推定）を学習し、
+  /// 以降の選定で推定徒歩を割増して「実測でも予算内」の徒歩最大候補へ少ない実測で
+  /// 収束させる。確証できなければ最長（全徒歩）ではなく実到着が最早の候補を返す
+  /// （バナーの「最短を表示」と整合・不具合B）。
   Future<RoutePlan> _finalize(
     List<RouteCandidate> candidates,
     int budgetMin,
@@ -128,24 +136,31 @@ class NaviTimeRouteService implements RouteService {
   }) async {
     final departureAt = _departureDateTime(departure);
     final pool = [...candidates];
-    RouteCandidate? fallback; // 予算内が尽きたときの最終手段（最初の選定結果）。
+    // 徒歩の道なり迂回率（実測/推定）。最初の実測超過から学習し選定へ反映する。
+    var walkDetour = 1.0;
 
     for (
       var attempt = 0;
       attempt < _maxEnrichAttempts && pool.isNotEmpty;
       attempt++
     ) {
-      final pick = selectBestRoute(
-        candidates: pool,
+      // 学習済み迂回率で徒歩推定を割増した候補で選定する（実測に近い土俵で比較）。
+      final scaled = walkDetour > 1.0
+          ? [for (final c in pool) _inflateWalk(c, walkDetour)]
+          : pool;
+      final picked = selectBestRoute(
+        candidates: scaled,
         budgetMin: budgetMin,
         origin: origin,
         goal: goal,
         departureAt: departureAt,
       );
+      final pick = pool[scaled.indexOf(picked)];
+      // 楽観（未補正）推定での予算内可否。偽＝最善でも入らない best-effort で、
+      // これ以上探しても収まらないため即確定する（無駄な実測を避ける）。
       final withinByEstimate =
           arrivalMinutes(pick.segments, departureAt) <= budgetMin;
       final enriched = await _enrichWalkGeometry(pick);
-      fallback ??= enriched;
       final withinByActual =
           arrivalMinutes(enriched.segments, departureAt) <= budgetMin;
       if (withinByActual || !withinByEstimate) {
@@ -158,17 +173,71 @@ class NaviTimeRouteService implements RouteService {
           toName: toName,
         );
       }
-      // 予算内見積もりが実測で超過 → その候補を除いて選び直す。
+      // 予算内見積もりが実測で超過 → 迂回率を学習し、その候補を除いて選び直す。
+      walkDetour = _learnDetour(walkDetour, pick, enriched);
       pool.remove(pick);
     }
+
+    // 予算内を確証できず → 実到着が最早の候補を best-effort で返す（遅刻時に
+    // 最長＝全徒歩を返さず、バナーの「最短を表示」と整合させる）。
+    final shortest = candidates.reduce(
+      (a, b) =>
+          arrivalMinutes(a.segments, departureAt) <=
+              arrivalMinutes(b.segments, departureAt)
+          ? a
+          : b,
+    );
     return _build(
-      fallback!,
+      await _enrichWalkGeometry(shortest),
       departure,
       budgetMin,
       onProgress,
       fromName: fromName,
       toName: toName,
     );
+  }
+
+  /// 候補 [c] の徒歩区間の所要分を道なり迂回率 [detour] で割増した選定用コピー。
+  /// 電車区間はそのまま。実測ジオメトリは polyline 端点から取り直すため、ここで
+  /// 距離・kcal は触らず所要分だけ補正すれば選定（予算判定）には十分。
+  RouteCandidate _inflateWalk(RouteCandidate c, double detour) =>
+      RouteCandidate(
+        from: c.from,
+        to: c.to,
+        segments: [
+          for (final s in c.segments)
+            if (s.type == SegmentType.walk)
+              RouteSegment(
+                type: s.type,
+                fromName: s.fromName,
+                toName: s.toName,
+                minutes: (s.minutes * detour).round(),
+                km: s.km,
+                kcal: s.kcal,
+                line: s.line,
+                fare: s.fare,
+                stops: s.stops,
+                polyline: s.polyline,
+                depTime: s.depTime,
+                arrTime: s.arrTime,
+              )
+            else
+              s,
+        ],
+      );
+
+  /// 実測 [actual] と推定 [estimate] の徒歩分から道なり迂回率を学習する。徒歩が
+  /// 増えるほど実測超過は大きくなるため、過去の学習値 [current] と比べ大きい方を
+  /// 採り単調に締める。推定徒歩が 0（純鉄道）の区間は学習できず [current] を保つ。
+  double _learnDetour(
+    double current,
+    RouteCandidate estimate,
+    RouteCandidate actual,
+  ) {
+    final est = estimate.walkMinutes;
+    if (est <= 0) return current;
+    final ratio = actual.walkMinutes / est;
+    return ratio > current ? ratio : current;
   }
 
   /// 確定経路の徒歩区間を Google Routes の街路ジオメトリ・所要時間・距離で
