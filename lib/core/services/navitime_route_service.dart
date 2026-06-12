@@ -30,8 +30,11 @@ class NaviTimeRouteService implements RouteService {
   final String _proxyBaseUrl;
   final DateTime Function() _clock;
 
-  /// ハイブリッド候補の評価駅数の上限（組合せ爆発を抑えるサンプル数）。
-  static const int _maxHybridCandidates = 6;
+  /// ハイブリッド候補の乗降点に使う停車駅数の上限。候補生成は直線推定のみで
+  /// Google を呼ばない（実測は採用1経路だけ）ため、これは API コストではなく
+  /// 組合せ（O(駅数²)）の CPU 爆発を抑えるための上限。これを超える経路だけ
+  /// 等間隔サンプリングへ縮退する。通常の経路はほぼ全停車駅を乗降点にできる。
+  static const int _maxHybridCandidates = 40;
 
   @override
   Future<RoutePlan> plan({
@@ -113,7 +116,11 @@ class NaviTimeRouteService implements RouteService {
   /// 採用経路の確定徒歩を実測（Google）後の実到着時刻で予算を再判定する試行上限。
   /// 1 試行 = 採用候補1経路の徒歩区間ぶんの Google 呼び出し。間に合う候補が在る限り
   /// 予算内へ選び直すが、Google 呼び出しを増やしすぎないよう上限で抑える。
-  static const int _maxEnrichAttempts = 4;
+  ///
+  /// 楽観推定で予算内とした候補が実測で超過すると1段ずつ徒歩量を下げて選び直すため、
+  /// 乗降点を密にした（[_maxHybridCandidates]）ぶん、実測寄りの候補へ到達するのに
+  /// 必要な試行数も増える。徒歩を取りこぼさないよう、密化に合わせて上限を広げる。
+  static const int _maxEnrichAttempts = 8;
 
   /// 候補集合から確定経路を選び RoutePlan へ。選定は直線距離ベースの推定で行うため、
   /// 表示する 1 経路ぶんの徒歩区間だけ Google Routes で街路追従ジオメトリ・所要時間・

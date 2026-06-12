@@ -63,6 +63,11 @@ void main() {
     await tester.pump();
 
     expect(find.textContaining('超過'), findsOneWidget);
+    // ①の修正後、バナーが出る＝予算内に間に合う経路が無く best-effort（最短）を
+    // 表示している状態。「見つかりませんでした」と検索失敗のように示さず、最短の
+    // 経路を表示中であることを誠実に伝える（不具合C）。
+    expect(find.textContaining('見つかりませんでした'), findsNothing);
+    expect(find.textContaining('最短の経路を表示'), findsOneWidget);
     expect(find.text('条件を変更'), findsOneWidget);
 
     await tester.tap(find.text('条件を変更'));

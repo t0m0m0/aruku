@@ -411,6 +411,58 @@ void main() {
       expect(plan.timelineNodes.last.sub, contains('制限内'));
     });
 
+    test('サンプル上限を超える停車駅でも飛ばさず徒歩最大の乗車駅を選ぶ（不具合A-b）', () async {
+      // 不具合A-b: ハイブリッドの乗降点が _maxHybridCandidates=6 駅サンプルに
+      // 制限され、6駅に入らない停車駅で乗車する徒歩最大候補を取りこぼしていた。
+      //
+      // 7駅(P0..P6)を、出発地寄りに密集(P0..P3)→急行で長距離ジャンプ(P3→P4)→
+      // 目的地寄りに密集(P4..P6) と非一様に配置する。6駅サンプリングは index3(=P3)
+      // を飛ばす（{0,1,2,4,5,6} を抽出）。徒歩を最大化するには「急行に乗る直前の
+      // P3 まで目一杯歩いて乗車→P4 で降りて目的地まで歩く」のが最適だが、P3 が
+      // 候補に無いと一つ手前の P2 までしか歩けず徒歩を取りこぼす。急行区間は徒歩だと
+      // 予算超過のため必ず乗る必要があり、乗車駅の選択が徒歩量を直接左右する。
+      List<Map<String, dynamic>> calling() => [
+        for (final (name, lat, t) in const [
+          ('P0', 35.502, '09:05'),
+          ('P1', 35.505, '09:06'),
+          ('P2', 35.508, '09:07'),
+          ('P3', 35.511, '09:08'), // 急行に乗る直前（サンプルで飛ばされる index3）
+          ('P4', 35.551, '09:11'), // 急行で一気にジャンプ
+          ('P5', 35.554, '09:12'),
+          ('P6', 35.557, '09:13'),
+        ])
+          _calling(name, lat, 139.70, '2026-05-22T$t:00', '2026-05-22T$t:00'),
+      ];
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(220, 3),
+          _point('P0'),
+          _trainSection(6100, 8, line: 'L', calling: calling()),
+          _point('P6'),
+          _walkSection(330, 4),
+          _point('目的地'),
+        ]),
+      ]);
+      final client = _mock(transit: transit);
+
+      final plan = await build(client).plan(
+        destination: '目的地',
+        destinationLatLng: const GeoPoint(35.560, 139.70),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 9, m: 35), // 予算35分
+        origin: const GeoPoint(35.500, 139.70),
+      );
+
+      // 6駅サンプルでは飛ばされる P3 で乗車する候補を選び、徒歩を最大化する
+      // （サンプル上限のままだと一つ手前の P2 乗車になり徒歩を取りこぼす）。
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.fromName, 'P3');
+      expect(plan.totalMin, lessThanOrEqualTo(35));
+    });
+
     test('徒歩で駅着後、発車までの待ち時間を到着時刻に反映する（#65）', () async {
       // 出発地→A駅(徒歩・確定後5分=9:05着) → A駅 09:15発/B駅 09:30着。
       // 駅着(9:05)から発車(9:15)まで10分待つため、到着は累積分(9:20)ではなく
