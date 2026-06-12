@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import '../models/geo_point.dart';
 import '../models/route_plan.dart';
+import 'route_plan_builder.dart';
 
 /// 経路候補（全徒歩・ハイブリッド・標準乗換のいずれか）。データ源に依存しない。
 class RouteCandidate {
@@ -37,11 +38,19 @@ class RouteCandidate {
 /// [maxBacktrackRatio] × 直線距離(origin→goal) を超えて戻る「逆戻り迂回」候補を
 /// 選定前に除外する（例: 蒲田→川崎→品川 の川崎経由）。全候補が逆戻りなら除外せず
 /// 従来どおり最短へ縮退する。[origin]/[goal] 未指定時は方向フィルタを掛けない。
+///
+/// [departureAt]（出発の絶対時刻）を渡すと、予算内判定・タイブレーク・縮退の
+/// すべてで [RouteCandidate.totalMin]（待ち抜きの単純合計）ではなく、時刻表の
+/// 乗車前・乗り換え待ちを含む実到着時刻 [arrivalMinutes] を用いる。これにより
+/// 表示（タイムライン）と同じ到着時刻で締切を判定し、待ち時間で実際には超過する
+/// 経路を「予算内」と誤選定しない。間に合う候補がある限り、徒歩を短くしてでも
+/// 締切内の候補を提示する。[departureAt] 省略時は従来どおり totalMin で判定する。
 RouteCandidate selectBestRoute({
   required List<RouteCandidate> candidates,
   required int budgetMin,
   GeoPoint? origin,
   GeoPoint? goal,
+  DateTime? departureAt,
   double maxBacktrackRatio = 0.15,
 }) {
   assert(candidates.isNotEmpty, 'candidates must not be empty');
@@ -54,16 +63,21 @@ RouteCandidate selectBestRoute({
     if (forward.isNotEmpty) pool = forward;
   }
 
-  final within = pool.where((c) => c.totalMin <= budgetMin).toList();
+  // 待ち時間込みの実到着分。departureAt が無ければ待ち抜き合計へフォールバック。
+  int arrival(RouteCandidate c) => departureAt == null
+      ? c.totalMin
+      : arrivalMinutes(c.segments, departureAt);
+
+  final within = pool.where((c) => arrival(c) <= budgetMin).toList();
   if (within.isNotEmpty) {
     return within.reduce((a, b) {
       if (a.walkMinutes != b.walkMinutes) {
         return a.walkMinutes > b.walkMinutes ? a : b;
       }
-      return a.totalMin <= b.totalMin ? a : b;
+      return arrival(a) <= arrival(b) ? a : b;
     });
   }
-  return pool.reduce((a, b) => a.totalMin <= b.totalMin ? a : b);
+  return pool.reduce((a, b) => arrival(a) <= arrival(b) ? a : b);
 }
 
 /// 候補の電車区間に、出発地より進行方向(origin→goal)の後方へ

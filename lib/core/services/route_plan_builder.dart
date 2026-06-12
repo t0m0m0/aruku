@@ -58,6 +58,18 @@ String formatClock(TimeValue dep, int addMinutes) {
   return (cum: cum + seg.minutes, wait: 0);
 }
 
+/// 出発を基点に全区間を進めた到着までの総所要分（時刻表が揃う電車区間では
+/// 乗車前・乗り換え待ちを含む #65）。[departureAt] は出発の絶対時刻で、省略時は
+/// 時刻表を使わず各区間の所要分を累積する。選定（予算判定）と表示（タイムライン）が
+/// 同じ到着時刻を用いるよう、累積ロジックを [_advance] に一本化して共有する。
+int arrivalMinutes(List<RouteSegment> segments, DateTime? departureAt) {
+  var cum = 0;
+  for (final seg in segments) {
+    cum = _advance(cum, seg, departureAt).cum;
+  }
+  return cum;
+}
+
 /// 電車区間ノードの補足文。乗車前に待ちがあれば「○分待ち · 路線名」と前置きする。
 String _trainSub(String? line, int wait) {
   final name = line ?? '電車';

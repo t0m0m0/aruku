@@ -199,6 +199,89 @@ void main() {
       expect(over, same(straight));
     });
 
+    test('departureAt 指定時は待ち時間込みの実到着で予算内を判定する', () {
+      // 9:00 出発・予算30分（締切 9:30）。
+      // A: 徒歩10分(9:10着)→電車 9:25発/9:35着。待ち抜き計20分だが、乗車前
+      //    待ち15分込みの実到着は 9:35＝35分で超過。徒歩は多い。
+      // B: 徒歩4分(9:04着)→電車 9:05発/9:28着。実到着 9:28＝28分で間に合う。
+      //    徒歩は少ないが締切内。
+      final lateButMoreWalk = _candidate([
+        _walk(10),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'A駅',
+          toName: 'B駅',
+          minutes: 10,
+          km: 5,
+          line: 'L',
+          depTime: DateTime(2026, 5, 22, 9, 25),
+          arrTime: DateTime(2026, 5, 22, 9, 35),
+        ),
+      ]);
+      final onTimeLessWalk = _candidate([
+        _walk(4),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'A駅',
+          toName: 'B駅',
+          minutes: 23,
+          km: 5,
+          line: 'L',
+          depTime: DateTime(2026, 5, 22, 9, 5),
+          arrTime: DateTime(2026, 5, 22, 9, 28),
+        ),
+      ]);
+
+      final best = selectBestRoute(
+        candidates: [lateButMoreWalk, onTimeLessWalk],
+        budgetMin: 30,
+        departureAt: DateTime(2026, 5, 22, 9, 0),
+      );
+
+      // 待ち抜きなら徒歩最大の lateButMoreWalk が選ばれるが、実到着では超過。
+      // 締切内の onTimeLessWalk（徒歩は短いが間に合う）を提示する。
+      expect(best, same(onTimeLessWalk));
+    });
+
+    test('departureAt 指定で締切内が皆無なら実到着が最早の候補へ縮退する', () {
+      // 9:00 出発・予算20分（締切 9:20）。両候補とも超過。
+      // 待ち抜き合計は longWait の方が短いが、実到着は earlier の方が早い。
+      final earlier = _candidate([
+        _walk(5),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'A駅',
+          toName: 'B駅',
+          minutes: 20,
+          km: 5,
+          line: 'L',
+          depTime: DateTime(2026, 5, 22, 9, 5),
+          arrTime: DateTime(2026, 5, 22, 9, 25), // 実到着 25分
+        ),
+      ]);
+      final longWait = _candidate([
+        _walk(5),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'A駅',
+          toName: 'B駅',
+          minutes: 10,
+          km: 5,
+          line: 'L',
+          depTime: DateTime(2026, 5, 22, 9, 25),
+          arrTime: DateTime(2026, 5, 22, 9, 35), // 実到着 35分（待ち抜きは15分）
+        ),
+      ]);
+
+      final best = selectBestRoute(
+        candidates: [earlier, longWait],
+        budgetMin: 20,
+        departureAt: DateTime(2026, 5, 22, 9, 0),
+      );
+
+      expect(best, same(earlier));
+    });
+
     test('origin/goal 未指定なら方向フィルタを掛けない（後方互換）', () {
       const goal = GeoPoint(35.70, 139.50);
       final backtrack = _candidate([
