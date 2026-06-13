@@ -264,7 +264,9 @@ class NaviTimeRouteService implements RouteService {
   /// 候補 [c] の徒歩区間の所要分を、出発側（最初の電車より前）は [originDetour]・
   /// 到着側（電車以降の乗換／降車徒歩）は [goalDetour] で割増した選定用コピー（#117）。
   /// 電車区間はそのまま。実測ジオメトリは polyline 端点から取り直すため、ここで
-  /// 距離・kcal は触らず所要分だけ補正すれば選定（予算判定）には十分。
+  /// 距離・kcal は触らず所要分だけ補正すれば選定（予算判定）には十分。電車を含まない
+  /// 全徒歩候補（[_learnDetours] は側別学習から除外する）は出発側係数で割増する——
+  /// 探索順の補正のみで除外には使わないため、片側係数で十分（偽陰性を作らない）。
   RouteCandidate _inflateWalk(
     RouteCandidate c,
     double originDetour,
@@ -306,8 +308,11 @@ class NaviTimeRouteService implements RouteService {
   /// 実測超過した候補の徒歩区間から、出発側・到着側それぞれの道なり迂回率を学習する
   /// （#117）。推定 [estimate] と実測 [actual] は同順・同数の区間で、徒歩区間ごとに
   /// `ratio = 実測分 / 推定分` を求め、最初の電車より前を出発側・電車以降を到着側へ
-  /// 振り分けて各側の最新値（同側に複数あれば大きい方）で更新する。クランプ α∈[1.0,2.0]
-  /// で、実測が推定を下回る異常値（< 1.0）や極端な外れ値（> 2.0）に選定順を壊させない。
+  /// 振り分けて学習する。各側とも現値 [currentOrigin]/[currentGoal] および同側の複数
+  /// レッグと比べ大きい方を採り、反復をまたいで単調に締める（旧単一値 `_learnDetour` の
+  /// 単調性を側別へ引き継ぐ）。本値は選定の探索順割増にのみ使い除外には使わないため、
+  /// 過小割増（実測失敗で1試行を浪費）より過大寄りの方が少ない実測で収束する。クランプ
+  /// α∈[1.0,2.0] で、実測が推定を下回る異常値（< 1.0）や外れ値（> 2.0）の暴走を抑える。
   ///
   /// 電車を含まない全徒歩候補は origin→goal の両街路を横断する単一レッグで、どちらか一方
   /// の側に帰属できない。その混合迂回率を片側（や両側）へ写すと素直な側を過大評価して
@@ -342,8 +347,10 @@ class NaviTimeRouteService implements RouteService {
       }
     }
     return (
-      origin: originRatio ?? currentOrigin,
-      goal: goalRatio ?? currentGoal,
+      origin: originRatio == null
+          ? currentOrigin
+          : math.max(originRatio, currentOrigin),
+      goal: goalRatio == null ? currentGoal : math.max(goalRatio, currentGoal),
     );
   }
 
