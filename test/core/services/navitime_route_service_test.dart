@@ -148,6 +148,35 @@ http.Client _inflatingMock(
   return _jsonResponse(_walkResp(minutes, meters), 200);
 });
 
+/// 出発側（駅止まりの徒歩）と到着側（プラン目的地で終わる徒歩）で別々の道なり
+/// 迂回率を返すモック。origin 周辺と goal 周辺で街路事情が異なる状況を再現し、
+/// 側別 α 学習が単一値より実測フロンティア（予算内の徒歩最大）へ当たることを検証する。
+/// goal がプラン目的地 [goal] に一致する徒歩を到着側、それ以外を出発側とみなす。
+http.Client _sideDetourMock(
+  Map<String, dynamic> transit, {
+  required GeoPoint goal,
+  double originDetour = 1.0,
+  double goalDetour = 1.8,
+}) => MockClient((req) async {
+  if (!req.url.path.contains('googleWalkProxy')) {
+    return _jsonResponse(transit, 200);
+  }
+  GeoPoint pt(String? s) {
+    final p = (s ?? '').split(',');
+    return GeoPoint(double.parse(p[0]), double.parse(p[1]));
+  }
+
+  final start = pt(req.url.queryParameters['start']);
+  final dest = pt(req.url.queryParameters['goal']);
+  final isGoalSide =
+      (dest.lat - goal.lat).abs() < 1e-6 && (dest.lng - goal.lng).abs() < 1e-6;
+  final detour = isGoalSide ? goalDetour : originDetour;
+  final km = haversineKm(start, dest);
+  final meters = (km * 1000 * detour).round();
+  final minutes = (km * 1000 / walkMetersPerMinute * detour).round();
+  return _jsonResponse(_walkResp(minutes, meters), 200);
+});
+
 /// transit を start 座標でルーティングするモック（乗り遅れ再照会の差し替え検証用）。
 /// navitimeProxy は 'lat,lng' をキーに transit 応答を引き、無ければ [defaultTransit]。
 /// 徒歩は `_mock` 同様 'start;goal' をキーに walk マップ／defaultWalk で応答する。
@@ -403,6 +432,159 @@ void main() {
           .fold<int>(0, (a, s) => a + s.minutes);
       expect(walkMin, greaterThan(150));
       expect(plan.walkRatio, greaterThan(0.5));
+      expect(plan.timelineNodes.last.sub, contains('制限内'));
+    });
+
+    test('出発側と到着側で迂回率が非対称なら安い出発側を長く歩く候補へ収束する（#117）', () async {
+      // origin(35.50)→goal(35.70) の直線上に駅を並べ、出発側の街路は素直（×1.0）・
+      // 到着側は迂回が大きい（×1.8）非対称環境を再現する。安い出発側を目一杯歩いて
+      // goal 近傍の駅まで行き、到着側はわずかに歩く候補（≒徒歩最大）が予算内に収まる。
+      //
+      // 単一迂回率だと全徒歩の実測（到着側1.8の影響を全体へ）から学んだ大きな α を
+      // 出発側にも掛けてしまい、出発側を長く歩く候補を過小評価して低徒歩へ縮退する。
+      // 側別 α なら出発側の安さを保ったまま徒歩最大候補を選べる。
+      final lats = <double>[35.52, 35.55, 35.58, 35.61, 35.64, 35.67, 35.695];
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(2200, 28),
+          _point('S0'),
+          _trainSection(
+            19000,
+            38,
+            line: 'L',
+            calling: [
+              for (var i = 0; i < lats.length; i++)
+                _callingNoTime('S$i', lats[i], 139.50),
+            ],
+          ),
+          _point('S6'),
+          _walkSection(600, 7),
+          _point('目的地'),
+        ]),
+      ]);
+      const goal = GeoPoint(35.70, 139.50);
+      final client = _sideDetourMock(transit, goal: goal);
+
+      final plan = await build(client).plan(
+        destination: '目的地',
+        destinationLatLng: goal,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 13, m: 40), // 予算280分
+        origin: const GeoPoint(35.50, 139.50),
+      );
+
+      expect(plan.totalMin, lessThanOrEqualTo(280));
+      expect(
+        plan.segments.where((s) => s.type == SegmentType.train),
+        isNotEmpty,
+      );
+      // 出発側（安い×1.0）を長く歩く候補。単一迂回率の縮退（徒歩≒145分）では届かない。
+      final walkMin = plan.segments
+          .where((s) => s.type == SegmentType.walk)
+          .fold<int>(0, (a, s) => a + s.minutes);
+      expect(walkMin, greaterThan(200));
+      expect(plan.timelineNodes.last.sub, contains('制限内'));
+    });
+
+    test('到着側の迂回率が異常に大きく（>2.0）てもクランプで選定順が破綻しない（#117）', () async {
+      // 到着側の街路が極端に迂回する（×2.5）異常データを再現する。学習する α は
+      // [1.0, 2.0] にクランプされ、外れ値が選定順を壊さない。乗車駅を出発地寄りに
+      // 固めて「到着側を長く歩く徒歩最大候補」を先に実測させ、クランプ経路を必ず通す。
+      // 最終的には到着徒歩の短い予算内候補へ収束する（best-effort へ縮退しない）。
+      final transit = _navi([
+        _item([
+          _point('出発地', lat: 35.50, lon: 139.50),
+          _walkSection(2220, 28),
+          _point('S0', lat: 35.52, lon: 139.50),
+          _trainSection(
+            18900,
+            38,
+            line: 'L',
+            calling: [
+              _callingNoTime('S0', 35.52, 139.50),
+              _callingNoTime('S1', 35.54, 139.50),
+              _callingNoTime('S2', 35.69, 139.50),
+            ],
+          ),
+          _point('S2', lat: 35.69, lon: 139.50),
+          _walkSection(1110, 14),
+          _point('目的地', lat: 35.70, lon: 139.50),
+        ]),
+      ]);
+      const goal = GeoPoint(35.70, 139.50);
+      final client = _sideDetourMock(transit, goal: goal, goalDetour: 2.5);
+
+      final plan = await build(client).plan(
+        destination: '目的地',
+        destinationLatLng: goal,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 14, m: 0), // 予算300分
+        origin: const GeoPoint(35.50, 139.50),
+      );
+
+      expect(plan.totalMin, lessThanOrEqualTo(300));
+      expect(
+        plan.segments.where((s) => s.type == SegmentType.train),
+        isNotEmpty,
+      );
+      expect(plan.timelineNodes.last.sub, contains('制限内'));
+    });
+
+    test('α補正では超過に見えても実測で予算内なら除外せずその候補を返す（#117）', () async {
+      // 不変条件「除外は実測のみ・推定は順序のみ」の検証。出発側の一部レッグが実測で
+      // 大きく超過し α を 2.0 まで押し上げるが、別レッグが安い候補は α 補正後の見積もりで
+      // 予算超過に見える。それでも pool から外さず、実測（楽観評価）で予算内ならその候補を
+      // 返す（偽陰性を作らない）。座標ごとに実測徒歩を固定して挙動を一意にする。
+      final transit = _navi([
+        _item([
+          _point('出発地', lat: 35.50, lon: 139.50),
+          _walkSection(5560, 69),
+          _point('S0', lat: 35.55, lon: 139.50),
+          _trainSection(
+            15570,
+            31,
+            line: 'L',
+            calling: [
+              _callingNoTime('S0', 35.55, 139.50),
+              _callingNoTime('S1', 35.60, 139.50),
+              _callingNoTime('S2', 35.65, 139.50),
+              _callingNoTime('S3', 35.69, 139.50),
+            ],
+          ),
+          _point('S3', lat: 35.69, lon: 139.50),
+          _walkSection(1110, 14),
+          _point('目的地', lat: 35.70, lon: 139.50),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        walk: {
+          // 出発側 S1 乗車の徒歩は実測で 2.0 倍（×2）に膨らみ α を押し上げる。
+          '35.5,139.5;35.6,139.5': _walkResp(278, 22240),
+          // 安い出発側 S0 乗車・到着側 S3 降車は実測 ≒ 直線推定（迂回なし）。
+          '35.5,139.5;35.55,139.5': _walkResp(69, 5560),
+          '35.69,139.5;35.7,139.5': _walkResp(14, 1110),
+        },
+        // 想定外レッグが来たら過大値で返し、誤って予算内に見えないようにする。
+        defaultWalk: _walkResp(999, 80000),
+      );
+
+      final plan = await build(client).plan(
+        destination: '目的地',
+        destinationLatLng: const GeoPoint(35.70, 139.50),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 12, m: 0), // 予算180分
+        origin: const GeoPoint(35.50, 139.50),
+      );
+
+      // S1 乗車の実測超過で α=2.0 を学習後、S0 乗車・S3 降車候補は補正見積もりで
+      // 183分（>180）に見えるが、実測は114分で予算内。除外されず制限内で返る。
+      expect(plan.totalMin, lessThanOrEqualTo(180));
+      expect(
+        plan.segments.where((s) => s.type == SegmentType.train),
+        isNotEmpty,
+      );
       expect(plan.timelineNodes.last.sub, contains('制限内'));
     });
 
@@ -2150,9 +2332,9 @@ void main() {
       ]),
     ]);
 
-    /// 非均一 detour（目的地側1.9・出発地側1.1）で実測する徒歩モック。単一スカラの
-    /// 迂回率学習を外し、確定が1段選び直されて隣接候補が片側の徒歩レッグを共有する
-    /// 状況を作る。[failPair] に一致する start;goal は失敗（routes 空）を返す。
+    /// 非均一 detour（目的地側1.9・出発地側1.1）で実測する徒歩モック。側別の迂回率
+    /// 学習（#117）の下で確定が選び直され、隣接候補が片側の徒歩レッグを共有する状況を
+    /// 作る。[failPair] に一致する start;goal は失敗（routes 空）を返す。
     /// [log] に全リクエスト URL を記録する。
     http.Client cacheMock({List<Uri>? log, String? failPair}) =>
         MockClient((req) async {
@@ -2186,15 +2368,15 @@ void main() {
         .toList();
 
     test('共有レッグを持つ候補を選び直すとき、徒歩実測はユニークレッグ数だけ呼ぶ（#116）', () async {
-      // 全徒歩→ハイブリッドへ1段選び直され、確定候補と中間候補が S9→目的地 レッグを
-      // 共有する。レッグ単位キャッシュ無しでは同レッグを試行ごとに測り直し 4 コール
-      // （うち1重複）になるが、キャッシュでユニーク3レッグまで実コールを抑える。
+      // 選び直しで確定候補（S6乗車・S9降車）と中間候補（より手前乗車・S9降車）が
+      // S9→目的地 レッグを共有する。レッグ単位キャッシュ無しでは同レッグを試行ごとに
+      // 測り直し 4 コール（うち1重複）になるが、キャッシュでユニーク3レッグまで抑える。
       final log = <Uri>[];
       final plan = await build(cacheMock(log: log)).plan(
         destination: '目的地',
         destinationLatLng: const GeoPoint(35.70, 139.50),
         departure: const TimeValue(h: 9, m: 0),
-        arrival: const TimeValue(h: 11, m: 0), // 予算120分
+        arrival: const TimeValue(h: 13, m: 0), // 予算240分
         origin: const GeoPoint(35.50, 139.50),
       );
 
@@ -2205,7 +2387,7 @@ void main() {
       // シナリオ固定: キャッシュ無しなら 4 コール（S9→目的地 が2回）になるところ 3。
       expect(pairs.length, 3);
       // 経路自体は予算内のハイブリッドに収束している（共有レッグの再利用が正しい）。
-      expect(plan.totalMin, lessThanOrEqualTo(120));
+      expect(plan.totalMin, lessThanOrEqualTo(240));
       expect(
         plan.segments.where((s) => s.type == SegmentType.train),
         isNotEmpty,
@@ -2213,16 +2395,16 @@ void main() {
     });
 
     test('実測失敗（null）は負キャッシュせず、同一レッグの再要求で再度コールする（#116）', () async {
-      // 予算180では出発地→S0 レッグを共有する候補が連続で選び直される。このレッグの
+      // 予算140では出発地→S1 レッグを共有する候補が連続で選び直される。このレッグの
       // 実測を毎回失敗（routes 空）させても、失敗は負キャッシュしないため再要求のたびに
       // 再コールされる（成功レッグはキャッシュされ重複しない）。
-      const s0Pair = '35.5,139.5;35.52,139.5';
+      const s1Pair = '35.5,139.5;35.54,139.5';
       final log = <Uri>[];
-      await build(cacheMock(log: log, failPair: s0Pair)).plan(
+      await build(cacheMock(log: log, failPair: s1Pair)).plan(
         destination: '目的地',
         destinationLatLng: const GeoPoint(35.70, 139.50),
         departure: const TimeValue(h: 9, m: 0),
-        arrival: const TimeValue(h: 12, m: 0), // 予算180分
+        arrival: const TimeValue(h: 11, m: 20), // 予算140分
         origin: const GeoPoint(35.50, 139.50),
       );
 
@@ -2232,22 +2414,22 @@ void main() {
         counts[p] = (counts[p] ?? 0) + 1;
       }
       // 失敗レッグは2回要求され、いずれも実コールされる（負キャッシュしない）。
-      expect(counts[s0Pair], 2);
+      expect(counts[s1Pair], 2);
       // 成功した他レッグは1回ずつ（負キャッシュではなく正キャッシュは効く）。
       expect(
-        counts.entries.where((e) => e.key != s0Pair && e.value > 1),
+        counts.entries.where((e) => e.key != s1Pair && e.value > 1),
         isEmpty,
       );
     });
 
     test('キャッシュヒット時の徒歩区間表示名は候補側の fromName/toName を使う（#116）', () async {
-      // 選び直しで S9→目的地 レッグは中間候補が先に実測し、確定候補（S1乗車・S9降車）が
+      // 選び直しで S9→目的地 レッグは中間候補が先に実測し、確定候補（S6乗車・S9降車）が
       // キャッシュヒットで再利用する。ヒット時も表示名は候補側（'S9'→'目的地'）で差し替える。
       final plan = await build(cacheMock()).plan(
         destination: '目的地',
         destinationLatLng: const GeoPoint(35.70, 139.50),
         departure: const TimeValue(h: 9, m: 0),
-        arrival: const TimeValue(h: 11, m: 0), // 予算120分
+        arrival: const TimeValue(h: 13, m: 0), // 予算240分
         origin: const GeoPoint(35.50, 139.50),
       );
 

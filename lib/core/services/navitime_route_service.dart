@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart'; // TEMP(#B調査): フィールド計装。確認後に除去
 import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
@@ -142,10 +143,11 @@ class NaviTimeRouteService implements RouteService {
   /// 選定の徒歩は直線推定（楽観）で、実測（道なり）はこれを一定倍率で上回る。乗降点を
   /// 密化すると「推定内・実測超過」の徒歩寄り候補が試行上限を超えて並び、徒歩最大の
   /// 全徒歩から1段ずつ剥がす旧方式では底（間に合う鉄道）へ到達できず遅刻ルートを
-  /// 返していた。そこで最初の実測超過から徒歩の道なり迂回率（実測/推定）を学習し、
-  /// 以降の選定で推定徒歩を割増して「実測でも予算内」の徒歩最大候補へ少ない実測で
-  /// 収束させる。確証できなければ最長（全徒歩）ではなく実到着が最早の候補を返す
-  /// （バナーの「最短を表示」と整合・不具合B）。
+  /// 返していた。そこで実測超過のたびに徒歩の道なり迂回率（実測/推定）を出発側・到着側で
+  /// 別々に学習し（#117）、以降の選定で推定徒歩を側別に割増して「実測でも予算内」の
+  /// 徒歩最大候補へ少ない実測で収束させる。補正は探索順（次にどれを実測するか）にのみ
+  /// 効き、候補を pool から外すのは実測超過の確認時だけ（偽陰性を作らない）。確証できなければ
+  /// 最長（全徒歩）ではなく実到着が最早の候補を返す（バナーの「最短を表示」と整合・不具合B）。
   Future<RoutePlan> _finalize(
     List<RouteCandidate> candidates,
     int budgetMin,
@@ -163,8 +165,12 @@ class NaviTimeRouteService implements RouteService {
     // 試行回数ぶんの Google コールが重複していた。リクエストローカルに持ち回って
     // ユニークレッグ数まで実コールを抑える。失敗（null）は負キャッシュしない。
     final walkCache = <String, RouteCandidate>{};
-    // 徒歩の道なり迂回率（実測/推定）。最初の実測超過から学習し選定へ反映する。
-    var walkDetour = 1.0;
+    // 徒歩の道なり迂回率（実測/推定）を出発側（origin→駅）と到着側（駅→goal）で別々に
+    // 学習する（#117）。origin 周辺と goal 周辺で街路事情（駅前グリッド vs 河川・線路
+    // 分断など）が異なるため、単一値より側別の方が実測に当たりやすい。実測超過のたびに
+    // 該当側を更新し、選定（探索順）の徒歩推定割増にだけ使う（除外は実測のみ）。
+    var originDetour = 1.0;
+    var goalDetour = 1.0;
     // 乗り遅れ再照会の実行回数（[_maxRefetchAttempts] で上限管理する）。
     var refetches = 0;
 
@@ -173,9 +179,9 @@ class NaviTimeRouteService implements RouteService {
       attempt < _maxEnrichAttempts && pool.isNotEmpty;
       attempt++
     ) {
-      // 学習済み迂回率で徒歩推定を割増した候補で選定する（実測に近い土俵で比較）。
-      final scaled = walkDetour > 1.0
-          ? [for (final c in pool) _inflateWalk(c, walkDetour)]
+      // 学習済みの側別迂回率で徒歩推定を割増した候補で選定する（実測に近い土俵で比較）。
+      final scaled = (originDetour > 1.0 || goalDetour > 1.0)
+          ? [for (final c in pool) _inflateWalk(c, originDetour, goalDetour)]
           : pool;
       final picked = selectBestRoute(
         candidates: scaled,
@@ -229,8 +235,10 @@ class NaviTimeRouteService implements RouteService {
         );
       }
       // 予算内見積もりが実測（徒歩の道なり迂回・再照会した実在列車の待ち）で超過
-      // → 迂回率を学習し、その候補を除いて選び直す。
-      walkDetour = _learnDetour(walkDetour, pick, enriched);
+      // → 側別の迂回率を学習し、その候補を除いて選び直す。
+      final learned = _learnDetours(originDetour, goalDetour, pick, enriched);
+      originDetour = learned.origin;
+      goalDetour = learned.goal;
       pool.remove(pick);
     }
 
@@ -253,47 +261,97 @@ class NaviTimeRouteService implements RouteService {
     );
   }
 
-  /// 候補 [c] の徒歩区間の所要分を道なり迂回率 [detour] で割増した選定用コピー。
+  /// 候補 [c] の徒歩区間の所要分を、出発側（最初の電車より前）は [originDetour]・
+  /// 到着側（電車以降の乗換／降車徒歩）は [goalDetour] で割増した選定用コピー（#117）。
   /// 電車区間はそのまま。実測ジオメトリは polyline 端点から取り直すため、ここで
-  /// 距離・kcal は触らず所要分だけ補正すれば選定（予算判定）には十分。
-  RouteCandidate _inflateWalk(RouteCandidate c, double detour) =>
-      RouteCandidate(
-        from: c.from,
-        to: c.to,
-        segments: [
-          for (final s in c.segments)
-            if (s.type == SegmentType.walk)
-              RouteSegment(
-                type: s.type,
-                fromName: s.fromName,
-                toName: s.toName,
-                minutes: (s.minutes * detour).round(),
-                km: s.km,
-                kcal: s.kcal,
-                line: s.line,
-                fare: s.fare,
-                stops: s.stops,
-                polyline: s.polyline,
-                depTime: s.depTime,
-                arrTime: s.arrTime,
-              )
-            else
-              s,
-        ],
+  /// 距離・kcal は触らず所要分だけ補正すれば選定（予算判定）には十分。電車を含まない
+  /// 全徒歩候補（[_learnDetours] は側別学習から除外する）は出発側係数で割増する——
+  /// 探索順の補正のみで除外には使わないため、片側係数で十分（偽陰性を作らない）。
+  RouteCandidate _inflateWalk(
+    RouteCandidate c,
+    double originDetour,
+    double goalDetour,
+  ) {
+    var seenTrain = false;
+    final segments = <RouteSegment>[];
+    for (final s in c.segments) {
+      if (s.type == SegmentType.train) {
+        seenTrain = true;
+        segments.add(s);
+        continue;
+      }
+      if (s.type != SegmentType.walk) {
+        segments.add(s);
+        continue;
+      }
+      final detour = seenTrain ? goalDetour : originDetour;
+      segments.add(
+        RouteSegment(
+          type: s.type,
+          fromName: s.fromName,
+          toName: s.toName,
+          minutes: (s.minutes * detour).round(),
+          km: s.km,
+          kcal: s.kcal,
+          line: s.line,
+          fare: s.fare,
+          stops: s.stops,
+          polyline: s.polyline,
+          depTime: s.depTime,
+          arrTime: s.arrTime,
+        ),
       );
+    }
+    return RouteCandidate(from: c.from, to: c.to, segments: segments);
+  }
 
-  /// 実測 [actual] と推定 [estimate] の徒歩分から道なり迂回率を学習する。徒歩が
-  /// 増えるほど実測超過は大きくなるため、過去の学習値 [current] と比べ大きい方を
-  /// 採り単調に締める。推定徒歩が 0（純鉄道）の区間は学習できず [current] を保つ。
-  double _learnDetour(
-    double current,
+  /// 実測超過した候補の徒歩区間から、出発側・到着側それぞれの道なり迂回率を学習する
+  /// （#117）。推定 [estimate] と実測 [actual] は同順・同数の区間で、徒歩区間ごとに
+  /// `ratio = 実測分 / 推定分` を求め、最初の電車より前を出発側・電車以降を到着側へ
+  /// 振り分けて学習する。各側とも現値 [currentOrigin]/[currentGoal] および同側の複数
+  /// レッグと比べ大きい方を採り、反復をまたいで単調に締める（旧単一値 `_learnDetour` の
+  /// 単調性を側別へ引き継ぐ）。本値は選定の探索順割増にのみ使い除外には使わないため、
+  /// 過小割増（実測失敗で1試行を浪費）より過大寄りの方が少ない実測で収束する。クランプ
+  /// α∈[1.0,2.0] で、実測が推定を下回る異常値（< 1.0）や外れ値（> 2.0）の暴走を抑える。
+  ///
+  /// 電車を含まない全徒歩候補は origin→goal の両街路を横断する単一レッグで、どちらか一方
+  /// の側に帰属できない。その混合迂回率を片側（や両側）へ写すと素直な側を過大評価して
+  /// しまうため、側別学習には用いない（駅で区切られたレッグのみが各側を素直に表す）。
+  /// 学習できる徒歩が無ければ現値 [currentOrigin]/[currentGoal] を保つ。
+  ({double origin, double goal}) _learnDetours(
+    double currentOrigin,
+    double currentGoal,
     RouteCandidate estimate,
     RouteCandidate actual,
   ) {
-    final est = estimate.walkMinutes;
-    if (est <= 0) return current;
-    final ratio = actual.walkMinutes / est;
-    return ratio > current ? ratio : current;
+    final hasTrain = estimate.segments.any((s) => s.type == SegmentType.train);
+    if (!hasTrain) return (origin: currentOrigin, goal: currentGoal);
+
+    double? originRatio;
+    double? goalRatio;
+    var seenTrain = false;
+    for (var i = 0; i < estimate.segments.length; i++) {
+      final es = estimate.segments[i];
+      if (es.type == SegmentType.train) {
+        seenTrain = true;
+        continue;
+      }
+      if (es.type != SegmentType.walk || es.minutes <= 0) continue;
+      final ratio = (actual.segments[i].minutes / es.minutes).clamp(1.0, 2.0);
+      if (seenTrain) {
+        goalRatio = goalRatio == null ? ratio : math.max(goalRatio, ratio);
+      } else {
+        originRatio = originRatio == null
+            ? ratio
+            : math.max(originRatio, ratio);
+      }
+    }
+    return (
+      origin: originRatio == null
+          ? currentOrigin
+          : math.max(originRatio, currentOrigin),
+      goal: goalRatio == null ? currentGoal : math.max(goalRatio, currentGoal),
+    );
   }
 
   /// 確定経路の徒歩区間を Google Routes の街路ジオメトリ・所要時間・距離で
