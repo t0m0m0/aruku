@@ -416,7 +416,8 @@ class NaviTimeRouteService implements RouteService {
   /// 乗車駅（origin→駅）・降車駅（駅→goal）を片側 [_maxMatrixSideStations] でキャップ
   /// （超過分は α 補正到着が予算に近い候補を優先）し、2 回のマトリクスコールで実測する。
   /// マトリクスは polyline を返さないため [measured] には所要分のみ入り、選定（探索順・
-  /// 予算判定）でのみ使う。マトリクス失敗時は [measured] を空のまま返し逐次プローブへ委ねる。
+  /// 予算判定）でのみ使う。出発側・到着側のコールは独立で、片側が失敗してもその側だけ
+  /// 未実測のまま他方は反映する（未実測のレッグは逐次プローブが補う）。
   Future<void> _measureFrontierBand(
     List<RouteCandidate> pool,
     int budgetMin,
@@ -439,21 +440,26 @@ class NaviTimeRouteService implements RouteService {
       _matrixBandDeltaMaxMin,
     );
 
-    // α 補正到着（マトリクス未反映の純 α 割増）で帯を切る。
-    int corrected(RouteCandidate c) => arrivalMinutes(
-      _inflateWalk(c, originDetour, goalDetour, const {}).segments,
-      departureAt,
-    );
+    // α 補正到着（マトリクス未反映の純 α 割増）を候補ごとに一度だけ算出する。
+    // 帯の切り出し・予算近接ソートで何度も参照するため、_inflateWalk の再生成を
+    // 避けてここでメモ化する。
+    final corrected = <RouteCandidate, int>{
+      for (final c in pool)
+        c: arrivalMinutes(
+          _inflateWalk(c, originDetour, goalDetour, const {}).segments,
+          departureAt,
+        ),
+    };
     final band = pool.where((c) {
-      final a = corrected(c);
+      final a = corrected[c]!;
       return budgetMin - delta <= a && a <= budgetMin + delta;
     }).toList();
     if (band.length < _minBandForMatrix) return;
 
     // 帯内を予算近接順に並べ、片側上限まで乗車駅（origin→駅）・降車駅（駅→goal）を集める。
     band.sort(
-      (x, y) => (corrected(x) - budgetMin).abs().compareTo(
-        (corrected(y) - budgetMin).abs(),
+      (x, y) => (corrected[x]! - budgetMin).abs().compareTo(
+        (corrected[y]! - budgetMin).abs(),
       ),
     );
     final boards = <String, GeoPoint>{};
@@ -480,30 +486,33 @@ class NaviTimeRouteService implements RouteService {
       }
     }
 
-    // 出発側レッグ（origin→各乗車駅）を1コールで実測。失敗時は以降を諦める。
+    // 出発側レッグ（origin→各乗車駅）を1コールで実測。出発側・到着側は独立に試み、
+    // 片側が失敗（null）しても他方は実測する（その側のレッグは逐次プローブが補う）。
     if (boards.isNotEmpty) {
       final dests = boards.values.toList();
       final rows = await _fetchWalkMatrix([origin], dests);
-      if (rows == null) return;
-      for (final e in rows) {
-        if (e is! Map) continue;
-        final di = (e['destinationIndex'] as num?)?.toInt() ?? 0;
-        final min = _parseDurationMin(e['duration']);
-        if (min == null || di < 0 || di >= dests.length) continue;
-        measured[_walkCacheKey(origin, dests[di])] = min;
+      if (rows != null) {
+        for (final e in rows) {
+          if (e is! Map) continue;
+          final di = (e['destinationIndex'] as num?)?.toInt() ?? 0;
+          final min = _parseDurationMin(e['duration']);
+          if (min == null || di < 0 || di >= dests.length) continue;
+          measured[_walkCacheKey(origin, dests[di])] = min;
+        }
       }
     }
     // 到着側レッグ（各降車駅→goal）を1コールで実測。
     if (alights.isNotEmpty) {
       final srcs = alights.values.toList();
       final rows = await _fetchWalkMatrix(srcs, [goal]);
-      if (rows == null) return;
-      for (final e in rows) {
-        if (e is! Map) continue;
-        final oi = (e['originIndex'] as num?)?.toInt() ?? 0;
-        final min = _parseDurationMin(e['duration']);
-        if (min == null || oi < 0 || oi >= srcs.length) continue;
-        measured[_walkCacheKey(srcs[oi], goal)] = min;
+      if (rows != null) {
+        for (final e in rows) {
+          if (e is! Map) continue;
+          final oi = (e['originIndex'] as num?)?.toInt() ?? 0;
+          final min = _parseDurationMin(e['duration']);
+          if (min == null || oi < 0 || oi >= srcs.length) continue;
+          measured[_walkCacheKey(srcs[oi], goal)] = min;
+        }
       }
     }
   }

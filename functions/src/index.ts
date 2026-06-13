@@ -479,19 +479,19 @@ export const googleWalkMatrixProxy = onRequest(
       buildRoutesMatrixBody(origins, destinations)
     );
 
-    // computeRouteMatrix は成功時に要素オブジェクトの配列を返す。エラー時は
-    // {error:{...}} を返し配列ではない。認証・クォータ等の失敗を「結果なし」と
-    // 区別するため 502 で返す。
+    // computeRouteMatrix は成功時に要素オブジェクトの配列を返す。配列でなければ
+    // 正常な結果ではない（エラー時は {error:{...}}、それ以外も想定外応答）。認証・
+    // クォータ等の失敗を「結果なし」と区別し、想定外応答もまとめて 502 で返す
+    // （「成功＝配列」の不変条件をプロキシ側でも担保し、クライアントへ非配列の 200 を
+    // 漏らさない）。
     if (!Array.isArray(data)) {
       const record = data as Record<string, unknown> | null;
-      if (record && record["error"]) {
-        console.error(
-          "[googleWalkMatrixProxy] Routes API error:",
-          JSON.stringify(record["error"])
-        );
-        res.status(502).json(data);
-        return;
-      }
+      console.error(
+        "[googleWalkMatrixProxy] Routes API non-array response:",
+        JSON.stringify(record && record["error"] ? record["error"] : data)
+      );
+      res.status(502).json(data);
+      return;
     }
 
     res.json(data);
