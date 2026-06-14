@@ -227,6 +227,20 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
     });
   });
 
+  it("googleWalkMatrixProxy: error を含まない非配列応答も 502 で返す", async () => {
+    // 想定外の応答（配列でなく error も無い）。「成功＝配列」の不変条件をプロキシ側で
+    // 担保し、非配列の 200 をクライアントへ漏らさない。
+    mockUpstream({ unexpected: true });
+    const res = makeRes();
+    await invokeHandler(
+      googleWalkMatrixProxy,
+      makeReq({ query: { origins: "35.7,139.7", destinations: "35.6,139.7" } }),
+      res
+    );
+    expect(res.statusCode).toBe(502);
+    expect(res.body).toEqual({ unexpected: true });
+  });
+
   it("googleWalkMatrixProxy: パラメータ欠落は 400 で上流を呼ばない", async () => {
     const res = makeRes();
     await invokeHandler(
