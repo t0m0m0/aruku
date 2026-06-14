@@ -2441,4 +2441,210 @@ void main() {
       expect(walks.last.toName, '目的地');
     });
   });
+
+  group('NaviTimeRouteService 予算境界帯のマトリクス実測（#118）', () {
+    const origin = GeoPoint(35.0, 139.000);
+    const goal = GeoPoint(35.0, 139.054);
+
+    // 出発側 O→S3 のレッグだけ道なり迂回が高い（実測が直線推定を大きく上回る）。
+    // ここから学習した α を全駅へ一律適用すると、迂回の素直な S2 乗車（実測では予算内・
+    // 徒歩最大）が α 補正で予算超過に見え、逐次プローブが取りこぼす状況を作る。
+    double sideDetour(GeoPoint start, GeoPoint dest) {
+      final fromOrigin = (start.lng - 139.000).abs() < 1e-6;
+      final toS3 = (dest.lng - 139.015).abs() < 1e-6;
+      return (fromOrigin && toS3) ? 1.9 : 1.0;
+    }
+
+    // 出発地→(S1,S1b,S2,S3,S4)→目的地 の標準経路。S1〜S3 は出発地寄りに密集し、S4 だけ
+    // 目的地直前へ離す。これにより S4 以外で降りると目的地まで遠く、降車を早める候補は
+    // すべて予算超過になり、現実的な降車は S4 に絞られる（乗車駅違いの徒歩量だけが効く）。
+    Map<String, dynamic> corridor() => _navi([
+      _item([
+        _point('出発地', lat: 35.0, lon: 139.000),
+        _walkSection(560, 7),
+        _point('S1駅', lat: 35.0, lon: 139.006),
+        _trainSection(
+          4000,
+          8,
+          line: 'L線',
+          calling: [
+            _callingNoTime('S1駅', 35.0, 139.006),
+            _callingNoTime('S1b駅', 35.0, 139.009),
+            _callingNoTime('S2駅', 35.0, 139.012),
+            _callingNoTime('S3駅', 35.0, 139.015),
+            _callingNoTime('S4駅', 35.0, 139.050),
+          ],
+        ),
+        _point('S4駅', lat: 35.0, lon: 139.050),
+        _walkSection(400, 5),
+        _point('目的地', lat: 35.0, lon: 139.054),
+      ]),
+    ]);
+
+    // transit と walk(computeRoutes) と walkMatrix(computeRouteMatrix) を振り分けるモック。
+    // walk・matrix とも徒歩分は haversine × [detour] で算出し、両者で完全に一致させる
+    // （マトリクス採用後の computeRoutes 取り直しで値がぶれないように）。
+    http.Client matrixMock({
+      bool matrixFails = false,
+      List<Uri>? log,
+    }) => MockClient((req) async {
+      log?.add(req.url);
+      GeoPoint pt(String? s) {
+        final p = (s ?? '').split(',');
+        return GeoPoint(double.parse(p[0]), double.parse(p[1]));
+      }
+
+      int walkMin(GeoPoint a, GeoPoint b) =>
+          (haversineKm(a, b) * 1000 / walkMetersPerMinute * sideDetour(a, b))
+              .round();
+      int walkMeters(GeoPoint a, GeoPoint b) =>
+          (haversineKm(a, b) * 1000 * sideDetour(a, b)).round();
+
+      if (req.url.path.contains('googleWalkMatrixProxy')) {
+        if (matrixFails) {
+          return _jsonResponse({
+            'error': {'code': 403},
+          }, 502);
+        }
+        final os = (req.url.queryParameters['origins'] ?? '')
+            .split(';')
+            .map(pt)
+            .toList();
+        final ds = (req.url.queryParameters['destinations'] ?? '')
+            .split(';')
+            .map(pt)
+            .toList();
+        final rows = <Map<String, dynamic>>[];
+        for (var i = 0; i < os.length; i++) {
+          for (var j = 0; j < ds.length; j++) {
+            rows.add({
+              'originIndex': i,
+              'destinationIndex': j,
+              'duration': '${walkMin(os[i], ds[j]) * 60}s',
+              'distanceMeters': walkMeters(os[i], ds[j]),
+            });
+          }
+        }
+        return _jsonResponse(rows, 200);
+      }
+      if (req.url.path.contains('googleWalkProxy')) {
+        final s = pt(req.url.queryParameters['start']);
+        final g = pt(req.url.queryParameters['goal']);
+        return _jsonResponse(_walkResp(walkMin(s, g), walkMeters(s, g)), 200);
+      }
+      return _jsonResponse(corridor(), 200);
+    });
+
+    NaviTimeRouteService svc(http.Client client) => NaviTimeRouteService(
+      client: client,
+      proxyBaseUrl: _proxyBaseUrl,
+      clock: () => DateTime(2026, 5, 22, 8, 0),
+    );
+
+    Future<RoutePlan> runCorridor(http.Client client) => svc(client).plan(
+      destination: '目的地',
+      destinationLatLng: goal,
+      departure: const TimeValue(h: 9, m: 0),
+      arrival: const TimeValue(h: 9, m: 30), // 予算30分
+      origin: origin,
+    );
+
+    int walkMinutesOf(RoutePlan p) => p.segments
+        .where((s) => s.type == SegmentType.walk)
+        .fold(0, (a, s) => a + s.minutes);
+
+    test('帯内を実測すると α では後回しの徒歩最大候補を採用する', () async {
+      final matrixLog = <Uri>[];
+      final matrixPlan = await runCorridor(matrixMock(log: matrixLog));
+      final fallbackPlan = await runCorridor(matrixMock(matrixFails: true));
+
+      // マトリクス実測が実際に呼ばれている。
+      expect(
+        matrixLog.where((u) => u.path.contains('googleWalkMatrixProxy')),
+        isNotEmpty,
+      );
+      // どちらも予算内（マトリクスは最適化であり遅刻を返さない）。
+      expect(matrixPlan.totalMin, lessThanOrEqualTo(30));
+      expect(fallbackPlan.totalMin, lessThanOrEqualTo(30));
+      // 帯内を実測したマトリクス側の方が、α 一律補正の逐次プローブより多く歩く
+      // （取りこぼしていた徒歩最大候補を拾う）。
+      expect(
+        walkMinutesOf(matrixPlan),
+        greaterThan(walkMinutesOf(fallbackPlan)),
+      );
+    });
+
+    test('マトリクス失敗時は逐次プローブへフォールバックし予算内に収める', () async {
+      final plan = await runCorridor(matrixMock(matrixFails: true));
+      expect(plan.totalMin, lessThanOrEqualTo(30));
+      // 徒歩区間を持ち、電車を含むハイブリッドへ正しく縮退している。
+      expect(plan.segments.any((s) => s.type == SegmentType.train), isTrue);
+    });
+
+    test('帯内候補が2件以下ならマトリクスをスキップする', () async {
+      // 乗車駅候補を S1 のみに絞った単純経路。降車は遠方の S4 固定で、初回採用候補が
+      // 実測超過しても帯内に並ぶ候補が2件以下となり、マトリクスは呼ばれない。
+      Map<String, dynamic> single() => _navi([
+        _item([
+          _point('出発地', lat: 35.0, lon: 139.000),
+          _walkSection(900, 12),
+          _point('S1駅', lat: 35.0, lon: 139.012),
+          _trainSection(
+            4000,
+            7,
+            line: 'L線',
+            calling: [
+              _callingNoTime('S1駅', 35.0, 139.012),
+              _callingNoTime('S4駅', 35.0, 139.050),
+            ],
+          ),
+          _point('S4駅', lat: 35.0, lon: 139.050),
+          _walkSection(400, 5),
+          _point('目的地', lat: 35.0, lon: 139.054),
+        ]),
+      ]);
+
+      final log = <Uri>[];
+      // S1 への出発側徒歩を高迂回にし初回採用候補を実測超過させて α 学習を発火させる。
+      final client = MockClient((req) async {
+        log.add(req.url);
+        GeoPoint pt(String? s) {
+          final p = (s ?? '').split(',');
+          return GeoPoint(double.parse(p[0]), double.parse(p[1]));
+        }
+
+        double detour(GeoPoint s, GeoPoint d) =>
+            (s.lng - 139.000).abs() < 1e-6 && (d.lng - 139.012).abs() < 1e-6
+            ? 1.9
+            : 1.0;
+        int wMin(GeoPoint a, GeoPoint b) =>
+            (haversineKm(a, b) * 1000 / walkMetersPerMinute * detour(a, b))
+                .round();
+        int wM(GeoPoint a, GeoPoint b) =>
+            (haversineKm(a, b) * 1000 * detour(a, b)).round();
+        if (req.url.path.contains('googleWalkMatrixProxy')) {
+          return _jsonResponse(<Map<String, dynamic>>[], 200);
+        }
+        if (req.url.path.contains('googleWalkProxy')) {
+          final s = pt(req.url.queryParameters['start']);
+          final g = pt(req.url.queryParameters['goal']);
+          return _jsonResponse(_walkResp(wMin(s, g), wM(s, g)), 200);
+        }
+        return _jsonResponse(single(), 200);
+      });
+
+      await svc(client).plan(
+        destination: '目的地',
+        destinationLatLng: goal,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 9, m: 28), // 予算28分
+        origin: origin,
+      );
+
+      expect(
+        log.where((u) => u.path.contains('googleWalkMatrixProxy')),
+        isEmpty,
+      );
+    });
+  });
 }

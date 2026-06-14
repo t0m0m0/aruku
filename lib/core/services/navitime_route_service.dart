@@ -132,6 +132,20 @@ class NaviTimeRouteService implements RouteService {
   /// 偽陽性（乗れない列車の確定）を許す方向に効くため安易に下げないこと。
   static const int _maxRefetchAttempts = 8;
 
+  /// 予算境界帯のマトリクス実測（#118）のパラメータ。
+  ///
+  /// [_minBandForMatrix]: 帯内候補がこの数未満（＝2件以下）ならマトリクスをスキップする。
+  /// 要素数課金のマトリクス（2 コール）より逐次プローブの方が安いため、帯が狭いときは
+  /// 実測せず逐次へ委ねる（受け入れ条件）。
+  /// [_maxMatrixSideStations]: マトリクスの片側（乗車駅集合／降車駅集合）の要素上限。
+  /// 要素数課金の暴発を抑えるため帯内のユニーク駅をこの数でキャップする（超過分は
+  /// α 補正到着が予算に近い候補を優先）。プロキシ側の要素数上限とも整合させる。
+  /// [_matrixBandDeltaMinMin]/[_matrixBandDeltaMaxMin]: 帯幅 δ（分）のクランプ下限・上限。
+  static const int _minBandForMatrix = 3;
+  static const int _maxMatrixSideStations = 10;
+  static const int _matrixBandDeltaMinMin = 5;
+  static const int _matrixBandDeltaMaxMin = 15;
+
   /// 候補集合から確定経路を選び RoutePlan へ。選定は直線距離ベースの推定で行うため、
   /// 表示する 1 経路ぶんの徒歩区間だけ Google Routes で街路追従ジオメトリ・所要時間・
   /// 距離に上書きする（Google 呼び出しは採用経路の徒歩区間数ぶんのみ）。
@@ -173,15 +187,27 @@ class NaviTimeRouteService implements RouteService {
     var goalDetour = 1.0;
     // 乗り遅れ再照会の実行回数（[_maxRefetchAttempts] で上限管理する）。
     var refetches = 0;
+    // 予算境界帯のレッグをマトリクスで一括実測した値（分）をレッグキー単位で持つ（#118）。
+    // 選定（探索順・予算判定）でのみ参照し、α 割増（推定）より優先する。採用経路の表示値・
+    // ジオメトリは従来どおり _enrichWalkGeometry（computeRoutes）で取り直すため、ここには
+    // 格納しない（マトリクスは polyline を返さず、表示は computeRoutes 値で統一する）。
+    final measuredLegs = <String, int>{};
+    // マトリクス実測は1回の plan() で一度だけ試みる（帯は α 学習後に確定するため）。
+    var matrixMeasured = false;
 
     for (
       var attempt = 0;
       attempt < _maxEnrichAttempts && pool.isNotEmpty;
       attempt++
     ) {
-      // 学習済みの側別迂回率で徒歩推定を割増した候補で選定する（実測に近い土俵で比較）。
-      final scaled = (originDetour > 1.0 || goalDetour > 1.0)
-          ? [for (final c in pool) _inflateWalk(c, originDetour, goalDetour)]
+      // 学習済みの側別迂回率・マトリクス実測で徒歩推定を補正した候補で選定する
+      // （実測に近い土俵で比較）。
+      final scaled =
+          (originDetour > 1.0 || goalDetour > 1.0 || measuredLegs.isNotEmpty)
+          ? [
+              for (final c in pool)
+                _inflateWalk(c, originDetour, goalDetour, measuredLegs),
+            ]
           : pool;
       final picked = selectBestRoute(
         candidates: scaled,
@@ -240,6 +266,25 @@ class NaviTimeRouteService implements RouteService {
       originDetour = learned.origin;
       goalDetour = learned.goal;
       pool.remove(pick);
+
+      // 初回の実測超過で α を学習した直後に、予算境界帯の候補レッグをマトリクスで
+      // 一括実測する（#118）。逐次プローブは α 補正が外れると真のフロンティア候補を
+      // 試す前に上限へ達し得るが、帯内を実測値で正確に比較すれば「α では後回しだが
+      // 実測では徒歩最大」の候補も拾える。実測値は measuredLegs に入り、以降の選定が
+      // 透過的に使う。帯内候補2件以下・マトリクス失敗時は何もせず逐次プローブへ委ねる。
+      if (!matrixMeasured) {
+        matrixMeasured = true;
+        await _measureFrontierBand(
+          pool,
+          budgetMin,
+          departureAt,
+          origin,
+          goal,
+          originDetour,
+          goalDetour,
+          measuredLegs,
+        );
+      }
     }
 
     // 予算内を確証できず → 実到着が最早の候補を best-effort で返す（遅刻時に
@@ -261,16 +306,20 @@ class NaviTimeRouteService implements RouteService {
     );
   }
 
-  /// 候補 [c] の徒歩区間の所要分を、出発側（最初の電車より前）は [originDetour]・
-  /// 到着側（電車以降の乗換／降車徒歩）は [goalDetour] で割増した選定用コピー（#117）。
-  /// 電車区間はそのまま。実測ジオメトリは polyline 端点から取り直すため、ここで
-  /// 距離・kcal は触らず所要分だけ補正すれば選定（予算判定）には十分。電車を含まない
-  /// 全徒歩候補（[_learnDetours] は側別学習から除外する）は出発側係数で割増する——
-  /// 探索順の補正のみで除外には使わないため、片側係数で十分（偽陰性を作らない）。
+  /// 候補 [c] の徒歩区間の所要分を、選定（予算判定・探索順）用に補正したコピーにする。
+  /// 各徒歩レッグについて、マトリクスで実測済み（[measured] に polyline 端点キーが在る）
+  /// なら実測分を優先し、無ければ側別の道なり迂回率で割増する（#117）：出発側（最初の
+  /// 電車より前）は [originDetour]・到着側（電車以降の乗換／降車徒歩）は [goalDetour]。
+  /// 実測（#118）はマトリクスで帯内レッグを正確に測った値で、α 割増（推定）より優先する
+  /// ことで「α では2番手だが実測では徒歩最大」の候補も正しく拾える。電車区間はそのまま。
+  /// 実測ジオメトリは polyline 端点から取り直すため、ここで距離・kcal は触らず所要分だけ
+  /// 補正すれば選定には十分。電車を含まない全徒歩候補は出発側係数で割増する——探索順の
+  /// 補正のみで除外には使わないため片側係数で十分（偽陰性を作らない）。
   RouteCandidate _inflateWalk(
     RouteCandidate c,
     double originDetour,
     double goalDetour,
+    Map<String, int> measured,
   ) {
     var seenTrain = false;
     final segments = <RouteSegment>[];
@@ -284,13 +333,16 @@ class NaviTimeRouteService implements RouteService {
         segments.add(s);
         continue;
       }
+      final measuredMin = s.polyline.length >= 2
+          ? measured[_walkCacheKey(s.polyline.first, s.polyline.last)]
+          : null;
       final detour = seenTrain ? goalDetour : originDetour;
       segments.add(
         RouteSegment(
           type: s.type,
           fromName: s.fromName,
           toName: s.toName,
-          minutes: (s.minutes * detour).round(),
+          minutes: measuredMin ?? (s.minutes * detour).round(),
           km: s.km,
           kcal: s.kcal,
           line: s.line,
@@ -353,6 +405,142 @@ class NaviTimeRouteService implements RouteService {
       goal: goalRatio == null ? currentGoal : math.max(goalRatio, currentGoal),
     );
   }
+
+  /// 予算境界帯（フロンティア帯）の候補レッグを computeRouteMatrix で一括実測し、
+  /// 実測分を [measured] へレッグキー単位で格納する（#118）。
+  ///
+  /// 帯は α 補正到着が `予算 − δ ≤ 到着 ≤ 予算 + δ` の候補。δ は α の不確かさ由来で、
+  /// 側別迂回率の差（[originDetour]−[goalDetour] の幅）× 帯の代表徒歩推定分を
+  /// [_matrixBandDeltaMinMin]〜[_matrixBandDeltaMaxMin] でクランプする。帯内候補が
+  /// [_minBandForMatrix] 未満なら逐次プローブの方が安いため実測しない。帯内のユニーク
+  /// 乗車駅（origin→駅）・降車駅（駅→goal）を片側 [_maxMatrixSideStations] でキャップ
+  /// （超過分は α 補正到着が予算に近い候補を優先）し、2 回のマトリクスコールで実測する。
+  /// マトリクスは polyline を返さないため [measured] には所要分のみ入り、選定（探索順・
+  /// 予算判定）でのみ使う。出発側・到着側のコールは独立で、片側が失敗してもその側だけ
+  /// 未実測のまま他方は反映する（未実測のレッグは逐次プローブが補う）。
+  Future<void> _measureFrontierBand(
+    List<RouteCandidate> pool,
+    int budgetMin,
+    DateTime departureAt,
+    GeoPoint origin,
+    GeoPoint goal,
+    double originDetour,
+    double goalDetour,
+    Map<String, int> measured,
+  ) async {
+    if (pool.isEmpty) return;
+
+    // 帯幅 δ。側別迂回率の差を α の不確かさとみなし、帯の代表徒歩推定分（pool 内の
+    // 最大徒歩推定）に掛けてクランプする。差が無くても下限分だけは帯を取る。
+    final spread =
+        math.max(originDetour, goalDetour) - math.min(originDetour, goalDetour);
+    final maxWalkEst = pool.fold<int>(0, (m, c) => math.max(m, c.walkMinutes));
+    final delta = (spread * maxWalkEst).round().clamp(
+      _matrixBandDeltaMinMin,
+      _matrixBandDeltaMaxMin,
+    );
+
+    // α 補正到着（マトリクス未反映の純 α 割増）を候補ごとに一度だけ算出する。
+    // 帯の切り出し・予算近接ソートで何度も参照するため、_inflateWalk の再生成を
+    // 避けてここでメモ化する。
+    final corrected = <RouteCandidate, int>{
+      for (final c in pool)
+        c: arrivalMinutes(
+          _inflateWalk(c, originDetour, goalDetour, const {}).segments,
+          departureAt,
+        ),
+    };
+    final band = pool.where((c) {
+      final a = corrected[c]!;
+      return budgetMin - delta <= a && a <= budgetMin + delta;
+    }).toList();
+    if (band.length < _minBandForMatrix) return;
+
+    // 帯内を予算近接順に並べ、片側上限まで乗車駅（origin→駅）・降車駅（駅→goal）を集める。
+    band.sort(
+      (x, y) => (corrected[x]! - budgetMin).abs().compareTo(
+        (corrected[y]! - budgetMin).abs(),
+      ),
+    );
+    final boards = <String, GeoPoint>{};
+    final alights = <String, GeoPoint>{};
+    for (final c in band) {
+      for (final s in c.segments) {
+        if (s.type != SegmentType.walk || s.polyline.length < 2) continue;
+        if (_sameCoord(s.polyline.first, origin)) {
+          final dest = s.polyline.last;
+          final key = _walkCacheKey(origin, dest);
+          if (!boards.containsKey(key) &&
+              boards.length < _maxMatrixSideStations) {
+            boards[key] = dest;
+          }
+        }
+        if (_sameCoord(s.polyline.last, goal)) {
+          final src = s.polyline.first;
+          final key = _walkCacheKey(src, goal);
+          if (!alights.containsKey(key) &&
+              alights.length < _maxMatrixSideStations) {
+            alights[key] = src;
+          }
+        }
+      }
+    }
+
+    // 出発側レッグ（origin→各乗車駅）を1コールで実測。出発側・到着側は独立に試み、
+    // 片側が失敗（null）しても他方は実測する（その側のレッグは逐次プローブが補う）。
+    if (boards.isNotEmpty) {
+      final dests = boards.values.toList();
+      final rows = await _fetchWalkMatrix([origin], dests);
+      if (rows != null) {
+        for (final e in rows) {
+          if (e is! Map) continue;
+          final di = (e['destinationIndex'] as num?)?.toInt() ?? 0;
+          final min = _parseDurationMin(e['duration']);
+          if (min == null || di < 0 || di >= dests.length) continue;
+          measured[_walkCacheKey(origin, dests[di])] = min;
+        }
+      }
+    }
+    // 到着側レッグ（各降車駅→goal）を1コールで実測。
+    if (alights.isNotEmpty) {
+      final srcs = alights.values.toList();
+      final rows = await _fetchWalkMatrix(srcs, [goal]);
+      if (rows != null) {
+        for (final e in rows) {
+          if (e is! Map) continue;
+          final oi = (e['originIndex'] as num?)?.toInt() ?? 0;
+          final min = _parseDurationMin(e['duration']);
+          if (min == null || oi < 0 || oi >= srcs.length) continue;
+          measured[_walkCacheKey(srcs[oi], goal)] = min;
+        }
+      }
+    }
+  }
+
+  /// computeRouteMatrix（徒歩）をプロキシ経由で叩き、要素配列を返す（#118）。
+  /// origins/destinations はセミコロン区切りの "lat,lng" 列。失敗（HTTP 異常・
+  /// 配列でない応答・通信失敗）は null（呼び出し側が逐次プローブへフォールバック）。
+  Future<List<dynamic>?> _fetchWalkMatrix(
+    List<GeoPoint> origins,
+    List<GeoPoint> dests,
+  ) async {
+    String join(List<GeoPoint> ps) =>
+        ps.map((p) => '${p.lat},${p.lng}').join(';');
+    try {
+      return await _fetchArray('googleWalkMatrixProxy', {
+        'origins': join(origins),
+        'destinations': join(dests),
+      });
+    } on RouteException {
+      return null;
+    }
+  }
+
+  /// 座標が（キャッシュキーと同じ小数5桁丸めで）一致するか。レッグの端点が origin/goal に
+  /// 等しいか判定し、出発側／到着側レッグを見分けるのに使う。
+  bool _sameCoord(GeoPoint a, GeoPoint b) =>
+      a.lat.toStringAsFixed(5) == b.lat.toStringAsFixed(5) &&
+      a.lng.toStringAsFixed(5) == b.lng.toStringAsFixed(5);
 
   /// 確定経路の徒歩区間を Google Routes の街路ジオメトリ・所要時間・距離で
   /// 上書きする。標準乗換候補の徒歩は NAVITIME 由来（shape 無し→端点直線）の
@@ -800,6 +988,24 @@ class NaviTimeRouteService implements RouteService {
       throw RouteException('HTTP ${res.statusCode}');
     }
     return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  /// JSON 配列を返すエンドポイント（computeRouteMatrix プロキシ #118）用の取得。
+  /// 200 以外・配列でない応答は [RouteException]（呼び出し側でフォールバック）。
+  Future<List<dynamic>> _fetchArray(
+    String path,
+    Map<String, String> params,
+  ) async {
+    final uri = Uri.parse(
+      '$_proxyBaseUrl/$path',
+    ).replace(queryParameters: params);
+    final res = await _client.get(uri);
+    if (res.statusCode != 200) {
+      throw RouteException('HTTP ${res.statusCode}');
+    }
+    final decoded = jsonDecode(utf8.decode(res.bodyBytes));
+    if (decoded is! List) throw const RouteException('MATRIX_NOT_ARRAY');
+    return decoded;
   }
 
   _TransitParse _parseTransit(Map<String, dynamic> item) {

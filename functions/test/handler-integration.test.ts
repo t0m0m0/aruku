@@ -27,6 +27,7 @@ vi.mock("firebase-admin/app-check", () => ({
 
 import {
   checkRateLimit,
+  googleWalkMatrixProxy,
   googleWalkProxy,
   navitimeProxy,
   placesProxy,
@@ -189,6 +190,76 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
     await invokeHandler(
       googleWalkProxy,
       makeReq({ query: { start: "not-a-coord", goal: "35.6,139.7" } }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(httpsRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("googleWalkMatrixProxy: 要素配列の正常応答はそのまま透過する", async () => {
+    const payload = [
+      { originIndex: 0, destinationIndex: 0, duration: "600s", distanceMeters: 800 },
+    ];
+    mockUpstream(payload);
+    const res = makeRes();
+    await invokeHandler(
+      googleWalkMatrixProxy,
+      makeReq({
+        query: { origins: "35.7,139.7", destinations: "35.6,139.7;35.65,139.72" },
+      }),
+      res
+    );
+    expect(res.statusCode).toBeUndefined();
+    expect(res.body).toEqual(payload);
+  });
+
+  it("googleWalkMatrixProxy: error かつ配列でない応答は 502 で返す", async () => {
+    mockUpstream({ error: { code: 403, status: "PERMISSION_DENIED" } });
+    const res = makeRes();
+    await invokeHandler(
+      googleWalkMatrixProxy,
+      makeReq({ query: { origins: "35.7,139.7", destinations: "35.6,139.7" } }),
+      res
+    );
+    expect(res.statusCode).toBe(502);
+    expect(res.body).toEqual({
+      error: { code: 403, status: "PERMISSION_DENIED" },
+    });
+  });
+
+  it("googleWalkMatrixProxy: error を含まない非配列応答も 502 で返す", async () => {
+    // 想定外の応答（配列でなく error も無い）。「成功＝配列」の不変条件をプロキシ側で
+    // 担保し、非配列の 200 をクライアントへ漏らさない。
+    mockUpstream({ unexpected: true });
+    const res = makeRes();
+    await invokeHandler(
+      googleWalkMatrixProxy,
+      makeReq({ query: { origins: "35.7,139.7", destinations: "35.6,139.7" } }),
+      res
+    );
+    expect(res.statusCode).toBe(502);
+    expect(res.body).toEqual({ unexpected: true });
+  });
+
+  it("googleWalkMatrixProxy: パラメータ欠落は 400 で上流を呼ばない", async () => {
+    const res = makeRes();
+    await invokeHandler(
+      googleWalkMatrixProxy,
+      makeReq({ query: { origins: "35.7,139.7" } }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(httpsRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("googleWalkMatrixProxy: 要素数上限超過は 400 で上流を呼ばない", async () => {
+    // origins 6 × destinations 6 = 36 > 25（上限）。上流を呼ばず拒否する。
+    const six = (base: number) =>
+      Array.from({ length: 6 }, (_, i) => `35.${base}${i},139.7`).join(";");
+    const res = makeRes();
+    await invokeHandler(
+      googleWalkMatrixProxy,
+      makeReq({ query: { origins: six(1), destinations: six(2) } }),
       res
     );
     expect(res.statusCode).toBe(400);

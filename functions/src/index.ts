@@ -58,6 +58,20 @@ const ROUTES_COMPUTE_URL =
 const ROUTES_FIELD_MASK =
   "routes.polyline.encodedPolyline,routes.distanceMeters,routes.duration";
 
+// Google Routes API computeRouteMatrix。origins × destinations の各レッグを
+// 一括実測する（#118 の予算境界帯の実測）。polyline は返さず所要時間・距離のみ。
+const ROUTES_MATRIX_URL =
+  "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix";
+// マトリクスは要素ごとに index/所要/距離だけ取得する。index が無いと結果を
+// origin/destination へ対応付けられないため FieldMask に必須で含める。
+const ROUTES_MATRIX_FIELD_MASK =
+  "originIndex,destinationIndex,duration,distanceMeters";
+// computeRouteMatrix は要素数（origins × destinations）課金。クライアント不具合や
+// 悪用での課金暴発を防ぐため、プロキシ側でも要素数上限を強制する（ADR-001 のレート
+// 制御方針と整合）。#118 の設計は片側 ≤10・他方 1 の最大 10 要素のため、グリッド状の
+// 大量要求を弾きつつ正常系に十分な余裕を持たせた値にする。
+export const MATRIX_MAX_ELEMENTS = 25;
+
 const NAVITIME_HOST = "navitime-route-totalnavi.p.rapidapi.com";
 const NAVITIME_ROUTE_URL = `https://${NAVITIME_HOST}/route_transit`;
 
@@ -112,6 +126,48 @@ export function buildRoutesWalkBody(
   return JSON.stringify({
     origin: { location: { latLng: start } },
     destination: { location: { latLng: goal } },
+    travelMode: "WALK",
+  });
+}
+
+/**
+ * セミコロン区切りの "lat,lng" 列を waypoint 座標配列へ変換する（#118 マトリクス用）。
+ * いずれか 1 点でも不正なら全体を null（部分的に欠けた要素対応は誤対応の元のため）。
+ * 空文字・undefined も null。
+ */
+export function parseLatLngList(
+  value: string | undefined
+): { latitude: number; longitude: number }[] | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  const out: { latitude: number; longitude: number }[] = [];
+  for (const part of value.split(";")) {
+    const point = parseLatLng(part);
+    if (!point) return null;
+    out.push(point);
+  }
+  return out.length > 0 ? out : null;
+}
+
+/** computeRouteMatrix の要素数（origins × destinations）。課金単位。 */
+export function matrixElementCount(
+  originCount: number,
+  destinationCount: number
+): number {
+  return originCount * destinationCount;
+}
+
+/** Routes API computeRouteMatrix（徒歩）のリクエストボディを生成する。 */
+export function buildRoutesMatrixBody(
+  origins: { latitude: number; longitude: number }[],
+  destinations: { latitude: number; longitude: number }[]
+): string {
+  return JSON.stringify({
+    origins: origins.map((latLng) => ({
+      waypoint: { location: { latLng } },
+    })),
+    destinations: destinations.map((latLng) => ({
+      waypoint: { location: { latLng } },
+    })),
     travelMode: "WALK",
   });
 }
@@ -363,3 +419,81 @@ export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret] }, async (re
 
   res.json(data);
 });
+
+/**
+ * Google Routes 徒歩マトリクスプロキシ（#118）。origins/destinations（"lat,lng" を
+ * セミコロン区切りした列）から computeRouteMatrix を travelMode=WALK で叩き、
+ * 各レッグの originIndex/destinationIndex/duration/distanceMeters を返す（polyline は
+ * 返さない）。予算境界帯の候補レッグを一括実測し、帯内を実測値で比較するために使う。
+ * 要素数（origins × destinations）課金のため、上限超過は上流を呼ばず 400 で拒否する。
+ * レスポンスは無加工で返す（変換はクライアント側）。
+ */
+export const googleWalkMatrixProxy = onRequest(
+  { secrets: [mapsKeySecret] },
+  async (req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    if (req.method === "OPTIONS") {
+      res.set("Access-Control-Allow-Methods", "GET");
+      res.set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck");
+      res.status(204).send("");
+      return;
+    }
+
+    if (!(await verifyAppCheck(req, res))) return;
+
+    if (!(await checkRateLimit(clientIp(req), WALK_RATE_LIMIT))) {
+      res.status(429).json({ error: "Too many requests" });
+      return;
+    }
+
+    const origins = parseLatLngList(req.query["origins"] as string | undefined);
+    const destinations = parseLatLngList(
+      req.query["destinations"] as string | undefined
+    );
+
+    if (!origins || !destinations) {
+      res.status(400).json({
+        error:
+          "origins and destinations are required as ';'-separated 'lat,lng'",
+      });
+      return;
+    }
+
+    // 要素数上限の強制（課金暴発・悪用の防止）。上流を呼ぶ前に弾く。
+    const elements = matrixElementCount(origins.length, destinations.length);
+    if (elements > MATRIX_MAX_ELEMENTS) {
+      res.status(400).json({
+        error: `too many elements: ${elements} > ${MATRIX_MAX_ELEMENTS}`,
+      });
+      return;
+    }
+
+    const data = await requestJsonNew(
+      ROUTES_MATRIX_URL,
+      "POST",
+      {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": getMapsApiKey(),
+        "X-Goog-FieldMask": ROUTES_MATRIX_FIELD_MASK,
+      },
+      buildRoutesMatrixBody(origins, destinations)
+    );
+
+    // computeRouteMatrix は成功時に要素オブジェクトの配列を返す。配列でなければ
+    // 正常な結果ではない（エラー時は {error:{...}}、それ以外も想定外応答）。認証・
+    // クォータ等の失敗を「結果なし」と区別し、想定外応答もまとめて 502 で返す
+    // （「成功＝配列」の不変条件をプロキシ側でも担保し、クライアントへ非配列の 200 を
+    // 漏らさない）。
+    if (!Array.isArray(data)) {
+      const record = data as Record<string, unknown> | null;
+      console.error(
+        "[googleWalkMatrixProxy] Routes API non-array response:",
+        JSON.stringify(record && record["error"] ? record["error"] : data)
+      );
+      res.status(502).json(data);
+      return;
+    }
+
+    res.json(data);
+  }
+);
