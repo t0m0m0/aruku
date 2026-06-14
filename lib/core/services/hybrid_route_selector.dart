@@ -77,7 +77,18 @@ RouteCandidate selectBestRoute({
       return arrival(a) <= arrival(b) ? a : b;
     });
   }
-  return pool.reduce((a, b) => arrival(a) <= arrival(b) ? a : b);
+  // 予算内が無いとき（best-effort）。departureAt 指定時は、最初の電車に乗るまでの
+  // 待ちが予算を超える「今夜乗れない」電車（終電後の翌朝始発など）を後回しにし、
+  // 乗車待ちが予算内の候補（全徒歩は待ち0で常に含む）から最早到着を選ぶ（#121 原因②）。
+  // 予算が十分大きく実際に待てる場合は電車も残るため、原理的に正しい挙動になる。
+  var fallback = pool;
+  if (departureAt != null) {
+    final reachable = pool
+        .where((c) => firstBoardingWait(c.segments, departureAt) <= budgetMin)
+        .toList();
+    if (reachable.isNotEmpty) fallback = reachable;
+  }
+  return fallback.reduce((a, b) => arrival(a) <= arrival(b) ? a : b);
 }
 
 /// 候補の電車区間に、出発地より進行方向(origin→goal)の後方へ

@@ -303,6 +303,68 @@ void main() {
       expect(plan.timelineNodes.last.sub, contains('制限内'));
     });
 
+    test('終電後は翌朝始発の電車より「今夜歩ける」全徒歩を返す（#121 原因②）', () async {
+      // 01:00 出発・予算60分（締切 2:00）。NAVITIME は翌朝5:30発の電車ルートを返す。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(400, 5),
+          _point('品川駅'),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            calling: [
+              _calling(
+                '品川駅',
+                35.628,
+                139.738,
+                '2026-06-14T05:30:00',
+                '2026-06-14T05:30:00',
+              ),
+              _calling(
+                '新橋駅',
+                35.666,
+                139.758,
+                '2026-06-14T05:34:00',
+                '2026-06-14T05:34:00',
+              ),
+              _calling(
+                '東京駅',
+                35.681,
+                139.767,
+                '2026-06-14T06:00:00',
+                '2026-06-14T06:00:00',
+              ),
+            ],
+          ),
+          _point('東京駅'),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        // 全徒歩は実測80分で予算超過（best-effort）。だが翌朝電車（乗車待ち265分）より
+        // 「今夜歩ける」案として優先すべき。
+        walk: {'35.7,139.75;35.681,139.767': _walkResp(80, 6400)},
+      );
+
+      final plan = await build(client, clock: () => DateTime(2026, 6, 14, 1, 0))
+          .plan(
+            destination: '東京',
+            destinationLatLng: const GeoPoint(35.681, 139.767),
+            departure: const TimeValue(h: 1, m: 0),
+            arrival: const TimeValue(h: 2, m: 0),
+            origin: const GeoPoint(35.7, 139.75),
+          );
+
+      // 翌朝5:30発の電車ではなく、今夜歩ける全徒歩を返す。
+      expect(plan.segments.where((s) => s.type == SegmentType.train), isEmpty);
+      expect(plan.segments.every((s) => s.type == SegmentType.walk), isTrue);
+      // 予算超過の best-effort なので「制限内 ✓」は付かない。
+      expect(plan.timelineNodes.last.sub, isNot(contains('制限内')));
+    });
+
     test('出発地・目的地名は NAVITIME の start/goal でなく実名を使う', () async {
       // NAVITIME は座標問い合わせだと地点名を "start"/"goal" で返す。アプリが
       // 持つ実際の出発地・目的地名（originName / destination）で上書きする。

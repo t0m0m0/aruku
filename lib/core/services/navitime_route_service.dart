@@ -250,7 +250,7 @@ class NaviTimeRouteService implements RouteService {
 
       final withinByActual =
           arrivalMinutes(enriched.segments, departureAt) <= budgetMin;
-      if (withinByActual || !withinByEstimate) {
+      if (withinByActual) {
         return _build(
           enriched,
           departure,
@@ -260,6 +260,11 @@ class NaviTimeRouteService implements RouteService {
           toName: toName,
         );
       }
+      // 最善でも予算内に届かない best-effort（!withinByEstimate）。ここで pool ローカルの
+      // pick を即返すと、実測超過で pool から外れた全徒歩を見落とし「今夜乗れない」翌朝
+      // 電車を返してしまう。ループ末尾の縮退（全 candidates ＋乗車待ちフィルタ）へ委ねて
+      // 全徒歩を含めて選び直す（#121 原因②）。
+      if (!withinByEstimate) break;
       // 予算内見積もりが実測（徒歩の道なり迂回・再照会した実在列車の待ち）で超過
       // → 側別の迂回率を学習し、その候補を除いて選び直す。
       final learned = _learnDetours(originDetour, goalDetour, pick, enriched);
@@ -288,8 +293,14 @@ class NaviTimeRouteService implements RouteService {
     }
 
     // 予算内を確証できず → 実到着が最早の候補を best-effort で返す（遅刻時に
-    // 最長＝全徒歩を返さず、バナーの「最短を表示」と整合させる）。
-    final shortest = candidates.reduce(
+    // 最長＝全徒歩を返さず、バナーの「最短を表示」と整合させる）。ただし最初の電車に
+    // 乗るまでの待ちが予算を超える「今夜乗れない」電車（終電後の翌朝始発など）は
+    // 後回しにし、乗車待ちが予算内の候補（全徒歩を含む）を優先する（#121 原因②）。
+    final reachable = candidates
+        .where((c) => firstBoardingWait(c.segments, departureAt) <= budgetMin)
+        .toList();
+    final fallbackPool = reachable.isNotEmpty ? reachable : candidates;
+    final shortest = fallbackPool.reduce(
       (a, b) =>
           arrivalMinutes(a.segments, departureAt) <=
               arrivalMinutes(b.segments, departureAt)

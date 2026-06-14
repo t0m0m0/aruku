@@ -106,6 +106,24 @@ int arrivalMinutes(List<RouteSegment> segments, DateTime? departureAt) {
   return null;
 }
 
+/// 出発から最初の時刻表付き電車に乗車するまでの待ち時間（分, #121 原因②）。駅着から
+/// 発車までの待機分で、終電後は翌朝始発までの長い待ちがここに表れる。時刻表の無い
+/// 電車・電車を含まない経路（全徒歩）は 0。best-effort 選定で「乗車待ちが予算を
+/// 超える＝今夜乗れない電車」を全徒歩より後回しにする判定に使う。
+int firstBoardingWait(List<RouteSegment> segments, DateTime departureAt) {
+  var cum = 0;
+  for (final seg in segments) {
+    final advanced = _advance(cum, seg, departureAt);
+    if (seg.type == SegmentType.train &&
+        seg.depTime != null &&
+        seg.arrTime != null) {
+      return advanced.wait;
+    }
+    cum = advanced.cum;
+  }
+  return 0;
+}
+
 /// 電車区間ノードの補足文。乗車前に待ちがあれば「○分待ち · 路線名」と前置きする。
 String _trainSub(String? line, int wait) {
   final name = line ?? '電車';

@@ -20,6 +20,19 @@ RouteSegment _train(int minutes, {double km = 5.0}) => RouteSegment(
   line: 'L',
 );
 
+/// 時刻表（発着時刻）を持つ電車区間。乗車待ちを到着時刻に算入できる（#121）。
+RouteSegment _timedTrain(DateTime dep, DateTime arr, {double km = 5.0}) =>
+    RouteSegment(
+      type: SegmentType.train,
+      fromName: 'b',
+      toName: 'c',
+      minutes: arr.difference(dep).inMinutes,
+      km: km,
+      line: 'L',
+      depTime: dep,
+      arrTime: arr,
+    );
+
 RouteCandidate _candidate(List<RouteSegment> segments) =>
     RouteCandidate(from: '出発地', to: '目的地', segments: segments);
 
@@ -52,6 +65,49 @@ void main() {
 
       expect(best, same(hybridFar));
       expect(best.walkMinutes, 25);
+    });
+
+    test('best-effort: 翌朝始発など乗車待ちが予算超過の電車より全徒歩を優先する（#121 原因②）', () {
+      final departureAt = DateTime(2026, 6, 14, 1, 0); // 終電後 01:00
+      // 翌朝5:30発：駅まで徒歩5分→4時間25分待って乗車→6:00着（実到着300分）。
+      final nextMorningTrain = _candidate([
+        _walk(5),
+        _timedTrain(DateTime(2026, 6, 14, 5, 30), DateTime(2026, 6, 14, 6, 0)),
+      ]);
+      // 全徒歩：実到着360分（電車より遅い）。
+      final fullWalk = _candidate([_walk(360, km: 28.0)]);
+
+      final best = selectBestRoute(
+        candidates: [nextMorningTrain, fullWalk],
+        budgetMin: 60,
+        departureAt: departureAt,
+      );
+
+      // 実到着は電車(300)<全徒歩(360)だが、乗車待ち265分>予算なので全徒歩を優先。
+      expect(best, same(fullWalk));
+    });
+
+    test('best-effort: 今夜乗れる電車（乗車待ち予算内）は全徒歩より早ければ優先する（#121 原因②）', () {
+      final departureAt = DateTime(2026, 6, 14, 22, 0); // 22:00
+      // 徒歩5分→22:10発(待ち5分)/22:50着（実到着50分）。乗車待ちは予算内。
+      final tonightTrain = _candidate([
+        _walk(5),
+        _timedTrain(
+          DateTime(2026, 6, 14, 22, 10),
+          DateTime(2026, 6, 14, 22, 50),
+        ),
+      ]);
+      // 全徒歩：実到着90分。
+      final fullWalk = _candidate([_walk(90, km: 7.0)]);
+
+      final best = selectBestRoute(
+        candidates: [tonightTrain, fullWalk],
+        budgetMin: 30,
+        departureAt: departureAt,
+      );
+
+      // 乗車待ち5分は予算内なので電車を後回しにせず、実到着の早い電車を返す。
+      expect(best, same(tonightTrain));
     });
 
     test('予算内候補が無ければ最短を選ぶ', () {
