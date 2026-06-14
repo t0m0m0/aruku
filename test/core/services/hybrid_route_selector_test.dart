@@ -110,6 +110,33 @@ void main() {
       expect(best, same(tonightTrain));
     });
 
+    test('best-effort: 最初の電車に乗れても後続が翌朝始発なら全徒歩を優先する（#121 原因②）', () {
+      final departureAt = DateTime(2026, 6, 14, 22, 0); // 22:00
+      // 徒歩5分→22:10発(待ち5分)/22:30着→徒歩5分→翌朝5:30発(待ち415分)/6:00着。
+      // 最初の電車は乗れるが、乗り換え後の電車が翌朝始発で「今夜乗れない」。
+      final overnightHybrid = _candidate([
+        _walk(5),
+        _timedTrain(
+          DateTime(2026, 6, 14, 22, 10),
+          DateTime(2026, 6, 14, 22, 30),
+        ),
+        _walk(5),
+        _timedTrain(DateTime(2026, 6, 15, 5, 30), DateTime(2026, 6, 15, 6, 0)),
+      ]);
+      // 全徒歩：実到着500分（電車経路の実到着480分より遅い）。
+      final fullWalk = _candidate([_walk(500, km: 38.0)]);
+
+      final best = selectBestRoute(
+        candidates: [overnightHybrid, fullWalk],
+        budgetMin: 60,
+        departureAt: departureAt,
+      );
+
+      // 実到着は電車経路(480)<全徒歩(500)だが、後続電車の乗車待ち415分>予算なので
+      // 全徒歩を優先する（最初の電車の待ち5分だけ見て取りこぼさない）。
+      expect(best, same(fullWalk));
+    });
+
     test('予算内候補が無ければ最短を選ぶ', () {
       final long = _candidate([_train(200)]);
       final shortest = _candidate([_train(130)]);

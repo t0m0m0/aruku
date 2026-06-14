@@ -293,13 +293,11 @@ class NaviTimeRouteService implements RouteService {
     }
 
     // 予算内を確証できず → 実到着が最早の候補を best-effort で返す（遅刻時に
-    // 最長＝全徒歩を返さず、バナーの「最短を表示」と整合させる）。ただし最初の電車に
-    // 乗るまでの待ちが予算を超える「今夜乗れない」電車（終電後の翌朝始発など）は
-    // 後回しにし、乗車待ちが予算内の候補（全徒歩を含む）を優先する（#121 原因②）。
-    final reachable = candidates
-        .where((c) => firstBoardingWait(c.segments, departureAt) <= budgetMin)
-        .toList();
-    final fallbackPool = reachable.isNotEmpty ? reachable : candidates;
+    // 最長＝全徒歩を返さず、バナーの「最短を表示」と整合させる）。ただし乗車待ちが
+    // 予算を超える「今夜乗れない」電車（終電後の翌朝始発など）は後回しにし、乗車待ちが
+    // 予算内の候補（全徒歩を含む）を優先する（#121 原因②）。
+    final fallbackPool =
+        reachableWithinBudget(candidates, budgetMin, departureAt) ?? candidates;
     final shortest = fallbackPool.reduce(
       (a, b) =>
           arrivalMinutes(a.segments, departureAt) <=
