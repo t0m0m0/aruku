@@ -68,9 +68,17 @@ RouteCandidate selectBestRoute({
       ? c.totalMin
       : arrivalMinutes(c.segments, departureAt);
 
+  // 予算内候補。ただし深夜帯に時刻表なし電車へ乗る候補は乗車可否を確証できないため
+  // 予算内（confirmable）から外し、全徒歩など確証できる候補を優先する（#121 untimed深夜）。
+  // departureAt が無い（時間情報なし）ときは時間帯判定をせず従来どおり。
   final within = pool.where((c) => arrival(c) <= budgetMin).toList();
-  if (within.isNotEmpty) {
-    return within.reduce((a, b) {
+  final confirmable = departureAt == null
+      ? within
+      : within
+            .where((c) => !hasUntimedNightTrain(c.segments, departureAt))
+            .toList();
+  if (confirmable.isNotEmpty) {
+    return confirmable.reduce((a, b) {
       if (a.walkMinutes != b.walkMinutes) {
         return a.walkMinutes > b.walkMinutes ? a : b;
       }
@@ -93,11 +101,13 @@ RouteCandidate selectBestRoute({
 ///   （終電後の翌朝始発など「待てば乗れるが今夜は無理」な電車を除く・#121 原因②）。
 /// - 乗り遅れる時刻表電車が無い（[firstMissedTrain] == null）。駅着が発車後の電車は
 ///   実際には乗れず、[maxBoardingWait] では待ち0に見えて素通りするため明示的に除く。
+/// - 深夜帯に時刻表なし電車へ乗らない（[hasUntimedNightTrain] == false）。untimed電車は
+///   時刻が無く上の2判定を素通りするため、終電後の駅着のものは明示的に除く（#121 untimed深夜）。
 ///
 /// 該当が無ければ null を返し、呼び出し側は元の全候補へ縮退する。選定中の pool
 /// （[selectBestRoute]）と縮退時の全候補（NaviTimeRouteService）の双方で同じ判定を
-/// 共有するための純粋関数。時刻表の無い電車（untimed）はどちらの判定も対象外で、
-/// 昼間のハイブリッド徒歩最大（#67）の挙動は変えない。
+/// 共有するための純粋関数。昼間の untimed電車は深夜帯判定に入らないため、ハイブリッド
+/// 徒歩最大（#67）の挙動は変えない。
 List<RouteCandidate>? reachableWithinBudget(
   List<RouteCandidate> candidates,
   int budgetMin,
@@ -107,7 +117,8 @@ List<RouteCandidate>? reachableWithinBudget(
       .where(
         (c) =>
             maxBoardingWait(c.segments, departureAt) <= budgetMin &&
-            firstMissedTrain(c.segments, departureAt) == null,
+            firstMissedTrain(c.segments, departureAt) == null &&
+            !hasUntimedNightTrain(c.segments, departureAt),
       )
       .toList();
   return reachable.isEmpty ? null : reachable;

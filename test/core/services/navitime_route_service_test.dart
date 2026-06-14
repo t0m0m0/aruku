@@ -365,6 +365,57 @@ void main() {
       expect(plan.timelineNodes.last.sub, isNot(contains('制限内')));
     });
 
+    test(
+      '深夜帯は時刻表なし(untimed)電車を「乗れる深夜電車」として出さず全徒歩を返す（#121 untimed深夜・スクショ再現）',
+      () async {
+        // スクショ再現: 深夜2:00発（駅着が終電後の無運行帯に入る）。NAVITIME は時刻欠落
+        // (untimed)の電車を含む乗換を返す。untimed電車は時刻表が無く待ち0・楽観で予算内に
+        // 収まるため、従来は「深夜の電車」として表示されていた。深夜帯に電車は走らないので、
+        // 予算をわずかに超過しても全徒歩を返す。
+        final transit = _navi([
+          _item([
+            _point('出発地'),
+            _walkSection(400, 5),
+            _point('品川駅'),
+            _trainSection(
+              6000,
+              7,
+              line: 'JR山手線',
+              stops: 2,
+              calling: [
+                _callingNoTime('品川駅', 35.628, 139.738),
+                _callingNoTime('新橋駅', 35.666, 139.758),
+                _callingNoTime('東京駅', 35.681, 139.767),
+              ],
+            ),
+            _point('東京駅'),
+          ]),
+        ]);
+        final client = _mock(
+          transit: transit,
+          // 全徒歩は実測80分で予算(60分)超過の best-effort。だが深夜に乗れない untimed電車
+          // より「今夜歩ける」全徒歩を優先すべき。
+          walk: {'35.7,139.75;35.681,139.767': _walkResp(80, 6400)},
+        );
+
+        final plan =
+            await build(client, clock: () => DateTime(2026, 6, 14, 2, 0)).plan(
+              destination: '東京',
+              destinationLatLng: const GeoPoint(35.681, 139.767),
+              departure: const TimeValue(h: 2, m: 0),
+              arrival: const TimeValue(h: 3, m: 0),
+              origin: const GeoPoint(35.7, 139.75),
+            );
+
+        // 深夜の untimed電車ではなく、今夜歩ける全徒歩を返す。
+        expect(
+          plan.segments.where((s) => s.type == SegmentType.train),
+          isEmpty,
+        );
+        expect(plan.segments.every((s) => s.type == SegmentType.walk), isTrue);
+      },
+    );
+
     test('calling_at が +09:00 オフセット付きでも翌朝始発を全徒歩より後回しにする（#121 TZ）', () async {
       // 実 API の calling_at は from_time/to_time に +09:00 が付く。これを naive な
       // 出発アンカーと差分すると端末 TZ 次第で乗車待ちが負＝0 になり、翌朝始発が

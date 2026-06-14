@@ -158,6 +158,38 @@ void main() {
       expect(best, same(fullWalk));
     });
 
+    test('深夜帯: untimed電車が予算内でも全徒歩を優先する（#121 untimed深夜）', () {
+      // 深夜1:51発。untimed電車ルートは待ち0・楽観で予算内に収まるが、3am台の電車は
+      // 走っていないため乗れない。全徒歩は予算をわずかに超過する best-effort 状況でも、
+      // 確証できない深夜untimed電車より全徒歩を優先しなければならない（スクショ再現）。
+      final departureAt = DateTime(2026, 6, 14, 1, 51);
+      final untimedNight = _candidate([_walk(86), _train(11), _walk(60)]);
+      final fullWalk = _candidate([_walk(185, km: 11.9)]);
+
+      final best = selectBestRoute(
+        candidates: [untimedNight, fullWalk],
+        budgetMin: 180, // untimed電車157分=予算内 / 全徒歩185分=超過
+        departureAt: departureAt,
+      );
+
+      expect(best, same(fullWalk));
+    });
+
+    test('昼間: untimed電車が予算内なら徒歩最大として選ぶ（#67 維持）', () {
+      // 9:00発。日中の untimed電車は対象外で、徒歩最大のハイブリッドを通常どおり選ぶ。
+      final departureAt = DateTime(2026, 6, 14, 9, 0);
+      final hybrid = _candidate([_walk(40), _train(11), _walk(30)]);
+      final fullWalk = _candidate([_walk(60, km: 4.0)]);
+
+      final best = selectBestRoute(
+        candidates: [hybrid, fullWalk],
+        budgetMin: 120, // 両方予算内 → 徒歩最大(70分)のハイブリッド
+        departureAt: departureAt,
+      );
+
+      expect(best, same(hybrid));
+    });
+
     test('予算内候補が無ければ最短を選ぶ', () {
       final long = _candidate([_train(200)]);
       final shortest = _candidate([_train(130)]);

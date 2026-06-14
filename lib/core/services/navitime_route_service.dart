@@ -248,8 +248,12 @@ class NaviTimeRouteService implements RouteService {
         }
       }
 
+      // 実到着が予算内でも、深夜帯に時刻表なし電車へ乗る候補は乗車可否を確証できない
+      // ため確定しない（待ち0・楽観で予算内に見えるだけ）。ループ末尾の縮退へ委ね、
+      // reachableWithinBudget で全徒歩など確証できる候補を優先する（#121 untimed深夜）。
       final withinByActual =
-          arrivalMinutes(enriched.segments, departureAt) <= budgetMin;
+          arrivalMinutes(enriched.segments, departureAt) <= budgetMin &&
+          !hasUntimedNightTrain(enriched.segments, departureAt);
       if (withinByActual) {
         return _build(
           enriched,
