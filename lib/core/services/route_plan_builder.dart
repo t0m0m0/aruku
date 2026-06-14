@@ -106,6 +106,59 @@ int arrivalMinutes(List<RouteSegment> segments, DateTime? departureAt) {
   return null;
 }
 
+/// 出発から各時刻表付き電車に乗車するまでの待ち時間の最大値（分, #121 原因②）。駅着から
+/// 発車までの待機分で、終電後は翌朝始発までの長い待ちがここに表れる。複数電車を含む経路
+/// では「最初の電車には乗れても後続が翌朝始発」のケースを取りこぼさないよう、全電車区間の
+/// 乗車待ちの最大を返す。時刻表の無い電車・電車を含まない経路（全徒歩）は 0。best-effort
+/// 選定で「乗車待ちが予算を超える＝今夜乗れない電車」を全徒歩より後回しにする判定に使う。
+int maxBoardingWait(List<RouteSegment> segments, DateTime departureAt) {
+  var cum = 0;
+  var maxWait = 0;
+  for (final seg in segments) {
+    final advanced = _advance(cum, seg, departureAt);
+    if (seg.type == SegmentType.train &&
+        seg.depTime != null &&
+        seg.arrTime != null &&
+        advanced.wait > maxWait) {
+      maxWait = advanced.wait;
+    }
+    cum = advanced.cum;
+  }
+  return maxWait;
+}
+
+/// 終電後（深夜）に時刻表の無い電車へ乗る区間を含むか（#121 untimed深夜）。
+/// untimed電車（calling_at に from_time/to_time が無い）は乗車可否を時刻表で
+/// 確証できず、[firstMissedTrain]（時刻必須）も [maxBoardingWait]（時刻必須・待ち0扱い）も
+/// 素通りする。駅着の壁時計時刻が深夜帯（[_nightServiceGapStartMin]〜[_nightServiceGapEndMin]）に
+/// 入る untimed電車は「今夜は走っておらず乗れない」とみなす。駅着時刻は出発 [departureAt] に
+/// 区間到着までの実累積分を足して求める。昼間に駅着する untimed電車（#67 のハイブリッド
+/// 徒歩最大）は深夜帯に入らず対象外なので挙動を変えない。
+bool hasUntimedNightTrain(List<RouteSegment> segments, DateTime departureAt) {
+  var cum = 0;
+  for (final seg in segments) {
+    if (seg.type == SegmentType.train &&
+        (seg.depTime == null || seg.arrTime == null) &&
+        _isNightServiceGap(departureAt.add(Duration(minutes: cum)))) {
+      return true;
+    }
+    cum = _advance(cum, seg, departureAt).cum;
+  }
+  return false;
+}
+
+/// 鉄道がほぼ運行しない深夜帯（壁時計）の境界（分・0時起点）。終電後〜始発前の
+/// 確実な無運行帯のみを対象にし、時刻表の無い電車の乗車可否を保守的に判定する。
+const int _nightServiceGapStartMin = 1 * 60 + 30; // 01:30
+const int _nightServiceGapEndMin = 4 * 60 + 30; // 04:30
+
+/// [t] の時刻（壁時計の時・分）が深夜無運行帯に入るか。日付成分は無視する。
+bool _isNightServiceGap(DateTime t) {
+  final minutesOfDay = t.hour * 60 + t.minute;
+  return minutesOfDay >= _nightServiceGapStartMin &&
+      minutesOfDay < _nightServiceGapEndMin;
+}
+
 /// 電車区間ノードの補足文。乗車前に待ちがあれば「○分待ち · 路線名」と前置きする。
 String _trainSub(String? line, int wait) {
   final name = line ?? '電車';

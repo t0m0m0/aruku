@@ -248,9 +248,13 @@ class NaviTimeRouteService implements RouteService {
         }
       }
 
+      // 実到着が予算内でも、深夜帯に時刻表なし電車へ乗る候補は乗車可否を確証できない
+      // ため確定しない（待ち0・楽観で予算内に見えるだけ）。ループ末尾の縮退へ委ね、
+      // reachableWithinBudget で全徒歩など確証できる候補を優先する（#121 untimed深夜）。
       final withinByActual =
-          arrivalMinutes(enriched.segments, departureAt) <= budgetMin;
-      if (withinByActual || !withinByEstimate) {
+          arrivalMinutes(enriched.segments, departureAt) <= budgetMin &&
+          !hasUntimedNightTrain(enriched.segments, departureAt);
+      if (withinByActual) {
         return _build(
           enriched,
           departure,
@@ -260,6 +264,11 @@ class NaviTimeRouteService implements RouteService {
           toName: toName,
         );
       }
+      // 最善でも予算内に届かない best-effort（!withinByEstimate）。ここで pool ローカルの
+      // pick を即返すと、実測超過で pool から外れた全徒歩を見落とし「今夜乗れない」翌朝
+      // 電車を返してしまう。ループ末尾の縮退（全 candidates ＋乗車待ちフィルタ）へ委ねて
+      // 全徒歩を含めて選び直す（#121 原因②）。
+      if (!withinByEstimate) break;
       // 予算内見積もりが実測（徒歩の道なり迂回・再照会した実在列車の待ち）で超過
       // → 側別の迂回率を学習し、その候補を除いて選び直す。
       final learned = _learnDetours(originDetour, goalDetour, pick, enriched);
@@ -288,8 +297,12 @@ class NaviTimeRouteService implements RouteService {
     }
 
     // 予算内を確証できず → 実到着が最早の候補を best-effort で返す（遅刻時に
-    // 最長＝全徒歩を返さず、バナーの「最短を表示」と整合させる）。
-    final shortest = candidates.reduce(
+    // 最長＝全徒歩を返さず、バナーの「最短を表示」と整合させる）。ただし乗車待ちが
+    // 予算を超える「今夜乗れない」電車（終電後の翌朝始発など）は後回しにし、乗車待ちが
+    // 予算内の候補（全徒歩を含む）を優先する（#121 原因②）。
+    final fallbackPool =
+        reachableWithinBudget(candidates, budgetMin, departureAt) ?? candidates;
+    final shortest = fallbackPool.reduce(
       (a, b) =>
           arrivalMinutes(a.segments, departureAt) <=
               arrivalMinutes(b.segments, departureAt)
@@ -1122,8 +1135,8 @@ class NaviTimeRouteService implements RouteService {
         _Stop(
           name: e['name'] as String? ?? '',
           coord: GeoPoint(lat, lon),
-          arr: DateTime.tryParse(e['from_time'] as String? ?? ''),
-          dep: DateTime.tryParse(e['to_time'] as String? ?? ''),
+          arr: parseNavitimeJst(e['from_time'] as String?),
+          dep: parseNavitimeJst(e['to_time'] as String?),
           line: line,
           section: section,
           fare: sectionFare,
@@ -1238,6 +1251,12 @@ class NaviTimeRouteService implements RouteService {
   }
 
   /// 絶対時刻を NAVITIME の start_time（ISO8601・秒0固定）へ整形する。
+  /// NAVITIME route_transit はタイムゾーンオフセット付きの start_time を受け付けず
+  /// `parameter error` を返す（#121 で +09:00 を付けたところ全検索が 502 化した）。
+  /// オフセットは元々不要：[_departureDateTime] は TZ 変換をせずユーザーが選んだ
+  /// wall-clock の時・分をそのまま構成要素に持つため、ここで出力する数字は選択時刻
+  /// そのもの。日本の公共交通ダイヤを引く NAVITIME はこれを JST として解釈するので、
+  /// JST 以外の端末でも終電後判定はずれない。
   String _formatStartTime(DateTime dt) {
     final y = dt.year.toString().padLeft(4, '0');
     final mo = dt.month.toString().padLeft(2, '0');
@@ -1246,6 +1265,36 @@ class NaviTimeRouteService implements RouteService {
     final mi = dt.minute.toString().padLeft(2, '0');
     return '$y-$mo-${d}T$h:$mi:00';
   }
+}
+
+/// NAVITIME の時刻文字列（calling_at の from_time/to_time）を「JST の wall-clock を
+/// 表す naive DateTime」へ正規化する（#121 TZ）。
+///
+/// 実 API は時刻に `+09:00` を付けて返し、[DateTime.parse] はそれを UTC インスタンス
+/// （isUtc=true）にする。一方タイムラインの出発アンカー（[NaviTimeRouteService.
+/// _departureDateTime]）はユーザー選択の壁時計値そのものを持つ naive DateTime で、
+/// この両者を [DateTime.difference] すると端末 TZ ぶんずれる。JST 以外の端末では
+/// 乗車待ちが負＝0 に化け、翌朝始発が「今すぐ乗れる深夜電車」として #121② の
+/// フィルタを素通りしていた（深夜時刻表示の主因）。
+///
+/// NAVITIME のダイヤは常に JST。オフセット/Z 付き（[DateTime.isUtc]）なら +9h して
+/// JST の壁時計成分を読み取り、オフセット無し（naive）なら数字をそのまま JST 壁時計と
+/// みなす。いずれも isUtc=false の naive DateTime を返すため、同じく naive な出発
+/// アンカーとの差分が端末 TZ に依存しなくなる。解析不能・null・空は null。
+@visibleForTesting
+DateTime? parseNavitimeJst(String? raw) {
+  if (raw == null || raw.isEmpty) return null;
+  final dt = DateTime.tryParse(raw);
+  if (dt == null) return null;
+  final jst = dt.isUtc ? dt.add(const Duration(hours: 9)) : dt;
+  return DateTime(
+    jst.year,
+    jst.month,
+    jst.day,
+    jst.hour,
+    jst.minute,
+    jst.second,
+  );
 }
 
 /// 解析済みの標準乗換経路。ハイブリッド構築に必要な停車駅タイムラインを保持する。

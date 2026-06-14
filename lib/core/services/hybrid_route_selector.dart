@@ -68,16 +68,60 @@ RouteCandidate selectBestRoute({
       ? c.totalMin
       : arrivalMinutes(c.segments, departureAt);
 
+  // 予算内候補。ただし深夜帯に時刻表なし電車へ乗る候補は乗車可否を確証できないため
+  // 予算内（confirmable）から外し、全徒歩など確証できる候補を優先する（#121 untimed深夜）。
+  // departureAt が無い（時間情報なし）ときは時間帯判定をせず従来どおり。
   final within = pool.where((c) => arrival(c) <= budgetMin).toList();
-  if (within.isNotEmpty) {
-    return within.reduce((a, b) {
+  final confirmable = departureAt == null
+      ? within
+      : within
+            .where((c) => !hasUntimedNightTrain(c.segments, departureAt))
+            .toList();
+  if (confirmable.isNotEmpty) {
+    return confirmable.reduce((a, b) {
       if (a.walkMinutes != b.walkMinutes) {
         return a.walkMinutes > b.walkMinutes ? a : b;
       }
       return arrival(a) <= arrival(b) ? a : b;
     });
   }
-  return pool.reduce((a, b) => arrival(a) <= arrival(b) ? a : b);
+  // 予算内が無いとき（best-effort）。departureAt 指定時は、乗車待ちが予算を超える
+  // 「今夜乗れない」電車（終電後の翌朝始発など）を後回しにし、乗車待ちが予算内の候補
+  // （全徒歩は待ち0で常に含む）から最早到着を選ぶ（#121 原因②）。予算が十分大きく
+  // 実際に待てる場合は電車も残るため、原理的に正しい挙動になる。
+  final fallback = departureAt == null
+      ? pool
+      : reachableWithinBudget(pool, budgetMin, departureAt) ?? pool;
+  return fallback.reduce((a, b) => arrival(a) <= arrival(b) ? a : b);
+}
+
+/// best-effort 選定で「今夜乗れる」候補に絞る。次の両方を満たす候補だけを残す
+/// （全徒歩は電車を含まず常に残る）：
+/// - 各時刻表電車の乗車待ち（[maxBoardingWait]）がいずれも [budgetMin] 内
+///   （終電後の翌朝始発など「待てば乗れるが今夜は無理」な電車を除く・#121 原因②）。
+/// - 乗り遅れる時刻表電車が無い（[firstMissedTrain] == null）。駅着が発車後の電車は
+///   実際には乗れず、[maxBoardingWait] では待ち0に見えて素通りするため明示的に除く。
+/// - 深夜帯に時刻表なし電車へ乗らない（[hasUntimedNightTrain] == false）。untimed電車は
+///   時刻が無く上の2判定を素通りするため、終電後の駅着のものは明示的に除く（#121 untimed深夜）。
+///
+/// 該当が無ければ null を返し、呼び出し側は元の全候補へ縮退する。選定中の pool
+/// （[selectBestRoute]）と縮退時の全候補（NaviTimeRouteService）の双方で同じ判定を
+/// 共有するための純粋関数。昼間の untimed電車は深夜帯判定に入らないため、ハイブリッド
+/// 徒歩最大（#67）の挙動は変えない。
+List<RouteCandidate>? reachableWithinBudget(
+  List<RouteCandidate> candidates,
+  int budgetMin,
+  DateTime departureAt,
+) {
+  final reachable = candidates
+      .where(
+        (c) =>
+            maxBoardingWait(c.segments, departureAt) <= budgetMin &&
+            firstMissedTrain(c.segments, departureAt) == null &&
+            !hasUntimedNightTrain(c.segments, departureAt),
+      )
+      .toList();
+  return reachable.isEmpty ? null : reachable;
 }
 
 /// 候補の電車区間に、出発地より進行方向(origin→goal)の後方へ

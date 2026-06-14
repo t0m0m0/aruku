@@ -415,6 +415,68 @@ void main() {
     });
   });
 
+  group('hasUntimedNightTrain', () {
+    RouteSegment walk(int minutes) => RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'a',
+      toName: 'b',
+      minutes: minutes,
+      km: 1,
+    );
+
+    RouteSegment untimedTrain(int minutes) => RouteSegment(
+      type: SegmentType.train,
+      fromName: '自由が丘',
+      toName: '代官山',
+      minutes: minutes,
+      line: '東急東横線急行',
+    );
+
+    test('深夜帯に駅着して untimed電車へ乗る区間があれば true', () {
+      // 1:51発・徒歩86分で 3:17 に駅着 → untimed電車。深夜帯で乗車可否を確証できない。
+      final segments = [walk(86), untimedTrain(11), walk(60)];
+      expect(
+        hasUntimedNightTrain(segments, DateTime(2026, 6, 14, 1, 51)),
+        isTrue,
+      );
+    });
+
+    test('昼間に駅着する untimed電車は false（#67 の挙動を変えない）', () {
+      // 9:00発・徒歩20分で 9:20 に駅着 → 日中なので対象外。
+      final segments = [walk(20), untimedTrain(7), walk(10)];
+      expect(
+        hasUntimedNightTrain(segments, DateTime(2026, 6, 14, 9, 0)),
+        isFalse,
+      );
+    });
+
+    test('深夜でも時刻表付き電車は false（untimed のみが対象）', () {
+      final segments = [
+        walk(86),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: '自由が丘',
+          toName: '代官山',
+          minutes: 11,
+          line: '東急東横線急行',
+          depTime: DateTime(2026, 6, 14, 3, 20),
+          arrTime: DateTime(2026, 6, 14, 3, 31),
+        ),
+      ];
+      expect(
+        hasUntimedNightTrain(segments, DateTime(2026, 6, 14, 1, 51)),
+        isFalse,
+      );
+    });
+
+    test('電車を含まない全徒歩は false', () {
+      expect(
+        hasUntimedNightTrain([walk(180)], DateTime(2026, 6, 14, 1, 51)),
+        isFalse,
+      );
+    });
+  });
+
   group('budgetMinutes', () {
     test('同日内は到着−出発の差をそのまま返す', () {
       expect(
