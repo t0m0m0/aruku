@@ -1238,13 +1238,17 @@ class NaviTimeRouteService implements RouteService {
   }
 
   /// 絶対時刻を NAVITIME の start_time（ISO8601・秒0固定）へ整形する。
+  /// ユーザーが選んだ wall-clock 時刻は日本の公共交通ダイヤを前提とするため、
+  /// タイムゾーンオフセット `+09:00`（JST）を明示して送る（#121 原因③）。これが
+  /// 無いと NAVITIME のサーバ TZ 依存になり、JST 以外の端末では終電後判定が
+  /// ずれて翌朝の電車を「今夜の電車」として返し得る。
   String _formatStartTime(DateTime dt) {
     final y = dt.year.toString().padLeft(4, '0');
     final mo = dt.month.toString().padLeft(2, '0');
     final d = dt.day.toString().padLeft(2, '0');
     final h = dt.hour.toString().padLeft(2, '0');
     final mi = dt.minute.toString().padLeft(2, '0');
-    return '$y-$mo-${d}T$h:$mi:00';
+    return '$y-$mo-${d}T$h:$mi:00+09:00';
   }
 }
 

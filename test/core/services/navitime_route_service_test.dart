@@ -2301,7 +2301,10 @@ void main() {
       final transitUri = log.firstWhere(
         (u) => u.path.contains('navitimeProxy'),
       );
-      expect(transitUri.queryParameters['start_time'], '2026-05-23T09:00:00');
+      expect(
+        transitUri.queryParameters['start_time'],
+        '2026-05-23T09:00:00+09:00',
+      );
     });
 
     // #116: 徒歩実測をレッグ単位（start/goal 座標ペア）で plan() スコープに
