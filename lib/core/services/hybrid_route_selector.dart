@@ -87,18 +87,28 @@ RouteCandidate selectBestRoute({
   return fallback.reduce((a, b) => arrival(a) <= arrival(b) ? a : b);
 }
 
-/// best-effort 選定で「今夜乗れる」候補に絞る。各時刻表電車の乗車待ち（[maxBoardingWait]）
-/// がいずれも [budgetMin] 内の候補だけを残し、終電後の翌朝始発など今夜乗れない電車を除く
-/// （全徒歩は待ち0で常に残る）。該当が無ければ null を返し、呼び出し側は元の全候補へ
-/// 縮退する（#121 原因②）。選定中の pool（[selectBestRoute]）と縮退時の全候補
-/// （NaviTimeRouteService）の双方で同じ判定を共有するための純粋関数。
+/// best-effort 選定で「今夜乗れる」候補に絞る。次の両方を満たす候補だけを残す
+/// （全徒歩は電車を含まず常に残る）：
+/// - 各時刻表電車の乗車待ち（[maxBoardingWait]）がいずれも [budgetMin] 内
+///   （終電後の翌朝始発など「待てば乗れるが今夜は無理」な電車を除く・#121 原因②）。
+/// - 乗り遅れる時刻表電車が無い（[firstMissedTrain] == null）。駅着が発車後の電車は
+///   実際には乗れず、[maxBoardingWait] では待ち0に見えて素通りするため明示的に除く。
+///
+/// 該当が無ければ null を返し、呼び出し側は元の全候補へ縮退する。選定中の pool
+/// （[selectBestRoute]）と縮退時の全候補（NaviTimeRouteService）の双方で同じ判定を
+/// 共有するための純粋関数。時刻表の無い電車（untimed）はどちらの判定も対象外で、
+/// 昼間のハイブリッド徒歩最大（#67）の挙動は変えない。
 List<RouteCandidate>? reachableWithinBudget(
   List<RouteCandidate> candidates,
   int budgetMin,
   DateTime departureAt,
 ) {
   final reachable = candidates
-      .where((c) => maxBoardingWait(c.segments, departureAt) <= budgetMin)
+      .where(
+        (c) =>
+            maxBoardingWait(c.segments, departureAt) <= budgetMin &&
+            firstMissedTrain(c.segments, departureAt) == null,
+      )
       .toList();
   return reachable.isEmpty ? null : reachable;
 }

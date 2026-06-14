@@ -137,6 +137,27 @@ void main() {
       expect(best, same(fullWalk));
     });
 
+    test('best-effort: 発車後に駅着＝乗り遅れる電車は全徒歩を優先する（#121 乗り遅れ）', () {
+      final departureAt = DateTime(2026, 6, 14, 2, 23); // 深夜 02:23
+      // 徒歩10分（02:33着）だが電車は 02:30 発で既に出ている＝乗り遅れ。乗車待ちは
+      // 0 に見えるため楽観到着65分は全徒歩120分より早いが、実際には乗れないので
+      // best-effort では全徒歩を優先しなければならない。
+      final missedTrain = _candidate([
+        _walk(10),
+        _timedTrain(DateTime(2026, 6, 14, 2, 30), DateTime(2026, 6, 14, 3, 25)),
+      ]);
+      final fullWalk = _candidate([_walk(120, km: 9.0)]);
+
+      final best = selectBestRoute(
+        candidates: [missedTrain, fullWalk],
+        budgetMin: 60, // 両候補とも予算超過＝best-effort
+        departureAt: departureAt,
+      );
+
+      // 乗り遅れ電車は「今夜乗れない」とみなし、楽観到着が早くても全徒歩を返す。
+      expect(best, same(fullWalk));
+    });
+
     test('予算内候補が無ければ最短を選ぶ', () {
       final long = _candidate([_train(200)]);
       final shortest = _candidate([_train(130)]);
