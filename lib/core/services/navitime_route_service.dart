@@ -102,32 +102,6 @@ class NaviTimeRouteService implements RouteService {
       'budgetMin=$budgetMin',
     );
 
-    // TEMP(#121調査): 深夜電車が「翌朝始発の TZ 誤読」か「API が深夜便を返している」かを
-    // 切り分ける計装。送信 start_time・端末 TZ・応答の生 calling_at 時刻・正規化後の
-    // depTime を 1 行で出す。確認後に除去する。
-    final dep0 = _departureDateTime(departure);
-    final firstRawTrain = items
-        .map((e) => e is Map ? e['sections'] : null)
-        .whereType<List>()
-        .expand((s) => s)
-        .whereType<Map>()
-        .where((s) => s['type'] == 'move' && s['move'] != 'walk')
-        .firstOrNull;
-    final firstRawCalling = firstRawTrain == null
-        ? null
-        : _callingListOf(firstRawTrain).whereType<Map>().firstOrNull;
-    final firstNormTrain = parsed
-        .expand((p) => p.segments)
-        .where((s) => s.type == SegmentType.train)
-        .firstOrNull;
-    debugPrint(
-      'tz-diag: sentStartTime=${_formatStartTime(dep0)} '
-      'deviceTzOffsetMin=${dep0.timeZoneOffset.inMinutes} '
-      'rawFromTime=${firstRawCalling?['from_time']} '
-      'rawToTime=${firstRawCalling?['to_time']} '
-      'normDepTime=${firstNormTrain?.depTime} normArrTime=${firstNormTrain?.arrTime}',
-    );
-
     return _finalize(
       candidates,
       budgetMin,
@@ -1247,16 +1221,6 @@ class NaviTimeRouteService implements RouteService {
       }
     }
     return out;
-  }
-
-  /// move（電車）セクションの calling_at 配列（transport 配下優先、無ければ直下）を返す。
-  /// TEMP(#121調査) の生時刻ログで使う。配列でなければ空。
-  List<dynamic> _callingListOf(Map<dynamic, dynamic> sec) {
-    final transport = sec['transport'];
-    final raw =
-        (transport is Map ? transport['calling_at'] : null) ??
-        sec['calling_at'];
-    return raw is List ? raw : const [];
   }
 
   /// null を除いた座標が2点以上あれば折れ線（直線）にする。1点以下は空。
