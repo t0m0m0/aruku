@@ -1131,8 +1131,8 @@ class NaviTimeRouteService implements RouteService {
         _Stop(
           name: e['name'] as String? ?? '',
           coord: GeoPoint(lat, lon),
-          arr: DateTime.tryParse(e['from_time'] as String? ?? ''),
-          dep: DateTime.tryParse(e['to_time'] as String? ?? ''),
+          arr: parseNavitimeJst(e['from_time'] as String?),
+          dep: parseNavitimeJst(e['to_time'] as String?),
           line: line,
           section: section,
           fare: sectionFare,
@@ -1261,6 +1261,36 @@ class NaviTimeRouteService implements RouteService {
     final mi = dt.minute.toString().padLeft(2, '0');
     return '$y-$mo-${d}T$h:$mi:00';
   }
+}
+
+/// NAVITIME の時刻文字列（calling_at の from_time/to_time）を「JST の wall-clock を
+/// 表す naive DateTime」へ正規化する（#121 TZ）。
+///
+/// 実 API は時刻に `+09:00` を付けて返し、[DateTime.parse] はそれを UTC インスタンス
+/// （isUtc=true）にする。一方タイムラインの出発アンカー（[NaviTimeRouteService.
+/// _departureDateTime]）はユーザー選択の壁時計値そのものを持つ naive DateTime で、
+/// この両者を [DateTime.difference] すると端末 TZ ぶんずれる。JST 以外の端末では
+/// 乗車待ちが負＝0 に化け、翌朝始発が「今すぐ乗れる深夜電車」として #121② の
+/// フィルタを素通りしていた（深夜時刻表示の主因）。
+///
+/// NAVITIME のダイヤは常に JST。オフセット/Z 付き（[DateTime.isUtc]）なら +9h して
+/// JST の壁時計成分を読み取り、オフセット無し（naive）なら数字をそのまま JST 壁時計と
+/// みなす。いずれも isUtc=false の naive DateTime を返すため、同じく naive な出発
+/// アンカーとの差分が端末 TZ に依存しなくなる。解析不能・null・空は null。
+@visibleForTesting
+DateTime? parseNavitimeJst(String? raw) {
+  if (raw == null || raw.isEmpty) return null;
+  final dt = DateTime.tryParse(raw);
+  if (dt == null) return null;
+  final jst = dt.isUtc ? dt.add(const Duration(hours: 9)) : dt;
+  return DateTime(
+    jst.year,
+    jst.month,
+    jst.day,
+    jst.hour,
+    jst.minute,
+    jst.second,
+  );
 }
 
 /// 解析済みの標準乗換経路。ハイブリッド構築に必要な停車駅タイムラインを保持する。

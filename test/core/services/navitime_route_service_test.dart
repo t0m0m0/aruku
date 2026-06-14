@@ -365,6 +365,66 @@ void main() {
       expect(plan.timelineNodes.last.sub, isNot(contains('制限内')));
     });
 
+    test('calling_at が +09:00 オフセット付きでも翌朝始発を全徒歩より後回しにする（#121 TZ）', () async {
+      // 実 API の calling_at は from_time/to_time に +09:00 が付く。これを naive な
+      // 出発アンカーと差分すると端末 TZ 次第で乗車待ちが負＝0 になり、翌朝始発が
+      // 「今すぐ乗れる深夜電車」に化けて ② のフィルタを素通りしていた（深夜表示の主因）。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(400, 5),
+          _point('品川駅'),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            calling: [
+              _calling(
+                '品川駅',
+                35.628,
+                139.738,
+                '2026-06-14T05:30:00+09:00',
+                '2026-06-14T05:30:00+09:00',
+              ),
+              _calling(
+                '新橋駅',
+                35.666,
+                139.758,
+                '2026-06-14T05:34:00+09:00',
+                '2026-06-14T05:34:00+09:00',
+              ),
+              _calling(
+                '東京駅',
+                35.681,
+                139.767,
+                '2026-06-14T06:00:00+09:00',
+                '2026-06-14T06:00:00+09:00',
+              ),
+            ],
+          ),
+          _point('東京駅'),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        walk: {'35.7,139.75;35.681,139.767': _walkResp(80, 6400)},
+      );
+
+      final plan = await build(client, clock: () => DateTime(2026, 6, 14, 1, 0))
+          .plan(
+            destination: '東京',
+            destinationLatLng: const GeoPoint(35.681, 139.767),
+            departure: const TimeValue(h: 1, m: 0),
+            arrival: const TimeValue(h: 2, m: 0),
+            origin: const GeoPoint(35.7, 139.75),
+          );
+
+      // オフセット付きでも乗車待ち（4.5時間）が予算超過と判定され、全徒歩を返す。
+      expect(plan.segments.where((s) => s.type == SegmentType.train), isEmpty);
+      expect(plan.segments.every((s) => s.type == SegmentType.walk), isTrue);
+    });
+
     test('出発地・目的地名は NAVITIME の start/goal でなく実名を使う', () async {
       // NAVITIME は座標問い合わせだと地点名を "start"/"goal" で返す。アプリが
       // 持つ実際の出発地・目的地名（originName / destination）で上書きする。
@@ -2707,6 +2767,45 @@ void main() {
         log.where((u) => u.path.contains('googleWalkMatrixProxy')),
         isEmpty,
       );
+    });
+  });
+
+  group('parseNavitimeJst（#121 TZ 正規化）', () {
+    test('+09:00 オフセット付きを JST の wall-clock naive へ正規化する', () {
+      // オフセット付きは DateTime.parse で UTC インスタンスになる。naive 出発アンカー
+      // と差分すると端末 TZ で結果がずれるため、JST の壁時計値の naive へそろえる。
+      expect(
+        parseNavitimeJst('2026-06-14T05:30:00+09:00'),
+        DateTime(2026, 6, 14, 5, 30),
+      );
+    });
+
+    test('オフセット無しはそのままの壁時計値（JST 前提）で返す', () {
+      expect(
+        parseNavitimeJst('2026-06-14T05:30:00'),
+        DateTime(2026, 6, 14, 5, 30),
+      );
+    });
+
+    test('オフセット有無で同一の naive DateTime になる（端末 TZ 非依存）', () {
+      expect(
+        parseNavitimeJst('2026-06-14T05:30:00+09:00'),
+        parseNavitimeJst('2026-06-14T05:30:00'),
+      );
+    });
+
+    test('Z（UTC）表記も JST へ変換する', () {
+      // 20:30Z = 翌 05:30 JST。
+      expect(
+        parseNavitimeJst('2026-06-13T20:30:00Z'),
+        DateTime(2026, 6, 14, 5, 30),
+      );
+    });
+
+    test('null・空文字・不正値は null', () {
+      expect(parseNavitimeJst(null), isNull);
+      expect(parseNavitimeJst(''), isNull);
+      expect(parseNavitimeJst('not-a-date'), isNull);
     });
   });
 }
