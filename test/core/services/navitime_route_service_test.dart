@@ -425,6 +425,81 @@ void main() {
       expect(plan.segments.every((s) => s.type == SegmentType.walk), isTrue);
     });
 
+    test('深夜2:23検索: +09:00の乗換2本ルート（翌朝始発）を深夜電車として出さない（#121 再現）', () async {
+      // スクショ再現: 02:23 出発で 矢口渡→多摩川→渋谷 の乗換2本。実 API は翌朝始発を
+      // +09:00 付きで返すが、TZ 不整合で「02:30発の深夜電車」に化けて表示されていた。
+      // 乗換 2 本（多摩川線＋東横線）は標準解析ルート（ハイブリッドは単一電車）。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(300, 4),
+          _point('矢口渡'),
+          _trainSection(
+            2500,
+            7,
+            line: '東急多摩川線',
+            stops: 1,
+            calling: [
+              _calling(
+                '矢口渡',
+                35.561,
+                139.708,
+                '2026-06-14T05:30:00+09:00',
+                '2026-06-14T05:30:00+09:00',
+              ),
+              _calling(
+                '多摩川',
+                35.587,
+                139.668,
+                '2026-06-14T05:37:00+09:00',
+                '2026-06-14T05:37:00+09:00',
+              ),
+            ],
+          ),
+          _point('多摩川'),
+          _trainSection(
+            9000,
+            15,
+            line: '東急東横線',
+            stops: 1,
+            fare: {'unit_48': 250},
+            calling: [
+              _calling(
+                '多摩川',
+                35.587,
+                139.668,
+                '2026-06-14T05:41:00+09:00',
+                '2026-06-14T05:41:00+09:00',
+              ),
+              _calling(
+                '渋谷',
+                35.658,
+                139.701,
+                '2026-06-14T05:56:00+09:00',
+                '2026-06-14T05:56:00+09:00',
+              ),
+            ],
+          ),
+          _point('渋谷'),
+        ]),
+      ]);
+      final client = _mock(transit: transit, defaultWalk: _walkResp(95, 7600));
+
+      // 02:23 出発・締切 03:00（予算37分）。
+      final plan =
+          await build(client, clock: () => DateTime(2026, 6, 14, 2, 23)).plan(
+            destination: '渋谷',
+            destinationLatLng: const GeoPoint(35.658, 139.701),
+            departure: const TimeValue(h: 2, m: 23),
+            arrival: const TimeValue(h: 3, m: 0),
+            origin: const GeoPoint(35.561, 139.708),
+          );
+
+      // 深夜の電車（翌朝始発）は出さず全徒歩を返す。タイムラインに深夜電車が並ばない。
+      expect(plan.segments.where((s) => s.type == SegmentType.train), isEmpty);
+      expect(plan.timelineNodes.any((n) => n.sub.contains('待ち')), isFalse);
+    });
+
     test('出発地・目的地名は NAVITIME の start/goal でなく実名を使う', () async {
       // NAVITIME は座標問い合わせだと地点名を "start"/"goal" で返す。アプリが
       // 持つ実際の出発地・目的地名（originName / destination）で上書きする。
