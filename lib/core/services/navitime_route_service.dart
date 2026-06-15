@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart'; // TEMP(#B調査): フィールド計装。確認後に除去
+import 'package:flutter/foundation.dart';
 import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
 import 'package:http/http.dart' as http;
 
@@ -86,21 +86,9 @@ class NaviTimeRouteService implements RouteService {
     // フォールバックできるようにする。ハイブリッド構築は直線推定のみで Google を
     // 呼ばないため、全徒歩が予算内のケースでも追加コストはほぼ無い。
     final base = _baseForHybrid(parsed);
-    final hybridCountBefore = candidates.length;
     if (base != null) {
       candidates.addAll(_buildHybrids(base, origin, destinationLatLng));
     }
-
-    // TEMP(#B調査): フィールドで「ハイブリッドが生成されているか／calling_at 座標が
-    // 在るか」を1回確認するための計装。不具合A が (a)二択縮退か (b)中間が疎か の
-    // 切り分けに使う。確認後にこのブロックと foundation import を除去する。
-    debugPrint(
-      'walkmax-diag: standard=${parsed.length} '
-      'callingStops=${base?.stops.length ?? 0} '
-      'hybrids=${candidates.length - hybridCountBefore} '
-      'fullWalkEstMin=${_estimateWalk(origin, destinationLatLng, fromName: parsed.first.from, toName: parsed.first.to).totalMin} '
-      'budgetMin=$budgetMin',
-    );
 
     return _finalize(
       candidates,
@@ -248,12 +236,8 @@ class NaviTimeRouteService implements RouteService {
         }
       }
 
-      // 実到着が予算内でも、深夜帯に時刻表なし電車へ乗る候補は乗車可否を確証できない
-      // ため確定しない（待ち0・楽観で予算内に見えるだけ）。ループ末尾の縮退へ委ね、
-      // reachableWithinBudget で全徒歩など確証できる候補を優先する（#121 untimed深夜）。
       final withinByActual =
-          arrivalMinutes(enriched.segments, departureAt) <= budgetMin &&
-          !hasUntimedNightTrain(enriched.segments, departureAt);
+          arrivalMinutes(enriched.segments, departureAt) <= budgetMin;
       if (withinByActual) {
         return _build(
           enriched,
@@ -690,6 +674,7 @@ class NaviTimeRouteService implements RouteService {
     String? toName,
   }) {
     onProgress?.call(RoutePhase.building);
+    final departureAt = _departureDateTime(departure);
     return buildRoutePlan(
       // アプリが持つ実際の出発地・目的地名を優先する。NAVITIME は座標問い合わせ
       // だと地点名を "start"/"goal" で返すため、解析値はフォールバックに留める。
@@ -698,7 +683,7 @@ class NaviTimeRouteService implements RouteService {
       segments: chosen.segments,
       departure: departure,
       budgetMin: budgetMin,
-      departureAt: _departureDateTime(departure),
+      departureAt: departureAt,
     );
   }
 

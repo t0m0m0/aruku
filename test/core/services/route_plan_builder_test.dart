@@ -133,6 +133,50 @@ void main() {
       expect(plan.timelineNodes[2].sub, '○○線');
     });
 
+    test('着時刻が欠落(arr=null)でも発車時刻で待ちを算出する（NAVITIME発車時刻を採用）', () {
+      // 9:00発・徒歩5分で 9:05 駅着 → 発車 9:12（NAVITIME 値）まで7分待ち。着時刻が
+      // 無くても発車時刻があれば「7分待ち」と NAVITIME の実時刻で表示する（乗車時間は
+      // 着時刻欠落のため距離概算18分）。電車の後に徒歩を置き電車ノードの sub を確認する。
+      final segments = [
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '出発地',
+          toName: 'A駅',
+          minutes: 5,
+        ),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'A駅',
+          toName: 'B駅',
+          minutes: 18,
+          line: '○○線',
+          depTime: DateTime(2026, 5, 22, 9, 12),
+          // arrTime は null。
+        ),
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: 'B駅',
+          toName: '目的地',
+          minutes: 3,
+        ),
+      ];
+
+      final plan = buildRoutePlan(
+        from: '出発地',
+        to: '目的地',
+        segments: segments,
+        departure: const TimeValue(h: 9, m: 0),
+        budgetMin: 60,
+        departureAt: DateTime(2026, 5, 22, 9, 0),
+      );
+
+      // 駅着 9:05 → 7分待ち → 9:12 発 → 乗車18分で 9:30 着 → 徒歩3分で 9:33 着。
+      // 待ちを使わない旧挙動なら総 26 分(=5+18+3)。発車時刻採用で 33 分になる。
+      expect(plan.timelineNodes[2].sub, '7分待ち · ○○線');
+      expect(plan.timelineNodes[2].time, '9:30');
+      expect(plan.totalMin, 33);
+    });
+
     test('発着時刻が無い電車区間は累積所要分にフォールバックする', () {
       final segments = [
         const RouteSegment(
@@ -384,6 +428,55 @@ void main() {
       expect(firstMissedTrain(segments, DateTime(2026, 5, 22, 9, 0)), isNull);
     });
 
+    test('降車駅の時刻が欠落(arr=null)でも発車時刻を過ぎて駅着なら乗り遅れ（実データ）', () {
+      // 実データ再現: 自由が丘 発=04:30 はあるが 代官山 着=null。徒歩を延ばして駅着が
+      // 発車後（4:31着）になれば、降車時刻が無くても発車時刻だけで乗り遅れと判定する。
+      final segments = [
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '出発地',
+          toName: '自由が丘',
+          minutes: 33, // 03:58発 → 04:31着（発車04:30の1分後）
+        ),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: '自由が丘',
+          toName: '代官山',
+          minutes: 11,
+          line: '東急東横線急行',
+          depTime: DateTime(2026, 6, 15, 4, 30),
+          // arrTime は NAVITIME が返さない（null）。
+        ),
+      ];
+
+      final missed = firstMissedTrain(segments, DateTime(2026, 6, 15, 3, 58));
+      expect(missed, isNotNull);
+      expect(missed!.index, 1);
+      expect(missed.cumBefore, 33);
+    });
+
+    test('発車時刻があり着時刻が欠落でも発車前に駅着なら乗り遅れなし（null）', () {
+      // 03:58発・徒歩20分で 04:18 駅着 → 発車04:30 まで待てる（乗り遅れではない）。
+      final segments = [
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '出発地',
+          toName: '自由が丘',
+          minutes: 20,
+        ),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: '自由が丘',
+          toName: '代官山',
+          minutes: 11,
+          line: '東急東横線急行',
+          depTime: DateTime(2026, 6, 15, 4, 30),
+        ),
+      ];
+
+      expect(firstMissedTrain(segments, DateTime(2026, 6, 15, 3, 58)), isNull);
+    });
+
     test('departureAt 起点で先行区間の待ちを吸収した累積で判定する', () {
       // 1本目: 9:10発・9:25着（待ち含む）。2本目: 駅着9:25 > 発車相対(9:20=20分)で乗り遅れ。
       final segments = [
@@ -412,68 +505,6 @@ void main() {
       expect(missed, isNotNull);
       expect(missed!.index, 1);
       expect(missed.cumBefore, 25); // S2 着までの累積（9:25）
-    });
-  });
-
-  group('hasUntimedNightTrain', () {
-    RouteSegment walk(int minutes) => RouteSegment(
-      type: SegmentType.walk,
-      fromName: 'a',
-      toName: 'b',
-      minutes: minutes,
-      km: 1,
-    );
-
-    RouteSegment untimedTrain(int minutes) => RouteSegment(
-      type: SegmentType.train,
-      fromName: '自由が丘',
-      toName: '代官山',
-      minutes: minutes,
-      line: '東急東横線急行',
-    );
-
-    test('深夜帯に駅着して untimed電車へ乗る区間があれば true', () {
-      // 1:51発・徒歩86分で 3:17 に駅着 → untimed電車。深夜帯で乗車可否を確証できない。
-      final segments = [walk(86), untimedTrain(11), walk(60)];
-      expect(
-        hasUntimedNightTrain(segments, DateTime(2026, 6, 14, 1, 51)),
-        isTrue,
-      );
-    });
-
-    test('昼間に駅着する untimed電車は false（#67 の挙動を変えない）', () {
-      // 9:00発・徒歩20分で 9:20 に駅着 → 日中なので対象外。
-      final segments = [walk(20), untimedTrain(7), walk(10)];
-      expect(
-        hasUntimedNightTrain(segments, DateTime(2026, 6, 14, 9, 0)),
-        isFalse,
-      );
-    });
-
-    test('深夜でも時刻表付き電車は false（untimed のみが対象）', () {
-      final segments = [
-        walk(86),
-        RouteSegment(
-          type: SegmentType.train,
-          fromName: '自由が丘',
-          toName: '代官山',
-          minutes: 11,
-          line: '東急東横線急行',
-          depTime: DateTime(2026, 6, 14, 3, 20),
-          arrTime: DateTime(2026, 6, 14, 3, 31),
-        ),
-      ];
-      expect(
-        hasUntimedNightTrain(segments, DateTime(2026, 6, 14, 1, 51)),
-        isFalse,
-      );
-    });
-
-    test('電車を含まない全徒歩は false', () {
-      expect(
-        hasUntimedNightTrain([walk(180)], DateTime(2026, 6, 14, 1, 51)),
-        isFalse,
-      );
     });
   });
 
