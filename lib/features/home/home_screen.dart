@@ -63,10 +63,11 @@ class HomeScreen extends ConsumerWidget {
                         RichText(
                           text: TextSpan(
                             style: jpStyle(
-                              size: 24,
+                              size: 26,
                               weight: FontWeight.w800,
                               color: c.ink,
-                              height: 1.2,
+                              height: 1.15,
+                              letterSpacing: -0.01 * 26,
                             ),
                             children: [
                               const TextSpan(text: '今日も、'),
@@ -127,7 +128,7 @@ class HomeScreen extends ConsumerWidget {
                             size: 11,
                             weight: FontWeight.w800,
                             color: c.ink2,
-                            letterSpacing: 0.12 * 11,
+                            letterSpacing: 0.08 * 11,
                           ),
                         ),
                         const Spacer(),
