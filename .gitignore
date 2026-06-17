@@ -60,7 +60,9 @@ ios/Runner/GoogleService-Info.plist
 dart_defines.json
 
 # Claude Code / FleetView
-.agents/
-skills-lock.json
+# Ignore agent scratch dirs, but track installed Agent Skills and their lock file.
+.agents/*
+!.agents/skills/
+# skills-lock.json is committed so `npx skills install` is reproducible.
 secrets.properties
 ios/Flutter/Secrets.xcconfig
