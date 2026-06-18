@@ -68,6 +68,8 @@ Map<String, dynamic> _trainSection(
   List<Map<String, dynamic>>? calling,
   List<List<double>>? shape,
   Map<String, dynamic>? fare,
+  String? fromTime,
+  String? toTime,
 }) => {
   'type': 'move',
   'move': 'local_train',
@@ -75,6 +77,10 @@ Map<String, dynamic> _trainSection(
   'time': minutes,
   'line_name': line,
   'stop_count': ?stops,
+  // 実 API では乗車駅発・降車駅着の時刻は move 直下の from_time/to_time に入る
+  // （calling_at は途中通過駅のみ）。
+  'from_time': ?fromTime,
+  'to_time': ?toTime,
   // 実 API では calling_at も fare も transport 配下に入る。
   if (calling != null || fare != null)
     'transport': {'calling_at': ?calling, 'fare': ?fare},
@@ -301,6 +307,203 @@ void main() {
       expect(plan.totalMin, 25);
       expect(plan.walkRatio, closeTo(1.0, 1e-9));
       expect(plan.timelineNodes.last.sub, contains('制限内'));
+    });
+
+    test('終電後は翌朝始発の電車より「今夜歩ける」全徒歩を返す（#121 原因②）', () async {
+      // 01:00 出発・予算60分（締切 2:00）。NAVITIME は翌朝5:30発の電車ルートを返す。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(400, 5),
+          _point('品川駅'),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            calling: [
+              _calling(
+                '品川駅',
+                35.628,
+                139.738,
+                '2026-06-14T05:30:00',
+                '2026-06-14T05:30:00',
+              ),
+              _calling(
+                '新橋駅',
+                35.666,
+                139.758,
+                '2026-06-14T05:34:00',
+                '2026-06-14T05:34:00',
+              ),
+              _calling(
+                '東京駅',
+                35.681,
+                139.767,
+                '2026-06-14T06:00:00',
+                '2026-06-14T06:00:00',
+              ),
+            ],
+          ),
+          _point('東京駅'),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        // 全徒歩は実測80分で予算超過（best-effort）。だが翌朝電車（乗車待ち265分）より
+        // 「今夜歩ける」案として優先すべき。
+        walk: {'35.7,139.75;35.681,139.767': _walkResp(80, 6400)},
+      );
+
+      final plan = await build(client, clock: () => DateTime(2026, 6, 14, 1, 0))
+          .plan(
+            destination: '東京',
+            destinationLatLng: const GeoPoint(35.681, 139.767),
+            departure: const TimeValue(h: 1, m: 0),
+            arrival: const TimeValue(h: 2, m: 0),
+            origin: const GeoPoint(35.7, 139.75),
+          );
+
+      // 翌朝5:30発の電車ではなく、今夜歩ける全徒歩を返す。
+      expect(plan.segments.where((s) => s.type == SegmentType.train), isEmpty);
+      expect(plan.segments.every((s) => s.type == SegmentType.walk), isTrue);
+      // 予算超過の best-effort なので「制限内 ✓」は付かない。
+      expect(plan.timelineNodes.last.sub, isNot(contains('制限内')));
+    });
+
+    test('calling_at が +09:00 オフセット付きでも翌朝始発を全徒歩より後回しにする（#121 TZ）', () async {
+      // 実 API の calling_at は from_time/to_time に +09:00 が付く。これを naive な
+      // 出発アンカーと差分すると端末 TZ 次第で乗車待ちが負＝0 になり、翌朝始発が
+      // 「今すぐ乗れる深夜電車」に化けて ② のフィルタを素通りしていた（深夜表示の主因）。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(400, 5),
+          _point('品川駅'),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            calling: [
+              _calling(
+                '品川駅',
+                35.628,
+                139.738,
+                '2026-06-14T05:30:00+09:00',
+                '2026-06-14T05:30:00+09:00',
+              ),
+              _calling(
+                '新橋駅',
+                35.666,
+                139.758,
+                '2026-06-14T05:34:00+09:00',
+                '2026-06-14T05:34:00+09:00',
+              ),
+              _calling(
+                '東京駅',
+                35.681,
+                139.767,
+                '2026-06-14T06:00:00+09:00',
+                '2026-06-14T06:00:00+09:00',
+              ),
+            ],
+          ),
+          _point('東京駅'),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        walk: {'35.7,139.75;35.681,139.767': _walkResp(80, 6400)},
+      );
+
+      final plan = await build(client, clock: () => DateTime(2026, 6, 14, 1, 0))
+          .plan(
+            destination: '東京',
+            destinationLatLng: const GeoPoint(35.681, 139.767),
+            departure: const TimeValue(h: 1, m: 0),
+            arrival: const TimeValue(h: 2, m: 0),
+            origin: const GeoPoint(35.7, 139.75),
+          );
+
+      // オフセット付きでも乗車待ち（4.5時間）が予算超過と判定され、全徒歩を返す。
+      expect(plan.segments.where((s) => s.type == SegmentType.train), isEmpty);
+      expect(plan.segments.every((s) => s.type == SegmentType.walk), isTrue);
+    });
+
+    test('深夜2:23検索: +09:00の乗換2本ルート（翌朝始発）を深夜電車として出さない（#121 再現）', () async {
+      // スクショ再現: 02:23 出発で 矢口渡→多摩川→渋谷 の乗換2本。実 API は翌朝始発を
+      // +09:00 付きで返すが、TZ 不整合で「02:30発の深夜電車」に化けて表示されていた。
+      // 乗換 2 本（多摩川線＋東横線）は標準解析ルート（ハイブリッドは単一電車）。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(300, 4),
+          _point('矢口渡'),
+          _trainSection(
+            2500,
+            7,
+            line: '東急多摩川線',
+            stops: 1,
+            calling: [
+              _calling(
+                '矢口渡',
+                35.561,
+                139.708,
+                '2026-06-14T05:30:00+09:00',
+                '2026-06-14T05:30:00+09:00',
+              ),
+              _calling(
+                '多摩川',
+                35.587,
+                139.668,
+                '2026-06-14T05:37:00+09:00',
+                '2026-06-14T05:37:00+09:00',
+              ),
+            ],
+          ),
+          _point('多摩川'),
+          _trainSection(
+            9000,
+            15,
+            line: '東急東横線',
+            stops: 1,
+            fare: {'unit_48': 250},
+            calling: [
+              _calling(
+                '多摩川',
+                35.587,
+                139.668,
+                '2026-06-14T05:41:00+09:00',
+                '2026-06-14T05:41:00+09:00',
+              ),
+              _calling(
+                '渋谷',
+                35.658,
+                139.701,
+                '2026-06-14T05:56:00+09:00',
+                '2026-06-14T05:56:00+09:00',
+              ),
+            ],
+          ),
+          _point('渋谷'),
+        ]),
+      ]);
+      final client = _mock(transit: transit, defaultWalk: _walkResp(95, 7600));
+
+      // 02:23 出発・締切 03:00（予算37分）。
+      final plan =
+          await build(client, clock: () => DateTime(2026, 6, 14, 2, 23)).plan(
+            destination: '渋谷',
+            destinationLatLng: const GeoPoint(35.658, 139.701),
+            departure: const TimeValue(h: 2, m: 23),
+            arrival: const TimeValue(h: 3, m: 0),
+            origin: const GeoPoint(35.561, 139.708),
+          );
+
+      // 深夜の電車（翌朝始発）は出さず全徒歩を返す。タイムラインに深夜電車が並ばない。
+      expect(plan.segments.where((s) => s.type == SegmentType.train), isEmpty);
+      expect(plan.timelineNodes.any((n) => n.sub.contains('待ち')), isFalse);
     });
 
     test('出発地・目的地名は NAVITIME の start/goal でなく実名を使う', () async {
@@ -1122,6 +1325,73 @@ void main() {
       expect(plan.timelineNodes.last.time, '9:30');
       expect(plan.totalMin, 30);
     });
+
+    test(
+      '標準経路の乗降時刻は move 直下の from_time/to_time を使う（calling_at は途中駅のみ）',
+      () async {
+        // 実 API では calling_at は途中通過駅だけを並べ、乗車駅発・降車駅着の時刻は
+        // move セクション直下の from_time/to_time に入る。標準経路の電車区間は
+        // calling_at 先頭/末尾（途中駅）でなく move の発着時刻を採用すべき。
+        // 途中駅を遠方に置きハイブリッド乗車を予算外にして標準経路を選ばせる。
+        final transit = _navi([
+          _item([
+            _point('出発地', lat: 35.50, lon: 139.50),
+            _walkSection(1100, 14),
+            _point('A駅', lat: 35.51, lon: 139.50),
+            _trainSection(
+              16000,
+              15,
+              line: '○○線',
+              stops: 2,
+              // 乗車駅 A 発 9:15 / 降車駅 B 着 9:30（正値）。
+              fromTime: '2026-05-22T09:15:00',
+              toTime: '2026-05-22T09:30:00',
+              // 途中通過駅のみ。乗降駅 A/B は含まず、時刻も乗降とは別（9:16/9:29）。
+              calling: [
+                _calling(
+                  '中間1',
+                  35.60,
+                  139.50,
+                  '2026-05-22T09:16:00',
+                  '2026-05-22T09:16:00',
+                ),
+                _calling(
+                  '中間2',
+                  35.65,
+                  139.50,
+                  '2026-05-22T09:29:00',
+                  '2026-05-22T09:29:00',
+                ),
+              ],
+            ),
+            _point('B駅', lat: 35.70, lon: 139.50),
+          ]),
+        ]);
+        final client = _mock(
+          transit: transit,
+          // 確定経路（出発地→A駅）の徒歩を Google で 5分へ上書き。
+          walk: {'35.5,139.5;35.51,139.5': _walkResp(5, 400)},
+        );
+
+        final plan = await build(client).plan(
+          destination: 'B駅',
+          destinationLatLng: const GeoPoint(35.70, 139.50),
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 0), // 予算60分
+          origin: const GeoPoint(35.50, 139.50),
+        );
+
+        final train = plan.segments.firstWhere(
+          (s) => s.type == SegmentType.train,
+        );
+        // calling_at 先頭/末尾（9:16/9:29）でなく move の 9:15/9:30。
+        expect(train.depTime, DateTime(2026, 5, 22, 9, 15));
+        expect(train.arrTime, DateTime(2026, 5, 22, 9, 30));
+        // 駅着 9:05 → 発車 9:15（10分待ち）→ 降車 9:30 着・総30分。
+        expect(plan.timelineNodes.last.time, '9:30');
+        expect(plan.totalMin, 30);
+      },
+    );
 
     test('calling_at の発着時刻が欠落しても座標からハイブリッドを生成し徒歩を最大化する', () async {
       // プロキシ/RapidAPI 由来データは calling_at の時刻が欠けることがある。時刻が
@@ -2645,6 +2915,45 @@ void main() {
         log.where((u) => u.path.contains('googleWalkMatrixProxy')),
         isEmpty,
       );
+    });
+  });
+
+  group('parseNavitimeJst（#121 TZ 正規化）', () {
+    test('+09:00 オフセット付きを JST の wall-clock naive へ正規化する', () {
+      // オフセット付きは DateTime.parse で UTC インスタンスになる。naive 出発アンカー
+      // と差分すると端末 TZ で結果がずれるため、JST の壁時計値の naive へそろえる。
+      expect(
+        parseNavitimeJst('2026-06-14T05:30:00+09:00'),
+        DateTime(2026, 6, 14, 5, 30),
+      );
+    });
+
+    test('オフセット無しはそのままの壁時計値（JST 前提）で返す', () {
+      expect(
+        parseNavitimeJst('2026-06-14T05:30:00'),
+        DateTime(2026, 6, 14, 5, 30),
+      );
+    });
+
+    test('オフセット有無で同一の naive DateTime になる（端末 TZ 非依存）', () {
+      expect(
+        parseNavitimeJst('2026-06-14T05:30:00+09:00'),
+        parseNavitimeJst('2026-06-14T05:30:00'),
+      );
+    });
+
+    test('Z（UTC）表記も JST へ変換する', () {
+      // 20:30Z = 翌 05:30 JST。
+      expect(
+        parseNavitimeJst('2026-06-13T20:30:00Z'),
+        DateTime(2026, 6, 14, 5, 30),
+      );
+    });
+
+    test('null・空文字・不正値は null', () {
+      expect(parseNavitimeJst(null), isNull);
+      expect(parseNavitimeJst(''), isNull);
+      expect(parseNavitimeJst('not-a-date'), isNull);
     });
   });
 }

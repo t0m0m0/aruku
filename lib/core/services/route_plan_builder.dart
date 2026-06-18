@@ -41,22 +41,26 @@ String formatClock(TimeValue dep, int addMinutes) {
 }
 
 /// 出発を基点とした経過分 [cum] を、区間 [seg] を経た時点へ進める。
-/// 時刻表の発着時刻（[RouteSegment.depTime]/[RouteSegment.arrTime]）が揃い
-/// [anchor]（出発の絶対時刻）が与えられた電車区間では、駅着から発車までの待ち時間を
-/// 吸収して降車時刻まで進める（乗車前・乗り換え待ちを到着時刻に反映する #65）。
+/// [anchor]（出発の絶対時刻）が与えられ NAVITIME の発車時刻 [RouteSegment.depTime] が
+/// ある電車区間では、駅着から発車までの待ち時間を吸収して進める（乗車前・乗り換え待ちを
+/// 到着時刻に反映する #65）。乗車時間は到着時刻 [RouteSegment.arrTime] があればその差、
+/// 無ければ距離概算 [RouteSegment.minutes] を使う（NAVITIME は降車駅の時刻を欠くことが
+/// あるが、発車時刻があれば「いつ乗れるか」は NAVITIME の実時刻で算出できる）。
 /// 戻り値の [wait] はこの区間に乗る前に待った分（タイムライン表示用）。
-/// 時刻が欠落した区間や [anchor] 無しでは従来どおり所要分を加算し待ちは 0。
+/// 発車時刻が欠落した区間や [anchor] 無しでは従来どおり所要分を加算し待ちは 0。
 ({int cum, int wait}) _advance(int cum, RouteSegment seg, DateTime? anchor) {
   final dep = seg.depTime;
   final arr = seg.arrTime;
-  if (anchor != null && dep != null && arr != null) {
+  if (anchor != null && dep != null) {
     final boardRel = dep.difference(anchor).inMinutes;
-    final ride = arr.difference(anchor).inMinutes - boardRel;
-    // 降車が始発前等の不整合データ（ride < 0）は所要分にフォールバックする。
+    // 乗車時間は到着時刻があればその差、無ければ距離概算（seg.minutes）。
+    final ride = arr != null
+        ? arr.difference(anchor).inMinutes - boardRel
+        : seg.minutes;
+    // 降車が発車より前の不整合データ（ride < 0）は所要分にフォールバックする。
     if (ride >= 0) {
-      // boardRel <= cum は予定列車の発車後に駅着＝乗り遅れ。次列車の時刻表は
-      // 持たないため待ち無しとし、実到着 cum に乗車時間 ride を足して同じ乗車
-      // 時間の後続列車に乗る近似で進める（次列車の待ちは反映せず到着は楽観側）。
+      // boardRel <= cum は発車後に駅着＝乗り遅れ。ここでは待ち0で乗車時間を足す近似で
+      // 進める（乗り遅れは firstMissedTrain が検知し #115 で次便の実時刻へ差し替える）。
       final wait = boardRel > cum ? boardRel - cum : 0;
       return (cum: cum + wait + ride, wait: wait);
     }
@@ -76,13 +80,15 @@ int arrivalMinutes(List<RouteSegment> segments, DateTime? departureAt) {
   return cum;
 }
 
-/// 徒歩実測を反映した [segments] を出発絶対時刻 [departureAt] で進め、時刻表が
-/// 揃う電車区間のうち「予定列車に乗り遅れる」最初の区間を返す（無ければ null）。
-/// 乗り遅れの基準は [_advance] と同一で、区間到着時点の累積分が時刻表の発車相対分を
-/// 超える（`cum > boardRel`）こと。発車相対分ちょうどに着く場合は乗車できる扱いで
-/// 対象外。返り値の [cumBefore] はその区間に着くまでの実累積分で、乗車駅からの
-/// 時刻表再照会の start_time（出発 + cumBefore）を組むのに使う（#115）。
-/// 発着時刻が欠落した電車区間は時刻表が無く乗り遅れを判定できないため対象外。
+/// 徒歩実測を反映した [segments] を出発絶対時刻 [departureAt] で進め、NAVITIME の
+/// 発車時刻を持つ電車区間のうち「予定列車に乗り遅れる」最初の区間を返す（無ければ null）。
+/// 乗り遅れの基準は [_advance] と同一で、区間到着時点の累積分が発車相対分を超える
+/// （`cum > boardRel`）こと。発車相対分ちょうどに着く場合は乗車できる扱いで対象外。
+/// 返り値の [cumBefore] はその区間に着くまでの実累積分で、乗車駅からの時刻表再照会の
+/// start_time（出発 + cumBefore）を組むのに使う（#115）。
+/// 判定は発車時刻のみで行う：NAVITIME は降車駅の時刻を欠くことがあるが、発車時刻が
+/// あれば「徒歩を延ばしてその列車に乗り遅れたか」は確定できる（着時刻があれば発車前着
+/// =不整合データを併せて除外する）。発車時刻が欠落した区間は判定できないため対象外。
 ({int index, int cumBefore})? firstMissedTrain(
   List<RouteSegment> segments,
   DateTime departureAt,
@@ -92,18 +98,38 @@ int arrivalMinutes(List<RouteSegment> segments, DateTime? departureAt) {
     final seg = segments[i];
     final dep = seg.depTime;
     final arr = seg.arrTime;
-    if (seg.type == SegmentType.train && dep != null && arr != null) {
+    if (seg.type == SegmentType.train && dep != null) {
       final boardRel = dep.difference(departureAt).inMinutes;
-      final ride = arr.difference(departureAt).inMinutes - boardRel;
-      // ride < 0 は不整合データ（_advance も所要分へフォールバックする）。乗り遅れは
-      // 駅着が発車相対分を超える場合のみ（同時刻は待ち0で乗車できるため除外）。
-      if (ride >= 0 && cum > boardRel) {
+      // 着時刻があれば発車前着（ride < 0）の不整合データは対象外。乗り遅れは駅着が
+      // 発車相対分を超える場合のみ（同時刻は待ち0で乗車できるため除外）。
+      final consistent = arr == null || !arr.isBefore(dep);
+      if (consistent && cum > boardRel) {
         return (index: i, cumBefore: cum);
       }
     }
     cum = _advance(cum, seg, departureAt).cum;
   }
   return null;
+}
+
+/// 出発から各時刻表付き電車に乗車するまでの待ち時間の最大値（分, #121 原因②）。駅着から
+/// 発車までの待機分で、終電後は翌朝始発までの長い待ちがここに表れる。複数電車を含む経路
+/// では「最初の電車には乗れても後続が翌朝始発」のケースを取りこぼさないよう、全電車区間の
+/// 乗車待ちの最大を返す。時刻表の無い電車・電車を含まない経路（全徒歩）は 0。best-effort
+/// 選定で「乗車待ちが予算を超える＝今夜乗れない電車」を全徒歩より後回しにする判定に使う。
+int maxBoardingWait(List<RouteSegment> segments, DateTime departureAt) {
+  var cum = 0;
+  var maxWait = 0;
+  for (final seg in segments) {
+    final advanced = _advance(cum, seg, departureAt);
+    if (seg.type == SegmentType.train &&
+        seg.depTime != null &&
+        advanced.wait > maxWait) {
+      maxWait = advanced.wait;
+    }
+    cum = advanced.cum;
+  }
+  return maxWait;
 }
 
 /// 電車区間ノードの補足文。乗車前に待ちがあれば「○分待ち · 路線名」と前置きする。
