@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
@@ -31,12 +30,6 @@ class NaviTimeRouteService implements RouteService {
   final String _proxyBaseUrl;
   final DateTime Function() _clock;
 
-  /// ハイブリッド候補の乗降点に使う停車駅数の上限。候補生成は直線推定のみで
-  /// Google を呼ばない（実測は採用1経路だけ）ため、これは API コストではなく
-  /// 組合せ（O(駅数²)）の CPU 爆発を抑えるための上限。これを超える経路だけ
-  /// 等間隔サンプリングへ縮退する。通常の経路はほぼ全停車駅を乗降点にできる。
-  static const int _maxHybridCandidates = 40;
-
   @override
   Future<RoutePlan> plan({
     required String? destination,
@@ -67,31 +60,8 @@ class NaviTimeRouteService implements RouteService {
 
     onProgress?.call(RoutePhase.walkability);
 
-    final candidates = <RouteCandidate>[
-      for (final p in parsed) p.toCandidate(),
-    ];
-
-    // 全徒歩。選定フェーズの徒歩は直線距離ベースの推定（Google を呼ばない）。
-    final fullWalk = _estimateWalk(
-      origin,
-      destinationLatLng,
-      fromName: parsed.first.from,
-      toName: parsed.first.to,
-    );
-    candidates.add(fullWalk);
-
-    // 途中駅まで歩いて乗車するハイブリッド候補を追加する。全徒歩が直線推定で
-    // 予算内でも、確定後の Google 実測で超過しうる（不具合B）。鉄道/ハイブリッド
-    // との比較を打ち切らず常に候補を出し揃え、_finalize の再判定で予算内へ
-    // フォールバックできるようにする。ハイブリッド構築は直線推定のみで Google を
-    // 呼ばないため、全徒歩が予算内のケースでも追加コストはほぼ無い。
-    final base = _baseForHybrid(parsed);
-    if (base != null) {
-      candidates.addAll(_buildHybrids(base, origin, destinationLatLng));
-    }
-
-    return _finalize(
-      candidates,
+    return _selectMeasured(
+      parsed,
       budgetMin,
       departure,
       origin: origin,
@@ -102,56 +72,33 @@ class NaviTimeRouteService implements RouteService {
     );
   }
 
-  /// 採用経路の確定徒歩を実測（Google）後の実到着時刻で予算を再判定する試行上限。
-  /// 1 試行 = 採用候補1経路の徒歩区間ぶんの Google 呼び出し。間に合う候補が在る限り
-  /// 予算内へ選び直すが、Google 呼び出しを増やしすぎないよう上限で抑える。
-  ///
-  /// 楽観推定で予算内とした候補が実測で超過すると1段ずつ徒歩量を下げて選び直すため、
-  /// 乗降点を密にした（[_maxHybridCandidates]）ぶん、実測寄りの候補へ到達するのに
-  /// 必要な試行数も増える。徒歩を取りこぼさないよう、密化に合わせて上限を広げる。
+  /// 採用候補を enrich（街路実測）で検証して選び直す試行上限。1 試行 = 採用候補1経路
+  /// ぶんの enrich／乗り遅れ再照会（#115）。マトリクスが成功した通常ケースは実測値で
+  /// 選定済みのため初回で確定し、ここは matrix 失敗時の直線楽観の是正・乗り遅れ差し替え
+  /// にのみ働く。上限到達後は楽観評価のまま確定し得る（偽陽性を許す方向）ため安易に
+  /// 下げないこと。
   static const int _maxEnrichAttempts = 8;
 
-  /// 乗り遅れ候補を採用しかけた際に乗車駅の時刻表を NAVITIME へ再照会する試行上限
-  /// （#115）。1 試行 = 採用候補1経路ぶんの再照会1回。乗り遅れの無い経路では発生
-  /// しない。実測徒歩の上書きと同様、確定しかけた候補にのみ働くため [_maxEnrichAttempts]
-  /// と同等に抑えれば十分。NAVITIME コールを増やしすぎないよう上限で抑える。
-  /// 注意: 上限到達後の乗り遅れ候補は再照会せず楽観時刻表のまま確定し得る（安全側の
-  /// 除外ではなく楽観側へ縮退する）。実運用では候補数的に到達しない想定だが、上限は
-  /// 偽陽性（乗れない列車の確定）を許す方向に効くため安易に下げないこと。
-  static const int _maxRefetchAttempts = 8;
-
-  /// 予算境界帯のマトリクス実測（#118）のパラメータ。
-  ///
-  /// [_minBandForMatrix]: 帯内候補がこの数未満（＝2件以下）ならマトリクスをスキップする。
-  /// 要素数課金のマトリクス（2 コール）より逐次プローブの方が安いため、帯が狭いときは
-  /// 実測せず逐次へ委ねる（受け入れ条件）。
-  /// [_maxMatrixSideStations]: マトリクスの片側（乗車駅集合／降車駅集合）の要素上限。
-  /// 要素数課金の暴発を抑えるため帯内のユニーク駅をこの数でキャップする（超過分は
-  /// α 補正到着が予算に近い候補を優先）。プロキシ側の要素数上限とも整合させる。
-  /// [_matrixBandDeltaMinMin]/[_matrixBandDeltaMaxMin]: 帯幅 δ（分）のクランプ下限・上限。
-  static const int _minBandForMatrix = 3;
+  /// アクセス徒歩を一括実測するマトリクスの片側（乗車駅集合／降車駅集合）の駅数上限。
+  /// 要素数課金（プロキシ側上限 25）を抑えるため [frontierStations] で片側をこの数へ
+  /// 絞る。乗車側コールは origin→{各乗車駅, goal} の (上限 + 1) 要素になる。
   static const int _maxMatrixSideStations = 10;
-  static const int _matrixBandDeltaMinMin = 5;
-  static const int _matrixBandDeltaMaxMin = 15;
 
-  /// 候補集合から確定経路を選び RoutePlan へ。選定は直線距離ベースの推定で行うため、
-  /// 表示する 1 経路ぶんの徒歩区間だけ Google Routes で街路追従ジオメトリ・所要時間・
-  /// 距離に上書きする（Google 呼び出しは採用経路の徒歩区間数ぶんのみ）。
+  /// 「測ってから選ぶ」選定（measure-first）。直線フロンティアで乗降候補駅を絞り、
+  /// origin→各乗車駅／各降車駅→goal の徒歩を1回（最大2コール）のマトリクスで一括実測
+  /// してから、実測値の上で [selectBestRoute] が決定的に予算内徒歩最大を選ぶ。反応的な
+  /// 実測ループ・側別迂回率学習・境界帯ヒューリスティックを持たないため、端末↔Function
+  /// の往復が畳まれ（最大8回→1〜2回）、座標バリアも直線でなく実測で最初から織り込まれる。
   ///
-  /// 予算内と見積もった候補が実測で超過した場合は、その候補を除いて予算内の次善へ
-  /// 選び直す（間に合う候補が在る限り遅刻ルートを返さない・不具合B）。元から予算内
-  /// 候補が無い（best-effort）選定なら、これ以上探しても収まらないためそのまま確定する。
-  ///
-  /// 選定の徒歩は直線推定（楽観）で、実測（道なり）はこれを一定倍率で上回る。乗降点を
-  /// 密化すると「推定内・実測超過」の徒歩寄り候補が試行上限を超えて並び、徒歩最大の
-  /// 全徒歩から1段ずつ剥がす旧方式では底（間に合う鉄道）へ到達できず遅刻ルートを
-  /// 返していた。そこで実測超過のたびに徒歩の道なり迂回率（実測/推定）を出発側・到着側で
-  /// 別々に学習し（#117）、以降の選定で推定徒歩を側別に割増して「実測でも予算内」の
-  /// 徒歩最大候補へ少ない実測で収束させる。補正は探索順（次にどれを実測するか）にのみ
-  /// 効き、候補を pool から外すのは実測超過の確認時だけ（偽陰性を作らない）。確証できなければ
-  /// 最長（全徒歩）ではなく実到着が最早の候補を返す（バナーの「最短を表示」と整合・不具合B）。
-  Future<RoutePlan> _finalize(
-    List<RouteCandidate> candidates,
+  /// 標準乗換候補の徒歩は NAVITIME 由来（街路ベースで実測相当）のためそのまま使い、
+  /// ハイブリッド／全徒歩のアクセス徒歩だけをマトリクスで実測する。採用候補は街路実測
+  /// （enrich）で検証し、予算内候補が予定列車に乗り遅れるなら乗車駅の時刻表を再照会して
+  /// 実在列車へ差し替え（#115）、enrich で予算超過が判明したら除外して選び直す（マトリクス
+  /// 失敗時の直線楽観の是正・除外は実測の確認時のみ）。マトリクスが成功した通常ケースは
+  /// 初回選定が実測と整合し1回で確定する（反応的な迂回率学習・境界帯ヒューリスティックは
+  /// 持たない）。予算内候補が無ければ [selectBestRoute] が実到着最早（今夜乗れる範囲）を返す（#121）。
+  Future<RoutePlan> _selectMeasured(
+    List<_TransitParse> parsed,
     int budgetMin,
     TimeValue departure, {
     required GeoPoint origin,
@@ -161,140 +108,109 @@ class NaviTimeRouteService implements RouteService {
     String? toName,
   }) async {
     final departureAt = _departureDateTime(departure);
-    final pool = [...candidates];
-    // この plan() 1回のスコープで徒歩実測をレッグ単位にキャッシュする（#116）。
-    // 選び直しは隣接候補で徒歩レッグの片側が一致しやすく、同じ start/goal 座標ペアへ
-    // 試行回数ぶんの Google コールが重複していた。リクエストローカルに持ち回って
-    // ユニークレッグ数まで実コールを抑える。失敗（null）は負キャッシュしない。
+    // 採用1経路の徒歩実測（enrich）をレッグ単位にキャッシュする（#116）。
     final walkCache = <String, RouteCandidate>{};
-    // 徒歩の道なり迂回率（実測/推定）を出発側（origin→駅）と到着側（駅→goal）で別々に
-    // 学習する（#117）。origin 周辺と goal 周辺で街路事情（駅前グリッド vs 河川・線路
-    // 分断など）が異なるため、単一値より側別の方が実測に当たりやすい。実測超過のたびに
-    // 該当側を更新し、選定（探索順）の徒歩推定割増にだけ使う（除外は実測のみ）。
-    var originDetour = 1.0;
-    var goalDetour = 1.0;
-    // 乗り遅れ再照会の実行回数（[_maxRefetchAttempts] で上限管理する）。
-    var refetches = 0;
-    // 予算境界帯のレッグをマトリクスで一括実測した値（分）をレッグキー単位で持つ（#118）。
-    // 選定（探索順・予算判定）でのみ参照し、α 割増（推定）より優先する。採用経路の表示値・
-    // ジオメトリは従来どおり _enrichWalkGeometry（computeRoutes）で取り直すため、ここには
-    // 格納しない（マトリクスは polyline を返さず、表示は computeRoutes 値で統一する）。
-    final measuredLegs = <String, int>{};
-    // マトリクス実測は1回の plan() で一度だけ試みる（帯は α 学習後に確定するため）。
-    var matrixMeasured = false;
+    // アクセス徒歩の一括実測値（分）をレッグキー単位で持つ。候補生成で参照する。
+    final measured = <String, int>{};
 
-    for (
-      var attempt = 0;
-      attempt < _maxEnrichAttempts && pool.isNotEmpty;
-      attempt++
-    ) {
-      // 学習済みの側別迂回率・マトリクス実測で徒歩推定を補正した候補で選定する
-      // （実測に近い土俵で比較）。
-      final scaled =
-          (originDetour > 1.0 || goalDetour > 1.0 || measuredLegs.isNotEmpty)
-          ? [
-              for (final c in pool)
-                _inflateWalk(c, originDetour, goalDetour, measuredLegs),
-            ]
-          : pool;
-      final picked = selectBestRoute(
-        candidates: scaled,
+    // 標準乗換候補（NAVITIME のアクセス徒歩は街路ベースのためそのまま使う）。
+    final candidates = <RouteCandidate>[
+      for (final p in parsed) p.toCandidate(),
+    ];
+
+    // 停車駅タイムラインを持つ基準経路から乗降候補駅を直線フロンティアで絞り、
+    // origin→各乗車駅／各降車駅→goal を一括実測する。全徒歩(origin→goal)は乗車側コール
+    // に相乗りさせて同時に実測する。
+    final base = _baseForHybrid(parsed);
+    if (base != null) {
+      final stops = base.stops;
+      final frontier = frontierStations(
+        [for (final s in stops) s.coord],
+        origin,
+        goal,
+        budgetMin,
+        maxPerSide: _maxMatrixSideStations,
+      );
+      await _measureAccessWalks(
+        origin,
+        goal,
+        [for (final i in frontier.boarding) stops[i].coord],
+        [for (final i in frontier.alighting) stops[i].coord],
+        measured,
+      );
+      candidates.addAll(
+        _buildMeasuredHybrids(base, frontier, measured, origin, goal),
+      );
+    } else {
+      // 電車経路が無い（停車駅 < 2）→ 全徒歩のみ実測する。
+      await _measureAccessWalks(origin, goal, const [], const [], measured);
+    }
+
+    // 全徒歩候補（実測分、無ければ直線推定）。表示名は NAVITIME 解析値を仮置きし、
+    // 確定時に _build が実際の出発地・目的地名へ差し替える。
+    candidates.add(
+      _measuredWalk(origin, goal, parsed.first.from, parsed.first.to, measured),
+    );
+
+    // 実測値の上で決定的に選定し、採用候補を enrich（街路実測）で検証する。予算内
+    // 見積もりの候補が予定列車に乗り遅れるなら乗車駅の時刻表を再照会して実在列車へ
+    // 差し替え（#115）、enrich で予算超過が判明したら（マトリクス失敗時の直線楽観など）
+    // 除外して選び直す。除外は実測（enrich・再照会）の確認時だけで、予算内候補がある限り
+    // 超過ルートを返さない（#117/#118 の不変条件）。best-effort（予算内なし）はそのまま
+    // 確定する（#121）。マトリクスが成功した通常ケースは初回の選定が実測と整合し1回で確定。
+    var pool = candidates;
+    late RouteCandidate enriched;
+    for (var attempt = 0; ; attempt++) {
+      final chosen = selectBestRoute(
+        candidates: pool,
         budgetMin: budgetMin,
         origin: origin,
         goal: goal,
         departureAt: departureAt,
       );
-      final pick = pool[scaled.indexOf(picked)];
-      // 楽観（未補正）推定での予算内可否。偽＝最善でも入らない best-effort で、
-      // これ以上探しても収まらないため即確定する（無駄な実測を避ける）。
       final withinByEstimate =
-          arrivalMinutes(pick.segments, departureAt) <= budgetMin;
-      var enriched = await _enrichWalkGeometry(pick, walkCache);
+          arrivalMinutes(chosen.segments, departureAt) <= budgetMin;
 
-      // 確定しかけ（推定・実測徒歩ともに予算内）の候補が予定列車に乗り遅れるなら、
-      // 乗車駅からの時刻表を NAVITIME へ再照会し、実在列車の発着で当該区間を差し替えて
-      // 実到着を再判定する（#115）。乗り遅れの無い経路や best-effort（!withinByEstimate）
-      // では再照会しない。再照会で実在列車を確認できなければ遅刻列車を確定せず除外する。
-      if (withinByEstimate &&
-          refetches < _maxRefetchAttempts &&
-          arrivalMinutes(enriched.segments, departureAt) <= budgetMin) {
-        final missed = firstMissedTrain(enriched.segments, departureAt);
+      // 予算内見積もりの候補が予定列車に乗り遅れるなら実在列車へ差し替えて選び直す（#115）。
+      if (withinByEstimate && attempt < _maxEnrichAttempts) {
+        final missed = firstMissedTrain(chosen.segments, departureAt);
         if (missed != null) {
-          refetches++;
           final real = await _refetchMissedTrain(
-            enriched,
+            chosen,
             missed,
             goal,
             departureAt,
           );
-          if (real == null) {
-            // 実在の後続列車を確認できない → 当該候補を除外して次善へ。
-            pool.remove(pick);
+          if (real != null) {
+            // 実在列車の発着で差し替え（real は乗り遅れ無しが保証される）。
+            pool = [for (final c in pool) identical(c, chosen) ? real : c];
             continue;
           }
-          enriched = real;
+          // 実在の後続列車を確認できない → 当該候補を除外して選び直す。
+          if (pool.length > 1) {
+            pool = pool.where((c) => !identical(c, chosen)).toList();
+            continue;
+          }
         }
       }
 
-      final withinByActual =
-          arrivalMinutes(enriched.segments, departureAt) <= budgetMin;
-      if (withinByActual) {
-        return _build(
-          enriched,
-          departure,
-          budgetMin,
-          onProgress,
-          fromName: fromName,
-          toName: toName,
-        );
-      }
-      // 最善でも予算内に届かない best-effort（!withinByEstimate）。ここで pool ローカルの
-      // pick を即返すと、実測超過で pool から外れた全徒歩を見落とし「今夜乗れない」翌朝
-      // 電車を返してしまう。ループ末尾の縮退（全 candidates ＋乗車待ちフィルタ）へ委ねて
-      // 全徒歩を含めて選び直す（#121 原因②）。
-      if (!withinByEstimate) break;
-      // 予算内見積もりが実測（徒歩の道なり迂回・再照会した実在列車の待ち）で超過
-      // → 側別の迂回率を学習し、その候補を除いて選び直す。
-      final learned = _learnDetours(originDetour, goalDetour, pick, enriched);
-      originDetour = learned.origin;
-      goalDetour = learned.goal;
-      pool.remove(pick);
+      // 採用1経路の徒歩区間だけ Google の街路ジオメトリ・所要・距離へ上書きする。
+      enriched = await _enrichWalkGeometry(chosen, walkCache);
 
-      // 初回の実測超過で α を学習した直後に、予算境界帯の候補レッグをマトリクスで
-      // 一括実測する（#118）。逐次プローブは α 補正が外れると真のフロンティア候補を
-      // 試す前に上限へ達し得るが、帯内を実測値で正確に比較すれば「α では後回しだが
-      // 実測では徒歩最大」の候補も拾える。実測値は measuredLegs に入り、以降の選定が
-      // 透過的に使う。帯内候補2件以下・マトリクス失敗時は何もせず逐次プローブへ委ねる。
-      if (!matrixMeasured) {
-        matrixMeasured = true;
-        await _measureFrontierBand(
-          pool,
-          budgetMin,
-          departureAt,
-          origin,
-          goal,
-          originDetour,
-          goalDetour,
-          measuredLegs,
-        );
+      // 予算内見積もりが enrich（実測）で超過に転じたら除外して次善へ（matrix 失敗時の
+      // 直線楽観の是正）。best-effort（!withinByEstimate）はこれ以上探しても収まらない
+      // ため確定する。
+      if (withinByEstimate &&
+          attempt < _maxEnrichAttempts &&
+          pool.length > 1 &&
+          arrivalMinutes(enriched.segments, departureAt) > budgetMin) {
+        pool = pool.where((c) => !identical(c, chosen)).toList();
+        continue;
       }
+      break;
     }
-
-    // 予算内を確証できず → 実到着が最早の候補を best-effort で返す（遅刻時に
-    // 最長＝全徒歩を返さず、バナーの「最短を表示」と整合させる）。ただし乗車待ちが
-    // 予算を超える「今夜乗れない」電車（終電後の翌朝始発など）は後回しにし、乗車待ちが
-    // 予算内の候補（全徒歩を含む）を優先する（#121 原因②）。
-    final fallbackPool =
-        reachableWithinBudget(candidates, budgetMin, departureAt) ?? candidates;
-    final shortest = fallbackPool.reduce(
-      (a, b) =>
-          arrivalMinutes(a.segments, departureAt) <=
-              arrivalMinutes(b.segments, departureAt)
-          ? a
-          : b,
-    );
     return _build(
-      await _enrichWalkGeometry(shortest, walkCache),
+      enriched,
       departure,
       budgetMin,
       onProgress,
@@ -303,218 +219,149 @@ class NaviTimeRouteService implements RouteService {
     );
   }
 
-  /// 候補 [c] の徒歩区間の所要分を、選定（予算判定・探索順）用に補正したコピーにする。
-  /// 各徒歩レッグについて、マトリクスで実測済み（[measured] に polyline 端点キーが在る）
-  /// なら実測分を優先し、無ければ側別の道なり迂回率で割増する（#117）：出発側（最初の
-  /// 電車より前）は [originDetour]・到着側（電車以降の乗換／降車徒歩）は [goalDetour]。
-  /// 実測（#118）はマトリクスで帯内レッグを正確に測った値で、α 割増（推定）より優先する
-  /// ことで「α では2番手だが実測では徒歩最大」の候補も正しく拾える。電車区間はそのまま。
-  /// 実測ジオメトリは polyline 端点から取り直すため、ここで距離・kcal は触らず所要分だけ
-  /// 補正すれば選定には十分。電車を含まない全徒歩候補は出発側係数で割増する——探索順の
-  /// 補正のみで除外には使わないため片側係数で十分（偽陰性を作らない）。
-  RouteCandidate _inflateWalk(
-    RouteCandidate c,
-    double originDetour,
-    double goalDetour,
-    Map<String, int> measured,
-  ) {
-    var seenTrain = false;
-    final segments = <RouteSegment>[];
-    for (final s in c.segments) {
-      if (s.type == SegmentType.train) {
-        seenTrain = true;
-        segments.add(s);
-        continue;
-      }
-      if (s.type != SegmentType.walk) {
-        segments.add(s);
-        continue;
-      }
-      final measuredMin = s.polyline.length >= 2
-          ? measured[_walkCacheKey(s.polyline.first, s.polyline.last)]
-          : null;
-      final detour = seenTrain ? goalDetour : originDetour;
-      segments.add(
-        RouteSegment(
-          type: s.type,
-          fromName: s.fromName,
-          toName: s.toName,
-          minutes: measuredMin ?? (s.minutes * detour).round(),
-          km: s.km,
-          kcal: s.kcal,
-          line: s.line,
-          fare: s.fare,
-          stops: s.stops,
-          polyline: s.polyline,
-          depTime: s.depTime,
-          arrTime: s.arrTime,
-        ),
-      );
-    }
-    return RouteCandidate(from: c.from, to: c.to, segments: segments);
-  }
-
-  /// 実測超過した候補の徒歩区間から、出発側・到着側それぞれの道なり迂回率を学習する
-  /// （#117）。推定 [estimate] と実測 [actual] は同順・同数の区間で、徒歩区間ごとに
-  /// `ratio = 実測分 / 推定分` を求め、最初の電車より前を出発側・電車以降を到着側へ
-  /// 振り分けて学習する。各側とも現値 [currentOrigin]/[currentGoal] および同側の複数
-  /// レッグと比べ大きい方を採り、反復をまたいで単調に締める（旧単一値 `_learnDetour` の
-  /// 単調性を側別へ引き継ぐ）。本値は選定の探索順割増にのみ使い除外には使わないため、
-  /// 過小割増（実測失敗で1試行を浪費）より過大寄りの方が少ない実測で収束する。クランプ
-  /// α∈[1.0,2.0] で、実測が推定を下回る異常値（< 1.0）や外れ値（> 2.0）の暴走を抑える。
-  ///
-  /// 電車を含まない全徒歩候補は origin→goal の両街路を横断する単一レッグで、どちらか一方
-  /// の側に帰属できない。その混合迂回率を片側（や両側）へ写すと素直な側を過大評価して
-  /// しまうため、側別学習には用いない（駅で区切られたレッグのみが各側を素直に表す）。
-  /// 学習できる徒歩が無ければ現値 [currentOrigin]/[currentGoal] を保つ。
-  ({double origin, double goal}) _learnDetours(
-    double currentOrigin,
-    double currentGoal,
-    RouteCandidate estimate,
-    RouteCandidate actual,
-  ) {
-    final hasTrain = estimate.segments.any((s) => s.type == SegmentType.train);
-    if (!hasTrain) return (origin: currentOrigin, goal: currentGoal);
-
-    double? originRatio;
-    double? goalRatio;
-    var seenTrain = false;
-    for (var i = 0; i < estimate.segments.length; i++) {
-      final es = estimate.segments[i];
-      if (es.type == SegmentType.train) {
-        seenTrain = true;
-        continue;
-      }
-      if (es.type != SegmentType.walk || es.minutes <= 0) continue;
-      final ratio = (actual.segments[i].minutes / es.minutes).clamp(1.0, 2.0);
-      if (seenTrain) {
-        goalRatio = goalRatio == null ? ratio : math.max(goalRatio, ratio);
-      } else {
-        originRatio = originRatio == null
-            ? ratio
-            : math.max(originRatio, ratio);
-      }
-    }
-    return (
-      origin: originRatio == null
-          ? currentOrigin
-          : math.max(originRatio, currentOrigin),
-      goal: goalRatio == null ? currentGoal : math.max(goalRatio, currentGoal),
-    );
-  }
-
-  /// 予算境界帯（フロンティア帯）の候補レッグを computeRouteMatrix で一括実測し、
-  /// 実測分を [measured] へレッグキー単位で格納する（#118）。
-  ///
-  /// 帯は α 補正到着が `予算 − δ ≤ 到着 ≤ 予算 + δ` の候補。δ は α の不確かさ由来で、
-  /// 側別迂回率の差（[originDetour]−[goalDetour] の幅）× 帯の代表徒歩推定分を
-  /// [_matrixBandDeltaMinMin]〜[_matrixBandDeltaMaxMin] でクランプする。帯内候補が
-  /// [_minBandForMatrix] 未満なら逐次プローブの方が安いため実測しない。帯内のユニーク
-  /// 乗車駅（origin→駅）・降車駅（駅→goal）を片側 [_maxMatrixSideStations] でキャップ
-  /// （超過分は α 補正到着が予算に近い候補を優先）し、2 回のマトリクスコールで実測する。
-  /// マトリクスは polyline を返さないため [measured] には所要分のみ入り、選定（探索順・
-  /// 予算判定）でのみ使う。出発側・到着側のコールは独立で、片側が失敗してもその側だけ
-  /// 未実測のまま他方は反映する（未実測のレッグは逐次プローブが補う）。
-  Future<void> _measureFrontierBand(
-    List<RouteCandidate> pool,
-    int budgetMin,
-    DateTime departureAt,
+  /// 乗降アクセス徒歩を1回（最大2コール）のマトリクスで一括実測し、[measured] に
+  /// レッグキー→徒歩分で格納する。乗車側 origin→{各乗車駅, goal}・降車側 {各降車駅}→goal。
+  /// goal を乗車側 destinations 末尾に相乗りさせ全徒歩(origin→goal)も同時に測る。マトリクス
+  /// 失敗（null）のレッグは未格納のまま（候補生成側が直線推定へフォールバックする）。
+  Future<void> _measureAccessWalks(
     GeoPoint origin,
     GeoPoint goal,
-    double originDetour,
-    double goalDetour,
+    List<GeoPoint> boardStops,
+    List<GeoPoint> alightStops,
     Map<String, int> measured,
   ) async {
-    if (pool.isEmpty) return;
-
-    // 帯幅 δ。側別迂回率の差を α の不確かさとみなし、帯の代表徒歩推定分（pool 内の
-    // 最大徒歩推定）に掛けてクランプする。差が無くても下限分だけは帯を取る。
-    final spread =
-        math.max(originDetour, goalDetour) - math.min(originDetour, goalDetour);
-    final maxWalkEst = pool.fold<int>(0, (m, c) => math.max(m, c.walkMinutes));
-    final delta = (spread * maxWalkEst).round().clamp(
-      _matrixBandDeltaMinMin,
-      _matrixBandDeltaMaxMin,
-    );
-
-    // α 補正到着（マトリクス未反映の純 α 割増）を候補ごとに一度だけ算出する。
-    // 帯の切り出し・予算近接ソートで何度も参照するため、_inflateWalk の再生成を
-    // 避けてここでメモ化する。
-    final corrected = <RouteCandidate, int>{
-      for (final c in pool)
-        c: arrivalMinutes(
-          _inflateWalk(c, originDetour, goalDetour, const {}).segments,
-          departureAt,
-        ),
-    };
-    final band = pool.where((c) {
-      final a = corrected[c]!;
-      return budgetMin - delta <= a && a <= budgetMin + delta;
-    }).toList();
-    if (band.length < _minBandForMatrix) return;
-
-    // 帯内を予算近接順に並べ、片側上限まで乗車駅（origin→駅）・降車駅（駅→goal）を集める。
-    band.sort(
-      (x, y) => (corrected[x]! - budgetMin).abs().compareTo(
-        (corrected[y]! - budgetMin).abs(),
-      ),
-    );
-    final boards = <String, GeoPoint>{};
-    final alights = <String, GeoPoint>{};
-    for (final c in band) {
-      for (final s in c.segments) {
-        if (s.type != SegmentType.walk || s.polyline.length < 2) continue;
-        if (_sameCoord(s.polyline.first, origin)) {
-          final dest = s.polyline.last;
-          final key = _walkCacheKey(origin, dest);
-          if (!boards.containsKey(key) &&
-              boards.length < _maxMatrixSideStations) {
-            boards[key] = dest;
-          }
-        }
-        if (_sameCoord(s.polyline.last, goal)) {
-          final src = s.polyline.first;
-          final key = _walkCacheKey(src, goal);
-          if (!alights.containsKey(key) &&
-              alights.length < _maxMatrixSideStations) {
-            alights[key] = src;
-          }
-        }
+    final boardDests = [...boardStops, goal];
+    final boardRows = await _fetchWalkMatrix([origin], boardDests);
+    if (boardRows != null) {
+      for (final e in boardRows) {
+        if (e is! Map) continue;
+        final di = (e['destinationIndex'] as num?)?.toInt() ?? 0;
+        final min = _parseDurationMin(e['duration']);
+        if (min == null || di < 0 || di >= boardDests.length) continue;
+        measured[_walkCacheKey(origin, boardDests[di])] = min;
       }
     }
-
-    // 出発側レッグ（origin→各乗車駅）を1コールで実測。出発側・到着側は独立に試み、
-    // 片側が失敗（null）しても他方は実測する（その側のレッグは逐次プローブが補う）。
-    if (boards.isNotEmpty) {
-      final dests = boards.values.toList();
-      final rows = await _fetchWalkMatrix([origin], dests);
-      if (rows != null) {
-        for (final e in rows) {
-          if (e is! Map) continue;
-          final di = (e['destinationIndex'] as num?)?.toInt() ?? 0;
-          final min = _parseDurationMin(e['duration']);
-          if (min == null || di < 0 || di >= dests.length) continue;
-          measured[_walkCacheKey(origin, dests[di])] = min;
-        }
-      }
-    }
-    // 到着側レッグ（各降車駅→goal）を1コールで実測。
-    if (alights.isNotEmpty) {
-      final srcs = alights.values.toList();
-      final rows = await _fetchWalkMatrix(srcs, [goal]);
-      if (rows != null) {
-        for (final e in rows) {
+    if (alightStops.isNotEmpty) {
+      final alightRows = await _fetchWalkMatrix(alightStops, [goal]);
+      if (alightRows != null) {
+        for (final e in alightRows) {
           if (e is! Map) continue;
           final oi = (e['originIndex'] as num?)?.toInt() ?? 0;
           final min = _parseDurationMin(e['duration']);
-          if (min == null || oi < 0 || oi >= srcs.length) continue;
-          measured[_walkCacheKey(srcs[oi], goal)] = min;
+          if (min == null || oi < 0 || oi >= alightStops.length) continue;
+          measured[_walkCacheKey(alightStops[oi], goal)] = min;
         }
       }
     }
   }
 
-  /// computeRouteMatrix（徒歩）をプロキシ経由で叩き、要素配列を返す（#118）。
+  /// フロンティアの乗車駅 b → 降車駅 a（同一 section・b より後方）の全分割を、実測した
+  /// アクセス徒歩で候補化する。乗車時間・距離・運賃は [_rideMinutes]/[_railKm]/
+  /// [_proratedFare] で求める（直線推定の旧 _buildHybrids を実測版に置換したもの）。
+  List<RouteCandidate> _buildMeasuredHybrids(
+    _TransitParse base,
+    ({List<int> boarding, List<int> alighting}) frontier,
+    Map<String, int> measured,
+    GeoPoint origin,
+    GeoPoint goal,
+  ) {
+    final stops = base.stops;
+    final result = <RouteCandidate>[];
+    for (final b in frontier.boarding) {
+      final walk1 = _measuredWalkSeg(
+        origin,
+        stops[b].coord,
+        base.from,
+        stops[b].name,
+        measured,
+      );
+      for (final a in frontier.alighting) {
+        if (a <= b) continue;
+        // 乗換をまたぐ b→a は単一乗車として表現できないため同一区間のペアのみ。
+        if (stops[a].section != stops[b].section) continue;
+        final ride = _rideMinutes(stops, b, a);
+        if (ride < 0) continue;
+        final walk2 = _measuredWalkSeg(
+          stops[a].coord,
+          goal,
+          stops[a].name,
+          base.to,
+          measured,
+        );
+        final rideKm = _railKm(stops, b, a);
+        result.add(
+          RouteCandidate(
+            from: base.from,
+            to: base.to,
+            segments: <RouteSegment>[
+              if (walk1.minutes > 0) walk1,
+              RouteSegment(
+                type: SegmentType.train,
+                fromName: stops[b].name,
+                toName: stops[a].name,
+                minutes: ride,
+                km: rideKm,
+                line: stops[b].line,
+                fare: _proratedFare(stops, b, a, rideKm),
+                stops: a - b,
+                depTime: stops[b].dep,
+                arrTime: stops[a].arr,
+                polyline: [for (var i = b; i <= a; i++) stops[i].coord],
+              ),
+              if (walk2.minutes > 0) walk2,
+            ],
+          ),
+        );
+      }
+    }
+    return result;
+  }
+
+  /// 徒歩区間 [a]→[b] を実測分（[measured] にあれば）で、無ければ直線推定で作る。
+  /// 距離・kcal・polyline 端点は直線推定値を仮置きし、採用されれば [_enrichWalkGeometry]
+  /// が街路実測へ上書きする（選定は徒歩分のみで足り、表示値は確定時に取り直すため）。
+  RouteSegment _measuredWalkSeg(
+    GeoPoint a,
+    GeoPoint b,
+    String fromName,
+    String toName,
+    Map<String, int> measured,
+  ) {
+    final est = _estimateWalk(
+      a,
+      b,
+      fromName: fromName,
+      toName: toName,
+    ).segments.first;
+    final min = measured[_walkCacheKey(a, b)];
+    // 端点がほぼ同一（直線で 0 分）のレッグは徒歩 0。降車駅＝目的地・乗車駅＝出発地の
+    // ように座標が一致する退化レッグで、実測の丸めや概算値が幽霊徒歩を生むのを防ぐ。
+    if (min == null || est.minutes == 0) return est;
+    return RouteSegment(
+      type: SegmentType.walk,
+      fromName: fromName,
+      toName: toName,
+      minutes: min,
+      km: est.km,
+      kcal: est.kcal,
+      polyline: est.polyline,
+    );
+  }
+
+  /// 全徒歩候補を実測分（無ければ直線推定）で作る。
+  RouteCandidate _measuredWalk(
+    GeoPoint origin,
+    GeoPoint goal,
+    String fromName,
+    String toName,
+    Map<String, int> measured,
+  ) => RouteCandidate(
+    from: fromName,
+    to: toName,
+    segments: [_measuredWalkSeg(origin, goal, fromName, toName, measured)],
+  );
+
+  /// computeRouteMatrix（徒歩）をプロキシ経由で叩き、要素配列を返す。
   /// origins/destinations はセミコロン区切りの "lat,lng" 列。失敗（HTTP 異常・
   /// 配列でない応答・通信失敗）は null（呼び出し側が逐次プローブへフォールバック）。
   Future<List<dynamic>?> _fetchWalkMatrix(
@@ -532,12 +379,6 @@ class NaviTimeRouteService implements RouteService {
       return null;
     }
   }
-
-  /// 座標が（キャッシュキーと同じ小数5桁丸めで）一致するか。レッグの端点が origin/goal に
-  /// 等しいか判定し、出発側／到着側レッグを見分けるのに使う。
-  bool _sameCoord(GeoPoint a, GeoPoint b) =>
-      a.lat.toStringAsFixed(5) == b.lat.toStringAsFixed(5) &&
-      a.lng.toStringAsFixed(5) == b.lng.toStringAsFixed(5);
 
   /// 確定経路の徒歩区間を Google Routes の街路ジオメトリ・所要時間・距離で
   /// 上書きする。標準乗換候補の徒歩は NAVITIME 由来（shape 無し→端点直線）の
@@ -704,79 +545,6 @@ class NaviTimeRouteService implements RouteService {
     return best;
   }
 
-  /// 基準経路の停車駅から「乗車駅 b → 降車駅 a（b より後方）」の全分割を候補化する。
-  /// 各駅の origin→駅 / 駅→goal 徒歩は直線距離ベースで推定（Google を呼ばない）し、
-  /// 乗車時間は [_rideMinutes]（時刻表の差、無ければ距離から概算）で求める。
-  /// これにより乗車を後ろ倒し（徒歩を増やす）したり、
-  /// 手前で降りて目的地まで歩く候補が同じ土俵に並ぶ。生成する候補は
-  /// [_maxHybridCandidates] 駅のサンプルで組合せ爆発を抑える。
-  List<RouteCandidate> _buildHybrids(
-    _TransitParse base,
-    GeoPoint origin,
-    GeoPoint goal,
-  ) {
-    final stops = base.stops;
-    final indices = _sampleIndices(stops.length, _maxHybridCandidates);
-
-    // 各停車駅の origin→駅 / 駅→goal 徒歩を直線距離から推定する。
-    final fromOrigin = <int, RouteSegment>{
-      for (final i in indices)
-        i: _estimateWalk(
-          origin,
-          stops[i].coord,
-          fromName: base.from,
-          toName: stops[i].name,
-        ).segments.first,
-    };
-    final toGoal = <int, RouteSegment>{
-      for (final i in indices)
-        i: _estimateWalk(
-          stops[i].coord,
-          goal,
-          fromName: stops[i].name,
-          toName: base.to,
-        ).segments.first,
-    };
-
-    final result = <RouteCandidate>[];
-    for (final b in indices) {
-      final walk1 = fromOrigin[b]!;
-      for (final a in indices) {
-        if (a <= b) continue;
-        // 乗換をまたぐ b→a は単一乗車として表現できない（路線・乗換・運賃を
-        // 誤る）ため、同一乗車区間内のペアのみ候補化する。
-        if (stops[a].section != stops[b].section) continue;
-        final walk2 = toGoal[a]!;
-        final ride = _rideMinutes(stops, b, a);
-        if (ride < 0) continue;
-        final rideKm = _railKm(stops, b, a);
-        final segments = <RouteSegment>[
-          if (walk1.minutes > 0) walk1,
-          RouteSegment(
-            type: SegmentType.train,
-            fromName: stops[b].name,
-            toName: stops[a].name,
-            minutes: ride,
-            km: rideKm,
-            line: stops[b].line,
-            fare: _proratedFare(stops, b, a, rideKm),
-            stops: a - b,
-            // 時刻表が揃えば乗車駅 dep・降車駅 arr の絶対時刻を持たせる（#65）。
-            depTime: stops[b].dep,
-            arrTime: stops[a].arr,
-            // 乗車区間 b→a の停車駅座標を折れ線にする（shape 代替）。
-            polyline: [for (var i = b; i <= a; i++) stops[i].coord],
-          ),
-          if (walk2.minutes > 0) walk2,
-        ];
-        result.add(
-          RouteCandidate(from: base.from, to: base.to, segments: segments),
-        );
-      }
-    }
-    return result;
-  }
-
   /// 乗車区間 [b]→[a] の所要時間（分）。両端の発着時刻が揃えば時刻表の差を使い、
   /// どちらかが欠落していれば停車駅折れ線長を [trainMetersPerMinute] で割って概算する
   /// （calling_at の時刻欠落でハイブリッドを取りこぼさないため #67）。
@@ -817,16 +585,6 @@ class NaviTimeRouteService implements RouteService {
     final fullKm = _railKm(stops, first, last);
     if (fullKm <= 0) return fare;
     return (fare * rideKm / fullKm).round();
-  }
-
-  /// [n] 個の停車駅から最大 [cap] 個を等間隔に抽出する（両端を含む）。
-  List<int> _sampleIndices(int n, int cap) {
-    if (n <= cap) return [for (var i = 0; i < n; i++) i];
-    final out = <int>{};
-    for (var k = 0; k < cap; k++) {
-      out.add((k * (n - 1) / (cap - 1)).round());
-    }
-    return out.toList()..sort();
   }
 
   Future<Map<String, dynamic>> _fetchTransit(
@@ -1288,6 +1046,45 @@ DateTime? parseNavitimeJst(String? raw) {
     jst.hour,
     jst.minute,
     jst.second,
+  );
+}
+
+/// 直線距離で乗降候補駅を片側 [maxPerSide] 個へ絞る（measure-first のフロンティア
+/// 絞り込み）。乗車側は origin→駅、降車側は 駅→goal の直線徒歩分を見て、その**直線徒歩が
+/// 予算 [budgetMin] 内**の駅だけを feasible とする。直線（haversine）は実際の道なり徒歩の
+/// 下限なので、直線ですら予算を超える駅は実測しても確実に予算外＝測る価値がない。逆に
+/// 直線が予算内なら、予算の大半を1本のアクセス徒歩に使う候補（短い乗車＋長い徒歩）も
+/// 残すため、ここでは道なり迂回の割増を掛けない（掛けると徒歩最大の正当な候補を誤って
+/// 落とす）。feasible な駅を徒歩分の大きい順に [maxPerSide] まで採り、駅配列の昇順
+/// インデックスで返す（下流が同一 section・b<a の乗降ペアを作るため元の順序を保つ）。
+///
+/// これにより origin→各乗車駅／各降車駅→goal を1回のマトリクスで一括実測する対象を
+/// 要素数課金（片側 ≤ [maxPerSide]）の範囲へ抑えつつ、徒歩量の大きいフロンティア駅を
+/// 優先して残す。Google を呼ばない純粋関数。
+@visibleForTesting
+({List<int> boarding, List<int> alighting}) frontierStations(
+  List<GeoPoint> stops,
+  GeoPoint origin,
+  GeoPoint goal,
+  int budgetMin, {
+  int maxPerSide = 10,
+}) {
+  int walkMin(GeoPoint a, GeoPoint b) =>
+      (haversineKm(a, b) * 1000 / walkMetersPerMinute).round();
+
+  List<int> pick(int Function(int i) sideWalk) {
+    final feasible = <int>[
+      for (var i = 0; i < stops.length; i++)
+        if (sideWalk(i) <= budgetMin) i,
+    ];
+    // 徒歩分の大きい順に上限まで採り、インデックス昇順へ戻す。
+    feasible.sort((a, b) => sideWalk(b).compareTo(sideWalk(a)));
+    return feasible.take(maxPerSide).toList()..sort();
+  }
+
+  return (
+    boarding: pick((i) => walkMin(origin, stops[i])),
+    alighting: pick((i) => walkMin(stops[i], goal)),
   );
 }
 
