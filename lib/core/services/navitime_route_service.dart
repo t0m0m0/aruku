@@ -1061,8 +1061,13 @@ class NaviTimeRouteService implements RouteService {
         trainSection++;
         // shape が無ければ停車駅(calling_at)座標、それも無ければ端点で代替。
         final calling = _callingCoords(sec);
-        // 時刻表が揃えば乗車（始駅 dep）・降車（終駅 arr）の絶対時刻を持たせ、
-        // タイムラインの乗車前・乗換待ちを反映する（#65）。
+        // 乗車駅発・降車駅着の絶対時刻でタイムラインの乗車前・乗換待ちを反映する（#65）。
+        // 実 API の calling_at は途中通過駅のみで乗降駅を含まないため、乗降時刻は move
+        // セクション直下の from_time/to_time が正値（calling_at 先頭/末尾を使うと
+        // 「乗車駅→1駅目」「最終途中駅→降車駅」のぶん早まる）。move 直下が欠落した
+        // ときのみ calling_at の先頭 dep・末尾 arr へフォールバックする。
+        final moveDep = parseNavitimeJst(sec['from_time'] as String?);
+        final moveArr = parseNavitimeJst(sec['to_time'] as String?);
         segments.add(
           RouteSegment(
             type: SegmentType.train,
@@ -1073,8 +1078,12 @@ class NaviTimeRouteService implements RouteService {
             line: line,
             stops: (sec['stop_count'] as num?)?.toInt(),
             fare: _fareOf(sec),
-            depTime: sectionStops.isNotEmpty ? sectionStops.first.dep : null,
-            arrTime: sectionStops.isNotEmpty ? sectionStops.last.arr : null,
+            depTime:
+                moveDep ??
+                (sectionStops.isNotEmpty ? sectionStops.first.dep : null),
+            arrTime:
+                moveArr ??
+                (sectionStops.isNotEmpty ? sectionStops.last.arr : null),
             polyline: shape.isNotEmpty
                 ? shape
                 : (calling.length >= 2

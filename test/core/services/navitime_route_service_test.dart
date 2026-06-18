@@ -68,6 +68,8 @@ Map<String, dynamic> _trainSection(
   List<Map<String, dynamic>>? calling,
   List<List<double>>? shape,
   Map<String, dynamic>? fare,
+  String? fromTime,
+  String? toTime,
 }) => {
   'type': 'move',
   'move': 'local_train',
@@ -75,6 +77,10 @@ Map<String, dynamic> _trainSection(
   'time': minutes,
   'line_name': line,
   'stop_count': ?stops,
+  // 実 API では乗車駅発・降車駅着の時刻は move 直下の from_time/to_time に入る
+  // （calling_at は途中通過駅のみ）。
+  'from_time': ?fromTime,
+  'to_time': ?toTime,
   // 実 API では calling_at も fare も transport 配下に入る。
   if (calling != null || fare != null)
     'transport': {'calling_at': ?calling, 'fare': ?fare},
@@ -1319,6 +1325,73 @@ void main() {
       expect(plan.timelineNodes.last.time, '9:30');
       expect(plan.totalMin, 30);
     });
+
+    test(
+      '標準経路の乗降時刻は move 直下の from_time/to_time を使う（calling_at は途中駅のみ）',
+      () async {
+        // 実 API では calling_at は途中通過駅だけを並べ、乗車駅発・降車駅着の時刻は
+        // move セクション直下の from_time/to_time に入る。標準経路の電車区間は
+        // calling_at 先頭/末尾（途中駅）でなく move の発着時刻を採用すべき。
+        // 途中駅を遠方に置きハイブリッド乗車を予算外にして標準経路を選ばせる。
+        final transit = _navi([
+          _item([
+            _point('出発地', lat: 35.50, lon: 139.50),
+            _walkSection(1100, 14),
+            _point('A駅', lat: 35.51, lon: 139.50),
+            _trainSection(
+              16000,
+              15,
+              line: '○○線',
+              stops: 2,
+              // 乗車駅 A 発 9:15 / 降車駅 B 着 9:30（正値）。
+              fromTime: '2026-05-22T09:15:00',
+              toTime: '2026-05-22T09:30:00',
+              // 途中通過駅のみ。乗降駅 A/B は含まず、時刻も乗降とは別（9:16/9:29）。
+              calling: [
+                _calling(
+                  '中間1',
+                  35.60,
+                  139.50,
+                  '2026-05-22T09:16:00',
+                  '2026-05-22T09:16:00',
+                ),
+                _calling(
+                  '中間2',
+                  35.65,
+                  139.50,
+                  '2026-05-22T09:29:00',
+                  '2026-05-22T09:29:00',
+                ),
+              ],
+            ),
+            _point('B駅', lat: 35.70, lon: 139.50),
+          ]),
+        ]);
+        final client = _mock(
+          transit: transit,
+          // 確定経路（出発地→A駅）の徒歩を Google で 5分へ上書き。
+          walk: {'35.5,139.5;35.51,139.5': _walkResp(5, 400)},
+        );
+
+        final plan = await build(client).plan(
+          destination: 'B駅',
+          destinationLatLng: const GeoPoint(35.70, 139.50),
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 0), // 予算60分
+          origin: const GeoPoint(35.50, 139.50),
+        );
+
+        final train = plan.segments.firstWhere(
+          (s) => s.type == SegmentType.train,
+        );
+        // calling_at 先頭/末尾（9:16/9:29）でなく move の 9:15/9:30。
+        expect(train.depTime, DateTime(2026, 5, 22, 9, 15));
+        expect(train.arrTime, DateTime(2026, 5, 22, 9, 30));
+        // 駅着 9:05 → 発車 9:15（10分待ち）→ 降車 9:30 着・総30分。
+        expect(plan.timelineNodes.last.time, '9:30');
+        expect(plan.totalMin, 30);
+      },
+    );
 
     test('calling_at の発着時刻が欠落しても座標からハイブリッドを生成し徒歩を最大化する', () async {
       // プロキシ/RapidAPI 由来データは calling_at の時刻が欠けることがある。時刻が
