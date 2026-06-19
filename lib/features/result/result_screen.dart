@@ -11,11 +11,9 @@ import '../../core/models/time_value.dart';
 import '../../core/state/app_state.dart';
 import '../../core/state/favorites_provider.dart';
 import '../../core/theme/aruku_theme.dart';
-import '../../shared/extensions/route_map_overlays.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
 import '../../shared/widgets/aruku_card.dart';
-import '../../shared/widgets/aruku_map.dart';
 
 part 'result_totals.dart';
 part 'result_timeline.dart';
@@ -310,20 +308,7 @@ class _JourneyHeader extends StatelessWidget {
             ],
           ),
         ),
-        // Thumb map
-        ArukuCard(
-          width: 76,
-          height: 76,
-          borderRadius: 16,
-          color: Colors.transparent,
-          clipBehavior: Clip.antiAlias,
-          child: ArukuMap(
-            variant: ArukuMapVariant.thumb,
-            polylines: route.toPolylines(),
-            markers: route.toMarkers(),
-            routeBounds: route.toBounds(),
-          ),
-        ),
+        const SizedBox(width: 16),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,

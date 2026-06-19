@@ -17,6 +17,13 @@ class _DestinationCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    // 「出発」「目的地」ラベル共通スタイル（2箇所で同期させる）
+    final labelStyle = jpStyle(
+      size: 12,
+      weight: FontWeight.w700,
+      color: c.ink2,
+      letterSpacing: 0.06 * 12,
+    );
     return ArukuCard(
       borderRadius: 22,
       shadow: const [
@@ -72,15 +79,8 @@ class _DestinationCard extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              '出発',
-                              style: jpStyle(
-                                size: 13,
-                                weight: FontWeight.w700,
-                                color: c.ink2,
-                                letterSpacing: 0.04 * 13,
-                              ),
-                            ),
+                            Text('出発', style: labelStyle),
+                            const SizedBox(height: 2),
                             Text(
                               departure,
                               style: jpStyle(
@@ -115,15 +115,8 @@ class _DestinationCard extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              '目的地',
-                              style: jpStyle(
-                                size: 13,
-                                weight: FontWeight.w700,
-                                color: c.ink2,
-                                letterSpacing: 0.04 * 13,
-                              ),
-                            ),
+                            Text('目的地', style: labelStyle),
+                            const SizedBox(height: 2),
                             Text(
                               destination ?? 'どこへ歩く?',
                               style: jpStyle(
@@ -261,9 +254,9 @@ class _TimeField extends StatelessWidget {
                 label,
                 style: jpStyle(
                   size: 11,
-                  weight: FontWeight.w800,
+                  weight: FontWeight.w700,
                   color: c.ink2,
-                  letterSpacing: 0.08 * 11,
+                  letterSpacing: 0.06 * 11,
                 ),
               ),
               if (date != null) ...[
@@ -282,7 +275,7 @@ class _TimeField extends StatelessWidget {
                 time,
                 style: numStyle(
                   size: 21,
-                  weight: FontWeight.w500,
+                  weight: FontWeight.w600,
                   color: c.ink,
                 ),
               ),
@@ -384,7 +377,7 @@ class _WeeklyGoalCard extends StatelessWidget {
                     Text(
                       'km',
                       style: jpStyle(
-                        size: 13,
+                        size: 12,
                         weight: FontWeight.w700,
                         color: c.ink2,
                       ),

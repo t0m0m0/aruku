@@ -8,7 +8,7 @@ class _TotalsStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 14),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       decoration: BoxDecoration(
         border: Border(
           top: BorderSide(color: c.hairline),
@@ -16,99 +16,170 @@ class _TotalsStrip extends StatelessWidget {
         ),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            flex: 12,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${route.kcal}',
-                  style: numStyle(
-                    size: 38,
-                    weight: FontWeight.w500,
-                    color: c.burnt,
-                  ),
-                ),
-                Text(
-                  'KCAL',
-                  style: jpStyle(
-                    size: 10,
-                    weight: FontWeight.w800,
-                    color: c.burnt,
-                    letterSpacing: 0.1 * 10,
-                  ),
-                ),
-              ],
+            flex: 11,
+            child: _Metric(
+              label: '所要時間',
+              value: _DurationValue(minutes: route.totalMin),
             ),
           ),
           Expanded(
             flex: 10,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 10),
-              child: Container(
-                decoration: BoxDecoration(
-                  border: Border(left: BorderSide(color: c.hairline)),
-                ),
-                padding: const EdgeInsets.only(left: 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: [
-                        Text(
-                          route.walkKm.toStringAsFixed(1),
-                          style: numStyle(
-                            size: 22,
-                            weight: FontWeight.w500,
-                            color: c.ink,
-                          ),
-                        ),
-                        const SizedBox(width: 3),
-                        Text(
-                          'km',
-                          style: jpStyle(
-                            size: 11,
-                            weight: FontWeight.w700,
-                            color: c.ink,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+            child: _Metric(
+              label: '徒歩距離',
+              divider: true,
+              value: _ValueWithUnit(
+                value: route.walkKm.toStringAsFixed(1),
+                unit: 'km',
               ),
             ),
           ),
           Expanded(
-            flex: 10,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 10),
-              child: Container(
-                decoration: BoxDecoration(
-                  border: Border(left: BorderSide(color: c.hairline)),
-                ),
-                padding: const EdgeInsets.only(left: 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      TimeValue.formatBudget(route.totalMin),
-                      style: numStyle(
-                        size: 22,
-                        weight: FontWeight.w500,
-                        color: c.ink,
-                      ),
-                    ),
-                  ],
-                ),
+            flex: 12,
+            child: _Metric(
+              label: '消費カロリー',
+              divider: true,
+              value: _ValueWithUnit(
+                value: '${route.kcal}',
+                unit: 'kcal',
+                valueSize: 28,
+                valueColor: c.burnt,
+                unitColor: c.burnt,
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 集計ストリップ1指標分。キャプション（上）＋値（下）を上揃えで描画する。
+class _Metric extends StatelessWidget {
+  const _Metric({
+    required this.label,
+    required this.value,
+    this.divider = false,
+  });
+
+  final String label;
+  final Widget value;
+  final bool divider;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: jpStyle(
+            size: 10,
+            weight: FontWeight.w700,
+            color: c.ink3,
+            letterSpacing: 0.4,
+          ),
+        ),
+        const SizedBox(height: 7),
+        value,
+      ],
+    );
+    if (!divider) return content;
+    return Container(
+      margin: const EdgeInsets.only(left: 12),
+      padding: const EdgeInsets.only(left: 12),
+      decoration: BoxDecoration(
+        border: Border(left: BorderSide(color: c.hairline)),
+      ),
+      child: content,
+    );
+  }
+}
+
+/// 数値＋単位をベースライン揃えで描画する。
+class _ValueWithUnit extends StatelessWidget {
+  const _ValueWithUnit({
+    required this.value,
+    required this.unit,
+    this.valueSize = 22,
+    this.valueColor,
+    this.unitColor,
+  });
+
+  final String value;
+  final String unit;
+  final double valueSize;
+  final Color? valueColor;
+  final Color? unitColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Text(
+          value,
+          style: numStyle(
+            size: valueSize,
+            weight: FontWeight.w500,
+            color: valueColor ?? c.ink,
+          ),
+        ),
+        const SizedBox(width: 3),
+        Text(
+          unit,
+          style: jpStyle(
+            size: 11,
+            weight: FontWeight.w700,
+            color: unitColor ?? c.ink3,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 所要時間を「数字(Mono)＋単位(JP)」に分割して1行で描画する。
+///
+/// 数字と「時間/分」を別Textに分けることで、Mono書体と日本語のフォント混植や
+/// スペース位置での折り返しを防ぐ。
+class _DurationValue extends StatelessWidget {
+  const _DurationValue({required this.minutes});
+
+  final int minutes;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final num = numStyle(size: 22, weight: FontWeight.w500, color: c.ink);
+    final unit = jpStyle(size: 12, weight: FontWeight.w700, color: c.ink3);
+
+    if (minutes <= 0) {
+      return Text('—', style: num);
+    }
+
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        if (h > 0) ...[
+          Text('$h', style: num),
+          Text('時間', style: unit),
+          const SizedBox(width: 2),
+          Text(m.toString().padLeft(2, '0'), style: num),
+          Text('分', style: unit),
+        ] else ...[
+          Text('$m', style: num),
+          Text('分', style: unit),
+        ],
+      ],
     );
   }
 }
