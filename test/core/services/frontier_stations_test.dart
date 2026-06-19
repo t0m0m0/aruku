@@ -2,12 +2,12 @@ import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/services/navitime_route_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// frontierStations: 直線距離で乗降候補駅を上位 K に絞る純粋関数（measure-first の肝）。
+/// frontierStations: 直線距離で乗降候補駅を片側 K に絞る純粋関数（measure-first の肝）。
 ///
 /// 乗車側は origin→駅、降車側は 駅→goal の直線徒歩分を見て、その直線徒歩が予算内の駅
 /// だけを feasible とし（直線は道なり徒歩の下限なので、直線が予算超過なら確実に予算外）、
-/// 徒歩分の大きい順に片側 maxPerSide まで採る。返すインデックスは駅配列の昇順
-/// （下流のペアリング用）。
+/// feasible が maxPerSide を超えれば均等間隔で間引く（両端＋中間を残し b<a ペアを保つ）。
+/// 返すインデックスは駅配列の昇順（下流のペアリング用）。
 void main() {
   group('frontierStations', () {
     // 経度線上に等間隔で並ぶ駅。origin は西端、goal は東端のさらに東。
@@ -27,12 +27,38 @@ void main() {
       expect(r.alighting, [0, 1, 2, 3]);
     });
 
-    test('maxPerSide で片側を上限まで絞り、徒歩分の大きい駅を優先する', () {
+    test('maxPerSide 超は均等間引きで両端を残す', () {
       final r = frontierStations(monotonic, origin, goal, 1000, maxPerSide: 2);
-      // 乗車側は origin から遠い順 → s3,s2（昇順で [2,3]）。
-      expect(r.boarding, [2, 3]);
-      // 降車側は goal から遠い順 → s0,s1（昇順で [0,1]）。
-      expect(r.alighting, [0, 1]);
+      // 徒歩分降順 top-K だと乗車側=[2,3]・降車側=[0,1] に割れて b<a ペアが作れない。
+      // 均等間引きは両端を残す → 両側とも [0,3]（b=0<a=3 のペアが作れる）。
+      expect(r.boarding, [0, 3]);
+      expect(r.alighting, [0, 3]);
+    });
+
+    test('maxPerSide 超の長大路線でも中間駅を残し b<a の乗降ペアを保つ', () {
+      // origin 西・goal 東、12駅が等間隔。予算大で全12駅が両側 feasible。
+      // 片側 top-K（徒歩降順）だと乗車側=東寄り・降車側=西寄りに割れて b<a が作れないが、
+      // 均等間引きなら両端＋中間が残り b<a ペアが存在する。
+      final stops = [
+        for (var i = 1; i <= 12; i++) GeoPoint(35.0, 139.0 + i * 0.005),
+      ];
+      const farOrigin = GeoPoint(35.0, 139.0);
+      const farGoal = GeoPoint(35.0, 139.07);
+      final r = frontierStations(
+        stops,
+        farOrigin,
+        farGoal,
+        1000,
+        maxPerSide: 4,
+      );
+      expect(r.boarding, hasLength(4));
+      expect(r.alighting, hasLength(4));
+      // 両端（最遠アクセス・最遠エグレスの候補）を取りこぼさない。
+      expect(r.boarding.first, 0);
+      expect(r.boarding.last, 11);
+      // 中間駅が残るため b<a の乗降ペアが少なくとも1組存在する。
+      final hasPair = r.boarding.any((b) => r.alighting.any((a) => b < a));
+      expect(hasPair, isTrue);
     });
 
     test('直線徒歩が予算を超える駅は feasible から外す（左右非対称）', () {

@@ -81,7 +81,7 @@ NAVITIME route_transit 照会（1回）
 ### 3.3 フロンティア絞り込み `frontierStations`（設計の肝）
 
 - 乗車側は `origin→駅`、降車側は `駅→goal` の**直線徒歩分が予算内**の駅だけを feasible とする。直線（haversine）は道なり徒歩の下限なので、直線ですら予算超過なら確実に予算外＝実測しても無駄。逆に直線が予算内なら、予算の大半を1本のアクセス徒歩に使う候補（短い乗車＋長い徒歩）も残すため、**道なり迂回の割増は掛けない**（掛けると徒歩最大の正当な候補を誤って落とす）。
-- feasible な駅を徒歩分の大きい順に **片側 `_maxMatrixSideStations`(=10) まで**採る（要素数課金 ≤ 25 の範囲。乗車側コールは `origin→{各乗車駅, goal}` の 上限+1 要素）。
+- feasible な駅が **片側 `_maxMatrixSideStations`(=10) を超えれば均等間隔で間引く（両端を含む）**（要素数課金 ≤ 25 の範囲。乗車側コールは `origin→{各乗車駅, goal}` の 上限+1 要素）。徒歩分降順の top-K だと乗車側＝origin から遠い駅・降車側＝goal から遠い駅という**互いに逆相関**の集合になり、同一 section・`b<a` の乗降ペアが作れず「中間駅で短く乗り両端を長く歩く」徒歩最大候補（ride-one-stop）を取りこぼす。両端＋中間を均等に残せば長い片側徒歩（両端）も ride-one-stop（中間）も拾い、両側のインデックス域が重なって `b<a` ペアを保つ。
 - 純粋関数。Google を呼ばない。実測（マトリクス）の楽観/過大は採用候補の enrich 検証（§3.1）が是正する。
 
 ### 3.4 旧方式（撤廃）— 知識の保全
@@ -151,7 +151,7 @@ NAVITIME route_transit 照会（1回）
 | `arrivalMinutes(segments, departureAt)` | route_plan_builder.dart | 乗車前・乗換待ちを含む実到着分。departureAt 無しは待ち抜き合計。 |
 | `firstMissedTrain(segments, departureAt)` | route_plan_builder.dart | 駅着が発車後になる最初の電車区間（index, cumBefore）。無ければ null。 |
 | `maxBoardingWait(segments, departureAt)` | route_plan_builder.dart | 全電車区間の乗車前待ちの最大値。 |
-| `frontierStations(stops, origin, goal, budgetMin, {maxPerSide})` | navitime_route_service.dart | 乗降候補駅を直線徒歩が予算内のものへ絞り、徒歩分降順に片側 maxPerSide まで（昇順インデックスで返す）。 |
+| `frontierStations(stops, origin, goal, budgetMin, {maxPerSide})` | navitime_route_service.dart | 乗降候補駅を直線徒歩が予算内のものへ絞り、片側 maxPerSide を超えれば均等間引き（両端含む・b<a ペアを保つ）。昇順インデックスで返す。 |
 | `parseNavitimeJst(raw)` | navitime_route_service.dart | `+09:00`/`Z`/オフセット無しを JST 壁時計の naive DateTime へ正規化。不正・null・空は null。 |
 | `RouteCandidate` | hybrid_route_selector.dart | `walkMinutes`/`walkKm`/`totalKm`/`totalMin` を segments から導出。データ源非依存。 |
 
