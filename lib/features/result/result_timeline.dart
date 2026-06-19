@@ -1,5 +1,8 @@
 part of 'result_screen.dart';
 
+/// NAVITIME 由来の発着 DateTime（JST 壁時計）を "h:mm" へ整形する。
+String _hm(DateTime t) => '${t.hour}:${t.minute.toString().padLeft(2, '0')}';
+
 class _Timeline extends StatelessWidget {
   const _Timeline({required this.route});
   final RoutePlan route;
@@ -210,7 +213,20 @@ class _TimelineSegmentRow extends StatelessWidget {
                           ),
                         ],
                       )
-                    else
+                    else ...[
+                      // 発着時刻が揃う電車区間は「HH:MM発 → HH:MM着」を明示する。
+                      if (seg.depTime != null && seg.arrTime != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: Text(
+                            '${_hm(seg.depTime!)}発 → ${_hm(seg.arrTime!)}着',
+                            style: numStyle(
+                              size: 12,
+                              weight: FontWeight.w800,
+                              color: color,
+                            ),
+                          ),
+                        ),
                       Row(
                         children: [
                           Text(
@@ -238,6 +254,7 @@ class _TimelineSegmentRow extends StatelessWidget {
                           ],
                         ],
                       ),
+                    ],
                   ],
                 ),
               ),
