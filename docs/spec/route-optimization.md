@@ -102,8 +102,10 @@ NAVITIME route_transit 照会（1回）
 詳細・実機実証は [walk-max-board-search.md](../notes/walk-max-board-search.md)。基準経路（最速1本）に依存する measure-first は、徒歩を増やす＝乗車を遅らせる候補が借用時刻表に乗り遅れ、#115 再アンカーも route_transit のデータ源制約で詰むことがある（蒲田→上野公園で徒歩3分・余裕137分へ縮退）。この**崩壊**時だけ走らせる限定フォールバック：
 
 - **起動条件（崩壊判定 `_isCollapse`）:** 確定（enrich 後＝乗れない hybrid 脱落後）が、(1) 予算内標準乗換の最大徒歩を僅少（`_collapseWalkMarginMin`）しか上回らず、(2) 予算を大きく（`_collapseSlackRatio`）余らせている。両方を満たすときのみ。崩壊でなければ既存のハイブリッド／標準で足り、探索の往復を払わない。
-- **探索:** 基準経路の停車駅を乗車駅候補とし、各駅 X から `route_transit(X→goal, departureAt+t1)` を引き直す。返る経路は X 発の自己整合な実在便なので構成上 firstMissedTrain が立たない（再アンカー詰みを回避）。「到着が予算内の最遠の乗車駅＝総徒歩最大」を `maxWalkBoardingIndex`（§5）で二分探索。
-- **t1 の扱い:** 探索中の前半徒歩は直線推定（下限・Google を呼ばない＝「選定中は徒歩 API を引かない」契約を保つ）。採用候補は通常の enrich で実街路に測り直し、超過なら除外して選び直す。
+- **探索（二段構え）:**
+  1. **直線二分探索**で概略境界を出す。各駅 X から `route_transit(X→goal, departureAt+t1)` を引き直し（X 発の自己整合な実在便なので構成上 firstMissedTrain が立たない＝再アンカー詰みを回避）、「到着が予算内の最遠の乗車駅＝総徒歩最大」を `maxWalkBoardingIndex`（§5）で二分探索。前半徒歩 t1 は直線推定（下限・Google を呼ばない）。
+  2. **境界の実街路確定（ステップバック）**：直線は下限なので実 walk で前半徒歩が伸び、境界駅が予算超過になり得る。境界から手前へ最大 `_boardSearchVerifySteps` 駅、実 walk（`_tryWalk`・`walkCache` 共有）＋実 boardAt で引き直し、**予算内かつ乗り遅れ無しの最遠駅を確定**して返す。実測済みなので採用後の enrich でも覆らない（同一レッグはキャッシュヒット）。
+- **実機実証（蒲田→上野公園・180分）:** 直線では新橋（徒歩158分）が境界だが、実 walk で新橋(207)・浜松町(190)とも予算超過 → 田町(169)へ後退し**徒歩6分→154分・余裕11分**を確定。詳細は [walk-max-board-search.md §6.4](../notes/walk-max-board-search.md)。
 - **#115 との関係:** 乗り遅れ再照会（#115）は基準経路の採用候補1本の救済、本フォールバックは候補生成のやり直し。崩壊時のみ後者が補う。
 
 ---
@@ -180,6 +182,7 @@ NAVITIME route_transit 照会（1回）
 | `_maxEnrichAttempts` | 8 | 採用候補の enrich 検証で選び直す試行上限（#115 再照会・超過是正） |
 | `_collapseWalkMarginMin` | 10 | 乗車駅探索フォールバック（§3.6）の崩壊判定: 確定徒歩が標準乗換をこの分数以下しか上回らない |
 | `_collapseSlackRatio` | 0.4 | 同上の崩壊判定: 確定が予算をこの割合以上余らせている |
+| `_boardSearchVerifySteps` | 4 | 乗車駅探索の境界実 walk 確定で手前へ後退する最大駅数（§3.6） |
 | `MATRIX_MAX_ELEMENTS`（プロキシ） | 25 | マトリクス要素数上限（課金暴発防止） |
 | レート制限 | 30 / 90 req/min | 標準 / 徒歩系（IP単位） |
 

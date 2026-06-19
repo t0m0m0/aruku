@@ -96,6 +96,11 @@ class NaviTimeRouteService implements RouteService {
   /// (2) 採用見積もり候補が予算をこの割合以上余らせている（徒歩に使う余地が大きい）。
   static const double _collapseSlackRatio = 0.4;
 
+  /// 乗車駅探索で、直線二分探索の境界から手前へ実街路 walk 確定を試す最大駅数。直線は
+  /// 下限なので実 walk で予算超過になり得る境界駅を、手前（徒歩は減るが実現可能性は上がる）
+  /// へ最大この数だけ後退して確定する。実 walk＋route_transit の往復をこの数で上限化する。
+  static const int _boardSearchVerifySteps = 4;
+
   /// 「測ってから選ぶ」選定（measure-first）。直線フロンティアで乗降候補駅を絞り、
   /// origin→各乗車駅／各降車駅→goal の徒歩を1回（最大2コール）のマトリクスで一括実測
   /// してから、実測値の上で [selectBestRoute] が決定的に予算内徒歩最大を選ぶ。反応的な
@@ -187,6 +192,7 @@ class NaviTimeRouteService implements RouteService {
         goal,
         budgetMin,
         departureAt,
+        walkCache,
       );
       if (boardSearch != null) {
         enriched = await _selectAndEnrich(
@@ -326,7 +332,7 @@ class NaviTimeRouteService implements RouteService {
     DateTime departureAt,
   ) {
     final arrival = arrivalMinutes(winner.segments, departureAt);
-    if (arrival > budgetMin) return false;
+    if (arrival > budgetMin) return false; // best-effort（予算外）は対象外
     // 症状(2): 予算が大きく余っている（既に予算を使い切る小コリドーでは起動しない）。
     if (budgetMin - arrival < budgetMin * _collapseSlackRatio) return false;
     // 症状(1): ハイブリッド機構が標準乗換（ほぼ全電車）を実質改善できていない。
@@ -350,14 +356,20 @@ class NaviTimeRouteService implements RouteService {
   /// 探索中の前半徒歩 t1 は直線推定（下限・Google を呼ばない）で測る。直線は道なりの
   /// 下限なので予算内可否が楽観に倒れ得るが、採用候補は後段の enrich（街路実測）検証で
   /// 測り直され、超過が判明すれば除外して選び直す（measure-first の安全網を流用）。これで
-  /// 「選定中は徒歩 API を引かず採用1経路だけ実測する」契約（§3.1/§3.3）を保つ。返す候補は
-  /// `[徒歩 origin→X] + [X→goal の実在便区間]`。停車駅 2 未満／予算内の乗車駅が無いときは null。
+  /// 二段構え：(1) 直線推定の前半徒歩で二分探索し、Google を呼ばずに概略境界を出す。
+  /// (2) その駅から手前へ、**実街路 walk（[_tryWalk]・[walkCache] 共有）＋実 boardAt で
+  /// 引き直し**、予算内かつ乗り遅れ無しの最遠（総徒歩最大）の乗車駅を確定して返す。直線は
+  /// 道なりの下限なので、実 walk で前半徒歩が伸びると境界は手前へ寄る（§4.2）。確定は実測
+  /// なので採用後の enrich でも覆らない（同一レッグはキャッシュヒットで再コールしない）。
+  /// 返す候補は `[徒歩 origin→X] + [X→goal の実在便区間]`。停車駅 2 未満／予算内の乗車駅が
+  /// 無いときは null。
   Future<RouteCandidate?> _buildBoardSearchCandidate(
     _TransitParse base,
     GeoPoint origin,
     GeoPoint goal,
     int budgetMin,
     DateTime departureAt,
+    Map<String, RouteCandidate> walkCache,
   ) async {
     final stops = base.stops;
     if (stops.length < 2) return null;
@@ -397,11 +409,48 @@ class NaviTimeRouteService implements RouteService {
       evaluate: (i) async {
         final c = await buildAt(i);
         // 経路無し（再照会失敗）は予算外として扱い、二分探索は手前の駅を探す。
-        if (c == null) return budgetMin + (1 << 20);
-        return arrivalMinutes(c.segments, departureAt);
+        return c == null
+            ? budgetMin + (1 << 20)
+            : arrivalMinutes(c.segments, departureAt);
       },
     );
-    return best == null ? null : built[best];
+    if (best == null) return null;
+
+    // (2) 境界付近を実街路 walk で確定。best から手前へ最大 _boardSearchVerifySteps 駅、
+    // 実 walk＋実 boardAt で route_transit を引き直し、予算内かつ乗り遅れ無しの最遠駅を返す。
+    for (var i = best; i >= 0 && best - i < _boardSearchVerifySteps; i--) {
+      final x = stops[i];
+      final walk1 =
+          await _tryWalk(
+            origin,
+            x.coord,
+            fromName: base.from,
+            toName: x.name,
+            cache: walkCache,
+          ) ??
+          _estimateWalk(origin, x.coord, fromName: base.from, toName: x.name);
+      final boardAt = departureAt.add(Duration(minutes: walk1.totalMin));
+      try {
+        final body = await _fetchTransitAt(x.coord, goal, boardAt);
+        final items = body['items'] as List<dynamic>? ?? const [];
+        if (items.isEmpty) continue;
+        final xToGoal = _parseTransit(
+          items.first as Map<String, dynamic>,
+        ).toCandidate();
+        final cand = RouteCandidate(
+          from: base.from,
+          to: xToGoal.to,
+          segments: [walk1.segments.first, ...xToGoal.segments],
+        );
+        final withinBudget =
+            arrivalMinutes(cand.segments, departureAt) <= budgetMin;
+        final notMissed = firstMissedTrain(cand.segments, departureAt) == null;
+        if (withinBudget && notMissed) return cand;
+      } on RouteException {
+        continue;
+      }
+    }
+    return null;
   }
 
   /// 乗降アクセス徒歩を1回（最大2コール）のマトリクスで一括実測し、[measured] に

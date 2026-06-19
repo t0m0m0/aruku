@@ -1538,6 +1538,146 @@ void main() {
       expect(train.fromName, 'Bmid');
     });
 
+    test('乗車駅探索は直線境界が実街路 walk で予算超過なら一段手前へ後退して確定（§6 ステップバック）', () async {
+      // 実機（蒲田→上野公園）の挙動：直線推定では新橋まで行ける（境界）が、実街路 walk
+      // では新橋・浜松町とも予算超過で、田町まで後退して実現可能な徒歩最大を確定した。
+      // ここでは Bfar（直線境界）が実 walk で乗り遅れ、一段手前 Bmid が予算内で確定する。
+      final client = _requeryMock(
+        transitByStart: {
+          // Bfar(35.64)→終点。直線 boardAt(12:15)では 12:18発に間に合うが、実 walk(230分)で
+          // boardAt が 12:50 へずれると発車後着＝乗り遅れ → 後退対象。
+          '35.64,139.75': _navi([
+            _item([
+              _point('Bfar'),
+              _trainSection(
+                6000,
+                10,
+                line: 'L',
+                calling: [
+                  _calling(
+                    'Bfar',
+                    35.64,
+                    139.75,
+                    '2026-05-22T12:18:00',
+                    '2026-05-22T12:18:00',
+                  ),
+                  _calling(
+                    '終点',
+                    35.70,
+                    139.75,
+                    '2026-05-22T12:28:00',
+                    '2026-05-22T12:28:00',
+                  ),
+                ],
+              ),
+              _point('終点'),
+            ]),
+          ]),
+          // Bmid(35.60)→終点（11:15発11:35着）。実 walk(130分)でも予算内・乗り遅れ無し。
+          '35.6,139.75': _navi([
+            _item([
+              _point('Bmid'),
+              _trainSection(
+                11000,
+                20,
+                line: 'L',
+                calling: [
+                  _calling(
+                    'Bmid',
+                    35.60,
+                    139.75,
+                    '2026-05-22T11:15:00',
+                    '2026-05-22T11:15:00',
+                  ),
+                  _calling(
+                    '終点',
+                    35.70,
+                    139.75,
+                    '2026-05-22T11:35:00',
+                    '2026-05-22T11:35:00',
+                  ),
+                ],
+              ),
+              _point('終点'),
+            ]),
+          ]),
+        },
+        defaultTransit: _navi([
+          _item([
+            _point('出発地'),
+            _walkSection(240, 3),
+            _point('B0'),
+            _trainSection(
+              20000,
+              18,
+              line: 'L',
+              calling: [
+                _calling(
+                  'B0',
+                  35.52,
+                  139.75,
+                  '2026-05-22T09:05:00',
+                  '2026-05-22T09:05:00',
+                ),
+                _calling(
+                  'Bmid',
+                  35.60,
+                  139.75,
+                  '2026-05-22T09:12:00',
+                  '2026-05-22T09:12:00',
+                ),
+                _calling(
+                  'Bfar',
+                  35.64,
+                  139.75,
+                  '2026-05-22T09:16:00',
+                  '2026-05-22T09:16:00',
+                ),
+                _calling(
+                  'Aend',
+                  35.69,
+                  139.75,
+                  '2026-05-22T09:22:00',
+                  '2026-05-22T09:22:00',
+                ),
+              ],
+            ),
+            _point('Aend'),
+            _walkSection(1100, 14),
+            _point('目的地'),
+          ]),
+        ]),
+        walk: {
+          '35.5,139.75;35.64,139.75': _walkResp(
+            230,
+            18400,
+          ), // O→Bfar 実230分（予算超過/乗り遅れ）
+          '35.5,139.75;35.6,139.75': _walkResp(
+            130,
+            10400,
+          ), // O→Bmid 実130分（予算内・後退先）
+        },
+        defaultWalk: _walkResp(25, 2000),
+      );
+
+      final plan = await build(client).plan(
+        destination: '目的地',
+        destinationLatLng: const GeoPoint(35.70, 139.75),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 12, m: 40), // 予算220分
+        origin: const GeoPoint(35.50, 139.75),
+      );
+
+      final walkMin = plan.segments
+          .where((s) => s.type == SegmentType.walk)
+          .fold<int>(0, (a, s) => a + s.minutes);
+      expect(walkMin, greaterThan(100));
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.fromName, 'Bmid'); // Bfar（直線境界）ではなく後退先の Bmid
+    });
+
     test('サンプル上限を超える停車駅でも飛ばさず徒歩最大の乗車駅を選ぶ（不具合A-b）', () async {
       // 不具合A-b: ハイブリッドの乗降点が _maxHybridCandidates=6 駅サンプルに
       // 制限され、6駅に入らない停車駅で乗車する徒歩最大候補を取りこぼしていた。
