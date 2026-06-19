@@ -132,15 +132,14 @@ int maxBoardingWait(List<RouteSegment> segments, DateTime departureAt) {
   return maxWait;
 }
 
-/// 電車区間ノードの補足文。乗車前に待ちがあれば「○分待ち · 路線名」と前置きする。
-String _trainSub(String? line, int wait) {
-  final name = line ?? '電車';
-  return wait > 0 ? '$wait分待ち · $name' : name;
+/// 電車区間ノードの補足文。路線名のみを表示する（乗車前待ちは前置きしない）。
+String _trainSub(String? line) {
+  return line ?? '電車';
 }
 
 /// 乗車駅（発）ノードを作る。表示時刻は乗車駅着の累積分 [arrivalCum] に乗車前待ちを
 /// 足した「発車時刻」。早着なら発車時刻、乗り遅れ・時刻欠落なら駅着時刻に化す（_advance
-/// と同基準）。補足文は路線名＋待ち分。
+/// と同基準）。補足文は路線名。
 TimelineNode _boardingNode(
   TimeValue departure,
   String place,
@@ -152,7 +151,7 @@ TimelineNode _boardingNode(
   return TimelineNode(
     time: formatClock(departure, arrivalCum + wait),
     place: place,
-    sub: _trainSub(train.line, wait),
+    sub: _trainSub(train.line),
   );
 }
 

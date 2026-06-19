@@ -44,8 +44,8 @@ void main() {
         '9:12',
         '9:30',
       ]);
-      // 乗車駅は発車時刻＋路線名（駅着 9:05 → 9:12 発で 7分待ち）。
-      expect(plan.timelineNodes[1].sub, '7分待ち · ○○線');
+      // 乗車駅は発車時刻＋路線名（駅着 9:05 → 9:12 発。待ちは表示しない）。
+      expect(plan.timelineNodes[1].sub, '○○線');
       expect(plan.timelineNodes.last.sub, '到着 · 制限内 ✓');
       expect(plan.totalMin, 30);
     });
@@ -98,15 +98,15 @@ void main() {
         '10:00',
       ]);
       expect(plan.totalMin, 60);
-      // S1 乗車駅は電車1の発（9:05着→9:10発=5分待ち）。
-      expect(plan.timelineNodes[1].sub, '5分待ち · 1号線');
+      // S1 乗車駅は電車1の発（9:05着→9:10発。待ちは表示しない）。
+      expect(plan.timelineNodes[1].sub, '1号線');
       // 乗換駅 S2 の「着」行は無表示＆カードを挟まない。
       expect(plan.timelineNodes[2].place, 'S2');
       expect(plan.timelineNodes[2].sub, '');
       expect(plan.timelineNodes[2].cardBelow, isFalse);
-      // 乗換駅 S2 の「発」行は電車2の発（9:25着→9:40発=15分待ち）。
+      // 乗換駅 S2 の「発」行は電車2の発（9:25着→9:40発。待ちは表示しない）。
       expect(plan.timelineNodes[3].place, 'S2');
-      expect(plan.timelineNodes[3].sub, '15分待ち · 2号線');
+      expect(plan.timelineNodes[3].sub, '2号線');
     });
 
     test('待ち時間が無い電車ノードは路線名のみ表示する', () {
@@ -190,9 +190,9 @@ void main() {
 
       // 駅着 9:05 → 7分待ち → 9:12 発 → 乗車18分で 9:30 着 → 徒歩3分で 9:33 着。
       // 待ちを使わない旧挙動なら総 26 分(=5+18+3)。発車時刻採用で 33 分になる。
-      // 乗車駅（発）は 9:12・7分待ち、降車駅（着）は arr 欠落のため累積 9:30。
+      // 乗車駅（発）は 9:12（待ち非表示）、降車駅（着）は arr 欠落のため累積 9:30。
       expect(plan.timelineNodes[1].time, '9:12');
-      expect(plan.timelineNodes[1].sub, '7分待ち · ○○線');
+      expect(plan.timelineNodes[1].sub, '○○線');
       expect(plan.timelineNodes[2].time, '9:30');
       expect(plan.timelineNodes[2].sub, '徒歩へ');
       expect(plan.totalMin, 33);
@@ -352,10 +352,10 @@ void main() {
       ]);
       expect(plan.totalMin, 62);
       // 乗換駅 B の「着」行(index1)は無表示、「発」行(index2)は概算到着 9:20 →
-      // 発車 9:35 の 15分待ち（先頭に徒歩が無いぶん test B より index が 1 つ前）。
+      // 発車 9:35（待ち非表示。先頭に徒歩が無いぶん test B より index が 1 つ前）。
       expect(plan.timelineNodes[1].sub, '');
       expect(plan.timelineNodes[1].cardBelow, isFalse);
-      expect(plan.timelineNodes[2].sub, '15分待ち · 2号線');
+      expect(plan.timelineNodes[2].sub, '2号線');
     });
   });
 
