@@ -464,6 +464,73 @@ void main() {
       expect(plan.timelineNodes.last.sub, isNot(contains('制限内')));
     });
 
+    test('matrix失敗で全徒歩がenrich超過でも翌朝始発でなく全徒歩を返す（#121 原因②）', () async {
+      // マトリクス実測が失敗すると全徒歩は直線推定（予算内）で選定され、enrich（街路実測）で
+      // 予算超過と判明して pool から外れる。残りが今夜乗れない翌朝始発だけでも、縮小 pool
+      // ではなく全 candidates から「今夜歩ける」全徒歩へ縮退すべき（翌朝電車を返さない）。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(400, 5),
+          _point('品川駅'),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            calling: [
+              _calling(
+                '品川駅',
+                35.628,
+                139.738,
+                '2026-06-14T05:30:00',
+                '2026-06-14T05:30:00',
+              ),
+              _calling(
+                '新橋駅',
+                35.666,
+                139.758,
+                '2026-06-14T05:34:00',
+                '2026-06-14T05:34:00',
+              ),
+              _calling(
+                '東京駅',
+                35.681,
+                139.767,
+                '2026-06-14T06:00:00',
+                '2026-06-14T06:00:00',
+              ),
+            ],
+          ),
+          _point('東京駅'),
+        ]),
+      ]);
+      // マトリクスは失敗（500）→ 全徒歩は直線推定（≈33分・予算60内）で within-estimate。
+      // だが enrich（googleWalkProxy）が80分（予算超過）を返すため pool から除外される。
+      final client = MockClient((req) async {
+        if (req.url.path.contains('googleWalkMatrixProxy')) {
+          return http.Response('err', 500);
+        }
+        if (req.url.path.contains('googleWalkProxy')) {
+          return _jsonResponse(_walkResp(80, 6400), 200);
+        }
+        return _jsonResponse(transit, 200);
+      });
+
+      final plan = await build(client, clock: () => DateTime(2026, 6, 14, 1, 0))
+          .plan(
+            destination: '東京',
+            destinationLatLng: const GeoPoint(35.681, 139.767),
+            departure: const TimeValue(h: 1, m: 0),
+            arrival: const TimeValue(h: 2, m: 0),
+            origin: const GeoPoint(35.7, 139.75),
+          );
+
+      // 翌朝5:30始発ではなく今夜歩ける全徒歩を返す。
+      expect(plan.segments.where((s) => s.type == SegmentType.train), isEmpty);
+      expect(plan.segments.every((s) => s.type == SegmentType.walk), isTrue);
+    });
+
     test('calling_at が +09:00 オフセット付きでも翌朝始発を全徒歩より後回しにする（#121 TZ）', () async {
       // 実 API の calling_at は from_time/to_time に +09:00 が付く。これを naive な
       // 出発アンカーと差分すると端末 TZ 次第で乗車待ちが負＝0 になり、翌朝始発が

@@ -156,8 +156,9 @@ class NaviTimeRouteService implements RouteService {
     // 見積もりの候補が予定列車に乗り遅れるなら乗車駅の時刻表を再照会して実在列車へ
     // 差し替え（#115）、enrich で予算超過が判明したら（マトリクス失敗時の直線楽観など）
     // 除外して選び直す。除外は実測（enrich・再照会）の確認時だけで、予算内候補がある限り
-    // 超過ルートを返さない（#117/#118 の不変条件）。best-effort（予算内なし）はそのまま
-    // 確定する（#121）。マトリクスが成功した通常ケースは初回の選定が実測と整合し1回で確定。
+    // 超過ルートを返さない（#117/#118 の不変条件）。best-effort（予算内なし）は縮小 pool
+    // ではなく全 candidates から「今夜乗れる」範囲の実到着最早へ縮退する（#121 原因②）。
+    // マトリクスが成功した通常ケースは初回の選定が実測と整合し1回で確定。
     var pool = candidates;
     late RouteCandidate enriched;
     for (var attempt = 0; ; attempt++) {
@@ -171,8 +172,28 @@ class NaviTimeRouteService implements RouteService {
       final withinByEstimate =
           arrivalMinutes(chosen.segments, departureAt) <= budgetMin;
 
-      // 予算内見積もりの候補が予定列車に乗り遅れるなら実在列車へ差し替えて選び直す（#115）。
-      if (withinByEstimate && attempt < _maxEnrichAttempts) {
+      // 最善でも予算内に届かない best-effort。ここで縮小 pool の chosen を返すと、enrich
+      // 超過で pool から外れた全徒歩などを見落とし「今夜乗れない」翌朝始発を返してしまう
+      // （#121 原因②）。全 candidates から「今夜乗れる」範囲（乗車待ち予算内・乗り遅れ無し）
+      // の実到着最早へ縮退する。全徒歩は常に reachable なので必ず候補に残る。
+      if (!withinByEstimate) {
+        final fallbackPool =
+            reachableWithinBudget(candidates, budgetMin, departureAt) ??
+            candidates;
+        final shortest = fallbackPool.reduce(
+          (a, b) =>
+              arrivalMinutes(a.segments, departureAt) <=
+                  arrivalMinutes(b.segments, departureAt)
+              ? a
+              : b,
+        );
+        enriched = await _enrichWalkGeometry(shortest, walkCache);
+        break;
+      }
+
+      // 以降は withinByEstimate（予算内見積もり）の候補のみ。予定列車に乗り遅れるなら
+      // 乗車駅の時刻表を NAVITIME へ再照会し実在列車へ差し替えて選び直す（#115）。
+      if (attempt < _maxEnrichAttempts) {
         final missed = firstMissedTrain(chosen.segments, departureAt);
         if (missed != null) {
           final real = await _refetchMissedTrain(
@@ -198,10 +219,9 @@ class NaviTimeRouteService implements RouteService {
       enriched = await _enrichWalkGeometry(chosen, walkCache);
 
       // 予算内見積もりが enrich（実測）で超過に転じたら除外して次善へ（matrix 失敗時の
-      // 直線楽観の是正）。best-effort（!withinByEstimate）はこれ以上探しても収まらない
-      // ため確定する。
-      if (withinByEstimate &&
-          attempt < _maxEnrichAttempts &&
+      // 直線楽観の是正）。除外は実測の確認時だけで、予算内候補がある限り超過を返さない
+      // （#117/#118 の不変条件）。
+      if (attempt < _maxEnrichAttempts &&
           pool.length > 1 &&
           arrivalMinutes(enriched.segments, departureAt) > budgetMin) {
         pool = pool.where((c) => !identical(c, chosen)).toList();
