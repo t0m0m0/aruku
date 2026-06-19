@@ -47,7 +47,7 @@
    - 予算内 → 徒歩オンリーで walkRatio = 1.0 として採用
    - 予算超過 → 電車区間の候補をプロキシ経由で Directions API `mode=transit` で取得
 3. **ハイブリッドルート最適化**（端末側で実行）
-   - 候補ごとに `totalMin ≤ budgetMin` を満たしつつ `walkKm` が最大となるものを選択
+   - 候補ごとに `totalMin ≤ budgetMin` を満たしつつ **`walkMinutes`（徒歩時間）が最大** となるものを選択（実装 `selectBestRoute` と一致。当初 `walkKm` と記したが、運動時間の最大化として徒歩「分」を正とする。詳細は [ルート最適化 仕様（正本）](../spec/route-optimization.md) §1）
 4. **指標算出**（walkRatio, kcal, segments, timelineNodes）を Dart で計算
 
 API コール数は1ルート探索あたり最大2〜5回程度。

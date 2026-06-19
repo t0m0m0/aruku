@@ -68,6 +68,8 @@ Map<String, dynamic> _trainSection(
   List<Map<String, dynamic>>? calling,
   List<List<double>>? shape,
   Map<String, dynamic>? fare,
+  String? fromTime,
+  String? toTime,
 }) => {
   'type': 'move',
   'move': 'local_train',
@@ -75,6 +77,10 @@ Map<String, dynamic> _trainSection(
   'time': minutes,
   'line_name': line,
   'stop_count': ?stops,
+  // 実 API では乗車駅発・降車駅着の時刻は move 直下の from_time/to_time に入る
+  // （calling_at は途中通過駅のみ）。
+  'from_time': ?fromTime,
+  'to_time': ?toTime,
   // 実 API では calling_at も fare も transport 配下に入る。
   if (calling != null || fare != null)
     'transport': {'calling_at': ?calling, 'fare': ?fare},
@@ -106,6 +112,53 @@ Map<String, dynamic> _walkResp(
   ],
 };
 
+/// _walkResp 形（routes[0] の duration/distanceMeters）から (分, m) を取り出す。
+/// routes が空・duration 不正なら null（マトリクス要素から除外＝サービスは直線推定へ）。
+({int minutes, int meters})? _walkRespValues(Map<String, dynamic> resp) {
+  final routes = resp['routes'];
+  if (routes is! List || routes.isEmpty) return null;
+  final r = routes.first as Map<String, dynamic>;
+  final dur = r['duration'];
+  final secs = dur is String ? int.tryParse(dur.replaceAll('s', '')) : null;
+  if (secs == null) return null;
+  return (
+    minutes: (secs / 60).round(),
+    meters: (r['distanceMeters'] as num?)?.toInt() ?? 0,
+  );
+}
+
+/// computeRouteMatrix プロキシ応答を、レッグごとの徒歩値 [leg]（null は除外）から組む
+/// （measure-first のアクセス徒歩一括実測をモックする）。origins×destinations の各ペアに
+/// {originIndex, destinationIndex, duration, distanceMeters} を並べた配列を返す。
+http.Response _matrixResponseFor(
+  Uri url,
+  ({int minutes, int meters})? Function(GeoPoint origin, GeoPoint dest) leg,
+) {
+  GeoPoint pt(String s) {
+    final p = s.split(',');
+    return GeoPoint(double.parse(p[0]), double.parse(p[1]));
+  }
+
+  List<GeoPoint> parse(String? raw) =>
+      (raw ?? '').split(';').where((s) => s.isNotEmpty).map(pt).toList();
+  final os = parse(url.queryParameters['origins']);
+  final ds = parse(url.queryParameters['destinations']);
+  final rows = <Map<String, dynamic>>[];
+  for (var i = 0; i < os.length; i++) {
+    for (var j = 0; j < ds.length; j++) {
+      final v = leg(os[i], ds[j]);
+      if (v == null) continue;
+      rows.add({
+        'originIndex': i,
+        'destinationIndex': j,
+        'duration': '${v.minutes * 60}s',
+        'distanceMeters': v.meters,
+      });
+    }
+  }
+  return _jsonResponse(rows, 200);
+}
+
 /// transit と walk をパスで振り分けるモッククライアント。
 /// walk は 'start;goal'（座標）をキーに応答を引く。
 http.Client _mock({
@@ -116,6 +169,19 @@ http.Client _mock({
   List<Uri>? log,
 }) => MockClient((req) async {
   log?.add(req.url);
+  if (req.url.path.contains('googleWalkMatrixProxy')) {
+    return _matrixResponseFor(req.url, (o, d) {
+      final resp = walk['${o.lat},${o.lng};${d.lat},${d.lng}'];
+      if (resp != null) return _walkRespValues(resp);
+      // 未マップのレッグは直線距離で実測を近似する（小さな defaultWalk を全レッグへ
+      // 広げると遠方の全徒歩・アクセス徒歩まで予算内に見え、measure-first の選定が壊れる）。
+      final km = haversineKm(o, d);
+      return (
+        minutes: (km * 1000 / walkMetersPerMinute).round(),
+        meters: (km * 1000).round(),
+      );
+    });
+  }
   if (req.url.path.contains('googleWalkProxy')) {
     final start = req.url.queryParameters['start'] ?? '';
     final goal = req.url.queryParameters['goal'] ?? '';
@@ -131,6 +197,15 @@ http.Client _inflatingMock(
   Map<String, dynamic> transit, {
   double detour = 1.4,
 }) => MockClient((req) async {
+  if (req.url.path.contains('googleWalkMatrixProxy')) {
+    return _matrixResponseFor(req.url, (o, d) {
+      final km = haversineKm(o, d);
+      return (
+        minutes: (km * 1000 / walkMetersPerMinute * detour).round(),
+        meters: (km * 1000 * detour).round(),
+      );
+    });
+  }
   if (!req.url.path.contains('googleWalkProxy')) {
     return _jsonResponse(transit, 200);
   }
@@ -158,6 +233,18 @@ http.Client _sideDetourMock(
   double originDetour = 1.0,
   double goalDetour = 1.8,
 }) => MockClient((req) async {
+  if (req.url.path.contains('googleWalkMatrixProxy')) {
+    return _matrixResponseFor(req.url, (o, d) {
+      final isGoalSide =
+          (d.lat - goal.lat).abs() < 1e-6 && (d.lng - goal.lng).abs() < 1e-6;
+      final detour = isGoalSide ? goalDetour : originDetour;
+      final km = haversineKm(o, d);
+      return (
+        minutes: (km * 1000 / walkMetersPerMinute * detour).round(),
+        meters: (km * 1000 * detour).round(),
+      );
+    });
+  }
   if (!req.url.path.contains('googleWalkProxy')) {
     return _jsonResponse(transit, 200);
   }
@@ -188,6 +275,18 @@ http.Client _requeryMock({
   List<Uri>? log,
 }) => MockClient((req) async {
   log?.add(req.url);
+  if (req.url.path.contains('googleWalkMatrixProxy')) {
+    return _matrixResponseFor(req.url, (o, d) {
+      final resp = walk['${o.lat},${o.lng};${d.lat},${d.lng}'];
+      if (resp != null) return _walkRespValues(resp);
+      // 未マップのレッグは直線距離で実測を近似する（_mock と同じ理由）。
+      final km = haversineKm(o, d);
+      return (
+        minutes: (km * 1000 / walkMetersPerMinute).round(),
+        meters: (km * 1000).round(),
+      );
+    });
+  }
   if (req.url.path.contains('googleWalkProxy')) {
     final start = req.url.queryParameters['start'] ?? '';
     final goal = req.url.queryParameters['goal'] ?? '';
@@ -301,6 +400,270 @@ void main() {
       expect(plan.totalMin, 25);
       expect(plan.walkRatio, closeTo(1.0, 1e-9));
       expect(plan.timelineNodes.last.sub, contains('制限内'));
+    });
+
+    test('終電後は翌朝始発の電車より「今夜歩ける」全徒歩を返す（#121 原因②）', () async {
+      // 01:00 出発・予算60分（締切 2:00）。NAVITIME は翌朝5:30発の電車ルートを返す。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(400, 5),
+          _point('品川駅'),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            calling: [
+              _calling(
+                '品川駅',
+                35.628,
+                139.738,
+                '2026-06-14T05:30:00',
+                '2026-06-14T05:30:00',
+              ),
+              _calling(
+                '新橋駅',
+                35.666,
+                139.758,
+                '2026-06-14T05:34:00',
+                '2026-06-14T05:34:00',
+              ),
+              _calling(
+                '東京駅',
+                35.681,
+                139.767,
+                '2026-06-14T06:00:00',
+                '2026-06-14T06:00:00',
+              ),
+            ],
+          ),
+          _point('東京駅'),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        // 全徒歩は実測80分で予算超過（best-effort）。だが翌朝電車（乗車待ち265分）より
+        // 「今夜歩ける」案として優先すべき。
+        walk: {'35.7,139.75;35.681,139.767': _walkResp(80, 6400)},
+      );
+
+      final plan = await build(client, clock: () => DateTime(2026, 6, 14, 1, 0))
+          .plan(
+            destination: '東京',
+            destinationLatLng: const GeoPoint(35.681, 139.767),
+            departure: const TimeValue(h: 1, m: 0),
+            arrival: const TimeValue(h: 2, m: 0),
+            origin: const GeoPoint(35.7, 139.75),
+          );
+
+      // 翌朝5:30発の電車ではなく、今夜歩ける全徒歩を返す。
+      expect(plan.segments.where((s) => s.type == SegmentType.train), isEmpty);
+      expect(plan.segments.every((s) => s.type == SegmentType.walk), isTrue);
+      // 予算超過の best-effort なので「制限内 ✓」は付かない。
+      expect(plan.timelineNodes.last.sub, isNot(contains('制限内')));
+    });
+
+    test('matrix失敗で全徒歩がenrich超過でも翌朝始発でなく全徒歩を返す（#121 原因②）', () async {
+      // マトリクス実測が失敗すると全徒歩は直線推定（予算内）で選定され、enrich（街路実測）で
+      // 予算超過と判明して pool から外れる。残りが今夜乗れない翌朝始発だけでも、縮小 pool
+      // ではなく全 candidates から「今夜歩ける」全徒歩へ縮退すべき（翌朝電車を返さない）。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(400, 5),
+          _point('品川駅'),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            calling: [
+              _calling(
+                '品川駅',
+                35.628,
+                139.738,
+                '2026-06-14T05:30:00',
+                '2026-06-14T05:30:00',
+              ),
+              _calling(
+                '新橋駅',
+                35.666,
+                139.758,
+                '2026-06-14T05:34:00',
+                '2026-06-14T05:34:00',
+              ),
+              _calling(
+                '東京駅',
+                35.681,
+                139.767,
+                '2026-06-14T06:00:00',
+                '2026-06-14T06:00:00',
+              ),
+            ],
+          ),
+          _point('東京駅'),
+        ]),
+      ]);
+      // マトリクスは失敗（500）→ 全徒歩は直線推定（≈33分・予算60内）で within-estimate。
+      // だが enrich（googleWalkProxy）が80分（予算超過）を返すため pool から除外される。
+      final client = MockClient((req) async {
+        if (req.url.path.contains('googleWalkMatrixProxy')) {
+          return http.Response('err', 500);
+        }
+        if (req.url.path.contains('googleWalkProxy')) {
+          return _jsonResponse(_walkResp(80, 6400), 200);
+        }
+        return _jsonResponse(transit, 200);
+      });
+
+      final plan = await build(client, clock: () => DateTime(2026, 6, 14, 1, 0))
+          .plan(
+            destination: '東京',
+            destinationLatLng: const GeoPoint(35.681, 139.767),
+            departure: const TimeValue(h: 1, m: 0),
+            arrival: const TimeValue(h: 2, m: 0),
+            origin: const GeoPoint(35.7, 139.75),
+          );
+
+      // 翌朝5:30始発ではなく今夜歩ける全徒歩を返す。
+      expect(plan.segments.where((s) => s.type == SegmentType.train), isEmpty);
+      expect(plan.segments.every((s) => s.type == SegmentType.walk), isTrue);
+    });
+
+    test('calling_at が +09:00 オフセット付きでも翌朝始発を全徒歩より後回しにする（#121 TZ）', () async {
+      // 実 API の calling_at は from_time/to_time に +09:00 が付く。これを naive な
+      // 出発アンカーと差分すると端末 TZ 次第で乗車待ちが負＝0 になり、翌朝始発が
+      // 「今すぐ乗れる深夜電車」に化けて ② のフィルタを素通りしていた（深夜表示の主因）。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(400, 5),
+          _point('品川駅'),
+          _trainSection(
+            6000,
+            7,
+            line: 'JR山手線',
+            stops: 2,
+            calling: [
+              _calling(
+                '品川駅',
+                35.628,
+                139.738,
+                '2026-06-14T05:30:00+09:00',
+                '2026-06-14T05:30:00+09:00',
+              ),
+              _calling(
+                '新橋駅',
+                35.666,
+                139.758,
+                '2026-06-14T05:34:00+09:00',
+                '2026-06-14T05:34:00+09:00',
+              ),
+              _calling(
+                '東京駅',
+                35.681,
+                139.767,
+                '2026-06-14T06:00:00+09:00',
+                '2026-06-14T06:00:00+09:00',
+              ),
+            ],
+          ),
+          _point('東京駅'),
+        ]),
+      ]);
+      final client = _mock(
+        transit: transit,
+        walk: {'35.7,139.75;35.681,139.767': _walkResp(80, 6400)},
+      );
+
+      final plan = await build(client, clock: () => DateTime(2026, 6, 14, 1, 0))
+          .plan(
+            destination: '東京',
+            destinationLatLng: const GeoPoint(35.681, 139.767),
+            departure: const TimeValue(h: 1, m: 0),
+            arrival: const TimeValue(h: 2, m: 0),
+            origin: const GeoPoint(35.7, 139.75),
+          );
+
+      // オフセット付きでも乗車待ち（4.5時間）が予算超過と判定され、全徒歩を返す。
+      expect(plan.segments.where((s) => s.type == SegmentType.train), isEmpty);
+      expect(plan.segments.every((s) => s.type == SegmentType.walk), isTrue);
+    });
+
+    test('深夜2:23検索: +09:00の乗換2本ルート（翌朝始発）を深夜電車として出さない（#121 再現）', () async {
+      // スクショ再現: 02:23 出発で 矢口渡→多摩川→渋谷 の乗換2本。実 API は翌朝始発を
+      // +09:00 付きで返すが、TZ 不整合で「02:30発の深夜電車」に化けて表示されていた。
+      // 乗換 2 本（多摩川線＋東横線）は標準解析ルート（ハイブリッドは単一電車）。
+      final transit = _navi([
+        _item([
+          _point('出発地'),
+          _walkSection(300, 4),
+          _point('矢口渡'),
+          _trainSection(
+            2500,
+            7,
+            line: '東急多摩川線',
+            stops: 1,
+            calling: [
+              _calling(
+                '矢口渡',
+                35.561,
+                139.708,
+                '2026-06-14T05:30:00+09:00',
+                '2026-06-14T05:30:00+09:00',
+              ),
+              _calling(
+                '多摩川',
+                35.587,
+                139.668,
+                '2026-06-14T05:37:00+09:00',
+                '2026-06-14T05:37:00+09:00',
+              ),
+            ],
+          ),
+          _point('多摩川'),
+          _trainSection(
+            9000,
+            15,
+            line: '東急東横線',
+            stops: 1,
+            fare: {'unit_48': 250},
+            calling: [
+              _calling(
+                '多摩川',
+                35.587,
+                139.668,
+                '2026-06-14T05:41:00+09:00',
+                '2026-06-14T05:41:00+09:00',
+              ),
+              _calling(
+                '渋谷',
+                35.658,
+                139.701,
+                '2026-06-14T05:56:00+09:00',
+                '2026-06-14T05:56:00+09:00',
+              ),
+            ],
+          ),
+          _point('渋谷'),
+        ]),
+      ]);
+      final client = _mock(transit: transit, defaultWalk: _walkResp(95, 7600));
+
+      // 02:23 出発・締切 03:00（予算37分）。
+      final plan =
+          await build(client, clock: () => DateTime(2026, 6, 14, 2, 23)).plan(
+            destination: '渋谷',
+            destinationLatLng: const GeoPoint(35.658, 139.701),
+            departure: const TimeValue(h: 2, m: 23),
+            arrival: const TimeValue(h: 3, m: 0),
+            origin: const GeoPoint(35.561, 139.708),
+          );
+
+      // 深夜の電車（翌朝始発）は出さず全徒歩を返す。タイムラインに深夜電車が並ばない。
+      expect(plan.segments.where((s) => s.type == SegmentType.train), isEmpty);
+      expect(plan.timelineNodes.any((n) => n.sub.contains('待ち')), isFalse);
     });
 
     test('出発地・目的地名は NAVITIME の start/goal でなく実名を使う', () async {
@@ -524,63 +887,6 @@ void main() {
       );
 
       expect(plan.totalMin, lessThanOrEqualTo(300));
-      expect(
-        plan.segments.where((s) => s.type == SegmentType.train),
-        isNotEmpty,
-      );
-      expect(plan.timelineNodes.last.sub, contains('制限内'));
-    });
-
-    test('α補正では超過に見えても実測で予算内なら除外せずその候補を返す（#117）', () async {
-      // 不変条件「除外は実測のみ・推定は順序のみ」の検証。出発側の一部レッグが実測で
-      // 大きく超過し α を 2.0 まで押し上げるが、別レッグが安い候補は α 補正後の見積もりで
-      // 予算超過に見える。それでも pool から外さず、実測（楽観評価）で予算内ならその候補を
-      // 返す（偽陰性を作らない）。座標ごとに実測徒歩を固定して挙動を一意にする。
-      final transit = _navi([
-        _item([
-          _point('出発地', lat: 35.50, lon: 139.50),
-          _walkSection(5560, 69),
-          _point('S0', lat: 35.55, lon: 139.50),
-          _trainSection(
-            15570,
-            31,
-            line: 'L',
-            calling: [
-              _callingNoTime('S0', 35.55, 139.50),
-              _callingNoTime('S1', 35.60, 139.50),
-              _callingNoTime('S2', 35.65, 139.50),
-              _callingNoTime('S3', 35.69, 139.50),
-            ],
-          ),
-          _point('S3', lat: 35.69, lon: 139.50),
-          _walkSection(1110, 14),
-          _point('目的地', lat: 35.70, lon: 139.50),
-        ]),
-      ]);
-      final client = _mock(
-        transit: transit,
-        walk: {
-          // 出発側 S1 乗車の徒歩は実測で 2.0 倍（×2）に膨らみ α を押し上げる。
-          '35.5,139.5;35.6,139.5': _walkResp(278, 22240),
-          // 安い出発側 S0 乗車・到着側 S3 降車は実測 ≒ 直線推定（迂回なし）。
-          '35.5,139.5;35.55,139.5': _walkResp(69, 5560),
-          '35.69,139.5;35.7,139.5': _walkResp(14, 1110),
-        },
-        // 想定外レッグが来たら過大値で返し、誤って予算内に見えないようにする。
-        defaultWalk: _walkResp(999, 80000),
-      );
-
-      final plan = await build(client).plan(
-        destination: '目的地',
-        destinationLatLng: const GeoPoint(35.70, 139.50),
-        departure: const TimeValue(h: 9, m: 0),
-        arrival: const TimeValue(h: 12, m: 0), // 予算180分
-        origin: const GeoPoint(35.50, 139.50),
-      );
-
-      // S1 乗車の実測超過で α=2.0 を学習後、S0 乗車・S3 降車候補は補正見積もりで
-      // 183分（>180）に見えるが、実測は114分で予算内。除外されず制限内で返る。
-      expect(plan.totalMin, lessThanOrEqualTo(180));
       expect(
         plan.segments.where((s) => s.type == SegmentType.train),
         isNotEmpty,
@@ -1123,6 +1429,73 @@ void main() {
       expect(plan.totalMin, 30);
     });
 
+    test(
+      '標準経路の乗降時刻は move 直下の from_time/to_time を使う（calling_at は途中駅のみ）',
+      () async {
+        // 実 API では calling_at は途中通過駅だけを並べ、乗車駅発・降車駅着の時刻は
+        // move セクション直下の from_time/to_time に入る。標準経路の電車区間は
+        // calling_at 先頭/末尾（途中駅）でなく move の発着時刻を採用すべき。
+        // 途中駅を遠方に置きハイブリッド乗車を予算外にして標準経路を選ばせる。
+        final transit = _navi([
+          _item([
+            _point('出発地', lat: 35.50, lon: 139.50),
+            _walkSection(1100, 14),
+            _point('A駅', lat: 35.51, lon: 139.50),
+            _trainSection(
+              16000,
+              15,
+              line: '○○線',
+              stops: 2,
+              // 乗車駅 A 発 9:15 / 降車駅 B 着 9:30（正値）。
+              fromTime: '2026-05-22T09:15:00',
+              toTime: '2026-05-22T09:30:00',
+              // 途中通過駅のみ。乗降駅 A/B は含まず、時刻も乗降とは別（9:16/9:29）。
+              calling: [
+                _calling(
+                  '中間1',
+                  35.60,
+                  139.50,
+                  '2026-05-22T09:16:00',
+                  '2026-05-22T09:16:00',
+                ),
+                _calling(
+                  '中間2',
+                  35.65,
+                  139.50,
+                  '2026-05-22T09:29:00',
+                  '2026-05-22T09:29:00',
+                ),
+              ],
+            ),
+            _point('B駅', lat: 35.70, lon: 139.50),
+          ]),
+        ]);
+        final client = _mock(
+          transit: transit,
+          // 確定経路（出発地→A駅）の徒歩を Google で 5分へ上書き。
+          walk: {'35.5,139.5;35.51,139.5': _walkResp(5, 400)},
+        );
+
+        final plan = await build(client).plan(
+          destination: 'B駅',
+          destinationLatLng: const GeoPoint(35.70, 139.50),
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 0), // 予算60分
+          origin: const GeoPoint(35.50, 139.50),
+        );
+
+        final train = plan.segments.firstWhere(
+          (s) => s.type == SegmentType.train,
+        );
+        // calling_at 先頭/末尾（9:16/9:29）でなく move の 9:15/9:30。
+        expect(train.depTime, DateTime(2026, 5, 22, 9, 15));
+        expect(train.arrTime, DateTime(2026, 5, 22, 9, 30));
+        // 駅着 9:05 → 発車 9:15（10分待ち）→ 降車 9:30 着・総30分。
+        expect(plan.timelineNodes.last.time, '9:30');
+        expect(plan.totalMin, 30);
+      },
+    );
+
     test('calling_at の発着時刻が欠落しても座標からハイブリッドを生成し徒歩を最大化する', () async {
       // プロキシ/RapidAPI 由来データは calling_at の時刻が欠けることがある。時刻が
       // 無くても座標があれば乗車時間を距離から概算してハイブリッドを生成し、予算が
@@ -1147,10 +1520,11 @@ void main() {
           _point('東京駅'),
         ]),
       ]);
+      // 新橋は品川より遠く、origin→新橋 のアクセス徒歩を実測 40 分（品川 < 新橋 < 予算）に
+      // して新橋が徒歩最大の乗車駅として選ばれるようにする。
       final client = _mock(
         transit: transit,
-        // 確定経路（出発地→新橋）の徒歩を Google で 22分へ上書き。
-        walk: {'35.6,139.75;35.66,139.75': _walkResp(22, 1800)},
+        walk: {'35.6,139.75;35.66,139.75': _walkResp(40, 3200)},
       );
 
       final plan = await build(client).plan(
@@ -1165,7 +1539,7 @@ void main() {
       // しか残らず予算が大量に余る。修正後は新橋まで歩いて乗るハイブリッドを選ぶ。
       expect(plan.segments, hasLength(2));
       expect(plan.segments[0].type, SegmentType.walk);
-      expect(plan.segments[0].minutes, 22);
+      expect(plan.segments[0].minutes, 40);
       expect(plan.segments[1].type, SegmentType.train);
       expect(plan.segments[1].fromName, '新橋駅'); // 品川（徒歩最小）ではない
       expect(plan.segments[1].toName, '東京駅');
@@ -1179,7 +1553,7 @@ void main() {
                   trainMetersPerMinute)
               .round();
       expect(plan.segments[1].minutes, expectedRide);
-      expect(plan.totalMin, 22 + expectedRide);
+      expect(plan.totalMin, 40 + expectedRide);
       expect(plan.timelineNodes.last.sub, contains('制限内'));
     });
 
@@ -1298,10 +1672,9 @@ void main() {
           _point('東京駅'),
         ]),
       ]);
-      final client = _mock(
-        transit: transit,
-        walk: {'35.6,139.75;35.66,139.75': _walkResp(22, 1800)},
-      );
+      // アクセス徒歩は直線距離で実測される（measure-first）。新橋は品川より遠く
+      // origin→新橋 の徒歩が大きいため、徒歩最大の乗車駅として新橋が選ばれる。
+      final client = _mock(transit: transit);
 
       final plan = await build(client).plan(
         destination: '東京',
@@ -2360,68 +2733,6 @@ void main() {
           return _jsonResponse(_walkResp(minutes, meters), 200);
         });
 
-    List<String> walkPairsOf(List<Uri> log) => log
-        .where((u) => u.path.contains('googleWalkProxy'))
-        .map(
-          (u) => '${u.queryParameters['start']};${u.queryParameters['goal']}',
-        )
-        .toList();
-
-    test('共有レッグを持つ候補を選び直すとき、徒歩実測はユニークレッグ数だけ呼ぶ（#116）', () async {
-      // 選び直しで確定候補（S6乗車・S9降車）と中間候補（より手前乗車・S9降車）が
-      // S9→目的地 レッグを共有する。レッグ単位キャッシュ無しでは同レッグを試行ごとに
-      // 測り直し 4 コール（うち1重複）になるが、キャッシュでユニーク3レッグまで抑える。
-      final log = <Uri>[];
-      final plan = await build(cacheMock(log: log)).plan(
-        destination: '目的地',
-        destinationLatLng: const GeoPoint(35.70, 139.50),
-        departure: const TimeValue(h: 9, m: 0),
-        arrival: const TimeValue(h: 13, m: 0), // 予算240分
-        origin: const GeoPoint(35.50, 139.50),
-      );
-
-      final pairs = walkPairsOf(log);
-      final unique = pairs.toSet();
-      // 重複コールが無い（コール数＝ユニークレッグ数）。
-      expect(pairs.length, unique.length);
-      // シナリオ固定: キャッシュ無しなら 4 コール（S9→目的地 が2回）になるところ 3。
-      expect(pairs.length, 3);
-      // 経路自体は予算内のハイブリッドに収束している（共有レッグの再利用が正しい）。
-      expect(plan.totalMin, lessThanOrEqualTo(240));
-      expect(
-        plan.segments.where((s) => s.type == SegmentType.train),
-        isNotEmpty,
-      );
-    });
-
-    test('実測失敗（null）は負キャッシュせず、同一レッグの再要求で再度コールする（#116）', () async {
-      // 予算140では出発地→S1 レッグを共有する候補が連続で選び直される。このレッグの
-      // 実測を毎回失敗（routes 空）させても、失敗は負キャッシュしないため再要求のたびに
-      // 再コールされる（成功レッグはキャッシュされ重複しない）。
-      const s1Pair = '35.5,139.5;35.54,139.5';
-      final log = <Uri>[];
-      await build(cacheMock(log: log, failPair: s1Pair)).plan(
-        destination: '目的地',
-        destinationLatLng: const GeoPoint(35.70, 139.50),
-        departure: const TimeValue(h: 9, m: 0),
-        arrival: const TimeValue(h: 11, m: 20), // 予算140分
-        origin: const GeoPoint(35.50, 139.50),
-      );
-
-      final pairs = walkPairsOf(log);
-      final counts = <String, int>{};
-      for (final p in pairs) {
-        counts[p] = (counts[p] ?? 0) + 1;
-      }
-      // 失敗レッグは2回要求され、いずれも実コールされる（負キャッシュしない）。
-      expect(counts[s1Pair], 2);
-      // 成功した他レッグは1回ずつ（負キャッシュではなく正キャッシュは効く）。
-      expect(
-        counts.entries.where((e) => e.key != s1Pair && e.value > 1),
-        isEmpty,
-      );
-    });
-
     test('キャッシュヒット時の徒歩区間表示名は候補側の fromName/toName を使う（#116）', () async {
       // 選び直しで S9→目的地 レッグは中間候補が先に実測し、確定候補（S6乗車・S9降車）が
       // キャッシュヒットで再利用する。ヒット時も表示名は候補側（'S9'→'目的地'）で差し替える。
@@ -2442,13 +2753,13 @@ void main() {
     });
   });
 
-  group('NaviTimeRouteService 予算境界帯のマトリクス実測（#118）', () {
+  group('NaviTimeRouteService アクセス徒歩のマトリクス一括実測（measure-first）', () {
     const origin = GeoPoint(35.0, 139.000);
     const goal = GeoPoint(35.0, 139.054);
 
     // 出発側 O→S3 のレッグだけ道なり迂回が高い（実測が直線推定を大きく上回る）。
-    // ここから学習した α を全駅へ一律適用すると、迂回の素直な S2 乗車（実測では予算内・
-    // 徒歩最大）が α 補正で予算超過に見え、逐次プローブが取りこぼす状況を作る。
+    // 直線推定では S3 乗車が徒歩最大に見えるが実測では予算超過する。マトリクスで先に
+    // 測れば、実測でも予算内・徒歩最大の S2 乗車（一つ手前）を選べることを検証する。
     double sideDetour(GeoPoint start, GeoPoint dest) {
       final fromOrigin = (start.lng - 139.000).abs() < 1e-6;
       final toS3 = (dest.lng - 139.015).abs() < 1e-6;
@@ -2553,98 +2864,71 @@ void main() {
         .where((s) => s.type == SegmentType.walk)
         .fold(0, (a, s) => a + s.minutes);
 
-    test('帯内を実測すると α では後回しの徒歩最大候補を採用する', () async {
-      final matrixLog = <Uri>[];
-      final matrixPlan = await runCorridor(matrixMock(log: matrixLog));
-      final fallbackPlan = await runCorridor(matrixMock(matrixFails: true));
-
-      // マトリクス実測が実際に呼ばれている。
-      expect(
-        matrixLog.where((u) => u.path.contains('googleWalkMatrixProxy')),
-        isNotEmpty,
-      );
-      // どちらも予算内（マトリクスは最適化であり遅刻を返さない）。
-      expect(matrixPlan.totalMin, lessThanOrEqualTo(30));
-      expect(fallbackPlan.totalMin, lessThanOrEqualTo(30));
-      // 帯内を実測したマトリクス側の方が、α 一律補正の逐次プローブより多く歩く
-      // （取りこぼしていた徒歩最大候補を拾う）。
-      expect(
-        walkMinutesOf(matrixPlan),
-        greaterThan(walkMinutesOf(fallbackPlan)),
-      );
-    });
-
-    test('マトリクス失敗時は逐次プローブへフォールバックし予算内に収める', () async {
-      final plan = await runCorridor(matrixMock(matrixFails: true));
-      expect(plan.totalMin, lessThanOrEqualTo(30));
-      // 徒歩区間を持ち、電車を含むハイブリッドへ正しく縮退している。
-      expect(plan.segments.any((s) => s.type == SegmentType.train), isTrue);
-    });
-
-    test('帯内候補が2件以下ならマトリクスをスキップする', () async {
-      // 乗車駅候補を S1 のみに絞った単純経路。降車は遠方の S4 固定で、初回採用候補が
-      // 実測超過しても帯内に並ぶ候補が2件以下となり、マトリクスは呼ばれない。
-      Map<String, dynamic> single() => _navi([
-        _item([
-          _point('出発地', lat: 35.0, lon: 139.000),
-          _walkSection(900, 12),
-          _point('S1駅', lat: 35.0, lon: 139.012),
-          _trainSection(
-            4000,
-            7,
-            line: 'L線',
-            calling: [
-              _callingNoTime('S1駅', 35.0, 139.012),
-              _callingNoTime('S4駅', 35.0, 139.050),
-            ],
-          ),
-          _point('S4駅', lat: 35.0, lon: 139.050),
-          _walkSection(400, 5),
-          _point('目的地', lat: 35.0, lon: 139.054),
-        ]),
-      ]);
-
+    test('アクセス徒歩をマトリクスで一括実測し、高迂回の駅を避けて徒歩最大を選ぶ', () async {
       final log = <Uri>[];
-      // S1 への出発側徒歩を高迂回にし初回採用候補を実測超過させて α 学習を発火させる。
-      final client = MockClient((req) async {
-        log.add(req.url);
-        GeoPoint pt(String? s) {
-          final p = (s ?? '').split(',');
-          return GeoPoint(double.parse(p[0]), double.parse(p[1]));
-        }
+      final plan = await runCorridor(matrixMock(log: log));
 
-        double detour(GeoPoint s, GeoPoint d) =>
-            (s.lng - 139.000).abs() < 1e-6 && (d.lng - 139.012).abs() < 1e-6
-            ? 1.9
-            : 1.0;
-        int wMin(GeoPoint a, GeoPoint b) =>
-            (haversineKm(a, b) * 1000 / walkMetersPerMinute * detour(a, b))
-                .round();
-        int wM(GeoPoint a, GeoPoint b) =>
-            (haversineKm(a, b) * 1000 * detour(a, b)).round();
-        if (req.url.path.contains('googleWalkMatrixProxy')) {
-          return _jsonResponse(<Map<String, dynamic>>[], 200);
-        }
-        if (req.url.path.contains('googleWalkProxy')) {
-          final s = pt(req.url.queryParameters['start']);
-          final g = pt(req.url.queryParameters['goal']);
-          return _jsonResponse(_walkResp(wMin(s, g), wM(s, g)), 200);
-        }
-        return _jsonResponse(single(), 200);
-      });
-
-      await svc(client).plan(
-        destination: '目的地',
-        destinationLatLng: goal,
-        departure: const TimeValue(h: 9, m: 0),
-        arrival: const TimeValue(h: 9, m: 28), // 予算28分
-        origin: origin,
-      );
-
+      // アクセス徒歩の一括実測（マトリクス）が呼ばれている。
       expect(
         log.where((u) => u.path.contains('googleWalkMatrixProxy')),
-        isEmpty,
+        isNotEmpty,
       );
+      expect(plan.totalMin, lessThanOrEqualTo(30));
+      // 直線では S3 乗車が徒歩最大に見えるが実測で超過するため、実測でも予算内の
+      // S2 乗車（一つ手前）を選ぶ（バリアを事前に織り込む）。
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.fromName, 'S2駅');
+      expect(walkMinutesOf(plan), greaterThan(0));
+    });
+
+    test('マトリクス失敗時は直線推定で選び、enrich 検証で予算内へ収める', () async {
+      // マトリクス失敗時は直線推定で選定するため初回採用は高迂回の S3 乗車になり得るが、
+      // 採用候補の enrich（街路実測）で超過が判明し、除外して実測でも予算内の候補へ
+      // 選び直す（予算内候補がある限り超過を返さない不変条件を matrix 失敗時も保つ）。
+      final plan = await runCorridor(matrixMock(matrixFails: true));
+      expect(plan.totalMin, lessThanOrEqualTo(30));
+      expect(plan.segments.any((s) => s.type == SegmentType.train), isTrue);
+    });
+  });
+
+  group('parseNavitimeJst（#121 TZ 正規化）', () {
+    test('+09:00 オフセット付きを JST の wall-clock naive へ正規化する', () {
+      // オフセット付きは DateTime.parse で UTC インスタンスになる。naive 出発アンカー
+      // と差分すると端末 TZ で結果がずれるため、JST の壁時計値の naive へそろえる。
+      expect(
+        parseNavitimeJst('2026-06-14T05:30:00+09:00'),
+        DateTime(2026, 6, 14, 5, 30),
+      );
+    });
+
+    test('オフセット無しはそのままの壁時計値（JST 前提）で返す', () {
+      expect(
+        parseNavitimeJst('2026-06-14T05:30:00'),
+        DateTime(2026, 6, 14, 5, 30),
+      );
+    });
+
+    test('オフセット有無で同一の naive DateTime になる（端末 TZ 非依存）', () {
+      expect(
+        parseNavitimeJst('2026-06-14T05:30:00+09:00'),
+        parseNavitimeJst('2026-06-14T05:30:00'),
+      );
+    });
+
+    test('Z（UTC）表記も JST へ変換する', () {
+      // 20:30Z = 翌 05:30 JST。
+      expect(
+        parseNavitimeJst('2026-06-13T20:30:00Z'),
+        DateTime(2026, 6, 14, 5, 30),
+      );
+    });
+
+    test('null・空文字・不正値は null', () {
+      expect(parseNavitimeJst(null), isNull);
+      expect(parseNavitimeJst(''), isNull);
+      expect(parseNavitimeJst('not-a-date'), isNull);
     });
   });
 }
