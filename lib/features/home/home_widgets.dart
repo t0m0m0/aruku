@@ -75,13 +75,12 @@ class _DestinationCard extends StatelessWidget {
                             Text(
                               '出発',
                               style: jpStyle(
-                                size: 12,
+                                size: 13,
                                 weight: FontWeight.w700,
                                 color: c.ink2,
-                                letterSpacing: 0.06 * 12,
+                                letterSpacing: 0.04 * 13,
                               ),
                             ),
-                            const SizedBox(height: 2),
                             Text(
                               departure,
                               style: jpStyle(
@@ -119,13 +118,12 @@ class _DestinationCard extends StatelessWidget {
                             Text(
                               '目的地',
                               style: jpStyle(
-                                size: 12,
+                                size: 13,
                                 weight: FontWeight.w700,
                                 color: c.ink2,
-                                letterSpacing: 0.06 * 12,
+                                letterSpacing: 0.04 * 13,
                               ),
                             ),
-                            const SizedBox(height: 2),
                             Text(
                               destination ?? 'どこへ歩く?',
                               style: jpStyle(
@@ -263,9 +261,9 @@ class _TimeField extends StatelessWidget {
                 label,
                 style: jpStyle(
                   size: 11,
-                  weight: FontWeight.w700,
+                  weight: FontWeight.w800,
                   color: c.ink2,
-                  letterSpacing: 0.06 * 11,
+                  letterSpacing: 0.08 * 11,
                 ),
               ),
               if (date != null) ...[
@@ -284,7 +282,7 @@ class _TimeField extends StatelessWidget {
                 time,
                 style: numStyle(
                   size: 21,
-                  weight: FontWeight.w600,
+                  weight: FontWeight.w500,
                   color: c.ink,
                 ),
               ),
@@ -386,7 +384,7 @@ class _WeeklyGoalCard extends StatelessWidget {
                     Text(
                       'km',
                       style: jpStyle(
-                        size: 12,
+                        size: 13,
                         weight: FontWeight.w700,
                         color: c.ink2,
                       ),
