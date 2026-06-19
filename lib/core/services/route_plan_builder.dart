@@ -138,6 +138,29 @@ String _trainSub(String? line, int wait) {
   return wait > 0 ? '$wait分待ち · $name' : name;
 }
 
+/// ノードに表示する累積分。徒歩で乗車駅に着き、直後 [next] が発車時刻を持つ電車で、
+/// かつ早着して待つ（発車相対分 > 駅着の累積分 [arrivalCum]）ときは発車相対分を返し、
+/// ノードへ「電車の発車時刻」を表示させる。乗り遅れ（駅着 > 発車）や時刻欠落、乗換駅
+/// （直前が電車。発車に寄せると到着・待ち注記と矛盾する）はそのまま到着累積分を返す。
+/// 到着時刻・総所要分の計算（cum）には影響させず、表示時刻のみを補正する。
+int _nodeDisplayCum(
+  int arrivalCum,
+  RouteSegment current,
+  RouteSegment? next,
+  DateTime? departureAt,
+) {
+  final dep = next?.depTime;
+  if (departureAt == null ||
+      current.type != SegmentType.walk ||
+      next == null ||
+      next.type != SegmentType.train ||
+      dep == null) {
+    return arrivalCum;
+  }
+  final boardRel = dep.difference(departureAt).inMinutes;
+  return boardRel > arrivalCum ? boardRel : arrivalCum;
+}
+
 /// 区間列から RoutePlan を構築する（合計距離・徒歩距離・kcal・徒歩比率・
 /// タイムライン）。データ源（Google / NAVITIME）に依存しない純粋関数。
 /// [departureAt] は出発の絶対時刻（時刻表データとの差で待ち時間を算出する基点）。
@@ -168,9 +191,15 @@ RoutePlan buildRoutePlan({
     final advanced = _advance(cum, seg, departureAt);
     cum = advanced.cum;
     final isLast = i == segments.length - 1;
+    final next = isLast ? null : segments[i + 1];
     nodes.add(
       TimelineNode(
-        time: formatClock(departure, cum),
+        // 徒歩で乗車駅に着く区間では、駅着の累積分ではなく直後の電車の発車時刻を
+        // 表示する（早着して待つとき「いつ電車が出るか」を明示する #115）。
+        time: formatClock(
+          departure,
+          _nodeDisplayCum(cum, seg, next, departureAt),
+        ),
         place: isLast ? to : seg.toName,
         sub: isLast
             ? (cum <= budgetMin ? '到着 · 制限内 ✓' : '到着')

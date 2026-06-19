@@ -5,9 +5,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('buildRoutePlan timeline', () {
-    test('乗車前の待ち時間を到着時刻に反映する', () {
+    test('乗車駅ノードは徒歩到着ではなく電車の発車時刻を表示する', () {
       // 9:00 出発 → 徒歩5分で駅着 9:05 → 電車は 9:12 発・9:30 着。
-      // 駅着(9:05)から発車(9:12)まで7分待つため、到着は累積分(9:23)ではなく 9:30。
+      // 乗車駅ノードは早着して待つぶんを含め「電車の発車時刻 9:12」を表示する（駅着 9:05
+      // ではない）。到着は累積分(9:23)ではなく 9:30。
       final segments = [
         const RouteSegment(
           type: SegmentType.walk,
@@ -40,7 +41,7 @@ void main() {
 
       expect(plan.timelineNodes.map((n) => n.time).toList(), [
         '9:00',
-        '9:05',
+        '9:12',
         '9:30',
       ]);
       expect(plan.totalMin, 30);
@@ -48,6 +49,8 @@ void main() {
 
     test('乗り換え待ち時間を到着時刻に反映する', () {
       // 徒歩5分(9:05着) → 電車1 9:10発/9:25着 → 乗換15分待ち → 電車2 9:40発/10:00着。
+      // 乗車駅 S1 は電車1の発車時刻 9:10 を表示（駅着 9:05 ではない）。乗換駅 S2 は
+      // 電車1の到着 9:25 を保持する（発車に寄せると待ち注記と矛盾するため）。
       final segments = [
         const RouteSegment(
           type: SegmentType.walk,
@@ -86,7 +89,7 @@ void main() {
 
       expect(plan.timelineNodes.map((n) => n.time).toList(), [
         '9:00',
-        '9:05',
+        '9:10',
         '9:25',
         '10:00',
       ]);
