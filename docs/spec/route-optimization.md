@@ -66,6 +66,7 @@ NAVITIME route_transit 照会（1回）
   → 採用候補を enrich（街路実測）で検証：
        ・乗り遅れがあれば乗車駅の時刻表を再照会し実在列車へ差替え（#115）
        ・enrich で予算超過が判明したら除外して選び直す（matrix 失敗時の直線楽観の是正）
+  → 確定が「崩壊」なら乗車駅探索フォールバック（§3.6）→ 候補追加して再選定
   → buildRoutePlan で RoutePlan 構築
 ```
 
@@ -95,6 +96,17 @@ NAVITIME route_transit 照会（1回）
 ### 3.5 バックエンド移管（先送り）
 
 「重いロジックをバックエンドへ」という案があるが、**CPU は軽く本当のボトルネックは外部APIの逐次往復**。measure-first で往復が 1〜2 回に畳まれるため当面不要。着手するなら実機の実測レイテンシ計測が前提（[検討メモ](../notes/optimization-backend-offload.md)）。`RouteService` 抽象で後から差し替え可能。
+
+### 3.6 乗車駅探索フォールバック（崩壊時のみ・徒歩最大化）
+
+詳細・実機実証は [walk-max-board-search.md](../notes/walk-max-board-search.md)。基準経路（最速1本）に依存する measure-first は、徒歩を増やす＝乗車を遅らせる候補が借用時刻表に乗り遅れ、#115 再アンカーも route_transit のデータ源制約で詰むことがある（蒲田→上野公園で徒歩3分・余裕137分へ縮退）。この**崩壊**時だけ走らせる限定フォールバック：
+
+- **起動条件（崩壊判定 `_isCollapse`）:** 確定（enrich 後＝乗れない hybrid 脱落後）が、(1) 予算内標準乗換の最大徒歩を僅少（`_collapseWalkMarginMin`）しか上回らず、(2) 予算を大きく（`_collapseSlackRatio`）余らせている。両方を満たすときのみ。崩壊でなければ既存のハイブリッド／標準で足り、探索の往復を払わない。
+- **探索（二段構え）:**
+  1. **直線二分探索**で概略境界を出す。各駅 X から `route_transit(X→goal, departureAt+t1)` を引き直し（X 発の自己整合な実在便なので構成上 firstMissedTrain が立たない＝再アンカー詰みを回避）、「到着が予算内の最遠の乗車駅＝総徒歩最大」を `maxWalkBoardingIndex`（§5）で二分探索。前半徒歩 t1 は直線推定（下限・Google を呼ばない）。
+  2. **境界の実街路確定（ステップバック）**：直線は下限なので実 walk で前半徒歩が伸び、境界駅が予算超過になり得る。境界から手前へ最大 `_boardSearchVerifySteps` 駅、実 walk（`_tryWalk`・`walkCache` 共有）＋実 boardAt で引き直し、**予算内かつ乗り遅れ無しの最遠駅を確定**して返す。実測済みなので採用後の enrich でも覆らない（同一レッグはキャッシュヒット）。
+- **実機実証（蒲田→上野公園・180分）:** 直線では新橋（徒歩158分）が境界だが、実 walk で新橋(207)・浜松町(190)とも予算超過 → 田町(169)へ後退し**徒歩6分→154分・余裕11分**を確定。詳細は [walk-max-board-search.md §6.4](../notes/walk-max-board-search.md)。
+- **#115 との関係:** 乗り遅れ再照会（#115）は基準経路の採用候補1本の救済、本フォールバックは候補生成のやり直し。崩壊時のみ後者が補う。
 
 ---
 
@@ -147,6 +159,7 @@ NAVITIME route_transit 照会（1回）
 |---|---|---|
 | `selectBestRoute(candidates, budgetMin, {origin, goal, departureAt, maxBacktrackRatio})` | hybrid_route_selector.dart | 逆戻り除外 → 予算内（実到着 ≤ budget）で `walkMinutes` 最大（同点は実到着最早）→ 予算内皆無なら今夜乗れる範囲の実到着最早。 |
 | `reachableWithinBudget(candidates, budgetMin, departureAt)` | hybrid_route_selector.dart | 乗車待ちが予算内 かつ 乗り遅れ無しの候補のみ。該当無しは null。 |
+| `maxWalkBoardingIndex({count, budgetMin, evaluate})` | hybrid_route_selector.dart | 乗車駅探索（[walk-max-board-search](../notes/walk-max-board-search.md)）。到着が index 単調増の前提で `evaluate(i) ≤ budget` の最大 index（＝総徒歩最大）を二分探索。evaluate を O(log count) 回に抑える。予算内皆無・count 0 は null。 |
 | `buildRoutePlan({from, to, segments, departure, budgetMin, departureAt})` | route_plan_builder.dart | segments → RoutePlan（totalKm/walkKm/kcal/walkRatio/totalMin/timelineNodes）。待ち時間込みの到着を計算。 |
 | `arrivalMinutes(segments, departureAt)` | route_plan_builder.dart | 乗車前・乗換待ちを含む実到着分。departureAt 無しは待ち抜き合計。 |
 | `firstMissedTrain(segments, departureAt)` | route_plan_builder.dart | 駅着が発車後になる最初の電車区間（index, cumBefore）。無ければ null。 |
@@ -167,6 +180,9 @@ NAVITIME route_transit 照会（1回）
 | `maxBacktrackRatio` | 0.15 | 逆戻り迂回の許容比（× 直線距離） |
 | `_maxMatrixSideStations` | 10 | マトリクス片側の駅数上限（要素数 ≤ 25） |
 | `_maxEnrichAttempts` | 8 | 採用候補の enrich 検証で選び直す試行上限（#115 再照会・超過是正） |
+| `_collapseWalkMarginMin` | 10 | 乗車駅探索フォールバック（§3.6）の崩壊判定: 確定徒歩が標準乗換をこの分数以下しか上回らない |
+| `_collapseSlackRatio` | 0.4 | 同上の崩壊判定: 確定が予算をこの割合以上余らせている |
+| `_boardSearchVerifySteps` | 4 | 乗車駅探索の境界実 walk 確定で手前へ後退する最大駅数（§3.6） |
 | `MATRIX_MAX_ELEMENTS`（プロキシ） | 25 | マトリクス要素数上限（課金暴発防止） |
 | レート制限 | 30 / 90 req/min | 標準 / 徒歩系（IP単位） |
 

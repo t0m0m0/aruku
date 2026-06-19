@@ -84,6 +84,23 @@ class NaviTimeRouteService implements RouteService {
   /// 絞る。乗車側コールは origin→{各乗車駅, goal} の (上限 + 1) 要素になる。
   static const int _maxMatrixSideStations = 10;
 
+  /// 乗車駅探索フォールバック（docs/notes/walk-max-board-search.md §6）の起動しきい値。
+  /// §7 の崩壊は2症状を同時に満たす：(1) 徒歩最大化が標準乗換を実質改善できていない、
+  /// (2) 予算が大きく余っている。両方を満たすときだけ駅別 route_transit 引き直しで歩ける
+  /// 乗車駅を探す。片方だけ（小コリドーで僅かに改善・余裕も小／予算は余るが既に十分歩く）
+  /// では起動しない。いずれも定数で微調整可能。
+  ///
+  /// (1) 採用見積もり候補の徒歩が予算内の標準乗換候補の最大徒歩をこの分数以下しか上回らない。
+  static const int _collapseWalkMarginMin = 10;
+
+  /// (2) 採用見積もり候補が予算をこの割合以上余らせている（徒歩に使う余地が大きい）。
+  static const double _collapseSlackRatio = 0.4;
+
+  /// 乗車駅探索で、直線二分探索の境界から手前へ実街路 walk 確定を試す最大駅数。直線は
+  /// 下限なので実 walk で予算超過になり得る境界駅を、手前（徒歩は減るが実現可能性は上がる）
+  /// へ最大この数だけ後退して確定する。実 walk＋route_transit の往復をこの数で上限化する。
+  static const int _boardSearchVerifySteps = 4;
+
   /// 「測ってから選ぶ」選定（measure-first）。直線フロンティアで乗降候補駅を絞り、
   /// origin→各乗車駅／各降車駅→goal の徒歩を1回（最大2コール）のマトリクスで一括実測
   /// してから、実測値の上で [selectBestRoute] が決定的に予算内徒歩最大を選ぶ。反応的な
@@ -152,15 +169,67 @@ class NaviTimeRouteService implements RouteService {
       _measuredWalk(origin, goal, parsed.first.from, parsed.first.to, measured),
     );
 
-    // 実測値の上で決定的に選定し、採用候補を enrich（街路実測）で検証する。予算内
-    // 見積もりの候補が予定列車に乗り遅れるなら乗車駅の時刻表を再照会して実在列車へ
-    // 差し替え（#115）、enrich で予算超過が判明したら（マトリクス失敗時の直線楽観など）
-    // 除外して選び直す。除外は実測（enrich・再照会）の確認時だけで、予算内候補がある限り
-    // 超過ルートを返さない（#117/#118 の不変条件）。best-effort（予算内なし）は縮小 pool
-    // ではなく全 candidates から「今夜乗れる」範囲の実到着最早へ縮退する（#121 原因②）。
-    // マトリクスが成功した通常ケースは初回の選定が実測と整合し1回で確定。
+    // 実測値の上で決定的に選定し、採用1経路を enrich（街路実測）で検証して確定する。
+    // 基準時刻表で乗れない hybrid はこのループ内で脱落するため、徒歩最大化が崩壊したか
+    // どうかは確定後にしか分からない（だから乗車駅探索はループの後で判定する）。
+    var enriched = await _selectAndEnrich(
+      candidates,
+      budgetMin,
+      departureAt,
+      origin: origin,
+      goal: goal,
+      walkCache: walkCache,
+    );
+
+    // 乗車駅探索フォールバック（docs/notes/walk-max-board-search.md §6）。確定が「標準乗換
+    // とほぼ同じ徒歩」かつ「予算が大きく余る」＝徒歩最大化の崩壊（§7）のときだけ、基準経路の
+    // 停車駅を乗車駅候補に各駅 route_transit を引き直して歩ける乗車駅を1本足し、選び直す。
+    // 崩壊でなければ既存のハイブリッド／標準で足りるので探索の往復を払わない。
+    if (base != null && _isCollapse(enriched, parsed, budgetMin, departureAt)) {
+      final boardSearch = await _buildBoardSearchCandidate(
+        base,
+        origin,
+        goal,
+        budgetMin,
+        departureAt,
+        walkCache,
+      );
+      if (boardSearch != null) {
+        enriched = await _selectAndEnrich(
+          [...candidates, boardSearch],
+          budgetMin,
+          departureAt,
+          origin: origin,
+          goal: goal,
+          walkCache: walkCache,
+        );
+      }
+    }
+
+    return _build(
+      enriched,
+      departure,
+      budgetMin,
+      onProgress,
+      fromName: fromName,
+      toName: toName,
+    );
+  }
+
+  /// 候補 [candidates] から決定的に選定し採用1経路を enrich（街路実測）で検証する確定
+  /// ループ。予算内見積もり候補が予定列車に乗り遅れるなら乗車駅の時刻表を再照会して実在
+  /// 列車へ差し替え（#115）、enrich で予算超過が判明したら除外して選び直す。除外は実測
+  /// （enrich・再照会）の確認時だけで、予算内候補がある限り超過を返さない（#117/#118）。
+  /// best-effort（予算内なし）は全 [candidates] から「今夜乗れる」範囲の実到着最早へ縮退（#121）。
+  Future<RouteCandidate> _selectAndEnrich(
+    List<RouteCandidate> candidates,
+    int budgetMin,
+    DateTime departureAt, {
+    required GeoPoint origin,
+    required GeoPoint goal,
+    required Map<String, RouteCandidate> walkCache,
+  }) async {
     var pool = candidates;
-    late RouteCandidate enriched;
     for (var attempt = 0; ; attempt++) {
       final chosen = selectBestRoute(
         candidates: pool,
@@ -172,51 +241,52 @@ class NaviTimeRouteService implements RouteService {
       final withinByEstimate =
           arrivalMinutes(chosen.segments, departureAt) <= budgetMin;
 
-      // 最善でも予算内に届かない best-effort。ここで縮小 pool の chosen を返すと、enrich
-      // 超過で pool から外れた全徒歩などを見落とし「今夜乗れない」翌朝始発を返してしまう
-      // （#121 原因②）。全 candidates から「今夜乗れる」範囲（乗車待ち予算内・乗り遅れ無し）
-      // の実到着最早へ縮退する。全徒歩は常に reachable なので必ず候補に残る。
+      // 最善でも予算内に届かない best-effort。縮小 pool の chosen を返すと、enrich 超過で
+      // pool から外れた全徒歩などを見落とし「今夜乗れない」翌朝始発を返してしまう（#121
+      // 原因②）。全 candidates から「今夜乗れる」範囲（乗車待ち予算内・乗り遅れ無し）の
+      // 実到着最早へ縮退する。全徒歩は常に reachable なので必ず候補に残る。
       if (!withinByEstimate) {
-        final fallbackPool =
-            reachableWithinBudget(candidates, budgetMin, departureAt) ??
-            candidates;
-        final shortest = fallbackPool.reduce(
-          (a, b) =>
-              arrivalMinutes(a.segments, departureAt) <=
-                  arrivalMinutes(b.segments, departureAt)
-              ? a
-              : b,
+        return _enrichWalkGeometry(
+          _bestEffort(candidates, budgetMin, departureAt),
+          walkCache,
         );
-        enriched = await _enrichWalkGeometry(shortest, walkCache);
-        break;
       }
 
       // 以降は withinByEstimate（予算内見積もり）の候補のみ。予定列車に乗り遅れるなら
-      // 乗車駅の時刻表を NAVITIME へ再照会し実在列車へ差し替えて選び直す（#115）。
-      if (attempt < _maxEnrichAttempts) {
-        final missed = firstMissedTrain(chosen.segments, departureAt);
-        if (missed != null) {
+      // 乗車駅の時刻表を NAVITIME へ再照会し、実在列車（乗車駅の再アンカー・別路線含む）へ
+      // 差し替えて選び直す（#115）。再照会（ネットワーク）は _maxEnrichAttempts 回まで。
+      final missed = firstMissedTrain(chosen.segments, departureAt);
+      if (missed != null) {
+        if (attempt < _maxEnrichAttempts) {
           final real = await _refetchMissedTrain(
             chosen,
             missed,
+            origin,
             goal,
             departureAt,
+            walkCache,
           );
           if (real != null) {
-            // 実在列車の発着で差し替え（real は乗り遅れ無しが保証される）。
+            // 実在列車で差し替え（real は再アンカー後も乗り遅れ無しが保証される）。
             pool = [for (final c in pool) identical(c, chosen) ? real : c];
             continue;
           }
-          // 実在の後続列車を確認できない → 当該候補を除外して選び直す。
-          if (pool.length > 1) {
-            pool = pool.where((c) => !identical(c, chosen)).toList();
-            continue;
-          }
         }
+        // 差し替え不能（再照会失敗 or 上限到達）→ 乗れない候補なので除外して選び直す。
+        // 除外は実測（再照会）の確認時のみ。乗り遅れ候補しか残らなければ best-effort 縮退し、
+        // 無検証の乗り遅れルートは返さない（上限到達時の偽陽性を防ぐ）。
+        if (pool.length > 1) {
+          pool = pool.where((c) => !identical(c, chosen)).toList();
+          continue;
+        }
+        return _enrichWalkGeometry(
+          _bestEffort(candidates, budgetMin, departureAt),
+          walkCache,
+        );
       }
 
       // 採用1経路の徒歩区間だけ Google の街路ジオメトリ・所要・距離へ上書きする。
-      enriched = await _enrichWalkGeometry(chosen, walkCache);
+      final enriched = await _enrichWalkGeometry(chosen, walkCache);
 
       // 予算内見積もりが enrich（実測）で超過に転じたら除外して次善へ（matrix 失敗時の
       // 直線楽観の是正）。除外は実測の確認時だけで、予算内候補がある限り超過を返さない
@@ -227,16 +297,170 @@ class NaviTimeRouteService implements RouteService {
         pool = pool.where((c) => !identical(c, chosen)).toList();
         continue;
       }
-      break;
+      return enriched;
     }
-    return _build(
-      enriched,
-      departure,
-      budgetMin,
-      onProgress,
-      fromName: fromName,
-      toName: toName,
+  }
+
+  /// 予算内候補が無い／乗り遅れ候補しか残らないときの縮退先。全 candidates から
+  /// 「今夜乗れる」範囲（乗車待ち予算内・乗り遅れ無し・#121 原因②）の実到着最早を返す。
+  /// 全徒歩は待ち0・乗り遅れ無しで常に reachable のため必ず候補に残る。reachable が
+  /// 無ければ全 candidates の実到着最早へ縮退する。
+  RouteCandidate _bestEffort(
+    List<RouteCandidate> candidates,
+    int budgetMin,
+    DateTime departureAt,
+  ) {
+    final pool =
+        reachableWithinBudget(candidates, budgetMin, departureAt) ?? candidates;
+    return pool.reduce(
+      (a, b) =>
+          arrivalMinutes(a.segments, departureAt) <=
+              arrivalMinutes(b.segments, departureAt)
+          ? a
+          : b,
     );
+  }
+
+  /// 確定 [winner]（[_selectAndEnrich] 後＝基準時刻表で乗れない hybrid 脱落後）が
+  /// 徒歩最大化の崩壊（§7）かを判定する。次の2症状を同時に満たすとき true：
+  /// (1) 予算内の標準乗換候補の最大徒歩を [_collapseWalkMarginMin] 以下しか上回らない、
+  /// (2) 予算を [_collapseSlackRatio] 以上余らせている。best-effort（予算外）は対象外。
+  bool _isCollapse(
+    RouteCandidate winner,
+    List<_TransitParse> parsed,
+    int budgetMin,
+    DateTime departureAt,
+  ) {
+    final arrival = arrivalMinutes(winner.segments, departureAt);
+    if (arrival > budgetMin) return false; // best-effort（予算外）は対象外
+    // 症状(2): 予算が大きく余っている（既に予算を使い切る小コリドーでは起動しない）。
+    if (budgetMin - arrival < budgetMin * _collapseSlackRatio) return false;
+    // 症状(1): ハイブリッド機構が標準乗換（ほぼ全電車）を実質改善できていない。
+    var bestStandardWalk = 0;
+    for (final p in parsed) {
+      final c = p.toCandidate();
+      if (arrivalMinutes(c.segments, departureAt) <= budgetMin &&
+          c.walkMinutes > bestStandardWalk) {
+        bestStandardWalk = c.walkMinutes;
+      }
+    }
+    return winner.walkMinutes - bestStandardWalk <= _collapseWalkMarginMin;
+  }
+
+  /// 乗車駅探索（docs/notes/walk-max-board-search.md）。[base] の停車駅を乗車駅候補
+  /// （前半徒歩 t1 の昇順）とし、各駅 X から `route_transit(X→goal)` を `departureAt+t1`
+  /// 発で引き直して「到着が予算内の最遠の乗車駅＝総徒歩最大」を [maxWalkBoardingIndex]
+  /// で二分探索する。引き直した経路は X 発の自己整合な実在便なので、構成上 firstMissedTrain
+  /// が立たず（#115 の再アンカー詰みを回避）、前半徒歩を予算ギリギリまで延ばせる。
+  ///
+  /// 探索中の前半徒歩 t1 は直線推定（下限・Google を呼ばない）で測る。直線は道なりの
+  /// 下限なので予算内可否が楽観に倒れ得るが、採用候補は後段の enrich（街路実測）検証で
+  /// 測り直され、超過が判明すれば除外して選び直す（measure-first の安全網を流用）。これで
+  /// 二段構え：(1) 直線推定の前半徒歩で二分探索し、Google を呼ばずに概略境界を出す。
+  /// (2) その駅から手前へ、**実街路 walk（[_tryWalk]・[walkCache] 共有）＋実 boardAt で
+  /// 引き直し**、予算内かつ乗り遅れ無しの最遠（総徒歩最大）の乗車駅を確定して返す。直線は
+  /// 道なりの下限なので、実 walk で前半徒歩が伸びると境界は手前へ寄る（§4.2）。確定は実測
+  /// なので採用後の enrich でも覆らない（同一レッグはキャッシュヒットで再コールしない）。
+  /// 返す候補は `[徒歩 origin→X] + [X→goal の実在便区間]`。停車駅 2 未満／予算内の乗車駅が
+  /// 無いときは null。
+  Future<RouteCandidate?> _buildBoardSearchCandidate(
+    _TransitParse base,
+    GeoPoint origin,
+    GeoPoint goal,
+    int budgetMin,
+    DateTime departureAt,
+    Map<String, RouteCandidate> walkCache,
+  ) async {
+    final stops = base.stops;
+    if (stops.length < 2) return null;
+
+    // 二分探索が同じ index を再評価しても引き直さないよう構築済み候補をメモ化する。
+    final built = <int, RouteCandidate?>{};
+    Future<RouteCandidate?> buildAt(int i) async {
+      if (built.containsKey(i)) return built[i];
+      final x = stops[i];
+      final walk1 = _estimateWalk(
+        origin,
+        x.coord,
+        fromName: base.from,
+        toName: x.name,
+      );
+      final boardAt = departureAt.add(Duration(minutes: walk1.totalMin));
+      try {
+        final body = await _fetchTransitAt(x.coord, goal, boardAt);
+        final items = body['items'] as List<dynamic>? ?? const [];
+        if (items.isEmpty) return built[i] = null;
+        final xToGoal = _parseTransit(
+          items.first as Map<String, dynamic>,
+        ).toCandidate();
+        final walk1Seg = walk1.segments.first;
+        return built[i] = RouteCandidate(
+          from: base.from,
+          to: xToGoal.to,
+          segments: [
+            if (walk1Seg.minutes > 0) walk1Seg, // 乗車駅直近なら0分徒歩は混ぜない。
+            ...xToGoal.segments,
+          ],
+        );
+      } on RouteException {
+        return built[i] = null;
+      }
+    }
+
+    final best = await maxWalkBoardingIndex(
+      count: stops.length,
+      budgetMin: budgetMin,
+      evaluate: (i) async {
+        final c = await buildAt(i);
+        // 経路無し（再照会失敗）は予算外として扱い、二分探索は手前の駅を探す。
+        return c == null
+            ? budgetMin + (1 << 20)
+            : arrivalMinutes(c.segments, departureAt);
+      },
+    );
+    if (best == null) return null;
+
+    // (2) 境界付近を実街路 walk で確定。best から手前へ最大 _boardSearchVerifySteps 駅、
+    // 実 walk＋実 boardAt で route_transit を引き直し、予算内かつ乗り遅れ無しの最遠駅を返す。
+    // 境界 best は直線 boardAt で(1)、実 boardAt で(2)と route_transit を2回引く（boardAt が
+    // 異なりキャッシュ不可）。崩壊時のみ走るので往復増は (1)O(log n) + (2)最大4駅に限られる。
+    for (var i = best; i >= 0 && best - i < _boardSearchVerifySteps; i--) {
+      final x = stops[i];
+      final walk1 =
+          await _tryWalk(
+            origin,
+            x.coord,
+            fromName: base.from,
+            toName: x.name,
+            cache: walkCache,
+          ) ??
+          _estimateWalk(origin, x.coord, fromName: base.from, toName: x.name);
+      final boardAt = departureAt.add(Duration(minutes: walk1.totalMin));
+      try {
+        final body = await _fetchTransitAt(x.coord, goal, boardAt);
+        final items = body['items'] as List<dynamic>? ?? const [];
+        if (items.isEmpty) continue;
+        final xToGoal = _parseTransit(
+          items.first as Map<String, dynamic>,
+        ).toCandidate();
+        final walk1Seg = walk1.segments.first;
+        final cand = RouteCandidate(
+          from: base.from,
+          to: xToGoal.to,
+          segments: [
+            if (walk1Seg.minutes > 0) walk1Seg, // 乗車駅直近なら0分徒歩は混ぜない。
+            ...xToGoal.segments,
+          ],
+        );
+        final withinBudget =
+            arrivalMinutes(cand.segments, departureAt) <= budgetMin;
+        final notMissed = firstMissedTrain(cand.segments, departureAt) == null;
+        if (withinBudget && notMissed) return cand;
+      } on RouteException {
+        continue;
+      }
+    }
+    return null;
   }
 
   /// 乗降アクセス徒歩を1回（最大2コール）のマトリクスで一括実測し、[measured] に
@@ -278,6 +502,13 @@ class NaviTimeRouteService implements RouteService {
   /// フロンティアの乗車駅 b → 降車駅 a（同一 section・b より後方）の全分割を、実測した
   /// アクセス徒歩で候補化する。乗車時間・距離・運賃は [_rideMinutes]/[_railKm]/
   /// [_proratedFare] で求める（直線推定の旧 _buildHybrids を実測版に置換したもの）。
+  ///
+  /// **通過駅は乗降候補にしない:** 快速など一部列車は calling_at に通過駅を時刻なしで
+  /// 含める（停車駅は時刻あり）。通過駅で乗降するハイブリッドは「その列車に乗れない／
+  /// 降りられない」非実在経路で、採用時に乗り遅れ再照会しても実在列車が見つからず脱落し、
+  /// 結果として徒歩の多い候補が一掃され全電車ルートへ縮退する原因になる。よって時刻情報を
+  /// 持つ区間では、乗車は dep を持つ駅・降車は arr を持つ駅に限る。時刻が全く無い区間
+  /// （プロキシのデータ欠落・#67）は従来どおり全停車駅を許容する（距離で乗車時間を概算）。
   List<RouteCandidate> _buildMeasuredHybrids(
     _TransitParse base,
     ({List<int> boarding, List<int> alighting}) frontier,
@@ -286,8 +517,19 @@ class NaviTimeRouteService implements RouteService {
     GeoPoint goal,
   ) {
     final stops = base.stops;
+    // 区間ごとに時刻情報の有無を判定（#67 のデータ欠落区間は全駅 untimed→全駅許容）。
+    final sectionTimed = <int, bool>{};
+    for (final s in stops) {
+      if (s.dep != null || s.arr != null) sectionTimed[s.section] = true;
+    }
+    bool boardable(_Stop s) =>
+        !(sectionTimed[s.section] ?? false) || s.dep != null;
+    bool alightable(_Stop s) =>
+        !(sectionTimed[s.section] ?? false) || s.arr != null;
+
     final result = <RouteCandidate>[];
     for (final b in frontier.boarding) {
+      if (!boardable(stops[b])) continue; // 通過駅では乗車できない。
       final walk1 = _measuredWalkSeg(
         origin,
         stops[b].coord,
@@ -299,6 +541,7 @@ class NaviTimeRouteService implements RouteService {
         if (a <= b) continue;
         // 乗換をまたぐ b→a は単一乗車として表現できないため同一区間のペアのみ。
         if (stops[a].section != stops[b].section) continue;
+        if (!alightable(stops[a])) continue; // 通過駅では降車できない。
         final ride = _rideMinutes(stops, b, a);
         if (ride < 0) continue;
         final walk2 = _measuredWalkSeg(
@@ -426,19 +669,29 @@ class NaviTimeRouteService implements RouteService {
     return RouteCandidate(from: chosen.from, to: chosen.to, segments: segments);
   }
 
-  /// 確定しかけた候補 [enriched] の乗り遅れ電車区間 [missed] を、乗車駅からの時刻表を
-  /// NAVITIME に再照会して実在列車の発着時刻へ差し替える（#115）。乗車駅座標は当該
-  /// 区間 polyline の先頭、再照会の出発時刻は出発 [departureAt] + 駅着までの実累積分。
-  /// 同一路線・同一降車駅を含み、駅着以降に発車する実在列車が見つかればその dep/arr で
-  /// 区間を差し替えた候補を返す。見つからなければ null（呼び出し側が候補を除外し次善へ）。
-  /// 運賃・距離・polyline・停車数は元の按分値を保ち、発着時刻と乗車時間だけ実データへ。
+  /// 確定しかけた候補 [candidate] の乗り遅れ電車区間 [missed] を、乗車駅からの時刻表を
+  /// NAVITIME に再照会して実在列車へ差し替える（#115）。再照会の出発座標は当該区間
+  /// polyline の先頭、出発時刻は出発 [departureAt] + 駅着までの実累積分。
+  ///
+  /// **再アンカー＋別路線許容:** NAVITIME がその時刻に返す経路は、元の乗車駅と違う駅
+  /// （多くは1駅 goal 寄り）から別路線で乗ることがある。これを正として受け入れ、
+  /// 降車駅 [missed] は維持したまま、乗車駅を NAVITIME の実際の乗車駅 B' へ**再アンカー**し、
+  /// アクセス徒歩 origin→B' を [_tryWalk] で測り直して候補を組み直す（降車後の徒歩
+  /// A→goal は不変なので流用）。乗車時間・運賃・距離・polyline は再照会した停車駅から
+  /// 実データで再構築する（運賃は #71 で距離按分）。
+  ///
+  /// 再照会不能・降車駅に着く実在列車なし・再アンカー後も乗り遅れる（B' への徒歩が
+  /// 伸びて発車後着）場合は null を返す（呼び出し側が候補を除外し次善へ。乗れない列車を
+  /// 確定しない・#115 安全側）。
   Future<RouteCandidate?> _refetchMissedTrain(
-    RouteCandidate enriched,
+    RouteCandidate candidate,
     ({int index, int cumBefore}) missed,
+    GeoPoint origin,
     GeoPoint goal,
     DateTime departureAt,
+    Map<String, RouteCandidate> walkCache,
   ) async {
-    final train = enriched.segments[missed.index];
+    final train = candidate.segments[missed.index];
     if (train.polyline.isEmpty) return null;
     final board = train.polyline.first;
     final startTime = departureAt.add(Duration(minutes: missed.cumBefore));
@@ -453,56 +706,119 @@ class NaviTimeRouteService implements RouteService {
         .cast<Map<String, dynamic>>();
     final real = _findRealBoarding(
       items,
-      line: train.line,
-      boardName: train.fromName,
       alightName: train.toName,
       notBefore: startTime,
     );
     if (real == null) return null;
-    final ride = _minutesBetween(real.arr, real.dep);
-    if (ride < 0) return null;
 
-    final replaced = RouteSegment(
-      type: SegmentType.train,
-      fromName: train.fromName,
-      toName: train.toName,
-      minutes: ride,
-      km: train.km,
-      line: train.line,
-      fare: train.fare,
-      stops: train.stops,
-      polyline: train.polyline,
-      depTime: real.dep,
-      arrTime: real.arr,
-    );
-    final segments = [
-      for (var i = 0; i < enriched.segments.length; i++)
-        if (i == missed.index) replaced else enriched.segments[i],
+    final stops = real.stops;
+    final b = real.b;
+    final a = real.a;
+    final dep = stops[b].dep!;
+    final arr = stops[a].arr!;
+    final ride = _minutesBetween(arr, dep);
+    if (ride < 0) return null;
+    final boardName = stops[b].name;
+
+    // 乗車駅が元と同じなら、発着時刻のみ差し替えて polyline・距離・運賃・停車数は元の
+    // 按分値を保つ（#115 従来挙動。別路線になっても駅が同じなら折れ線は保てる）。
+    // 乗車駅が変わる（再アンカー）ときだけ、再照会した停車駅から区間を組み直す。
+    final reanchored = boardName != train.fromName;
+    // 再アンカーは前段（leading）を `origin→B'` の単一アクセス徒歩へ組み直す。これは
+    // 乗り遅れ電車が先頭電車＝前段が origin からの徒歩のみのときだけ正しい。前段に上流の
+    // 電車があると、その電車＋乗換徒歩を捨てて origin から journey 中盤の駅へ直接歩く非
+    // 実在経路を構成してしまう（firstMissedTrain で大抵 null 落ちするが構成上不正）。
+    // よって上流に電車がある多区間経路の再アンカーは行わず除外側へ委ねる（#115 安全側）。
+    // ハイブリッド／単一電車標準は先頭電車のためこのガードを素通りする。
+    if (reanchored &&
+        candidate.segments
+            .take(missed.index)
+            .any((s) => s.type == SegmentType.train)) {
+      return null;
+    }
+    final replacedTrain = reanchored
+        ? RouteSegment(
+            type: SegmentType.train,
+            fromName: boardName,
+            toName: train.toName,
+            minutes: ride,
+            km: _railKm(stops, b, a),
+            line: stops[b].line,
+            fare: _proratedFare(stops, b, a, _railKm(stops, b, a)),
+            stops: a - b,
+            polyline: [for (var i = b; i <= a; i++) stops[i].coord],
+            depTime: dep,
+            arrTime: arr,
+          )
+        : RouteSegment(
+            type: SegmentType.train,
+            fromName: train.fromName,
+            toName: train.toName,
+            minutes: ride,
+            km: train.km,
+            line: stops[b].line,
+            fare: train.fare,
+            stops: train.stops,
+            polyline: train.polyline,
+            depTime: dep,
+            arrTime: arr,
+          );
+
+    // アクセス徒歩。再アンカー時は origin→B' を測り直す（B' は元と違う駅）。乗車駅が
+    // 変わらないなら元の前段区間（既測の walk1 など）をそのまま使う。
+    final List<RouteSegment> leading;
+    if (reanchored) {
+      final reWalk =
+          await _tryWalk(
+            origin,
+            stops[b].coord,
+            fromName: candidate.from,
+            toName: boardName,
+            cache: walkCache,
+          ) ??
+          _estimateWalk(
+            origin,
+            stops[b].coord,
+            fromName: candidate.from,
+            toName: boardName,
+          );
+      final walk1 = reWalk.segments.first;
+      leading = [if (walk1.minutes > 0) walk1];
+    } else {
+      leading = [for (var i = 0; i < missed.index; i++) candidate.segments[i]];
+    }
+
+    final segments = <RouteSegment>[
+      ...leading,
+      replacedTrain,
+      for (var i = missed.index + 1; i < candidate.segments.length; i++)
+        candidate.segments[i],
     ];
-    // 多区間経路で最初の乗り遅れ区間を遅い実在列車へ差し替えると、再照会していない
-    // 下流の電車区間が借用時刻表のまま乗り遅れ（接続崩れ）になり得る。その場合は
-    // 楽観評価（_advance の待ち0・同乗車時間近似）で下流を確定しないよう候補ごと
-    // 除外し、呼び出し側の次善フォールバックに委ねる（乗れない列車を確定しない）。
-    // ハイブリッドは単一電車のためここは常に null（差し替え1区間で完結する）。
+    // 再アンカー後も乗り遅れる（B' への徒歩が伸びて発車後着）なら確定しない（#115 安全側）。
     if (firstMissedTrain(segments, departureAt) != null) return null;
     return RouteCandidate(
-      from: enriched.from,
-      to: enriched.to,
+      from: candidate.from,
+      to: candidate.to,
       segments: segments,
     );
   }
 
-  /// 再照会レスポンス [items] から、乗車駅 [boardName]（同一路線 [line]）を [notBefore]
-  /// 以降に発車し、同一乗車区間内で降車駅 [alightName] に停車する実在列車の発着時刻を
-  /// 探す。MVP は別路線・別降車駅の経路を採らず、見つからなければ null（候補を除外）。
-  /// [notBefore] より前に発車する列車（＝駅着前に出てしまい乗れない）は除外する。
-  /// [items] は route_transit が最早接続を先頭に返す前提で、最初に条件を満たした列車を
-  /// 採る（dep でソートし直さない）。順序が崩れると最早でない列車を拾い不要な
-  /// フォールバックを招き得るが、乗れない列車は確定しないため正確性は保たれる。
-  ({DateTime dep, DateTime arr})? _findRealBoarding(
+  /// 再照会レスポンス [items] から、降車駅 [alightName] に [notBefore] 以降に到達できる
+  /// 実在列車を探し、その列車が実際に乗車する駅（[stops] の [b]）と降車駅（[a]）の
+  /// インデックスを返す（見つからなければ null）。
+  ///
+  /// **乗車駅名・路線名は問わない**（再アンカー・別路線許容）：NAVITIME を乗車駅座標から
+  /// 再照会すると、最適経路は元の乗車駅と違う駅（多くは1駅 goal 寄り）から、別路線
+  /// （山手線等）で乗ることがある。元の乗車駅名・路線名に固執すると、目的の降車駅に
+  /// 着く実在列車が item 内にあっても取りこぼす（実機で全候補が脱落する主因だった）。
+  /// 呼び出し側 [_refetchMissedTrain] が「NAVITIME が選んだ実際の乗車駅」を受け入れ、
+  /// アクセス徒歩を測り直して候補を再アンカーする。
+  ///
+  /// 条件: 同一乗車区間内で [notBefore] 以降に発車する乗車駅 b と、その後方で
+  /// [alightName] に到着時刻付きで停車する降車駅 a。[items] は route_transit が最早接続
+  /// を先頭に返す前提で、最初に条件を満たした (b, a) を採る（dep でソートし直さない）。
+  ({List<_Stop> stops, int b, int a})? _findRealBoarding(
     List<Map<String, dynamic>> items, {
-    required String? line,
-    required String boardName,
     required String alightName,
     required DateTime notBefore,
   }) {
@@ -510,15 +826,14 @@ class NaviTimeRouteService implements RouteService {
       final stops = _parseTransit(item).stops;
       for (var b = 0; b < stops.length; b++) {
         final boarding = stops[b];
-        if (boarding.name != boardName || boarding.dep == null) continue;
-        if (line != null && boarding.line != line) continue;
+        if (boarding.dep == null) continue;
         if (boarding.dep!.isBefore(notBefore)) continue;
         for (var a = b + 1; a < stops.length; a++) {
           final alighting = stops[a];
           // 同一乗車区間を外れたら（乗換）この乗車では a へ行けない。
           if (alighting.section != boarding.section) break;
           if (alighting.name == alightName && alighting.arr != null) {
-            return (dep: boarding.dep!, arr: alighting.arr!);
+            return (stops: stops, b: b, a: a);
           }
         }
       }
