@@ -40,28 +40,33 @@ ProviderContainer _containerFor(RoutePlan plan) {
   return container;
 }
 
-RoutePlan _planWith({required int totalMin, required int budgetMin}) =>
-    RoutePlan(
-      from: 'A',
-      to: 'B',
-      totalKm: 4,
-      totalMin: totalMin,
-      budgetMin: budgetMin,
-      kcal: 120,
-      walkKm: 4,
-      walkRatio: 1,
-      segments: const [
-        RouteSegment(
-          type: SegmentType.walk,
-          fromName: 'A',
-          toName: 'B',
-          km: 4,
-          minutes: 75,
-          kcal: 120,
-        ),
-      ],
-      timelineNodes: const [TimelineNode(time: '9:00', place: 'A', sub: '出発')],
-    );
+RoutePlan _planWith({
+  required int totalMin,
+  required int budgetMin,
+  int kcal = 120,
+  double walkKm = 4,
+  double totalKm = 4,
+}) => RoutePlan(
+  from: 'A',
+  to: 'B',
+  totalKm: totalKm,
+  totalMin: totalMin,
+  budgetMin: budgetMin,
+  kcal: kcal,
+  walkKm: walkKm,
+  walkRatio: 1,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A',
+      toName: 'B',
+      km: walkKm,
+      minutes: totalMin,
+      kcal: kcal,
+    ),
+  ],
+  timelineNodes: const [TimelineNode(time: '9:00', place: 'A', sub: '出発')],
+);
 
 Future<void> _pump(WidgetTester tester, ProviderContainer container) async {
   await container.read(appStateProvider.notifier).startSearch();
@@ -71,22 +76,31 @@ Future<void> _pump(WidgetTester tester, ProviderContainer container) async {
 
 void main() {
   group('結果画面の所要時間表記', () {
-    testWidgets('TOTAL は60分以上を n時間m分 で表示する', (tester) async {
+    testWidgets('60分以上は 時間と分を別表示し折り返さない', (tester) async {
       final container = _containerFor(_planWith(totalMin: 100, budgetMin: 120));
       await _pump(tester, container);
 
-      expect(find.text('1時間 40分'), findsOneWidget);
+      // 数字と単位を別Textに分割（DM Mono と日本語の混植・折り返しを解消）。
+      expect(find.text('1'), findsWidgets);
+      expect(find.text('時間'), findsWidgets);
+      expect(find.text('40'), findsWidgets);
+      expect(find.text('分'), findsWidgets);
+      // スペース入りの結合表記（折り返しの原因）は廃止。
+      expect(find.text('1時間 40分'), findsNothing);
     });
 
-    testWidgets('TOTAL は60分未満を「分」のみで表示し 0時 を出さない', (tester) async {
+    testWidgets('60分未満は「分」のみで表示し 0時 を出さない', (tester) async {
       final container = _containerFor(_planWith(totalMin: 45, budgetMin: 60));
       await _pump(tester, container);
 
-      expect(find.text('45分'), findsOneWidget);
+      expect(find.text('45'), findsWidgets);
+      expect(find.text('分'), findsWidgets);
+      // 所要時間カラムには「時間」を出さない。
+      expect(find.text('時間'), findsNothing);
       expect(find.textContaining('0時'), findsNothing);
     });
 
-    testWidgets('区間の所要が60分以上なら n時m分 で表示する', (tester) async {
+    testWidgets('所要が60分以上なら n時間m分 に分解される', (tester) async {
       final container = _containerFor(_planWith(totalMin: 75, budgetMin: 120));
       await _pump(tester, container);
 
@@ -94,6 +108,48 @@ void main() {
       expect(find.text('75'), findsNothing);
       expect(find.text('時間'), findsWidgets);
       expect(find.text('15'), findsWidgets);
+    });
+  });
+
+  group('結果画面の集計ストリップ', () {
+    testWidgets('所要時間・徒歩距離・消費カロリーのラベルを表示する', (tester) async {
+      final container = _containerFor(_planWith(totalMin: 60, budgetMin: 120));
+      await _pump(tester, container);
+
+      expect(find.text('所要時間'), findsOneWidget);
+      expect(find.text('徒歩距離'), findsOneWidget);
+      expect(find.text('消費カロリー'), findsOneWidget);
+    });
+
+    testWidgets('左から 所要時間 → 徒歩距離 → 消費カロリー の順に並ぶ', (tester) async {
+      final container = _containerFor(_planWith(totalMin: 60, budgetMin: 120));
+      await _pump(tester, container);
+
+      final timeX = tester.getTopLeft(find.text('所要時間')).dx;
+      final walkX = tester.getTopLeft(find.text('徒歩距離')).dx;
+      final kcalX = tester.getTopLeft(find.text('消費カロリー')).dx;
+      expect(timeX, lessThan(walkX));
+      expect(walkX, lessThan(kcalX));
+    });
+
+    testWidgets('徒歩距離は walkKm を表示する（totalKm ではない）', (tester) async {
+      final container = _containerFor(
+        _planWith(totalMin: 60, budgetMin: 120, walkKm: 8.3, totalKm: 20),
+      );
+      await _pump(tester, container);
+
+      expect(find.text('8.3'), findsWidgets);
+      expect(find.text('km'), findsWidgets);
+    });
+
+    testWidgets('消費カロリーは値と kcal 単位を表示する', (tester) async {
+      final container = _containerFor(
+        _planWith(totalMin: 60, budgetMin: 120, kcal: 471),
+      );
+      await _pump(tester, container);
+
+      expect(find.text('471'), findsWidgets);
+      expect(find.text('kcal'), findsWidgets);
     });
   });
 }
