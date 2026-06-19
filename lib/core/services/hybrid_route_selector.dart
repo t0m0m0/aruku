@@ -122,6 +122,12 @@ List<RouteCandidate>? reachableWithinBudget(
 /// route_transit 引き直しという IO）の回数を全 [count] の線形ではなく O(log count) に
 /// 抑える。[evaluate] は予算外・経路無しを大きな値で表してよい。
 ///
+/// **単調性は仮定**：遠い駅が速達便を捕まえて早着する／中間駅だけ経路欠落（大きな値）の
+/// ように、door-to-door 到着が実データで非単調になることはある。その場合は予算内のより
+/// 遠い駅（総徒歩大）を取りこぼし得るが、過大評価（実より楽観）に倒れることは無く、採用
+/// 候補は呼び出し側の enrich（街路実測）で測り直されるため超過は返さない。取りこぼしは
+/// suboptimal に留まり不変条件は壊さない。
+///
 /// 戻り値は `evaluate(index) <= budgetMin` を満たす最大 index。先頭すら予算外・
 /// [count] が 0 なら null（[count] 0 では [evaluate] を一度も呼ばない）。
 Future<int?> maxWalkBoardingIndex({

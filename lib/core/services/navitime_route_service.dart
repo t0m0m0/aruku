@@ -393,10 +393,14 @@ class NaviTimeRouteService implements RouteService {
         final xToGoal = _parseTransit(
           items.first as Map<String, dynamic>,
         ).toCandidate();
+        final walk1Seg = walk1.segments.first;
         return built[i] = RouteCandidate(
           from: base.from,
           to: xToGoal.to,
-          segments: [walk1.segments.first, ...xToGoal.segments],
+          segments: [
+            if (walk1Seg.minutes > 0) walk1Seg, // 乗車駅直近なら0分徒歩は混ぜない。
+            ...xToGoal.segments,
+          ],
         );
       } on RouteException {
         return built[i] = null;
@@ -418,6 +422,8 @@ class NaviTimeRouteService implements RouteService {
 
     // (2) 境界付近を実街路 walk で確定。best から手前へ最大 _boardSearchVerifySteps 駅、
     // 実 walk＋実 boardAt で route_transit を引き直し、予算内かつ乗り遅れ無しの最遠駅を返す。
+    // 境界 best は直線 boardAt で(1)、実 boardAt で(2)と route_transit を2回引く（boardAt が
+    // 異なりキャッシュ不可）。崩壊時のみ走るので往復増は (1)O(log n) + (2)最大4駅に限られる。
     for (var i = best; i >= 0 && best - i < _boardSearchVerifySteps; i--) {
       final x = stops[i];
       final walk1 =
@@ -437,10 +443,14 @@ class NaviTimeRouteService implements RouteService {
         final xToGoal = _parseTransit(
           items.first as Map<String, dynamic>,
         ).toCandidate();
+        final walk1Seg = walk1.segments.first;
         final cand = RouteCandidate(
           from: base.from,
           to: xToGoal.to,
-          segments: [walk1.segments.first, ...xToGoal.segments],
+          segments: [
+            if (walk1Seg.minutes > 0) walk1Seg, // 乗車駅直近なら0分徒歩は混ぜない。
+            ...xToGoal.segments,
+          ],
         );
         final withinBudget =
             arrivalMinutes(cand.segments, departureAt) <= budgetMin;
@@ -714,6 +724,18 @@ class NaviTimeRouteService implements RouteService {
     // 按分値を保つ（#115 従来挙動。別路線になっても駅が同じなら折れ線は保てる）。
     // 乗車駅が変わる（再アンカー）ときだけ、再照会した停車駅から区間を組み直す。
     final reanchored = boardName != train.fromName;
+    // 再アンカーは前段（leading）を `origin→B'` の単一アクセス徒歩へ組み直す。これは
+    // 乗り遅れ電車が先頭電車＝前段が origin からの徒歩のみのときだけ正しい。前段に上流の
+    // 電車があると、その電車＋乗換徒歩を捨てて origin から journey 中盤の駅へ直接歩く非
+    // 実在経路を構成してしまう（firstMissedTrain で大抵 null 落ちするが構成上不正）。
+    // よって上流に電車がある多区間経路の再アンカーは行わず除外側へ委ねる（#115 安全側）。
+    // ハイブリッド／単一電車標準は先頭電車のためこのガードを素通りする。
+    if (reanchored &&
+        candidate.segments
+            .take(missed.index)
+            .any((s) => s.type == SegmentType.train)) {
+      return null;
+    }
     final replacedTrain = reanchored
         ? RouteSegment(
             type: SegmentType.train,
