@@ -63,6 +63,23 @@ dart_defines.json
 # Ignore agent scratch dirs, but track installed Agent Skills and their lock file.
 .agents/*
 !.agents/skills/
+# Plugin-provided skills (Firebase / Genkit / Xcode) are installed locally per
+# environment and are not part of this app's source, so keep them untracked.
+.agents/skills/developing-genkit-dart/
+.agents/skills/developing-genkit-go/
+.agents/skills/developing-genkit-js/
+.agents/skills/developing-genkit-python/
+.agents/skills/firebase-ai-logic-basics/
+.agents/skills/firebase-app-hosting-basics/
+.agents/skills/firebase-auth-basics/
+.agents/skills/firebase-basics/
+.agents/skills/firebase-crashlytics/
+.agents/skills/firebase-data-connect/
+.agents/skills/firebase-firestore/
+.agents/skills/firebase-hosting-basics/
+.agents/skills/firebase-remote-config-basics/
+.agents/skills/firebase-security-rules-auditor/
+.agents/skills/xcode-project-setup/
 # skills-lock.json is committed so `npx skills install` is reproducible.
 secrets.properties
 ios/Flutter/Secrets.xcconfig
