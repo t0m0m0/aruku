@@ -113,6 +113,37 @@ List<RouteCandidate>? reachableWithinBudget(
   return reachable.isEmpty ? null : reachable;
 }
 
+/// 乗車駅探索（docs/notes/walk-max-board-search.md）：乗車駅候補（前半徒歩 t1 の
+/// 昇順）について「到着が予算内の最遠 index ＝ 総徒歩最大」を二分探索で返す。
+///
+/// t1 は index 増で単調増、X→goal の電車所要 t2 は単調減で、door-to-door 到着
+/// （[evaluate] が返す origin からの総所要分）は index に対して単調増という前提を使い、
+/// 予算内可否のステップ境界を二分探索する。これにより [evaluate]（候補駅ごとの
+/// route_transit 引き直しという IO）の回数を全 [count] の線形ではなく O(log count) に
+/// 抑える。[evaluate] は予算外・経路無しを大きな値で表してよい。
+///
+/// 戻り値は `evaluate(index) <= budgetMin` を満たす最大 index。先頭すら予算外・
+/// [count] が 0 なら null（[count] 0 では [evaluate] を一度も呼ばない）。
+Future<int?> maxWalkBoardingIndex({
+  required int count,
+  required int budgetMin,
+  required Future<int> Function(int index) evaluate,
+}) async {
+  var lo = 0;
+  var hi = count - 1;
+  int? best;
+  while (lo <= hi) {
+    final mid = (lo + hi) >> 1;
+    if (await evaluate(mid) <= budgetMin) {
+      best = mid; // mid は予算内。さらに遠く（大きい index）を試す。
+      lo = mid + 1;
+    } else {
+      hi = mid - 1; // mid は予算外。手前を試す。
+    }
+  }
+  return best;
+}
+
 /// 候補の電車区間に、出発地より進行方向(origin→goal)の後方へ
 /// [maxBacktrackRatio] × 直線距離(origin→goal) を超えて戻る駅を含むか。
 /// 徒歩区間は判定しない（目的地へ近づくための短い徒歩を弾かないため）。

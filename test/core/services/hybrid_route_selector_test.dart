@@ -444,4 +444,74 @@ void main() {
       expect(d, closeTo(6.4, 0.6));
     });
   });
+
+  group('maxWalkBoardingIndex', () {
+    // 実機プローブ（蒲田→上野公園・180分）の到着分。index 昇順で単調増加。
+    // 予算180分では index6(170)が予算内の最遠＝総徒歩最大、index7(181)は予算外。
+    const totals = [67, 91, 118, 126, 140, 154, 170, 181, 188];
+
+    test('予算内の最遠 index（=総徒歩最大）を返す', () async {
+      final i = await maxWalkBoardingIndex(
+        count: totals.length,
+        budgetMin: 180,
+        evaluate: (index) async => totals[index],
+      );
+      expect(i, 6);
+    });
+
+    test('単調性を使い評価回数を二分探索オーダーに抑える', () async {
+      var calls = 0;
+      await maxWalkBoardingIndex(
+        count: totals.length,
+        budgetMin: 180,
+        evaluate: (index) async {
+          calls++;
+          return totals[index];
+        },
+      );
+      // 全 9 件の線形評価ではなく ceil(log2(9))=4 前後で収束する。
+      expect(calls, lessThanOrEqualTo(5));
+    });
+
+    test('全候補が予算内なら末尾 index を返す', () async {
+      final i = await maxWalkBoardingIndex(
+        count: totals.length,
+        budgetMin: 999,
+        evaluate: (index) async => totals[index],
+      );
+      expect(i, totals.length - 1);
+    });
+
+    test('先頭のみ予算内なら index 0', () async {
+      final i = await maxWalkBoardingIndex(
+        count: totals.length,
+        budgetMin: 80, // 67<=80<91
+        evaluate: (index) async => totals[index],
+      );
+      expect(i, 0);
+    });
+
+    test('予算内候補が皆無なら null', () async {
+      final i = await maxWalkBoardingIndex(
+        count: totals.length,
+        budgetMin: 50, // 先頭 67 すら超過
+        evaluate: (index) async => totals[index],
+      );
+      expect(i, isNull);
+    });
+
+    test('候補が空なら null（評価を呼ばない）', () async {
+      var calls = 0;
+      final i = await maxWalkBoardingIndex(
+        count: 0,
+        budgetMin: 180,
+        evaluate: (index) async {
+          calls++;
+          return 0;
+        },
+      );
+      expect(i, isNull);
+      expect(calls, 0);
+    });
+  });
 }

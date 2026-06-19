@@ -147,6 +147,7 @@ NAVITIME route_transit 照会（1回）
 |---|---|---|
 | `selectBestRoute(candidates, budgetMin, {origin, goal, departureAt, maxBacktrackRatio})` | hybrid_route_selector.dart | 逆戻り除外 → 予算内（実到着 ≤ budget）で `walkMinutes` 最大（同点は実到着最早）→ 予算内皆無なら今夜乗れる範囲の実到着最早。 |
 | `reachableWithinBudget(candidates, budgetMin, departureAt)` | hybrid_route_selector.dart | 乗車待ちが予算内 かつ 乗り遅れ無しの候補のみ。該当無しは null。 |
+| `maxWalkBoardingIndex({count, budgetMin, evaluate})` | hybrid_route_selector.dart | 乗車駅探索（[walk-max-board-search](../notes/walk-max-board-search.md)）。到着が index 単調増の前提で `evaluate(i) ≤ budget` の最大 index（＝総徒歩最大）を二分探索。evaluate を O(log count) 回に抑える。予算内皆無・count 0 は null。 |
 | `buildRoutePlan({from, to, segments, departure, budgetMin, departureAt})` | route_plan_builder.dart | segments → RoutePlan（totalKm/walkKm/kcal/walkRatio/totalMin/timelineNodes）。待ち時間込みの到着を計算。 |
 | `arrivalMinutes(segments, departureAt)` | route_plan_builder.dart | 乗車前・乗換待ちを含む実到着分。departureAt 無しは待ち抜き合計。 |
 | `firstMissedTrain(segments, departureAt)` | route_plan_builder.dart | 駅着が発車後になる最初の電車区間（index, cumBefore）。無ければ null。 |
