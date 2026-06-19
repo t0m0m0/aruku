@@ -60,7 +60,7 @@ class NaviTimeRouteService implements RouteService {
 
     onProgress?.call(RoutePhase.walkability);
 
-    final result = await _selectMeasured(
+    return _selectMeasured(
       parsed,
       budgetMin,
       departure,
@@ -69,115 +69,6 @@ class NaviTimeRouteService implements RouteService {
       onProgress: onProgress,
       fromName: originName,
       toName: destination,
-    );
-    // 使い捨て計測（docs/notes/walk-max-board-search.md §4）。本体確定後に単独で
-    // 走らせ、乗車駅探索方式の NAVITIME 往復コストを実機ログで採る。計測後に削除。
-    if (kDebugMode && _kBoardSearchProbe) {
-      // ignore: unawaited_futures
-      _probeBoardSearch(
-        parsed,
-        origin,
-        destinationLatLng,
-        departure,
-        budgetMin,
-      );
-    }
-    return result;
-  }
-
-  /// 使い捨て計測フラグ（docs/notes/walk-max-board-search.md §4）。計測が済んだら
-  /// プローブ本体（[_probeBoardSearch]）ごと削除する。
-  static const bool _kBoardSearchProbe = true;
-
-  /// 使い捨て計測（throwaway・観測専用）。乗車駅探索方式の往復コストを実機で採る：
-  /// 基準経路の各停車駅 X を仮の乗車駅とし、直線推定の前半徒歩 t1 ぶん出発を遅らせて
-  /// `route_transit(X→goal)` を引き直し、per-call レイテンシ・候補数 N・総 wall-clock・
-  /// 到着/総徒歩/予算内可否をログする。近接駅（別路線）は Places nearby の口が未実装の
-  /// ため今回は stops のみ。本体の返却値は変えない。
-  Future<void> _probeBoardSearch(
-    List<_TransitParse> parsed,
-    GeoPoint origin,
-    GeoPoint goal,
-    TimeValue departure,
-    int budgetMin,
-  ) async {
-    final departureAt = _departureDateTime(departure);
-    final base = _baseForHybrid(parsed);
-    if (base == null) {
-      debugPrint('[BOARD-PROBE] no base route (stops<2); skip');
-      return;
-    }
-    final stops = base.stops;
-    const maxProbe = 16; // レート制限(30/min)・UX保護のための上限
-    final n = stops.length;
-    debugPrint(
-      '[BOARD-PROBE] start budget=${budgetMin}m stops=$n cap=$maxProbe '
-      'origin=(${origin.lat},${origin.lng}) goal=(${goal.lat},${goal.lng})',
-    );
-
-    final overall = Stopwatch()..start();
-    final latencies = <int>[];
-    var calls = 0;
-
-    for (var i = 0; i < n && calls < maxProbe; i++) {
-      final x = stops[i];
-      final t1 = (haversineKm(origin, x.coord) * 1000 / walkMetersPerMinute)
-          .round();
-      if (t1 > budgetMin) {
-        debugPrint('[BOARD-PROBE] #$i ${x.name} t1=${t1}m > budget; skip');
-        continue;
-      }
-      final boardAt = departureAt.add(Duration(minutes: t1));
-      final sw = Stopwatch()..start();
-      try {
-        final body = await _fetchTransitAt(x.coord, goal, boardAt);
-        sw.stop();
-        calls++;
-        latencies.add(sw.elapsedMilliseconds);
-        final its = body['items'] as List<dynamic>? ?? const [];
-        if (its.isEmpty) {
-          debugPrint(
-            '[BOARD-PROBE] #$i ${x.name} t1=${t1}m '
-            'lat=${sw.elapsedMilliseconds}ms ZERO_RESULTS',
-          );
-          continue;
-        }
-        final cand = _parseTransit(
-          its.first as Map<String, dynamic>,
-        ).toCandidate();
-        final t2 = arrivalMinutes(cand.segments, boardAt);
-        final total = t1 + t2;
-        final totalWalk = t1 + cand.walkMinutes;
-        debugPrint(
-          '[BOARD-PROBE] #$i ${x.name} t1=${t1}m t2=${t2}m total=${total}m '
-          'walk=${totalWalk}m feasible=${total <= budgetMin} '
-          'lat=${sw.elapsedMilliseconds}ms',
-        );
-      } catch (e) {
-        sw.stop();
-        calls++;
-        debugPrint(
-          '[BOARD-PROBE] #$i ${x.name} t1=${t1}m '
-          'lat=${sw.elapsedMilliseconds}ms ERR=$e',
-        );
-      }
-    }
-    overall.stop();
-    latencies.sort();
-    final p50 = latencies.isEmpty ? 0 : latencies[latencies.length ~/ 2];
-    final p90 = latencies.isEmpty
-        ? 0
-        : latencies[((latencies.length * 9) ~/ 10).clamp(
-            0,
-            latencies.length - 1,
-          )];
-    var bsearch = 0;
-    for (var v = 1; v < n; v <<= 1) {
-      bsearch++;
-    }
-    debugPrint(
-      '[BOARD-PROBE] done calls=$calls wall=${overall.elapsedMilliseconds}ms '
-      'p50=${p50}ms p90=${p90}ms binarySearchCalls≈${bsearch + 2}',
     );
   }
 
@@ -192,6 +83,18 @@ class NaviTimeRouteService implements RouteService {
   /// 要素数課金（プロキシ側上限 25）を抑えるため [frontierStations] で片側をこの数へ
   /// 絞る。乗車側コールは origin→{各乗車駅, goal} の (上限 + 1) 要素になる。
   static const int _maxMatrixSideStations = 10;
+
+  /// 乗車駅探索フォールバック（docs/notes/walk-max-board-search.md §6）の起動しきい値。
+  /// §7 の崩壊は2症状を同時に満たす：(1) 徒歩最大化が標準乗換を実質改善できていない、
+  /// (2) 予算が大きく余っている。両方を満たすときだけ駅別 route_transit 引き直しで歩ける
+  /// 乗車駅を探す。片方だけ（小コリドーで僅かに改善・余裕も小／予算は余るが既に十分歩く）
+  /// では起動しない。いずれも定数で微調整可能。
+  ///
+  /// (1) 採用見積もり候補の徒歩が予算内の標準乗換候補の最大徒歩をこの分数以下しか上回らない。
+  static const int _collapseWalkMarginMin = 10;
+
+  /// (2) 採用見積もり候補が予算をこの割合以上余らせている（徒歩に使う余地が大きい）。
+  static const double _collapseSlackRatio = 0.4;
 
   /// 「測ってから選ぶ」選定（measure-first）。直線フロンティアで乗降候補駅を絞り、
   /// origin→各乗車駅／各降車駅→goal の徒歩を1回（最大2コール）のマトリクスで一括実測
@@ -261,15 +164,66 @@ class NaviTimeRouteService implements RouteService {
       _measuredWalk(origin, goal, parsed.first.from, parsed.first.to, measured),
     );
 
-    // 実測値の上で決定的に選定し、採用候補を enrich（街路実測）で検証する。予算内
-    // 見積もりの候補が予定列車に乗り遅れるなら乗車駅の時刻表を再照会して実在列車へ
-    // 差し替え（#115）、enrich で予算超過が判明したら（マトリクス失敗時の直線楽観など）
-    // 除外して選び直す。除外は実測（enrich・再照会）の確認時だけで、予算内候補がある限り
-    // 超過ルートを返さない（#117/#118 の不変条件）。best-effort（予算内なし）は縮小 pool
-    // ではなく全 candidates から「今夜乗れる」範囲の実到着最早へ縮退する（#121 原因②）。
-    // マトリクスが成功した通常ケースは初回の選定が実測と整合し1回で確定。
+    // 実測値の上で決定的に選定し、採用1経路を enrich（街路実測）で検証して確定する。
+    // 基準時刻表で乗れない hybrid はこのループ内で脱落するため、徒歩最大化が崩壊したか
+    // どうかは確定後にしか分からない（だから乗車駅探索はループの後で判定する）。
+    var enriched = await _selectAndEnrich(
+      candidates,
+      budgetMin,
+      departureAt,
+      origin: origin,
+      goal: goal,
+      walkCache: walkCache,
+    );
+
+    // 乗車駅探索フォールバック（docs/notes/walk-max-board-search.md §6）。確定が「標準乗換
+    // とほぼ同じ徒歩」かつ「予算が大きく余る」＝徒歩最大化の崩壊（§7）のときだけ、基準経路の
+    // 停車駅を乗車駅候補に各駅 route_transit を引き直して歩ける乗車駅を1本足し、選び直す。
+    // 崩壊でなければ既存のハイブリッド／標準で足りるので探索の往復を払わない。
+    if (base != null && _isCollapse(enriched, parsed, budgetMin, departureAt)) {
+      final boardSearch = await _buildBoardSearchCandidate(
+        base,
+        origin,
+        goal,
+        budgetMin,
+        departureAt,
+      );
+      if (boardSearch != null) {
+        enriched = await _selectAndEnrich(
+          [...candidates, boardSearch],
+          budgetMin,
+          departureAt,
+          origin: origin,
+          goal: goal,
+          walkCache: walkCache,
+        );
+      }
+    }
+
+    return _build(
+      enriched,
+      departure,
+      budgetMin,
+      onProgress,
+      fromName: fromName,
+      toName: toName,
+    );
+  }
+
+  /// 候補 [candidates] から決定的に選定し採用1経路を enrich（街路実測）で検証する確定
+  /// ループ。予算内見積もり候補が予定列車に乗り遅れるなら乗車駅の時刻表を再照会して実在
+  /// 列車へ差し替え（#115）、enrich で予算超過が判明したら除外して選び直す。除外は実測
+  /// （enrich・再照会）の確認時だけで、予算内候補がある限り超過を返さない（#117/#118）。
+  /// best-effort（予算内なし）は全 [candidates] から「今夜乗れる」範囲の実到着最早へ縮退（#121）。
+  Future<RouteCandidate> _selectAndEnrich(
+    List<RouteCandidate> candidates,
+    int budgetMin,
+    DateTime departureAt, {
+    required GeoPoint origin,
+    required GeoPoint goal,
+    required Map<String, RouteCandidate> walkCache,
+  }) async {
     var pool = candidates;
-    late RouteCandidate enriched;
     for (var attempt = 0; ; attempt++) {
       final chosen = selectBestRoute(
         candidates: pool,
@@ -281,16 +235,15 @@ class NaviTimeRouteService implements RouteService {
       final withinByEstimate =
           arrivalMinutes(chosen.segments, departureAt) <= budgetMin;
 
-      // 最善でも予算内に届かない best-effort。ここで縮小 pool の chosen を返すと、enrich
-      // 超過で pool から外れた全徒歩などを見落とし「今夜乗れない」翌朝始発を返してしまう
-      // （#121 原因②）。全 candidates から「今夜乗れる」範囲（乗車待ち予算内・乗り遅れ無し）
-      // の実到着最早へ縮退する。全徒歩は常に reachable なので必ず候補に残る。
+      // 最善でも予算内に届かない best-effort。縮小 pool の chosen を返すと、enrich 超過で
+      // pool から外れた全徒歩などを見落とし「今夜乗れない」翌朝始発を返してしまう（#121
+      // 原因②）。全 candidates から「今夜乗れる」範囲（乗車待ち予算内・乗り遅れ無し）の
+      // 実到着最早へ縮退する。全徒歩は常に reachable なので必ず候補に残る。
       if (!withinByEstimate) {
-        enriched = await _enrichWalkGeometry(
+        return _enrichWalkGeometry(
           _bestEffort(candidates, budgetMin, departureAt),
           walkCache,
         );
-        break;
       }
 
       // 以降は withinByEstimate（予算内見積もり）の候補のみ。予定列車に乗り遅れるなら
@@ -320,15 +273,14 @@ class NaviTimeRouteService implements RouteService {
           pool = pool.where((c) => !identical(c, chosen)).toList();
           continue;
         }
-        enriched = await _enrichWalkGeometry(
+        return _enrichWalkGeometry(
           _bestEffort(candidates, budgetMin, departureAt),
           walkCache,
         );
-        break;
       }
 
       // 採用1経路の徒歩区間だけ Google の街路ジオメトリ・所要・距離へ上書きする。
-      enriched = await _enrichWalkGeometry(chosen, walkCache);
+      final enriched = await _enrichWalkGeometry(chosen, walkCache);
 
       // 予算内見積もりが enrich（実測）で超過に転じたら除外して次善へ（matrix 失敗時の
       // 直線楽観の是正）。除外は実測の確認時だけで、予算内候補がある限り超過を返さない
@@ -339,16 +291,8 @@ class NaviTimeRouteService implements RouteService {
         pool = pool.where((c) => !identical(c, chosen)).toList();
         continue;
       }
-      break;
+      return enriched;
     }
-    return _build(
-      enriched,
-      departure,
-      budgetMin,
-      onProgress,
-      fromName: fromName,
-      toName: toName,
-    );
   }
 
   /// 予算内候補が無い／乗り遅れ候補しか残らないときの縮退先。全 candidates から
@@ -369,6 +313,95 @@ class NaviTimeRouteService implements RouteService {
           ? a
           : b,
     );
+  }
+
+  /// 確定 [winner]（[_selectAndEnrich] 後＝基準時刻表で乗れない hybrid 脱落後）が
+  /// 徒歩最大化の崩壊（§7）かを判定する。次の2症状を同時に満たすとき true：
+  /// (1) 予算内の標準乗換候補の最大徒歩を [_collapseWalkMarginMin] 以下しか上回らない、
+  /// (2) 予算を [_collapseSlackRatio] 以上余らせている。best-effort（予算外）は対象外。
+  bool _isCollapse(
+    RouteCandidate winner,
+    List<_TransitParse> parsed,
+    int budgetMin,
+    DateTime departureAt,
+  ) {
+    final arrival = arrivalMinutes(winner.segments, departureAt);
+    if (arrival > budgetMin) return false;
+    // 症状(2): 予算が大きく余っている（既に予算を使い切る小コリドーでは起動しない）。
+    if (budgetMin - arrival < budgetMin * _collapseSlackRatio) return false;
+    // 症状(1): ハイブリッド機構が標準乗換（ほぼ全電車）を実質改善できていない。
+    var bestStandardWalk = 0;
+    for (final p in parsed) {
+      final c = p.toCandidate();
+      if (arrivalMinutes(c.segments, departureAt) <= budgetMin &&
+          c.walkMinutes > bestStandardWalk) {
+        bestStandardWalk = c.walkMinutes;
+      }
+    }
+    return winner.walkMinutes - bestStandardWalk <= _collapseWalkMarginMin;
+  }
+
+  /// 乗車駅探索（docs/notes/walk-max-board-search.md）。[base] の停車駅を乗車駅候補
+  /// （前半徒歩 t1 の昇順）とし、各駅 X から `route_transit(X→goal)` を `departureAt+t1`
+  /// 発で引き直して「到着が予算内の最遠の乗車駅＝総徒歩最大」を [maxWalkBoardingIndex]
+  /// で二分探索する。引き直した経路は X 発の自己整合な実在便なので、構成上 firstMissedTrain
+  /// が立たず（#115 の再アンカー詰みを回避）、前半徒歩を予算ギリギリまで延ばせる。
+  ///
+  /// 探索中の前半徒歩 t1 は直線推定（下限・Google を呼ばない）で測る。直線は道なりの
+  /// 下限なので予算内可否が楽観に倒れ得るが、採用候補は後段の enrich（街路実測）検証で
+  /// 測り直され、超過が判明すれば除外して選び直す（measure-first の安全網を流用）。これで
+  /// 「選定中は徒歩 API を引かず採用1経路だけ実測する」契約（§3.1/§3.3）を保つ。返す候補は
+  /// `[徒歩 origin→X] + [X→goal の実在便区間]`。停車駅 2 未満／予算内の乗車駅が無いときは null。
+  Future<RouteCandidate?> _buildBoardSearchCandidate(
+    _TransitParse base,
+    GeoPoint origin,
+    GeoPoint goal,
+    int budgetMin,
+    DateTime departureAt,
+  ) async {
+    final stops = base.stops;
+    if (stops.length < 2) return null;
+
+    // 二分探索が同じ index を再評価しても引き直さないよう構築済み候補をメモ化する。
+    final built = <int, RouteCandidate?>{};
+    Future<RouteCandidate?> buildAt(int i) async {
+      if (built.containsKey(i)) return built[i];
+      final x = stops[i];
+      final walk1 = _estimateWalk(
+        origin,
+        x.coord,
+        fromName: base.from,
+        toName: x.name,
+      );
+      final boardAt = departureAt.add(Duration(minutes: walk1.totalMin));
+      try {
+        final body = await _fetchTransitAt(x.coord, goal, boardAt);
+        final items = body['items'] as List<dynamic>? ?? const [];
+        if (items.isEmpty) return built[i] = null;
+        final xToGoal = _parseTransit(
+          items.first as Map<String, dynamic>,
+        ).toCandidate();
+        return built[i] = RouteCandidate(
+          from: base.from,
+          to: xToGoal.to,
+          segments: [walk1.segments.first, ...xToGoal.segments],
+        );
+      } on RouteException {
+        return built[i] = null;
+      }
+    }
+
+    final best = await maxWalkBoardingIndex(
+      count: stops.length,
+      budgetMin: budgetMin,
+      evaluate: (i) async {
+        final c = await buildAt(i);
+        // 経路無し（再照会失敗）は予算外として扱い、二分探索は手前の駅を探す。
+        if (c == null) return budgetMin + (1 << 20);
+        return arrivalMinutes(c.segments, departureAt);
+      },
+    );
+    return best == null ? null : built[best];
   }
 
   /// 乗降アクセス徒歩を1回（最大2コール）のマトリクスで一括実測し、[measured] に

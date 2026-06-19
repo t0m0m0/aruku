@@ -1409,6 +1409,135 @@ void main() {
       expect(plan.timelineNodes.last.sub, contains('制限内'));
     });
 
+    test('崩壊（標準乗換とほぼ同徒歩で予算が大きく余る）なら乗車駅探索で歩ける乗車駅へ（§6 フォールバック）', () async {
+      // 基準時刻表は B0 09:05 発の快速。中間駅 Bmid からのハイブリッドは歩いて着く頃には
+      // 発車後＝乗り遅れ。乗車駅 Bmid からの再照会は目的地へ直行する別便（降車駅 Aend を
+      // 経由しない）を返すため #115 再アンカーは降車駅一致で取りこぼし、ハイブリッドは脱落。
+      // 確定は標準乗換（徒歩17分）へ縮退し予算が大きく余る＝崩壊。乗車駅探索が各駅を引き
+      // 直し、Bmid まで歩いて 11:50 発の実在便に乗る徒歩最大ルート（徒歩≒167分）を見つける。
+      final client = _requeryMock(
+        transitByStart: {
+          // Bmid(35.62)→目的地直行（11:50発12:05着・降車は終点=目的地、Aend を経由しない）。
+          '35.62,139.75': _navi([
+            _item([
+              _point('Bmid'),
+              _trainSection(
+                8900,
+                15,
+                line: 'L',
+                calling: [
+                  _calling(
+                    'Bmid',
+                    35.62,
+                    139.75,
+                    '2026-05-22T11:50:00',
+                    '2026-05-22T11:50:00',
+                  ),
+                  _calling(
+                    '終点',
+                    35.70,
+                    139.75,
+                    '2026-05-22T12:05:00',
+                    '2026-05-22T12:05:00',
+                  ),
+                ],
+              ),
+              _point('終点'),
+            ]),
+          ]),
+          // B0(35.52)→目的地直行（徒歩28分→09:30発）。徒歩が少なく徒歩最大では負ける。
+          '35.52,139.75': _navi([
+            _item([
+              _point('B0'),
+              _trainSection(
+                20000,
+                15,
+                line: 'L',
+                calling: [
+                  _calling(
+                    'B0',
+                    35.52,
+                    139.75,
+                    '2026-05-22T09:30:00',
+                    '2026-05-22T09:30:00',
+                  ),
+                  _calling(
+                    '終点',
+                    35.70,
+                    139.75,
+                    '2026-05-22T09:45:00',
+                    '2026-05-22T09:45:00',
+                  ),
+                ],
+              ),
+              _point('終点'),
+            ]),
+          ]),
+        },
+        defaultTransit: _navi([
+          _item([
+            _point('出発地'),
+            _walkSection(240, 3),
+            _point('B0'),
+            _trainSection(
+              18900,
+              15,
+              line: 'L',
+              calling: [
+                _calling(
+                  'B0',
+                  35.52,
+                  139.75,
+                  '2026-05-22T09:05:00',
+                  '2026-05-22T09:05:00',
+                ),
+                _calling(
+                  'Bmid',
+                  35.62,
+                  139.75,
+                  '2026-05-22T09:10:00',
+                  '2026-05-22T09:10:00',
+                ),
+                _calling(
+                  'Aend',
+                  35.69,
+                  139.75,
+                  '2026-05-22T09:20:00',
+                  '2026-05-22T09:20:00',
+                ),
+              ],
+            ),
+            _point('Aend'),
+            _walkSection(1100, 14),
+            _point('目的地'),
+          ]),
+        ]),
+        walk: {
+          // O→Bmid 実測167分（採用後 enrich でも予算内に収める）。
+          '35.5,139.75;35.62,139.75': _walkResp(167, 13343),
+        },
+        defaultWalk: _walkResp(25, 2000),
+      );
+
+      final plan = await build(client).plan(
+        destination: '目的地',
+        destinationLatLng: const GeoPoint(35.70, 139.75),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 12, m: 10), // 予算190分
+        origin: const GeoPoint(35.50, 139.75),
+      );
+
+      // 標準乗換（徒歩17分）への縮退ではなく、Bmid まで歩いて乗る徒歩最大ルート。
+      final walkMin = plan.segments
+          .where((s) => s.type == SegmentType.walk)
+          .fold<int>(0, (a, s) => a + s.minutes);
+      expect(walkMin, greaterThan(100));
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.fromName, 'Bmid');
+    });
+
     test('サンプル上限を超える停車駅でも飛ばさず徒歩最大の乗車駅を選ぶ（不具合A-b）', () async {
       // 不具合A-b: ハイブリッドの乗降点が _maxHybridCandidates=6 駅サンプルに
       // 制限され、6駅に入らない停車駅で乗車する徒歩最大候補を取りこぼしていた。
