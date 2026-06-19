@@ -1,8 +1,5 @@
 part of 'result_screen.dart';
 
-/// NAVITIME 由来の発着 DateTime（JST 壁時計）を "h:mm" へ整形する。
-String _hm(DateTime t) => '${t.hour}:${t.minute.toString().padLeft(2, '0')}';
-
 class _Timeline extends StatelessWidget {
   const _Timeline({required this.route});
   final RoutePlan route;
@@ -12,10 +9,17 @@ class _Timeline extends StatelessWidget {
     final nodes = route.timelineNodes;
     final segs = route.segments;
     final children = <Widget>[];
+    // cardBelow:false の駅行（直結乗換の「着」行）はカードを挟まず、次の「発」行へ
+    // 短いコネクタで繋ぐ。それ以外の行は順にレッグカードを 1 枚消費する。
+    var segCursor = 0;
     for (int i = 0; i < nodes.length; i++) {
-      children.add(_TimelineNodeRow(node: nodes[i]));
-      if (i < segs.length) {
-        children.add(_TimelineSegmentRow(seg: segs[i]));
+      final node = nodes[i];
+      children.add(_TimelineNodeRow(node: node));
+      if (node.cardBelow && segCursor < segs.length) {
+        children.add(_TimelineSegmentRow(seg: segs[segCursor]));
+        segCursor++;
+      } else if (!node.cardBelow && i < nodes.length - 1) {
+        children.add(const _TimelineConnectorRow());
       }
     }
     return SingleChildScrollView(child: Column(children: children));
@@ -86,6 +90,32 @@ class _TimelineNodeRow extends StatelessWidget {
                     ),
                   ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 直結乗換の「着」行と「発」行のあいだを繋ぐ短い実線コネクタ（カードは挟まない）。
+class _TimelineConnectorRow extends StatelessWidget {
+  const _TimelineConnectorRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          const SizedBox(width: 44),
+          const SizedBox(width: 14),
+          SizedBox(
+            width: 16,
+            height: 12,
+            child: CustomPaint(
+              painter: _SegLinePainter(color: c.train, dashed: false),
             ),
           ),
         ],
@@ -214,19 +244,8 @@ class _TimelineSegmentRow extends StatelessWidget {
                         ],
                       )
                     else ...[
-                      // 発着時刻が揃う電車区間は「HH:MM発 → HH:MM着」を明示する。
-                      if (seg.depTime != null && seg.arrTime != null)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 2),
-                          child: Text(
-                            '${_hm(seg.depTime!)}発 → ${_hm(seg.arrTime!)}着',
-                            style: numStyle(
-                              size: 12,
-                              weight: FontWeight.w800,
-                              color: color,
-                            ),
-                          ),
-                        ),
+                      // 発着時刻はタイムライン左カラム（乗車駅=発・降車駅=着）に出すため
+                      // カード内には重複表示しない（案B）。
                       Row(
                         children: [
                           Text(

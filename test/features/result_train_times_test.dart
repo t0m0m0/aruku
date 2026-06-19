@@ -62,13 +62,13 @@ RoutePlan _planWith(RouteSegment train) => RoutePlan(
   ],
   timelineNodes: const [
     TimelineNode(time: '21:46', place: '上野', sub: '出発'),
-    TimelineNode(time: '21:54', place: '上野駅', sub: '徒歩へ'),
+    TimelineNode(time: '21:54', place: '上野駅', sub: '東京メトロ銀座線'),
     TimelineNode(time: '22:13', place: '赤坂見附駅', sub: '到着 · 制限内 ✓'),
   ],
 );
 
 void main() {
-  testWidgets('発着時刻を持つ電車区間は「発・着」時刻を表示する', (tester) async {
+  testWidgets('発着時刻はタイムライン左カラムに出し、カード内には重複表示しない', (tester) async {
     final plan = _planWith(
       RouteSegment(
         type: SegmentType.train,
@@ -86,12 +86,16 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    expect(find.text('21:54発 → 22:13着'), findsOneWidget);
+    // カード内の「HH:MM発 → HH:MM着」行は出さない。
+    expect(find.textContaining('発 → '), findsNothing);
+    // 発車時刻（乗車駅）・到着時刻は左カラムのノードに出る。
+    expect(find.text('21:54'), findsOneWidget);
+    expect(find.text('22:13'), findsOneWidget);
     // 駅名・運賃の行は従来どおり残る。
     expect(find.textContaining('上野駅 → 赤坂見附駅'), findsOneWidget);
   });
 
-  testWidgets('発着時刻が無い電車区間は時刻行を出さない', (tester) async {
+  testWidgets('発着時刻が無い電車区間でもカード内に時刻行を出さない', (tester) async {
     final plan = _planWith(
       const RouteSegment(
         type: SegmentType.train,
