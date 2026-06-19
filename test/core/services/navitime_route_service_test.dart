@@ -1303,6 +1303,112 @@ void main() {
       expect(naviCalls, 1); // 乗り遅れ無し＝再照会ゼロ
     });
 
+    test('乗り遅れ→再照会が別の乗車駅・別路線を返したら再アンカーして採用する（#115 再アンカー+別路線）', () async {
+      // 徒歩最大候補は P1 まで歩いて乗車するが、実測30分で 09:30 着＝基準 09:08 発に
+      // 乗り遅れる。乗車駅 P1 からの再照会は「1駅 goal 寄りの P1b から別路線 M で乗る」
+      // 経路を返す（実機で起きる挙動）。旧実装は乗車駅名/路線名の厳密一致で取りこぼし
+      // 歩かない候補へ縮退していた。新実装は NAVITIME の乗車駅 P1b を受け入れ、
+      // アクセス徒歩を origin→P1b に測り直して再アンカーする。
+      final client = _requeryMock(
+        transitByStart: {
+          // P1(35.55) からの再照会＝P1b(35.56) 乗車・別路線 M・09:33発09:45着。
+          '35.55,139.75': _navi([
+            _item([
+              _point('P1b'),
+              _trainSection(
+                12000,
+                12,
+                line: 'M',
+                calling: [
+                  _calling(
+                    'P1b',
+                    35.56,
+                    139.75,
+                    '2026-05-22T09:33:00',
+                    '2026-05-22T09:33:00',
+                  ),
+                  _calling(
+                    'P2',
+                    35.70,
+                    139.75,
+                    '2026-05-22T09:45:00',
+                    '2026-05-22T09:45:00',
+                  ),
+                ],
+              ),
+              _point('P2'),
+            ]),
+          ]),
+        },
+        defaultTransit: _navi([
+          _item([
+            _point('出発地'),
+            _walkSection(240, 3),
+            _point('P0'),
+            _trainSection(
+              18000,
+              20,
+              line: 'L',
+              calling: [
+                _calling(
+                  'P0',
+                  35.52,
+                  139.75,
+                  '2026-05-22T09:05:00',
+                  '2026-05-22T09:05:00',
+                ),
+                _calling(
+                  'P1',
+                  35.55,
+                  139.75,
+                  '2026-05-22T09:08:00',
+                  '2026-05-22T09:08:00',
+                ),
+                _calling(
+                  'P2',
+                  35.70,
+                  139.75,
+                  '2026-05-22T09:25:00',
+                  '2026-05-22T09:25:00',
+                ),
+              ],
+            ),
+            _point('P2'),
+          ]),
+        ]),
+        walk: {
+          '35.5,139.75;35.55,139.75': _walkResp(30, 2400), // P1 まで30分→基準に乗り遅れ
+          '35.5,139.75;35.56,139.75': _walkResp(31, 2480), // P1b まで31分（再アンカー先）
+        },
+        defaultWalk: _walkResp(25, 2000),
+      );
+
+      final plan = await build(client).plan(
+        destination: 'P2',
+        destinationLatLng: const GeoPoint(35.70, 139.75),
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 0), // 予算120分
+        origin: const GeoPoint(35.50, 139.75),
+      );
+
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      // 乗車駅は再アンカーされた P1b、路線は別路線 M。
+      expect(train.fromName, 'P1b');
+      expect(train.toName, 'P2');
+      expect(train.line, 'M');
+      expect(train.depTime, DateTime(2026, 5, 22, 9, 33));
+      expect(train.arrTime, DateTime(2026, 5, 22, 9, 45));
+      // origin→P1b 31分（09:31着）→2分待ち→09:33発→09:45着 = 45分。歩かない縮退ではない。
+      expect(plan.totalMin, 45);
+      final walkMin = plan.segments
+          .where((s) => s.type == SegmentType.walk)
+          .fold<int>(0, (acc, s) => acc + s.minutes);
+      expect(walkMin, 31);
+      expect(plan.timelineNodes.last.sub, contains('制限内'));
+    });
+
     test('サンプル上限を超える停車駅でも飛ばさず徒歩最大の乗車駅を選ぶ（不具合A-b）', () async {
       // 不具合A-b: ハイブリッドの乗降点が _maxHybridCandidates=6 駅サンプルに
       // 制限され、6駅に入らない停車駅で乗車する徒歩最大候補を取りこぼしていた。
