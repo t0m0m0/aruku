@@ -60,7 +60,7 @@ class NaviTimeRouteService implements RouteService {
 
     onProgress?.call(RoutePhase.walkability);
 
-    return _selectMeasured(
+    final result = await _selectMeasured(
       parsed,
       budgetMin,
       departure,
@@ -69,6 +69,115 @@ class NaviTimeRouteService implements RouteService {
       onProgress: onProgress,
       fromName: originName,
       toName: destination,
+    );
+    // 使い捨て計測（docs/notes/walk-max-board-search.md §4）。本体確定後に単独で
+    // 走らせ、乗車駅探索方式の NAVITIME 往復コストを実機ログで採る。計測後に削除。
+    if (kDebugMode && _kBoardSearchProbe) {
+      // ignore: unawaited_futures
+      _probeBoardSearch(
+        parsed,
+        origin,
+        destinationLatLng,
+        departure,
+        budgetMin,
+      );
+    }
+    return result;
+  }
+
+  /// 使い捨て計測フラグ（docs/notes/walk-max-board-search.md §4）。計測が済んだら
+  /// プローブ本体（[_probeBoardSearch]）ごと削除する。
+  static const bool _kBoardSearchProbe = true;
+
+  /// 使い捨て計測（throwaway・観測専用）。乗車駅探索方式の往復コストを実機で採る：
+  /// 基準経路の各停車駅 X を仮の乗車駅とし、直線推定の前半徒歩 t1 ぶん出発を遅らせて
+  /// `route_transit(X→goal)` を引き直し、per-call レイテンシ・候補数 N・総 wall-clock・
+  /// 到着/総徒歩/予算内可否をログする。近接駅（別路線）は Places nearby の口が未実装の
+  /// ため今回は stops のみ。本体の返却値は変えない。
+  Future<void> _probeBoardSearch(
+    List<_TransitParse> parsed,
+    GeoPoint origin,
+    GeoPoint goal,
+    TimeValue departure,
+    int budgetMin,
+  ) async {
+    final departureAt = _departureDateTime(departure);
+    final base = _baseForHybrid(parsed);
+    if (base == null) {
+      debugPrint('[BOARD-PROBE] no base route (stops<2); skip');
+      return;
+    }
+    final stops = base.stops;
+    const maxProbe = 16; // レート制限(30/min)・UX保護のための上限
+    final n = stops.length;
+    debugPrint(
+      '[BOARD-PROBE] start budget=${budgetMin}m stops=$n cap=$maxProbe '
+      'origin=(${origin.lat},${origin.lng}) goal=(${goal.lat},${goal.lng})',
+    );
+
+    final overall = Stopwatch()..start();
+    final latencies = <int>[];
+    var calls = 0;
+
+    for (var i = 0; i < n && calls < maxProbe; i++) {
+      final x = stops[i];
+      final t1 = (haversineKm(origin, x.coord) * 1000 / walkMetersPerMinute)
+          .round();
+      if (t1 > budgetMin) {
+        debugPrint('[BOARD-PROBE] #$i ${x.name} t1=${t1}m > budget; skip');
+        continue;
+      }
+      final boardAt = departureAt.add(Duration(minutes: t1));
+      final sw = Stopwatch()..start();
+      try {
+        final body = await _fetchTransitAt(x.coord, goal, boardAt);
+        sw.stop();
+        calls++;
+        latencies.add(sw.elapsedMilliseconds);
+        final its = body['items'] as List<dynamic>? ?? const [];
+        if (its.isEmpty) {
+          debugPrint(
+            '[BOARD-PROBE] #$i ${x.name} t1=${t1}m '
+            'lat=${sw.elapsedMilliseconds}ms ZERO_RESULTS',
+          );
+          continue;
+        }
+        final cand = _parseTransit(
+          its.first as Map<String, dynamic>,
+        ).toCandidate();
+        final t2 = arrivalMinutes(cand.segments, boardAt);
+        final total = t1 + t2;
+        final totalWalk = t1 + cand.walkMinutes;
+        debugPrint(
+          '[BOARD-PROBE] #$i ${x.name} t1=${t1}m t2=${t2}m total=${total}m '
+          'walk=${totalWalk}m feasible=${total <= budgetMin} '
+          'lat=${sw.elapsedMilliseconds}ms',
+        );
+      } catch (e) {
+        sw.stop();
+        calls++;
+        debugPrint(
+          '[BOARD-PROBE] #$i ${x.name} t1=${t1}m '
+          'lat=${sw.elapsedMilliseconds}ms ERR=$e',
+        );
+      }
+    }
+    overall.stop();
+    latencies.sort();
+    final p50 = latencies.isEmpty ? 0 : latencies[latencies.length ~/ 2];
+    final p90 = latencies.isEmpty
+        ? 0
+        : latencies[((latencies.length * 9) ~/ 10).clamp(
+            0,
+            latencies.length - 1,
+          )];
+    var bsearch = 0;
+    for (var v = 1; v < n; v <<= 1) {
+      bsearch++;
+    }
+    debugPrint(
+      '[BOARD-PROBE] done calls=$calls wall=${overall.elapsedMilliseconds}ms '
+      'p50=${p50}ms p90=${p90}ms binarySearchCalls≈${bsearch + 2}',
     );
   }
 
