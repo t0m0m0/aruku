@@ -35,6 +35,18 @@ class TimeValue {
   String format() =>
       '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
 
+  /// この出発／到着が指す絶対日付のラベル「M月D日 (曜)」。当日でも省略せず必ず返す。
+  /// isNow=true は「今すぐ」なので当日扱い（dateOffset は無視）。経路結果画面ヘッダーの
+  /// ように、実際に検索した日付を常に明示したい箇所で使う（[dateLabel] は当日を null に
+  /// するため不可）。
+  String fullDateLabel({DateTime? now}) {
+    final base = now ?? DateTime.now();
+    final offset = isNow ? 0 : dateOffset;
+    final d = DateTime(base.year, base.month, base.day + offset);
+    const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
+    return '${d.month}月${d.day}日 (${weekdays[d.weekday - 1]})';
+  }
+
   /// ホーム画面に出す日付ラベル。当日・「今すぐ」は表示しない（null）。
   /// 翌日は「明日」、それ以降は「M/D(曜)」。
   String? dateLabel({DateTime? now}) {
