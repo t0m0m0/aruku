@@ -28,12 +28,13 @@ class _FakeLocationService implements LocationService {
 class _StubPlacesService implements PlacesService {
   @override
   Future<List<PlacePrediction>> autocomplete(String query) async => const [
-    PlacePrediction(placeId: 'p_new', name: '新候補', address: '新住所'),
+    PlacePrediction(
+      placeId: 'p_new',
+      name: '新候補',
+      address: '新住所',
+      latLng: GeoPoint(35.0, 139.0),
+    ),
   ];
-
-  @override
-  Future<GeoPoint?> fetchLatLng(String placeId) async =>
-      const GeoPoint(35.0, 139.0);
 }
 
 Future<ProviderContainer> _makeContainer(WidgetTester tester) async {

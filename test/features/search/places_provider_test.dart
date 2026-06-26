@@ -1,4 +1,3 @@
-import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/place_prediction.dart';
 import 'package:aruku/core/services/places_service.dart';
 import 'package:aruku/features/search/places_provider.dart';
@@ -13,19 +12,12 @@ class _FakePlacesService implements PlacesService {
   @override
   Future<List<PlacePrediction>> autocomplete(String query) async =>
       _predictions;
-
-  @override
-  Future<GeoPoint?> fetchLatLng(String placeId) async =>
-      const GeoPoint(35.0, 139.0);
 }
 
 class _ErrorPlacesService implements PlacesService {
   @override
   Future<List<PlacePrediction>> autocomplete(String query) =>
       Future.error(const PlacesException('REQUEST_DENIED'));
-
-  @override
-  Future<GeoPoint?> fetchLatLng(String placeId) async => null;
 }
 
 ProviderContainer _makeContainer(PlacesService service) {
@@ -117,7 +109,4 @@ class _CountingService implements PlacesService {
 
   @override
   Future<List<PlacePrediction>> autocomplete(String query) async => _onCall();
-
-  @override
-  Future<GeoPoint?> fetchLatLng(String placeId) async => null;
 }
