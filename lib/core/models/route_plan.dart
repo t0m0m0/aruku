@@ -61,11 +61,17 @@ class TimelineNode {
     required this.time,
     required this.place,
     required this.sub,
+    this.cardBelow = true,
   });
 
   final String time;
   final String place;
   final String sub;
+
+  /// このノードの直下にレッグ（区間）カードを描くか。直結乗換で「着」「発」を
+  /// 2 行に分けるとき、着行は次の発行と連続させるため `false` にしてカードを挟まない
+  /// （案B）。既定 true で従来どおり 1 ノード 1 カードの並び。
+  final bool cardBelow;
 }
 
 @immutable

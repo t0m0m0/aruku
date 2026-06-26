@@ -46,6 +46,30 @@ void main() {
     });
   });
 
+  group('TimeValue.fullDateLabel', () {
+    final now = DateTime(2026, 5, 19); // 火曜日
+
+    test('当日（dateOffset=0）は「M月D日 (曜)」', () {
+      const tv = TimeValue(h: 8, m: 0, dateOffset: 0);
+      expect(tv.fullDateLabel(now: now), '5月19日 (火)');
+    });
+
+    test('isNow=true は dateOffset を無視して当日', () {
+      const tv = TimeValue(h: 8, m: 0, isNow: true, dateOffset: 3);
+      expect(tv.fullDateLabel(now: now), '5月19日 (火)');
+    });
+
+    test('翌日（dateOffset=1）は翌日の日付', () {
+      const tv = TimeValue(h: 8, m: 0, dateOffset: 1);
+      expect(tv.fullDateLabel(now: now), '5月20日 (水)');
+    });
+
+    test('月をまたぐ dateOffset も正しく算出', () {
+      const tv = TimeValue(h: 9, m: 0, dateOffset: 30);
+      expect(tv.fullDateLabel(now: now), '6月18日 (木)');
+    });
+  });
+
   group('TimeValue.formatBudget', () {
     test('60分未満は「分」のみ', () {
       expect(TimeValue.formatBudget(45), '45分');

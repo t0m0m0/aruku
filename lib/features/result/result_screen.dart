@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/constants/app_constants.dart';
 import '../../core/models/favorite_place.dart';
 import '../../core/models/route_plan.dart';
 import '../../core/models/time_value.dart';
@@ -96,7 +95,7 @@ class ResultScreen extends ConsumerWidget {
                   Expanded(
                     child: Center(
                       child: Text(
-                        '${AppConstants.todayDateLabel()} · ${state.departure.format()} 出発',
+                        '${state.departure.fullDateLabel()} · ${state.departure.format()} 出発',
                         style: jpStyle(
                           size: 12,
                           weight: FontWeight.w700,

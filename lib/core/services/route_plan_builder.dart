@@ -132,10 +132,27 @@ int maxBoardingWait(List<RouteSegment> segments, DateTime departureAt) {
   return maxWait;
 }
 
-/// 電車区間ノードの補足文。乗車前に待ちがあれば「○分待ち · 路線名」と前置きする。
-String _trainSub(String? line, int wait) {
-  final name = line ?? '電車';
-  return wait > 0 ? '$wait分待ち · $name' : name;
+/// 電車区間ノードの補足文。路線名のみを表示する（乗車前待ちは前置きしない）。
+String _trainSub(String? line) {
+  return line ?? '電車';
+}
+
+/// 乗車駅（発）ノードを作る。表示時刻は乗車駅着の累積分 [arrivalCum] に乗車前待ちを
+/// 足した「発車時刻」。早着なら発車時刻、乗り遅れ・時刻欠落なら駅着時刻に化す（_advance
+/// と同基準）。補足文は路線名。
+TimelineNode _boardingNode(
+  TimeValue departure,
+  String place,
+  RouteSegment train,
+  int arrivalCum,
+  DateTime? departureAt,
+) {
+  final wait = _advance(arrivalCum, train, departureAt).wait;
+  return TimelineNode(
+    time: formatClock(departure, arrivalCum + wait),
+    place: place,
+    sub: _trainSub(train.line),
+  );
 }
 
 /// 区間列から RoutePlan を構築する（合計距離・徒歩距離・kcal・徒歩比率・
@@ -158,6 +175,9 @@ RoutePlan buildRoutePlan({
       .where((s) => s.type == SegmentType.walk)
       .fold<int>(0, (a, s) => a + (s.kcal ?? 0));
 
+  // 駅ごとに「着(arr)」「発(dep)」を分けて並べる（案B / Google マップ準拠）。乗車駅は
+  // 発車時刻、降車駅は到着時刻を左に出す。直結乗換（電車→電車で間に徒歩が無い）でも
+  // 「着」「発」の 2 行に分け、着行は cardBelow:false で次の発行へ連続させる。
   final nodes = <TimelineNode>[
     TimelineNode(time: formatClock(departure, 0), place: from, sub: '出発'),
   ];
@@ -165,20 +185,47 @@ RoutePlan buildRoutePlan({
   var cum = 0;
   for (var i = 0; i < segments.length; i++) {
     final seg = segments[i];
-    final advanced = _advance(cum, seg, departureAt);
-    cum = advanced.cum;
+    final cumAfter = _advance(cum, seg, departureAt).cum;
     final isLast = i == segments.length - 1;
-    nodes.add(
-      TimelineNode(
-        time: formatClock(departure, cum),
-        place: isLast ? to : seg.toName,
-        sub: isLast
-            ? (cum <= budgetMin ? '到着 · 制限内 ✓' : '到着')
-            : (seg.type == SegmentType.train
-                  ? _trainSub(seg.line, advanced.wait)
-                  : '徒歩へ'),
-      ),
-    );
+    if (isLast) {
+      nodes.add(
+        TimelineNode(
+          time: formatClock(departure, cumAfter),
+          place: to,
+          sub: cumAfter <= budgetMin ? '到着 · 制限内 ✓' : '到着',
+        ),
+      );
+    } else {
+      final next = segments[i + 1];
+      final place = seg.toName;
+      final incomingTrain = seg.type == SegmentType.train;
+      final outgoingTrain = next.type == SegmentType.train;
+      if (incomingTrain && outgoingTrain) {
+        // 直結乗換：着行（無表示・カード無し）＋ 次電車の発行。
+        nodes.add(
+          TimelineNode(
+            time: formatClock(departure, cumAfter),
+            place: place,
+            sub: '',
+            cardBelow: false,
+          ),
+        );
+        nodes.add(_boardingNode(departure, place, next, cumAfter, departureAt));
+      } else if (outgoingTrain) {
+        // 徒歩で着いて次が電車＝乗車駅。発車時刻＋路線名（待ちがあれば前置き）。
+        nodes.add(_boardingNode(departure, place, next, cumAfter, departureAt));
+      } else {
+        // 電車で着いて次が徒歩（降車駅）、または徒歩→徒歩。到着時刻に「徒歩へ」。
+        nodes.add(
+          TimelineNode(
+            time: formatClock(departure, cumAfter),
+            place: place,
+            sub: '徒歩へ',
+          ),
+        );
+      }
+    }
+    cum = cumAfter;
   }
   // 待ち時間込みの到着までの総所要分（時刻表が無ければ累積所要分に一致する）。
   final totalMin = cum;
