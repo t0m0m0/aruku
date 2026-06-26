@@ -30,7 +30,6 @@ import {
   googleWalkMatrixProxy,
   googleWalkProxy,
   navitimeProxy,
-  placesProxy,
   resetRateLimit,
 } from "../src/index";
 
@@ -329,112 +328,8 @@ describe("ハンドラ統合（App Check 401）", () => {
   });
 });
 
-describe("placesProxy（action 分岐・変換透過）", () => {
-  const original = process.env.FUNCTIONS_EMULATOR;
-
-  beforeEach(() => {
-    resetRateLimit();
-    httpsRequestMock.mockReset();
-    // エミュレータ扱いで App Check をスキップし、action 分岐に集中する。
-    process.env.FUNCTIONS_EMULATOR = "true";
-  });
-
-  afterEach(() => {
-    if (original === undefined) delete process.env.FUNCTIONS_EMULATOR;
-    else process.env.FUNCTIONS_EMULATOR = original;
-  });
-
-  it("autocomplete: input 欠落は 400 で上流を呼ばない", async () => {
-    const res = makeRes();
-    await invokeHandler(
-      placesProxy,
-      makeReq({ query: { action: "autocomplete" } }),
-      res
-    );
-    expect(res.statusCode).toBe(400);
-    expect(res.body).toEqual({ error: "input is required" });
-    expect(httpsRequestMock).not.toHaveBeenCalled();
-  });
-
-  it("autocomplete: suggestions をレガシー predictions へ変換して返す", async () => {
-    mockUpstream({
-      suggestions: [
-        {
-          placePrediction: {
-            placeId: "place-123",
-            text: { text: "東京駅" },
-            structuredFormat: {
-              mainText: { text: "東京駅" },
-              secondaryText: { text: "東京都千代田区" },
-            },
-          },
-        },
-      ],
-    });
-    const res = makeRes();
-    await invokeHandler(
-      placesProxy,
-      makeReq({ query: { action: "autocomplete", input: "東京" } }),
-      res
-    );
-    expect(res.statusCode).toBeUndefined();
-    expect(res.body).toEqual({
-      status: "OK",
-      predictions: [
-        {
-          place_id: "place-123",
-          description: "東京駅",
-          terms: [{ value: "東京駅" }, { value: "東京都千代田区" }],
-        },
-      ],
-    });
-  });
-
-  it("details: place_id 欠落は 400 で上流を呼ばない", async () => {
-    const res = makeRes();
-    await invokeHandler(
-      placesProxy,
-      makeReq({ query: { action: "details" } }),
-      res
-    );
-    expect(res.statusCode).toBe(400);
-    expect(res.body).toEqual({ error: "place_id is required" });
-    expect(httpsRequestMock).not.toHaveBeenCalled();
-  });
-
-  it("details: location をレガシー result へ変換して返す", async () => {
-    mockUpstream({ location: { latitude: 35.681, longitude: 139.767 } });
-    const res = makeRes();
-    await invokeHandler(
-      placesProxy,
-      makeReq({ query: { action: "details", place_id: "place-123" } }),
-      res
-    );
-    expect(res.statusCode).toBeUndefined();
-    expect(res.body).toEqual({
-      status: "OK",
-      result: { geometry: { location: { lat: 35.681, lng: 139.767 } } },
-    });
-  });
-
-  it("未知の action は 400 で上流を呼ばない", async () => {
-    const res = makeRes();
-    await invokeHandler(
-      placesProxy,
-      makeReq({ query: { action: "unknown" } }),
-      res
-    );
-    expect(res.statusCode).toBe(400);
-    expect(res.body).toEqual({
-      error: "action must be autocomplete or details",
-    });
-    expect(httpsRequestMock).not.toHaveBeenCalled();
-  });
-});
-
 describe("CORS プリフライト（OPTIONS）", () => {
   const handlers: [string, HttpsFunction][] = [
-    ["placesProxy", placesProxy],
     ["navitimeProxy", navitimeProxy],
     ["googleWalkProxy", googleWalkProxy],
   ];
