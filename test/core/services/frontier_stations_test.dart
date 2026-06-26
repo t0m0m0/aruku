@@ -1,5 +1,5 @@
 import 'package:aruku/core/models/geo_point.dart';
-import 'package:aruku/core/services/navitime_route_service.dart';
+import 'package:aruku/core/services/hybrid_route_selector.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// frontierStations: 直線距離で乗降候補駅を片側 K に絞る純粋関数（measure-first の肝）。
