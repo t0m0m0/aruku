@@ -35,10 +35,11 @@
 
 | エンドポイント | プロキシ先 |
 |---|---|
-| `placesProxy` | Google Places（新→旧形式へ変換して返す） |
 | `navitimeProxy` | NAVITIME route_transit（基本素通し） |
 | `googleWalkProxy` | Google Routes `computeRoutes`(WALK)（基本素通し） |
 | `googleWalkMatrixProxy` | Google Routes `computeRouteMatrix`(WALK)（基本素通し） |
+
+- **地点検索（#135）:** 公開・無認証の Transit API（`api.transit.ls8h.com` の `places/suggest`）へクライアントから直接アクセスする。Google Places 依存と `placesProxy`・変換層は廃止済み。
 
 - **APIキー秘匿:** Secret Manager（`GOOGLE_MAPS_API_KEY`, `NAVITIME_RAPIDAPI_KEY`）。地図用キーとプロキシ用キーは Cloud Console で分離。
 - **認証:** App Check トークン必須（`X-Firebase-AppCheck`）。エミュレータは除外。
