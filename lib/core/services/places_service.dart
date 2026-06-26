@@ -52,7 +52,13 @@ class TransitPlacesService implements PlacesService {
 
     final body =
         jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-    final places = (body['places'] as List<dynamic>? ?? [])
+    // 成功ステータス(200)でも places 配列が無い応答はエラー封筒とみなす。
+    // 空配列で握り潰すと API エラーが「結果ゼロ」に化けて隠れてしまう。
+    final raw = body['places'];
+    if (raw is! List) {
+      throw const PlacesException('malformed response: missing places');
+    }
+    final places = raw
         .whereType<Map<String, dynamic>>()
         .map(_TransitPlace.tryParse)
         .whereType<_TransitPlace>()
@@ -64,21 +70,25 @@ class TransitPlacesService implements PlacesService {
   /// クライアント側で実用順位へ補正し、同名・同座標の重複を畳む。
   ///
   /// Transit の suggest は順位付けが粗く、駅は feed 別に重複する。
-  /// kind 優先度 → weight 降順 → score 降順で安定ソートし、
-  /// 名前＋座標（小数4桁丸め ≒ 10m）で先頭を残して dedup する。
+  /// kind 優先度 → weight 降順 → score 降順で並べ替える。Dart の [List.sort] は
+  /// 安定でないため、全要素同点のときは受信順をタイブレークに使って決定的にする。
+  /// 並べ替え後、名前＋座標（小数4桁丸め ≒ 10m）で先頭を残して dedup する。
   List<PlacePrediction> _rankAndDedupe(List<_TransitPlace> places) {
-    final sorted = [...places]
+    final indexed = [for (var i = 0; i < places.length; i++) (i, places[i])]
       ..sort((a, b) {
-        final ka = _kindRank[a.kind] ?? 99;
-        final kb = _kindRank[b.kind] ?? 99;
+        final pa = a.$2;
+        final pb = b.$2;
+        final ka = _kindRank[pa.kind] ?? 99;
+        final kb = _kindRank[pb.kind] ?? 99;
         if (ka != kb) return ka.compareTo(kb);
-        if (a.weight != b.weight) return b.weight.compareTo(a.weight);
-        return b.score.compareTo(a.score);
+        if (pa.weight != pb.weight) return pb.weight.compareTo(pa.weight);
+        if (pa.score != pb.score) return pb.score.compareTo(pa.score);
+        return a.$1.compareTo(b.$1);
       });
 
     final seen = <String>{};
     final out = <PlacePrediction>[];
-    for (final p in sorted) {
+    for (final (_, p) in indexed) {
       final key =
           '${p.name}|${p.lat.toStringAsFixed(4)},${p.lon.toStringAsFixed(4)}';
       if (!seen.add(key)) continue;

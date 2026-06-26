@@ -174,6 +174,61 @@ void main() {
       ], reason: 'kind 優先度→weight 降順の安定ソート');
     });
 
+    test('kind・weight・score が全て同点なら受信順を保つ（決定的）', () async {
+      // 3要素すべて同点の候補。安定（決定的）ソートでなければ並びがぶれる。
+      final client = MockClient(
+        (_) async => _jsonResponse({
+          'places': [
+            _place(
+              id: 'first',
+              name: 'A',
+              lat: 1,
+              lon: 1,
+              weight: 50,
+              score: 5,
+            ),
+            _place(
+              id: 'second',
+              name: 'B',
+              lat: 2,
+              lon: 2,
+              weight: 50,
+              score: 5,
+            ),
+            _place(
+              id: 'third',
+              name: 'C',
+              lat: 3,
+              lon: 3,
+              weight: 50,
+              score: 5,
+            ),
+          ],
+        }, 200),
+      );
+
+      final service = TransitPlacesService(client: client, baseUrl: _baseUrl);
+      final results = await service.autocomplete('x');
+
+      expect(results.map((p) => p.placeId).toList(), [
+        'first',
+        'second',
+        'third',
+      ], reason: '同点は受信順を保持し並びを決定的にする');
+    });
+
+    test('places キーが無い 200 応答は PlacesException をスローする', () async {
+      // 成功ステータスのエラー封筒を「結果ゼロ」と握り潰さない。
+      final client = MockClient(
+        (_) async => _jsonResponse({'error': 'rate limited'}, 200),
+      );
+      final service = TransitPlacesService(client: client, baseUrl: _baseUrl);
+      expect(
+        () => service.autocomplete('test'),
+        throwsA(isA<PlacesException>()),
+      );
+    });
+
     test('baseUrl 末尾スラッシュを除去して組み立てる', () async {
       late Uri captured;
       final client = MockClient((request) async {
