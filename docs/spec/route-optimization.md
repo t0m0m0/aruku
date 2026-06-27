@@ -1,8 +1,8 @@
 # ルート最適化 仕様（正本）
 
 - **位置づけ:** 本書はルート最適化ロジックの **仕様の正本（source of truth）**。挙動を変える実装・レビュー・再設計は本書を基準に判断し、仕様が変わったら本書を更新する。
-- **最終更新:** 2026-06-18
-- **対象コード:** `lib/core/services/navitime_route_service.dart`, `lib/core/services/hybrid_route_selector.dart`, `lib/core/services/route_plan_builder.dart`, `functions/src/`
+- **最終更新:** 2026-06-27
+- **対象コード:** `lib/core/services/transit_route_service.dart`（現行・Transit API 経路、`routeServiceProvider` が配線）, `lib/core/services/navitime_route_service.dart`（旧・未配線。§2 の表は NAVITIME 前提の歴史的記述を含む。#137 で経路データ源は Transit API へ移行済み — [transit-api-migration.md](../notes/transit-api-migration.md)）, `lib/core/services/hybrid_route_selector.dart`, `lib/core/services/route_plan_builder.dart`, `functions/src/`
 - **関連:** [ADR-001](../adr/ADR-001-route-optimization-architecture.md)（アーキテクチャ決定）, [optimization-backend-offload.md](../notes/optimization-backend-offload.md)（再設計の検討メモ・限界分析）
 - **実装ステータス:** アーキテクチャは反応的「実測ループ」方式から **measure-first（測ってから選ぶ）** へ移行中。§4 の不変条件・§5 の純粋関数契約は実装方式に依存しない恒久的な正本。§3 のアーキテクチャは採用済みの目標設計。
 
@@ -17,7 +17,7 @@
   - kcal は徒歩距離から算出（`kcal = walkKm × kcalPerKm`、`kcalPerKm = 57`）。表示用で選定には使わない。
 - **km か min か（限界1・確定済み）:** 選定は **`walkMinutes`（時間）を正**とする。[ADR-001](../adr/ADR-001-route-optimization-architecture.md) は `walkKm` と記すが、これは実装（`walkMinutes`）に合わせて修正する。
   - 理由: measure-first ではアクセス徒歩を**実測**するため、`walkMinutes` は街路追従の実所要時間になる。旧方式で `walkMinutes` を歪めていた迂回率割増（`_inflateWalk`）は撤廃されるので「クネクネして時間がかかるだけの経路」が不当に勝つ問題は起きない。
-- **予算内候補が無いとき（best-effort）:** 最長（全徒歩）ではなく**実到着が最早**の候補へ縮退する（UI バナーの「最短を表示」と整合）。ただし「今夜は乗れない」電車（終電後の翌朝始発など）は後回しにする（§4 #121②）。
+- **予算内候補が無いとき（best-effort）:** 最長（全徒歩）ではなく**実到着が最早**の候補へ縮退する（UI バナーの「最短を表示」と整合）。ただし「今夜は乗れない」電車（終電後の翌朝始発など）は後回しにする（§4 #121②）。時刻なしハイブリッドは実発車時刻を確認できない限り縮退先にも含めない（§4 #137）。
 
 ---
 
@@ -79,7 +79,7 @@ NAVITIME route_transit 照会（1回）
 
 1. **全徒歩:** origin→goal。実測（無ければ直線推定にフォールバック）。常に候補。
 2. **標準乗換:** NAVITIME が返した経路そのまま。アクセス徒歩は **NAVITIME 由来（街路ベースで実測相当）のため再測定しない**。
-3. **ハイブリッド:** 基準経路の途中駅で乗降し、アクセス徒歩を実測で割り当てた候補。同一乗車区間（section）内・乗車駅 b より後方の降車駅 a のペアのみ（乗換またぎは単一乗車として表現できないため除外）。
+3. **ハイブリッド:** 基準経路の途中駅で乗降し、アクセス徒歩を実測で割り当てた候補。同一乗車区間（section）内・乗車駅 b より後方の降車駅 a のペアのみ（乗換またぎは単一乗車として表現できないため除外）。**電車区間はコリドー座標由来で発車時刻を持たない**（距離概算 `minutes` のみ）。採用前に実発車時刻を引き直して検証する（§4 #137）。
 
 ### 3.3 フロンティア絞り込み `frontierStations`（設計の肝）
 
@@ -159,6 +159,14 @@ NAVITIME route_transit 照会（1回）
 - **TZ 正規化:** NAVITIME の時刻文字列（`+09:00`/`Z` 付き等）は `parseNavitimeJst` で **JST の壁時計値を表す naive DateTime** へ正規化する。これを怠ると JST 以外の端末で乗車待ちが負＝0 に化け、翌朝始発が深夜電車として表示される。
 - **NAVITIME 時刻を信じる（B案）:** 深夜帯の「幽霊便」対策として untimed 電車を時間帯で予算外にする案は**不採用**（始発も消してしまう・#67 と衝突）。NAVITIME が返す発着時刻を正とする。`is_timetable` は判別に使えない。
 - 注意: 出発アンカー（naive）と NAVITIME 時刻（`+09:00`→`DateTime.parse` で UTC）を直接 `difference` すると端末 TZ ぶんずれる。必ず `parseNavitimeJst` で揃える。
+
+### #137 — 時刻なしハイブリッドの実発車時刻検証（深夜の幽霊便対策）
+
+詳細は [hybrid-boarding-time-verification.md](../notes/hybrid-boarding-time-verification.md)。Transit API 経路（`transit_route_service.dart`）固有。
+
+- **背景:** コリドー座標から合成するハイブリッド電車区間は `depTime` を持たない（距離概算 `minutes` のみ）。`depTime == null` だと `_advance` が乗車待ちを 0 とみなし、`maxBoardingWait` も 0 を返すため、深夜・終電後に**走っていない便が「待ち0で今夜乗れる」と誤判定**され予算内候補・best-effort 縮退先へ化ける（実機: 02:41 の京急、23:33 の都立大学0:48発 森91）。現行 Transit API は照会時刻に追従する幽霊便を返さない（honest・実 API で確認済み）ので、これは**API でなくアプリ側ロジックの問題**。
+- **不変条件:** **時刻なし（`depTime == null`）電車区間は、実 `/guidance/plan` 引き直しで実発車時刻を確認できない限り最終ルートに含めない。** 確認できた区間は実発着時刻で乗車待ち・乗車時間を計算する。予算内確定・best-effort の双方に適用。
+- **機構（approach A）:** 採用候補の時刻なし電車を、乗車座標→降車座標を実 boardAt で引き直し（`_resolveBoardingTimes`）実発着時刻を当てる。引き直しでも電車便を確認できない（API が all-walk のみ返す＝その時間に便が無い）候補は除外し、全徒歩等の確証ある候補へ縮退する（`_bestEffortResolved` に共通化）。標準乗換・board-search は実時刻を持つので検証不要。
 
 ### 逆戻りフィルタ
 
