@@ -956,4 +956,106 @@ void main() {
       expect(plan.totalMin, lessThanOrEqualTo(110));
     });
   });
+
+  group('plan: 時刻なしハイブリッドの実発車時刻検証（approach A・深夜の幽霊便対策）', () {
+    // ハイブリッド電車区間はコリドー座標を距離で割った概算 minutes だけを持ち depTime を
+    // 欠く。すると _advance が乗車待ちを 0 にし、運行時間外（終電後・始発前）でも「待ち0で
+    // 今すぐ乗れる」と評価され、走っていない電車が予算内へ化ける（#137 実機・深夜02:41）。
+    // approach A：採用候補の時刻なし電車区間を、実 boardAt で guidance 引き直しして実発着
+    // 時刻を当て、乗車待ち（始発までの長い待ち）を到着へ反映する。
+    const origin6 = GeoPoint(35.0, 139.0);
+    const goal6 = GeoPoint(35.0, 139.30); // 全徒歩は約340分で予算外
+
+    // 始発 firstTrainSecs（05:00）固定。照会時刻が始発前なら始発に張り付き、以降なら
+    // 照会時刻以降の最初の便を返す（実機の NAVITIME/Transit API と同じ正直な挙動）。
+    http.Client nightMock({int firstTrainSecs = 18000, int rideSecs = 1800}) {
+      Map<String, dynamic> optionFor(int reqSecs) {
+        final dep = reqSecs > firstTrainSecs ? reqSecs : firstTrainSecs;
+        final arr = dep + rideSecs;
+        const stops = [
+          [35.0, 139.0],
+          [35.0, 139.075],
+          [35.0, 139.15],
+          [35.0, 139.225],
+          [35.0, 139.30],
+        ];
+        return {
+          'journey': {
+            'departureSecs': dep,
+            'arrivalSecs': arr,
+            'durationSecs': arr - dep + 120,
+            'accessWalkSecs': 60,
+            'egressWalkSecs': 60,
+            'legs': [
+              _railLeg(
+                route: '夜行線',
+                fromId: 's0',
+                fromName: '始発駅',
+                toId: 's1',
+                toName: '終着駅',
+                dep: dep,
+                arr: arr,
+              ),
+            ],
+          },
+          'map': {
+            'points': const [],
+            'segments': [
+              _mapSeg('walk', 'origin', 's0', 'osmWalk', const [
+                [35.0, 139.0],
+                [35.0, 139.0],
+              ]),
+              _mapSeg('transit', 's0', 's1', 'stopOrder', stops),
+              _mapSeg('walk', 's1', 'destination', 'estimatedWalk', const [
+                [35.0, 139.30],
+                [35.0, 139.30],
+              ]),
+            ],
+          },
+        };
+      }
+
+      return MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+        if (path.contains('googleWalkProxy')) return _walkFor(req.url);
+        if (path.contains('guidance/plan')) {
+          final time = req.url.queryParameters['time'] ?? '00:00';
+          final hm = time.split(':');
+          final secs = int.parse(hm[0]) * 3600 + int.parse(hm[1]) * 60;
+          final body = _guidance([optionFor(secs)]);
+          body['date'] = req.url.queryParameters['date'];
+          return _json(body);
+        }
+        return _json(const {}, 404);
+      });
+    }
+
+    TransitRouteService nightService(http.Client client) => TransitRouteService(
+      transitClient: client,
+      proxyClient: client,
+      transitBaseUrl: _transitBase,
+      proxyBaseUrl: _proxyBase,
+      clock: () => DateTime(2026, 6, 27, 2, 0),
+    );
+
+    test('深夜のハイブリッドは始発05:00の実発車時刻が当たり乗車待ちが到着へ入る', () async {
+      final plan = await nightService(nightMock()).plan(
+        destination: '終着駅',
+        destinationLatLng: goal6,
+        departure: const TimeValue(h: 2, m: 0),
+        arrival: const TimeValue(h: 7, m: 0), // 予算300分
+        origin: origin6,
+        originName: '出発',
+      );
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      // 時刻なし距離概算のままだと depTime は null。approach A で実時刻が当たる。
+      expect(train.depTime, isNotNull, reason: '実発車時刻が当たるべき');
+      expect(train.depTime!.hour, 5, reason: '02:00出発でも始発05:00より前には乗れない');
+      // 02:00出発で05:00乗車＝最低180分の乗車待ちが到着に反映される。
+      expect(plan.totalMin, greaterThanOrEqualTo(180));
+    });
+  });
 }

@@ -335,13 +335,12 @@ class TransitRouteService implements RouteService {
     return RouteCandidate(from: chosen.from, to: chosen.to, segments: segs);
   }
 
-  /// 乗車座標 [board]→降車座標 [alight] を引き直し、最初に電車を含む option の先頭電車の
-  /// 乗車駅・末尾電車の降車駅名を返す。電車を含む option が無い・取得失敗なら null。
-  Future<({String from, String to})?> _fetchTrainEndpoints(
-    GeoPoint board,
-    GeoPoint alight,
-    DateTime at,
-  ) async {
+  /// 乗車座標 [board]→降車座標 [alight] を [at] 発で引き直し、最初に電車を含む option の
+  /// 先頭電車の乗車駅名・実発車時刻、末尾電車の降車駅名・実到着時刻を返す。電車を含む
+  /// option が無い・取得失敗なら null。コリドー由来候補の駅名復元（[_finalizeStationNames]）
+  /// と実時刻検証（[_resolveBoardingTimes]・approach A）で共有する。
+  Future<({String from, String to, DateTime? dep, DateTime? arr})?>
+  _fetchTrainEndpoints(GeoPoint board, GeoPoint alight, DateTime at) async {
     final Map<String, dynamic> body;
     try {
       body = await _fetchGuidanceAt(board, alight, at);
@@ -353,10 +352,59 @@ class TransitRouteService implements RouteService {
           .where((s) => s.type == SegmentType.train)
           .toList();
       if (trains.isNotEmpty) {
-        return (from: trains.first.fromName, to: trains.last.toName);
+        return (
+          from: trains.first.fromName,
+          to: trains.last.toName,
+          dep: trains.first.depTime,
+          arr: trains.last.arrTime,
+        );
       }
     }
     return null;
+  }
+
+  /// approach A（時刻なしハイブリッドの実時刻検証）。コリドー由来の電車区間は距離概算の
+  /// minutes だけを持ち depTime を欠くため、乗車待ち（終電後・運行時間外の翌朝始発待ちを
+  /// 含む）が [arrivalMinutes] に反映されず、走っていない電車が予算内へ化ける（#137 実機の
+  /// 深夜02:41／全ハイブリッド maxWait=0m）。採用候補の時刻なし電車区間について、乗車座標
+  /// →降車座標を実 boardAt（出発＋その区間までの実累積分）で `/guidance/plan` 引き直しし、
+  /// 最初の電車 leg の実発着時刻を当てる。引き直し便は boardAt 以降発の実ダイヤなので、
+  /// 乗車待ち・乗車時間が実時刻で入り、深夜は始発待ちで予算外へ正しく落ちる。
+  /// boardAt より前発（実ダイヤと不整合・乗れない便）・取得失敗・電車便なしの区間は当てない。
+  /// 駅名も同時に復元する（[_finalizeStationNames] の再照会を省ける）。
+  Future<RouteCandidate> _resolveBoardingTimes(
+    RouteCandidate cand,
+    DateTime departureAt,
+  ) async {
+    final segs = [...cand.segments];
+    var changed = false;
+    for (var i = 0; i < segs.length; i++) {
+      final seg = segs[i];
+      if (seg.type != SegmentType.train) continue;
+      if (seg.depTime != null) continue; // 既に実時刻あり（標準乗換・board-search）
+      if (seg.polyline.length < 2) continue;
+      final cumBefore = arrivalMinutes(segs.sublist(0, i), departureAt);
+      final boardAt = departureAt.add(Duration(minutes: cumBefore));
+      final ep = await _fetchTrainEndpoints(
+        seg.polyline.first,
+        seg.polyline.last,
+        boardAt,
+      );
+      if (ep == null || ep.dep == null || ep.dep!.isBefore(boardAt)) continue;
+      final ride = (ep.arr != null && !ep.arr!.isBefore(ep.dep!))
+          ? ep.arr!.difference(ep.dep!).inMinutes
+          : seg.minutes;
+      segs[i] = seg.copyWith(
+        fromName: seg.fromName.isEmpty ? ep.from : null,
+        toName: seg.toName.isEmpty ? ep.to : null,
+        depTime: ep.dep,
+        arrTime: ep.arr,
+        minutes: ride,
+      );
+      changed = true;
+    }
+    if (!changed) return cand;
+    return RouteCandidate(from: cand.from, to: cand.to, segments: segs);
   }
 
   /// 電車区間の乗降駅名を、直前（乗車駅）・直後（降車駅）の徒歩区間の端点が空のときだけ
@@ -423,8 +471,14 @@ class TransitRouteService implements RouteService {
         );
       }
 
-      final enriched = await _enrichWalkGeometry(chosen, walkCache);
-      // enrich（実測）で (a) 予算超過に転じた、または (b) 先頭電車に乗り遅れる（標準乗換の
+      // enrich（実測徒歩）に加え、時刻なしハイブリッドの電車区間へ実発車時刻を当てる
+      // （approach A）。これで乗車待ち（深夜の始発待ち等）が arrivalMinutes に入り、
+      // 走っていない電車が予算内へ化けるのを防ぐ。
+      final enriched = await _resolveBoardingTimes(
+        await _enrichWalkGeometry(chosen, walkCache),
+        departureAt,
+      );
+      // enrich／実時刻検証で (a) 予算超過に転じた、または (b) 先頭電車に乗り遅れる（標準乗換の
       // アクセス徒歩が guidance 見積りより実街路で伸び、駅着が発車後になる）候補は除外して
       // 選び直す。除外は実測の確認時だけ。乗り遅れは「予算内に見えても実際には乗れない」
       // 経路なので、予算超過と同様に確定させない（#137 副次）。
