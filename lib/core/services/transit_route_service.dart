@@ -272,12 +272,10 @@ class TransitRouteService implements RouteService {
         departureAt,
         walkCache,
       );
-      if (boardSearch != null) {
-        _log(
-          'board-search候補: ${_candLine(boardSearch, budgetMin, departureAt)}',
-        );
+      if (boardSearch.isNotEmpty) {
+        _log('board-search候補: ${boardSearch.length}件をプールへ追加');
         selected = await _selectAndEnrich(
-          [...candidates, boardSearch],
+          [...candidates, ...boardSearch],
           budgetMin,
           departureAt,
           origin: origin,
@@ -289,7 +287,7 @@ class TransitRouteService implements RouteService {
           '${_candLine(selected.enriched, budgetMin, departureAt)}',
         );
       } else {
-        _log('board-search候補: なし（null）');
+        _log('board-search候補: なし');
       }
     } else if (base != null) {
       _log('collapse=false → フォールバック起動せず');
@@ -520,10 +518,16 @@ class TransitRouteService implements RouteService {
   /// **前半徒歩は Google 実街路で実測して二分探索を駆動する（#137 主因の修正）。** 直線推定
   /// は実街路に対し大きく楽観に倒れることがあり（実機で -36分・25%）、それで二分探索を
   /// 駆動すると目的地寄りの遠い乗車駅へ収束→実街路では全部予算超過→予算内の確定に失敗して
-  /// null を返し、徒歩最小の標準乗換へ崩落（大量の余り）していた。実測で駆動すれば、二分探索
-  /// が返す境界はそのまま実測で予算内が保証された「最も遠い（＝総徒歩最大）乗車駅」になる。
-  /// 実測は [walkCache] 共有で、採用後の enrich でも同一レッグはキャッシュヒットし到着は覆らない。
-  Future<RouteCandidate?> _buildBoardSearchCandidate(
+  /// 徒歩最小の標準乗換へ崩落（大量の余り）していた。実測で駆動すれば、二分探索の各評価点は
+  /// 実測で予算内可否が確定する。実測は [walkCache] 共有で、採用後の enrich でも同一レッグは
+  /// キャッシュヒットし到着は覆らない。
+  ///
+  /// **戻り値は二分探索が評価した予算内候補を「全部」返す（#137）。** 単一の最良1本だけを返すと、
+  /// それが下流の逆戻りフィルタ・乗り遅れ除外（[selectBestRoute]/[_selectAndEnrich]）で消えた
+  /// とき次善の board-search 候補へ落ちられず徒歩最小へ転落する（実機: 川崎(徒歩74)が逆戻りで
+  /// 弾かれ鹿島田(徒歩68)に落ちず徒歩12へ）。全候補をプールへ足せば、逆戻り・到着の非単調も
+  /// 込みで「生き残る中の徒歩最大」を選定が決められる。コリドー2未満・予算内皆無は空リスト。
+  Future<List<RouteCandidate>> _buildBoardSearchCandidate(
     TransitOption base,
     GeoPoint origin,
     GeoPoint goal,
@@ -532,7 +536,7 @@ class TransitRouteService implements RouteService {
     Map<String, RouteCandidate> walkCache,
   ) async {
     final stops = _corridorStops(base);
-    if (stops.length < 2) return null;
+    if (stops.length < 2) return const [];
 
     // 二分探索が同じ index を再評価しても引き直さないようメモ化する。
     final built = <int, RouteCandidate?>{};
@@ -585,31 +589,18 @@ class TransitRouteService implements RouteService {
       'board-search: 実測二分探索の境界 best='
       '${best == null ? 'null(予算内乗車駅なし)' : '$best'} / コリドー点${stops.length}',
     );
-    // 二分探索が評価した点（メモ化済み）から、予算内で徒歩最大の候補を返す。到着は実街路で
-    // 非単調になり得る（後方の停車駅が origin に近い等）ため、単調仮定の境界 best だけを採ると
-    // 二分探索が途中で評価した「より手前で徒歩の多い予算内点」を取りこぼす。評価済みから徒歩
-    // 最大を拾えば、特定ケースに依存せずどの非単調コリドーでも取りこぼしを減らせる（追加 API
-    // なし＝built は評価済みのみ。同点は実到着が早い方）。
-    RouteCandidate? bestCand;
-    var bestArr = 0;
-    for (final c in built.values) {
-      if (c == null) continue;
-      final arr = arrivalMinutes(c.segments, departureAt);
-      if (arr > budgetMin) continue;
-      if (bestCand == null ||
-          c.walkMinutes > bestCand.walkMinutes ||
-          (c.walkMinutes == bestCand.walkMinutes && arr < bestArr)) {
-        bestCand = c;
-        bestArr = arr;
-      }
-    }
-    if (bestCand != null) {
-      _log(
-        'board-search: 評価済み最大徒歩を採用 '
-        '${_candLine(bestCand, budgetMin, departureAt)}',
-      );
-    }
-    return bestCand;
+    // 二分探索が評価した点（メモ化済み）のうち、予算内の候補を「全部」返す。境界 best 1本だけ
+    // でなく全部を返すのは：(1) 到着は実街路で非単調になり得る（後方の停車駅が origin に近い等）
+    // ため境界＝徒歩最大とは限らず、(2) 採用前に逆戻りフィルタ・乗り遅れ除外で1本が消えても、
+    // 次善の board-search 候補へ落とせるようにするため。選定（[selectBestRoute] /
+    // [_selectAndEnrich]）が逆戻り・到着の非単調を込みで「生き残る中の徒歩最大」を決める。
+    final within = [
+      for (final c in built.values)
+        if (c != null && arrivalMinutes(c.segments, departureAt) <= budgetMin)
+          c,
+    ];
+    _log('board-search: 予算内候補 ${within.length}件を返す');
+    return within;
   }
 
   /// 乗降アクセス徒歩を1回（最大2コール）のマトリクス（Google プロキシ）で一括実測し、
