@@ -6,7 +6,7 @@ import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/hybrid_route_selector.dart'
     show haversineKm;
 import 'package:aruku/core/services/route_plan_builder.dart'
-    show walkMetersPerMinute;
+    show walkMetersPerMinute, firstMissedTrain;
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/services/transit_route_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -455,6 +455,361 @@ void main() {
       // 直前・直後の徒歩区間の端点を使うため、駅名が伝播していることを確かめる。
       final places = plan.timelineNodes.map((n) => n.place);
       expect(places, contains('乗車駅'));
+    });
+  });
+
+  group('plan: 乗車駅探索の実測駆動（#137 主因）', () {
+    // 直線推定は実街路に対し大きく楽観に倒れることがある（実機で -36分/25%）。乗車駅探索の
+    // 二分探索を直線推定で駆動すると、目的地寄りの遠い乗車駅へ収束し、実街路では全部予算
+    // 超過 → 固定段数の後退では真の境界（ずっと手前）に届かず null → 徒歩最小の標準乗換へ
+    // 崩落して大量に余る。二分探索を実測（Google walk）で駆動すれば、予算内・徒歩最大の
+    // 中庸な乗車駅を取りこぼさない。
+    const origin3 = GeoPoint(35.0, 139.0);
+    const goal3 = GeoPoint(35.0, 139.05);
+    const transfer = 139.025; // 乗換駅 T（コリドー中央）
+    const inflate = 6; // Google 実街路 = 直線 ×6（遠いほど直線が楽観に倒れるのを模す）
+
+    // 基準経路は2区間（origin→T→goal）。乗車駅探索のハイブリッドは「同一区間内 b→a」しか
+    // 張れないため、区間1で降りると egress(T→goal) が ×6 で予算超過、区間2で乗ると前半徒歩
+    // (origin→区間2) が予算超過 → どの中庸ハイブリッドも作れない。引き直し（board-search）
+    // だけが多区間を1本に繋いで中庸の乗車駅を出せる、という構造をつくる。
+    List<List<double>> leg1() => [
+      for (var i = 0; i < 30; i++)
+        [35.0, 139.001 + (transfer - 139.001) * i / 29],
+    ];
+    List<List<double>> leg2() => [
+      for (var i = 0; i < 30; i++)
+        [35.0, transfer + (139.05 - transfer) * i / 29],
+    ];
+
+    // 基準（標準）経路：2区間を速い1本で走る。access/egress 0 で徒歩最小・大量に余る＝
+    // 崩壊状況をつくる。区間A着 [aArr]・区間B着 [bArr] で所要を変えられる（既定は計20分）。
+    Map<String, dynamic> baseGuidance({int aArr = 33000, int bArr = 33600}) =>
+        _guidance([
+          {
+            'journey': {
+              'departureSecs': 32400, // 09:00
+              'arrivalSecs': bArr,
+              'durationSecs': bArr - 32400,
+              'accessWalkSecs': 0,
+              'egressWalkSecs': 0,
+              'legs': [
+                _railLeg(
+                  route: '基準線A',
+                  fromId: 's0',
+                  fromName: '始発駅',
+                  toId: 'sT',
+                  toName: '乗換駅',
+                  dep: 32400,
+                  arr: aArr,
+                ),
+                _railLeg(
+                  route: '基準線B',
+                  fromId: 'sT',
+                  fromName: '乗換駅',
+                  toId: 'sN',
+                  toName: '終着駅',
+                  dep: aArr,
+                  arr: bArr,
+                ),
+              ],
+            },
+            'map': {
+              'points': const [],
+              'segments': [
+                _mapSeg('transit', 's0', 'sT', 'stopOrder', leg1()),
+                _mapSeg('transit', 'sT', 'sN', 'stopOrder', leg2()),
+              ],
+            },
+          },
+        ]);
+
+    int secsOf(String hhmm) {
+      final p = hhmm.split(':');
+      return int.parse(p[0]) * 3600 + int.parse(p[1]) * 60;
+    }
+
+    // 乗車駅 X からの引き直し便：乗車待ち0（dep=照会時刻）、goal までを残距離から概算した
+    // 1本の電車で繋ぐ自己整合な実在便。X が goal に近いほど前半徒歩は伸びるが乗車は短い。
+    Map<String, dynamic> reentry(double lng, String time) {
+      final dep = secsOf(time);
+      final remainMin = (haversineKm(GeoPoint(35.0, lng), goal3) * 1000 / 500)
+          .round();
+      final arr = dep + remainMin * 60;
+      return _guidance([
+        {
+          'journey': {
+            'departureSecs': dep,
+            'arrivalSecs': arr,
+            'durationSecs': arr - dep,
+            'accessWalkSecs': 0,
+            'egressWalkSecs': 0,
+            'legs': [
+              _railLeg(
+                route: '快速',
+                fromId: 'bx',
+                fromName: '乗車駅',
+                toId: 'gx',
+                toName: '目的駅',
+                dep: dep,
+                arr: arr,
+              ),
+            ],
+          },
+          'map': {
+            'points': const [],
+            'segments': [
+              _mapSeg('transit', 'bx', 'gx', 'stopOrder', [
+                [35.0, lng],
+                [35.0, 139.05],
+              ]),
+            ],
+          },
+        },
+      ]);
+    }
+
+    http.Client inflatedFromMock({
+      int aArr = 33000,
+      int bArr = 33600,
+      List<Uri>? guidanceCalls,
+    }) {
+      List<GeoPoint> parse(String? raw) =>
+          (raw ?? '').split(';').where((s) => s.isNotEmpty).map(_pt).toList();
+      http.Response matrix(Uri url) {
+        final os = parse(url.queryParameters['origins']);
+        final ds = parse(url.queryParameters['destinations']);
+        return _json([
+          for (var i = 0; i < os.length; i++)
+            for (var j = 0; j < ds.length; j++)
+              {
+                'originIndex': i,
+                'destinationIndex': j,
+                'duration': '${_walkMin(os[i], ds[j]) * inflate * 60}s',
+                'distanceMeters': (haversineKm(os[i], ds[j]) * 1000).round(),
+              },
+        ]);
+      }
+
+      http.Response walk(Uri url) {
+        final s = _pt(url.queryParameters['start'] ?? '0,0');
+        final g = _pt(url.queryParameters['goal'] ?? '0,0');
+        return _json({
+          'routes': [
+            {
+              'distanceMeters': (haversineKm(s, g) * 1000).round(),
+              'duration': '${_walkMin(s, g) * inflate * 60}s',
+            },
+          ],
+        });
+      }
+
+      return MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) return matrix(req.url);
+        if (path.contains('googleWalkProxy')) return walk(req.url);
+        if (path.contains('guidance/plan')) {
+          guidanceCalls?.add(req.url);
+          final from = req.url.queryParameters['from'] ?? '';
+          final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
+          final time = req.url.queryParameters['time'] ?? '09:00';
+          if ((lng - 139.0).abs() < 1e-6) {
+            return _json(baseGuidance(aArr: aArr, bArr: bArr));
+          }
+          return _json(reentry(lng, time));
+        }
+        return _json(const {}, 404);
+      });
+    }
+
+    int walkMinutesOf(RoutePlan plan) => plan.segments
+        .where((s) => s.type == SegmentType.walk)
+        .fold(0, (a, s) => a + s.minutes);
+
+    test('楽観推定で遠い駅へ収束せず、実測で予算内・徒歩最大の乗車駅を選ぶ', () async {
+      final svc = _service(inflatedFromMock());
+      final plan = await svc.plan(
+        destination: '目的駅',
+        destinationLatLng: goal3,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 30), // 予算90分
+        origin: origin3,
+        originName: '出発',
+      );
+      // 乗車駅探索が実測で中庸の乗車駅を見つけ、徒歩最小の標準乗換（徒歩~0・余り~80分）へ
+      // 崩落しない。直線推定駆動だと遠い駅へ収束→実街路全滅→null→標準へ崩落し徒歩~0。
+      expect(walkMinutesOf(plan), greaterThan(50));
+      expect(plan.totalMin, lessThanOrEqualTo(90));
+    });
+
+    test('絶対値の余りが大きければ相対閾値未満でも崩壊として乗車駅探索を起動する', () async {
+      // 標準乗換が予算100分で着き余り50分。予算150分なので相対閾値（0.4×150=60分）には
+      // 届かないが、50分は絶対的に大きく歩ける余地がある（実機の下北沢ケース 147/97/50 相当）。
+      // 相対閾値だけだと崩壊判定が起動せず徒歩~0・大余りのまま。絶対値条件で起動させる。
+      final calls = <Uri>[];
+      final plan =
+          await _service(
+            inflatedFromMock(
+              aArr: 35400, // 区間A着 09:50
+              bArr: 38400, // 区間B着 10:40（標準は約100分で着く）
+              guidanceCalls: calls,
+            ),
+          ).plan(
+            destination: '目的駅',
+            destinationLatLng: goal3,
+            departure: const TimeValue(h: 9, m: 0),
+            arrival: const TimeValue(h: 11, m: 30), // 予算150分
+            origin: origin3,
+            originName: '出発',
+          );
+      // 崩壊判定が絶対値の余りで成立 → board-search が複数回 guidance を引く。相対閾値のみだと
+      // 初回 guidance 1回で終わり徒歩~0のまま（回帰）。
+      expect(calls.length, greaterThan(1));
+      expect(walkMinutesOf(plan), greaterThan(50));
+      expect(plan.totalMin, lessThanOrEqualTo(150));
+    });
+  });
+
+  group('plan: enrich後の乗り遅れ再検証（#137 副次）', () {
+    // 標準乗換のアクセス徒歩は guidance 見積りで選定されるが、enrich で Google 実街路
+    // （直線の数倍）に差し替わると徒歩が伸び、予定の先頭電車に乗り遅れる（駅着が発車後）
+    // ことがある。予算内のままでも実際には乗れない経路なので、enrich 後に乗り遅れたら
+    // 除外して乗れる次善へ選び直す。コリドーは1点（base=null）でハイブリッド／乗車駅探索が
+    // 走らない純粋な標準乗換どうしの比較にする。
+    const origin4 = GeoPoint(35.0, 139.0);
+    const goal4 = GeoPoint(35.0, 139.02);
+    const inflate = 2; // enrich の Google 実街路 = 直線 ×2
+
+    // A: アクセス徒歩 5分（見積り）で 09:06 発に間に合うが、×2 で 9分に伸び乗り遅れる。
+    //    徒歩見積りは B より大きいので素の選定では A が先に選ばれる。
+    // B: アクセス徒歩 0（出発地で乗車）。enrich でも乗り遅れない＝乗れる次善。
+    Map<String, dynamic> twoOptions() => _guidance([
+      {
+        'journey': {
+          'departureSecs': 32400,
+          'arrivalSecs': 33660,
+          'durationSecs': 1260,
+          'accessWalkSecs': 300, // 見積り5分
+          'egressWalkSecs': 60,
+          'legs': [
+            _railLeg(
+              route: '快速A',
+              fromId: 'aBoard',
+              fromName: '乗車A',
+              toId: 'aAlight',
+              toName: '降車A',
+              dep: 32760, // 09:06
+              arr: 33600, // 09:20
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('walk', 'origin', 'aBoard', 'osmWalk', const [
+              [35.0, 139.0],
+              [35.0, 139.004],
+            ]),
+            // 1点コリドー → base=null（ハイブリッド・乗車駅探索を起こさない）。
+            _mapSeg('transit', 'aBoard', 'aAlight', 'stopOrder', const [
+              [35.0, 139.0095],
+            ]),
+            _mapSeg('walk', 'aAlight', 'destination', 'estimatedWalk', const [
+              [35.0, 139.019],
+              [35.0, 139.02],
+            ]),
+          ],
+        },
+      },
+      {
+        'journey': {
+          'departureSecs': 32400,
+          'arrivalSecs': 33840,
+          'durationSecs': 1440,
+          'accessWalkSecs': 0,
+          'egressWalkSecs': 60,
+          'legs': [
+            _railLeg(
+              route: '快速B',
+              fromId: 'bBoard',
+              fromName: '乗車B',
+              toId: 'bAlight',
+              toName: '降車B',
+              dep: 32880, // 09:08
+              arr: 33780, // 09:23
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('transit', 'bBoard', 'bAlight', 'stopOrder', const [
+              [35.0, 139.0099],
+            ]),
+            _mapSeg('walk', 'bAlight', 'destination', 'estimatedWalk', const [
+              [35.0, 139.019],
+              [35.0, 139.02],
+            ]),
+          ],
+        },
+      },
+    ]);
+
+    http.Client mock() {
+      http.Response walk(Uri url) {
+        final s = _pt(url.queryParameters['start'] ?? '0,0');
+        final g = _pt(url.queryParameters['goal'] ?? '0,0');
+        return _json({
+          'routes': [
+            {
+              'distanceMeters': (haversineKm(s, g) * 1000).round(),
+              'duration': '${_walkMin(s, g) * inflate * 60}s',
+            },
+          ],
+        });
+      }
+
+      http.Response matrix(Uri url) {
+        List<GeoPoint> parse(String? raw) =>
+            (raw ?? '').split(';').where((s) => s.isNotEmpty).map(_pt).toList();
+        final os = parse(url.queryParameters['origins']);
+        final ds = parse(url.queryParameters['destinations']);
+        return _json([
+          for (var i = 0; i < os.length; i++)
+            for (var j = 0; j < ds.length; j++)
+              {
+                'originIndex': i,
+                'destinationIndex': j,
+                'duration': '${_walkMin(os[i], ds[j]) * inflate * 60}s',
+                'distanceMeters': (haversineKm(os[i], ds[j]) * 1000).round(),
+              },
+        ]);
+      }
+
+      return MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) return matrix(req.url);
+        if (path.contains('googleWalkProxy')) return walk(req.url);
+        if (path.contains('guidance/plan')) return _json(twoOptions());
+        return _json(const {}, 404);
+      });
+    }
+
+    test('enrich で先頭電車に乗り遅れる標準乗換は除外し、乗れる次善を返す', () async {
+      final plan = await _service(mock()).plan(
+        destination: '目的地',
+        destinationLatLng: goal4,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 9, m: 35), // 予算35分（全徒歩は45分で予算外）
+        origin: origin4,
+        originName: '出発',
+      );
+      // 確定経路は実街路徒歩でも乗り遅れない。A を返すと駅着が発車後で実際には乗れない。
+      final departureAt = DateTime(2026, 6, 27, 9, 0);
+      expect(firstMissedTrain(plan.segments, departureAt), isNull);
+      // 電車を含む（全徒歩は予算外なので縮退していない）＝乗れる B 系へ切り替わっている。
+      expect(plan.segments.any((s) => s.type == SegmentType.train), isTrue);
+      expect(plan.totalMin, lessThanOrEqualTo(35));
     });
   });
 }

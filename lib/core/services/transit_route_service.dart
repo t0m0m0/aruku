@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
 import 'package:http/http.dart' as http;
 
@@ -61,12 +62,61 @@ class TransitRouteService implements RouteService {
   static const int _collapseWalkMarginMin = 10;
   static const double _collapseSlackRatio = 0.4;
 
-  /// 乗車駅探索で境界から手前へ実街路 walk 確定を試す最大駅数。
-  static const int _boardSearchVerifySteps = 4;
+  /// 崩壊判定の余り条件（症状2）の絶対値しきい値（分）。予算が大きいと相対比
+  /// [_collapseSlackRatio]（予算の40%）が大きくなりすぎ、絶対的には大きな余り（実機の
+  /// 下北沢ケースで余り50分）でも相対閾値に届かず乗車駅探索が起動しなかった。相対・絶対の
+  /// いずれかを満たせば「予算が大きく余っている」とみなす（#137）。
+  static const int _collapseSlackMinutes = 30;
 
   /// 乗車駅探索のコリドー候補点の上限。gtfsShape は線路追従で頂点が密（数百）なため、
-  /// 二分探索の引き直し回数（O(log n)）を抑えるよう均等間引きでこの数へ絞る（§2.5）。
-  static const int _maxCorridorStops = 25;
+  /// 均等間引きでこの数へ絞る（§2.5）。二分探索は実測 walk で駆動するので評価回数は
+  /// O(log n) のまま、候補点が密なほど境界の解像度が上がり余りが小さくなる（#137）。
+  /// 旧値 25 では隣接候補が約30分徒歩も離れ、境界で徒歩を予算ぎりぎりまで詰められず
+  /// 余りが残っていたため引き上げた。
+  static const int _maxCorridorStops = 60;
+
+  /// 経路選定の詳細ログを出すか（再現調査用・#137）。debugPrint はリリースビルドでは
+  /// 自動的に no-op になるため本番表示には影響しない。`flutter run` で `[route]` を
+  /// grep すれば候補ごとの徒歩分・実到着・余り・崩壊判定が追える。
+  static const bool _verboseRouteLog = true;
+
+  /// 選定ログ1行を `[route]` プレフィックス付きで出す（[_verboseRouteLog] が真のときのみ）。
+  void _log(String msg) {
+    if (_verboseRouteLog) debugPrint('[route] $msg');
+  }
+
+  /// 候補の区間構成を `walk12m+蒲12_train33m+walk3m` 形式の短い文字列にする（ログ用）。
+  String _segSummary(RouteCandidate c) => c.segments
+      .map(
+        (s) =>
+            '${s.type == SegmentType.walk ? 'walk' : '${s.line ?? 'train'}_train'}'
+            '${s.minutes}m',
+      )
+      .join('+');
+
+  /// 候補1件の診断行（ログ用）。徒歩分・実到着・余り・予算内可否・最大乗車待ち・
+  /// 乗り遅れの有無・区間構成を1行に詰める。「徒歩最大が崩壊して短い乗車＋大余りが
+  /// 残る」過程（#137）を候補単位で追える。
+  String _candLine(RouteCandidate c, int budgetMin, DateTime departureAt) {
+    final arr = arrivalMinutes(c.segments, departureAt);
+    final missed = firstMissedTrain(c.segments, departureAt);
+    final wait = maxBoardingWait(c.segments, departureAt);
+    return 'walk=${c.walkMinutes}m arr=${arr}m slack=${budgetMin - arr}m '
+        'within=${arr <= budgetMin} maxWait=${wait}m '
+        'missed=${missed != null} [${_segSummary(c)}]';
+  }
+
+  /// 候補の最初の電車区間の乗車駅名（ログ用）。乗車駅探索でコリドー上のどの点が
+  /// 実際にどの駅から乗ることになるかを見て、間引きで乗れる駅を飛ばしていないかを
+  /// 切り分ける（#137 診断）。電車が無い・駅名空なら '?'。
+  String _boardingStationOf(RouteCandidate c) {
+    for (final s in c.segments) {
+      if (s.type == SegmentType.train) {
+        return s.fromName.isEmpty ? '?' : s.fromName;
+      }
+    }
+    return '?';
+  }
 
   @override
   Future<RoutePlan> plan({
@@ -118,6 +168,10 @@ class TransitRouteService implements RouteService {
     String? toName,
   }) async {
     final departureAt = _departureDateTime(departure);
+    _log(
+      '=== plan start: budget=${budgetMin}m departureAt=$departureAt '
+      'options=${options.length} ===',
+    );
     final walkCache = <String, RouteCandidate>{};
     final measured = <String, int>{};
 
@@ -126,6 +180,9 @@ class TransitRouteService implements RouteService {
       for (final o in options)
         RouteCandidate(from: o.from, to: o.to, segments: o.segments),
     ];
+    for (final c in candidates) {
+      _log('standard: ${_candLine(c, budgetMin, departureAt)}');
+    }
 
     final base = _baseForHybrid(options);
     if (base != null) {
@@ -137,6 +194,12 @@ class TransitRouteService implements RouteService {
         budgetMin,
         maxPerSide: _maxMatrixSideStations,
       );
+      final baseMin = base.segments.fold(0, (a, s) => a + s.minutes);
+      _log(
+        'base route: totalMin=${baseMin}m corridorStops=${stops.length} '
+        'frontier.boarding=${frontier.boarding} '
+        'alighting=${frontier.alighting}',
+      );
       await _measureAccessWalks(
         origin,
         goal,
@@ -144,22 +207,39 @@ class TransitRouteService implements RouteService {
         [for (final i in frontier.alighting) stops[i].coord],
         measured,
       );
-      candidates.addAll(
-        _buildMeasuredHybrids(base, stops, frontier, measured, origin, goal),
+      _log(
+        'measured ${measured.length} legs; '
+        'allWalk(origin->goal)=${measured[_walkCacheKey(origin, goal)]}m '
+        '(null=matrix失敗→直線推定へ)',
       );
+      final hybrids = _buildMeasuredHybrids(
+        base,
+        stops,
+        frontier,
+        measured,
+        origin,
+        goal,
+      );
+      candidates.addAll(hybrids);
+      _log('built ${hybrids.length} hybrids:');
+      for (final c in hybrids) {
+        _log('  hybrid: ${_candLine(c, budgetMin, departureAt)}');
+      }
     } else {
+      _log('no base route (corridor<2); all-walk only');
       await _measureAccessWalks(origin, goal, const [], const [], measured);
     }
 
-    candidates.add(
-      _measuredWalk(
-        origin,
-        goal,
-        options.first.from,
-        options.first.to,
-        measured,
-      ),
+    final allWalk = _measuredWalk(
+      origin,
+      goal,
+      options.first.from,
+      options.first.to,
+      measured,
     );
+    candidates.add(allWalk);
+    _log('allWalk: ${_candLine(allWalk, budgetMin, departureAt)}');
+    _log('total candidates: ${candidates.length}');
 
     var selected = await _selectAndEnrich(
       candidates,
@@ -170,11 +250,18 @@ class TransitRouteService implements RouteService {
       walkCache: walkCache,
     );
 
+    _log(
+      'selected(initial): '
+      'chosen(見積り)=${_candLine(selected.chosen, budgetMin, departureAt)} | '
+      'enriched(実測)=${_candLine(selected.enriched, budgetMin, departureAt)}',
+    );
+
     // 崩壊判定は enrich 前の選定候補（[selected.chosen]）で行う。enrich 後の徒歩は
     // Google 実街路で膨らみ、標準乗換の guidance 見積り徒歩と測定基準がずれるため、
     // 両者を同じ見積り基準で比較しないと崩壊が誤って不成立になる（徒歩最大化の不達）。
     if (base != null &&
         _isCollapse(selected.chosen, options, budgetMin, departureAt)) {
+      _log('collapse=true → board-search フォールバック起動');
       final boardSearch = await _buildBoardSearchCandidate(
         base,
         origin,
@@ -184,6 +271,9 @@ class TransitRouteService implements RouteService {
         walkCache,
       );
       if (boardSearch != null) {
+        _log(
+          'board-search候補: ${_candLine(boardSearch, budgetMin, departureAt)}',
+        );
         selected = await _selectAndEnrich(
           [...candidates, boardSearch],
           budgetMin,
@@ -192,10 +282,19 @@ class TransitRouteService implements RouteService {
           goal: goal,
           walkCache: walkCache,
         );
+        _log(
+          'selected(after board-search): '
+          '${_candLine(selected.enriched, budgetMin, departureAt)}',
+        );
+      } else {
+        _log('board-search候補: なし（null）');
       }
+    } else if (base != null) {
+      _log('collapse=false → フォールバック起動せず');
     }
 
     final named = await _finalizeStationNames(selected.enriched, departureAt);
+    _log('=== FINAL: ${_candLine(named, budgetMin, departureAt)} ===');
 
     return _build(
       named,
@@ -284,9 +383,11 @@ class TransitRouteService implements RouteService {
   }
 
   /// 候補から決定的に選定し、採用1経路を Google 実測（enrich）で検証する確定ループ。
-  /// NAVITIME 版と違い**乗り遅れ再照会（#115）は行わない**：標準乗換は guidance が返す
-  /// 実在便で自己整合、ハイブリッド／乗車駅探索は引き直しまたは時刻なし距離概算のため
-  /// `firstMissedTrain` が構成上立たない。enrich で予算超過が判明したら除外して選び直す。
+  /// NAVITIME 版と違い**乗り遅れ再照会（#115）は行わない**：実在便への差し替えはせず、
+  /// enrich で (a) 予算超過、または (b) 先頭電車に乗り遅れ（標準乗換のアクセス徒歩が実街路で
+  /// 伸び駅着が発車後になる・#137 副次）が判明した候補は除外して乗れる次善へ選び直す。
+  /// ハイブリッド／乗車駅探索は引き直しまたは時刻なし距離概算のため `firstMissedTrain` は
+  /// 構成上立たず、(b) は主に標準乗換に効く。
   /// 戻り値の [chosen] は enrich 前の選定候補（guidance 見積り徒歩のまま）、
   /// [enriched] は採用経路を Google 実測で確定したもの。崩壊判定（[_isCollapse]）が
   /// 標準乗換と同じ見積り基準で比較できるよう、両方を返す。
@@ -309,7 +410,12 @@ class TransitRouteService implements RouteService {
       );
       final withinByEstimate =
           arrivalMinutes(chosen.segments, departureAt) <= budgetMin;
+      _log(
+        'enrich attempt=$attempt pool=${pool.length} '
+        'chosen: ${_candLine(chosen, budgetMin, departureAt)}',
+      );
       if (!withinByEstimate) {
+        _log('  → 予算内候補なし → best-effort 縮退');
         final fallback = _bestEffort(candidates, budgetMin, departureAt);
         return (
           chosen: fallback,
@@ -318,12 +424,25 @@ class TransitRouteService implements RouteService {
       }
 
       final enriched = await _enrichWalkGeometry(chosen, walkCache);
+      // enrich（実測）で (a) 予算超過に転じた、または (b) 先頭電車に乗り遅れる（標準乗換の
+      // アクセス徒歩が guidance 見積りより実街路で伸び、駅着が発車後になる）候補は除外して
+      // 選び直す。除外は実測の確認時だけ。乗り遅れは「予算内に見えても実際には乗れない」
+      // 経路なので、予算超過と同様に確定させない（#137 副次）。
+      final overBudget =
+          arrivalMinutes(enriched.segments, departureAt) > budgetMin;
+      final missedAfterEnrich =
+          firstMissedTrain(enriched.segments, departureAt) != null;
       if (attempt < _maxEnrichAttempts &&
           pool.length > 1 &&
-          arrivalMinutes(enriched.segments, departureAt) > budgetMin) {
+          (overBudget || missedAfterEnrich)) {
+        _log(
+          '  → enrich実測で${overBudget ? '予算超過' : '先頭電車に乗り遅れ'}'
+          '→除外して選び直し: ${_candLine(enriched, budgetMin, departureAt)}',
+        );
         pool = pool.where((c) => !identical(c, chosen)).toList();
         continue;
       }
+      _log('  → 確定: ${_candLine(enriched, budgetMin, departureAt)}');
       return (chosen: chosen, enriched: enriched);
     }
   }
@@ -355,8 +474,22 @@ class TransitRouteService implements RouteService {
     DateTime departureAt,
   ) {
     final arrival = arrivalMinutes(winner.segments, departureAt);
-    if (arrival > budgetMin) return false;
-    if (budgetMin - arrival < budgetMin * _collapseSlackRatio) return false;
+    if (arrival > budgetMin) {
+      _log('collapse判定: 予算外(arr=${arrival}m>budget=${budgetMin}m)→対象外');
+      return false;
+    }
+    final slack = budgetMin - arrival;
+    final relativeThreshold = budgetMin * _collapseSlackRatio;
+    // 相対（予算の割合）・絶対（分）のいずれかを満たせば「予算が大きく余っている」。
+    if (slack < relativeThreshold && slack < _collapseSlackMinutes) {
+      _log(
+        'collapse判定: 症状(2)未達 slack=${slack}m < '
+        '相対閾値=${relativeThreshold.toStringAsFixed(1)}m'
+        '(=${budgetMin}m×$_collapseSlackRatio) かつ < '
+        '絶対閾値=${_collapseSlackMinutes}m →起動せず',
+      );
+      return false;
+    }
     var bestStandardWalk = 0;
     for (final o in options) {
       final c = RouteCandidate(from: o.from, to: o.to, segments: o.segments);
@@ -365,7 +498,15 @@ class TransitRouteService implements RouteService {
         bestStandardWalk = c.walkMinutes;
       }
     }
-    return winner.walkMinutes - bestStandardWalk <= _collapseWalkMarginMin;
+    final margin = winner.walkMinutes - bestStandardWalk;
+    final result = margin <= _collapseWalkMarginMin;
+    _log(
+      'collapse判定: slack=${slack}m(≥閾値) '
+      'winnerWalk=${winner.walkMinutes}m bestStandardWalk=${bestStandardWalk}m '
+      'margin=${margin}m ${result ? '≤' : '>'} $_collapseWalkMarginMin '
+      '→症状(1)=${result ? '達' : '未達'} → collapse=$result',
+    );
+    return result;
   }
 
   /// 乗車駅探索（docs/notes/walk-max-board-search.md / transit-api-migration.md §2.5）。
@@ -373,6 +514,13 @@ class TransitRouteService implements RouteService {
   /// `/guidance/plan(X→goal, departureAt+t1)` を引き直して「到着が予算内の最遠＝総徒歩
   /// 最大」を [maxWalkBoardingIndex] で二分探索する。引き直し便は X 発で自己整合なので
   /// `firstMissedTrain` が立たない。コリドー候補は2未満／予算内が無いとき null。
+  ///
+  /// **前半徒歩は Google 実街路で実測して二分探索を駆動する（#137 主因の修正）。** 直線推定
+  /// は実街路に対し大きく楽観に倒れることがあり（実機で -36分・25%）、それで二分探索を
+  /// 駆動すると目的地寄りの遠い乗車駅へ収束→実街路では全部予算超過→予算内の確定に失敗して
+  /// null を返し、徒歩最小の標準乗換へ崩落（大量の余り）していた。実測で駆動すれば、二分探索
+  /// が返す境界はそのまま実測で予算内が保証された「最も遠い（＝総徒歩最大）乗車駅」になる。
+  /// 実測は [walkCache] 共有で、採用後の enrich でも同一レッグはキャッシュヒットし到着は覆らない。
   Future<RouteCandidate?> _buildBoardSearchCandidate(
     TransitOption base,
     GeoPoint origin,
@@ -384,42 +532,12 @@ class TransitRouteService implements RouteService {
     final stops = _corridorStops(base);
     if (stops.length < 2) return null;
 
+    // 二分探索が同じ index を再評価しても引き直さないようメモ化する。
     final built = <int, RouteCandidate?>{};
     Future<RouteCandidate?> buildAt(int i) async {
       if (built.containsKey(i)) return built[i];
       final x = stops[i];
-      final walk1 = _estimateWalk(
-        origin,
-        x.coord,
-        fromName: base.from,
-        toName: '',
-      );
-      final boardAt = departureAt.add(Duration(minutes: walk1.totalMin));
-      final xToGoal = await _fetchTransitFrom(x.coord, goal, boardAt);
-      if (xToGoal == null) return built[i] = null;
-      final walk1Seg = walk1.segments.first;
-      return built[i] = RouteCandidate(
-        from: base.from,
-        to: xToGoal.to,
-        segments: [if (walk1Seg.minutes > 0) walk1Seg, ...xToGoal.segments],
-      );
-    }
-
-    final best = await maxWalkBoardingIndex(
-      count: stops.length,
-      budgetMin: budgetMin,
-      evaluate: (i) async {
-        final c = await buildAt(i);
-        return c == null
-            ? budgetMin + (1 << 20)
-            : arrivalMinutes(c.segments, departureAt);
-      },
-    );
-    if (best == null) return null;
-
-    // 境界付近を実街路 walk で確定（直線は下限のため手前へ後退して実現可能性を上げる）。
-    for (var i = best; i >= 0 && best - i < _boardSearchVerifySteps; i--) {
-      final x = stops[i];
+      // 前半徒歩は実測（失敗時のみ直線推定へフォールバック）。
       final walk1 =
           await _tryWalk(
             origin,
@@ -431,16 +549,43 @@ class TransitRouteService implements RouteService {
           _estimateWalk(origin, x.coord, fromName: base.from, toName: '');
       final boardAt = departureAt.add(Duration(minutes: walk1.totalMin));
       final xToGoal = await _fetchTransitFrom(x.coord, goal, boardAt);
-      if (xToGoal == null) continue;
+      if (xToGoal == null) {
+        _log('board-search i=$i walk1=${walk1.totalMin}m guidance失敗');
+        return built[i] = null;
+      }
       final walk1Seg = walk1.segments.first;
       final cand = RouteCandidate(
         from: base.from,
         to: xToGoal.to,
         segments: [if (walk1Seg.minutes > 0) walk1Seg, ...xToGoal.segments],
       );
-      if (arrivalMinutes(cand.segments, departureAt) <= budgetMin) return cand;
+      _log(
+        'board-search i=$i walk1=${walk1.totalMin}m '
+        '乗車駅=${_boardingStationOf(cand)} '
+        '${_candLine(cand, budgetMin, departureAt)}',
+      );
+      return built[i] = cand;
     }
-    return null;
+
+    // 実測到着が index 単調増の前提で「到着が予算内の最遠 index ＝総徒歩最大」を二分探索。
+    final best = await maxWalkBoardingIndex(
+      count: stops.length,
+      budgetMin: budgetMin,
+      evaluate: (i) async {
+        final c = await buildAt(i);
+        // 経路無し（引き直し失敗）は予算外として扱い、手前の駅を探す。
+        return c == null
+            ? budgetMin + (1 << 20)
+            : arrivalMinutes(c.segments, departureAt);
+      },
+    );
+    _log(
+      'board-search: 実測二分探索の境界 best='
+      '${best == null ? 'null(予算内乗車駅なし)' : '$best'} / コリドー点${stops.length}',
+    );
+    if (best == null) return null;
+    // best は実測で予算内が保証された最遠の乗車駅。メモ化済みで追加コールは無い。
+    return buildAt(best);
   }
 
   /// 乗降アクセス徒歩を1回（最大2コール）のマトリクス（Google プロキシ）で一括実測し、
