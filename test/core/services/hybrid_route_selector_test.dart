@@ -318,6 +318,48 @@ void main() {
       expect(over, same(straight));
     });
 
+    test('密な gtfsShape polyline の一過性後方頂点では逆戻り除外しない（サンプリング）', () {
+      const origin = GeoPoint(35.50, 139.50);
+      const goal = GeoPoint(35.70, 139.50); // 北。直線距離 D=緯度0.20度。
+
+      // 線路追従の密な polyline（200頂点）。乗車直後（index 1..5）だけ大きく南へ
+      // カーブし、それ以外は goal へ単調北上する。生の全頂点判定では index 1..5 が
+      // -0.15D を超える後退として誤除外されるが、逆戻り判定は両端＋均等サンプリング
+      // （最大32点）で行うためこれらの一過性頂点を拾わず、逆戻り扱いしない
+      // （gtfsShape 系の東急/小田急/京王での誤除外を防ぐ・#137）。
+      final dense = <GeoPoint>[
+        for (var i = 0; i < 200; i++)
+          if (i >= 1 && i <= 5)
+            const GeoPoint(35.30, 139.50) // 0.20度 南＝大きく後退
+          else
+            GeoPoint(35.50 + (35.70 - 35.50) * i / 199, 139.50),
+      ];
+
+      final backtrackish = _candidate([
+        _walk(20), // 徒歩最大: フィルタ無しなら必ず選ばれる
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: '乗車駅',
+          toName: 'goal',
+          minutes: 10,
+          km: 30,
+          line: 'L',
+          polyline: dense,
+        ),
+      ]);
+      final straight = _candidate([_walk(5), _train(8)]);
+
+      final best = selectBestRoute(
+        candidates: [backtrackish, straight],
+        budgetMin: 60,
+        origin: origin,
+        goal: goal,
+      );
+
+      // 一過性の後方頂点はサンプリングで無視 → 徒歩最大の backtrackish が残る。
+      expect(best, same(backtrackish));
+    });
+
     test('departureAt 指定時は待ち時間込みの実到着で予算内を判定する', () {
       // 9:00 出発・予算30分（締切 9:30）。
       // A: 徒歩10分(9:10着)→電車 9:25発/9:35着。待ち抜き計20分だが、乗車前

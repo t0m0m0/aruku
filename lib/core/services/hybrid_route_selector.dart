@@ -154,10 +154,12 @@ Future<int?> maxWalkBoardingIndex({
 /// [maxBacktrackRatio] × 直線距離(origin→goal) を超えて戻る駅を含むか。
 /// 徒歩区間は判定しない（目的地へ近づくための短い徒歩を弾かないため）。
 ///
-/// 電車区間の polyline は停車駅座標で構成される前提（transit は shape を返さず、
-/// 停車駅を結ぶ折れ線で合成される）。将来 transit shape が有効になり線路追従の
-/// 細かな頂点が入ると、一時的に後方へカーブする1頂点でも候補全体が除外され得る
-/// 点に注意（その場合は判定対象を停車駅へ限定する必要がある）。
+/// 判定は電車区間 polyline を[両端＋均等サンプリング]した点で行い、生の全頂点は
+/// 使わない（[_sampledForBacktrack]）。stopOrder/NAVITIME の polyline は停車駅座標
+/// で疎（サンプリング上限以下）なので全点がそのまま使われる。一方 Transit API の
+/// gtfsShape は線路追従で頂点が密（数百）なため、全頂点を判定すると乗車直後などの
+/// 一過性の後方カーブ頂点1つで正当な経路を誤除外してしまう。サンプリングにより
+/// コリドーの大局的な逆戻りのみを検出する（docs/notes/transit-api-migration.md §4）。
 bool _isBacktrackDetour(
   RouteCandidate c,
   GeoPoint origin,
@@ -169,11 +171,26 @@ bool _isBacktrackDetour(
   final limit = -maxBacktrackRatio * dog;
   for (final seg in c.segments) {
     if (seg.type != SegmentType.train) continue;
-    for (final p in seg.polyline) {
+    for (final p in _sampledForBacktrack(seg.polyline)) {
       if (_advanceKm(origin, goal, dog, p) < limit) return true;
     }
   }
   return false;
+}
+
+/// 逆戻り判定に使う電車区間 polyline のサンプリング上限。gtfsShape の密な頂点を
+/// この数へ間引き、一過性の後方頂点による誤除外を防ぐ（[_isBacktrackDetour]）。
+const int _maxBacktrackSamplesPerLeg = 32;
+
+/// [polyline] を両端を含む均等間隔で最大 [_maxBacktrackSamplesPerLeg] 点へ間引く。
+/// 点数が上限以下ならそのまま返す（stopOrder/NAVITIME は挙動不変）。
+List<GeoPoint> _sampledForBacktrack(List<GeoPoint> polyline) {
+  const cap = _maxBacktrackSamplesPerLeg;
+  if (polyline.length <= cap) return polyline;
+  return [
+    for (var k = 0; k < cap; k++)
+      polyline[(k * (polyline.length - 1) / (cap - 1)).round()],
+  ];
 }
 
 /// 点 [p] の、origin→goal 方向への射影長（km）。前方なら正、出発地より後方
