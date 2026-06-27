@@ -1057,5 +1057,26 @@ void main() {
       // 02:00出発で05:00乗車＝最低180分の乗車待ちが到着に反映される。
       expect(plan.totalMin, greaterThanOrEqualTo(180));
     });
+
+    test('予算外で best-effort へ落ちても始発前の幻バス便を提示しない', () async {
+      // 予算50分では何も予算内に収まらず best-effort 縮退。時刻なしハイブリッドは
+      // maxBoardingWait=0 で「今夜乗れる」と誤判定され、始発前（02:00乗車）の幻便を
+      // best-effort が拾っていた（実機の洗足→新代田 森91 02:27）。approach A を
+      // best-effort にも通せば、実発車時刻=05:00（待ち180分>予算）で除外され、
+      // 走っていない電車を含まない全徒歩へ正しく縮退する。
+      final plan = await nightService(nightMock()).plan(
+        destination: '終着駅',
+        destinationLatLng: goal6,
+        departure: const TimeValue(h: 2, m: 0),
+        arrival: const TimeValue(h: 2, m: 50), // 予算50分（何も予算内に入らない）
+        origin: origin6,
+        originName: '出発',
+      );
+      // 提示する電車区間は必ず実発車時刻を持つ（時刻なしの幻便を出さない）。
+      final ghostTrains = plan.segments.where(
+        (s) => s.type == SegmentType.train && s.depTime == null,
+      );
+      expect(ghostTrains, isEmpty, reason: '時刻なしの幻電車を提示してはならない');
+    });
   });
 }

@@ -464,7 +464,15 @@ class TransitRouteService implements RouteService {
       );
       if (!withinByEstimate) {
         _log('  → 予算内候補なし → best-effort 縮退');
-        final fallback = _bestEffort(candidates, budgetMin, departureAt);
+        // best-effort も approach A の実時刻検証を通す。時刻なしハイブリッドは
+        // maxBoardingWait=0 で「今夜乗れる」と誤判定され、始発前の幻便（実機の洗足→
+        // 新代田 森91 02:27）を拾うため、候補へ実発車時刻を当ててから「今夜乗れる範囲の
+        // 実到着最早」を選ぶ。実時刻が入れば始発待ちが乗車待ちに表れ走っていない電車は除外。
+        final resolved = <RouteCandidate>[
+          for (final c in candidates)
+            await _resolveBoardingTimes(c, departureAt),
+        ];
+        final fallback = _bestEffort(resolved, budgetMin, departureAt);
         return (
           chosen: fallback,
           enriched: await _enrichWalkGeometry(fallback, walkCache),
