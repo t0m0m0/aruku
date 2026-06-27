@@ -812,4 +812,148 @@ void main() {
       expect(plan.totalMin, lessThanOrEqualTo(35));
     });
   });
+
+  group('plan: 乗車駅探索は非単調コリドーでも徒歩最大を返す（#137）', () {
+    // 乗車駅探索の二分探索は「到着が index 単調増」を仮定して予算内の最大 index を境界に
+    // するが、実街路の徒歩は非単調になり得る（後方の停車駅の方が origin に近い等）。境界
+    // index だけを採ると、二分探索が途中で評価した「より手前で徒歩の多い予算内点」を取り
+    // こぼす。境界ではなく評価済みの中で予算内・徒歩最大を返せば、特定ケースに依存せず
+    // どの非単調コリドーでも取りこぼしを減らせる。
+    const origin5 = GeoPoint(35.0, 139.0);
+    const goal5 = GeoPoint(35.0, 139.20);
+
+    // 2区間。区間1は origin→T の乗車候補列で、idx5 が idx6 より遠い「谷」を作る（前半徒歩が
+    // 非単調）。区間1で降りると目的地まで遠く egress 予算外、区間2で乗ると前半徒歩 91分超で
+    // 予算外 → ハイブリッドは作れず、乗車駅探索だけが解ける。
+    const leg1Lng = [
+      139.01,
+      139.02,
+      139.03,
+      139.04,
+      139.05,
+      139.07, // idx5: 遠い（前半徒歩 大）
+      139.06, // idx6: idx5 より origin に近い（谷）
+      139.08, // idx7: 区間1終点 T
+    ];
+    const leg2Lng = [139.08, 139.12, 139.16, 139.20];
+
+    List<List<double>> legCoords(List<double> lngs) => [
+      for (final l in lngs) [35.0, l],
+    ];
+
+    Map<String, dynamic> baseGuidance() => _guidance([
+      {
+        'journey': {
+          'departureSecs': 32400, // 09:00
+          'arrivalSecs': 33600, // 09:20（標準は速い1本・徒歩最小で大量に余る）
+          'durationSecs': 1200,
+          'accessWalkSecs': 0,
+          'egressWalkSecs': 0,
+          'legs': [
+            _railLeg(
+              route: '基準線A',
+              fromId: 's0',
+              fromName: '始発駅',
+              toId: 'sT',
+              toName: '乗換駅',
+              dep: 32400,
+              arr: 33000,
+            ),
+            _railLeg(
+              route: '基準線B',
+              fromId: 'sT',
+              fromName: '乗換駅',
+              toId: 'sN',
+              toName: '終着駅',
+              dep: 33000,
+              arr: 33600,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('transit', 's0', 'sT', 'stopOrder', legCoords(leg1Lng)),
+            _mapSeg('transit', 'sT', 'sN', 'stopOrder', legCoords(leg2Lng)),
+          ],
+        },
+      },
+    ]);
+
+    int secsOf(String hhmm) {
+      final p = hhmm.split(':');
+      return int.parse(p[0]) * 3600 + int.parse(p[1]) * 60;
+    }
+
+    // 乗車駅 X からの引き直し便：乗車待ち0、goal まで残距離を 500m/分 で概算した1本。
+    Map<String, dynamic> reentry(double lng, String time) {
+      final dep = secsOf(time);
+      final t = (haversineKm(GeoPoint(35.0, lng), goal5) * 1000 / 500).round();
+      final arr = dep + t * 60;
+      return _guidance([
+        {
+          'journey': {
+            'departureSecs': dep,
+            'arrivalSecs': arr,
+            'durationSecs': arr - dep,
+            'accessWalkSecs': 0,
+            'egressWalkSecs': 0,
+            'legs': [
+              _railLeg(
+                route: '快速',
+                fromId: 'bx',
+                fromName: '乗車駅',
+                toId: 'gx',
+                toName: '目的駅',
+                dep: dep,
+                arr: arr,
+              ),
+            ],
+          },
+          'map': {
+            'points': const [],
+            'segments': [
+              _mapSeg('transit', 'bx', 'gx', 'stopOrder', [
+                [35.0, lng],
+                [35.0, 139.20],
+              ]),
+            ],
+          },
+        },
+      ]);
+    }
+
+    http.Client mock() => MockClient((req) async {
+      final path = req.url.path;
+      if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+      if (path.contains('googleWalkProxy')) return _walkFor(req.url);
+      if (path.contains('guidance/plan')) {
+        final from = req.url.queryParameters['from'] ?? '';
+        final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
+        final time = req.url.queryParameters['time'] ?? '09:00';
+        if ((lng - 139.0).abs() < 1e-6) return _json(baseGuidance());
+        return _json(reentry(lng, time));
+      }
+      return _json(const {}, 404);
+    });
+
+    int walkMinutesOf(RoutePlan plan) => plan.segments
+        .where((s) => s.type == SegmentType.walk)
+        .fold(0, (a, s) => a + s.minutes);
+
+    test('二分探索の境界(谷)ではなく評価済みの徒歩最大点を採る', () async {
+      // idx6(谷・前半徒歩~68分) が境界になるが、idx5(前半徒歩~80分) も予算内で徒歩が多い。
+      // 境界だけ採ると徒歩68分、評価済み最大なら徒歩80分。
+      final plan = await _service(mock()).plan(
+        destination: '目的駅',
+        destinationLatLng: goal5,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 50), // 予算110分
+        origin: origin5,
+        originName: '出発',
+      );
+      expect(walkMinutesOf(plan), greaterThan(74));
+      expect(plan.totalMin, lessThanOrEqualTo(110));
+    });
+  });
 }

@@ -585,9 +585,31 @@ class TransitRouteService implements RouteService {
       'board-search: 実測二分探索の境界 best='
       '${best == null ? 'null(予算内乗車駅なし)' : '$best'} / コリドー点${stops.length}',
     );
-    if (best == null) return null;
-    // best は実測で予算内が保証された最遠の乗車駅。メモ化済みで追加コールは無い。
-    return buildAt(best);
+    // 二分探索が評価した点（メモ化済み）から、予算内で徒歩最大の候補を返す。到着は実街路で
+    // 非単調になり得る（後方の停車駅が origin に近い等）ため、単調仮定の境界 best だけを採ると
+    // 二分探索が途中で評価した「より手前で徒歩の多い予算内点」を取りこぼす。評価済みから徒歩
+    // 最大を拾えば、特定ケースに依存せずどの非単調コリドーでも取りこぼしを減らせる（追加 API
+    // なし＝built は評価済みのみ。同点は実到着が早い方）。
+    RouteCandidate? bestCand;
+    var bestArr = 0;
+    for (final c in built.values) {
+      if (c == null) continue;
+      final arr = arrivalMinutes(c.segments, departureAt);
+      if (arr > budgetMin) continue;
+      if (bestCand == null ||
+          c.walkMinutes > bestCand.walkMinutes ||
+          (c.walkMinutes == bestCand.walkMinutes && arr < bestArr)) {
+        bestCand = c;
+        bestArr = arr;
+      }
+    }
+    if (bestCand != null) {
+      _log(
+        'board-search: 評価済み最大徒歩を採用 '
+        '${_candLine(bestCand, budgetMin, departureAt)}',
+      );
+    }
+    return bestCand;
   }
 
   /// 乗降アクセス徒歩を1回（最大2コール）のマトリクス（Google プロキシ）で一括実測し、
