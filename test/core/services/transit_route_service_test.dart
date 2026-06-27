@@ -431,5 +431,30 @@ void main() {
       // 初回 guidance 1回だけで終わってしまう（指摘2の回帰）。
       expect(guidanceCalls.length, greaterThan(1));
     });
+
+    test('コリドー由来の確定経路でも乗降駅名を復元しタイムラインに出す', () async {
+      final svc = _service(inflatedMock(<Uri>[]));
+      final plan = await svc.plan(
+        destination: '降車駅',
+        destinationLatLng: goal2,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0),
+        origin: origin2,
+        originName: '出発',
+      );
+
+      // 電車区間に乗降駅名が入る（コリドー候補は座標のみで駅名を持たないため、
+      // 確定後に乗車座標→降車座標で1回引き直して leg の実駅名を復元する）。
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.fromName, '乗車駅');
+      expect(train.toName, '降車駅');
+
+      // 乗車駅ノード（電車カード直上）の place に駅名が出る。タイムラインの place は
+      // 直前・直後の徒歩区間の端点を使うため、駅名が伝播していることを確かめる。
+      final places = plan.timelineNodes.map((n) => n.place);
+      expect(places, contains('乗車駅'));
+    });
   });
 }

@@ -195,14 +195,92 @@ class TransitRouteService implements RouteService {
       }
     }
 
+    final named = await _finalizeStationNames(selected.enriched, departureAt);
+
     return _build(
-      selected.enriched,
+      named,
       departure,
       budgetMin,
       onProgress,
       fromName: fromName,
       toName: toName,
     );
+  }
+
+  /// 確定経路の電車区間に乗降駅名が無い（コリドー座標由来の候補）ときだけ、その乗車座標
+  /// →降車座標で `/guidance/plan` を1回引き直して leg の実駅名を復元する（確定候補のみ・
+  /// 追加コール最小）。続けて隣接徒歩区間の端点へ駅名を伝播し、タイムラインの乗車駅ノード
+  /// （直前徒歩の toName を place に使う）と電車カードに駅名を出す。
+  Future<RouteCandidate> _finalizeStationNames(
+    RouteCandidate chosen,
+    DateTime departureAt,
+  ) async {
+    final segs = [...chosen.segments];
+    for (var i = 0; i < segs.length; i++) {
+      final seg = segs[i];
+      if (seg.type != SegmentType.train) continue;
+      if (seg.fromName.isNotEmpty && seg.toName.isNotEmpty) continue;
+      if (seg.polyline.length < 2) continue;
+      final names = await _fetchTrainEndpoints(
+        seg.polyline.first,
+        seg.polyline.last,
+        departureAt,
+      );
+      if (names == null) continue;
+      segs[i] = seg.copyWith(
+        fromName: seg.fromName.isEmpty ? names.from : null,
+        toName: seg.toName.isEmpty ? names.to : null,
+      );
+    }
+    _propagateStationNames(segs);
+    return RouteCandidate(from: chosen.from, to: chosen.to, segments: segs);
+  }
+
+  /// 乗車座標 [board]→降車座標 [alight] を引き直し、最初に電車を含む option の先頭電車の
+  /// 乗車駅・末尾電車の降車駅名を返す。電車を含む option が無い・取得失敗なら null。
+  Future<({String from, String to})?> _fetchTrainEndpoints(
+    GeoPoint board,
+    GeoPoint alight,
+    DateTime at,
+  ) async {
+    final Map<String, dynamic> body;
+    try {
+      body = await _fetchGuidanceAt(board, alight, at);
+    } on RouteException {
+      return null;
+    }
+    for (final o in parseGuidancePlan(body)) {
+      final trains = o.segments
+          .where((s) => s.type == SegmentType.train)
+          .toList();
+      if (trains.isNotEmpty) {
+        return (from: trains.first.fromName, to: trains.last.toName);
+      }
+    }
+    return null;
+  }
+
+  /// 電車区間の乗降駅名を、直前（乗車駅）・直後（降車駅）の徒歩区間の端点が空のときだけ
+  /// 写す。タイムラインの乗車駅ノードは直前徒歩の toName、降車後の徒歩は fromName を
+  /// place に使うため。出発地・目的地の端（非空）は上書きしない。
+  void _propagateStationNames(List<RouteSegment> segs) {
+    for (var i = 0; i < segs.length; i++) {
+      if (segs[i].type != SegmentType.train) continue;
+      final board = segs[i].fromName;
+      final alight = segs[i].toName;
+      if (i > 0 &&
+          segs[i - 1].type == SegmentType.walk &&
+          segs[i - 1].toName.isEmpty &&
+          board.isNotEmpty) {
+        segs[i - 1] = segs[i - 1].copyWith(toName: board);
+      }
+      if (i + 1 < segs.length &&
+          segs[i + 1].type == SegmentType.walk &&
+          segs[i + 1].fromName.isEmpty &&
+          alight.isNotEmpty) {
+        segs[i + 1] = segs[i + 1].copyWith(fromName: alight);
+      }
+    }
   }
 
   /// 候補から決定的に選定し、採用1経路を Google 実測（enrich）で検証する確定ループ。
