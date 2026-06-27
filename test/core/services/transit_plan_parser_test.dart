@@ -112,6 +112,23 @@ Map<String, dynamic> _guidance({
 };
 
 void main() {
+  group('stripStationRomaji', () {
+    test('日本語駅名に付くローマ字サフィックスを落とす', () {
+      expect(stripStationRomaji('下北沢 Shimo-kitazawa'), '下北沢');
+      expect(stripStationRomaji('渋谷 Shibuya'), '渋谷');
+      expect(stripStationRomaji('明大前 Meidaimae'), '明大前');
+    });
+
+    test('マクロン付きローマ字も落とす', () {
+      expect(stripStationRomaji('成城学園前 Seijōgakuen-mae'), '成城学園前');
+    });
+
+    test('ローマ字を含まない名前はそのまま', () {
+      expect(stripStationRomaji('新宿'), '新宿');
+      expect(stripStationRomaji('地点(出発)'), '地点(出発)');
+    });
+  });
+
   group('transitSecsToJst', () {
     test('サービス日0時 + 秒の naive JST を返す', () {
       expect(transitSecsToJst('20260627', 360), DateTime(2026, 6, 27, 0, 6));
@@ -234,9 +251,9 @@ void main() {
                 _railLeg(
                   route: 'OH',
                   fromId: 'odakyu:Setagaya-Daita',
-                  fromName: '世田谷代田',
+                  fromName: '世田谷代田 Setagaya-Daita',
                   toId: 'odakyu:Shimo-Kitazawa',
-                  toName: '下北沢',
+                  toName: '下北沢 Shimo-kitazawa',
                   dep: 360,
                   arr: 1260,
                 ),
@@ -260,6 +277,9 @@ void main() {
       final train = parseGuidancePlan(body).single.segments.single;
       expect(train.type, SegmentType.train);
       expect(train.line, '小田急小田原線');
+      // 駅名はローマ字サフィックスを除いて持つ。
+      expect(train.fromName, '世田谷代田');
+      expect(train.toName, '下北沢');
     });
 
     test('乗換（電車+乗換徒歩+電車）を順序通りに変換しコリドー2本', () {

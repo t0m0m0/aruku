@@ -259,8 +259,22 @@ double _polylineKm(List<GeoPoint> coords) {
 int _diffMin(int? depSec, int? arrSec) =>
     (depSec != null && arrSec != null) ? ((arrSec - depSec) / 60).round() : 0;
 
-/// `{id, name}` 形式から name を取り出す。
-String? _nameOf(Object? o) => o is Map ? o['name'] as String? : null;
+/// `{id, name}` 形式から name を取り出す。私鉄駅名に付くローマ字サフィックスは落とす。
+String? _nameOf(Object? o) {
+  if (o is! Map) return null;
+  final name = o['name'] as String?;
+  return name == null ? null : stripStationRomaji(name);
+}
+
+/// 私鉄フィードの駅名は `下北沢 Shimo-kitazawa` のように和名のあとへ空白区切りで
+/// ローマ字（マクロン・ハイフンを含む）が付く。利用者表示には不要なので、和名を残して
+/// 末尾のローマ字を落とす。JR の和名（ローマ字なし）はそのまま返す。
+@visibleForTesting
+String stripStationRomaji(String name) =>
+    name.replaceFirst(_romajiSuffix, '').trim();
+
+/// 末尾の「空白＋ローマ字（ラテン文字・マクロン・ハイフン・空白）」にマッチする。
+final RegExp _romajiSuffix = RegExp(r"[\s　]+[A-Za-zÀ-ɏ][A-Za-zÀ-ɏ\s\-’']*$");
 
 /// サービス日 [date]（`YYYYMMDD`）の 0 時に [secs] 秒を足した naive JST DateTime を
 /// 返す（#137・#121）。`departureSecs`/`arrivalSecs` はサービス日 0 時起算の秒で、
