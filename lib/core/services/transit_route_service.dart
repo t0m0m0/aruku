@@ -464,18 +464,11 @@ class TransitRouteService implements RouteService {
       );
       if (!withinByEstimate) {
         _log('  → 予算内候補なし → best-effort 縮退');
-        // best-effort も approach A の実時刻検証を通す。時刻なしハイブリッドは
-        // maxBoardingWait=0 で「今夜乗れる」と誤判定され、始発前の幻便（実機の洗足→
-        // 新代田 森91 02:27）を拾うため、候補へ実発車時刻を当ててから「今夜乗れる範囲の
-        // 実到着最早」を選ぶ。実時刻が入れば始発待ちが乗車待ちに表れ走っていない電車は除外。
-        final resolved = <RouteCandidate>[
-          for (final c in candidates)
-            await _resolveBoardingTimes(c, departureAt),
-        ];
-        final fallback = _bestEffort(resolved, budgetMin, departureAt);
-        return (
-          chosen: fallback,
-          enriched: await _enrichWalkGeometry(fallback, walkCache),
+        return await _bestEffortResolved(
+          candidates,
+          budgetMin,
+          departureAt,
+          walkCache,
         );
       }
 
@@ -494,19 +487,71 @@ class TransitRouteService implements RouteService {
           arrivalMinutes(enriched.segments, departureAt) > budgetMin;
       final missedAfterEnrich =
           firstMissedTrain(enriched.segments, departureAt) != null;
+      // (c) 引き直しでも実発車時刻を確認できなかった時刻なし電車を含む＝その時間に便が
+      // 無い疑い。予算内に見えても走っている確証が無いため確定させない（#137 深夜の幻便）。
+      final unverifiedTrain = enriched.segments.any(
+        (s) => s.type == SegmentType.train && s.depTime == null,
+      );
       if (attempt < _maxEnrichAttempts &&
           pool.length > 1 &&
-          (overBudget || missedAfterEnrich)) {
+          (overBudget || missedAfterEnrich || unverifiedTrain)) {
         _log(
-          '  → enrich実測で${overBudget ? '予算超過' : '先頭電車に乗り遅れ'}'
+          '  → enrich実測で'
+          '${overBudget
+              ? '予算超過'
+              : missedAfterEnrich
+              ? '先頭電車に乗り遅れ'
+              : '実発車時刻を確認できず'}'
           '→除外して選び直し: ${_candLine(enriched, budgetMin, departureAt)}',
         );
         pool = pool.where((c) => !identical(c, chosen)).toList();
         continue;
       }
+      // 除外しきれず未確認電車が残るときは確定させず best-effort（検証済み）へ縮退する。
+      if (unverifiedTrain) {
+        _log('  → 未確認電車のまま確定不可 → best-effort 縮退');
+        return await _bestEffortResolved(
+          candidates,
+          budgetMin,
+          departureAt,
+          walkCache,
+        );
+      }
       _log('  → 確定: ${_candLine(enriched, budgetMin, departureAt)}');
       return (chosen: chosen, enriched: enriched);
     }
+  }
+
+  /// best-effort 縮退（#121／#137 深夜）。候補へ実発車時刻を当て（approach A）、引き直しでも
+  /// 実時刻を確認できなかった時刻なし電車を含む候補（その時間に便が無い疑い＝幻便）を除いた
+  /// うえで「今夜乗れる範囲の実到着最早」を選ぶ。検証済みが皆無なら元の解決済み候補へ戻す
+  /// （全徒歩は電車を含まず常に残るため通常は空にならない）。
+  Future<({RouteCandidate chosen, RouteCandidate enriched})>
+  _bestEffortResolved(
+    List<RouteCandidate> candidates,
+    int budgetMin,
+    DateTime departureAt,
+    Map<String, RouteCandidate> walkCache,
+  ) async {
+    final resolved = <RouteCandidate>[
+      for (final c in candidates) await _resolveBoardingTimes(c, departureAt),
+    ];
+    final verified = [
+      for (final c in resolved)
+        if (c.segments.every(
+          (s) => s.type != SegmentType.train || s.depTime != null,
+        ))
+          c,
+    ];
+    final fallback = _bestEffort(
+      verified.isNotEmpty ? verified : resolved,
+      budgetMin,
+      departureAt,
+    );
+    return (
+      chosen: fallback,
+      enriched: await _enrichWalkGeometry(fallback, walkCache),
+    );
   }
 
   /// 予算内候補が無いときの縮退先（#121）。「今夜乗れる」範囲の実到着最早を返す。

@@ -1078,5 +1078,135 @@ void main() {
       );
       expect(ghostTrains, isEmpty, reason: '時刻なしの幻電車を提示してはならない');
     });
+
+    // コリドー座標から短いバス区間を引き直すと、API が all-walk だけ返して電車便を
+    // 返さないことがある（実機の都立大学→学芸大学 森91 01:08）。このとき実時刻を当てられず
+    // depTime=null のまま maxBoardingWait=0 で best-effort を素通りしていた。実時刻を確認
+    // できない時刻なし電車を含む候補は best-effort から除外する。
+    // over-budget だが乗車・降車の各徒歩は予算内（frontier が乗降点を採れる）幾何。
+    // origin(139.0)→乗車139.027(徒歩~31分)→降車139.10→goal139.127(徒歩~31分)、
+    // 計徒歩~62分>予算50分。乗車点は origin と別 lng なので引き直しは all-walk＝ep null。
+    const localOrigin = GeoPoint(35.0, 139.0);
+    const localGoal = GeoPoint(35.0, 139.127);
+
+    http.Client nightMockNoReentryTrain({int firstTrainSecs = 18000}) {
+      const stops = [
+        [35.0, 139.027],
+        [35.0, 139.05],
+        [35.0, 139.075],
+        [35.0, 139.10],
+      ];
+      Map<String, dynamic> trainBase(int reqSecs) {
+        final dep = reqSecs > firstTrainSecs ? reqSecs : firstTrainSecs;
+        final arr = dep + 1800;
+        return {
+          'journey': {
+            'departureSecs': dep,
+            'arrivalSecs': arr,
+            'durationSecs': arr - dep + 120,
+            'accessWalkSecs': 60,
+            'egressWalkSecs': 60,
+            'legs': [
+              _railLeg(
+                route: '夜行線',
+                fromId: 's0',
+                fromName: '始発駅',
+                toId: 's1',
+                toName: '終着駅',
+                dep: dep,
+                arr: arr,
+              ),
+            ],
+          },
+          'map': {
+            'points': const [],
+            'segments': [
+              _mapSeg('walk', 'origin', 's0', 'osmWalk', const [
+                [35.0, 139.0],
+                [35.0, 139.027],
+              ]),
+              _mapSeg('transit', 's0', 's1', 'stopOrder', stops),
+              _mapSeg('walk', 's1', 'destination', 'estimatedWalk', const [
+                [35.0, 139.10],
+                [35.0, 139.127],
+              ]),
+            ],
+          },
+        };
+      }
+
+      // コリドー点からの引き直しは all-walk のみ（電車便を返さない）。
+      Map<String, dynamic> walkOnly() => {
+        'journey': {
+          'departureSecs': 0,
+          'arrivalSecs': 600,
+          'durationSecs': 600,
+          'legs': const [
+            {'kind': 'walk', 'departureSecs': 0, 'arrivalSecs': 600},
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('walk', 'a', 'b', 'osmWalk', const [
+              [35.0, 139.1],
+              [35.0, 139.2],
+            ]),
+          ],
+        },
+      };
+
+      return MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+        if (path.contains('googleWalkProxy')) return _walkFor(req.url);
+        if (path.contains('guidance/plan')) {
+          final from = req.url.queryParameters['from'] ?? '';
+          final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
+          final time = req.url.queryParameters['time'] ?? '00:00';
+          final hm = time.split(':');
+          final secs = int.parse(hm[0]) * 3600 + int.parse(hm[1]) * 60;
+          // origin(139.0)からは電車基準経路、コリドー点からは all-walk のみ。
+          final body = (lng - 139.0).abs() < 1e-6
+              ? _guidance([trainBase(secs)])
+              : _guidance([walkOnly()]);
+          body['date'] = req.url.queryParameters['date'];
+          return _json(body);
+        }
+        return _json(const {}, 404);
+      });
+    }
+
+    test('引き直しで電車便を確認できない時刻なし電車は best-effort に出さない', () async {
+      final plan = await nightService(nightMockNoReentryTrain()).plan(
+        destination: '終着駅',
+        destinationLatLng: localGoal,
+        departure: const TimeValue(h: 2, m: 0),
+        arrival: const TimeValue(h: 2, m: 50), // 予算50分（best-effort へ）
+        origin: localOrigin,
+        originName: '出発',
+      );
+      final ghostTrains = plan.segments.where(
+        (s) => s.type == SegmentType.train && s.depTime == null,
+      );
+      expect(ghostTrains, isEmpty, reason: '実時刻を確認できない時刻なし電車を提示してはならない');
+    });
+
+    test('予算内に見えても引き直しで便を確認できない時刻なし電車は確定しない', () async {
+      // 予算を広く取り、時刻なしハイブリッド（楽観arr）が予算内に見えるケース。引き直しで
+      // all-walk しか返らない＝その時間に便が無いなら、予算内に見えても確定させない。
+      final plan = await nightService(nightMockNoReentryTrain()).plan(
+        destination: '終着駅',
+        destinationLatLng: localGoal,
+        departure: const TimeValue(h: 2, m: 0),
+        arrival: const TimeValue(h: 4, m: 30), // 予算150分（ハイブリッドは楽観で予算内）
+        origin: localOrigin,
+        originName: '出発',
+      );
+      final ghostTrains = plan.segments.where(
+        (s) => s.type == SegmentType.train && s.depTime == null,
+      );
+      expect(ghostTrains, isEmpty, reason: '予算内でも未確認の時刻なし電車を確定してはならない');
+    });
   });
 }
