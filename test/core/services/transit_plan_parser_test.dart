@@ -222,6 +222,46 @@ void main() {
       expect(o.corridors.single.legIndex, 0);
     });
 
+    test('私鉄の路線記号コード（routeName=OH）を和名へ写す', () {
+      final body = _guidance(
+        options: [
+          _option(
+            journey: _journey(
+              dep: 360,
+              arr: 1260,
+              dur: 900,
+              legs: [
+                _railLeg(
+                  route: 'OH',
+                  fromId: 'odakyu:Setagaya-Daita',
+                  fromName: '世田谷代田',
+                  toId: 'odakyu:Shimo-Kitazawa',
+                  toName: '下北沢',
+                  dep: 360,
+                  arr: 1260,
+                ),
+              ],
+            ),
+            segments: [
+              _mapTransit(
+                fromId: 'odakyu:Setagaya-Daita',
+                toId: 'odakyu:Shimo-Kitazawa',
+                geom: 'gtfsShape',
+                coords: const [
+                  [35.658, 139.661],
+                  [35.661, 139.668],
+                ],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final train = parseGuidancePlan(body).single.segments.single;
+      expect(train.type, SegmentType.train);
+      expect(train.line, '小田急小田原線');
+    });
+
     test('乗換（電車+乗換徒歩+電車）を順序通りに変換しコリドー2本', () {
       final body = _guidance(
         options: [

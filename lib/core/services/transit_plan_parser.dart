@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/geo_point.dart';
 import '../models/route_plan.dart';
 import 'hybrid_route_selector.dart' show haversineKm;
+import 'rail_line_names.dart';
 import 'route_plan_builder.dart' show kcalPerKm;
 
 /// Transit API `/guidance/plan` の 1 option を解析した door-to-door 経路（#137）。
@@ -143,7 +144,7 @@ TransitOption? _parseOption(
             toName: _nameOf(leg['to']) ?? '',
             minutes: _diffMin(depSec, arrSec),
             km: _polylineKm(coords),
-            line: leg['routeName'] as String?,
+            line: railLineLabel(leg['routeName'] as String?),
             depTime: transitSecsToJst(date, depSec),
             arrTime: transitSecsToJst(date, arrSec),
             polyline: coords,
