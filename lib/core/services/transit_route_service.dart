@@ -161,7 +161,7 @@ class TransitRouteService implements RouteService {
       ),
     );
 
-    var enriched = await _selectAndEnrich(
+    var selected = await _selectAndEnrich(
       candidates,
       budgetMin,
       departureAt,
@@ -170,8 +170,11 @@ class TransitRouteService implements RouteService {
       walkCache: walkCache,
     );
 
+    // 崩壊判定は enrich 前の選定候補（[selected.chosen]）で行う。enrich 後の徒歩は
+    // Google 実街路で膨らみ、標準乗換の guidance 見積り徒歩と測定基準がずれるため、
+    // 両者を同じ見積り基準で比較しないと崩壊が誤って不成立になる（徒歩最大化の不達）。
     if (base != null &&
-        _isCollapse(enriched, options, budgetMin, departureAt)) {
+        _isCollapse(selected.chosen, options, budgetMin, departureAt)) {
       final boardSearch = await _buildBoardSearchCandidate(
         base,
         origin,
@@ -181,7 +184,7 @@ class TransitRouteService implements RouteService {
         walkCache,
       );
       if (boardSearch != null) {
-        enriched = await _selectAndEnrich(
+        selected = await _selectAndEnrich(
           [...candidates, boardSearch],
           budgetMin,
           departureAt,
@@ -193,7 +196,7 @@ class TransitRouteService implements RouteService {
     }
 
     return _build(
-      enriched,
+      selected.enriched,
       departure,
       budgetMin,
       onProgress,
@@ -206,7 +209,10 @@ class TransitRouteService implements RouteService {
   /// NAVITIME 版と違い**乗り遅れ再照会（#115）は行わない**：標準乗換は guidance が返す
   /// 実在便で自己整合、ハイブリッド／乗車駅探索は引き直しまたは時刻なし距離概算のため
   /// `firstMissedTrain` が構成上立たない。enrich で予算超過が判明したら除外して選び直す。
-  Future<RouteCandidate> _selectAndEnrich(
+  /// 戻り値の [chosen] は enrich 前の選定候補（guidance 見積り徒歩のまま）、
+  /// [enriched] は採用経路を Google 実測で確定したもの。崩壊判定（[_isCollapse]）が
+  /// 標準乗換と同じ見積り基準で比較できるよう、両方を返す。
+  Future<({RouteCandidate chosen, RouteCandidate enriched})> _selectAndEnrich(
     List<RouteCandidate> candidates,
     int budgetMin,
     DateTime departureAt, {
@@ -226,9 +232,10 @@ class TransitRouteService implements RouteService {
       final withinByEstimate =
           arrivalMinutes(chosen.segments, departureAt) <= budgetMin;
       if (!withinByEstimate) {
-        return _enrichWalkGeometry(
-          _bestEffort(candidates, budgetMin, departureAt),
-          walkCache,
+        final fallback = _bestEffort(candidates, budgetMin, departureAt);
+        return (
+          chosen: fallback,
+          enriched: await _enrichWalkGeometry(fallback, walkCache),
         );
       }
 
@@ -239,7 +246,7 @@ class TransitRouteService implements RouteService {
         pool = pool.where((c) => !identical(c, chosen)).toList();
         continue;
       }
-      return enriched;
+      return (chosen: chosen, enriched: enriched);
     }
   }
 

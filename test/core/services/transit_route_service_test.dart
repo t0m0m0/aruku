@@ -307,4 +307,129 @@ void main() {
       expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
     });
   });
+
+  group('plan: 崩壊判定の測定基準（#137 指摘2）', () {
+    // 標準乗換の徒歩(access+egress)を guidance は小さく見積もるが、Google 実街路は
+    // 大きく出る（街路は直線の下限を上回る）。崩壊判定（_isCollapse）が enrich 後の
+    // 「実街路で膨らんだ徒歩」を基準にすると、予算余り・徒歩マージンの両条件が実測値で
+    // 潰れて乗車駅探索（board search）が起動せず、徒歩最大化が silent に不達になる。
+    // 判定は enrich 前（guidance 見積り）基準で行うべき。
+    //
+    // origin→goal は全徒歩が予算外、電車で高速、コリドーは3点。ハイブリッドは乗車時間が
+    // 長く予算外 → 予算内候補は短徒歩の標準乗換のみ＝崩壊状況。実街路を直線の3倍で返す。
+    const origin2 = GeoPoint(35.0, 139.0);
+    const goal2 = GeoPoint(35.0, 139.5);
+
+    Map<String, dynamic> collapseGuidance() {
+      const stops = [
+        [35.0, 139.01],
+        [35.0, 139.25],
+        [35.0, 139.49],
+      ];
+      return _guidance([
+        {
+          'journey': {
+            'departureSecs': 32760, // 09:06
+            'arrivalSecs': 33660, // 09:21（乗車15分）
+            'durationSecs': 1500,
+            'accessWalkSecs': 300, // guidance 見積り 5分
+            'egressWalkSecs': 300, // guidance 見積り 5分
+            'legs': [
+              _railLeg(
+                route: '快速',
+                fromId: 'jr:board',
+                fromName: '乗車駅',
+                toId: 'jr:alight',
+                toName: '降車駅',
+                dep: 32760,
+                arr: 33660,
+              ),
+            ],
+          },
+          'map': {
+            'points': const [],
+            'segments': [
+              _mapSeg('walk', 'origin', 'jr:board', 'osmWalk', const [
+                [35.0, 139.0],
+                [35.0, 139.01],
+              ]),
+              _mapSeg('transit', 'jr:board', 'jr:alight', 'stopOrder', stops),
+              _mapSeg(
+                'walk',
+                'jr:alight',
+                'destination',
+                'estimatedWalk',
+                const [
+                  [35.0, 139.49],
+                  [35.0, 139.5],
+                ],
+              ),
+            ],
+          },
+        },
+      ]);
+    }
+
+    // 徒歩を直線の3倍で返すモック（実街路の迂回を模す）。guidance 呼び出しを記録する。
+    http.Client inflatedMock(List<Uri> guidanceCalls) {
+      List<GeoPoint> parse(String? raw) =>
+          (raw ?? '').split(';').where((s) => s.isNotEmpty).map(_pt).toList();
+      http.Response matrix(Uri url) {
+        final os = parse(url.queryParameters['origins']);
+        final ds = parse(url.queryParameters['destinations']);
+        return _json([
+          for (var i = 0; i < os.length; i++)
+            for (var j = 0; j < ds.length; j++)
+              {
+                'originIndex': i,
+                'destinationIndex': j,
+                'duration': '${_walkMin(os[i], ds[j]) * 3 * 60}s',
+                'distanceMeters': (haversineKm(os[i], ds[j]) * 1000).round(),
+              },
+        ]);
+      }
+
+      http.Response walk(Uri url) {
+        final s = _pt(url.queryParameters['start'] ?? '0,0');
+        final g = _pt(url.queryParameters['goal'] ?? '0,0');
+        return _json({
+          'routes': [
+            {
+              'distanceMeters': (haversineKm(s, g) * 1000).round(),
+              'duration': '${_walkMin(s, g) * 3 * 60}s',
+            },
+          ],
+        });
+      }
+
+      final transit = collapseGuidance();
+      return MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) return matrix(req.url);
+        if (path.contains('googleWalkProxy')) return walk(req.url);
+        if (path.contains('guidance/plan')) {
+          guidanceCalls.add(req.url);
+          return _json(transit);
+        }
+        return _json(const {}, 404);
+      });
+    }
+
+    test('実街路で膨らんだ徒歩で崩壊判定を潰さず乗車駅探索を起動する', () async {
+      final guidanceCalls = <Uri>[];
+      final svc = _service(inflatedMock(guidanceCalls));
+      await svc.plan(
+        destination: '降車駅',
+        destinationLatLng: goal2,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0), // 予算60分
+        origin: origin2,
+        originName: '出発',
+      );
+      // 崩壊判定が enrich 前（guidance 見積り）基準で成立 → 乗車駅探索が引き直し
+      // （guidance を複数回）する。enrich 後の膨らんだ徒歩を使うと崩壊判定が潰れ、
+      // 初回 guidance 1回だけで終わってしまう（指摘2の回帰）。
+      expect(guidanceCalls.length, greaterThan(1));
+    });
+  });
 }
