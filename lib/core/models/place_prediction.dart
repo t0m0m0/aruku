@@ -10,6 +10,7 @@ class PlacePrediction {
     required this.address,
     this.latLng,
     this.kind,
+    this.areaLabel,
   });
 
   final String placeId;
@@ -22,6 +23,19 @@ class PlacePrediction {
 
   /// Transit API の `kind`（station / stop / place / address）。
   final String? kind;
+
+  /// 同名衝突時に逆ジオで補う「県＋市区町村」（例: 「長野県上田市」）。
+  /// 衝突していない通常候補では null のまま。
+  final String? areaLabel;
+
+  PlacePrediction withAreaLabel(String? label) => PlacePrediction(
+    placeId: placeId,
+    name: name,
+    address: address,
+    latLng: latLng,
+    kind: kind,
+    areaLabel: label,
+  );
 
   @override
   bool operator ==(Object other) =>

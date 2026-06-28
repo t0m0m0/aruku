@@ -1,5 +1,7 @@
+import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/place_prediction.dart';
 import 'package:aruku/core/services/places_service.dart';
+import 'package:aruku/core/services/reverse_geocoding_service.dart';
 import 'package:aruku/features/search/places_provider.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -20,9 +22,28 @@ class _ErrorPlacesService implements PlacesService {
       Future.error(const PlacesException('REQUEST_DENIED'));
 }
 
-ProviderContainer _makeContainer(PlacesService service) {
+/// 座標→ラベルを固定で返し、呼び出し座標を記録するフェイク。
+class _FakeReverseGeocodingService implements ReverseGeocodingService {
+  _FakeReverseGeocodingService(this._byLat);
+  final Map<double, AreaLabel> _byLat;
+  final calls = <GeoPoint>[];
+
+  @override
+  Future<AreaLabel?> areaForCoord(GeoPoint point) async {
+    calls.add(point);
+    return _byLat[point.lat];
+  }
+}
+
+ProviderContainer _makeContainer(
+  PlacesService service, {
+  ReverseGeocodingService? reverse,
+}) {
   return ProviderContainer(
-    overrides: [placesServiceProvider.overrideWithValue(service)],
+    overrides: [
+      placesServiceProvider.overrideWithValue(service),
+      reverseGeocodingServiceProvider.overrideWithValue(reverse),
+    ],
   );
 }
 
@@ -76,6 +97,123 @@ void main() {
         final state = container.read(placesProvider);
         expect(state.status, SearchStatus.error);
         expect(state.errorMessage, isNotNull);
+      });
+    });
+
+    test('同名衝突した候補にだけ逆ジオで県＋市区町村が付く', () {
+      const predictions = [
+        PlacePrediction(
+          placeId: 'mac-nagano',
+          name: 'マクドナルド',
+          address: '施設',
+          latLng: GeoPoint(36.41, 138.26),
+        ),
+        PlacePrediction(
+          placeId: 'mac-tokyo',
+          name: 'マクドナルド',
+          address: '施設',
+          latLng: GeoPoint(35.68, 139.76),
+        ),
+        PlacePrediction(
+          placeId: 'tokyo-tower',
+          name: '東京タワー',
+          address: '施設',
+          latLng: GeoPoint(35.65, 139.74),
+        ),
+      ];
+      final reverse = _FakeReverseGeocodingService({
+        36.41: const AreaLabel(pref: '長野県', city: '上田市'),
+        35.68: const AreaLabel(pref: '東京都', city: '港区'),
+      });
+      final container = _makeContainer(
+        _FakePlacesService(predictions),
+        reverse: reverse,
+      );
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).search('マクドナルド');
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        final suggestions = container.read(placesProvider).suggestions;
+        final byId = {for (final s in suggestions) s.placeId: s};
+        expect(byId['mac-nagano']!.areaLabel, '長野県上田市');
+        expect(byId['mac-tokyo']!.areaLabel, '東京都港区');
+        expect(byId['tokyo-tower']!.areaLabel, isNull, reason: '衝突しない候補は補完しない');
+        expect(
+          reverse.calls.map((p) => p.lat),
+          unorderedEquals([36.41, 35.68]),
+          reason: '衝突した2件だけ逆引きする',
+        );
+      });
+    });
+
+    test('衝突が無ければ逆ジオを一切呼ばない', () {
+      const predictions = [
+        PlacePrediction(
+          placeId: 'a',
+          name: '渋谷駅',
+          address: '東京都渋谷区',
+          latLng: GeoPoint(35.65, 139.70),
+        ),
+        PlacePrediction(
+          placeId: 'b',
+          name: '新宿駅',
+          address: '東京都新宿区',
+          latLng: GeoPoint(35.69, 139.70),
+        ),
+      ];
+      final reverse = _FakeReverseGeocodingService({});
+      final container = _makeContainer(
+        _FakePlacesService(predictions),
+        reverse: reverse,
+      );
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).search('駅');
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        expect(reverse.calls, isEmpty, reason: '同名衝突が無いので逆ジオしない');
+        expect(
+          container
+              .read(placesProvider)
+              .suggestions
+              .every((s) => s.areaLabel == null),
+          isTrue,
+        );
+      });
+    });
+
+    test('逆ジオ Service が無くても（表ロード失敗）クラッシュせず候補を返す', () {
+      const predictions = [
+        PlacePrediction(
+          placeId: 'mac-1',
+          name: 'マクドナルド',
+          address: '施設',
+          latLng: GeoPoint(36.41, 138.26),
+        ),
+        PlacePrediction(
+          placeId: 'mac-2',
+          name: 'マクドナルド',
+          address: '施設',
+          latLng: GeoPoint(35.68, 139.76),
+        ),
+      ];
+      final container = _makeContainer(_FakePlacesService(predictions));
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).search('マクドナルド');
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        final state = container.read(placesProvider);
+        expect(state.status, SearchStatus.success);
+        expect(state.suggestions, hasLength(2));
+        expect(state.suggestions.every((s) => s.areaLabel == null), isTrue);
       });
     });
 

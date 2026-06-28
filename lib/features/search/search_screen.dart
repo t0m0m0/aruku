@@ -348,7 +348,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               final s = suggestions[i];
               return _SuggestionTile(
                 name: s.name,
-                address: s.address,
+                // 同名衝突時は逆ジオで得た県＋市区町村を優先して見分けやすくする。
+                address: s.areaLabel ?? s.address,
                 query: _ctl.text,
                 onTap: () => _selectPrediction(s),
               );
