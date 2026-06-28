@@ -56,22 +56,34 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       setState(() => _pickFailed = true);
       return;
     }
-    if (widget.mode == SearchMode.destination) {
-      _rememberRecent(
-        RecentPlace(
-          name: prediction.name,
-          placeId: prediction.placeId,
-          latLng: latLng,
-          address: prediction.address,
-        ),
-      );
-    }
+    // 目的地・出発地どちらのモードでも、確定した地点をそのモードの履歴に残す。
+    _rememberRecent(
+      RecentPlace(
+        name: prediction.name,
+        placeId: prediction.placeId,
+        latLng: latLng,
+        address: prediction.address,
+      ),
+    );
     _applySelection(prediction.name, latLng: latLng);
   }
 
-  void _rememberRecent(RecentPlace dest) {
+  void _rememberRecent(RecentPlace place) {
     // 失敗は履歴に残らないだけなので呼び出し元で待たない。
-    unawaited(ref.read(recentsProvider.notifier).add(dest));
+    // モードごとに別系統（目的地／出発地）の履歴へ記録する。
+    if (widget.mode == SearchMode.origin) {
+      unawaited(ref.read(recentOriginsProvider.notifier).add(place));
+    } else {
+      unawaited(ref.read(recentsProvider.notifier).add(place));
+    }
+  }
+
+  void _clearRecents() {
+    if (widget.mode == SearchMode.origin) {
+      unawaited(ref.read(recentOriginsProvider.notifier).clear());
+    } else {
+      unawaited(ref.read(recentsProvider.notifier).clear());
+    }
   }
 
   // 履歴タイルからの再選択。再訪したものを最新として先頭に繰り上げる。
@@ -373,10 +385,17 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final showCurrentLocation =
         widget.mode == SearchMode.origin || locationAvailable;
 
-    // 履歴・お気に入りは目的地のみ。出発地モードでは表示しない。
-    final recents = widget.mode == SearchMode.destination
-        ? ref.watch(recentsProvider).value ?? const <RecentPlace>[]
-        : const <RecentPlace>[];
+    // 履歴はモードごとに別系統。目的地モードは目的地履歴、出発地モードは
+    // 出発地履歴を表示する。お気に入りは目的地のみ（出発地は対象外）。
+    final recents =
+        ref
+            .watch(
+              widget.mode == SearchMode.origin
+                  ? recentOriginsProvider
+                  : recentsProvider,
+            )
+            .value ??
+        const <RecentPlace>[];
     final favorites = widget.mode == SearchMode.destination
         ? ref.watch(favoritesProvider).value ?? const <FavoritePlace>[]
         : const <FavoritePlace>[];
@@ -491,7 +510,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '最近の目的地',
+                  widget.mode == SearchMode.origin ? '最近の出発地' : '最近の目的地',
                   style: jpStyle(
                     size: 12,
                     weight: FontWeight.w700,
@@ -499,8 +518,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   ),
                 ),
                 InkWell(
-                  onTap: () =>
-                      unawaited(ref.read(recentsProvider.notifier).clear()),
+                  onTap: _clearRecents,
                   child: Text(
                     '履歴を消去',
                     style: jpStyle(
