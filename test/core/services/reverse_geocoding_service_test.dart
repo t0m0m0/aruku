@@ -27,7 +27,7 @@ void main() {
         });
       });
       final service = GsiReverseGeocodingService(
-        muniTable: _muniTable,
+        muniTable: Future.value(_muniTable),
         client: client,
         baseUrl: _baseUrl,
       );
@@ -49,7 +49,7 @@ void main() {
         }),
       );
       final service = GsiReverseGeocodingService(
-        muniTable: _muniTable,
+        muniTable: Future.value(_muniTable),
         client: client,
         baseUrl: _baseUrl,
       );
@@ -60,7 +60,7 @@ void main() {
     test('results が無い応答（海上など）は null を返す', () async {
       final client = MockClient((_) async => _jsonResponse(const {}));
       final service = GsiReverseGeocodingService(
-        muniTable: _muniTable,
+        muniTable: Future.value(_muniTable),
         client: client,
         baseUrl: _baseUrl,
       );
@@ -71,7 +71,7 @@ void main() {
     test('HTTP エラーでも例外を投げず null を返す', () async {
       final client = MockClient((_) async => http.Response('boom', 500));
       final service = GsiReverseGeocodingService(
-        muniTable: _muniTable,
+        muniTable: Future.value(_muniTable),
         client: client,
         baseUrl: _baseUrl,
       );
@@ -82,7 +82,7 @@ void main() {
     test('ネットワーク例外でも null を返す', () async {
       final client = MockClient((_) async => throw Exception('offline'));
       final service = GsiReverseGeocodingService(
-        muniTable: _muniTable,
+        muniTable: Future.value(_muniTable),
         client: client,
         baseUrl: _baseUrl,
       );
@@ -99,7 +99,7 @@ void main() {
         });
       });
       final service = GsiReverseGeocodingService(
-        muniTable: _muniTable,
+        muniTable: Future.value(_muniTable),
         client: client,
         baseUrl: _baseUrl,
       );
@@ -122,7 +122,7 @@ void main() {
         });
       });
       final service = GsiReverseGeocodingService(
-        muniTable: _muniTable,
+        muniTable: Future.value(_muniTable),
         client: client,
         baseUrl: _baseUrl,
       );
@@ -131,6 +131,24 @@ void main() {
       await service.areaForCoord(const GeoPoint(36.41304, 138.26076));
 
       expect(calls, 1, reason: '4桁（≒10m）丸めで同一地点とみなす');
+    });
+
+    test('変換表の読み込みに失敗してもネットワークを叩かず null を返す', () async {
+      var calls = 0;
+      final client = MockClient((_) async {
+        calls++;
+        return _jsonResponse({
+          'results': {'muniCd': '20203'},
+        });
+      });
+      final service = GsiReverseGeocodingService(
+        muniTable: Future.error(Exception('asset missing')),
+        client: client,
+        baseUrl: _baseUrl,
+      );
+
+      expect(await service.areaForCoord(const GeoPoint(1, 1)), isNull);
+      expect(calls, 0, reason: '表が無ければ逆ジオ自体を行わない');
     });
 
     test('HTTP エラーはキャッシュせず再試行できる', () async {
@@ -144,7 +162,7 @@ void main() {
         });
       });
       final service = GsiReverseGeocodingService(
-        muniTable: _muniTable,
+        muniTable: Future.value(_muniTable),
         client: client,
         baseUrl: _baseUrl,
       );

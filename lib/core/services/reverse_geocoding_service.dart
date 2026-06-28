@@ -42,17 +42,22 @@ abstract interface class ReverseGeocodingService {
 /// （≒10m）に丸めてメモリキャッシュし、同一地点の再照会を防ぐ。
 class GsiReverseGeocodingService implements ReverseGeocodingService {
   GsiReverseGeocodingService({
-    required Map<String, AreaLabel> muniTable,
+    required Future<Map<String, AreaLabel>> muniTable,
     http.Client? client,
     String? baseUrl,
-  }) : _muniTable = muniTable,
+  }) : _muniTableFuture = muniTable,
        _client = client ?? http.Client(),
        _baseUrl = baseUrl ?? _defaultBaseUrl;
 
   static const String _defaultBaseUrl =
       'https://mreversegeocoder.gsi.go.jp/reverse-geocoder/LonLatToAddress';
 
-  final Map<String, AreaLabel> _muniTable;
+  /// muniCd 変換表は非同期（アセット読み込み）。初回 [areaForCoord] で一度だけ
+  /// await し、以後はキャッシュした表を使う。FutureProvider の `.value` を同期で
+  /// 読む実装は読み込み完了前に null となり逆ジオ全体が無効化されるため避ける。
+  final Future<Map<String, AreaLabel>> _muniTableFuture;
+  Map<String, AreaLabel>? _muniTable;
+
   final http.Client _client;
   final String _baseUrl;
 
@@ -61,6 +66,9 @@ class GsiReverseGeocodingService implements ReverseGeocodingService {
 
   @override
   Future<AreaLabel?> areaForCoord(GeoPoint point) async {
+    final table = _muniTable ??= await _loadTable();
+    if (table.isEmpty) return null;
+
     final key =
         '${point.lat.toStringAsFixed(4)},${point.lng.toStringAsFixed(4)}';
     if (_cache.containsKey(key)) return _cache[key];
@@ -86,7 +94,7 @@ class GsiReverseGeocodingService implements ReverseGeocodingService {
       final muniCd = results is Map<String, dynamic>
           ? results['muniCd'] as String?
           : null;
-      area = muniCd == null ? null : _muniTable[muniCd];
+      area = muniCd == null ? null : table[muniCd];
     } catch (_) {
       return null;
     }
@@ -94,6 +102,15 @@ class GsiReverseGeocodingService implements ReverseGeocodingService {
     // 該当なし（海上・未知 muniCd）は確定結果なのでキャッシュしてよい。
     _cache[key] = area;
     return area;
+  }
+
+  /// 変換表を await する。読み込み失敗時は空表（逆ジオ無効）として扱う。
+  Future<Map<String, AreaLabel>> _loadTable() async {
+    try {
+      return await _muniTableFuture;
+    } catch (_) {
+      return const {};
+    }
   }
 }
 
@@ -111,21 +128,12 @@ Future<Map<String, AreaLabel>> loadMuniTable() async {
   };
 }
 
-/// muniTable は起動後に一度だけ読み込む。失敗時は空表（逆ジオ無効）。
-final muniTableProvider = FutureProvider<Map<String, AreaLabel>>((ref) async {
-  try {
-    return await loadMuniTable();
-  } catch (_) {
-    return const {};
-  }
-});
-
+/// 逆ジオ Service。muniTable は Service が初回呼び出しで遅延ロードするため、
+/// ここでは読み込み完了を待たずに即座に Service を返せる（null にならない）。
 final reverseGeocodingServiceProvider = Provider<ReverseGeocodingService?>((
   ref,
 ) {
-  final table = ref.watch(muniTableProvider).value;
-  if (table == null || table.isEmpty) return null;
   final client = http.Client();
   ref.onDispose(client.close);
-  return GsiReverseGeocodingService(muniTable: table, client: client);
+  return GsiReverseGeocodingService(muniTable: loadMuniTable(), client: client);
 });
