@@ -64,4 +64,22 @@ void main() {
     await container.read(recentsProvider.notifier).clear();
     expect(container.read(recentsProvider).value, isEmpty);
   });
+
+  test('出発地履歴は recentOriginsProvider で独立して管理される', () async {
+    final container = _container();
+    while (container.read(recentOriginsProvider) is AsyncLoading ||
+        container.read(recentsProvider) is AsyncLoading) {
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    await container
+        .read(recentOriginsProvider.notifier)
+        .add(const RecentPlace(name: '自宅', placeId: 'o1'));
+
+    expect(container.read(recentOriginsProvider).value!.map((e) => e.name), [
+      '自宅',
+    ]);
+    // 目的地履歴は出発地の追加に影響されない。
+    expect(container.read(recentsProvider).value, isEmpty);
+  });
 }
