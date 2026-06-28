@@ -17,6 +17,7 @@ class SyncData {
     required this.settings,
     required this.favorites,
     required this.recents,
+    required this.recentOrigins,
     required this.activity,
   });
 
@@ -25,6 +26,7 @@ class SyncData {
   final AppSettings settings;
   final List<FavoritePlace> favorites;
   final List<RecentPlace> recents;
+  final List<RecentPlace> recentOrigins;
   final List<DailyActivity> activity;
 
   /// last-write-wins で勝った側を返す。同時刻はローカルを優先し、不要な
@@ -41,6 +43,7 @@ class SyncData {
     'settings': settings.toJson(),
     'favorites': favorites.map((e) => e.toJson()).toList(),
     'recents': recents.map((e) => e.toJson()).toList(),
+    'recentOrigins': recentOrigins.map((e) => e.toJson()).toList(),
     'activity': activity.map((e) => e.toJson()).toList(),
   };
 
@@ -56,6 +59,7 @@ class SyncData {
           : AppSettings.defaults,
       favorites: _list(json['favorites'], FavoritePlace.fromJson),
       recents: _list(json['recents'], RecentPlace.fromJson),
+      recentOrigins: _list(json['recentOrigins'], RecentPlace.fromJson),
       activity: _list(json['activity'], DailyActivity.fromJson),
     );
   }

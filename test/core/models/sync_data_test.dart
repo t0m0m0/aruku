@@ -12,6 +12,7 @@ void main() {
         settings: settings ?? AppSettings.defaults,
         favorites: const [FavoritePlace(name: '東京駅', placeId: 'p1')],
         recents: const [RecentPlace(name: '渋谷駅', placeId: 'p2')],
+        recentOrigins: const [RecentPlace(name: '自宅', placeId: 'o1')],
         activity: [DailyActivity(date: DateTime(2026, 6, 1), steps: 1200)],
       );
 
@@ -26,6 +27,7 @@ void main() {
     expect(restored.settings.notificationsEnabled, isFalse);
     expect(restored.favorites.single.name, '東京駅');
     expect(restored.recents.single.name, '渋谷駅');
+    expect(restored.recentOrigins.single.name, '自宅');
     expect(restored.activity.single.steps, 1200);
   });
 
@@ -34,6 +36,7 @@ void main() {
     expect(restored.settings, AppSettings.defaults);
     expect(restored.favorites, isEmpty);
     expect(restored.recents, isEmpty);
+    expect(restored.recentOrigins, isEmpty);
     expect(restored.activity, isEmpty);
   });
 
