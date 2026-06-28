@@ -1,7 +1,7 @@
 import 'package:aruku/core/models/app_settings.dart';
 import 'package:aruku/core/models/daily_activity.dart';
 import 'package:aruku/core/models/favorite_place.dart';
-import 'package:aruku/core/models/recent_destination.dart';
+import 'package:aruku/core/models/recent_place.dart';
 import 'package:aruku/core/models/sync_data.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -11,7 +11,7 @@ void main() {
         updatedAt: updatedAt,
         settings: settings ?? AppSettings.defaults,
         favorites: const [FavoritePlace(name: '東京駅', placeId: 'p1')],
-        recents: const [RecentDestination(name: '渋谷駅', placeId: 'p2')],
+        recents: const [RecentPlace(name: '渋谷駅', placeId: 'p2')],
         activity: [DailyActivity(date: DateTime(2026, 6, 1), steps: 1200)],
       );
 

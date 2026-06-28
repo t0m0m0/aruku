@@ -1,5 +1,5 @@
 import 'package:aruku/core/models/geo_point.dart';
-import 'package:aruku/core/models/recent_destination.dart';
+import 'package:aruku/core/models/recent_place.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,13 +16,13 @@ void main() {
     return RecentsRepository(prefs);
   }
 
-  RecentDestination dest(
+  RecentPlace dest(
     String name, {
     String? placeId,
     GeoPoint? latLng,
     DateTime? usedAt,
   }) {
-    return RecentDestination(
+    return RecentPlace(
       name: name,
       placeId: placeId,
       latLng: latLng,

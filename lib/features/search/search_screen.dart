@@ -7,7 +7,7 @@ import '../../core/models/favorite_place.dart';
 import '../../core/models/geo_point.dart';
 import '../../core/models/location_state.dart';
 import '../../core/models/place_prediction.dart';
-import '../../core/models/recent_destination.dart';
+import '../../core/models/recent_place.dart';
 import '../../core/state/app_state.dart';
 import '../../core/state/favorites_provider.dart';
 import '../../core/state/recents_provider.dart';
@@ -58,7 +58,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
     if (widget.mode == SearchMode.destination) {
       _rememberRecent(
-        RecentDestination(
+        RecentPlace(
           name: prediction.name,
           placeId: prediction.placeId,
           latLng: latLng,
@@ -69,13 +69,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     _applySelection(prediction.name, latLng: latLng);
   }
 
-  void _rememberRecent(RecentDestination dest) {
+  void _rememberRecent(RecentPlace dest) {
     // 失敗は履歴に残らないだけなので呼び出し元で待たない。
     unawaited(ref.read(recentsProvider.notifier).add(dest));
   }
 
   // 履歴タイルからの再選択。再訪したものを最新として先頭に繰り上げる。
-  void _selectRecent(RecentDestination r) {
+  void _selectRecent(RecentPlace r) {
     _rememberRecent(r);
     _applySelection(r.name, latLng: r.latLng);
   }
@@ -83,7 +83,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   // お気に入りタイルからの選択。履歴にも残しつつ目的地に設定する。
   void _selectFavorite(FavoritePlace f) {
     _rememberRecent(
-      RecentDestination(name: f.name, placeId: f.placeId, latLng: f.latLng),
+      RecentPlace(name: f.name, placeId: f.placeId, latLng: f.latLng),
     );
     _applySelection(f.name, latLng: f.latLng);
   }
@@ -375,8 +375,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
     // 履歴・お気に入りは目的地のみ。出発地モードでは表示しない。
     final recents = widget.mode == SearchMode.destination
-        ? ref.watch(recentsProvider).value ?? const <RecentDestination>[]
-        : const <RecentDestination>[];
+        ? ref.watch(recentsProvider).value ?? const <RecentPlace>[]
+        : const <RecentPlace>[];
     final favorites = widget.mode == SearchMode.destination
         ? ref.watch(favoritesProvider).value ?? const <FavoritePlace>[]
         : const <FavoritePlace>[];

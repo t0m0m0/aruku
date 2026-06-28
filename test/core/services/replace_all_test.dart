@@ -1,6 +1,6 @@
 import 'package:aruku/core/models/daily_activity.dart';
 import 'package:aruku/core/models/favorite_place.dart';
-import 'package:aruku/core/models/recent_destination.dart';
+import 'package:aruku/core/models/recent_place.dart';
 import 'package:aruku/core/services/activity_log_repository.dart';
 import 'package:aruku/core/services/favorites_repository.dart';
 import 'package:aruku/core/services/recents_repository.dart';
@@ -32,7 +32,7 @@ void main() {
 
     await repo.replaceAll([
       for (var i = 0; i < RecentsRepository.maxItems + 5; i++)
-        RecentDestination(name: 'r$i', placeId: 'p$i'),
+        RecentPlace(name: 'r$i', placeId: 'p$i'),
     ]);
 
     expect((await repo.load()).length, RecentsRepository.maxItems);

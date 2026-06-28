@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'app_settings.dart';
 import 'daily_activity.dart';
 import 'favorite_place.dart';
-import 'recent_destination.dart';
+import 'recent_place.dart';
 
 /// アカウントに紐付けてクラウド同期する、端末ローカルデータのスナップショット。
 ///
@@ -24,7 +24,7 @@ class SyncData {
   final DateTime updatedAt;
   final AppSettings settings;
   final List<FavoritePlace> favorites;
-  final List<RecentDestination> recents;
+  final List<RecentPlace> recents;
   final List<DailyActivity> activity;
 
   /// last-write-wins で勝った側を返す。同時刻はローカルを優先し、不要な
@@ -55,7 +55,7 @@ class SyncData {
           ? AppSettings.fromJson(settings)
           : AppSettings.defaults,
       favorites: _list(json['favorites'], FavoritePlace.fromJson),
-      recents: _list(json['recents'], RecentDestination.fromJson),
+      recents: _list(json['recents'], RecentPlace.fromJson),
       activity: _list(json['activity'], DailyActivity.fromJson),
     );
   }

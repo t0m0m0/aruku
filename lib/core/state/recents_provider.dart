@@ -1,17 +1,17 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/recent_destination.dart';
+import '../models/recent_place.dart';
 import '../services/recents_repository.dart';
 import '../services/sync_meta_repository.dart';
 
-class RecentsNotifier extends AsyncNotifier<List<RecentDestination>> {
+class RecentsNotifier extends AsyncNotifier<List<RecentPlace>> {
   @override
-  Future<List<RecentDestination>> build() async {
+  Future<List<RecentPlace>> build() async {
     final repo = await ref.watch(recentsRepositoryProvider.future);
     return repo.load();
   }
 
-  Future<void> add(RecentDestination dest) async {
+  Future<void> add(RecentPlace dest) async {
     final repo = await ref.read(recentsRepositoryProvider.future);
     await repo.add(dest);
     state = AsyncData(await repo.load());
@@ -33,6 +33,6 @@ class RecentsNotifier extends AsyncNotifier<List<RecentDestination>> {
 }
 
 final recentsProvider =
-    AsyncNotifierProvider<RecentsNotifier, List<RecentDestination>>(
+    AsyncNotifierProvider<RecentsNotifier, List<RecentPlace>>(
       RecentsNotifier.new,
     );
