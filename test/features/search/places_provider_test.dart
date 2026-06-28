@@ -38,11 +38,13 @@ class _FakeReverseGeocodingService implements ReverseGeocodingService {
 ProviderContainer _makeContainer(
   PlacesService service, {
   ReverseGeocodingService? reverse,
+  GeoPoint? location,
 }) {
   return ProviderContainer(
     overrides: [
       placesServiceProvider.overrideWithValue(service),
       reverseGeocodingServiceProvider.overrideWithValue(reverse),
+      currentLocationProvider.overrideWithValue(location),
     ],
   );
 }
@@ -214,6 +216,115 @@ void main() {
         expect(state.status, SearchStatus.success);
         expect(state.suggestions, hasLength(2));
         expect(state.suggestions.every((s) => s.areaLabel == null), isTrue);
+      });
+    });
+
+    test('同名衝突グループは現在地に近い順に並ぶ', () {
+      // 受信順は遠い→近いだが、現在地(東京駅付近)に近い順へ並べ替える。
+      const predictions = [
+        PlacePrediction(
+          placeId: 'far',
+          name: 'マクドナルド',
+          address: '施設',
+          latLng: GeoPoint(36.41, 138.26), // 長野（遠い）
+        ),
+        PlacePrediction(
+          placeId: 'near',
+          name: 'マクドナルド',
+          address: '施設',
+          latLng: GeoPoint(35.6815, 139.7660), // 東京駅すぐ（近い）
+        ),
+        PlacePrediction(
+          placeId: 'mid',
+          name: 'マクドナルド',
+          address: '施設',
+          latLng: GeoPoint(35.69, 139.70), // 新宿あたり（中間）
+        ),
+      ];
+      final container = _makeContainer(
+        _FakePlacesService(predictions),
+        location: const GeoPoint(35.6812, 139.7671), // 東京駅
+      );
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).search('マクドナルド');
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        final ids = container
+            .read(placesProvider)
+            .suggestions
+            .map((s) => s.placeId)
+            .toList();
+        expect(ids, ['near', 'mid', 'far']);
+      });
+    });
+
+    test('現在地が無ければ並び替えない', () {
+      const predictions = [
+        PlacePrediction(
+          placeId: 'far',
+          name: 'マクドナルド',
+          address: '施設',
+          latLng: GeoPoint(36.41, 138.26),
+        ),
+        PlacePrediction(
+          placeId: 'near',
+          name: 'マクドナルド',
+          address: '施設',
+          latLng: GeoPoint(35.6815, 139.7660),
+        ),
+      ];
+      final container = _makeContainer(_FakePlacesService(predictions));
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).search('マクドナルド');
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        final ids = container
+            .read(placesProvider)
+            .suggestions
+            .map((s) => s.placeId)
+            .toList();
+        expect(ids, ['far', 'near'], reason: '現在地不明なら受信順を維持');
+      });
+    });
+
+    test('衝突しない候補は現在地があっても順序を保つ', () {
+      const predictions = [
+        PlacePrediction(
+          placeId: 'a',
+          name: '渋谷駅',
+          address: '東京都渋谷区',
+          latLng: GeoPoint(36.41, 138.26), // 遠い
+        ),
+        PlacePrediction(
+          placeId: 'b',
+          name: '新宿駅',
+          address: '東京都新宿区',
+          latLng: GeoPoint(35.6815, 139.7660), // 近い
+        ),
+      ];
+      final container = _makeContainer(
+        _FakePlacesService(predictions),
+        location: const GeoPoint(35.6812, 139.7671),
+      );
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).search('駅');
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        final ids = container
+            .read(placesProvider)
+            .suggestions
+            .map((s) => s.placeId)
+            .toList();
+        expect(ids, ['a', 'b'], reason: '同名衝突していない候補は距離で並べ替えない');
       });
     });
 

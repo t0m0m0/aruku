@@ -2,11 +2,22 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/geo/geo_math.dart';
+import '../../core/models/geo_point.dart';
+import '../../core/models/location_state.dart';
 import '../../core/models/place_prediction.dart';
 import '../../core/services/places_service.dart';
 import '../../core/services/reverse_geocoding_service.dart';
+import '../../core/state/app_state.dart';
 
 enum SearchStatus { idle, loading, success, error }
+
+/// 検索の並べ替えに使う現在地。位置情報が確定（許可済み）のときだけ座標を返す。
+/// テストではこの provider を override して現在地を差し替える。
+final currentLocationProvider = Provider<GeoPoint?>((ref) {
+  final loc = ref.watch(appStateProvider).locationState;
+  return loc is LocationAvailable ? loc.position : null;
+});
 
 class SearchState {
   const SearchState({
@@ -63,11 +74,12 @@ class PlacesNotifier extends Notifier<SearchState> {
       final service = ref.read(placesServiceProvider);
       final results = await service.autocomplete(query);
       if (gen != _generation) return;
+      final ordered = _sortCollisionsByDistance(results);
       state = state.copyWith(
         status: SearchStatus.success,
-        suggestions: results,
+        suggestions: ordered,
       );
-      await _augmentWithAreas(results, gen);
+      await _augmentWithAreas(ordered, gen);
     } on PlacesException catch (e) {
       if (gen != _generation) return;
       state = state.copyWith(
@@ -81,6 +93,55 @@ class PlacesNotifier extends Notifier<SearchState> {
         errorMessage: '検索できませんでした',
       );
     }
+  }
+
+  /// 同名が衝突した候補グループ内だけを現在地に近い順へ並べ替える。
+  ///
+  /// 同名POI（マクドナルド等）が並ぶと座標しか違わず選びにくいので、近い店を
+  /// 上に出す。kind 優先ランキング（駅優先）は崩さないよう、衝突していない
+  /// 候補や別名の相対順序は維持する。現在地が無ければそのまま返す。
+  List<PlacePrediction> _sortCollisionsByDistance(
+    List<PlacePrediction> results,
+  ) {
+    final origin = ref.read(currentLocationProvider);
+    if (origin == null) return results;
+
+    // 受信順を保ったまま name でグループ化する。
+    final order = <String>[];
+    final groups = <String, List<PlacePrediction>>{};
+    for (final r in results) {
+      final g = groups[r.name];
+      if (g == null) {
+        order.add(r.name);
+        groups[r.name] = [r];
+      } else {
+        g.add(r);
+      }
+    }
+
+    final out = <PlacePrediction>[];
+    for (final name in order) {
+      final group = groups[name]!;
+      if (group.length < 2) {
+        out.addAll(group);
+        continue;
+      }
+      // 距離昇順の安定ソート。座標欠落は末尾、同距離は受信順を保つ。
+      final indexed = [for (var i = 0; i < group.length; i++) (i, group[i])]
+        ..sort((a, b) {
+          final da = a.$2.latLng;
+          final db = b.$2.latLng;
+          if (da == null && db == null) return a.$1.compareTo(b.$1);
+          if (da == null) return 1;
+          if (db == null) return -1;
+          final ma = metersBetween(origin, da);
+          final mb = metersBetween(origin, db);
+          if (ma != mb) return ma.compareTo(mb);
+          return a.$1.compareTo(b.$1);
+        });
+      out.addAll(indexed.map((e) => e.$2));
+    }
+    return out;
   }
 
   /// 同名が衝突した候補だけ逆ジオで「県＋市区町村」を補う。
