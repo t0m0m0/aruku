@@ -52,6 +52,9 @@ class SyncNotifier extends Notifier<SyncStatus> {
       final meta = await ref.read(syncMetaRepositoryProvider.future);
       final favoritesRepo = await ref.read(favoritesRepositoryProvider.future);
       final recentsRepo = await ref.read(recentsRepositoryProvider.future);
+      final recentOriginsRepo = await ref.read(
+        recentOriginsRepositoryProvider.future,
+      );
       final settingsRepo = await ref.read(settingsRepositoryProvider.future);
       final activityRepo = await ref.read(activityLogRepositoryProvider.future);
 
@@ -60,6 +63,7 @@ class SyncNotifier extends Notifier<SyncStatus> {
         settings: settingsRepo.load(),
         favorites: await favoritesRepo.load(),
         recents: await recentsRepo.load(),
+        recentOrigins: await recentOriginsRepo.load(),
         activity: await activityRepo.load(),
       );
       final remote = await service.fetch(user.uid);
@@ -72,11 +76,13 @@ class SyncNotifier extends Notifier<SyncStatus> {
         await settingsRepo.save(merged.settings);
         await favoritesRepo.replaceAll(merged.favorites);
         await recentsRepo.replaceAll(merged.recents);
+        await recentOriginsRepo.replaceAll(merged.recentOrigins);
         await activityRepo.replaceAll(merged.activity);
         // 反映内容で UI を最新化する（アクティビティはメモリ保持のため次回起動で反映）。
         ref.invalidate(settingsProvider);
         ref.invalidate(favoritesProvider);
         ref.invalidate(recentsProvider);
+        ref.invalidate(recentOriginsProvider);
       }
 
       // リモートをマージ結果へ揃え、ローカルクロックを同期点に合わせる。

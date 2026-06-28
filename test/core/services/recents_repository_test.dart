@@ -1,5 +1,5 @@
 import 'package:aruku/core/models/geo_point.dart';
-import 'package:aruku/core/models/recent_destination.dart';
+import 'package:aruku/core/models/recent_place.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,13 +16,18 @@ void main() {
     return RecentsRepository(prefs);
   }
 
-  RecentDestination dest(
+  Future<RecentsRepository> makeOriginsRepo() async {
+    final prefs = await SharedPreferences.getInstance();
+    return RecentsRepository(prefs, key: RecentsRepository.originsKey);
+  }
+
+  RecentPlace dest(
     String name, {
     String? placeId,
     GeoPoint? latLng,
     DateTime? usedAt,
   }) {
-    return RecentDestination(
+    return RecentPlace(
       name: name,
       placeId: placeId,
       latLng: latLng,
@@ -76,6 +81,27 @@ void main() {
     await repo.add(dest('東京駅', placeId: 'p1'));
     await repo.clear();
     expect(await repo.load(), isEmpty);
+  });
+
+  test('出発地用キーは目的地履歴と混ざらず独立して保存される', () async {
+    final destinations = await makeRepo();
+    final origins = await makeOriginsRepo();
+
+    await destinations.add(dest('東京駅', placeId: 'd1'));
+    await origins.add(dest('自宅', placeId: 'o1'));
+
+    expect((await destinations.load()).map((e) => e.name).toList(), ['東京駅']);
+    expect((await origins.load()).map((e) => e.name).toList(), ['自宅']);
+  });
+
+  test('出発地リポジトリは destinations キーを書き換えない', () async {
+    final destinations = await makeRepo();
+    final origins = await makeOriginsRepo();
+
+    await destinations.add(dest('東京駅', placeId: 'd1'));
+    await origins.clear();
+
+    expect((await destinations.load()).map((e) => e.name).toList(), ['東京駅']);
   });
 
   test('並行 add でも書き込みが失われず全件保存される', () async {

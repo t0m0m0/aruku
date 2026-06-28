@@ -3,8 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'geo_point.dart';
 
 @immutable
-class RecentDestination {
-  const RecentDestination({
+class RecentPlace {
+  const RecentPlace({
     required this.name,
     this.placeId,
     this.latLng,
@@ -21,14 +21,14 @@ class RecentDestination {
   String get dedupeKey =>
       placeId != null && placeId!.isNotEmpty ? 'id:$placeId' : 'name:$name';
 
-  RecentDestination copyWith({
+  RecentPlace copyWith({
     String? name,
     String? placeId,
     GeoPoint? latLng,
     String? address,
     DateTime? usedAt,
   }) {
-    return RecentDestination(
+    return RecentPlace(
       name: name ?? this.name,
       placeId: placeId ?? this.placeId,
       latLng: latLng ?? this.latLng,
@@ -46,11 +46,11 @@ class RecentDestination {
     if (usedAt != null) 'usedAt': usedAt!.toUtc().toIso8601String(),
   };
 
-  static RecentDestination fromJson(Map<String, dynamic> json) {
+  static RecentPlace fromJson(Map<String, dynamic> json) {
     final lat = json['lat'];
     final lng = json['lng'];
     final usedAt = json['usedAt'];
-    return RecentDestination(
+    return RecentPlace(
       name: json['name'] as String,
       placeId: json['placeId'] as String?,
       latLng: (lat is num && lng is num)

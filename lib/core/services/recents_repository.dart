@@ -3,21 +3,25 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../models/recent_destination.dart';
+import '../models/recent_place.dart';
 
 class RecentsRepository {
-  RecentsRepository(this._prefs);
+  /// [key] で永続化先を切り替える。目的地と出発地の履歴を別系統で管理するため、
+  /// 既定は目的地キー、出発地は [originsKey] を渡して別ストアにする。
+  RecentsRepository(this._prefs, {String key = destinationsKey}) : _key = key;
 
-  static const String _key = 'recents.destinations.v1';
+  static const String destinationsKey = 'recents.destinations.v1';
+  static const String originsKey = 'recents.origins.v1';
   static const int maxItems = 10;
 
   final SharedPreferences _prefs;
+  final String _key;
 
   // add/clear は load→変更→save の複合操作。fire-and-forget で多重に呼ばれても
   // 互いの書き込みを上書きしないよう、書き込み系を直列化する。
   Future<void> _writeLock = Future<void>.value();
 
-  Future<List<RecentDestination>> load() async {
+  Future<List<RecentPlace>> load() async {
     final raw = _prefs.getString(_key);
     if (raw == null || raw.isEmpty) return const [];
     try {
@@ -25,21 +29,21 @@ class RecentsRepository {
       if (decoded is! List) return const [];
       return decoded
           .whereType<Map<String, dynamic>>()
-          .map(RecentDestination.fromJson)
+          .map(RecentPlace.fromJson)
           .toList(growable: false);
     } on FormatException {
       return const [];
     }
   }
 
-  Future<void> add(RecentDestination dest) {
+  Future<void> add(RecentPlace dest) {
     return _serialize(() async {
       final stamped = dest.usedAt == null
           ? dest.copyWith(usedAt: DateTime.now().toUtc())
           : dest;
       final current = await load();
       final filtered = current.where((e) => e.dedupeKey != stamped.dedupeKey);
-      final next = <RecentDestination>[stamped, ...filtered];
+      final next = <RecentPlace>[stamped, ...filtered];
       final clipped = next.length > maxItems ? next.sublist(0, maxItems) : next;
       await _save(clipped);
     });
@@ -51,7 +55,7 @@ class RecentsRepository {
 
   /// 一覧を丸ごと差し替える（クラウド同期の適用など）。
   /// [maxItems] を超える分は先頭から切り詰める。
-  Future<void> replaceAll(List<RecentDestination> items) {
+  Future<void> replaceAll(List<RecentPlace> items) {
     return _serialize(() {
       final clipped = items.length > maxItems
           ? items.sublist(0, maxItems)
@@ -68,7 +72,7 @@ class RecentsRepository {
     return result;
   }
 
-  Future<void> _save(List<RecentDestination> items) async {
+  Future<void> _save(List<RecentPlace> items) async {
     final encoded = jsonEncode(items.map((e) => e.toJson()).toList());
     await _prefs.setString(_key, encoded);
   }
@@ -85,4 +89,12 @@ final recentsRepositoryProvider = FutureProvider<RecentsRepository>((
 ) async {
   final prefs = await ref.watch(sharedPreferencesProvider.future);
   return RecentsRepository(prefs);
+});
+
+/// 出発地履歴の永続化リポジトリ。目的地履歴とは別キーで独立管理する。
+final recentOriginsRepositoryProvider = FutureProvider<RecentsRepository>((
+  ref,
+) async {
+  final prefs = await ref.watch(sharedPreferencesProvider.future);
+  return RecentsRepository(prefs, key: RecentsRepository.originsKey);
 });

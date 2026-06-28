@@ -1,21 +1,21 @@
 import 'package:aruku/core/models/geo_point.dart';
-import 'package:aruku/core/models/recent_destination.dart';
+import 'package:aruku/core/models/recent_place.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  group('RecentDestination', () {
+  group('RecentPlace', () {
     final usedAt = DateTime.utc(2026, 5, 28, 10, 0);
     const latLng = GeoPoint(35.681236, 139.767125);
 
     test('JSON ラウンドトリップで全フィールドが保持される', () {
-      const original = RecentDestination(
+      const original = RecentPlace(
         name: '東京駅',
         placeId: 'place_abc',
         latLng: latLng,
         address: '東京都千代田区',
       );
       final json = original.copyWith(usedAt: usedAt).toJson();
-      final decoded = RecentDestination.fromJson(json);
+      final decoded = RecentPlace.fromJson(json);
       expect(decoded.name, '東京駅');
       expect(decoded.placeId, 'place_abc');
       expect(decoded.latLng, latLng);
@@ -24,8 +24,8 @@ void main() {
     });
 
     test('optional フィールドが null でも JSON で復元できる', () {
-      final original = RecentDestination(name: '渋谷', usedAt: usedAt);
-      final decoded = RecentDestination.fromJson(original.toJson());
+      final original = RecentPlace(name: '渋谷', usedAt: usedAt);
+      final decoded = RecentPlace.fromJson(original.toJson());
       expect(decoded.name, '渋谷');
       expect(decoded.placeId, isNull);
       expect(decoded.latLng, isNull);
@@ -34,8 +34,8 @@ void main() {
     });
 
     test('dedupeKey は placeId 優先、無ければ name', () {
-      const a = RecentDestination(name: '東京駅', placeId: 'p1');
-      const b = RecentDestination(name: '東京駅');
+      const a = RecentPlace(name: '東京駅', placeId: 'p1');
+      const b = RecentPlace(name: '東京駅');
       expect(a.dedupeKey, 'id:p1');
       expect(b.dedupeKey, 'name:東京駅');
     });

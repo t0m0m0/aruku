@@ -1,6 +1,7 @@
 import 'package:aruku/core/models/app_settings.dart';
 import 'package:aruku/core/models/auth_user.dart';
 import 'package:aruku/core/models/favorite_place.dart';
+import 'package:aruku/core/models/recent_place.dart';
 import 'package:aruku/core/models/sync_data.dart';
 import 'package:aruku/core/services/auth_service.dart';
 import 'package:aruku/core/services/favorites_repository.dart';
@@ -20,12 +21,15 @@ import '../../support/fake_sync_service.dart';
 SyncData remoteSnapshot({
   required DateTime updatedAt,
   List<FavoritePlace> favorites = const [],
+  List<RecentPlace> recents = const [],
+  List<RecentPlace> recentOrigins = const [],
   AppSettings settings = AppSettings.defaults,
 }) => SyncData(
   updatedAt: updatedAt,
   settings: settings,
   favorites: favorites,
-  recents: const [],
+  recents: recents,
+  recentOrigins: recentOrigins,
   activity: const [],
 );
 
@@ -94,6 +98,40 @@ void main() {
     );
     expect((await favRepo.load()).single.name, '京都駅');
     expect(settingsRepo.load().notificationsEnabled, isFalse);
+  });
+
+  test('リモートが新しければ出発地履歴もローカルへ取り込む', () async {
+    sync.store['u1'] = remoteSnapshot(
+      updatedAt: DateTime.utc(2030, 1, 1),
+      recentOrigins: const [RecentPlace(name: '自宅', placeId: 'o1')],
+    );
+    final container = await makeContainer(
+      user: const AuthUser(uid: 'u1', email: 'a@example.com'),
+    );
+
+    await container.read(syncProvider.notifier).sync();
+
+    final originsRepo = await container.read(
+      recentOriginsRepositoryProvider.future,
+    );
+    expect((await originsRepo.load()).single.name, '自宅');
+  });
+
+  test('ローカルが新しければ出発地履歴もリモートへ反映する', () async {
+    sync.store['u1'] = remoteSnapshot(updatedAt: DateTime.utc(2000, 1, 1));
+    final container = await makeContainer(
+      user: const AuthUser(uid: 'u1', email: 'a@example.com'),
+    );
+    final meta = await container.read(syncMetaRepositoryProvider.future);
+    await meta.markLocalChanged(DateTime.utc(2030, 1, 1));
+    final originsRepo = await container.read(
+      recentOriginsRepositoryProvider.future,
+    );
+    await originsRepo.add(const RecentPlace(name: '職場', placeId: 'o2'));
+
+    await container.read(syncProvider.notifier).sync();
+
+    expect(sync.store['u1']!.recentOrigins.single.name, '職場');
   });
 
   test('ローカルが新しければリモートを上書きする', () async {

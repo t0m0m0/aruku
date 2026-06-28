@@ -1,5 +1,5 @@
 import 'package:aruku/core/models/geo_point.dart';
-import 'package:aruku/core/models/recent_destination.dart';
+import 'package:aruku/core/models/recent_place.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:aruku/core/state/recents_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,7 +29,7 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     await RecentsRepository(
       prefs,
-    ).add(const RecentDestination(name: '東京駅', placeId: 'p1'));
+    ).add(const RecentPlace(name: '東京駅', placeId: 'p1'));
 
     final container = _container();
     await _waitUntilData(container);
@@ -44,7 +44,7 @@ void main() {
     await container
         .read(recentsProvider.notifier)
         .add(
-          const RecentDestination(
+          const RecentPlace(
             name: '渋谷駅',
             placeId: 'p2',
             latLng: GeoPoint(35.658, 139.701),
@@ -60,8 +60,26 @@ void main() {
     await _waitUntilData(container);
     await container
         .read(recentsProvider.notifier)
-        .add(const RecentDestination(name: '東京駅', placeId: 'p1'));
+        .add(const RecentPlace(name: '東京駅', placeId: 'p1'));
     await container.read(recentsProvider.notifier).clear();
+    expect(container.read(recentsProvider).value, isEmpty);
+  });
+
+  test('出発地履歴は recentOriginsProvider で独立して管理される', () async {
+    final container = _container();
+    while (container.read(recentOriginsProvider) is AsyncLoading ||
+        container.read(recentsProvider) is AsyncLoading) {
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    await container
+        .read(recentOriginsProvider.notifier)
+        .add(const RecentPlace(name: '自宅', placeId: 'o1'));
+
+    expect(container.read(recentOriginsProvider).value!.map((e) => e.name), [
+      '自宅',
+    ]);
+    // 目的地履歴は出発地の追加に影響されない。
     expect(container.read(recentsProvider).value, isEmpty);
   });
 }

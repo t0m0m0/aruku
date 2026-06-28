@@ -7,7 +7,7 @@ import '../../core/models/favorite_place.dart';
 import '../../core/models/geo_point.dart';
 import '../../core/models/location_state.dart';
 import '../../core/models/place_prediction.dart';
-import '../../core/models/recent_destination.dart';
+import '../../core/models/recent_place.dart';
 import '../../core/state/app_state.dart';
 import '../../core/state/favorites_provider.dart';
 import '../../core/state/recents_provider.dart';
@@ -56,26 +56,38 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       setState(() => _pickFailed = true);
       return;
     }
-    if (widget.mode == SearchMode.destination) {
-      _rememberRecent(
-        RecentDestination(
-          name: prediction.name,
-          placeId: prediction.placeId,
-          latLng: latLng,
-          address: prediction.address,
-        ),
-      );
-    }
+    // 目的地・出発地どちらのモードでも、確定した地点をそのモードの履歴に残す。
+    _rememberRecent(
+      RecentPlace(
+        name: prediction.name,
+        placeId: prediction.placeId,
+        latLng: latLng,
+        address: prediction.address,
+      ),
+    );
     _applySelection(prediction.name, latLng: latLng);
   }
 
-  void _rememberRecent(RecentDestination dest) {
+  void _rememberRecent(RecentPlace place) {
     // 失敗は履歴に残らないだけなので呼び出し元で待たない。
-    unawaited(ref.read(recentsProvider.notifier).add(dest));
+    // モードごとに別系統（目的地／出発地）の履歴へ記録する。
+    if (widget.mode == SearchMode.origin) {
+      unawaited(ref.read(recentOriginsProvider.notifier).add(place));
+    } else {
+      unawaited(ref.read(recentsProvider.notifier).add(place));
+    }
+  }
+
+  void _clearRecents() {
+    if (widget.mode == SearchMode.origin) {
+      unawaited(ref.read(recentOriginsProvider.notifier).clear());
+    } else {
+      unawaited(ref.read(recentsProvider.notifier).clear());
+    }
   }
 
   // 履歴タイルからの再選択。再訪したものを最新として先頭に繰り上げる。
-  void _selectRecent(RecentDestination r) {
+  void _selectRecent(RecentPlace r) {
     _rememberRecent(r);
     _applySelection(r.name, latLng: r.latLng);
   }
@@ -83,7 +95,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   // お気に入りタイルからの選択。履歴にも残しつつ目的地に設定する。
   void _selectFavorite(FavoritePlace f) {
     _rememberRecent(
-      RecentDestination(name: f.name, placeId: f.placeId, latLng: f.latLng),
+      RecentPlace(name: f.name, placeId: f.placeId, latLng: f.latLng),
     );
     _applySelection(f.name, latLng: f.latLng);
   }
@@ -373,10 +385,17 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final showCurrentLocation =
         widget.mode == SearchMode.origin || locationAvailable;
 
-    // 履歴・お気に入りは目的地のみ。出発地モードでは表示しない。
-    final recents = widget.mode == SearchMode.destination
-        ? ref.watch(recentsProvider).value ?? const <RecentDestination>[]
-        : const <RecentDestination>[];
+    // 履歴はモードごとに別系統。目的地モードは目的地履歴、出発地モードは
+    // 出発地履歴を表示する。お気に入りは目的地のみ（出発地は対象外）。
+    final recents =
+        ref
+            .watch(
+              widget.mode == SearchMode.origin
+                  ? recentOriginsProvider
+                  : recentsProvider,
+            )
+            .value ??
+        const <RecentPlace>[];
     final favorites = widget.mode == SearchMode.destination
         ? ref.watch(favoritesProvider).value ?? const <FavoritePlace>[]
         : const <FavoritePlace>[];
@@ -491,7 +510,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '最近の目的地',
+                  widget.mode == SearchMode.origin ? '最近の出発地' : '最近の目的地',
                   style: jpStyle(
                     size: 12,
                     weight: FontWeight.w700,
@@ -499,8 +518,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   ),
                 ),
                 InkWell(
-                  onTap: () =>
-                      unawaited(ref.read(recentsProvider.notifier).clear()),
+                  onTap: _clearRecents,
                   child: Text(
                     '履歴を消去',
                     style: jpStyle(
