@@ -212,7 +212,7 @@ class _WalkRatioRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '${(route.walkRatio * 100).round()}% を歩いて移動',
+                '距離の ${(route.walkRatio * 100).round()}% を歩いて移動',
                 style: jpStyle(size: 12, weight: FontWeight.w800, color: c.ink),
               ),
               const SizedBox(height: 2),

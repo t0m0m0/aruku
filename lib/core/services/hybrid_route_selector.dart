@@ -154,10 +154,12 @@ Future<int?> maxWalkBoardingIndex({
 /// [maxBacktrackRatio] × 直線距離(origin→goal) を超えて戻る駅を含むか。
 /// 徒歩区間は判定しない（目的地へ近づくための短い徒歩を弾かないため）。
 ///
-/// 電車区間の polyline は停車駅座標で構成される前提（transit は shape を返さず、
-/// 停車駅を結ぶ折れ線で合成される）。将来 transit shape が有効になり線路追従の
-/// 細かな頂点が入ると、一時的に後方へカーブする1頂点でも候補全体が除外され得る
-/// 点に注意（その場合は判定対象を停車駅へ限定する必要がある）。
+/// 判定は電車区間 polyline を[両端＋均等サンプリング]した点で行い、生の全頂点は
+/// 使わない（[_sampledForBacktrack]）。stopOrder/NAVITIME の polyline は停車駅座標
+/// で疎（サンプリング上限以下）なので全点がそのまま使われる。一方 Transit API の
+/// gtfsShape は線路追従で頂点が密（数百）なため、全頂点を判定すると乗車直後などの
+/// 一過性の後方カーブ頂点1つで正当な経路を誤除外してしまう。サンプリングにより
+/// コリドーの大局的な逆戻りのみを検出する（docs/notes/transit-api-migration.md §4）。
 bool _isBacktrackDetour(
   RouteCandidate c,
   GeoPoint origin,
@@ -169,11 +171,28 @@ bool _isBacktrackDetour(
   final limit = -maxBacktrackRatio * dog;
   for (final seg in c.segments) {
     if (seg.type != SegmentType.train) continue;
-    for (final p in seg.polyline) {
+    for (final p in evenSample(seg.polyline, _maxBacktrackSamplesPerLeg)) {
       if (_advanceKm(origin, goal, dog, p) < limit) return true;
     }
   }
   return false;
+}
+
+/// 逆戻り判定に使う電車区間 polyline のサンプリング上限。gtfsShape の密な頂点を
+/// この数へ間引き、一過性の後方頂点による誤除外を防ぐ（[_isBacktrackDetour]）。
+const int _maxBacktrackSamplesPerLeg = 32;
+
+/// [items] を両端を含む均等間隔で最大 [maxCount] 要素へ間引く。要素数が [maxCount]
+/// 以下、または [maxCount] < 2 のときはそのまま返す（間引かない）。添字
+/// `round(k*(n-1)/(maxCount-1))` で拾うため、隣接が同一添字へ丸まると重複し得る
+/// （必要なら呼び出し側で dedup する）。逆戻り判定・コリドー間引き・フロンティア
+/// 絞り込みが共有する均等サンプリングの単一実装（純粋関数）。
+List<T> evenSample<T>(List<T> items, int maxCount) {
+  if (items.length <= maxCount || maxCount < 2) return items;
+  return [
+    for (var k = 0; k < maxCount; k++)
+      items[(k * (items.length - 1) / (maxCount - 1)).round()],
+  ];
 }
 
 /// 点 [p] の、origin→goal 方向への射影長（km）。前方なら正、出発地より後方
@@ -184,6 +203,54 @@ double _advanceKm(GeoPoint origin, GeoPoint goal, double dog, GeoPoint p) {
   final dop = haversineKm(origin, p);
   final dpg = haversineKm(p, goal);
   return (dop * dop + dog * dog - dpg * dpg) / (2 * dog);
+}
+
+/// 直線距離で乗降候補駅を片側 [maxPerSide] 個へ絞る（measure-first のフロンティア
+/// 絞り込み）。乗車側は origin→駅、降車側は 駅→goal の直線徒歩分を見て、その**直線徒歩が
+/// 予算 [budgetMin] 内**の駅だけを feasible とする。直線（haversine）は実際の道なり徒歩の
+/// 下限なので、直線ですら予算を超える駅は実測しても確実に予算外＝測る価値がない。逆に
+/// 直線が予算内なら、予算の大半を1本のアクセス徒歩に使う候補（短い乗車＋長い徒歩）も
+/// 残すため、ここでは道なり迂回の割増を掛けない（掛けると徒歩最大の正当な候補を誤って
+/// 落とす）。
+///
+/// feasible な駅が [maxPerSide] を超えるときは**均等間隔で間引く（両端を含む）**。徒歩分の
+/// 大きい順 top-K で間引くと、乗車側＝origin から遠い駅・降車側＝goal から遠い駅という
+/// **互いに逆相関**の集合になり、同一 section・b<a の乗降ペアが作れず「中間駅で短く乗り
+/// 両端を長く歩く」徒歩最大候補（ride-one-stop）を取りこぼす。両端＋中間を均等に残せば、
+/// 長い片側徒歩の候補（両端）も ride-one-stop（中間）も拾い、両側のインデックス域が重なって
+/// b<a ペアを保てる。駅配列の昇順インデックスで返す（下流が同一 section・b<a の乗降ペアを
+/// 作るため元の順序を保つ）。
+///
+/// これにより origin→各乗車駅／各降車駅→goal を1回のマトリクスで一括実測する対象を
+/// 要素数課金（片側 ≤ [maxPerSide]）の範囲へ抑えつつ、徒歩最大の乗降候補を取りこぼさない。
+/// Google を呼ばない純粋関数。NAVITIME 版・Transit 版の双方が共有する（データ源非依存）。
+({List<int> boarding, List<int> alighting}) frontierStations(
+  List<GeoPoint> stops,
+  GeoPoint origin,
+  GeoPoint goal,
+  int budgetMin, {
+  int maxPerSide = 10,
+}) {
+  int walkMin(GeoPoint a, GeoPoint b) =>
+      (haversineKm(a, b) * 1000 / walkMetersPerMinute).round();
+
+  List<int> pick(int Function(int i) sideWalk) {
+    final feasible = <int>[
+      for (var i = 0; i < stops.length; i++)
+        if (sideWalk(i) <= budgetMin) i,
+    ];
+    if (feasible.length <= maxPerSide || maxPerSide < 2) {
+      return feasible.take(maxPerSide).toList();
+    }
+    // 均等間隔で maxPerSide 個（両端を含む）。中間駅を残して b<a の乗降ペアを保つ。
+    // 丸めで添字が重複し得るため dedup する（feasible は昇順なので結果も昇順）。
+    return evenSample(feasible, maxPerSide).toSet().toList();
+  }
+
+  return (
+    boarding: pick((i) => walkMin(origin, stops[i])),
+    alighting: pick((i) => walkMin(stops[i], goal)),
+  );
 }
 
 const double _earthRadiusKm = 6371.0088;

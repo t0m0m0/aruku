@@ -5,7 +5,7 @@ import '../models/geo_point.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
 import 'app_check_http_client.dart';
-import 'navitime_route_service.dart';
+import 'transit_route_service.dart';
 
 /// ルート計算の進捗段階。ローディング表示の3ステップに対応する。
 enum RoutePhase { routing, walkability, building }
@@ -31,7 +31,13 @@ class RouteException implements Exception {
 }
 
 final routeServiceProvider = Provider<RouteService>((ref) {
-  final client = AppCheckHttpClient(http.Client());
-  ref.onDispose(client.close);
-  return NaviTimeRouteService(client: client);
+  // Transit API は直叩き（認証不要・CORS）、Google 徒歩プロキシは App Check 必須。
+  final transitClient = http.Client();
+  final proxyClient = AppCheckHttpClient(http.Client());
+  ref.onDispose(transitClient.close);
+  ref.onDispose(proxyClient.close);
+  return TransitRouteService(
+    transitClient: transitClient,
+    proxyClient: proxyClient,
+  );
 });
