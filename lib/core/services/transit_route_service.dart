@@ -572,8 +572,9 @@ class TransitRouteService implements RouteService {
   }
 
   /// 確定 [winner] が徒歩最大化の崩壊（§7）かを判定する。(1) 予算内標準乗換の最大徒歩を
-  /// [_collapseWalkMarginMin] 以下しか上回らない、(2) 予算を [_collapseSlackRatio] 以上
-  /// 余らせている、の両方を満たすとき true。best-effort（予算外）は対象外。
+  /// [_collapseWalkMarginMin] 以下しか上回らない、(2) 予算を相対（[_collapseSlackRatio]）
+  /// または絶対（[_collapseSlackMinutes]）のいずれかの閾値以上余らせている、の両方を満たす
+  /// とき true。best-effort（予算外）は対象外。
   bool _isCollapse(
     RouteCandidate winner,
     List<TransitOption> options,
@@ -921,19 +922,9 @@ class TransitRouteService implements RouteService {
       final line = c.legIndex < trainLines.length
           ? trainLines[c.legIndex]
           : null;
-      for (final p in _thin(c.coords, _maxCorridorStops)) {
+      for (final p in evenSample(c.coords, _maxCorridorStops)) {
         out.add(_CorridorStop(coord: p, section: c.legIndex, line: line));
       }
-    }
-    return out;
-  }
-
-  /// 座標列を両端を含む均等間隔で最大 [maxCount] 点へ間引く。
-  List<GeoPoint> _thin(List<GeoPoint> coords, int maxCount) {
-    if (coords.length <= maxCount || maxCount < 2) return coords;
-    final out = <GeoPoint>[];
-    for (var k = 0; k < maxCount; k++) {
-      out.add(coords[(k * (coords.length - 1) / (maxCount - 1)).round()]);
     }
     return out;
   }

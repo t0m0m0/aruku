@@ -171,7 +171,7 @@ bool _isBacktrackDetour(
   final limit = -maxBacktrackRatio * dog;
   for (final seg in c.segments) {
     if (seg.type != SegmentType.train) continue;
-    for (final p in _sampledForBacktrack(seg.polyline)) {
+    for (final p in evenSample(seg.polyline, _maxBacktrackSamplesPerLeg)) {
       if (_advanceKm(origin, goal, dog, p) < limit) return true;
     }
   }
@@ -182,14 +182,16 @@ bool _isBacktrackDetour(
 /// この数へ間引き、一過性の後方頂点による誤除外を防ぐ（[_isBacktrackDetour]）。
 const int _maxBacktrackSamplesPerLeg = 32;
 
-/// [polyline] を両端を含む均等間隔で最大 [_maxBacktrackSamplesPerLeg] 点へ間引く。
-/// 点数が上限以下ならそのまま返す（stopOrder/NAVITIME は挙動不変）。
-List<GeoPoint> _sampledForBacktrack(List<GeoPoint> polyline) {
-  const cap = _maxBacktrackSamplesPerLeg;
-  if (polyline.length <= cap) return polyline;
+/// [items] を両端を含む均等間隔で最大 [maxCount] 要素へ間引く。要素数が [maxCount]
+/// 以下、または [maxCount] < 2 のときはそのまま返す（間引かない）。添字
+/// `round(k*(n-1)/(maxCount-1))` で拾うため、隣接が同一添字へ丸まると重複し得る
+/// （必要なら呼び出し側で dedup する）。逆戻り判定・コリドー間引き・フロンティア
+/// 絞り込みが共有する均等サンプリングの単一実装（純粋関数）。
+List<T> evenSample<T>(List<T> items, int maxCount) {
+  if (items.length <= maxCount || maxCount < 2) return items;
   return [
-    for (var k = 0; k < cap; k++)
-      polyline[(k * (polyline.length - 1) / (cap - 1)).round()],
+    for (var k = 0; k < maxCount; k++)
+      items[(k * (items.length - 1) / (maxCount - 1)).round()],
   ];
 }
 
@@ -241,11 +243,8 @@ double _advanceKm(GeoPoint origin, GeoPoint goal, double dog, GeoPoint p) {
       return feasible.take(maxPerSide).toList();
     }
     // 均等間隔で maxPerSide 個（両端を含む）。中間駅を残して b<a の乗降ペアを保つ。
-    final out = <int>{};
-    for (var k = 0; k < maxPerSide; k++) {
-      out.add(feasible[(k * (feasible.length - 1) / (maxPerSide - 1)).round()]);
-    }
-    return out.toList()..sort();
+    // 丸めで添字が重複し得るため dedup する（feasible は昇順なので結果も昇順）。
+    return evenSample(feasible, maxPerSide).toSet().toList();
   }
 
   return (
