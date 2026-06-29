@@ -149,6 +149,18 @@ class PlacesNotifier extends Notifier<SearchState> {
         });
       out.addAll(indexed.map((e) => e.$2));
     }
+    assert(() {
+      final dists = out
+          .map(
+            (r) => r.latLng == null
+                ? 'null'
+                : metersBetween(origin, r.latLng!).round().toString(),
+          )
+          .toList();
+      // ignore: avoid_print
+      print('[search-sort] sorted distances(m)=$dists');
+      return true;
+    }());
     return out;
   }
 
