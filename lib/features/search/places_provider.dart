@@ -104,6 +104,14 @@ class PlacesNotifier extends Notifier<SearchState> {
     List<PlacePrediction> results,
   ) {
     final origin = ref.read(currentLocationProvider);
+    assert(() {
+      // ignore: avoid_print
+      print(
+        '[search-sort] origin=$origin '
+        'names=${results.map((r) => r.name).toList()}',
+      );
+      return true;
+    }());
     if (origin == null) return results;
 
     // 受信順を保ったまま name でグループ化する。
