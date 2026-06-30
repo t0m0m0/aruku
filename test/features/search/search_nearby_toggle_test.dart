@@ -22,11 +22,10 @@ class _FakeLocationService implements LocationService {
   Stream<GeoPoint> positionStream() => const Stream.empty();
 }
 
-/// autocomplete は座標なし候補、nearbySearch は座標同梱候補を返す。
-/// fetchLatLng / nearbySearch の呼び出し回数を記録する。
+/// C案: autocomplete が distanceMeters 付き候補を返す（座標は持たない）。
+/// fetchLatLng / autocomplete の呼び出し回数を記録する。
 class _RecordingPlacesService implements PlacesService {
   int autocompleteCalls = 0;
-  int nearbyCalls = 0;
   int fetchCalls = 0;
 
   @override
@@ -35,8 +34,20 @@ class _RecordingPlacesService implements PlacesService {
     GeoPoint? bias,
   }) async {
     autocompleteCalls++;
+    // 関連度順では遠い店が先。距離で再ソートされると近い店が先に来るはず。
     return const [
-      PlacePrediction(placeId: 'auto_1', name: 'オートコンプリート候補', address: '住所'),
+      PlacePrediction(
+        placeId: 'far',
+        name: '遠いマクドナルド',
+        address: '東京都A',
+        distanceMeters: 1800,
+      ),
+      PlacePrediction(
+        placeId: 'near',
+        name: '近いマクドナルド',
+        address: '東京都B',
+        distanceMeters: 160,
+      ),
     ];
   }
 
@@ -44,17 +55,7 @@ class _RecordingPlacesService implements PlacesService {
   Future<List<PlacePrediction>> nearbySearch(
     String query, {
     required GeoPoint bias,
-  }) async {
-    nearbyCalls++;
-    return const [
-      PlacePrediction(
-        placeId: 'near_1',
-        name: 'マクドナルド店',
-        address: '東京都千代田区',
-        latLng: GeoPoint(35.681, 139.767),
-      ),
-    ];
-  }
+  }) async => const [];
 
   @override
   Future<GeoPoint?> fetchLatLng(String placeId) async {
@@ -114,7 +115,7 @@ void main() {
       expect(find.byKey(const ValueKey('nearby-toggle')), findsNothing);
     });
 
-    testWidgets('トグル ON で検索すると nearbySearch を使う', (tester) async {
+    testWidgets('トグル ON で autocomplete を距離昇順に並べ替える（C案）', (tester) async {
       final places = _RecordingPlacesService();
       final container = await _makeContainer(tester, places);
       addTearDown(container.dispose);
@@ -127,14 +128,17 @@ void main() {
 
       await tester.enterText(find.byType(TextField), 'zz');
       await tester.pump(const Duration(milliseconds: 450)); // debounce
-      await tester.pump(); // nearbySearch 完了
+      await tester.pump(); // autocomplete 完了
 
-      expect(places.nearbyCalls, greaterThan(0));
-      expect(places.autocompleteCalls, 0);
-      expect(find.text('マクドナルド店'), findsOneWidget);
+      // Text Search は使わず autocomplete のまま。
+      expect(places.autocompleteCalls, greaterThan(0));
+      // 近い店が遠い店より上に並ぶ。
+      final nearY = tester.getTopLeft(find.text('近いマクドナルド')).dy;
+      final farY = tester.getTopLeft(find.text('遠いマクドナルド')).dy;
+      expect(nearY, lessThan(farY));
     });
 
-    testWidgets('近くの店候補は座標同梱のため確定時に details を呼ばない', (tester) async {
+    testWidgets('C案候補は座標を持たないため確定時に details を呼ぶ', (tester) async {
       final places = _RecordingPlacesService();
       final container = await _makeContainer(tester, places);
       addTearDown(container.dispose);
@@ -149,14 +153,15 @@ void main() {
       await tester.pump(const Duration(milliseconds: 450));
       await tester.pump();
 
-      await tester.tap(find.text('マクドナルド店'));
+      await tester.tap(find.text('近いマクドナルド'));
       await tester.pump();
       await tester.pump();
 
       final state = container.read(appStateProvider);
-      expect(places.fetchCalls, 0, reason: '同梱座標を使い details は呼ばない');
-      expect(state.destination, 'マクドナルド店');
-      expect(state.destinationLatLng, const GeoPoint(35.681, 139.767));
+      // Autocomplete 由来は座標を持たないので details(fetchLatLng) で補う。
+      expect(places.fetchCalls, greaterThan(0));
+      expect(state.destination, '近いマクドナルド');
+      expect(state.destinationLatLng, const GeoPoint(35.0, 139.0));
       expect(state.screen, Screen.home);
     });
   });
