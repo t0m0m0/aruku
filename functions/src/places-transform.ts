@@ -6,6 +6,9 @@ export interface LegacyPrediction {
   place_id: string;
   description: string;
   terms: { value: string }[];
+  // Text Search(New) 由来の候補のみ座標を同梱する（Autocomplete は座標を返さない）。
+  // 同梱があれば確定時の details（fetchLatLng）を省ける。
+  geometry?: { location: { lat: number; lng: number } };
 }
 
 export interface LegacyAutocompleteResponse {
@@ -60,6 +63,50 @@ export function toLegacyAutocomplete(raw: unknown): LegacyAutocompleteResponse {
       place_id: placeId,
       description: typeof description === "string" ? description : "",
       terms,
+    });
+  }
+
+  if (predictions.length === 0) return ZERO_AUTOCOMPLETE;
+  return { status: "OK", predictions };
+}
+
+// Text Search(New)（places:searchText, rankPreference=DISTANCE）のレスポンスを
+// 座標同梱のレガシー predictions へ変換する。距離昇順の並びは上流のまま保持する。
+// 座標を返さない place はスキップする（NAVITIME は start/goal とも座標必須のため、
+// 確定できない候補を載せても選択時に弾かれるだけ）。
+export function toLegacyTextSearch(raw: unknown): LegacyAutocompleteResponse {
+  const body = asRecord(raw);
+  if (!body) return ZERO_AUTOCOMPLETE;
+  if (body["error"]) return { status: "REQUEST_DENIED", predictions: [] };
+
+  const places = body["places"];
+  if (!Array.isArray(places)) return ZERO_AUTOCOMPLETE;
+
+  const predictions: LegacyPrediction[] = [];
+  for (const entry of places) {
+    const place = asRecord(entry);
+    if (!place) continue;
+
+    const placeId = place["id"];
+    if (typeof placeId !== "string") continue;
+
+    const location = asRecord(place["location"]);
+    const lat = location?.["latitude"];
+    const lng = location?.["longitude"];
+    if (typeof lat !== "number" || typeof lng !== "number") continue;
+
+    const displayName = asRecord(place["displayName"])?.["text"];
+    const formattedAddress = place["formattedAddress"];
+
+    const terms: { value: string }[] = [];
+    if (typeof displayName === "string") terms.push({ value: displayName });
+
+    predictions.push({
+      place_id: placeId,
+      description:
+        typeof formattedAddress === "string" ? formattedAddress : "",
+      terms,
+      geometry: { location: { lat, lng } },
     });
   }
 
