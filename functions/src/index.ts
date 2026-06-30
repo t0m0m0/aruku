@@ -6,11 +6,7 @@ import { Response } from "express";
 import { initializeApp } from "firebase-admin/app";
 import { getAppCheck } from "firebase-admin/app-check";
 
-import {
-  toLegacyAutocomplete,
-  toLegacyDetails,
-  toLegacyTextSearch,
-} from "./places-transform";
+import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
 import { checkRateLimit, WALK_RATE_LIMIT } from "./rate-limiter";
 
 // レート制限ユーティリティはテスト互換のため再エクスポートする。
@@ -55,14 +51,6 @@ function getNavitimeApiKey(): string {
 const PLACES_AUTOCOMPLETE_NEW_URL =
   "https://places.googleapis.com/v1/places:autocomplete";
 const PLACES_DETAILS_NEW_BASE = "https://places.googleapis.com/v1/places";
-// Text Search(New)。「近くの店」専用パス（#146）。rankPreference=DISTANCE +
-// locationBias（円）で現在地から距離昇順の POI を返す。座標を同梱するため確定時の
-// details 不要。ブランド/カテゴリ検索向けで、駅・地名 typeahead は Autocomplete が担う。
-const PLACES_TEXTSEARCH_NEW_URL =
-  "https://places.googleapis.com/v1/places:searchText";
-// 課金は FieldMask 依存。確定に必要な id/名称/住所/座標のみ取得する。
-const PLACES_TEXTSEARCH_FIELD_MASK =
-  "places.id,places.displayName,places.formattedAddress,places.location";
 // locationBias の円半径（メートル）。Places API の許容上限は 50000m。
 // 現在地を中心にこの円内を優先（soft bias）し、近隣 POI を上位へ寄せる。
 const PLACES_BIAS_RADIUS_M = 50000;
@@ -353,56 +341,6 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, r
     return;
   }
 
-  if (action === "textsearch") {
-    const input = req.query["input"] as string | undefined;
-    const language = (req.query["language"] as string | undefined) ?? "ja";
-    const components =
-      (req.query["components"] as string | undefined) ?? "country:jp";
-    if (!input) {
-      res.status(400).json({ error: "input is required" });
-      return;
-    }
-
-    // rankPreference=DISTANCE は中心点（locationBias）が必須。現在地が無ければ
-    // 距離昇順にできないため、上流を呼ばず 400 で拒否する（呼び出し側は
-    // Autocomplete へフォールバックする）。
-    const locationBias = buildLocationBias(
-      req.query as Record<string, string | undefined>
-    );
-    if (!locationBias) {
-      res.status(400).json({ error: "lat and lon are required for textsearch" });
-      return;
-    }
-
-    // components の先頭 country を regionCode（単一）へ。Text Search は
-    // includedRegionCodes ではなく regionCode を取る。
-    const regionCode = components
-      .split("|")
-      .map((c) => c.trim())
-      .filter((c) => c.startsWith("country:"))
-      .map((c) => c.slice("country:".length).toLowerCase())
-      .find((c) => c.length > 0);
-
-    const data = await requestJsonNew(
-      PLACES_TEXTSEARCH_NEW_URL,
-      "POST",
-      {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": getMapsApiKey(),
-        "X-Goog-FieldMask": PLACES_TEXTSEARCH_FIELD_MASK,
-      },
-      JSON.stringify({
-        textQuery: input,
-        languageCode: language,
-        ...(regionCode ? { regionCode } : {}),
-        rankPreference: "DISTANCE",
-        locationBias,
-      })
-    );
-    res.json(toLegacyTextSearch(data));
-    return;
-  }
-
   if (action === "details") {
     const placeId = req.query["place_id"] as string | undefined;
     if (!placeId) {
@@ -421,9 +359,7 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, r
     return;
   }
 
-  res
-    .status(400)
-    .json({ error: "action must be autocomplete, textsearch or details" });
+  res.status(400).json({ error: "action must be autocomplete or details" });
 });
 
 /** NAVITIME route_transit プロキシ（RapidAPI 経由、レスポンスは無加工で返す） */

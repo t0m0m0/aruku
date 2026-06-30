@@ -55,19 +55,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       _selecting = true;
       _pickFailed = false;
     });
-    // Text Search(近くの店)由来は座標を同梱するため details 不要。Autocomplete 由来は
-    // 座標を返さないため確定時に details で引く（#146）。
-    GeoPoint? latLng = prediction.latLng;
-    if (latLng == null) {
-      try {
-        latLng = await ref
-            .read(placesServiceProvider)
-            .fetchLatLng(prediction.placeId);
-      } on PlacesException {
-        latLng = null;
-      }
-      if (!mounted) return;
+    // Google autocomplete は座標を返さないため、確定時に details で座標を引く。
+    GeoPoint? latLng;
+    try {
+      latLng = await ref
+          .read(placesServiceProvider)
+          .fetchLatLng(prediction.placeId);
+    } on PlacesException {
+      latLng = null;
     }
+    if (!mounted) return;
     // NAVITIME route_transit は start/goal ともに座標必須。
     // 座標が取れない候補は確定させず、別候補の再選択を促す。
     if (latLng == null) {

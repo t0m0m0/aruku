@@ -35,12 +35,6 @@ class _StubPlacesService implements PlacesService {
   ];
 
   @override
-  Future<List<PlacePrediction>> nearbySearch(
-    String query, {
-    required GeoPoint bias,
-  }) async => const [];
-
-  @override
   Future<GeoPoint?> fetchLatLng(String placeId) async =>
       const GeoPoint(35.0, 139.0);
 }

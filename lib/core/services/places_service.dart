@@ -10,16 +10,9 @@ import 'app_check_http_client.dart';
 
 abstract interface class PlacesService {
   /// 地点検索（typeahead）。[bias] が渡されたときは現在地周辺を優先する位置バイアス
-  /// を掛ける。駅・住所・地名の候補に強いが距離昇順ではない（位置バイアスはソフト）。
+  /// を掛ける。現在地が分かるときは proxy が origin も渡すため、各候補に現在地からの
+  /// 距離（[PlacePrediction.distanceMeters]）が付く（「近くの店」モードの距離再ソート用・#146）。
   Future<List<PlacePrediction>> autocomplete(String query, {GeoPoint? bias});
-
-  /// 「近くの店」検索（#146）。Text Search(New)+rankPreference=DISTANCE で現在地
-  /// [bias] から距離昇順の候補を返す。ブランド/カテゴリ検索向け。返る候補は座標を
-  /// 同梱（[PlacePrediction.latLng]）するため確定時の [fetchLatLng] は不要。
-  Future<List<PlacePrediction>> nearbySearch(
-    String query, {
-    required GeoPoint bias,
-  });
 
   /// 候補（placeId）から座標を引く。Google autocomplete は座標を返さないため、
   /// 確定時にこの details 呼び出しで補う2段フロー。
@@ -77,43 +70,8 @@ class GooglePlacesService implements PlacesService {
         .toList();
   }
 
-  @override
-  Future<List<PlacePrediction>> nearbySearch(
-    String query, {
-    required GeoPoint bias,
-  }) async {
-    if (_proxyBaseUrl.isEmpty) return [];
-    final uri = Uri.parse('$_proxyBaseUrl/placesProxy').replace(
-      queryParameters: {
-        'action': 'textsearch',
-        'input': query,
-        'language': 'ja',
-        'components': 'country:jp',
-        // DISTANCE は現在地を中心点として必須。proxy 側で locationBias へ。
-        'lat': '${bias.lat}',
-        'lon': '${bias.lng}',
-      },
-    );
-
-    final response = await _client.get(uri);
-    if (response.statusCode != 200) {
-      throw PlacesException('HTTP ${response.statusCode}');
-    }
-
-    final body =
-        jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-    final status = body['status'] as String;
-    if (status == 'ZERO_RESULTS') return [];
-    if (status != 'OK') throw PlacesException(status);
-
-    final predictions = body['predictions'] as List<dynamic>;
-    return predictions
-        .map((p) => _toPrediction(p as Map<String, dynamic>))
-        .toList();
-  }
-
-  /// レガシー prediction（autocomplete / textsearch 共通形）を [PlacePrediction] へ。
-  /// textsearch 由来は geometry.location を同梱座標として詰める。
+  /// レガシー prediction を [PlacePrediction] へ。proxy が origin を渡したときに付く
+  /// distance_meters を距離（[PlacePrediction.distanceMeters]）として取り込む（#146 C案）。
   PlacePrediction _toPrediction(Map<String, dynamic> map) {
     final terms = map['terms'] as List<dynamic>? ?? [];
     final name = terms.isNotEmpty
@@ -123,19 +81,10 @@ class GooglePlacesService implements PlacesService {
     final address = description.contains(',')
         ? description.substring(description.indexOf(',') + 2)
         : description;
-    final location =
-        (map['geometry'] as Map<String, dynamic>?)?['location']
-            as Map<String, dynamic>?;
     return PlacePrediction(
       placeId: map['place_id'] as String,
       name: name,
       address: address,
-      latLng: location == null
-          ? null
-          : GeoPoint(
-              (location['lat'] as num).toDouble(),
-              (location['lng'] as num).toDouble(),
-            ),
       distanceMeters: (map['distance_meters'] as num?)?.toInt(),
     );
   }

@@ -7,18 +7,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakePlacesService implements PlacesService {
-  _FakePlacesService(this._predictions, {List<PlacePrediction>? nearby})
-    : _nearby = nearby ?? _predictions;
+  _FakePlacesService(this._predictions);
   final List<PlacePrediction> _predictions;
-  final List<PlacePrediction> _nearby;
 
   /// 最後に autocomplete へ渡された位置バイアス。
   GeoPoint? lastBias;
-
-  /// 最後に nearbySearch へ渡された位置バイアス。呼ばれなければ null のまま。
-  GeoPoint? lastNearbyBias;
   int autocompleteCalls = 0;
-  int nearbyCalls = 0;
 
   @override
   Future<List<PlacePrediction>> autocomplete(
@@ -28,16 +22,6 @@ class _FakePlacesService implements PlacesService {
     autocompleteCalls++;
     lastBias = bias;
     return _predictions;
-  }
-
-  @override
-  Future<List<PlacePrediction>> nearbySearch(
-    String query, {
-    required GeoPoint bias,
-  }) async {
-    nearbyCalls++;
-    lastNearbyBias = bias;
-    return _nearby;
   }
 
   @override
@@ -51,12 +35,6 @@ class _ErrorPlacesService implements PlacesService {
       Future.error(const PlacesException('REQUEST_DENIED'));
 
   @override
-  Future<List<PlacePrediction>> nearbySearch(
-    String query, {
-    required GeoPoint bias,
-  }) => Future.error(const PlacesException('REQUEST_DENIED'));
-
-  @override
   Future<GeoPoint?> fetchLatLng(String placeId) async => null;
 }
 
@@ -68,12 +46,6 @@ class _CountingService implements PlacesService {
   Future<List<PlacePrediction>> autocomplete(
     String query, {
     GeoPoint? bias,
-  }) async => _onCall();
-
-  @override
-  Future<List<PlacePrediction>> nearbySearch(
-    String query, {
-    required GeoPoint bias,
   }) async => _onCall();
 
   @override
@@ -208,9 +180,8 @@ void main() {
         fake.elapse(const Duration(milliseconds: 500));
         fake.flushMicrotasks();
 
-        // Text Search は使わず autocomplete のまま、距離で再ソート。
+        // 系統は autocomplete のまま、距離で再ソート。
         expect(service.autocompleteCalls, greaterThan(0));
-        expect(service.nearbyCalls, 0);
         expect(
           container.read(placesProvider).suggestions.map((s) => s.placeId),
           ['near', 'mid', 'far'],

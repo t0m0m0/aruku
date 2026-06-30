@@ -35,12 +35,6 @@ class _NoCoordPlacesService implements PlacesService {
   ];
 
   @override
-  Future<List<PlacePrediction>> nearbySearch(
-    String query, {
-    required GeoPoint bias,
-  }) async => const [];
-
-  @override
   Future<GeoPoint?> fetchLatLng(String placeId) async {
     if (throwOnFetch) throw const PlacesException('NOT_FOUND');
     return null;

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   toLegacyAutocomplete,
   toLegacyDetails,
-  toLegacyTextSearch,
 } from "../src/places-transform";
 
 describe("toLegacyAutocomplete", () => {
@@ -152,101 +151,6 @@ describe("toLegacyAutocomplete", () => {
       error: { code: 403, message: "denied", status: "PERMISSION_DENIED" },
     };
     expect(toLegacyAutocomplete(raw)).toEqual({
-      status: "REQUEST_DENIED",
-      predictions: [],
-    });
-  });
-});
-
-describe("toLegacyTextSearch", () => {
-  it("Text Search(New) の places を座標同梱のレガシー predictions に変換する", () => {
-    const raw = {
-      places: [
-        {
-          id: "id_mac_a",
-          displayName: { text: "マクドナルド 東京駅店" },
-          formattedAddress: "東京都千代田区丸の内1-1",
-          location: { latitude: 35.681, longitude: 139.767 },
-        },
-      ],
-    };
-
-    const result = toLegacyTextSearch(raw);
-
-    expect(result.status).toBe("OK");
-    expect(result.predictions).toHaveLength(1);
-    expect(result.predictions[0]).toEqual({
-      place_id: "id_mac_a",
-      description: "東京都千代田区丸の内1-1",
-      terms: [{ value: "マクドナルド 東京駅店" }],
-      geometry: { location: { lat: 35.681, lng: 139.767 } },
-    });
-  });
-
-  it("places の距離昇順の並びを保持する", () => {
-    const raw = {
-      places: [
-        {
-          id: "near",
-          displayName: { text: "近い店" },
-          formattedAddress: "A",
-          location: { latitude: 35.0, longitude: 139.0 },
-        },
-        {
-          id: "far",
-          displayName: { text: "遠い店" },
-          formattedAddress: "B",
-          location: { latitude: 35.1, longitude: 139.1 },
-        },
-      ],
-    };
-
-    const result = toLegacyTextSearch(raw);
-
-    expect(result.predictions.map((p) => p.place_id)).toEqual(["near", "far"]);
-  });
-
-  it("location が無い place はスキップする（座標必須）", () => {
-    const raw = {
-      places: [
-        {
-          id: "no_loc",
-          displayName: { text: "座標なし" },
-          formattedAddress: "C",
-        },
-        {
-          id: "ok",
-          displayName: { text: "座標あり" },
-          formattedAddress: "D",
-          location: { latitude: 35.2, longitude: 139.2 },
-        },
-      ],
-    };
-
-    const result = toLegacyTextSearch(raw);
-
-    expect(result.predictions.map((p) => p.place_id)).toEqual(["ok"]);
-  });
-
-  it("places が空配列なら ZERO_RESULTS を返す", () => {
-    expect(toLegacyTextSearch({ places: [] })).toEqual({
-      status: "ZERO_RESULTS",
-      predictions: [],
-    });
-  });
-
-  it("places キーが無くても ZERO_RESULTS を返す", () => {
-    expect(toLegacyTextSearch({})).toEqual({
-      status: "ZERO_RESULTS",
-      predictions: [],
-    });
-  });
-
-  it("error ボディは REQUEST_DENIED に正規化する", () => {
-    const raw = {
-      error: { code: 403, message: "denied", status: "PERMISSION_DENIED" },
-    };
-    expect(toLegacyTextSearch(raw)).toEqual({
       status: "REQUEST_DENIED",
       predictions: [],
     });
