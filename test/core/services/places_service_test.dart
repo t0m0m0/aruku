@@ -87,6 +87,43 @@ void main() {
       expect(captured.queryParameters.containsKey('lon'), isFalse);
     });
 
+    test(
+      'distance_meters を PlacePrediction.distanceMeters に取り込む（C案）',
+      () async {
+        final client = MockClient(
+          (_) async => _jsonResponse({
+            'status': 'OK',
+            'predictions': [
+              {
+                'place_id': 'id_a',
+                'description': 'A店, 東京',
+                'terms': [
+                  {'value': 'A店'},
+                ],
+                'distance_meters': 1800,
+              },
+              {
+                'place_id': 'id_b',
+                'description': 'B店, 東京',
+                'terms': [
+                  {'value': 'B店'},
+                ],
+              },
+            ],
+          }, 200),
+        );
+
+        final service = GooglePlacesService(
+          client: client,
+          proxyBaseUrl: _proxyBaseUrl,
+        );
+        final results = await service.autocomplete('店');
+
+        expect(results[0].distanceMeters, 1800);
+        expect(results[1].distanceMeters, isNull);
+      },
+    );
+
     test('ZERO_RESULTS で空リストを返す', () async {
       final client = MockClient(
         (_) async =>

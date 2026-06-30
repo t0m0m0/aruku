@@ -136,6 +136,7 @@ class GooglePlacesService implements PlacesService {
               (location['lat'] as num).toDouble(),
               (location['lng'] as num).toDouble(),
             ),
+      distanceMeters: (map['distance_meters'] as num?)?.toInt(),
     );
   }
 
