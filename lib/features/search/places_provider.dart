@@ -29,7 +29,8 @@ class SearchState {
   final List<PlacePrediction> suggestions;
   final String? errorMessage;
 
-  /// 「近くの店」モード（#146）。ON のとき Text Search+DISTANCE で距離昇順検索する。
+  /// 「近くの店」モード（#146）。ON のとき Autocomplete 結果を現在地からの
+  /// 距離（distanceMeters）昇順へ再ソートする（系統は typeahead と同じ・C案）。
   final bool nearby;
 
   SearchState copyWith({
@@ -52,8 +53,9 @@ class PlacesNotifier extends Notifier<SearchState> {
   /// state を上書きしないよう、結果反映前に世代一致を確認する。
   int _generation = 0;
 
-  /// 最後に入力されたクエリ。モード切替時に同じクエリで再検索するために保持する。
-  String _query = '';
+  /// 直近の取得結果（関連度順・未ソート）。距離は通常検索でも各候補に付くため、
+  /// モード切替はこれを並べ替えるだけで済み、再フェッチ（課金・遅延）を避けられる。
+  List<PlacePrediction> _rawSuggestions = const [];
 
   @override
   SearchState build() {
@@ -64,7 +66,6 @@ class PlacesNotifier extends Notifier<SearchState> {
   void search(String query) {
     _debounce?.cancel();
     _generation++;
-    _query = query;
     if (query.isEmpty) {
       // クエリは消えてもモード（nearby）は保つ。
       state = SearchState(nearby: state.nearby);
@@ -90,11 +91,20 @@ class PlacesNotifier extends Notifier<SearchState> {
     return [...withDist, ...without];
   }
 
-  /// 「近くの店」モードの切替。現在のクエリで即座に再検索して結果に反映する。
+  /// 「近くの店」モードの切替。距離は通常検索でも各候補に付いているため、取得済みの
+  /// 候補をその場で並べ替えるだけで再フェッチしない（課金リクエストと 400ms 待ちを省く）。
+  /// まだ結果が無い／取得中はフラグだけ更新し、進行中の _fetch 完了時に正しい並びで反映する。
   void setNearby(bool value) {
     if (state.nearby == value) return;
-    state = state.copyWith(nearby: value);
-    search(_query);
+    if (state.status != SearchStatus.success) {
+      state = state.copyWith(nearby: value);
+      return;
+    }
+    final location = ref.read(currentLocationProvider);
+    final reordered = (value && location != null)
+        ? _sortByDistance(_rawSuggestions)
+        : _rawSuggestions;
+    state = state.copyWith(nearby: value, suggestions: reordered);
   }
 
   Future<void> _fetch(String query, int gen) async {
@@ -111,6 +121,8 @@ class PlacesNotifier extends Notifier<SearchState> {
           ? _sortByDistance(raw)
           : raw;
       if (gen != _generation) return;
+      // モード切替で再フェッチせず並べ替えられるよう、関連度順の生結果を保持する。
+      _rawSuggestions = raw;
       state = state.copyWith(
         status: SearchStatus.success,
         suggestions: results,
