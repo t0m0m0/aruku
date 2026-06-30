@@ -47,6 +47,41 @@ void main() {
       expect(results.first.name, '渋谷駅');
     });
 
+    test('description から住所部を取り出す（カンマ直後の空白有無に依存しない）', () async {
+      final client = MockClient(
+        (_) async => _jsonResponse({
+          'status': 'OK',
+          'predictions': [
+            {'place_id': 'a', 'description': '渋谷駅,東京都渋谷区', 'terms': []},
+          ],
+        }, 200),
+      );
+      final service = GooglePlacesService(
+        client: client,
+        proxyBaseUrl: _proxyBaseUrl,
+      );
+      final results = await service.autocomplete('渋谷');
+      expect(results.first.address, '東京都渋谷区');
+    });
+
+    test('description がカンマで終わっても RangeError にならない', () async {
+      final client = MockClient(
+        (_) async => _jsonResponse({
+          'status': 'OK',
+          'predictions': [
+            {'place_id': 'a', 'description': '名称のみ,', 'terms': []},
+          ],
+        }, 200),
+      );
+      final service = GooglePlacesService(
+        client: client,
+        proxyBaseUrl: _proxyBaseUrl,
+      );
+      final results = await service.autocomplete('名称');
+      expect(results, hasLength(1));
+      expect(results.first.address, '');
+    });
+
     test('bias を渡すと現在地を lat/lon クエリとして付与する（位置バイアス）', () async {
       late Uri captured;
       final client = MockClient((request) async {

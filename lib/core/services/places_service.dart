@@ -78,8 +78,11 @@ class GooglePlacesService implements PlacesService {
         ? (terms.first as Map<String, dynamic>)['value'] as String
         : map['description'] as String;
     final description = map['description'] as String;
-    final address = description.contains(',')
-        ? description.substring(description.indexOf(',') + 2)
+    // 先頭の "名称, 住所…" から住所部を取り出す。カンマ直後の空白有無に依存せず、
+    // カンマが末尾でも RangeError にならないよう indexOf+1 して左空白を落とす。
+    final commaIndex = description.indexOf(',');
+    final address = commaIndex >= 0
+        ? description.substring(commaIndex + 1).trimLeft()
         : description;
     return PlacePrediction(
       placeId: map['place_id'] as String,
