@@ -9,6 +9,9 @@ export interface LegacyPrediction {
   // Text Search(New) 由来の候補のみ座標を同梱する（Autocomplete は座標を返さない）。
   // 同梱があれば確定時の details（fetchLatLng）を省ける。
   geometry?: { location: { lat: number; lng: number } };
+  // Autocomplete(New) に origin を渡したときの origin からの測地線距離（m, #146 C案）。
+  // クライアントが距離昇順へ再ソートするために使う（並び自体は上流の関連度順のまま）。
+  distance_meters?: number;
 }
 
 export interface LegacyAutocompleteResponse {
@@ -59,10 +62,15 @@ export function toLegacyAutocomplete(raw: unknown): LegacyAutocompleteResponse {
       terms.push({ value: secondaryText });
     }
 
+    const distanceMeters = pp["distanceMeters"];
+
     predictions.push({
       place_id: placeId,
       description: typeof description === "string" ? description : "",
       terms,
+      ...(typeof distanceMeters === "number"
+        ? { distance_meters: distanceMeters }
+        : {}),
     });
   }
 

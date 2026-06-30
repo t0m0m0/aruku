@@ -58,6 +58,57 @@ describe("toLegacyAutocomplete", () => {
     expect(result.predictions[0].place_id).toBe("id_a");
   });
 
+  it("origin 指定時の distanceMeters を distance_meters として取り込む（#146 C案）", () => {
+    const raw = {
+      suggestions: [
+        {
+          placePrediction: {
+            placeId: "id_far",
+            text: { text: "遠い店, 東京" },
+            structuredFormat: { mainText: { text: "遠い店" } },
+            distanceMeters: 1800,
+          },
+        },
+        {
+          placePrediction: {
+            placeId: "id_near",
+            text: { text: "近い店, 東京" },
+            structuredFormat: { mainText: { text: "近い店" } },
+            distanceMeters: 160,
+          },
+        },
+      ],
+    };
+
+    const result = toLegacyAutocomplete(raw);
+
+    // 並びは上流のまま（関連度順）保持し、距離はフィールドとして付与するだけ。
+    expect(result.predictions.map((p) => p.place_id)).toEqual([
+      "id_far",
+      "id_near",
+    ]);
+    expect(result.predictions[0].distance_meters).toBe(1800);
+    expect(result.predictions[1].distance_meters).toBe(160);
+  });
+
+  it("distanceMeters が無い候補は distance_meters を持たない", () => {
+    const raw = {
+      suggestions: [
+        {
+          placePrediction: {
+            placeId: "id_a",
+            text: { text: "Aビル, 東京" },
+            structuredFormat: { mainText: { text: "Aビル" } },
+          },
+        },
+      ],
+    };
+
+    const result = toLegacyAutocomplete(raw);
+
+    expect(result.predictions[0].distance_meters).toBeUndefined();
+  });
+
   it("secondaryText が無い場合は terms を mainText のみにする", () => {
     const raw = {
       suggestions: [
