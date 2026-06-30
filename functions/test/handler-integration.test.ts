@@ -353,6 +353,96 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
+  it("placesProxy textsearch: rankPreference=DISTANCE と locationBias を上流へ送る", async () => {
+    const cap = mockUpstreamCapture({ places: [] });
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({
+        query: {
+          action: "textsearch",
+          input: "マクドナルド",
+          lat: "35.681",
+          lon: "139.767",
+        },
+      }),
+      res
+    );
+    expect(cap.sent()).toMatchObject({
+      textQuery: "マクドナルド",
+      languageCode: "ja",
+      regionCode: "jp",
+      rankPreference: "DISTANCE",
+      locationBias: {
+        circle: {
+          center: { latitude: 35.681, longitude: 139.767 },
+          radius: 50000,
+        },
+      },
+    });
+    // 応答は変換層（toLegacyTextSearch）を通る。
+    expect(res.body).toEqual({ status: "ZERO_RESULTS", predictions: [] });
+  });
+
+  it("placesProxy textsearch: places を座標同梱のレガシー形へ変換する", async () => {
+    mockUpstream({
+      places: [
+        {
+          id: "id_mac",
+          displayName: { text: "マクドナルド 東京駅店" },
+          formattedAddress: "東京都千代田区丸の内1-1",
+          location: { latitude: 35.681, longitude: 139.767 },
+        },
+      ],
+    });
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({
+        query: {
+          action: "textsearch",
+          input: "マクドナルド",
+          lat: "35.68",
+          lon: "139.76",
+        },
+      }),
+      res
+    );
+    expect(res.body).toEqual({
+      status: "OK",
+      predictions: [
+        {
+          place_id: "id_mac",
+          description: "東京都千代田区丸の内1-1",
+          terms: [{ value: "マクドナルド 東京駅店" }],
+          geometry: { location: { lat: 35.681, lng: 139.767 } },
+        },
+      ],
+    });
+  });
+
+  it("placesProxy textsearch: input 欠落は 400 で上流を呼ばない", async () => {
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({ query: { action: "textsearch", lat: "35", lon: "139" } }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(httpsRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("placesProxy textsearch: lat/lon 欠落は 400 で上流を呼ばない（DISTANCE は現在地必須）", async () => {
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({ query: { action: "textsearch", input: "マクドナルド" } }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(httpsRequestMock).not.toHaveBeenCalled();
+  });
+
   it("placesProxy details: location を変換し result.geometry へ畳む", async () => {
     mockUpstream({ location: { latitude: 35.658, longitude: 139.701 } });
     const res = makeRes();
