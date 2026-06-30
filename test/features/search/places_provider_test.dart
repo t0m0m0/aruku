@@ -12,12 +12,14 @@ class _FakePlacesService implements PlacesService {
 
   /// 最後に autocomplete へ渡された位置バイアス。
   GeoPoint? lastBias;
+  int autocompleteCalls = 0;
 
   @override
   Future<List<PlacePrediction>> autocomplete(
     String query, {
     GeoPoint? bias,
   }) async {
+    autocompleteCalls++;
     lastBias = bias;
     return _predictions;
   }
@@ -142,6 +144,188 @@ void main() {
         final state = container.read(placesProvider);
         expect(state.status, SearchStatus.error);
         expect(state.errorMessage, isNotNull);
+      });
+    });
+
+    test('nearby ON は autocomplete 結果を距離昇順へ並べ替える（C案）', () {
+      final service = _FakePlacesService(const [
+        PlacePrediction(
+          placeId: 'far',
+          name: '遠い',
+          address: '',
+          distanceMeters: 1800,
+        ),
+        PlacePrediction(
+          placeId: 'near',
+          name: '近い',
+          address: '',
+          distanceMeters: 160,
+        ),
+        PlacePrediction(
+          placeId: 'mid',
+          name: '中',
+          address: '',
+          distanceMeters: 640,
+        ),
+      ]);
+      final container = _makeContainer(
+        service,
+        location: const GeoPoint(35.66, 139.7),
+      );
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).setNearby(true);
+        container.read(placesProvider.notifier).search('店');
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        // 系統は autocomplete のまま、距離で再ソート。
+        expect(service.autocompleteCalls, greaterThan(0));
+        expect(
+          container.read(placesProvider).suggestions.map((s) => s.placeId),
+          ['near', 'mid', 'far'],
+        );
+      });
+    });
+
+    test('nearby OFF は並べ替えず関連度順のまま', () {
+      final service = _FakePlacesService(const [
+        PlacePrediction(
+          placeId: 'far',
+          name: '遠い',
+          address: '',
+          distanceMeters: 1800,
+        ),
+        PlacePrediction(
+          placeId: 'near',
+          name: '近い',
+          address: '',
+          distanceMeters: 160,
+        ),
+      ]);
+      final container = _makeContainer(
+        service,
+        location: const GeoPoint(35.66, 139.7),
+      );
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).search('店');
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        expect(
+          container.read(placesProvider).suggestions.map((s) => s.placeId),
+          ['far', 'near'],
+        );
+      });
+    });
+
+    test('距離不明の候補は末尾へ回す（元の順序保持）', () {
+      final service = _FakePlacesService(const [
+        PlacePrediction(
+          placeId: 'near',
+          name: '近い',
+          address: '',
+          distanceMeters: 160,
+        ),
+        PlacePrediction(placeId: 'unknown', name: '不明', address: ''),
+        PlacePrediction(
+          placeId: 'far',
+          name: '遠い',
+          address: '',
+          distanceMeters: 1800,
+        ),
+      ]);
+      final container = _makeContainer(
+        service,
+        location: const GeoPoint(35.66, 139.7),
+      );
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).setNearby(true);
+        container.read(placesProvider.notifier).search('店');
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        expect(
+          container.read(placesProvider).suggestions.map((s) => s.placeId),
+          ['near', 'far', 'unknown'],
+        );
+      });
+    });
+
+    test('nearby ON でも現在地が無ければ並べ替えない（関連度順）', () {
+      final service = _FakePlacesService(const [
+        PlacePrediction(
+          placeId: 'far',
+          name: '遠い',
+          address: '',
+          distanceMeters: 1800,
+        ),
+        PlacePrediction(
+          placeId: 'near',
+          name: '近い',
+          address: '',
+          distanceMeters: 160,
+        ),
+      ]);
+      final container = _makeContainer(service); // location なし
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).setNearby(true);
+        container.read(placesProvider.notifier).search('店');
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        expect(
+          container.read(placesProvider).suggestions.map((s) => s.placeId),
+          ['far', 'near'],
+        );
+      });
+    });
+
+    test('setNearby は現在のクエリで再検索して並びを切替える', () {
+      final service = _FakePlacesService(const [
+        PlacePrediction(
+          placeId: 'far',
+          name: '遠い',
+          address: '',
+          distanceMeters: 1800,
+        ),
+        PlacePrediction(
+          placeId: 'near',
+          name: '近い',
+          address: '',
+          distanceMeters: 160,
+        ),
+      ]);
+      final container = _makeContainer(
+        service,
+        location: const GeoPoint(35.66, 139.7),
+      );
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).search('店');
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+        // OFF: 関連度順のまま。
+        expect(container.read(placesProvider).suggestions.first.placeId, 'far');
+
+        // トグル ON で同じクエリのまま距離昇順へ。
+        container.read(placesProvider.notifier).setNearby(true);
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        expect(container.read(placesProvider).nearby, isTrue);
+        expect(
+          container.read(placesProvider).suggestions.first.placeId,
+          'near',
+        );
       });
     });
 

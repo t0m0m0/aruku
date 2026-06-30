@@ -22,20 +22,27 @@ class SearchState {
     this.status = SearchStatus.idle,
     this.suggestions = const [],
     this.errorMessage,
+    this.nearby = false,
   });
 
   final SearchStatus status;
   final List<PlacePrediction> suggestions;
   final String? errorMessage;
 
+  /// 「近くの店」モード（#146）。ON のとき Autocomplete 結果を現在地からの
+  /// 距離（distanceMeters）昇順へ再ソートする（系統は typeahead と同じ・C案）。
+  final bool nearby;
+
   SearchState copyWith({
     SearchStatus? status,
     List<PlacePrediction>? suggestions,
     String? errorMessage,
+    bool? nearby,
   }) => SearchState(
     status: status ?? this.status,
     suggestions: suggestions ?? this.suggestions,
     errorMessage: errorMessage,
+    nearby: nearby ?? this.nearby,
   );
 }
 
@@ -45,6 +52,10 @@ class PlacesNotifier extends Notifier<SearchState> {
   /// 検索ごとに増やすリクエスト世代。新しい検索が始まった後に古い結果で
   /// state を上書きしないよう、結果反映前に世代一致を確認する。
   int _generation = 0;
+
+  /// 直近の取得結果（関連度順・未ソート）。距離は通常検索でも各候補に付くため、
+  /// モード切替はこれを並べ替えるだけで済み、再フェッチ（課金・遅延）を避けられる。
+  List<PlacePrediction> _rawSuggestions = const [];
 
   @override
   SearchState build() {
@@ -56,7 +67,8 @@ class PlacesNotifier extends Notifier<SearchState> {
     _debounce?.cancel();
     _generation++;
     if (query.isEmpty) {
-      state = const SearchState();
+      // クエリは消えてもモード（nearby）は保つ。
+      state = SearchState(nearby: state.nearby);
       return;
     }
     state = state.copyWith(status: SearchStatus.loading, suggestions: []);
@@ -67,15 +79,50 @@ class PlacesNotifier extends Notifier<SearchState> {
     );
   }
 
+  /// Autocomplete 結果を現在地からの距離（distanceMeters）昇順へ並べ替える（C案）。
+  /// 距離が取れた候補を先に距離昇順、距離不明の候補は元の関連度順のまま末尾へ回す。
+  List<PlacePrediction> _sortByDistance(List<PlacePrediction> items) {
+    final withDist = <PlacePrediction>[];
+    final without = <PlacePrediction>[];
+    for (final p in items) {
+      (p.distanceMeters == null ? without : withDist).add(p);
+    }
+    withDist.sort((a, b) => a.distanceMeters!.compareTo(b.distanceMeters!));
+    return [...withDist, ...without];
+  }
+
+  /// 「近くの店」モードの切替。距離は通常検索でも各候補に付いているため、取得済みの
+  /// 候補をその場で並べ替えるだけで再フェッチしない（課金リクエストと 400ms 待ちを省く）。
+  /// まだ結果が無い／取得中はフラグだけ更新し、進行中の _fetch 完了時に正しい並びで反映する。
+  void setNearby(bool value) {
+    if (state.nearby == value) return;
+    if (state.status != SearchStatus.success) {
+      state = state.copyWith(nearby: value);
+      return;
+    }
+    final location = ref.read(currentLocationProvider);
+    final reordered = (value && location != null)
+        ? _sortByDistance(_rawSuggestions)
+        : _rawSuggestions;
+    state = state.copyWith(nearby: value, suggestions: reordered);
+  }
+
   Future<void> _fetch(String query, int gen) async {
     try {
       final service = ref.read(placesServiceProvider);
-      // 現在地が分かるときは位置バイアスを掛け、近隣 POI を上位へ寄せる（#144）。
-      final results = await service.autocomplete(
-        query,
-        bias: ref.read(currentLocationProvider),
-      );
+      final location = ref.read(currentLocationProvider);
+
+      // 系統は常に Autocomplete（typeahead を壊さない・#146 C案）。現在地が分かるときは
+      // 位置バイアスを掛け（#144）、proxy 側で origin も渡るため各候補に距離が付く。
+      final raw = await service.autocomplete(query, bias: location);
+      // nearby モードかつ現在地ありなら、その距離で候補を距離昇順へ再ソートする。
+      // Text Search を使わないので割高 SKU も最小文字数ガードも不要。
+      final results = (state.nearby && location != null)
+          ? _sortByDistance(raw)
+          : raw;
       if (gen != _generation) return;
+      // モード切替で再フェッチせず並べ替えられるよう、関連度順の生結果を保持する。
+      _rawSuggestions = raw;
       state = state.copyWith(
         status: SearchStatus.success,
         suggestions: results,

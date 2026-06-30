@@ -56,12 +56,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       _pickFailed = false;
     });
     // Google autocomplete は座標を返さないため、確定時に details で座標を引く。
+    // オフライン時の SocketException など PlacesException 以外も座標なし扱いにする
+    // （取りこぼすと _selecting が立ったままリストが固まる）。
     GeoPoint? latLng;
     try {
       latLng = await ref
           .read(placesServiceProvider)
           .fetchLatLng(prediction.placeId);
-    } on PlacesException {
+    } catch (_) {
       latLng = null;
     }
     if (!mounted) return;
@@ -153,6 +155,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final c = context.c;
     final notifier = ref.read(appStateProvider.notifier);
     final searchState = ref.watch(placesProvider);
+    // 「近くの店」モードは候補を現在地からの距離で昇順へ再ソートするため、現在地が
+    // 分かるときだけトグルを出す（無いと距離の基準が取れず再ソートできない）。
+    final hasLocation = ref.watch(currentLocationProvider) != null;
 
     return Material(
       color: c.ivory,
@@ -235,8 +240,48 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               ),
             ),
 
+            if (hasLocation) _buildModeToggle(c, searchState.nearby),
+
             Expanded(child: _buildBody(c, searchState, notifier)),
           ],
+        ),
+      ),
+    );
+  }
+
+  // 「近くの店」モードのトグル。ON で候補を現在地からの距離昇順へ再ソートする。
+  Widget _buildModeToggle(ArukuColors c, bool nearby) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+        child: InkWell(
+          key: const ValueKey('nearby-toggle'),
+          onTap: () => ref.read(placesProvider.notifier).setNearby(!nearby),
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: nearby ? c.moss500 : c.paper,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: nearby ? c.moss500 : c.hairline),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Ic.compass(size: 15, color: nearby ? c.paper : c.ink3),
+                const SizedBox(width: 6),
+                Text(
+                  '近くの店',
+                  style: jpStyle(
+                    size: 13,
+                    weight: FontWeight.w700,
+                    color: nearby ? c.paper : c.ink3,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

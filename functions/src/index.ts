@@ -258,6 +258,20 @@ function buildLocationBias(
   return { circle: { center: { latitude: lat, longitude: lon }, radius } };
 }
 
+/**
+ * 現在地から Autocomplete(New) の origin（測地線距離の基準点）を組み立てる。
+ * lat/lon が数値として揃っているときだけ返し、欠落・不正なら undefined。origin を
+ * 渡すと各候補に distanceMeters が付き、クライアントが距離昇順へ再ソートできる（#146 C案）。
+ */
+function buildOrigin(
+  query: Record<string, string | undefined>
+): { latitude: number; longitude: number } | undefined {
+  const lat = Number(query["lat"]);
+  const lon = Number(query["lon"]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return undefined;
+  return { latitude: lat, longitude: lon };
+}
+
 /** Places Autocomplete / Details プロキシ */
 export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
@@ -300,6 +314,11 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, r
     const locationBias = buildLocationBias(
       req.query as Record<string, string | undefined>
     );
+    // 同じ現在地を origin としても渡し、各候補に distanceMeters を付ける（#146 C案）。
+    // クライアントはこの距離で候補を距離昇順へ再ソートできる（typeahead を壊さない）。
+    const origin = buildOrigin(
+      req.query as Record<string, string | undefined>
+    );
 
     const data = await requestJsonNew(
       PLACES_AUTOCOMPLETE_NEW_URL,
@@ -315,6 +334,7 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, r
           ? { includedRegionCodes: regionCodes }
           : {}),
         ...(locationBias ? { locationBias } : {}),
+        ...(origin ? { origin } : {}),
       })
     );
     res.json(toLegacyAutocomplete(data));

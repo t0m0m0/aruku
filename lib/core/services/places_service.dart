@@ -9,7 +9,9 @@ import '../models/place_prediction.dart';
 import 'app_check_http_client.dart';
 
 abstract interface class PlacesService {
-  /// 地点検索。[bias] が渡されたときは現在地周辺を優先する位置バイアスを掛ける。
+  /// 地点検索（typeahead）。[bias] が渡されたときは現在地周辺を優先する位置バイアス
+  /// を掛ける。現在地が分かるときは proxy が origin も渡すため、各候補に現在地からの
+  /// 距離（[PlacePrediction.distanceMeters]）が付く（「近くの店」モードの距離再ソート用・#146）。
   Future<List<PlacePrediction>> autocomplete(String query, {GeoPoint? bias});
 
   /// 候補（placeId）から座標を引く。Google autocomplete は座標を返さないため、
@@ -63,22 +65,31 @@ class GooglePlacesService implements PlacesService {
     if (status != 'OK') throw PlacesException(status);
 
     final predictions = body['predictions'] as List<dynamic>;
-    return predictions.map((p) {
-      final map = p as Map<String, dynamic>;
-      final terms = map['terms'] as List<dynamic>? ?? [];
-      final name = terms.isNotEmpty
-          ? (terms.first as Map<String, dynamic>)['value'] as String
-          : map['description'] as String;
-      final description = map['description'] as String;
-      final address = description.contains(',')
-          ? description.substring(description.indexOf(',') + 2)
-          : description;
-      return PlacePrediction(
-        placeId: map['place_id'] as String,
-        name: name,
-        address: address,
-      );
-    }).toList();
+    return predictions
+        .map((p) => _toPrediction(p as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// レガシー prediction を [PlacePrediction] へ。proxy が origin を渡したときに付く
+  /// distance_meters を距離（[PlacePrediction.distanceMeters]）として取り込む（#146 C案）。
+  PlacePrediction _toPrediction(Map<String, dynamic> map) {
+    final terms = map['terms'] as List<dynamic>? ?? [];
+    final name = terms.isNotEmpty
+        ? (terms.first as Map<String, dynamic>)['value'] as String
+        : map['description'] as String;
+    final description = map['description'] as String;
+    // 先頭の "名称, 住所…" から住所部を取り出す。カンマ直後の空白有無に依存せず、
+    // カンマが末尾でも RangeError にならないよう indexOf+1 して左空白を落とす。
+    final commaIndex = description.indexOf(',');
+    final address = commaIndex >= 0
+        ? description.substring(commaIndex + 1).trimLeft()
+        : description;
+    return PlacePrediction(
+      placeId: map['place_id'] as String,
+      name: name,
+      address: address,
+      distanceMeters: (map['distance_meters'] as num?)?.toInt(),
+    );
   }
 
   @override

@@ -317,6 +317,32 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
     expect(res.body).toEqual({ status: "ZERO_RESULTS", predictions: [] });
   });
 
+  it("placesProxy autocomplete: lat/lon を origin として送る（距離取得・#146 C案）", async () => {
+    const cap = mockUpstreamCapture({ suggestions: [] });
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({
+        query: { action: "autocomplete", input: "マクドナルド", lat: "35.66", lon: "139.7" },
+      }),
+      res
+    );
+    expect(cap.sent()).toMatchObject({
+      origin: { latitude: 35.66, longitude: 139.7 },
+    });
+  });
+
+  it("placesProxy autocomplete: lat/lon 欠落時は origin を付けない", async () => {
+    const cap = mockUpstreamCapture({ suggestions: [] });
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({ query: { action: "autocomplete", input: "渋谷" } }),
+      res
+    );
+    expect(cap.sent()).not.toHaveProperty("origin");
+  });
+
   it("placesProxy autocomplete: radius 指定は上限 50000 にクランプする", async () => {
     const cap = mockUpstreamCapture({ suggestions: [] });
     const res = makeRes();
