@@ -21,14 +21,24 @@ class _FakeLocationService implements LocationService {
   Stream<GeoPoint> positionStream() => const Stream.empty();
 }
 
-/// autocomplete は 1 件返すが候補に座標が含まれない（latLng == null）。
+/// autocomplete は 1 件返すが fetchLatLng は座標を返さない（または例外）。
 class _NoCoordPlacesService implements PlacesService {
-  const _NoCoordPlacesService();
+  _NoCoordPlacesService({this.throwOnFetch = false});
+  final bool throwOnFetch;
 
   @override
-  Future<List<PlacePrediction>> autocomplete(String query) async => const [
+  Future<List<PlacePrediction>> autocomplete(
+    String query, {
+    GeoPoint? bias,
+  }) async => const [
     PlacePrediction(placeId: 'p1', name: 'テスト目的地', address: '住所'),
   ];
+
+  @override
+  Future<GeoPoint?> fetchLatLng(String placeId) async {
+    if (throwOnFetch) throw const PlacesException('NOT_FOUND');
+    return null;
+  }
 }
 
 Widget _wrap(
@@ -65,16 +75,14 @@ Future<void> _tapSuggestion(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 450)); // debounce
   await tester.pump(); // autocomplete 完了
   await tester.tap(find.text('テスト目的地'));
+  await tester.pump(); // fetchLatLng 完了
   await tester.pump();
 }
 
 void main() {
   group('SearchScreen 座標が取れない目的地', () {
-    testWidgets('候補に座標が無いとき確定せず再選択を促す', (tester) async {
-      final container = await _makeContainer(
-        tester,
-        const _NoCoordPlacesService(),
-      );
+    testWidgets('fetchLatLng が null のとき確定せず再選択を促す', (tester) async {
+      final container = await _makeContainer(tester, _NoCoordPlacesService());
       addTearDown(container.dispose);
 
       await tester.pumpWidget(_wrap(container));
@@ -88,14 +96,29 @@ void main() {
       expect(state.screen, isNot(Screen.home), reason: 'ホームに遷移してはいけない');
       expect(find.textContaining('別の候補'), findsOneWidget);
     });
+
+    testWidgets('fetchLatLng が例外のときも確定せず再選択を促す', (tester) async {
+      final container = await _makeContainer(
+        tester,
+        _NoCoordPlacesService(throwOnFetch: true),
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_wrap(container));
+      await tester.pump();
+
+      await _tapSuggestion(tester);
+
+      final state = container.read(appStateProvider);
+      expect(state.destination, isNull);
+      expect(state.screen, isNot(Screen.home));
+      expect(find.textContaining('別の候補'), findsOneWidget);
+    });
   });
 
   group('SearchScreen 座標が取れない出発地（origin モード）', () {
-    testWidgets('候補に座標が無いとき確定せずバナーを表示する', (tester) async {
-      final container = await _makeContainer(
-        tester,
-        const _NoCoordPlacesService(),
-      );
+    testWidgets('fetchLatLng が null のとき確定せずバナーを表示する', (tester) async {
+      final container = await _makeContainer(tester, _NoCoordPlacesService());
       addTearDown(container.dispose);
 
       await tester.pumpWidget(_wrap(container, mode: SearchMode.origin));

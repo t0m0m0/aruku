@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { HttpsFunction } from "firebase-functions/v2/https";
 
-import { googleWalkProxy, navitimeProxy } from "../src/index";
+import { googleWalkProxy, navitimeProxy, placesProxy } from "../src/index";
 
 // NAVITIME（日本の公共交通）向けアプリのため、Functions は日本リージョン
 // asia-northeast1 に明示デプロイする。既定の us-central1 は往復遅延が大きい。
@@ -19,6 +19,7 @@ describe("deploy region", () => {
   it.each([
     ["navitimeProxy", navitimeProxy],
     ["googleWalkProxy", googleWalkProxy],
+    ["placesProxy", placesProxy],
   ] as const)("%s は asia-northeast1 にデプロイされる", (_name, fn) => {
     expect(endpointRegion(fn)).toEqual(["asia-northeast1"]);
   });

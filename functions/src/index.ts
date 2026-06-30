@@ -6,6 +6,7 @@ import { Response } from "express";
 import { initializeApp } from "firebase-admin/app";
 import { getAppCheck } from "firebase-admin/app-check";
 
+import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
 import { checkRateLimit, WALK_RATE_LIMIT } from "./rate-limiter";
 
 // レート制限ユーティリティはテスト互換のため再エクスポートする。
@@ -44,6 +45,15 @@ function getNavitimeApiKey(): string {
   }
   return navitimeKeySecret.value();
 }
+
+// Google Places API (New)。autocomplete は候補（placeId＋テキスト）のみ返し
+// 座標は含まないため、確定時に details で location を引く2段フローにする。
+const PLACES_AUTOCOMPLETE_NEW_URL =
+  "https://places.googleapis.com/v1/places:autocomplete";
+const PLACES_DETAILS_NEW_BASE = "https://places.googleapis.com/v1/places";
+// locationBias の円半径（メートル）。Places API の許容上限は 50000m。
+// 現在地を中心にこの円内を優先（soft bias）し、近隣 POI を上位へ寄せる。
+const PLACES_BIAS_RADIUS_M = 50000;
 
 // Google Routes API。徒歩ルートの街路追従ジオメトリ（encodedPolyline）と
 // 距離・所要時間を返す。NAVITIME が徒歩 shape を返さないため徒歩線はここから得る。
@@ -227,6 +237,110 @@ function requestJsonNew(
 // to browser CORS restrictions. Unauthorized access is prevented by Firebase
 // App Check: every handler calls verifyAppCheck() to validate the
 // X-Firebase-AppCheck token before doing any billable work.
+
+/**
+ * 現在地から locationBias（円）を組み立てる。lat/lon が数値として揃っている
+ * ときだけ円バイアスを返し、欠落・不正なら undefined（バイアスなし）。
+ * radius は任意（既定 PLACES_BIAS_RADIUS_M）で 0 < r <= 50000 にクランプする。
+ */
+function buildLocationBias(
+  query: Record<string, string | undefined>
+): { circle: { center: { latitude: number; longitude: number }; radius: number } } | undefined {
+  const lat = Number(query["lat"]);
+  const lon = Number(query["lon"]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return undefined;
+
+  const requested = Number(query["radius"]);
+  const radius = Number.isFinite(requested) && requested > 0
+    ? Math.min(requested, PLACES_BIAS_RADIUS_M)
+    : PLACES_BIAS_RADIUS_M;
+
+  return { circle: { center: { latitude: lat, longitude: lon }, radius } };
+}
+
+/** Places Autocomplete / Details プロキシ */
+export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, res) => {
+  res.set("Access-Control-Allow-Origin", "*");
+  if (req.method === "OPTIONS") {
+    res.set("Access-Control-Allow-Methods", "GET");
+    res.set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck");
+    res.status(204).send("");
+    return;
+  }
+
+  if (!(await verifyAppCheck(req, res))) return;
+
+  if (!(await checkRateLimit(clientIp(req)))) {
+    res.status(429).json({ error: "Too many requests" });
+    return;
+  }
+
+  const action = req.query["action"] as string | undefined;
+
+  if (action === "autocomplete") {
+    const input = req.query["input"] as string | undefined;
+    const language = (req.query["language"] as string | undefined) ?? "ja";
+    const components =
+      (req.query["components"] as string | undefined) ?? "country:jp";
+    if (!input) {
+      res.status(400).json({ error: "input is required" });
+      return;
+    }
+    // レガシー components="country:jp|country:us" を新 API の
+    // includedRegionCodes へ変換する。
+    const regionCodes = components
+      .split("|")
+      .map((c) => c.trim())
+      .filter((c) => c.startsWith("country:"))
+      .map((c) => c.slice("country:".length).toLowerCase())
+      .filter((c) => c.length > 0);
+
+    // 現在地（lat/lon）が渡されていれば locationBias（円）で近隣を優先する。
+    // これが #144 の主目的：位置バイアスで「近い順」の候補を返す。
+    const locationBias = buildLocationBias(
+      req.query as Record<string, string | undefined>
+    );
+
+    const data = await requestJsonNew(
+      PLACES_AUTOCOMPLETE_NEW_URL,
+      "POST",
+      {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": getMapsApiKey(),
+      },
+      JSON.stringify({
+        input,
+        languageCode: language,
+        ...(regionCodes.length > 0
+          ? { includedRegionCodes: regionCodes }
+          : {}),
+        ...(locationBias ? { locationBias } : {}),
+      })
+    );
+    res.json(toLegacyAutocomplete(data));
+    return;
+  }
+
+  if (action === "details") {
+    const placeId = req.query["place_id"] as string | undefined;
+    if (!placeId) {
+      res.status(400).json({ error: "place_id is required" });
+      return;
+    }
+    const data = await requestJsonNew(
+      `${PLACES_DETAILS_NEW_BASE}/${encodeURIComponent(placeId)}`,
+      "GET",
+      {
+        "X-Goog-Api-Key": getMapsApiKey(),
+        "X-Goog-FieldMask": "location",
+      }
+    );
+    res.json(toLegacyDetails(data));
+    return;
+  }
+
+  res.status(400).json({ error: "action must be autocomplete or details" });
+});
 
 /** NAVITIME route_transit プロキシ（RapidAPI 経由、レスポンスは無加工で返す） */
 export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret] }, async (req, res) => {

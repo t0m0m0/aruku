@@ -30,6 +30,7 @@ import {
   googleWalkMatrixProxy,
   googleWalkProxy,
   navitimeProxy,
+  placesProxy,
   resetRateLimit,
 } from "../src/index";
 
@@ -46,6 +47,32 @@ function mockUpstream(body: unknown): void {
       return { on: vi.fn(), write: vi.fn(), end: vi.fn() };
     }
   );
+}
+
+// 上流応答を擬似しつつ、ハンドラが req.write した送信ボディ（JSON 文字列）を
+// 捕捉する。POST 本文（locationBias など）を検証するために使う。
+function mockUpstreamCapture(body: unknown): { sent(): unknown } {
+  let written = "";
+  httpsRequestMock.mockImplementation(
+    (_url: string, _opts: unknown, cb: (r: EventEmitter) => void) => {
+      const res = new EventEmitter();
+      cb(res);
+      process.nextTick(() => {
+        res.emit("data", Buffer.from(JSON.stringify(body)));
+        res.emit("end");
+      });
+      return {
+        on: vi.fn(),
+        write: (chunk: string) => {
+          written += chunk;
+        },
+        end: vi.fn(),
+      };
+    }
+  );
+  return {
+    sent: () => (written ? JSON.parse(written) : undefined),
+  };
 }
 
 interface CapturedRes {
@@ -259,6 +286,103 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
     await invokeHandler(
       googleWalkMatrixProxy,
       makeReq({ query: { origins: six(1), destinations: six(2) } }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(httpsRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("placesProxy autocomplete: lat/lon を locationBias（円）として上流へ送る", async () => {
+    const cap = mockUpstreamCapture({ suggestions: [] });
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({
+        query: { action: "autocomplete", input: "マクドナルド", lat: "35.66", lon: "139.7" },
+      }),
+      res
+    );
+    expect(cap.sent()).toMatchObject({
+      input: "マクドナルド",
+      languageCode: "ja",
+      includedRegionCodes: ["jp"],
+      locationBias: {
+        circle: {
+          center: { latitude: 35.66, longitude: 139.7 },
+          radius: 50000,
+        },
+      },
+    });
+    // 応答は変換層（toLegacyAutocomplete）を通る。
+    expect(res.body).toEqual({ status: "ZERO_RESULTS", predictions: [] });
+  });
+
+  it("placesProxy autocomplete: radius 指定は上限 50000 にクランプする", async () => {
+    const cap = mockUpstreamCapture({ suggestions: [] });
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({
+        query: { action: "autocomplete", input: "x", lat: "35", lon: "139", radius: "999999" },
+      }),
+      res
+    );
+    expect((cap.sent() as { locationBias: { circle: { radius: number } } })
+      .locationBias.circle.radius).toBe(50000);
+  });
+
+  it("placesProxy autocomplete: lat/lon 欠落時は locationBias を付けない", async () => {
+    const cap = mockUpstreamCapture({ suggestions: [] });
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({ query: { action: "autocomplete", input: "渋谷" } }),
+      res
+    );
+    expect(cap.sent()).not.toHaveProperty("locationBias");
+  });
+
+  it("placesProxy autocomplete: input 欠落は 400 で上流を呼ばない", async () => {
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({ query: { action: "autocomplete" } }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(httpsRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("placesProxy details: location を変換し result.geometry へ畳む", async () => {
+    mockUpstream({ location: { latitude: 35.658, longitude: 139.701 } });
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({ query: { action: "details", place_id: "id_x" } }),
+      res
+    );
+    expect(res.body).toEqual({
+      status: "OK",
+      result: { geometry: { location: { lat: 35.658, lng: 139.701 } } },
+    });
+  });
+
+  it("placesProxy details: place_id 欠落は 400 で上流を呼ばない", async () => {
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({ query: { action: "details" } }),
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(httpsRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("placesProxy: 未知の action は 400 で上流を呼ばない", async () => {
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({ query: { action: "bogus" } }),
       res
     );
     expect(res.statusCode).toBe(400);
