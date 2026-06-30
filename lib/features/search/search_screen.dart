@@ -56,12 +56,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       _pickFailed = false;
     });
     // Google autocomplete は座標を返さないため、確定時に details で座標を引く。
+    // オフライン時の SocketException など PlacesException 以外も座標なし扱いにする
+    // （取りこぼすと _selecting が立ったままリストが固まる）。
     GeoPoint? latLng;
     try {
       latLng = await ref
           .read(placesServiceProvider)
           .fetchLatLng(prediction.placeId);
-    } on PlacesException {
+    } catch (_) {
       latLng = null;
     }
     if (!mounted) return;
@@ -153,8 +155,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final c = context.c;
     final notifier = ref.read(appStateProvider.notifier);
     final searchState = ref.watch(placesProvider);
-    // 「近くの店」モードは現在地を中心点に距離昇順検索するため、現在地が
-    // 分かるときだけトグルを出す（無いと DISTANCE の基準が取れない）。
+    // 「近くの店」モードは候補を現在地からの距離で昇順へ再ソートするため、現在地が
+    // 分かるときだけトグルを出す（無いと距離の基準が取れず再ソートできない）。
     final hasLocation = ref.watch(currentLocationProvider) != null;
 
     return Material(
@@ -247,7 +249,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
-  // 「近くの店」モードのトグル。ON で Text Search+DISTANCE の距離昇順検索に切替える。
+  // 「近くの店」モードのトグル。ON で候補を現在地からの距離昇順へ再ソートする。
   Widget _buildModeToggle(ArukuColors c, bool nearby) {
     return Align(
       alignment: Alignment.centerLeft,

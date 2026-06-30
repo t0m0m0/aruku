@@ -23,8 +23,14 @@ class _FakeLocationService implements LocationService {
 
 /// autocomplete は 1 件返すが fetchLatLng は座標を返さない（または例外）。
 class _NoCoordPlacesService implements PlacesService {
-  _NoCoordPlacesService({this.throwOnFetch = false});
+  _NoCoordPlacesService({
+    this.throwOnFetch = false,
+    this.throwGenericOnFetch = false,
+  });
   final bool throwOnFetch;
+
+  /// PlacesException 以外（オフライン時の SocketException 等）を投げるか。
+  final bool throwGenericOnFetch;
 
   @override
   Future<List<PlacePrediction>> autocomplete(
@@ -36,6 +42,7 @@ class _NoCoordPlacesService implements PlacesService {
 
   @override
   Future<GeoPoint?> fetchLatLng(String placeId) async {
+    if (throwGenericOnFetch) throw Exception('network down');
     if (throwOnFetch) throw const PlacesException('NOT_FOUND');
     return null;
   }
@@ -113,6 +120,28 @@ void main() {
       expect(state.destination, isNull);
       expect(state.screen, isNot(Screen.home));
       expect(find.textContaining('別の候補'), findsOneWidget);
+    });
+
+    testWidgets('fetchLatLng が PlacesException 以外（オフライン）でも UI が固まらない', (
+      tester,
+    ) async {
+      final container = await _makeContainer(
+        tester,
+        _NoCoordPlacesService(throwGenericOnFetch: true),
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_wrap(container));
+      await tester.pump();
+
+      await _tapSuggestion(tester);
+
+      final state = container.read(appStateProvider);
+      expect(state.destination, isNull, reason: '確定してはいけない');
+      expect(state.screen, isNot(Screen.home), reason: 'ホームに遷移してはいけない');
+      // 再選択を促し、選択中スピナーは消えてリストは操作可能に戻る。
+      expect(find.textContaining('別の候補'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
     });
   });
 
