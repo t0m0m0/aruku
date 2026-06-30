@@ -7,19 +7,37 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakePlacesService implements PlacesService {
-  _FakePlacesService(this._predictions);
+  _FakePlacesService(this._predictions, {List<PlacePrediction>? nearby})
+    : _nearby = nearby ?? _predictions;
   final List<PlacePrediction> _predictions;
+  final List<PlacePrediction> _nearby;
 
   /// 最後に autocomplete へ渡された位置バイアス。
   GeoPoint? lastBias;
+
+  /// 最後に nearbySearch へ渡された位置バイアス。呼ばれなければ null のまま。
+  GeoPoint? lastNearbyBias;
+  int autocompleteCalls = 0;
+  int nearbyCalls = 0;
 
   @override
   Future<List<PlacePrediction>> autocomplete(
     String query, {
     GeoPoint? bias,
   }) async {
+    autocompleteCalls++;
     lastBias = bias;
     return _predictions;
+  }
+
+  @override
+  Future<List<PlacePrediction>> nearbySearch(
+    String query, {
+    required GeoPoint bias,
+  }) async {
+    nearbyCalls++;
+    lastNearbyBias = bias;
+    return _nearby;
   }
 
   @override
@@ -33,6 +51,12 @@ class _ErrorPlacesService implements PlacesService {
       Future.error(const PlacesException('REQUEST_DENIED'));
 
   @override
+  Future<List<PlacePrediction>> nearbySearch(
+    String query, {
+    required GeoPoint bias,
+  }) => Future.error(const PlacesException('REQUEST_DENIED'));
+
+  @override
   Future<GeoPoint?> fetchLatLng(String placeId) async => null;
 }
 
@@ -44,6 +68,12 @@ class _CountingService implements PlacesService {
   Future<List<PlacePrediction>> autocomplete(
     String query, {
     GeoPoint? bias,
+  }) async => _onCall();
+
+  @override
+  Future<List<PlacePrediction>> nearbySearch(
+    String query, {
+    required GeoPoint bias,
   }) async => _onCall();
 
   @override
@@ -142,6 +172,112 @@ void main() {
         final state = container.read(placesProvider);
         expect(state.status, SearchStatus.error);
         expect(state.errorMessage, isNotNull);
+      });
+    });
+
+    test('nearby ON かつ現在地ありなら nearbySearch を呼ぶ（autocomplete は呼ばない）', () {
+      final service = _FakePlacesService(const [
+        PlacePrediction(
+          placeId: 'id_mac',
+          name: 'マクドナルド',
+          address: '東京都',
+          latLng: GeoPoint(35.681, 139.767),
+        ),
+      ]);
+      final container = _makeContainer(
+        service,
+        location: const GeoPoint(35.66, 139.7),
+      );
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).setNearby(true);
+        container.read(placesProvider.notifier).search('マクドナルド');
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        expect(service.nearbyCalls, 1);
+        expect(service.autocompleteCalls, 0);
+        expect(service.lastNearbyBias, const GeoPoint(35.66, 139.7));
+        expect(
+          container.read(placesProvider).suggestions.first.latLng,
+          const GeoPoint(35.681, 139.767),
+        );
+      });
+    });
+
+    test('nearby ON でも現在地が無ければ autocomplete にフォールバックする', () {
+      final service = _FakePlacesService(const [
+        PlacePrediction(placeId: 'id1', name: 'マクドナルド', address: '東京都'),
+      ]);
+      final container = _makeContainer(service); // location なし
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).setNearby(true);
+        container.read(placesProvider.notifier).search('マクドナルド');
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        expect(service.nearbyCalls, 0);
+        expect(service.autocompleteCalls, 1);
+      });
+    });
+
+    test('nearby ON で最小文字数未満は Text Search を呼ばず空 success', () {
+      final service = _FakePlacesService(const [
+        PlacePrediction(placeId: 'id1', name: 'x', address: ''),
+      ]);
+      final container = _makeContainer(
+        service,
+        location: const GeoPoint(35.66, 139.7),
+      );
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).setNearby(true);
+        container.read(placesProvider.notifier).search('あ'); // 1文字
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        expect(service.nearbyCalls, 0);
+        final state = container.read(placesProvider);
+        expect(state.status, SearchStatus.success);
+        expect(state.suggestions, isEmpty);
+      });
+    });
+
+    test('setNearby は現在のクエリで再検索する', () {
+      final service = _FakePlacesService(
+        const [PlacePrediction(placeId: 'a1', name: 'A', address: '')],
+        nearby: const [
+          PlacePrediction(
+            placeId: 'n1',
+            name: 'N',
+            address: '',
+            latLng: GeoPoint(35.0, 139.0),
+          ),
+        ],
+      );
+      final container = _makeContainer(
+        service,
+        location: const GeoPoint(35.66, 139.7),
+      );
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).search('マクドナルド');
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+        expect(container.read(placesProvider).suggestions.first.placeId, 'a1');
+
+        // トグル ON で同じクエリのまま nearbySearch 由来へ切替わる。
+        container.read(placesProvider.notifier).setNearby(true);
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        expect(container.read(placesProvider).nearby, isTrue);
+        expect(container.read(placesProvider).suggestions.first.placeId, 'n1');
       });
     });
 

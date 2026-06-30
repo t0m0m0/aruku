@@ -22,20 +22,26 @@ class SearchState {
     this.status = SearchStatus.idle,
     this.suggestions = const [],
     this.errorMessage,
+    this.nearby = false,
   });
 
   final SearchStatus status;
   final List<PlacePrediction> suggestions;
   final String? errorMessage;
 
+  /// 「近くの店」モード（#146）。ON のとき Text Search+DISTANCE で距離昇順検索する。
+  final bool nearby;
+
   SearchState copyWith({
     SearchStatus? status,
     List<PlacePrediction>? suggestions,
     String? errorMessage,
+    bool? nearby,
   }) => SearchState(
     status: status ?? this.status,
     suggestions: suggestions ?? this.suggestions,
     errorMessage: errorMessage,
+    nearby: nearby ?? this.nearby,
   );
 }
 
@@ -46,6 +52,13 @@ class PlacesNotifier extends Notifier<SearchState> {
   /// state を上書きしないよう、結果反映前に世代一致を確認する。
   int _generation = 0;
 
+  /// 最後に入力されたクエリ。モード切替時に同じクエリで再検索するために保持する。
+  String _query = '';
+
+  /// 「近くの店」モードで Text Search（割高 SKU）を叩く最小文字数。これ未満は
+  /// 上流を呼ばず空結果にして課金を抑制する。
+  static const _nearbyMinChars = 2;
+
   @override
   SearchState build() {
     ref.onDispose(() => _debounce?.cancel());
@@ -55,8 +68,10 @@ class PlacesNotifier extends Notifier<SearchState> {
   void search(String query) {
     _debounce?.cancel();
     _generation++;
+    _query = query;
     if (query.isEmpty) {
-      state = const SearchState();
+      // クエリは消えてもモード（nearby）は保つ。
+      state = SearchState(nearby: state.nearby);
       return;
     }
     state = state.copyWith(status: SearchStatus.loading, suggestions: []);
@@ -67,14 +82,32 @@ class PlacesNotifier extends Notifier<SearchState> {
     );
   }
 
+  /// 「近くの店」モードの切替。現在のクエリで即座に再検索して結果に反映する。
+  void setNearby(bool value) {
+    if (state.nearby == value) return;
+    state = state.copyWith(nearby: value);
+    search(_query);
+  }
+
   Future<void> _fetch(String query, int gen) async {
     try {
       final service = ref.read(placesServiceProvider);
-      // 現在地が分かるときは位置バイアスを掛け、近隣 POI を上位へ寄せる（#144）。
-      final results = await service.autocomplete(
-        query,
-        bias: ref.read(currentLocationProvider),
-      );
+      final location = ref.read(currentLocationProvider);
+
+      final List<PlacePrediction> results;
+      // nearby モードかつ現在地ありなら Text Search+DISTANCE で距離昇順。現在地が
+      // 無ければ DISTANCE の中心点が取れないため通常 typeahead へフォールバックする。
+      if (state.nearby && location != null) {
+        if (query.length < _nearbyMinChars) {
+          if (gen != _generation) return;
+          state = state.copyWith(status: SearchStatus.success, suggestions: []);
+          return;
+        }
+        results = await service.nearbySearch(query, bias: location);
+      } else {
+        // 現在地が分かるときは位置バイアスを掛け、近隣 POI を上位へ寄せる（#144）。
+        results = await service.autocomplete(query, bias: location);
+      }
       if (gen != _generation) return;
       state = state.copyWith(
         status: SearchStatus.success,
