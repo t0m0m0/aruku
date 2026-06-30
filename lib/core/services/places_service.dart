@@ -6,44 +6,50 @@ import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 import '../models/geo_point.dart';
 import '../models/place_prediction.dart';
+import 'app_check_http_client.dart';
 
 abstract interface class PlacesService {
-  Future<List<PlacePrediction>> autocomplete(String query);
+  /// 地点検索。[bias] が渡されたときは現在地周辺を優先する位置バイアスを掛ける。
+  Future<List<PlacePrediction>> autocomplete(String query, {GeoPoint? bias});
+
+  /// 候補（placeId）から座標を引く。Google autocomplete は座標を返さないため、
+  /// 確定時にこの details 呼び出しで補う2段フロー。
+  Future<GeoPoint?> fetchLatLng(String placeId);
 }
 
-/// Transit API（api.transit.ls8h.com）の `places/suggest` で地点検索を行う。
+/// Firebase Functions の placesProxy 経由で Google Places API (New) を叩く。
 ///
-/// 認証不要・CORS対応のためプロキシを介さずクライアントから直接呼び出す。
-/// suggest が座標(`lat`/`lon`)を同梱するため、旧 Google Places の
-/// autocomplete→details 2段フローは1コールに畳まれている。
-class TransitPlacesService implements PlacesService {
-  TransitPlacesService({http.Client? client, String? baseUrl})
+/// API キーはサーバ側に隠蔽し、App Check トークン付きで呼び出す。autocomplete は
+/// 候補（placeId＋テキスト）のみ返すため、確定時に [fetchLatLng] で座標を引く。
+/// [autocomplete] に [bias] を渡すと、proxy が locationBias（円）を組み立てて
+/// 現在地周辺の POI を上位へ寄せる（#144）。
+class GooglePlacesService implements PlacesService {
+  GooglePlacesService({http.Client? client, String? proxyBaseUrl})
     : _client = client ?? http.Client(),
-      _baseUrl = (baseUrl ?? AppConfig.transitApiBaseUrl).replaceAll(
+      _proxyBaseUrl = (proxyBaseUrl ?? AppConfig.proxyBaseUrl).replaceAll(
         RegExp(r'/+$'),
         '',
       );
 
   final http.Client _client;
-  final String _baseUrl;
-
-  static const int _limit = 10;
-
-  /// kind の表示優先度（小さいほど上位）。
-  static const Map<String, int> _kindRank = {
-    'station': 0,
-    'stop': 1,
-    'place': 2,
-    'address': 3,
-  };
+  final String _proxyBaseUrl;
 
   @override
-  Future<List<PlacePrediction>> autocomplete(String query) async {
-    if (query.isEmpty || _baseUrl.isEmpty) return [];
-
-    final uri = Uri.parse(
-      '$_baseUrl/api/v1/places/suggest',
-    ).replace(queryParameters: {'q': query, 'limit': '$_limit'});
+  Future<List<PlacePrediction>> autocomplete(
+    String query, {
+    GeoPoint? bias,
+  }) async {
+    if (_proxyBaseUrl.isEmpty) return [];
+    final uri = Uri.parse('$_proxyBaseUrl/placesProxy').replace(
+      queryParameters: {
+        'action': 'autocomplete',
+        'input': query,
+        'language': 'ja',
+        'components': 'country:jp',
+        // 現在地が分かるときだけ位置バイアスを渡す。proxy 側で locationBias へ。
+        if (bias != null) ...{'lat': '${bias.lat}', 'lon': '${bias.lng}'},
+      },
+    );
 
     final response = await _client.get(uri);
     if (response.statusCode != 200) {
@@ -52,101 +58,55 @@ class TransitPlacesService implements PlacesService {
 
     final body =
         jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-    // 成功ステータス(200)でも places 配列が無い応答はエラー封筒とみなす。
-    // 空配列で握り潰すと API エラーが「結果ゼロ」に化けて隠れてしまう。
-    final raw = body['places'];
-    if (raw is! List) {
-      throw const PlacesException('malformed response: missing places');
-    }
-    final places = raw
-        .whereType<Map<String, dynamic>>()
-        .map(_TransitPlace.tryParse)
-        .whereType<_TransitPlace>()
-        .toList();
+    final status = body['status'] as String;
+    if (status == 'ZERO_RESULTS') return [];
+    if (status != 'OK') throw PlacesException(status);
 
-    return _rankAndDedupe(places);
+    final predictions = body['predictions'] as List<dynamic>;
+    return predictions.map((p) {
+      final map = p as Map<String, dynamic>;
+      final terms = map['terms'] as List<dynamic>? ?? [];
+      final name = terms.isNotEmpty
+          ? (terms.first as Map<String, dynamic>)['value'] as String
+          : map['description'] as String;
+      final description = map['description'] as String;
+      final address = description.contains(',')
+          ? description.substring(description.indexOf(',') + 2)
+          : description;
+      return PlacePrediction(
+        placeId: map['place_id'] as String,
+        name: name,
+        address: address,
+      );
+    }).toList();
   }
 
-  /// クライアント側で実用順位へ補正し、同名・同座標の重複を畳む。
-  ///
-  /// Transit の suggest は順位付けが粗く、駅は feed 別に重複する。
-  /// kind 優先度 → weight 降順 → score 降順で並べ替える。Dart の [List.sort] は
-  /// 安定でないため、全要素同点のときは受信順をタイブレークに使って決定的にする。
-  /// 並べ替え後、名前＋座標（小数4桁丸め ≒ 10m）で先頭を残して dedup する。
-  List<PlacePrediction> _rankAndDedupe(List<_TransitPlace> places) {
-    final indexed = [for (var i = 0; i < places.length; i++) (i, places[i])]
-      ..sort((a, b) {
-        final pa = a.$2;
-        final pb = b.$2;
-        final ka = _kindRank[pa.kind] ?? 99;
-        final kb = _kindRank[pb.kind] ?? 99;
-        if (ka != kb) return ka.compareTo(kb);
-        if (pa.weight != pb.weight) return pb.weight.compareTo(pa.weight);
-        if (pa.score != pb.score) return pb.score.compareTo(pa.score);
-        return a.$1.compareTo(b.$1);
-      });
+  @override
+  Future<GeoPoint?> fetchLatLng(String placeId) async {
+    if (_proxyBaseUrl.isEmpty) return null;
+    final uri = Uri.parse(
+      '$_proxyBaseUrl/placesProxy',
+    ).replace(queryParameters: {'action': 'details', 'place_id': placeId});
 
-    final seen = <String>{};
-    final out = <PlacePrediction>[];
-    for (final (_, p) in indexed) {
-      final key =
-          '${p.name}|${p.lat.toStringAsFixed(4)},${p.lon.toStringAsFixed(4)}';
-      if (!seen.add(key)) continue;
-      out.add(p.toPrediction());
+    final response = await _client.get(uri);
+    if (response.statusCode != 200) {
+      throw PlacesException('HTTP ${response.statusCode}');
     }
-    return out;
-  }
-}
 
-/// suggest の生レスポンス1件。ランキング用に weight/score を保持する。
-class _TransitPlace {
-  const _TransitPlace({
-    required this.id,
-    required this.name,
-    required this.lat,
-    required this.lon,
-    required this.kind,
-    required this.weight,
-    required this.score,
-    this.description,
-  });
+    final body =
+        jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    if (body['status'] != 'OK') return null;
 
-  final String id;
-  final String name;
-  final double lat;
-  final double lon;
-  final String kind;
-  final double weight;
-  final double score;
-  final String? description;
+    final result = body['result'] as Map<String, dynamic>?;
+    final geometry = result?['geometry'] as Map<String, dynamic>?;
+    final location = geometry?['location'] as Map<String, dynamic>?;
+    if (location == null) return null;
 
-  static _TransitPlace? tryParse(Map<String, dynamic> json) {
-    final id = json['id'];
-    final name = json['name'];
-    final lat = json['lat'];
-    final lon = json['lon'];
-    if (id is! String || name is! String || lat is! num || lon is! num) {
-      return null;
-    }
-    return _TransitPlace(
-      id: id,
-      name: name,
-      lat: lat.toDouble(),
-      lon: lon.toDouble(),
-      kind: json['kind'] as String? ?? 'place',
-      weight: (json['weight'] as num?)?.toDouble() ?? 0,
-      score: (json['score'] as num?)?.toDouble() ?? 0,
-      description: json['description'] as String?,
+    return GeoPoint(
+      (location['lat'] as num).toDouble(),
+      (location['lng'] as num).toDouble(),
     );
   }
-
-  PlacePrediction toPrediction() => PlacePrediction(
-    placeId: id,
-    name: name,
-    address: description ?? '',
-    latLng: GeoPoint(lat, lon),
-    kind: kind,
-  );
 }
 
 class PlacesException implements Exception {
@@ -158,7 +118,7 @@ class PlacesException implements Exception {
 }
 
 final placesServiceProvider = Provider<PlacesService>((ref) {
-  final client = http.Client();
+  final client = AppCheckHttpClient(http.Client());
   ref.onDispose(client.close);
-  return TransitPlacesService(client: client);
+  return GooglePlacesService(client: client);
 });

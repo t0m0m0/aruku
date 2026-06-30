@@ -8,6 +8,7 @@ import '../../core/models/geo_point.dart';
 import '../../core/models/location_state.dart';
 import '../../core/models/place_prediction.dart';
 import '../../core/models/recent_place.dart';
+import '../../core/services/places_service.dart';
 import '../../core/state/app_state.dart';
 import '../../core/state/favorites_provider.dart';
 import '../../core/state/recents_provider.dart';
@@ -32,6 +33,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   late final TextEditingController _ctl;
   final _focus = FocusNode();
   bool _pickFailed = false;
+  bool _selecting = false;
 
   @override
   void initState() {
@@ -47,15 +49,32 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     super.dispose();
   }
 
-  void _selectPrediction(PlacePrediction prediction) {
-    // Transit suggest は座標を同梱するため、details 相当の追加取得は不要。
-    final latLng = prediction.latLng;
+  Future<void> _selectPrediction(PlacePrediction prediction) async {
+    if (_selecting) return;
+    setState(() {
+      _selecting = true;
+      _pickFailed = false;
+    });
+    // Google autocomplete は座標を返さないため、確定時に details で座標を引く。
+    GeoPoint? latLng;
+    try {
+      latLng = await ref
+          .read(placesServiceProvider)
+          .fetchLatLng(prediction.placeId);
+    } on PlacesException {
+      latLng = null;
+    }
+    if (!mounted) return;
     // NAVITIME route_transit は start/goal ともに座標必須。
     // 座標が取れない候補は確定させず、別候補の再選択を促す。
     if (latLng == null) {
-      setState(() => _pickFailed = true);
+      setState(() {
+        _selecting = false;
+        _pickFailed = true;
+      });
       return;
     }
+    setState(() => _selecting = false);
     // 目的地・出発地どちらのモードでも、確定した地点をそのモードの履歴に残す。
     _rememberRecent(
       RecentPlace(
@@ -341,19 +360,28 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       children: [
         if (_pickFailed) _buildPickFailedBanner(c),
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.only(bottom: 8),
-            itemCount: suggestions.length,
-            itemBuilder: (_, i) {
-              final s = suggestions[i];
-              return _SuggestionTile(
-                name: s.name,
-                // 同名衝突時は逆ジオで得た県＋市区町村を優先して見分けやすくする。
-                address: s.areaLabel ?? s.address,
-                query: _ctl.text,
-                onTap: () => _selectPrediction(s),
-              );
-            },
+          child: Stack(
+            children: [
+              // 座標解決（fetchLatLng）中は二重タップを防ぐため操作を無効化する。
+              IgnorePointer(
+                ignoring: _selecting,
+                child: ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  itemCount: suggestions.length,
+                  itemBuilder: (_, i) {
+                    final s = suggestions[i];
+                    return _SuggestionTile(
+                      name: s.name,
+                      address: s.address,
+                      query: _ctl.text,
+                      onTap: () => _selectPrediction(s),
+                    );
+                  },
+                ),
+              ),
+              if (_selecting)
+                Center(child: CircularProgressIndicator(color: c.moss500)),
+            ],
           ),
         ),
       ],
