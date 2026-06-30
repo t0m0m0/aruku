@@ -55,16 +55,19 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       _selecting = true;
       _pickFailed = false;
     });
-    // Google autocomplete は座標を返さないため、確定時に details で座標を引く。
-    GeoPoint? latLng;
-    try {
-      latLng = await ref
-          .read(placesServiceProvider)
-          .fetchLatLng(prediction.placeId);
-    } on PlacesException {
-      latLng = null;
+    // Text Search(近くの店)由来は座標を同梱するため details 不要。Autocomplete 由来は
+    // 座標を返さないため確定時に details で引く（#146）。
+    GeoPoint? latLng = prediction.latLng;
+    if (latLng == null) {
+      try {
+        latLng = await ref
+            .read(placesServiceProvider)
+            .fetchLatLng(prediction.placeId);
+      } on PlacesException {
+        latLng = null;
+      }
+      if (!mounted) return;
     }
-    if (!mounted) return;
     // NAVITIME route_transit は start/goal ともに座標必須。
     // 座標が取れない候補は確定させず、別候補の再選択を促す。
     if (latLng == null) {
@@ -153,6 +156,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final c = context.c;
     final notifier = ref.read(appStateProvider.notifier);
     final searchState = ref.watch(placesProvider);
+    // 「近くの店」モードは現在地を中心点に距離昇順検索するため、現在地が
+    // 分かるときだけトグルを出す（無いと DISTANCE の基準が取れない）。
+    final hasLocation = ref.watch(currentLocationProvider) != null;
 
     return Material(
       color: c.ivory,
@@ -235,8 +241,48 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               ),
             ),
 
+            if (hasLocation) _buildModeToggle(c, searchState.nearby),
+
             Expanded(child: _buildBody(c, searchState, notifier)),
           ],
+        ),
+      ),
+    );
+  }
+
+  // 「近くの店」モードのトグル。ON で Text Search+DISTANCE の距離昇順検索に切替える。
+  Widget _buildModeToggle(ArukuColors c, bool nearby) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+        child: InkWell(
+          key: const ValueKey('nearby-toggle'),
+          onTap: () => ref.read(placesProvider.notifier).setNearby(!nearby),
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: nearby ? c.moss500 : c.paper,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: nearby ? c.moss500 : c.hairline),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Ic.compass(size: 15, color: nearby ? c.paper : c.ink3),
+                const SizedBox(width: 6),
+                Text(
+                  '近くの店',
+                  style: jpStyle(
+                    size: 13,
+                    weight: FontWeight.w700,
+                    color: nearby ? c.paper : c.ink3,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
