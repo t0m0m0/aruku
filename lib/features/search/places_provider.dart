@@ -91,6 +91,14 @@ class PlacesNotifier extends Notifier<SearchState> {
     return [...withDist, ...without];
   }
 
+  /// nearby モードかつ現在地ありなら距離昇順へ並べ替え、そうでなければ関連度順のまま。
+  /// 取得時（_fetch）とモード切替時（setNearby）で同じ並び替え規則を共有する。
+  List<PlacePrediction> _arrange(
+    bool nearby,
+    GeoPoint? location,
+    List<PlacePrediction> raw,
+  ) => (nearby && location != null) ? _sortByDistance(raw) : raw;
+
   /// 「近くの店」モードの切替。距離は通常検索でも各候補に付いているため、取得済みの
   /// 候補をその場で並べ替えるだけで再フェッチしない（課金リクエストと 400ms 待ちを省く）。
   /// まだ結果が無い／取得中はフラグだけ更新し、進行中の _fetch 完了時に正しい並びで反映する。
@@ -101,9 +109,7 @@ class PlacesNotifier extends Notifier<SearchState> {
       return;
     }
     final location = ref.read(currentLocationProvider);
-    final reordered = (value && location != null)
-        ? _sortByDistance(_rawSuggestions)
-        : _rawSuggestions;
+    final reordered = _arrange(value, location, _rawSuggestions);
     state = state.copyWith(nearby: value, suggestions: reordered);
   }
 
@@ -117,9 +123,7 @@ class PlacesNotifier extends Notifier<SearchState> {
       final raw = await service.autocomplete(query, bias: location);
       // nearby モードかつ現在地ありなら、その距離で候補を距離昇順へ再ソートする。
       // Text Search を使わないので割高 SKU も最小文字数ガードも不要。
-      final results = (state.nearby && location != null)
-          ? _sortByDistance(raw)
-          : raw;
+      final results = _arrange(state.nearby, location, raw);
       if (gen != _generation) return;
       // モード切替で再フェッチせず並べ替えられるよう、関連度順の生結果を保持する。
       _rawSuggestions = raw;
