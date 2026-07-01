@@ -239,6 +239,19 @@ function requestJsonNew(
 // X-Firebase-AppCheck token before doing any billable work.
 
 /**
+ * クエリの lat/lon を数値として取り出す。両方が有限値のときだけ
+ * { latitude, longitude } を返し、欠落・不正なら undefined。
+ */
+function parseLatLon(
+  query: Record<string, string | undefined>
+): { latitude: number; longitude: number } | undefined {
+  const lat = Number(query["lat"]);
+  const lon = Number(query["lon"]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return undefined;
+  return { latitude: lat, longitude: lon };
+}
+
+/**
  * 現在地から locationBias（円）を組み立てる。lat/lon が数値として揃っている
  * ときだけ円バイアスを返し、欠落・不正なら undefined（バイアスなし）。
  * radius は任意（既定 PLACES_BIAS_RADIUS_M）で 0 < r <= 50000 にクランプする。
@@ -246,30 +259,15 @@ function requestJsonNew(
 function buildLocationBias(
   query: Record<string, string | undefined>
 ): { circle: { center: { latitude: number; longitude: number }; radius: number } } | undefined {
-  const lat = Number(query["lat"]);
-  const lon = Number(query["lon"]);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return undefined;
+  const center = parseLatLon(query);
+  if (!center) return undefined;
 
   const requested = Number(query["radius"]);
   const radius = Number.isFinite(requested) && requested > 0
     ? Math.min(requested, PLACES_BIAS_RADIUS_M)
     : PLACES_BIAS_RADIUS_M;
 
-  return { circle: { center: { latitude: lat, longitude: lon }, radius } };
-}
-
-/**
- * 現在地から Autocomplete(New) の origin（測地線距離の基準点）を組み立てる。
- * lat/lon が数値として揃っているときだけ返し、欠落・不正なら undefined。origin を
- * 渡すと各候補に distanceMeters が付き、クライアントが距離昇順へ再ソートできる（#146 C案）。
- */
-function buildOrigin(
-  query: Record<string, string | undefined>
-): { latitude: number; longitude: number } | undefined {
-  const lat = Number(query["lat"]);
-  const lon = Number(query["lon"]);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return undefined;
-  return { latitude: lat, longitude: lon };
+  return { circle: { center, radius } };
 }
 
 /** Places Autocomplete / Details プロキシ */
@@ -316,7 +314,7 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, r
     );
     // 同じ現在地を origin としても渡し、各候補に distanceMeters を付ける（#146 C案）。
     // クライアントはこの距離で候補を距離昇順へ再ソートできる（typeahead を壊さない）。
-    const origin = buildOrigin(
+    const origin = parseLatLon(
       req.query as Record<string, string | undefined>
     );
 
