@@ -92,26 +92,6 @@ class TransitRouteService implements RouteService {
     if (_verboseRouteLog) debugPrint('[route] $msg');
   }
 
-  /// [plan] 呼び出し1回分のHTTPコール数（計測用・#163）。呼び出しごとにリセットする。
-  int _httpCallCount = 0;
-
-  /// 非同期処理1件の所要時間とその間に発生したHTTPコール数を `[perf]` ログに出す
-  /// （[_verboseRouteLog] のときのみ計測。#163 のボトルネック調査用で、挙動は変えない）。
-  Future<T> _timed<T>(String label, Future<T> Function() body) async {
-    if (!_verboseRouteLog) return body();
-    final sw = Stopwatch()..start();
-    final callsBefore = _httpCallCount;
-    try {
-      return await body();
-    } finally {
-      sw.stop();
-      _log(
-        '[perf] $label: ${sw.elapsedMilliseconds}ms '
-        '(httpCalls=${_httpCallCount - callsBefore})',
-      );
-    }
-  }
-
   /// 候補の区間構成を `walk12m+蒲12_train33m+walk3m` 形式の短い文字列にする（ログ用）。
   String _segSummary(RouteCandidate c) => c.segments
       .map(
@@ -160,22 +140,16 @@ class TransitRouteService implements RouteService {
     if (destinationLatLng == null) throw const RouteException('NO_DESTINATION');
     final budgetMin = budgetMinutes(departure, arrival);
 
-    _httpCallCount = 0;
-    final planSw = Stopwatch()..start();
-
     onProgress?.call(RoutePhase.routing);
 
     final departureAt = _departureDateTime(departure);
-    final body = await _timed(
-      'fetchGuidance(initial)',
-      () => _fetchGuidance(origin, destinationLatLng, departureAt),
-    );
+    final body = await _fetchGuidance(origin, destinationLatLng, departureAt);
     final options = parseGuidancePlan(body);
     if (options.isEmpty) throw const RouteException('ZERO_RESULTS');
 
     onProgress?.call(RoutePhase.walkability);
 
-    final result = await _selectMeasured(
+    return _selectMeasured(
       options,
       budgetMin,
       departure,
@@ -185,12 +159,6 @@ class TransitRouteService implements RouteService {
       fromName: originName,
       toName: destination,
     );
-    planSw.stop();
-    _log(
-      '[perf] plan() TOTAL: ${planSw.elapsedMilliseconds}ms '
-      '(httpCalls=$_httpCallCount)',
-    );
-    return result;
   }
 
   /// measure-first 選定。標準乗換・実測ハイブリッド・全徒歩を同一土俵で比較し、
@@ -239,16 +207,12 @@ class TransitRouteService implements RouteService {
         'frontier.boarding=${frontier.boarding} '
         'alighting=${frontier.alighting}',
       );
-      await _timed(
-        'measureAccessWalks(base, board=${frontier.boarding.length}, '
-        'alight=${frontier.alighting.length})',
-        () => _measureAccessWalks(
-          origin,
-          goal,
-          [for (final i in frontier.boarding) stops[i].coord],
-          [for (final i in frontier.alighting) stops[i].coord],
-          measured,
-        ),
+      await _measureAccessWalks(
+        origin,
+        goal,
+        [for (final i in frontier.boarding) stops[i].coord],
+        [for (final i in frontier.alighting) stops[i].coord],
+        measured,
       );
       _log(
         'measured ${measured.length} legs; '
@@ -270,10 +234,7 @@ class TransitRouteService implements RouteService {
       }
     } else {
       _log('no base route (corridor<2); all-walk only');
-      await _timed(
-        'measureAccessWalks(allWalkOnly)',
-        () => _measureAccessWalks(origin, goal, const [], const [], measured),
-      );
+      await _measureAccessWalks(origin, goal, const [], const [], measured);
     }
 
     final allWalk = _measuredWalk(
@@ -287,16 +248,13 @@ class TransitRouteService implements RouteService {
     _log('allWalk: ${_candLine(allWalk, budgetMin, departureAt)}');
     _log('total candidates: ${candidates.length}');
 
-    var selected = await _timed(
-      'selectAndEnrich(initial, candidates=${candidates.length})',
-      () => _selectAndEnrich(
-        candidates,
-        budgetMin,
-        departureAt,
-        origin: origin,
-        goal: goal,
-        walkCache: walkCache,
-      ),
+    var selected = await _selectAndEnrich(
+      candidates,
+      budgetMin,
+      departureAt,
+      origin: origin,
+      goal: goal,
+      walkCache: walkCache,
     );
 
     _log(
@@ -311,30 +269,23 @@ class TransitRouteService implements RouteService {
     if (base != null &&
         _isCollapse(selected.chosen, options, budgetMin, departureAt)) {
       _log('collapse=true → board-search フォールバック起動');
-      final boardSearch = await _timed(
-        'buildBoardSearchCandidate',
-        () => _buildBoardSearchCandidate(
-          base,
-          origin,
-          goal,
-          budgetMin,
-          departureAt,
-          walkCache,
-        ),
+      final boardSearch = await _buildBoardSearchCandidate(
+        base,
+        origin,
+        goal,
+        budgetMin,
+        departureAt,
+        walkCache,
       );
       if (boardSearch.isNotEmpty) {
         _log('board-search候補: ${boardSearch.length}件をプールへ追加');
-        selected = await _timed(
-          'selectAndEnrich(afterBoardSearch, '
-          'candidates=${candidates.length + boardSearch.length})',
-          () => _selectAndEnrich(
-            [...candidates, ...boardSearch],
-            budgetMin,
-            departureAt,
-            origin: origin,
-            goal: goal,
-            walkCache: walkCache,
-          ),
+        selected = await _selectAndEnrich(
+          [...candidates, ...boardSearch],
+          budgetMin,
+          departureAt,
+          origin: origin,
+          goal: goal,
+          walkCache: walkCache,
         );
         _log(
           'selected(after board-search): '
@@ -347,10 +298,7 @@ class TransitRouteService implements RouteService {
       _log('collapse=false → フォールバック起動せず');
     }
 
-    final named = await _timed(
-      'finalizeStationNames',
-      () => _finalizeStationNames(selected.enriched, departureAt),
-    );
+    final named = await _finalizeStationNames(selected.enriched, departureAt);
     _log('=== FINAL: ${_candLine(named, budgetMin, departureAt)} ===');
 
     return _build(
@@ -444,13 +392,10 @@ class TransitRouteService implements RouteService {
       final boardAt = departureAt.add(Duration(minutes: cumBefore));
       // 区間間は並列化しない（#163 対象外）: 後続区間の boardAt（cumBefore）が前区間で
       // 解決した実乗車時間・乗車待ちに依存するため、直列でないと照会時刻がずれる。
-      final ep = await _timed(
-        'resolveBoardingTimes.fetchTrainEndpoints(seg=$i)',
-        () => _fetchTrainEndpoints(
-          seg.polyline.first,
-          seg.polyline.last,
-          boardAt,
-        ),
+      final ep = await _fetchTrainEndpoints(
+        seg.polyline.first,
+        seg.polyline.last,
+        boardAt,
       );
       if (ep == null || ep.dep == null || ep.dep!.isBefore(boardAt)) continue;
       final ride = (ep.arr != null && !ep.arr!.isBefore(ep.dep!))
@@ -537,12 +482,9 @@ class TransitRouteService implements RouteService {
       // enrich（実測徒歩）に加え、時刻なしハイブリッドの電車区間へ実発車時刻を当てる
       // （approach A）。これで乗車待ち（深夜の始発待ち等）が arrivalMinutes に入り、
       // 走っていない電車が予算内へ化けるのを防ぐ。
-      final enriched = await _timed(
-        'selectAndEnrich.enrichAndResolve(attempt=$attempt)',
-        () async => _resolveBoardingTimes(
-          await _enrichWalkGeometry(chosen, walkCache),
-          departureAt,
-        ),
+      final enriched = await _resolveBoardingTimes(
+        await _enrichWalkGeometry(chosen, walkCache),
+        departureAt,
       );
       // enrich／実時刻検証で (a) 予算超過に転じた、または (b) 先頭電車に乗り遅れる（標準乗換の
       // アクセス徒歩が guidance 見積りより実街路で伸び、駅着が発車後になる）候補は除外して
@@ -600,12 +542,9 @@ class TransitRouteService implements RouteService {
   ) async {
     // 候補ごとの実時刻解決は互いに独立なので並列に投げる（#163）。候補内の区間ループは
     // 後続区間の boardAt が前区間の解決済み実乗車時間に依存するため直列のまま。
-    final resolved = await _timed(
-      'bestEffortResolved.resolveBoardingTimes×${candidates.length}(parallel)',
-      () => Future.wait([
-        for (final c in candidates) _resolveBoardingTimes(c, departureAt),
-      ]),
-    );
+    final resolved = await Future.wait([
+      for (final c in candidates) _resolveBoardingTimes(c, departureAt),
+    ]);
     final verified = [
       for (final c in resolved)
         if (c.segments.every(
@@ -620,10 +559,7 @@ class TransitRouteService implements RouteService {
     );
     return (
       chosen: fallback,
-      enriched: await _timed(
-        'bestEffortResolved.enrichWalkGeometry',
-        () => _enrichWalkGeometry(fallback, walkCache),
-      ),
+      enriched: await _enrichWalkGeometry(fallback, walkCache),
     );
   }
 
@@ -730,22 +666,16 @@ class TransitRouteService implements RouteService {
       final x = stops[i];
       // 前半徒歩は実測（失敗時のみ直線推定へフォールバック）。
       final walk1 =
-          await _timed(
-            'boardSearch.tryWalk(i=$i)',
-            () => _tryWalk(
-              origin,
-              x.coord,
-              fromName: base.from,
-              toName: '',
-              cache: walkCache,
-            ),
+          await _tryWalk(
+            origin,
+            x.coord,
+            fromName: base.from,
+            toName: '',
+            cache: walkCache,
           ) ??
           _estimateWalk(origin, x.coord, fromName: base.from, toName: '');
       final boardAt = departureAt.add(Duration(minutes: walk1.totalMin));
-      final xToGoal = await _timed(
-        'boardSearch.fetchTransitFrom(i=$i)',
-        () => _fetchTransitFrom(x.coord, goal, boardAt),
-      );
+      final xToGoal = await _fetchTransitFrom(x.coord, goal, boardAt);
       if (xToGoal == null) {
         _log('board-search i=$i walk1=${walk1.totalMin}m guidance失敗');
         return built[i] = null;
@@ -768,21 +698,17 @@ class TransitRouteService implements RouteService {
     // k分割並列版（#163）: 各ラウンドで _boardSearchFanout 点を同時評価し、Transit API
     // レイテンシ（1コール2〜10秒）の数珠つなぎを「ラウンド数×最遅1本」へ縮める。
     // 評価点の集合は直列二分探索と異なるため、プールへ足す候補（下の within）も変わり得る。
-    final best = await _timed(
-      'boardSearch.kArySearch(fanout=$_boardSearchFanout, '
-      'corridorStops=${stops.length})',
-      () => maxWalkBoardingIndexParallel(
-        count: stops.length,
-        budgetMin: budgetMin,
-        fanout: _boardSearchFanout,
-        evaluate: (i) async {
-          final c = await buildAt(i);
-          // 経路無し（引き直し失敗）は予算外として扱い、手前の駅を探す。
-          return c == null
-              ? budgetMin + (1 << 20)
-              : arrivalMinutes(c.segments, departureAt);
-        },
-      ),
+    final best = await maxWalkBoardingIndexParallel(
+      count: stops.length,
+      budgetMin: budgetMin,
+      fanout: _boardSearchFanout,
+      evaluate: (i) async {
+        final c = await buildAt(i);
+        // 経路無し（引き直し失敗）は予算外として扱い、手前の駅を探す。
+        return c == null
+            ? budgetMin + (1 << 20)
+            : arrivalMinutes(c.segments, departureAt);
+      },
     );
     _log(
       'board-search: 実測k分割並列探索の境界 best='
@@ -814,16 +740,10 @@ class TransitRouteService implements RouteService {
   ) async {
     // 乗車側・降車側のマトリクスは互いに独立なので並列に投げる（#163）。
     final boardDests = [...boardStops, goal];
-    final boardFuture = _timed(
-      'measureAccessWalks.boardMatrix(dests=${boardDests.length})',
-      () => _fetchWalkMatrix([origin], boardDests),
-    );
+    final boardFuture = _fetchWalkMatrix([origin], boardDests);
     final alightFuture = alightStops.isEmpty
         ? Future<List<dynamic>?>.value(null)
-        : _timed(
-            'measureAccessWalks.alightMatrix(origins=${alightStops.length})',
-            () => _fetchWalkMatrix(alightStops, [goal]),
-          );
+        : _fetchWalkMatrix(alightStops, [goal]);
     final boardRows = await boardFuture;
     final alightRows = await alightFuture;
     if (boardRows != null) {
@@ -958,15 +878,12 @@ class TransitRouteService implements RouteService {
         if (seg.type != SegmentType.walk || seg.polyline.length < 2)
           Future.value(seg)
         else
-          _timed(
-            'enrichWalkGeometry.tryWalk',
-            () => _tryWalk(
-              seg.polyline.first,
-              seg.polyline.last,
-              fromName: seg.fromName,
-              toName: seg.toName,
-              cache: cache,
-            ),
+          _tryWalk(
+            seg.polyline.first,
+            seg.polyline.last,
+            fromName: seg.fromName,
+            toName: seg.toName,
+            cache: cache,
           ).then((walk) => walk?.segments.first ?? seg),
     ]);
     return RouteCandidate(from: chosen.from, to: chosen.to, segments: segments);
@@ -1064,7 +981,6 @@ class TransitRouteService implements RouteService {
         'numItineraries': '$_numItineraries',
       },
     );
-    _httpCallCount++;
     final res = await _transit.get(uri);
     if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
     return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
@@ -1221,7 +1137,6 @@ class TransitRouteService implements RouteService {
     final uri = Uri.parse(
       '$_proxyBaseUrl/$path',
     ).replace(queryParameters: params);
-    _httpCallCount++;
     final res = await _proxy.get(uri);
     if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
     return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
@@ -1234,7 +1149,6 @@ class TransitRouteService implements RouteService {
     final uri = Uri.parse(
       '$_proxyBaseUrl/$path',
     ).replace(queryParameters: params);
-    _httpCallCount++;
     final res = await _proxy.get(uri);
     if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
     final decoded = jsonDecode(utf8.decode(res.bodyBytes));
