@@ -150,6 +150,54 @@ Future<int?> maxWalkBoardingIndex({
   return best;
 }
 
+/// [maxWalkBoardingIndex] のk分割並列版（#163）。各ラウンドで探索区間を
+/// (fanout+1) 等分する fanout 個の点を Future.wait で同時評価し、区間を一気に
+/// 1/(fanout+1) へ縮める。ラウンド数は O(log_{fanout+1} count)、壁時計時間は
+/// 「ラウンド数 × 最遅1評価」になる（直列版は「評価回数分の足し算」）。[evaluate]
+/// のレイテンシが大きくばらつく IO（Transit API 引き直し）ほど短縮が効く。
+///
+/// 単調性の仮定・戻り値の意味（`evaluate(index) <= budgetMin` を満たす最大 index、
+/// 皆無・count 0 なら null）は直列版と同じ。ただし**評価する index の集合は直列版と
+/// 異なる**：乗車駅探索の呼び出し側は評価済みの予算内候補を全部プールへ足す設計
+/// （[TransitRouteService]・#137）のため、最終選定が直列版と変わり得る（評価点が
+/// 増える分、徒歩最大の解像度はむしろ上がる方向）。`fanout: 1` は直列二分探索と
+/// 同一の軌道になる。同一 index を二度評価しないことは保証する。
+Future<int?> maxWalkBoardingIndexParallel({
+  required int count,
+  required int budgetMin,
+  required Future<int> Function(int index) evaluate,
+  int fanout = 3,
+}) async {
+  var lo = 0;
+  var hi = count - 1;
+  int? best;
+  while (lo <= hi) {
+    // 区間 [lo, hi] を (fanout+1) 等分する内分点。区間が狭いと同一点へ縮退する
+    // ため Set で重複除去する（probe は必ず区間内にあり、毎ラウンド区間が縮む）。
+    final span = hi - lo;
+    final probes = <int>{
+      for (var j = 1; j <= fanout; j++) lo + (span * j) ~/ (fanout + 1),
+    }.toList()..sort();
+    final results = await Future.wait([for (final p in probes) evaluate(p)]);
+    // 昇順に走査し、予算内なら境界を右へ、最初の予算外で右端を確定して打ち切る
+    // （単調性の仮定は直列版と同一。break 後の probe は区間更新に使わない）。
+    var nextLo = lo;
+    var nextHi = hi;
+    for (var j = 0; j < probes.length; j++) {
+      if (results[j] <= budgetMin) {
+        if (best == null || probes[j] > best) best = probes[j];
+        nextLo = probes[j] + 1;
+      } else {
+        nextHi = probes[j] - 1;
+        break;
+      }
+    }
+    lo = nextLo;
+    hi = nextHi;
+  }
+  return best;
+}
+
 /// 候補の電車区間に、出発地より進行方向(origin→goal)の後方へ
 /// [maxBacktrackRatio] × 直線距離(origin→goal) を超えて戻る駅を含むか。
 /// 徒歩区間は判定しない（目的地へ近づくための短い徒歩を弾かないため）。
