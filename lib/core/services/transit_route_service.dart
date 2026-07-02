@@ -70,6 +70,11 @@ class TransitRouteService implements RouteService {
   /// 崩壊時の O(log n) 数回のみ）。
   static const int _collapseSlackMinutes = 20;
 
+  /// 乗車駅探索のk分割並列探索の並列度（#163）。各ラウンドでこの数の候補点を同時評価
+  /// する。上げるほどラウンド数が減り速いが、Transit API への同時リクエストと無駄撃ち
+  /// （境界決定に使われない評価）が増える。1 にすると従来の直列二分探索と同じ軌道。
+  static const int _boardSearchFanout = 3;
+
   /// 乗車駅探索のコリドー候補点の上限。gtfsShape は線路追従で頂点が密（数百）なため、
   /// 均等間引きでこの数へ絞る（§2.5）。二分探索は実測 walk で駆動するので評価回数は
   /// O(log n) のまま、候補点が密なほど境界の解像度が上がり余りが小さくなる（#137）。
@@ -385,6 +390,8 @@ class TransitRouteService implements RouteService {
       if (seg.polyline.length < 2) continue;
       final cumBefore = arrivalMinutes(segs.sublist(0, i), departureAt);
       final boardAt = departureAt.add(Duration(minutes: cumBefore));
+      // 区間間は並列化しない（#163 対象外）: 後続区間の boardAt（cumBefore）が前区間で
+      // 解決した実乗車時間・乗車待ちに依存するため、直列でないと照会時刻がずれる。
       final ep = await _fetchTrainEndpoints(
         seg.polyline.first,
         seg.polyline.last,
@@ -533,9 +540,11 @@ class TransitRouteService implements RouteService {
     DateTime departureAt,
     Map<String, RouteCandidate> walkCache,
   ) async {
-    final resolved = <RouteCandidate>[
-      for (final c in candidates) await _resolveBoardingTimes(c, departureAt),
-    ];
+    // 候補ごとの実時刻解決は互いに独立なので並列に投げる（#163）。候補内の区間ループは
+    // 後続区間の boardAt が前区間の解決済み実乗車時間に依存するため直列のまま。
+    final resolved = await Future.wait([
+      for (final c in candidates) _resolveBoardingTimes(c, departureAt),
+    ]);
     final verified = [
       for (final c in resolved)
         if (c.segments.every(
@@ -620,8 +629,11 @@ class TransitRouteService implements RouteService {
   /// 乗車駅探索（docs/notes/walk-max-board-search.md / transit-api-migration.md §2.5）。
   /// [base] のコリドー座標を乗車駅候補（前半徒歩 t1 の昇順）とし、各点 X から
   /// `/guidance/plan(X→goal, departureAt+t1)` を引き直して「到着が予算内の最遠＝総徒歩
-  /// 最大」を [maxWalkBoardingIndex] で二分探索する。引き直し便は X 発で自己整合なので
-  /// `firstMissedTrain` が立たない。コリドー候補は2未満／予算内が無いとき null。
+  /// 最大」を [maxWalkBoardingIndexParallel]（k分割並列探索・#163）で探索する。各ラウンド
+  /// [_boardSearchFanout] 点を同時評価して Transit API レイテンシの直列積み上げを避ける。
+  /// 評価点の集合は直列二分探索と異なるため、戻り値の候補群も直列版と変わり得る。
+  /// 引き直し便は X 発で自己整合なので `firstMissedTrain` が立たない。コリドー候補は
+  /// 2未満／予算内が無いとき null。
   ///
   /// **前半徒歩は Google 実街路で実測して二分探索を駆動する（#137 主因の修正）。** 直線推定
   /// は実街路に対し大きく楽観に倒れることがあり（実機で -36分・25%）、それで二分探索を
@@ -646,7 +658,8 @@ class TransitRouteService implements RouteService {
     final stops = _corridorStops(base);
     if (stops.length < 2) return const [];
 
-    // 二分探索が同じ index を再評価しても引き直さないようメモ化する。
+    // 探索が同じ index を再評価しても引き直さないようメモ化する。同一ラウンド内の
+    // 評価点は重複除去済み（[maxWalkBoardingIndexParallel]）なので同時実行は衝突しない。
     final built = <int, RouteCandidate?>{};
     Future<RouteCandidate?> buildAt(int i) async {
       if (built.containsKey(i)) return built[i];
@@ -681,10 +694,14 @@ class TransitRouteService implements RouteService {
       return built[i] = cand;
     }
 
-    // 実測到着が index 単調増の前提で「到着が予算内の最遠 index ＝総徒歩最大」を二分探索。
-    final best = await maxWalkBoardingIndex(
+    // 実測到着が index 単調増の前提で「到着が予算内の最遠 index ＝総徒歩最大」を探索。
+    // k分割並列版（#163）: 各ラウンドで _boardSearchFanout 点を同時評価し、Transit API
+    // レイテンシ（1コール2〜10秒）の数珠つなぎを「ラウンド数×最遅1本」へ縮める。
+    // 評価点の集合は直列二分探索と異なるため、プールへ足す候補（下の within）も変わり得る。
+    final best = await maxWalkBoardingIndexParallel(
       count: stops.length,
       budgetMin: budgetMin,
+      fanout: _boardSearchFanout,
       evaluate: (i) async {
         final c = await buildAt(i);
         // 経路無し（引き直し失敗）は予算外として扱い、手前の駅を探す。
@@ -694,10 +711,10 @@ class TransitRouteService implements RouteService {
       },
     );
     _log(
-      'board-search: 実測二分探索の境界 best='
+      'board-search: 実測k分割並列探索の境界 best='
       '${best == null ? 'null(予算内乗車駅なし)' : '$best'} / コリドー点${stops.length}',
     );
-    // 二分探索が評価した点（メモ化済み）のうち、予算内の候補を「全部」返す。境界 best 1本だけ
+    // 探索が評価した点（メモ化済み）のうち、予算内の候補を「全部」返す。境界 best 1本だけ
     // でなく全部を返すのは：(1) 到着は実街路で非単調になり得る（後方の停車駅が origin に近い等）
     // ため境界＝徒歩最大とは限らず、(2) 採用前に逆戻りフィルタ・乗り遅れ除外で1本が消えても、
     // 次善の board-search 候補へ落とせるようにするため。選定（[selectBestRoute] /
@@ -721,8 +738,14 @@ class TransitRouteService implements RouteService {
     List<GeoPoint> alightStops,
     Map<String, int> measured,
   ) async {
+    // 乗車側・降車側のマトリクスは互いに独立なので並列に投げる（#163）。
     final boardDests = [...boardStops, goal];
-    final boardRows = await _fetchWalkMatrix([origin], boardDests);
+    final boardFuture = _fetchWalkMatrix([origin], boardDests);
+    final alightFuture = alightStops.isEmpty
+        ? Future<List<dynamic>?>.value(null)
+        : _fetchWalkMatrix(alightStops, [goal]);
+    final boardRows = await boardFuture;
+    final alightRows = await alightFuture;
     if (boardRows != null) {
       for (final e in boardRows) {
         if (e is! Map) continue;
@@ -732,16 +755,13 @@ class TransitRouteService implements RouteService {
         measured[_walkCacheKey(origin, boardDests[di])] = min;
       }
     }
-    if (alightStops.isNotEmpty) {
-      final alightRows = await _fetchWalkMatrix(alightStops, [goal]);
-      if (alightRows != null) {
-        for (final e in alightRows) {
-          if (e is! Map) continue;
-          final oi = (e['originIndex'] as num?)?.toInt() ?? 0;
-          final min = _parseDurationMin(e['duration']);
-          if (min == null || oi < 0 || oi >= alightStops.length) continue;
-          measured[_walkCacheKey(alightStops[oi], goal)] = min;
-        }
+    if (alightRows != null) {
+      for (final e in alightRows) {
+        if (e is! Map) continue;
+        final oi = (e['originIndex'] as num?)?.toInt() ?? 0;
+        final min = _parseDurationMin(e['duration']);
+        if (min == null || oi < 0 || oi >= alightStops.length) continue;
+        measured[_walkCacheKey(alightStops[oi], goal)] = min;
       }
     }
   }
@@ -851,21 +871,21 @@ class TransitRouteService implements RouteService {
     RouteCandidate chosen,
     Map<String, RouteCandidate> cache,
   ) async {
-    final segments = <RouteSegment>[];
-    for (final seg in chosen.segments) {
-      if (seg.type != SegmentType.walk || seg.polyline.length < 2) {
-        segments.add(seg);
-        continue;
-      }
-      final walk = await _tryWalk(
-        seg.polyline.first,
-        seg.polyline.last,
-        fromName: seg.fromName,
-        toName: seg.toName,
-        cache: cache,
-      );
-      segments.add(walk?.segments.first ?? seg);
-    }
+    // 徒歩区間の実測は互いに独立なので並列に投げる（#163）。取得失敗（null）は
+    // 従来どおり元の区間を保つ。
+    final segments = await Future.wait([
+      for (final seg in chosen.segments)
+        if (seg.type != SegmentType.walk || seg.polyline.length < 2)
+          Future.value(seg)
+        else
+          _tryWalk(
+            seg.polyline.first,
+            seg.polyline.last,
+            fromName: seg.fromName,
+            toName: seg.toName,
+            cache: cache,
+          ).then((walk) => walk?.segments.first ?? seg),
+    ]);
     return RouteCandidate(from: chosen.from, to: chosen.to, segments: segments);
   }
 
