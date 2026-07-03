@@ -8,7 +8,8 @@
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
     "dev": "npm run build && GOOGLE_MAPS_API_KEY=$(security find-generic-password -a \"$USER\" -s \"GOOGLE_MAPS_API_KEY\" -w) NAVITIME_RAPIDAPI_KEY=$(security find-generic-password -a \"$USER\" -s \"NAVITIME_RAPIDAPI_KEY\" -w) firebase emulators:start --only functions",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:rules": "firebase emulators:exec --only firestore \"vitest run --config vitest.rules.config.ts\""
   },
   "engines": {
     "node": "22"
@@ -19,7 +20,9 @@
     "firebase-functions": "^7.2.5"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
     "@types/node": "^22.10.5",
+    "firebase": "^12.15.0",
     "typescript": "^5.6.3",
     "vitest": "^4.1.6"
   },
