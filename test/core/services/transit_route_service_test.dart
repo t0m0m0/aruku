@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:aruku/core/models/geo_point.dart';
@@ -237,6 +238,27 @@ void main() {
             'status',
             'ZERO_RESULTS',
           ),
+        ),
+      );
+    });
+  });
+
+  group('plan: タイムアウト (#156)', () {
+    test('本命 guidance 取得がタイムアウトすると RouteException(TIMEOUT) へ変換', () {
+      final client = MockClient(
+        (_) async => throw TimeoutException('no response'),
+      );
+      final svc = _service(client);
+      expect(
+        () => svc.plan(
+          destination: '新宿',
+          destinationLatLng: goal,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 12, m: 0),
+          origin: origin,
+        ),
+        throwsA(
+          isA<RouteException>().having((e) => e.status, 'status', 'TIMEOUT'),
         ),
       );
     });

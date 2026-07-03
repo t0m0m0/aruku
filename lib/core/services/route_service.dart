@@ -5,6 +5,7 @@ import '../models/geo_point.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
 import 'app_check_http_client.dart';
+import 'timeout_http_client.dart';
 import 'transit_route_service.dart';
 
 /// ルート計算の進捗段階。ローディング表示の3ステップに対応する。
@@ -32,8 +33,8 @@ class RouteException implements Exception {
 
 final routeServiceProvider = Provider<RouteService>((ref) {
   // Transit API は直叩き（認証不要・CORS）、Google 徒歩プロキシは App Check 必須。
-  final transitClient = http.Client();
-  final proxyClient = AppCheckHttpClient(http.Client());
+  final transitClient = TimeoutHttpClient(http.Client());
+  final proxyClient = AppCheckHttpClient(TimeoutHttpClient(http.Client()));
   ref.onDispose(transitClient.close);
   ref.onDispose(proxyClient.close);
   return TransitRouteService(

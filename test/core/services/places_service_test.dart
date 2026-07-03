@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:aruku/core/models/geo_point.dart';
@@ -212,6 +213,23 @@ void main() {
       final results = await service.autocomplete('渋谷');
       expect(results, isEmpty);
     });
+
+    test('タイムアウト時に PlacesException(TIMEOUT) へ変換する (#156)', () async {
+      final client = MockClient(
+        (_) async => throw TimeoutException('no response'),
+      );
+
+      final service = GooglePlacesService(
+        client: client,
+        proxyBaseUrl: _proxyBaseUrl,
+      );
+      expect(
+        () => service.autocomplete('渋谷'),
+        throwsA(
+          isA<PlacesException>().having((e) => e.status, 'status', 'TIMEOUT'),
+        ),
+      );
+    });
   });
 
   group('GooglePlacesService.fetchLatLng', () {
@@ -264,6 +282,22 @@ void main() {
         proxyBaseUrl: _proxyBaseUrl,
       );
       expect(() => service.fetchLatLng('id'), throwsA(isA<PlacesException>()));
+    });
+
+    test('タイムアウト時に PlacesException(TIMEOUT) へ変換する (#156)', () async {
+      final client = MockClient(
+        (_) async => throw TimeoutException('no response'),
+      );
+      final service = GooglePlacesService(
+        client: client,
+        proxyBaseUrl: _proxyBaseUrl,
+      );
+      expect(
+        () => service.fetchLatLng('id'),
+        throwsA(
+          isA<PlacesException>().having((e) => e.status, 'status', 'TIMEOUT'),
+        ),
+      );
     });
   });
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +8,7 @@ import '../config/app_config.dart';
 import '../models/geo_point.dart';
 import '../models/place_prediction.dart';
 import 'app_check_http_client.dart';
+import 'timeout_http_client.dart';
 
 abstract interface class PlacesService {
   /// 地点検索（typeahead）。[bias] が渡されたときは現在地周辺を優先する位置バイアス
@@ -53,7 +55,12 @@ class GooglePlacesService implements PlacesService {
       },
     );
 
-    final response = await _client.get(uri);
+    final http.Response response;
+    try {
+      response = await _client.get(uri);
+    } on TimeoutException {
+      throw const PlacesException('TIMEOUT');
+    }
     if (response.statusCode != 200) {
       throw PlacesException('HTTP ${response.statusCode}');
     }
@@ -99,7 +106,12 @@ class GooglePlacesService implements PlacesService {
       '$_proxyBaseUrl/placesProxy',
     ).replace(queryParameters: {'action': 'details', 'place_id': placeId});
 
-    final response = await _client.get(uri);
+    final http.Response response;
+    try {
+      response = await _client.get(uri);
+    } on TimeoutException {
+      throw const PlacesException('TIMEOUT');
+    }
     if (response.statusCode != 200) {
       throw PlacesException('HTTP ${response.statusCode}');
     }
@@ -129,7 +141,7 @@ class PlacesException implements Exception {
 }
 
 final placesServiceProvider = Provider<PlacesService>((ref) {
-  final client = AppCheckHttpClient(http.Client());
+  final client = AppCheckHttpClient(TimeoutHttpClient(http.Client()));
   ref.onDispose(client.close);
   return GooglePlacesService(client: client);
 });
