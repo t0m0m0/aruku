@@ -292,7 +292,7 @@ function requestJsonNew(
   method: "GET" | "POST",
   headers: Record<string, string>,
   body?: string
-): Promise<unknown> {
+): Promise<{ statusCode: number; data: unknown }> {
   return new Promise((resolve, reject) => {
     const req = https.request(
       url,
@@ -311,7 +311,10 @@ function requestJsonNew(
         });
         res.on("end", () => {
           try {
-            resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+            resolve({
+              statusCode: res.statusCode ?? 0,
+              data: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+            });
           } catch {
             reject(new UpstreamError("invalid JSON from upstream", "parse"));
           }
@@ -344,7 +347,16 @@ async function fetchUpstream(
   body?: string
 ): Promise<unknown> {
   try {
-    return await requestJsonNew(url, method, headers, body);
+    const { statusCode, data } = await requestJsonNew(url, method, headers, body);
+    // 一次判定はステータスコード。上流が 4xx/5xx を返したら成否をボディ形状から
+    // 推測せず 502（Bad Gateway）へ寄せ、上流ボディをそのまま返す（呼び出し側の
+    // ボディ判定は 200 でエラーボディを返す稀ケースの保険として残す）。
+    if (statusCode < 200 || statusCode >= 300) {
+      console.error(`[${label}] upstream status ${statusCode}:`, JSON.stringify(data));
+      res.status(502).json(data);
+      return UPSTREAM_FAILED;
+    }
+    return data;
   } catch (e) {
     const timedOut = e instanceof UpstreamError && e.kind === "timeout";
     console.error(`[${label}] upstream ${timedOut ? "timeout" : "error"}:`, e);

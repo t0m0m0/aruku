@@ -35,11 +35,12 @@ import {
   resetRateLimit,
 } from "../src/index";
 
-// https.request をモックし、指定 JSON ボディを返すレスポンスを擬似する。
-function mockUpstream(body: unknown): void {
+// https.request をモックし、指定 JSON ボディ・ステータスで応答を擬似する。
+function mockUpstream(body: unknown, statusCode = 200): void {
   httpsRequestMock.mockImplementation(
     (_url: string, _opts: unknown, cb: (r: EventEmitter) => void) => {
-      const res = new EventEmitter();
+      const res = new EventEmitter() as EventEmitter & { statusCode: number };
+      res.statusCode = statusCode;
       cb(res);
       process.nextTick(() => {
         res.emit("data", Buffer.from(JSON.stringify(body)));
@@ -56,7 +57,8 @@ function mockUpstreamCapture(body: unknown): { sent(): unknown } {
   let written = "";
   httpsRequestMock.mockImplementation(
     (_url: string, _opts: unknown, cb: (r: EventEmitter) => void) => {
-      const res = new EventEmitter();
+      const res = new EventEmitter() as EventEmitter & { statusCode: number };
+      res.statusCode = 200;
       cb(res);
       process.nextTick(() => {
         res.emit("data", Buffer.from(JSON.stringify(body)));
@@ -552,6 +554,46 @@ describe("ハンドラ統合（タイムアウト・信頼性ガード / issue #
     );
     expect(res.statusCode).toBeUndefined();
     expect(res.body).toEqual(payload);
+  });
+
+  it("navitimeProxy: 上流が非2xxならボディ形状に依らず 502 で上流ボディを返す", async () => {
+    // RapidAPI が 429（items あり得ない）を返す想定。ステータス一次判定で 502。
+    mockUpstream({ message: "Too many requests" }, 429);
+    const res = makeRes();
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      res
+    );
+    expect(res.statusCode).toBe(502);
+    expect(res.body).toEqual({ message: "Too many requests" });
+  });
+
+  it("googleWalkProxy: 上流 403（PERMISSION_DENIED）は 502 で返す", async () => {
+    mockUpstream({ error: { code: 403, status: "PERMISSION_DENIED" } }, 403);
+    const res = makeRes();
+    await invokeHandler(
+      googleWalkProxy,
+      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }),
+      res
+    );
+    expect(res.statusCode).toBe(502);
+    expect(res.body).toEqual({
+      error: { code: 403, status: "PERMISSION_DENIED" },
+    });
+  });
+
+  it("placesProxy: 上流が非2xxなら変換せず 502 を返す", async () => {
+    // 従来は places がエラーボディを変換層へ渡していた。ステータス判定で 502 化する。
+    mockUpstream({ error: { status: "INVALID_ARGUMENT" } }, 400);
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({ query: { action: "details", place_id: "id_x" } }),
+      res
+    );
+    expect(res.statusCode).toBe(502);
+    expect(res.body).toEqual({ error: { status: "INVALID_ARGUMENT" } });
   });
 });
 
