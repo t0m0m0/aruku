@@ -258,8 +258,30 @@ export async function verifyAppCheck(
   }
 }
 
+// 上流 API 呼び出しの信頼性ガード（issue #157）。無応答の上流に対して Function
+// インスタンスを課金枠（gen2 既定 60s）まで張り付かせないよう、十分手前で打ち切る。
+const UPSTREAM_TIMEOUT_MS = 10_000;
+
+// requestJsonNew の失敗種別。呼び出し側で 504（timeout）と 502（その他上流障害）を
+// 区別するために用いる。
+type UpstreamErrorKind = "timeout" | "too_large" | "network" | "parse";
+
+class UpstreamError extends Error {
+  constructor(message: string, readonly kind: UpstreamErrorKind) {
+    super(message);
+    this.name = "UpstreamError";
+  }
+}
+
+// 上流失敗時に res へ 504/502 を書いたことを示すセンチネル。呼び出し側は
+// これが返ったら（レスポンス送信済みのため）即 return する。JSON の null と
+// 衝突しないよう Symbol を使う。
+const UPSTREAM_FAILED = Symbol("upstream_failed");
+
 // Places API (New) 用。エラー時も JSON ボディ（{error:...}）を返すため
 // ステータスコードに関わらずパースして呼び出し側（変換層）へ渡す。
+// タイムアウト時は timeout イベントで接続を破棄し UpstreamError で reject する
+// （https は timeout オプションだけでは接続を閉じないため明示 destroy が必要）。
 function requestJsonNew(
   url: string,
   method: "GET" | "POST",
@@ -267,21 +289,56 @@ function requestJsonNew(
   body?: string
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    const req = https.request(url, { method, headers }, (res) => {
-      const chunks: Buffer[] = [];
-      res.on("data", (chunk: Buffer) => chunks.push(chunk));
-      res.on("end", () => {
-        try {
-          resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-        } catch (e) {
-          reject(e);
-        }
-      });
+    const req = https.request(
+      url,
+      { method, headers, timeout: UPSTREAM_TIMEOUT_MS },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+          } catch {
+            reject(new UpstreamError("invalid JSON from upstream", "parse"));
+          }
+        });
+      }
+    );
+    req.on("timeout", () => {
+      req.destroy(new UpstreamError("upstream request timed out", "timeout"));
     });
-    req.on("error", reject);
+    req.on("error", (err) => {
+      reject(
+        err instanceof UpstreamError
+          ? err
+          : new UpstreamError(err.message, "network")
+      );
+    });
     if (body) req.write(body);
     req.end();
   });
+}
+
+// requestJsonNew を呼び、タイムアウト/上流障害を 504/502 に変換して res へ書く。
+// 成功時はパース済みボディを返し、失敗時は res 応答済みで UPSTREAM_FAILED を返す。
+async function fetchUpstream(
+  res: Response,
+  label: string,
+  url: string,
+  method: "GET" | "POST",
+  headers: Record<string, string>,
+  body?: string
+): Promise<unknown> {
+  try {
+    return await requestJsonNew(url, method, headers, body);
+  } catch (e) {
+    const timedOut = e instanceof UpstreamError && e.kind === "timeout";
+    console.error(`[${label}] upstream ${timedOut ? "timeout" : "error"}:`, e);
+    res
+      .status(timedOut ? 504 : 502)
+      .json({ error: timedOut ? "upstream timeout" : "upstream error" });
+    return UPSTREAM_FAILED;
+  }
 }
 
 // CORS is set to * because clients are Flutter mobile apps which are not subject
@@ -369,7 +426,9 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, r
       req.query as Record<string, string | undefined>
     );
 
-    const data = await requestJsonNew(
+    const data = await fetchUpstream(
+      res,
+      "placesProxy.autocomplete",
       PLACES_AUTOCOMPLETE_NEW_URL,
       "POST",
       {
@@ -386,6 +445,7 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, r
         ...(origin ? { origin } : {}),
       })
     );
+    if (data === UPSTREAM_FAILED) return;
     res.json(toLegacyAutocomplete(data));
     return;
   }
@@ -396,7 +456,9 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, r
       res.status(400).json({ error: "place_id is required" });
       return;
     }
-    const data = await requestJsonNew(
+    const data = await fetchUpstream(
+      res,
+      "placesProxy.details",
       `${PLACES_DETAILS_NEW_BASE}/${encodeURIComponent(placeId)}`,
       "GET",
       {
@@ -404,6 +466,7 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, r
         "X-Goog-FieldMask": "location",
       }
     );
+    if (data === UPSTREAM_FAILED) return;
     res.json(toLegacyDetails(data));
     return;
   }
@@ -439,7 +502,9 @@ export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret] }, async (
     return;
   }
 
-  const data = await requestJsonNew(
+  const data = await fetchUpstream(
+    res,
+    "navitimeProxy",
     buildNavitimeUrl(req.query as Record<string, string | undefined>),
     "GET",
     {
@@ -447,6 +512,7 @@ export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret] }, async (
       "X-RapidAPI-Host": NAVITIME_HOST,
     }
   );
+  if (data === UPSTREAM_FAILED) return;
 
   // RapidAPI/NAVITIME はエラー時に items を含まず {message:...} 等を返す。
   // 認証エラー・クォータ超過と「ルートなし」を区別するため 502 で返す。
@@ -495,7 +561,9 @@ export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret] }, async (re
     return;
   }
 
-  const data = await requestJsonNew(
+  const data = await fetchUpstream(
+    res,
+    "googleWalkProxy",
     ROUTES_COMPUTE_URL,
     "POST",
     {
@@ -505,6 +573,7 @@ export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret] }, async (re
     },
     buildRoutesWalkBody(start, goal)
   );
+  if (data === UPSTREAM_FAILED) return;
 
   // Routes API はエラー時 {error:{...}} を返し routes を含まない。
   // 認証・クォータ等の失敗を「ルートなし」と区別するため 502 で返す。
@@ -571,7 +640,9 @@ export const googleWalkMatrixProxy = onRequest(
       return;
     }
 
-    const data = await requestJsonNew(
+    const data = await fetchUpstream(
+      res,
+      "googleWalkMatrixProxy",
       ROUTES_MATRIX_URL,
       "POST",
       {
@@ -581,6 +652,7 @@ export const googleWalkMatrixProxy = onRequest(
       },
       buildRoutesMatrixBody(origins, destinations)
     );
+    if (data === UPSTREAM_FAILED) return;
 
     // computeRouteMatrix は成功時に要素オブジェクトの配列を返す。配列でなければ
     // 正常な結果ではない（エラー時は {error:{...}}、それ以外も想定外応答）。認証・

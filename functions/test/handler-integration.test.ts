@@ -75,6 +75,36 @@ function mockUpstreamCapture(body: unknown): { sent(): unknown } {
   };
 }
 
+// タイムアウト/サイズ超過検証用の擬似リクエスト。https.request の返り値を
+// EventEmitter とし、destroy(err) が error イベントを発火する挙動を再現する
+// （本番の req.destroy と同じく error 経由で reject させるため）。
+function makeMockReq(): EventEmitter & {
+  write: (c: string) => void;
+  end: () => void;
+  destroy: (e?: Error) => void;
+} {
+  const req = new EventEmitter() as EventEmitter & {
+    write: (c: string) => void;
+    end: () => void;
+    destroy: (e?: Error) => void;
+  };
+  req.write = () => {};
+  req.end = () => {};
+  req.destroy = (e?: Error) => {
+    process.nextTick(() => req.emit("error", e ?? new Error("destroyed")));
+  };
+  return req;
+}
+
+// 上流無応答をシミュレートする。レスポンスコールバックを呼ばず、timeout を発火。
+function mockUpstreamTimeout(): void {
+  httpsRequestMock.mockImplementation(() => {
+    const req = makeMockReq();
+    process.nextTick(() => req.emit("timeout"));
+    return req;
+  });
+}
+
 interface CapturedRes {
   statusCode?: number;
   body?: unknown;
@@ -428,6 +458,57 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
     );
     expect(res.statusCode).toBe(429);
     expect(httpsRequestMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("ハンドラ統合（タイムアウト・信頼性ガード / issue #157）", () => {
+  const original = process.env.FUNCTIONS_EMULATOR;
+
+  beforeEach(() => {
+    resetRateLimit();
+    httpsRequestMock.mockReset();
+    process.env.FUNCTIONS_EMULATOR = "true";
+  });
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.FUNCTIONS_EMULATOR;
+    else process.env.FUNCTIONS_EMULATOR = original;
+  });
+
+  it("https.request にタイムアウトオプションを渡す", async () => {
+    mockUpstreamTimeout();
+    const res = makeRes();
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      res
+    );
+    const opts = httpsRequestMock.mock.calls[0][1] as { timeout?: number };
+    expect(opts.timeout).toBe(10000);
+  });
+
+  it("navitimeProxy: 上流無応答（timeout）は 504 を返す", async () => {
+    mockUpstreamTimeout();
+    const res = makeRes();
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      res
+    );
+    expect(res.statusCode).toBe(504);
+    expect(res.body).toEqual({ error: "upstream timeout" });
+  });
+
+  it("googleWalkProxy: 上流無応答（timeout）は 504 を返す", async () => {
+    mockUpstreamTimeout();
+    const res = makeRes();
+    await invokeHandler(
+      googleWalkProxy,
+      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }),
+      res
+    );
+    expect(res.statusCode).toBe(504);
+    expect(res.body).toEqual({ error: "upstream timeout" });
   });
 });
 
