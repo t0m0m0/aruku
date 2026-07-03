@@ -54,6 +54,12 @@ void main() {
         classifyRouteError(TimeoutException('slow')),
         RouteErrorKind.network,
       );
+      // サービス最下層でタイムアウトを変換した RouteException('TIMEOUT') も
+      // 通信系として扱う（#156）。
+      expect(
+        classifyRouteError(const RouteException('TIMEOUT')),
+        RouteErrorKind.network,
+      );
       expect(
         classifyRouteError(http.ClientException('reset')),
         RouteErrorKind.network,
