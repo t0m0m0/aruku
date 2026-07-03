@@ -77,41 +77,80 @@ void main() {
     service.completer.complete();
   });
 
-  testWidgets('routing 段階では最初のステップのみ active', (tester) async {
-    final service = _GatedRouteService([RoutePhase.routing]);
+  /// バーの塗り率（[FractionallySizedBox.widthFactor]）を読む。
+  /// バーは常時前進する擬似進捗なので、無限アニメと衝突しないよう
+  /// 固定時間の pump で時計を進めてから読む。
+  double fillFraction(WidgetTester tester) {
+    final box = tester.widget<FractionallySizedBox>(
+      find.byKey(const ValueKey('loading-progress-fill')),
+    );
+    return box.widthFactor ?? 0;
+  }
+
+  Future<void> pumpLoading(WidgetTester tester, _GatedRouteService service) {
     final container = ProviderContainer(
       overrides: [routeServiceProvider.overrideWithValue(service)],
     );
     addTearDown(container.dispose);
-
     unawaited(container.read(appStateProvider.notifier).startSearch());
-    await tester.pumpWidget(_wrap(container));
-    await tester.pump();
+    return tester.pumpWidget(_wrap(container));
+  }
 
-    expect(find.byKey(const ValueKey('loading-step-0-on')), findsOneWidget);
-    expect(find.byKey(const ValueKey('loading-step-1-off')), findsOneWidget);
-    expect(find.byKey(const ValueKey('loading-step-2-off')), findsOneWidget);
+  testWidgets('routing 段階では時間経過でバーが前進する（0〜下限内）', (tester) async {
+    final service = _GatedRouteService([RoutePhase.routing]);
+    await pumpLoading(tester, service);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+
+    final f = fillFraction(tester);
+    expect(f, greaterThan(0.0));
+    expect(f, lessThan(0.55)); // 次フェーズの下限には届かない
 
     service.completer.complete();
   });
 
-  testWidgets('walkability 段階では2ステップ目まで active', (tester) async {
+  testWidgets('walkability 段階では下限 0.55 付近まで引き上がる', (tester) async {
     final service = _GatedRouteService([
       RoutePhase.routing,
       RoutePhase.walkability,
     ]);
-    final container = ProviderContainer(
-      overrides: [routeServiceProvider.overrideWithValue(service)],
-    );
-    addTearDown(container.dispose);
+    await pumpLoading(tester, service);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
 
-    unawaited(container.read(appStateProvider.notifier).startSearch());
-    await tester.pumpWidget(_wrap(container));
+    final f = fillFraction(tester);
+    expect(f, greaterThan(0.5));
+    expect(f, lessThan(0.7));
+
+    service.completer.complete();
+  });
+
+  testWidgets('building 段階では下限 0.95 付近まで引き上がる', (tester) async {
+    final service = _GatedRouteService([
+      RoutePhase.routing,
+      RoutePhase.walkability,
+      RoutePhase.building,
+    ]);
+    await pumpLoading(tester, service);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+
+    expect(fillFraction(tester), greaterThan(0.9));
+
+    service.completer.complete();
+  });
+
+  testWidgets('同一フェーズ内でもバーは単調に前進する', (tester) async {
+    final service = _GatedRouteService([RoutePhase.routing]);
+    await pumpLoading(tester, service);
     await tester.pump();
 
-    expect(find.byKey(const ValueKey('loading-step-0-on')), findsOneWidget);
-    expect(find.byKey(const ValueKey('loading-step-1-on')), findsOneWidget);
-    expect(find.byKey(const ValueKey('loading-step-2-off')), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 600));
+    final first = fillFraction(tester);
+    await tester.pump(const Duration(milliseconds: 600));
+    final second = fillFraction(tester);
+
+    expect(second, greaterThan(first));
 
     service.completer.complete();
   });

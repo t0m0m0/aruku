@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/time_value.dart';
@@ -182,7 +185,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
                   ),
                 ),
                 const SizedBox(height: 32),
-                _ProgressSteps(phaseIndex: phaseIndex),
+                _ProgressBar(phaseIndex: phaseIndex),
               ],
             ),
           ),
@@ -192,44 +195,95 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
   }
 }
 
-class _ProgressSteps extends StatelessWidget {
-  const _ProgressSteps({required this.phaseIndex});
+/// 実態（3フェーズ）から切り離した、常に前進し続ける擬似プログレスバー。
+///
+/// 時間ベースの漸近ランプ `_asymptote·(1−e^(−t/τ))` が毎フレームわずかに
+/// 前進するため、フェーズ境界でも止まって見えない。フェーズ到達は floor
+/// （下限）として `target = max(ramp, floor)` に合成し、value を指数追従で
+/// 引き上げるので、floor が跳ねても段差にならず「加速」に見える。
+class _ProgressBar extends StatefulWidget {
+  const _ProgressBar({required this.phaseIndex});
 
   final int phaseIndex;
 
   @override
+  State<_ProgressBar> createState() => _ProgressBarState();
+}
+
+class _ProgressBarState extends State<_ProgressBar>
+    with SingleTickerProviderStateMixin {
+  late final Ticker _ticker;
+  Duration _last = Duration.zero;
+  double _value = 0;
+
+  /// フェーズ到達で保証する塗り率の下限（routing / walkability / building）。
+  static const _floors = [0.0, 0.55, 0.95];
+
+  /// 時間ランプの漸近上限。完了（画面遷移）まで満タンにはしない。
+  static const _asymptote = 0.9;
+
+  /// 時間ランプの時定数（秒）。小さいほど序盤が速い。
+  static const _rampTau = 6.0;
+
+  /// 指数追従の時定数（ミリ秒）。value が target に寄る速さ。
+  static const _chaseTau = 250.0;
+
+  double get _floor => _floors[widget.phaseIndex.clamp(0, _floors.length - 1)];
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = createTicker(_onTick)..start();
+  }
+
+  void _onTick(Duration elapsed) {
+    final dtMs = (elapsed - _last).inMicroseconds / 1000.0;
+    _last = elapsed;
+    final tSec = elapsed.inMicroseconds / 1e6;
+    final ramp = _asymptote * (1 - math.exp(-tSec / _rampTau));
+    final target = math.max(ramp, _floor);
+    final k = 1 - math.exp(-dtMs / _chaseTau);
+    setState(() => _value += (target - _value) * k);
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final c = context.c;
-    const labels = ['ルート計算', '徒歩判定', '結果生成'];
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (int i = 0; i < labels.length; i++) ...[
-          Container(
-            key: ValueKey('loading-step-$i-${i <= phaseIndex ? 'on' : 'off'}'),
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: i <= phaseIndex ? c.moss500 : c.ink4,
+    return SizedBox(
+      width: 220,
+      height: 6,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(3),
+        child: Stack(
+          children: [
+            // Track
+            Positioned.fill(
+              child: ColoredBox(color: c.ink4.withValues(alpha: 0.35)),
             ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            labels[i],
-            style: jpStyle(
-              size: 11,
-              weight: FontWeight.w700,
-              color: i <= phaseIndex ? c.moss600 : c.ink3,
+            // Fill
+            Positioned.fill(
+              child: FractionallySizedBox(
+                key: const ValueKey('loading-progress-fill'),
+                alignment: Alignment.centerLeft,
+                widthFactor: _value.clamp(0.0, 1.0),
+                heightFactor: 1,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: c.moss500,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+              ),
             ),
-          ),
-          if (i < labels.length - 1) ...[
-            const SizedBox(width: 8),
-            Container(width: 8, height: 1, color: c.ink4),
-            const SizedBox(width: 8),
           ],
-        ],
-      ],
+        ),
+      ),
     );
   }
 }
