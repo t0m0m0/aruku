@@ -47,6 +47,10 @@ class SearchState {
 }
 
 class PlacesNotifier extends Notifier<SearchState> {
+  /// Autocomplete は課金リクエストなので、実用性の低い短すぎるクエリでは発行しない（#162）。
+  /// 日本語でも 1 文字の候補品質は低いため、2 文字以上を最小の発火条件とする。
+  static const int minQueryLength = 2;
+
   Timer? _debounce;
 
   /// 検索ごとに増やすリクエスト世代。新しい検索が始まった後に古い結果で
@@ -66,8 +70,10 @@ class PlacesNotifier extends Notifier<SearchState> {
   void search(String query) {
     _debounce?.cancel();
     _generation++;
-    if (query.isEmpty) {
-      // クエリは消えてもモード（nearby）は保つ。
+    // 空・最小文字数未満（1 文字）はフェッチせず候補をクリアする。ローディングにも
+    // しない（発火しないため）。クエリが短くてもモード（nearby）は保つ。
+    // 文字数は runes（コードポイント）で数え、サロゲートペアを 1 文字として扱う。
+    if (query.runes.length < minQueryLength) {
       state = SearchState(nearby: state.nearby);
       return;
     }

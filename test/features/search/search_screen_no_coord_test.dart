@@ -78,7 +78,7 @@ Future<ProviderContainer> _makeContainer(
 
 Future<void> _tapSuggestion(WidgetTester tester) async {
   // 候補名と一致しないクエリにしてハイライト RichText ではなく Text で描画させる。
-  await tester.enterText(find.byType(TextField), 'z');
+  await tester.enterText(find.byType(TextField), 'zz');
   await tester.pump(const Duration(milliseconds: 450)); // debounce
   await tester.pump(); // autocomplete 完了
   await tester.tap(find.text('テスト目的地'));

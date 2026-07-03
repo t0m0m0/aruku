@@ -128,7 +128,7 @@ void main() {
       await tester.pump();
 
       // クエリは候補名と一致しないものにして RichText ではなく Text で描画させる。
-      await tester.enterText(find.byType(TextField), 'z');
+      await tester.enterText(find.byType(TextField), 'zz');
       await tester.pump(const Duration(milliseconds: 450));
       await tester.pump();
       await tester.tap(find.text('新候補'));

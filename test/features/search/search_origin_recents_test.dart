@@ -124,7 +124,7 @@ void main() {
       await tester.pumpWidget(_wrap(container));
       await tester.pump();
 
-      await tester.enterText(find.byType(TextField), 'z');
+      await tester.enterText(find.byType(TextField), 'zz');
       await tester.pump(const Duration(milliseconds: 450));
       await tester.pump();
       await tester.tap(find.text('新出発地'));

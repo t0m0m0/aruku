@@ -176,7 +176,7 @@ void main() {
 
       fakeAsync((fake) {
         container.read(placesProvider.notifier).setNearby(true);
-        container.read(placesProvider.notifier).search('店');
+        container.read(placesProvider.notifier).search('喫茶');
         fake.elapse(const Duration(milliseconds: 500));
         fake.flushMicrotasks();
 
@@ -211,7 +211,7 @@ void main() {
       addTearDown(container.dispose);
 
       fakeAsync((fake) {
-        container.read(placesProvider.notifier).search('店');
+        container.read(placesProvider.notifier).search('喫茶');
         fake.elapse(const Duration(milliseconds: 500));
         fake.flushMicrotasks();
 
@@ -246,7 +246,7 @@ void main() {
 
       fakeAsync((fake) {
         container.read(placesProvider.notifier).setNearby(true);
-        container.read(placesProvider.notifier).search('店');
+        container.read(placesProvider.notifier).search('喫茶');
         fake.elapse(const Duration(milliseconds: 500));
         fake.flushMicrotasks();
 
@@ -277,7 +277,7 @@ void main() {
 
       fakeAsync((fake) {
         container.read(placesProvider.notifier).setNearby(true);
-        container.read(placesProvider.notifier).search('店');
+        container.read(placesProvider.notifier).search('喫茶');
         fake.elapse(const Duration(milliseconds: 500));
         fake.flushMicrotasks();
 
@@ -310,7 +310,7 @@ void main() {
       addTearDown(container.dispose);
 
       fakeAsync((fake) {
-        container.read(placesProvider.notifier).search('店');
+        container.read(placesProvider.notifier).search('喫茶');
         fake.elapse(const Duration(milliseconds: 500));
         fake.flushMicrotasks();
         // OFF: 関連度順のまま。
@@ -326,6 +326,69 @@ void main() {
           container.read(placesProvider).suggestions.first.placeId,
           'near',
         );
+      });
+    });
+
+    test('1文字ではフェッチせず loading にもしない（最小文字数ガード・#162）', () {
+      final service = _FakePlacesService(const [
+        PlacePrediction(placeId: 'id1', name: '渋谷駅', address: '東京都渋谷区'),
+      ]);
+      final container = _makeContainer(service);
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).search('渋');
+        // デバウンス経過後もフェッチは発火しない。
+        expect(container.read(placesProvider).status, SearchStatus.idle);
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        expect(service.autocompleteCalls, 0);
+        expect(container.read(placesProvider).status, SearchStatus.idle);
+      });
+    });
+
+    test('2文字ちょうどで従来どおり取得される（#162）', () {
+      final service = _FakePlacesService(const [
+        PlacePrediction(placeId: 'id1', name: '渋谷駅', address: '東京都渋谷区'),
+      ]);
+      final container = _makeContainer(service);
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).search('渋谷');
+        expect(container.read(placesProvider).status, SearchStatus.loading);
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+
+        expect(service.autocompleteCalls, 1);
+        expect(container.read(placesProvider).status, SearchStatus.success);
+      });
+    });
+
+    test('2→1文字に減ると候補をクリアし nearby は保持（#162）', () {
+      final service = _FakePlacesService(const [
+        PlacePrediction(placeId: 'id1', name: '渋谷駅', address: '東京都渋谷区'),
+      ]);
+      final container = _makeContainer(
+        service,
+        location: const GeoPoint(35.66, 139.7),
+      );
+      addTearDown(container.dispose);
+
+      fakeAsync((fake) {
+        container.read(placesProvider.notifier).setNearby(true);
+        container.read(placesProvider.notifier).search('渋谷');
+        fake.elapse(const Duration(milliseconds: 500));
+        fake.flushMicrotasks();
+        expect(container.read(placesProvider).suggestions, isNotEmpty);
+
+        // バックスペースで 1 文字に減ると候補はクリア、モードは維持。
+        container.read(placesProvider.notifier).search('渋');
+        final state = container.read(placesProvider);
+        expect(state.suggestions, isEmpty);
+        expect(state.status, SearchStatus.idle);
+        expect(state.nearby, isTrue);
       });
     });
 
