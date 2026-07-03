@@ -177,15 +177,41 @@ export function buildRoutesMatrixBody(
   });
 }
 
-// レート制限のキーに使うクライアント IP を返す。
+// レート制限のキーに使うクライアント IP を返す（issue #151）。
 //
-// X-Forwarded-For の先頭要素はクライアントが自由に偽装でき、これを採用すると
-// IP 単位のレート制限が回避される（issue #151）。gen2 (Cloud Run) では
-// functions-framework が Express の trust proxy を環境に合わせて設定するため、
-// req.ip がプラットフォームの解決した実接続元 IP を返す。これを唯一の信頼源とし、
-// req.ip が無い場合は偽装可能な XFF にフォールバックせず "unknown" を返す
-// （フェイルクローズ：最悪でも全員が同一バケットで過剰制限されるだけで、バイパスは起きない）。
+// なぜ req.ip を使わないか：
+//   gen2 (Cloud Run) の実行基盤である functions-framework は起動時に
+//   `app.enable('trust proxy')`（= trust proxy = true / 全プロキシ信頼）を
+//   呼ぶ。この設定下で Express の req.ip は X-Forwarded-For の *最左端* を返す。
+//   最左端はクライアントが自由に prepend できる値なので、req.ip をキーにすると
+//   攻撃者が毎リクエスト別の先頭値を送るだけで IP 単位のレート制限を回避できる。
+//
+// 正しい信頼境界：
+//   クライアントが送る XFF 値は必ずヘッダの左側に積まれ、Google インフラは
+//   実接続元 IP をヘッダの *右端* に追記する。攻撃者は右端より後ろに値を
+//   足せないため、「右から数えた位置」は常にインフラ制御であり偽装不可能。
+//   そこで req.ip ではなく XFF を自前パースし、右から TRUSTED_PROXY_HOPS 番目を
+//   採用する。Firebase Functions gen2 の直アクセス（外部 LB 無し）では基盤が
+//   実 IP を最後の 1 要素として追記するため右端（=1）で実クライアントに一致する。
+//
+// フェイルクローズ性：
+//   仮にホップ数が想定とずれても「右から数える」限り攻撃者制御値には決して
+//   到達せず、最悪でも定数 IP に丸まって全員が同一バケットで過剰制限されるだけ。
+//   バイパスは構造的に起きない。XFF が無い場合（ローカル/エミュレータ等）のみ、
+//   偽装される余地の無い req.ip（この分岐では実ソケット peer に等しい）へ戻す。
+const TRUSTED_PROXY_HOPS = 1;
+
 export function clientIp(req: Request): string {
+  const fwd = req.headers["x-forwarded-for"];
+  const chain = typeof fwd === "string"
+    ? fwd.split(",")
+    : Array.isArray(fwd)
+      ? fwd.flatMap((v) => v.split(","))
+      : [];
+  const trusted = chain.map((s) => s.trim()).filter((s) => s.length > 0);
+  if (trusted.length >= TRUSTED_PROXY_HOPS) {
+    return trusted[trusted.length - TRUSTED_PROXY_HOPS];
+  }
   return req.ip ?? "unknown";
 }
 
