@@ -82,10 +82,10 @@ class TransitRouteService implements RouteService {
   /// 余りが残っていたため引き上げた。
   static const int _maxCorridorStops = 60;
 
-  /// 経路選定の詳細ログを出すか（再現調査用・#137）。debugPrint はリリースビルドでは
-  /// 自動的に no-op になるため本番表示には影響しない。`flutter run` で `[route]` を
-  /// grep すれば候補ごとの徒歩分・実到着・余り・崩壊判定が追える。
-  static const bool _verboseRouteLog = true;
+  /// 経路選定の詳細ログを出すか（再現調査用・#137）。debugPrint はリリースビルドでも
+  /// 出力されるため、`kDebugMode` から導出してリリースビルドでは無効化する（#153）。
+  /// `flutter run` で `[route]` を grep すれば候補ごとの徒歩分・実到着・余り・崩壊判定が追える。
+  static const bool _verboseRouteLog = kDebugMode;
 
   /// 選定ログ1行を `[route]` プレフィックス付きで出す（[_verboseRouteLog] が真のときのみ）。
   void _log(String msg) {
