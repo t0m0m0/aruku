@@ -141,7 +141,8 @@ class PlacesException implements Exception {
 }
 
 final placesServiceProvider = Provider<PlacesService>((ref) {
-  final client = AppCheckHttpClient(TimeoutHttpClient(http.Client()));
+  // TimeoutHttpClient は最外側に置き、App Check の getToken を含む全体を打ち切る（#156）。
+  final client = TimeoutHttpClient(AppCheckHttpClient(http.Client()));
   ref.onDispose(client.close);
   return GooglePlacesService(client: client);
 });
