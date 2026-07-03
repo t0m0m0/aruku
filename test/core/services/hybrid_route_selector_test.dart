@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/services/hybrid_route_selector.dart';
@@ -554,6 +556,119 @@ void main() {
       );
       expect(i, isNull);
       expect(calls, 0);
+    });
+  });
+
+  group('maxWalkBoardingIndexParallel', () {
+    // 直列版と同じ実機プローブデータ（蒲田→上野公園・180分）。index 昇順で単調増加。
+    const totals = [67, 91, 118, 126, 140, 154, 170, 181, 188];
+
+    test('単調データで直列版と同じ境界（予算内の最遠 index）を返す', () async {
+      final i = await maxWalkBoardingIndexParallel(
+        count: totals.length,
+        budgetMin: 180,
+        evaluate: (index) async => totals[index],
+      );
+      expect(i, 6);
+    });
+
+    test('全候補が予算内なら末尾 index を返す', () async {
+      final i = await maxWalkBoardingIndexParallel(
+        count: totals.length,
+        budgetMin: 999,
+        evaluate: (index) async => totals[index],
+      );
+      expect(i, totals.length - 1);
+    });
+
+    test('先頭のみ予算内なら index 0', () async {
+      final i = await maxWalkBoardingIndexParallel(
+        count: totals.length,
+        budgetMin: 80, // 67<=80<91
+        evaluate: (index) async => totals[index],
+      );
+      expect(i, 0);
+    });
+
+    test('予算内候補が皆無なら null', () async {
+      final i = await maxWalkBoardingIndexParallel(
+        count: totals.length,
+        budgetMin: 50, // 先頭 67 すら超過
+        evaluate: (index) async => totals[index],
+      );
+      expect(i, isNull);
+    });
+
+    test('候補が空なら null（評価を呼ばない）', () async {
+      var calls = 0;
+      final i = await maxWalkBoardingIndexParallel(
+        count: 0,
+        budgetMin: 180,
+        evaluate: (index) async {
+          calls++;
+          return 0;
+        },
+      );
+      expect(i, isNull);
+      expect(calls, 0);
+    });
+
+    test('各ラウンドの評価を並列に投げる（複数点が同時に in-flight）', () async {
+      final pending = <int, Completer<int>>{};
+      final future = maxWalkBoardingIndexParallel(
+        count: totals.length,
+        budgetMin: 180,
+        evaluate: (index) {
+          final c = Completer<int>();
+          pending[index] = c;
+          return c.future;
+        },
+      );
+      await Future<void>.delayed(Duration.zero);
+      // 最初のラウンド（区間0..8の4等分点 {2,4,6}）が同時に投げられている。
+      // 直列二分探索なら in-flight は常に1。
+      expect(pending.length, greaterThanOrEqualTo(2));
+      // 以降はラウンドごとに解決して完走させる。
+      while (pending.isNotEmpty) {
+        final round = [...pending.entries];
+        pending.clear();
+        for (final e in round) {
+          e.value.complete(totals[e.key]);
+        }
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(await future, 6);
+    });
+
+    test('評価回数はラウンド数×fanout に収まり、同一 index を二度評価しない', () async {
+      final evaluated = <int>[];
+      await maxWalkBoardingIndexParallel(
+        count: totals.length,
+        budgetMin: 180,
+        evaluate: (index) async {
+          evaluated.add(index);
+          return totals[index];
+        },
+      );
+      // fanout=3 なら 9 点は ceil(log4(9))=2 ラウンド ×3 点以内で収束する。
+      expect(evaluated.length, lessThanOrEqualTo(6));
+      expect(evaluated.toSet().length, evaluated.length, reason: '重複評価なし');
+    });
+
+    test('fanout=1 は直列二分探索と同一の挙動（中点1点ずつ）', () async {
+      final evaluated = <int>[];
+      final i = await maxWalkBoardingIndexParallel(
+        count: totals.length,
+        budgetMin: 180,
+        fanout: 1,
+        evaluate: (index) async {
+          evaluated.add(index);
+          return totals[index];
+        },
+      );
+      expect(i, 6);
+      // 直列版と同じ二分探索の軌道: mid=4→6→7→(区間枯れ) の順。
+      expect(evaluated, [4, 6, 7]);
     });
   });
 }
