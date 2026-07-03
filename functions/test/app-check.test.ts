@@ -89,4 +89,49 @@ describe("verifyAppCheck", () => {
     expect(res.statusCode).toBeUndefined();
     expect(verifyTokenMock).toHaveBeenCalledWith("good-token");
   });
+
+  describe("consume（リプレイ保護, issue #155）", () => {
+    it("consume:true のとき verifyToken に { consume: true } を渡す", async () => {
+      verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: false });
+      const res = makeRes();
+      const ok = await verifyAppCheck(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        makeReq("fresh-token") as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        res as any,
+        { consume: true }
+      );
+      expect(ok).toBe(true);
+      expect(res.statusCode).toBeUndefined();
+      expect(verifyTokenMock).toHaveBeenCalledWith("fresh-token", {
+        consume: true,
+      });
+    });
+
+    it("alreadyConsumed:true は 401 でリプレイ拒否する", async () => {
+      verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: true });
+      const res = makeRes();
+      const ok = await verifyAppCheck(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        makeReq("replayed-token") as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        res as any,
+        { consume: true }
+      );
+      expect(ok).toBe(false);
+      expect(res.statusCode).toBe(401);
+      expect(res.body).toEqual({ error: "App Check token already consumed" });
+    });
+
+    it("consume 未指定時は verifyToken を単一引数で呼ぶ（従来動作）", async () => {
+      verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: true });
+      const res = makeRes();
+      // consume を渡さなければ alreadyConsumed は無視され true のまま
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ok = await verifyAppCheck(makeReq("std-token") as any, res as any);
+      expect(ok).toBe(true);
+      expect(res.statusCode).toBeUndefined();
+      expect(verifyTokenMock).toHaveBeenCalledWith("std-token");
+    });
+  });
 });

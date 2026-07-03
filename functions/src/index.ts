@@ -220,7 +220,20 @@ export function clientIp(req: Request): string {
 // must be verified explicitly. Without a valid token the request is rejected
 // with 401, blocking unauthenticated access to these billable proxies.
 // The emulator is exempted so local development works without App Check setup.
-export async function verifyAppCheck(req: Request, res: Response): Promise<boolean> {
+//
+// リプレイ保護（issue #155）:
+//   opts.consume=true のとき verifyToken に { consume: true } を渡し、App Check
+//   バックエンドにトークンを「消費済み」として記録させる。クライアントは
+//   getLimitedUseToken() で毎回新規トークンを送る前提で、2 回目以降は応答の
+//   alreadyConsumed=true で返るためリプレイとして 401 で弾く。追加往復のコストが
+//   あるため、要素数課金の googleWalkMatrixProxy のような高単価エンドポイント
+//   限定で有効化する。consume 未指定時は従来通り単一引数で検証する（他プロキシは
+//   キャッシュ済み標準トークンを再利用でき、動作・コストとも不変）。
+export async function verifyAppCheck(
+  req: Request,
+  res: Response,
+  opts: { consume?: boolean } = {}
+): Promise<boolean> {
   if (process.env.FUNCTIONS_EMULATOR === "true") return true;
   const token = req.header("X-Firebase-AppCheck");
   if (!token) {
@@ -229,7 +242,14 @@ export async function verifyAppCheck(req: Request, res: Response): Promise<boole
     return false;
   }
   try {
-    await getAppCheck().verifyToken(token);
+    const result = opts.consume
+      ? await getAppCheck().verifyToken(token, { consume: true })
+      : await getAppCheck().verifyToken(token);
+    if (opts.consume && result.alreadyConsumed) {
+      console.warn("AppCheck: token already consumed (replay)");
+      res.status(401).json({ error: "App Check token already consumed" });
+      return false;
+    }
     return true;
   } catch (e) {
     console.warn("AppCheck: token invalid", e);
@@ -520,7 +540,9 @@ export const googleWalkMatrixProxy = onRequest(
       return;
     }
 
-    if (!(await verifyAppCheck(req, res))) return;
+    // 要素数課金で最も高単価なため、リプレイ保護（limited-use token 消費）を
+    // このエンドポイントに限定して有効化する（issue #155）。
+    if (!(await verifyAppCheck(req, res, { consume: true }))) return;
 
     if (!(await checkRateLimit(clientIp(req), WALK_RATE_LIMIT))) {
       res.status(429).json({ error: "Too many requests" });

@@ -23,8 +23,8 @@ class _FakeInnerClient extends http.BaseClient {
   void close() => closed = true;
 }
 
-http.Request _request() =>
-    http.Request('GET', Uri.parse('https://proxy.example.com/placesProxy'));
+http.Request _request([String path = 'placesProxy']) =>
+    http.Request('GET', Uri.parse('https://proxy.example.com/$path'));
 
 void main() {
   group('AppCheckHttpClient.send', () {
@@ -79,6 +79,61 @@ void main() {
 
       expect(
         inner.lastRequest!.headers.containsKey('X-Firebase-AppCheck'),
+        isFalse,
+      );
+    });
+  });
+
+  group('limited-use トークン（リプレイ保護, issue #155）', () {
+    test('googleWalkMatrixProxy へは limited-use プロバイダのトークンを付与する', () async {
+      final inner = _FakeInnerClient();
+      final client = AppCheckHttpClient(
+        inner,
+        tokenProvider: () async => 'standard_token',
+        limitedUseTokenProvider: () async => 'limited_use_token',
+      );
+
+      await client.send(_request('googleWalkMatrixProxy'));
+
+      expect(
+        inner.lastRequest!.headers['X-Firebase-AppCheck'],
+        'limited_use_token',
+      );
+    });
+
+    test('matrix 以外（googleWalkProxy）へは標準プロバイダのトークンを付与する', () async {
+      final inner = _FakeInnerClient();
+      final client = AppCheckHttpClient(
+        inner,
+        tokenProvider: () async => 'standard_token',
+        limitedUseTokenProvider: () async => 'limited_use_token',
+      );
+
+      await client.send(_request('googleWalkProxy'));
+
+      expect(
+        inner.lastRequest!.headers['X-Firebase-AppCheck'],
+        'standard_token',
+      );
+    });
+
+    test('requiresLimitedUseToken は matrix パスのみ true', () {
+      expect(
+        AppCheckHttpClient.requiresLimitedUseToken(
+          Uri.parse('https://proxy.example.com/googleWalkMatrixProxy'),
+        ),
+        isTrue,
+      );
+      expect(
+        AppCheckHttpClient.requiresLimitedUseToken(
+          Uri.parse('https://proxy.example.com/googleWalkProxy'),
+        ),
+        isFalse,
+      );
+      expect(
+        AppCheckHttpClient.requiresLimitedUseToken(
+          Uri.parse('https://proxy.example.com/placesProxy'),
+        ),
         isFalse,
       );
     });
