@@ -111,18 +111,16 @@ function makeRes(): CapturedRes {
 function makeReq(opts: {
   query?: Record<string, string>;
   token?: string;
-  forwardedFor?: string;
+  ip?: string;
   method?: string;
 }) {
-  const headers: Record<string, string | undefined> = {};
-  if (opts.forwardedFor) headers["x-forwarded-for"] = opts.forwardedFor;
   return {
     method: opts.method ?? "GET",
     query: opts.query ?? {},
-    headers,
+    headers: {} as Record<string, string | undefined>,
     header: (name: string) =>
       name === "X-Firebase-AppCheck" ? opts.token : undefined,
-    ip: "127.0.0.1",
+    ip: opts.ip ?? "127.0.0.1",
   };
 }
 
@@ -424,7 +422,7 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
       navitimeProxy,
       makeReq({
         query: { start: "1,1", goal: "2,2", start_time: "t" },
-        forwardedFor: "9.9.9.9",
+        ip: "9.9.9.9",
       }),
       res
     );
