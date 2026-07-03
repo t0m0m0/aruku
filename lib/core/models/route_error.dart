@@ -39,6 +39,9 @@ RouteErrorKind classifyRouteError(Object error) {
       case 'UNKNOWN_ERROR':
       case 'UNKNOWN':
       case 'OVER_QUERY_LIMIT':
+      // TIMEOUT: サービス最下層が TimeoutException を変換したもの（#156）。無応答は
+      // 通信状況の問題なので network 扱いで「通信に失敗しました／再試行」に落とす。
+      case 'TIMEOUT':
         return RouteErrorKind.network;
     }
     if (error.status.startsWith('HTTP')) return RouteErrorKind.network;

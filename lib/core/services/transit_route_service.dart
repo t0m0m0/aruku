@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -981,7 +982,7 @@ class TransitRouteService implements RouteService {
         'numItineraries': '$_numItineraries',
       },
     );
-    final res = await _transit.get(uri);
+    final res = await _getOrTimeout(_transit, uri);
     if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
     return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
   }
@@ -1137,7 +1138,7 @@ class TransitRouteService implements RouteService {
     final uri = Uri.parse(
       '$_proxyBaseUrl/$path',
     ).replace(queryParameters: params);
-    final res = await _proxy.get(uri);
+    final res = await _getOrTimeout(_proxy, uri);
     if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
     return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
   }
@@ -1149,11 +1150,22 @@ class TransitRouteService implements RouteService {
     final uri = Uri.parse(
       '$_proxyBaseUrl/$path',
     ).replace(queryParameters: params);
-    final res = await _proxy.get(uri);
+    final res = await _getOrTimeout(_proxy, uri);
     if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
     final decoded = jsonDecode(utf8.decode(res.bodyBytes));
     if (decoded is! List) throw const RouteException('MATRIX_NOT_ARRAY');
     return decoded;
+  }
+
+  /// [client] で [uri] を GET し、タイムアウト（[TimeoutHttpClient]・#156）を
+  /// `RouteException('TIMEOUT')` へ変換する。これで無応答は既存の UI エラー処理と
+  /// 縮退（失敗レッグは `on RouteException` で直線推定・候補スキップ）にそのまま乗る。
+  Future<http.Response> _getOrTimeout(http.Client client, Uri uri) async {
+    try {
+      return await client.get(uri);
+    } on TimeoutException {
+      throw const RouteException('TIMEOUT');
+    }
   }
 
   /// 出発の絶対時刻。dateOffset（isNow→0）で日付を決定する（NAVITIME 版と同基準）。
