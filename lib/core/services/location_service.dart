@@ -27,10 +27,23 @@ class GeolocatorLocationService implements LocationService {
         return const LocationDenied();
       }
 
-      final pos = await Geolocator.getCurrentPosition();
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
       return LocationAvailable(GeoPoint(pos.latitude, pos.longitude));
-    } catch (_) {
+    } on LocationServiceDisabledException {
+      // 前段チェック通過後にサービスが切られた場合（TOCTOU）。前段の
+      // isLocationServiceEnabled 判定と同じく再試行不可の LocationDenied に寄せる。
       return const LocationDenied();
+    } on PermissionDefinitionsNotFoundException {
+      // プラットフォーム側の権限定義不足。再試行では解消しないため LocationDenied。
+      return const LocationDenied();
+    } catch (_) {
+      // GPS の一時的な失敗やタイムアウトは権限拒否に丸めず、再試行可能な
+      // LocationUnavailable として区別する。
+      return const LocationUnavailable();
     }
   }
 
