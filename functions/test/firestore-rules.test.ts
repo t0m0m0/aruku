@@ -129,6 +129,15 @@ describe("firestore.rules userSync", () => {
         }),
       );
     });
+
+    it("settings.notificationsEnabled が bool でないと拒否する", async () => {
+      await assertFails(
+        setDoc(ownerDoc(testEnv, OWNER), {
+          ...validSyncData(),
+          settings: { notificationsEnabled: "x".repeat(900000) },
+        }),
+      );
+    });
   });
 
   describe("サイズ上限", () => {

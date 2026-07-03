@@ -25,6 +25,7 @@ service cloud.firestore {
              && d.updatedAt is string && d.updatedAt.size() <= 40
              && d.settings is map
              && d.settings.keys().hasOnly(['notificationsEnabled'])
+             && d.settings.notificationsEnabled is bool
              && d.favorites is list && d.favorites.size() <= 100
              && d.recents is list && d.recents.size() <= 50
              && d.recentOrigins is list && d.recentOrigins.size() <= 50
