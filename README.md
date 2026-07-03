@@ -120,7 +120,13 @@ npx -y firebase-tools@latest deploy --only firestore:rules
 # 3. TTL ポリシーを設定し、期限切れドキュメントを自動削除（無限増殖を防止）
 gcloud firestore fields ttls update expireAt \
   --collection-group=rateLimits --enable-ttl --project aruku-app
+
+# 4. 設定が反映されたか確認（state が ACTIVE になっていれば有効）
+gcloud firestore fields ttls list --collection-group=rateLimits --project aruku-app
 ```
+
+手順 3 はコンソール操作でも設定可能なため、コードからは実施済みかどうか判別できません。
+定期的に手順 4 で `state: ACTIVE` を確認してください（Issue #161）。
 
 ドキュメントは `{ count, resetAt, expireAt }` を持ち、`expireAt`（Timestamp）が TTL の対象です。
 Firestore 呼び出しが失敗した場合はフェイルオープン（リクエスト通過）し、`console.error` に記録します。
