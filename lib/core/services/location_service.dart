@@ -27,10 +27,16 @@ class GeolocatorLocationService implements LocationService {
         return const LocationDenied();
       }
 
-      final pos = await Geolocator.getCurrentPosition();
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
       return LocationAvailable(GeoPoint(pos.latitude, pos.longitude));
     } catch (_) {
-      return const LocationDenied();
+      // ここに到達する時点で権限チェックは通過済み。GPS の一時的な失敗や
+      // タイムアウトを権限拒否に丸めず、再試行可能な状態として区別する。
+      return const LocationUnavailable();
     }
   }
 
