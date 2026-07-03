@@ -177,10 +177,15 @@ export function buildRoutesMatrixBody(
   });
 }
 
+// レート制限のキーに使うクライアント IP を返す。
+//
+// X-Forwarded-For の先頭要素はクライアントが自由に偽装でき、これを採用すると
+// IP 単位のレート制限が回避される（issue #151）。gen2 (Cloud Run) では
+// functions-framework が Express の trust proxy を環境に合わせて設定するため、
+// req.ip がプラットフォームの解決した実接続元 IP を返す。これを唯一の信頼源とし、
+// req.ip が無い場合は偽装可能な XFF にフォールバックせず "unknown" を返す
+// （フェイルクローズ：最悪でも全員が同一バケットで過剰制限されるだけで、バイパスは起きない）。
 export function clientIp(req: Request): string {
-  const fwd = req.headers["x-forwarded-for"];
-  if (typeof fwd === "string") return fwd.split(",")[0].trim();
-  if (Array.isArray(fwd)) return fwd[0].trim();
   return req.ip ?? "unknown";
 }
 

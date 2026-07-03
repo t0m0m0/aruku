@@ -15,22 +15,34 @@ function makeReq(opts: {
 }
 
 describe("clientIp", () => {
-  it("x-forwarded-for 文字列は先頭の IP を取り出して trim する", () => {
-    const req = makeReq({ forwardedFor: "203.0.113.1, 70.41.3.18, 150.172.238.178" });
-    expect(clientIp(req)).toBe("203.0.113.1");
-  });
-
-  it("x-forwarded-for 配列は先頭要素を trim して使う", () => {
-    const req = makeReq({ forwardedFor: ["  198.51.100.5  ", "10.0.0.1"] });
-    expect(clientIp(req)).toBe("198.51.100.5");
-  });
-
-  it("x-forwarded-for が無ければ req.ip にフォールバックする", () => {
+  it("req.ip（プラットフォームが解決した実接続元 IP）を採用する", () => {
     const req = makeReq({ ip: "198.51.100.2" });
     expect(clientIp(req)).toBe("198.51.100.2");
   });
 
-  it("x-forwarded-for も req.ip も無ければ 'unknown'", () => {
+  it("偽装された X-Forwarded-For 先頭値は無視し req.ip を採用する", () => {
+    // 攻撃者が任意の先頭値を差し込んでも、レート制限キーは req.ip のまま。
+    const req = makeReq({
+      forwardedFor: "1.2.3.4, 70.41.3.18",
+      ip: "198.51.100.2",
+    });
+    expect(clientIp(req)).toBe("198.51.100.2");
+  });
+
+  it("X-Forwarded-For が配列でも req.ip を優先する", () => {
+    const req = makeReq({
+      forwardedFor: ["1.2.3.4", "10.0.0.1"],
+      ip: "198.51.100.2",
+    });
+    expect(clientIp(req)).toBe("198.51.100.2");
+  });
+
+  it("req.ip が無ければ 'unknown'（偽装可能な XFF にはフォールバックしない）", () => {
+    const req = makeReq({ forwardedFor: "1.2.3.4, 70.41.3.18" });
+    expect(clientIp(req)).toBe("unknown");
+  });
+
+  it("req.ip も XFF も無ければ 'unknown'", () => {
     const req = makeReq({});
     expect(clientIp(req)).toBe("unknown");
   });
