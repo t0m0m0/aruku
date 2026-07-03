@@ -182,7 +182,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
                   ),
                 ),
                 const SizedBox(height: 32),
-                _ProgressSteps(phaseIndex: phaseIndex),
+                _ProgressBar(phaseIndex: phaseIndex),
               ],
             ),
           ),
@@ -192,44 +192,58 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
   }
 }
 
-class _ProgressSteps extends StatelessWidget {
-  const _ProgressSteps({required this.phaseIndex});
+class _ProgressBar extends StatelessWidget {
+  const _ProgressBar({required this.phaseIndex});
 
   final int phaseIndex;
+
+  /// 離散3フェーズを連続バーの塗り率へ対応させる（完了ベース）。
+  /// routing→1/3, walkability→2/3, building→100%。
+  double get _fill => switch (phaseIndex) {
+    0 => 1 / 3,
+    1 => 2 / 3,
+    _ => 1.0,
+  };
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    const labels = ['ルート計算', '徒歩判定', '結果生成'];
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (int i = 0; i < labels.length; i++) ...[
-          Container(
-            key: ValueKey('loading-step-$i-${i <= phaseIndex ? 'on' : 'off'}'),
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: i <= phaseIndex ? c.moss500 : c.ink4,
+    return SizedBox(
+      width: 220,
+      height: 6,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(3),
+        child: Stack(
+          children: [
+            // Track
+            Positioned.fill(
+              child: ColoredBox(color: c.ink4.withValues(alpha: 0.35)),
             ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            labels[i],
-            style: jpStyle(
-              size: 11,
-              weight: FontWeight.w700,
-              color: i <= phaseIndex ? c.moss600 : c.ink3,
+            // Fill — TweenAnimationBuilder eases toward each phase boundary.
+            // onProgress fires at each phase start, so the bar climbs to the
+            // current segment's edge and reaches 100% during "building".
+            Positioned.fill(
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: _fill),
+                duration: const Duration(milliseconds: 600),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, _) => FractionallySizedBox(
+                  key: const ValueKey('loading-progress-fill'),
+                  alignment: Alignment.centerLeft,
+                  widthFactor: value,
+                  heightFactor: 1,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: c.moss500,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                ),
+              ),
             ),
-          ),
-          if (i < labels.length - 1) ...[
-            const SizedBox(width: 8),
-            Container(width: 8, height: 1, color: c.ink4),
-            const SizedBox(width: 8),
           ],
-        ],
-      ],
+        ),
+      ),
     );
   }
 }

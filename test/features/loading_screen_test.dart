@@ -77,7 +77,16 @@ void main() {
     service.completer.complete();
   });
 
-  testWidgets('routing 段階では最初のステップのみ active', (tester) async {
+  /// バーの塗り率（[FractionallySizedBox.widthFactor]）を読む。
+  /// Tween を終端まで進めるため、無限アニメと衝突しない固定時間で pump する。
+  double fillFraction(WidgetTester tester) {
+    final box = tester.widget<FractionallySizedBox>(
+      find.byKey(const ValueKey('loading-progress-fill')),
+    );
+    return box.widthFactor ?? 0;
+  }
+
+  testWidgets('routing 段階ではバーが 1/3 まで伸びる', (tester) async {
     final service = _GatedRouteService([RoutePhase.routing]);
     final container = ProviderContainer(
       overrides: [routeServiceProvider.overrideWithValue(service)],
@@ -87,15 +96,14 @@ void main() {
     unawaited(container.read(appStateProvider.notifier).startSearch());
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
 
-    expect(find.byKey(const ValueKey('loading-step-0-on')), findsOneWidget);
-    expect(find.byKey(const ValueKey('loading-step-1-off')), findsOneWidget);
-    expect(find.byKey(const ValueKey('loading-step-2-off')), findsOneWidget);
+    expect(fillFraction(tester), closeTo(1 / 3, 0.001));
 
     service.completer.complete();
   });
 
-  testWidgets('walkability 段階では2ステップ目まで active', (tester) async {
+  testWidgets('walkability 段階ではバーが 2/3 まで伸びる', (tester) async {
     final service = _GatedRouteService([
       RoutePhase.routing,
       RoutePhase.walkability,
@@ -108,10 +116,30 @@ void main() {
     unawaited(container.read(appStateProvider.notifier).startSearch());
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
 
-    expect(find.byKey(const ValueKey('loading-step-0-on')), findsOneWidget);
-    expect(find.byKey(const ValueKey('loading-step-1-on')), findsOneWidget);
-    expect(find.byKey(const ValueKey('loading-step-2-off')), findsOneWidget);
+    expect(fillFraction(tester), closeTo(2 / 3, 0.001));
+
+    service.completer.complete();
+  });
+
+  testWidgets('building 段階ではバーが 100% まで伸びる', (tester) async {
+    final service = _GatedRouteService([
+      RoutePhase.routing,
+      RoutePhase.walkability,
+      RoutePhase.building,
+    ]);
+    final container = ProviderContainer(
+      overrides: [routeServiceProvider.overrideWithValue(service)],
+    );
+    addTearDown(container.dispose);
+
+    unawaited(container.read(appStateProvider.notifier).startSearch());
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
+
+    expect(fillFraction(tester), closeTo(1.0, 0.001));
 
     service.completer.complete();
   });
