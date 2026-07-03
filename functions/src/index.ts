@@ -262,6 +262,11 @@ export async function verifyAppCheck(
 // インスタンスを課金枠（gen2 既定 60s）まで張り付かせないよう、十分手前で打ち切る。
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
+// 受信レスポンスの累積バイト上限。想定外に巨大な応答でメモリを圧迫しないよう、
+// 超過時点で接続を破棄する。上流（Places/Routes/NAVITIME）の正常応答は数百KB
+// 程度のため、正常系に十分な余裕を持たせた値にする。
+export const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
+
 // requestJsonNew の失敗種別。呼び出し側で 504（timeout）と 502（その他上流障害）を
 // 区別するために用いる。
 type UpstreamErrorKind = "timeout" | "too_large" | "network" | "parse";
@@ -294,7 +299,16 @@ function requestJsonNew(
       { method, headers, timeout: UPSTREAM_TIMEOUT_MS },
       (res) => {
         const chunks: Buffer[] = [];
-        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        let received = 0;
+        res.on("data", (chunk: Buffer) => {
+          received += chunk.length;
+          if (received > MAX_RESPONSE_BYTES) {
+            // 上限超過。以降のボディを貯めず接続ごと破棄する。
+            req.destroy(new UpstreamError("response too large", "too_large"));
+            return;
+          }
+          chunks.push(chunk);
+        });
         res.on("end", () => {
           try {
             resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));

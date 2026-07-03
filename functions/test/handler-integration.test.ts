@@ -29,6 +29,7 @@ import {
   checkRateLimit,
   googleWalkMatrixProxy,
   googleWalkProxy,
+  MAX_RESPONSE_BYTES,
   navitimeProxy,
   placesProxy,
   resetRateLimit,
@@ -103,6 +104,22 @@ function mockUpstreamTimeout(): void {
     process.nextTick(() => req.emit("timeout"));
     return req;
   });
+}
+
+// 指定バイト数のボディを 1 チャンクで流す上流をシミュレートする（end は発火せず、
+// サイズ超過時のハンドラ側 destroy に委ねる）。
+function mockUpstreamBytes(bytes: number): void {
+  httpsRequestMock.mockImplementation(
+    (_url: string, _opts: unknown, cb: (r: EventEmitter) => void) => {
+      const req = makeMockReq();
+      const res = new EventEmitter();
+      cb(res);
+      process.nextTick(() => {
+        res.emit("data", Buffer.alloc(bytes));
+      });
+      return req;
+    }
+  );
 }
 
 interface CapturedRes {
@@ -509,6 +526,32 @@ describe("ハンドラ統合（タイムアウト・信頼性ガード / issue #
     );
     expect(res.statusCode).toBe(504);
     expect(res.body).toEqual({ error: "upstream timeout" });
+  });
+
+  it("navitimeProxy: レスポンスサイズ上限超過は破棄して 502 を返す", async () => {
+    mockUpstreamBytes(MAX_RESPONSE_BYTES + 1);
+    const res = makeRes();
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      res
+    );
+    expect(res.statusCode).toBe(502);
+    expect(res.body).toEqual({ error: "upstream error" });
+  });
+
+  it("navitimeProxy: 上限以内のサイズは破棄しない（正常透過）", async () => {
+    // 上限ちょうどのボディ（有効な JSON）は破棄されず、通常処理される。
+    const payload = { items: [{ summary: {} }] };
+    mockUpstream(payload);
+    const res = makeRes();
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      res
+    );
+    expect(res.statusCode).toBeUndefined();
+    expect(res.body).toEqual(payload);
   });
 });
 
