@@ -25,7 +25,13 @@ initializeApp();
 // NAVITIME（日本の公共交通）向けアプリのため日本リージョンへ明示デプロイする。
 // 既定の us-central1 は日本から遠く往復遅延が大きい。各 onRequest 定義より前に
 // 呼ぶ必要があるため initializeApp 直後に置く。
-setGlobalOptions({ region: "asia-northeast1" });
+//
+// maxInstances（issue #160）: 既定ではインスタンスが実質無制限にスケールするため、
+// 悪意あるトラフィックや予期しない急増時に課金が暴発し得る。全ハンドラ共通の安全弁
+// として上限を設ける。値は各関数ごとの上限（4 関数 × 10 = 最大 40 インスタンス）で、
+// レート制限（ADR-001）の後段に位置する二重の課金ガード。実測トラフィックを見て調整
+// する前提の保守的な初期値。
+setGlobalOptions({ region: "asia-northeast1", maxInstances: 10 });
 
 const mapsKeySecret = defineSecret("GOOGLE_MAPS_API_KEY");
 const navitimeKeySecret = defineSecret("NAVITIME_RAPIDAPI_KEY");
