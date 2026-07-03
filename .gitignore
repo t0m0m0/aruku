@@ -50,6 +50,7 @@ CLAUDE.md
 .claude/*
 !.claude/settings.json
 !.claude/agents/
+!.claude/commands/
 !.claude/docs/
 !.claude/guard.py
 !.claude/bash_guard.py
