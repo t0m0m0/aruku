@@ -132,6 +132,7 @@ class AppState {
       LocationLoading() => '現在地 · 取得中...',
       LocationAvailable() => '現在地',
       LocationDenied() => '位置情報なし',
+      LocationUnavailable() => '現在地 · 取得失敗',
     };
   }
 
@@ -142,7 +143,7 @@ class AppState {
     if (origin != null) return origin;
     return switch (locationState) {
       LocationAvailable() => '現在地',
-      LocationLoading() || LocationDenied() => null,
+      LocationLoading() || LocationDenied() || LocationUnavailable() => null,
     };
   }
 
@@ -281,7 +282,9 @@ class AppNotifier extends Notifier<AppState> {
       state = state.copyWith(locationState: result);
     } catch (_) {
       if (_disposed) return;
-      state = state.copyWith(locationState: const LocationDenied());
+      // service.request() は失敗理由を LocationState として返す設計だが、
+      // 想定外の例外は権限拒否と断定できないため再試行可能な状態に寄せる。
+      state = state.copyWith(locationState: const LocationUnavailable());
     }
   }
 

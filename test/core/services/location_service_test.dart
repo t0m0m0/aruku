@@ -64,7 +64,8 @@ void main() {
       expect(updated.locationState, isA<LocationDenied>());
     });
 
-    test('service が例外を投げたとき locationState が LocationDenied になる', () async {
+    test('service が例外を投げたとき locationState が LocationUnavailable になる', () async {
+      // 想定外の例外を権限拒否に丸めず、再試行可能な状態として扱う。
       final container = _makeContainer(_ThrowingLocationService());
       addTearDown(container.dispose);
 
@@ -72,7 +73,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       final updated = container.read(appStateProvider);
-      expect(updated.locationState, isA<LocationDenied>());
+      expect(updated.locationState, isA<LocationUnavailable>());
     });
   });
 }
