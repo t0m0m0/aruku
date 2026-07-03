@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/time_value.dart';
@@ -192,18 +195,62 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
   }
 }
 
-class _ProgressBar extends StatelessWidget {
+/// 実態（3フェーズ）から切り離した、常に前進し続ける擬似プログレスバー。
+///
+/// 時間ベースの漸近ランプ `_asymptote·(1−e^(−t/τ))` が毎フレームわずかに
+/// 前進するため、フェーズ境界でも止まって見えない。フェーズ到達は floor
+/// （下限）として `target = max(ramp, floor)` に合成し、value を指数追従で
+/// 引き上げるので、floor が跳ねても段差にならず「加速」に見える。
+class _ProgressBar extends StatefulWidget {
   const _ProgressBar({required this.phaseIndex});
 
   final int phaseIndex;
 
-  /// 離散3フェーズを連続バーの塗り率へ対応させる（完了ベース）。
-  /// routing→1/3, walkability→2/3, building→100%。
-  double get _fill => switch (phaseIndex) {
-    0 => 1 / 3,
-    1 => 2 / 3,
-    _ => 1.0,
-  };
+  @override
+  State<_ProgressBar> createState() => _ProgressBarState();
+}
+
+class _ProgressBarState extends State<_ProgressBar>
+    with SingleTickerProviderStateMixin {
+  late final Ticker _ticker;
+  Duration _last = Duration.zero;
+  double _value = 0;
+
+  /// フェーズ到達で保証する塗り率の下限（routing / walkability / building）。
+  static const _floors = [0.0, 0.55, 0.95];
+
+  /// 時間ランプの漸近上限。完了（画面遷移）まで満タンにはしない。
+  static const _asymptote = 0.9;
+
+  /// 時間ランプの時定数（秒）。小さいほど序盤が速い。
+  static const _rampTau = 6.0;
+
+  /// 指数追従の時定数（ミリ秒）。value が target に寄る速さ。
+  static const _chaseTau = 250.0;
+
+  double get _floor => _floors[widget.phaseIndex.clamp(0, _floors.length - 1)];
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = createTicker(_onTick)..start();
+  }
+
+  void _onTick(Duration elapsed) {
+    final dtMs = (elapsed - _last).inMicroseconds / 1000.0;
+    _last = elapsed;
+    final tSec = elapsed.inMicroseconds / 1e6;
+    final ramp = _asymptote * (1 - math.exp(-tSec / _rampTau));
+    final target = math.max(ramp, _floor);
+    final k = 1 - math.exp(-dtMs / _chaseTau);
+    setState(() => _value += (target - _value) * k);
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -219,24 +266,17 @@ class _ProgressBar extends StatelessWidget {
             Positioned.fill(
               child: ColoredBox(color: c.ink4.withValues(alpha: 0.35)),
             ),
-            // Fill — TweenAnimationBuilder eases toward each phase boundary.
-            // onProgress fires at each phase start, so the bar climbs to the
-            // current segment's edge and reaches 100% during "building".
+            // Fill
             Positioned.fill(
-              child: TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0, end: _fill),
-                duration: const Duration(milliseconds: 600),
-                curve: Curves.easeOutCubic,
-                builder: (context, value, _) => FractionallySizedBox(
-                  key: const ValueKey('loading-progress-fill'),
-                  alignment: Alignment.centerLeft,
-                  widthFactor: value,
-                  heightFactor: 1,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: c.moss500,
-                      borderRadius: BorderRadius.circular(3),
-                    ),
+              child: FractionallySizedBox(
+                key: const ValueKey('loading-progress-fill'),
+                alignment: Alignment.centerLeft,
+                widthFactor: _value.clamp(0.0, 1.0),
+                heightFactor: 1,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: c.moss500,
+                    borderRadius: BorderRadius.circular(3),
                   ),
                 ),
               ),
