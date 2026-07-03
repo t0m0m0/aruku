@@ -33,9 +33,16 @@ class GeolocatorLocationService implements LocationService {
         ),
       );
       return LocationAvailable(GeoPoint(pos.latitude, pos.longitude));
+    } on LocationServiceDisabledException {
+      // 前段チェック通過後にサービスが切られた場合（TOCTOU）。前段の
+      // isLocationServiceEnabled 判定と同じく再試行不可の LocationDenied に寄せる。
+      return const LocationDenied();
+    } on PermissionDefinitionsNotFoundException {
+      // プラットフォーム側の権限定義不足。再試行では解消しないため LocationDenied。
+      return const LocationDenied();
     } catch (_) {
-      // ここに到達する時点で権限チェックは通過済み。GPS の一時的な失敗や
-      // タイムアウトを権限拒否に丸めず、再試行可能な状態として区別する。
+      // GPS の一時的な失敗やタイムアウトは権限拒否に丸めず、再試行可能な
+      // LocationUnavailable として区別する。
       return const LocationUnavailable();
     }
   }

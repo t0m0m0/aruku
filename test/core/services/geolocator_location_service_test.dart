@@ -101,9 +101,25 @@ void main() {
   });
 
   test('権限許可済みで一時的な取得エラーなら LocationUnavailable', () async {
-    mock.positionError = const LocationServiceDisabledException();
+    mock.positionError = const PositionUpdateException('temporary failure');
 
     expect(await service.request(), isA<LocationUnavailable>());
+  });
+
+  test('取得中にサービス無効例外なら LocationDenied（前段チェックと同じ扱い）', () async {
+    // isLocationServiceEnabled 通過後にサービスが切られた場合（TOCTOU）。
+    // 再試行不可な状態なので '取得失敗' ではなく '位置情報なし' に寄せる。
+    mock.positionError = const LocationServiceDisabledException();
+
+    expect(await service.request(), isA<LocationDenied>());
+  });
+
+  test('権限定義が無ければ LocationDenied（再試行不可）', () async {
+    mock.positionError = const PermissionDefinitionsNotFoundException(
+      'missing platform permission entries',
+    );
+
+    expect(await service.request(), isA<LocationDenied>());
   });
 
   test('getCurrentPosition に timeLimit が渡される', () async {
