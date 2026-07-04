@@ -48,6 +48,7 @@ dependencies:
   google_polyline_algorithm: ^3.1.0
   firebase_auth: ^6.1.4
   cloud_firestore: ^6.5.0
+  go_router: ^17.3.0
 
 dev_dependencies:
   flutter_test:
