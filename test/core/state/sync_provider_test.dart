@@ -185,4 +185,38 @@ void main() {
     expect(sync.pushCount, 0);
     expect(container.read(syncProvider).phase, SyncPhase.success);
   });
+
+  test('push 後の再同期は往復しても no-op（pushCount が増えない）', () async {
+    final container = await makeContainer(
+      user: const AuthUser(uid: 'u1', email: 'a@example.com'),
+    );
+    final favRepo = await container.read(favoritesRepositoryProvider.future);
+    await favRepo.toggle(const FavoritePlace(name: '東京駅', placeId: 'p1'));
+
+    // 初回はリモートが空なのでアップロードする。
+    await container.read(syncProvider.notifier).sync();
+    expect(sync.pushCount, 1);
+
+    // 変更していないので 2 回目はリポジトリ往復を経ても書き込まない。
+    await container.read(syncProvider.notifier).sync();
+    expect(sync.pushCount, 1);
+  });
+
+  test('リモート取り込み後の再同期も往復して no-op', () async {
+    sync.store['u1'] = remoteSnapshot(
+      updatedAt: DateTime.utc(2030, 1, 1),
+      favorites: const [FavoritePlace(name: '京都駅', placeId: 'k1')],
+    );
+    final container = await makeContainer(
+      user: const AuthUser(uid: 'u1', email: 'a@example.com'),
+    );
+
+    // リモートが勝つので取り込むが押し戻さない。
+    await container.read(syncProvider.notifier).sync();
+    expect(sync.pushCount, 0);
+
+    // 取り込んだ内容をローカルから再ロードしても内容一致で書き込まない。
+    await container.read(syncProvider.notifier).sync();
+    expect(sync.pushCount, 0);
+  });
 }

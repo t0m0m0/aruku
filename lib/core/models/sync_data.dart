@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
 
 import 'app_settings.dart';
@@ -43,11 +41,31 @@ class SyncData {
   /// 永続化される内容（[updatedAt] を含む）が [other] と一致するか。
   ///
   /// リモートが既にこのスナップショットと同一なら、同期時の push を省いて
-  /// 無駄な Firestore 書き込みを避けるために使う。[toJson] はキー順が固定で
-  /// プリミティブのみを含むため、その JSON 文字列表現の一致で判定する。
+  /// 無駄な Firestore 書き込みを避けるために使う。判定は [toJson] 表現の深い
+  /// 等価比較で行う。文字列化を避けているのは、NaN/Infinity のような
+  /// JSON 非対応の値を含んでも例外を投げず（＝同期をエラーにせず）、その場合は
+  /// 内容差ありとして安全側に push へ倒すため。
   bool hasSameSnapshot(SyncData other) =>
-      identical(this, other) ||
-      jsonEncode(toJson()) == jsonEncode(other.toJson());
+      identical(this, other) || _deepEquals(toJson(), other.toJson());
+
+  static bool _deepEquals(Object? a, Object? b) {
+    if (identical(a, b)) return true;
+    if (a is Map && b is Map) {
+      if (a.length != b.length) return false;
+      for (final key in a.keys) {
+        if (!b.containsKey(key) || !_deepEquals(a[key], b[key])) return false;
+      }
+      return true;
+    }
+    if (a is List && b is List) {
+      if (a.length != b.length) return false;
+      for (var i = 0; i < a.length; i++) {
+        if (!_deepEquals(a[i], b[i])) return false;
+      }
+      return true;
+    }
+    return a == b;
+  }
 
   Map<String, dynamic> toJson() => {
     'updatedAt': updatedAt.toUtc().toIso8601String(),

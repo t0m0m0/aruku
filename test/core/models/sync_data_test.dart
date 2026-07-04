@@ -89,5 +89,50 @@ void main() {
       );
       expect(a.hasSameSnapshot(b), isFalse);
     });
+
+    test('同一インスタントなら UTC / ローカル表現が違っても true', () {
+      final utc = DateTime.utc(2026, 6, 8, 12);
+      final local = utc.toLocal();
+      expect(
+        sample(updatedAt: utc).hasSameSnapshot(sample(updatedAt: local)),
+        isTrue,
+      );
+    });
+
+    test('リストの内容が異なれば false', () {
+      final at = DateTime.utc(2026, 6, 8);
+      final a = SyncData(
+        updatedAt: at,
+        settings: AppSettings.defaults,
+        favorites: const [FavoritePlace(name: '東京駅', placeId: 'p1')],
+        recents: const [],
+        recentOrigins: const [],
+        activity: const [],
+      );
+      final b = SyncData(
+        updatedAt: at,
+        settings: AppSettings.defaults,
+        favorites: const [FavoritePlace(name: '京都駅', placeId: 'k1')],
+        recents: const [],
+        recentOrigins: const [],
+        activity: const [],
+      );
+      expect(a.hasSameSnapshot(b), isFalse);
+    });
+
+    test('オプショナルフィールドの有無で false（条件付きキーの欠落を検出）', () {
+      final at = DateTime.utc(2026, 6, 8);
+      SyncData withFavorite(FavoritePlace fav) => SyncData(
+        updatedAt: at,
+        settings: AppSettings.defaults,
+        favorites: [fav],
+        recents: const [],
+        recentOrigins: const [],
+        activity: const [],
+      );
+      final a = withFavorite(const FavoritePlace(name: '東京駅', placeId: 'p1'));
+      final b = withFavorite(const FavoritePlace(name: '東京駅'));
+      expect(a.hasSameSnapshot(b), isFalse);
+    });
   });
 }
