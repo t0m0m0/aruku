@@ -395,7 +395,15 @@ class AppNotifier extends Notifier<AppState> {
     return 0;
   }
 
-  void go(Screen s) {
+  void go(Screen s) => syncScreen(s);
+
+  /// screen を [s] に揃え、nav 出入りの GPS 追跡を開始/停止する。
+  ///
+  /// アプリ内遷移（[go]）と router からの書き戻し（pop / deep link /
+  /// redirect）の両方がここを通るため、どの経路でも副作用が同一に発火する。
+  /// 同値なら何もしない（router との相互同期がエコーで往復しないための冪等性）。
+  void syncScreen(Screen s) {
+    if (state.screen == s) return;
     state = state.copyWith(screen: s);
     if (s == Screen.nav) {
       _startTracking();
