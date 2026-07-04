@@ -59,4 +59,35 @@ void main() {
       expect(SyncData.mergeLww(local: local, remote: remote), same(local));
     });
   });
+
+  group('hasSameSnapshot（無駄な push の抑制判定）', () {
+    test('同一インスタンスは true', () {
+      final data = sample(updatedAt: DateTime.utc(2026, 6, 8));
+      expect(data.hasSameSnapshot(data), isTrue);
+    });
+
+    test('updatedAt を含め内容が一致すれば true', () {
+      final at = DateTime.utc(2026, 6, 8);
+      expect(
+        sample(updatedAt: at).hasSameSnapshot(sample(updatedAt: at)),
+        isTrue,
+      );
+    });
+
+    test('updatedAt が異なれば false', () {
+      final a = sample(updatedAt: DateTime.utc(2026, 6, 8));
+      final b = sample(updatedAt: DateTime.utc(2026, 6, 9));
+      expect(a.hasSameSnapshot(b), isFalse);
+    });
+
+    test('内容が異なれば false', () {
+      final at = DateTime.utc(2026, 6, 8);
+      final a = sample(updatedAt: at);
+      final b = sample(
+        updatedAt: at,
+        settings: const AppSettings(notificationsEnabled: false),
+      );
+      expect(a.hasSameSnapshot(b), isFalse);
+    });
+  });
 }

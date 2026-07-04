@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 
 import 'app_settings.dart';
@@ -37,6 +39,15 @@ class SyncData {
   }) {
     return remote.updatedAt.isAfter(local.updatedAt) ? remote : local;
   }
+
+  /// 永続化される内容（[updatedAt] を含む）が [other] と一致するか。
+  ///
+  /// リモートが既にこのスナップショットと同一なら、同期時の push を省いて
+  /// 無駄な Firestore 書き込みを避けるために使う。[toJson] はキー順が固定で
+  /// プリミティブのみを含むため、その JSON 文字列表現の一致で判定する。
+  bool hasSameSnapshot(SyncData other) =>
+      identical(this, other) ||
+      jsonEncode(toJson()) == jsonEncode(other.toJson());
 
   Map<String, dynamic> toJson() => {
     'updatedAt': updatedAt.toUtc().toIso8601String(),
