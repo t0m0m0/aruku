@@ -150,5 +150,39 @@ void main() {
     await container.read(syncProvider.notifier).sync();
 
     expect(sync.store['u1']!.favorites.single.name, '新しい');
+    expect(sync.pushCount, 1);
+  });
+
+  test('リモートが勝った場合は取り込んだ内容を押し戻さない', () async {
+    sync.store['u1'] = remoteSnapshot(
+      updatedAt: DateTime.utc(2030, 1, 1),
+      favorites: const [FavoritePlace(name: '京都駅', placeId: 'k1')],
+    );
+    final container = await makeContainer(
+      user: const AuthUser(uid: 'u1', email: 'a@example.com'),
+    );
+
+    await container.read(syncProvider.notifier).sync();
+
+    // fetch した remote をそのまま push し直すのは無駄な書き込みなので行わない。
+    expect(sync.pushCount, 0);
+    expect(container.read(syncProvider).phase, SyncPhase.success);
+    expect(container.read(syncProvider).lastSyncedAt, isNotNull);
+  });
+
+  test('変更が無ければ push しない（無駄な Firestore 書き込みを避ける）', () async {
+    // ローカルとリモートが（更新時刻を含め）同一なら書き込むものが無い。
+    final at = DateTime.utc(2030, 1, 1);
+    sync.store['u1'] = remoteSnapshot(updatedAt: at);
+    final container = await makeContainer(
+      user: const AuthUser(uid: 'u1', email: 'a@example.com'),
+    );
+    final meta = await container.read(syncMetaRepositoryProvider.future);
+    await meta.markLocalChanged(at);
+
+    await container.read(syncProvider.notifier).sync();
+
+    expect(sync.pushCount, 0);
+    expect(container.read(syncProvider).phase, SyncPhase.success);
   });
 }
