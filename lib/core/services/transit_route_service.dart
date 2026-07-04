@@ -89,8 +89,13 @@ class TransitRouteService implements RouteService {
   static const bool _verboseRouteLog = kDebugMode;
 
   /// 選定ログ1行を `[route]` プレフィックス付きで出す（[_verboseRouteLog] が真のときのみ）。
-  void _log(String msg) {
-    if (_verboseRouteLog) debugPrint('[route] $msg');
+  ///
+  /// メッセージは遅延ビルダ（`String Function()`）で受け取る。`_candLine` 等の高コストな
+  /// 文字列構築・再計算（`arrivalMinutes`/`firstMissedTrain`/`maxBoardingWait`）をクロージャ
+  /// 本体に閉じ込め、[_verboseRouteLog] が偽のリリースビルドでは一切評価させない（#164）。
+  /// 引数を eager 評価する `void _log(String)` では、ガードが効く前にコストを払っていた。
+  void _log(String Function() build) {
+    if (_verboseRouteLog) debugPrint('[route] ${build()}');
   }
 
   /// 候補の区間構成を `walk12m+蒲12_train33m+walk3m` 形式の短い文字列にする（ログ用）。
@@ -177,8 +182,9 @@ class TransitRouteService implements RouteService {
   }) async {
     final departureAt = _departureDateTime(departure);
     _log(
-      '=== plan start: budget=${budgetMin}m departureAt=$departureAt '
-      'options=${options.length} ===',
+      () =>
+          '=== plan start: budget=${budgetMin}m departureAt=$departureAt '
+          'options=${options.length} ===',
     );
     final walkCache = <String, RouteCandidate>{};
     final measured = <String, int>{};
@@ -189,7 +195,7 @@ class TransitRouteService implements RouteService {
         RouteCandidate(from: o.from, to: o.to, segments: o.segments),
     ];
     for (final c in candidates) {
-      _log('standard: ${_candLine(c, budgetMin, departureAt)}');
+      _log(() => 'standard: ${_candLine(c, budgetMin, departureAt)}');
     }
 
     final base = _baseForHybrid(options);
@@ -204,9 +210,10 @@ class TransitRouteService implements RouteService {
       );
       final baseMin = base.segments.fold(0, (a, s) => a + s.minutes);
       _log(
-        'base route: totalMin=${baseMin}m corridorStops=${stops.length} '
-        'frontier.boarding=${frontier.boarding} '
-        'alighting=${frontier.alighting}',
+        () =>
+            'base route: totalMin=${baseMin}m corridorStops=${stops.length} '
+            'frontier.boarding=${frontier.boarding} '
+            'alighting=${frontier.alighting}',
       );
       await _measureAccessWalks(
         origin,
@@ -216,9 +223,10 @@ class TransitRouteService implements RouteService {
         measured,
       );
       _log(
-        'measured ${measured.length} legs; '
-        'allWalk(origin->goal)=${measured[_walkCacheKey(origin, goal)]}m '
-        '(null=matrix失敗→直線推定へ)',
+        () =>
+            'measured ${measured.length} legs; '
+            'allWalk(origin->goal)=${measured[_walkCacheKey(origin, goal)]}m '
+            '(null=matrix失敗→直線推定へ)',
       );
       final hybrids = _buildMeasuredHybrids(
         base,
@@ -229,12 +237,12 @@ class TransitRouteService implements RouteService {
         goal,
       );
       candidates.addAll(hybrids);
-      _log('built ${hybrids.length} hybrids:');
+      _log(() => 'built ${hybrids.length} hybrids:');
       for (final c in hybrids) {
-        _log('  hybrid: ${_candLine(c, budgetMin, departureAt)}');
+        _log(() => '  hybrid: ${_candLine(c, budgetMin, departureAt)}');
       }
     } else {
-      _log('no base route (corridor<2); all-walk only');
+      _log(() => 'no base route (corridor<2); all-walk only');
       await _measureAccessWalks(origin, goal, const [], const [], measured);
     }
 
@@ -246,8 +254,8 @@ class TransitRouteService implements RouteService {
       measured,
     );
     candidates.add(allWalk);
-    _log('allWalk: ${_candLine(allWalk, budgetMin, departureAt)}');
-    _log('total candidates: ${candidates.length}');
+    _log(() => 'allWalk: ${_candLine(allWalk, budgetMin, departureAt)}');
+    _log(() => 'total candidates: ${candidates.length}');
 
     var selected = await _selectAndEnrich(
       candidates,
@@ -259,9 +267,10 @@ class TransitRouteService implements RouteService {
     );
 
     _log(
-      'selected(initial): '
-      'chosen(見積り)=${_candLine(selected.chosen, budgetMin, departureAt)} | '
-      'enriched(実測)=${_candLine(selected.enriched, budgetMin, departureAt)}',
+      () =>
+          'selected(initial): '
+          'chosen(見積り)=${_candLine(selected.chosen, budgetMin, departureAt)} | '
+          'enriched(実測)=${_candLine(selected.enriched, budgetMin, departureAt)}',
     );
 
     // 崩壊判定は enrich 前の選定候補（[selected.chosen]）で行う。enrich 後の徒歩は
@@ -269,7 +278,7 @@ class TransitRouteService implements RouteService {
     // 両者を同じ見積り基準で比較しないと崩壊が誤って不成立になる（徒歩最大化の不達）。
     if (base != null &&
         _isCollapse(selected.chosen, options, budgetMin, departureAt)) {
-      _log('collapse=true → board-search フォールバック起動');
+      _log(() => 'collapse=true → board-search フォールバック起動');
       final boardSearch = await _buildBoardSearchCandidate(
         base,
         origin,
@@ -279,7 +288,7 @@ class TransitRouteService implements RouteService {
         walkCache,
       );
       if (boardSearch.isNotEmpty) {
-        _log('board-search候補: ${boardSearch.length}件をプールへ追加');
+        _log(() => 'board-search候補: ${boardSearch.length}件をプールへ追加');
         selected = await _selectAndEnrich(
           [...candidates, ...boardSearch],
           budgetMin,
@@ -289,18 +298,19 @@ class TransitRouteService implements RouteService {
           walkCache: walkCache,
         );
         _log(
-          'selected(after board-search): '
-          '${_candLine(selected.enriched, budgetMin, departureAt)}',
+          () =>
+              'selected(after board-search): '
+              '${_candLine(selected.enriched, budgetMin, departureAt)}',
         );
       } else {
-        _log('board-search候補: なし');
+        _log(() => 'board-search候補: なし');
       }
     } else if (base != null) {
-      _log('collapse=false → フォールバック起動せず');
+      _log(() => 'collapse=false → フォールバック起動せず');
     }
 
     final named = await _finalizeStationNames(selected.enriched, departureAt);
-    _log('=== FINAL: ${_candLine(named, budgetMin, departureAt)} ===');
+    _log(() => '=== FINAL: ${_candLine(named, budgetMin, departureAt)} ===');
 
     return _build(
       named,
@@ -467,11 +477,12 @@ class TransitRouteService implements RouteService {
       final withinByEstimate =
           arrivalMinutes(chosen.segments, departureAt) <= budgetMin;
       _log(
-        'enrich attempt=$attempt pool=${pool.length} '
-        'chosen: ${_candLine(chosen, budgetMin, departureAt)}',
+        () =>
+            'enrich attempt=$attempt pool=${pool.length} '
+            'chosen: ${_candLine(chosen, budgetMin, departureAt)}',
       );
       if (!withinByEstimate) {
-        _log('  → 予算内候補なし → best-effort 縮退');
+        _log(() => '  → 予算内候補なし → best-effort 縮退');
         return await _bestEffortResolved(
           candidates,
           budgetMin,
@@ -504,20 +515,21 @@ class TransitRouteService implements RouteService {
           pool.length > 1 &&
           (overBudget || missedAfterEnrich || unverifiedTrain)) {
         _log(
-          '  → enrich実測で'
-          '${overBudget
-              ? '予算超過'
-              : missedAfterEnrich
-              ? '先頭電車に乗り遅れ'
-              : '実発車時刻を確認できず'}'
-          '→除外して選び直し: ${_candLine(enriched, budgetMin, departureAt)}',
+          () =>
+              '  → enrich実測で'
+              '${overBudget
+                  ? '予算超過'
+                  : missedAfterEnrich
+                  ? '先頭電車に乗り遅れ'
+                  : '実発車時刻を確認できず'}'
+              '→除外して選び直し: ${_candLine(enriched, budgetMin, departureAt)}',
         );
         pool = pool.where((c) => !identical(c, chosen)).toList();
         continue;
       }
       // 除外しきれず未確認電車が残るときは確定させず best-effort（検証済み）へ縮退する。
       if (unverifiedTrain) {
-        _log('  → 未確認電車のまま確定不可 → best-effort 縮退');
+        _log(() => '  → 未確認電車のまま確定不可 → best-effort 縮退');
         return await _bestEffortResolved(
           candidates,
           budgetMin,
@@ -525,7 +537,7 @@ class TransitRouteService implements RouteService {
           walkCache,
         );
       }
-      _log('  → 確定: ${_candLine(enriched, budgetMin, departureAt)}');
+      _log(() => '  → 確定: ${_candLine(enriched, budgetMin, departureAt)}');
       return (chosen: chosen, enriched: enriched);
     }
   }
@@ -593,7 +605,7 @@ class TransitRouteService implements RouteService {
   ) {
     final arrival = arrivalMinutes(winner.segments, departureAt);
     if (arrival > budgetMin) {
-      _log('collapse判定: 予算外(arr=${arrival}m>budget=${budgetMin}m)→対象外');
+      _log(() => 'collapse判定: 予算外(arr=${arrival}m>budget=${budgetMin}m)→対象外');
       return false;
     }
     final slack = budgetMin - arrival;
@@ -601,10 +613,11 @@ class TransitRouteService implements RouteService {
     // 相対（予算の割合）・絶対（分）のいずれかを満たせば「予算が大きく余っている」。
     if (slack < relativeThreshold && slack < _collapseSlackMinutes) {
       _log(
-        'collapse判定: 症状(2)未達 slack=${slack}m < '
-        '相対閾値=${relativeThreshold.toStringAsFixed(1)}m'
-        '(=${budgetMin}m×$_collapseSlackRatio) かつ < '
-        '絶対閾値=${_collapseSlackMinutes}m →起動せず',
+        () =>
+            'collapse判定: 症状(2)未達 slack=${slack}m < '
+            '相対閾値=${relativeThreshold.toStringAsFixed(1)}m'
+            '(=${budgetMin}m×$_collapseSlackRatio) かつ < '
+            '絶対閾値=${_collapseSlackMinutes}m →起動せず',
       );
       return false;
     }
@@ -619,10 +632,11 @@ class TransitRouteService implements RouteService {
     final margin = winner.walkMinutes - bestStandardWalk;
     final result = margin <= _collapseWalkMarginMin;
     _log(
-      'collapse判定: slack=${slack}m(≥閾値) '
-      'winnerWalk=${winner.walkMinutes}m bestStandardWalk=${bestStandardWalk}m '
-      'margin=${margin}m ${result ? '≤' : '>'} $_collapseWalkMarginMin '
-      '→症状(1)=${result ? '達' : '未達'} → collapse=$result',
+      () =>
+          'collapse判定: slack=${slack}m(≥閾値) '
+          'winnerWalk=${winner.walkMinutes}m bestStandardWalk=${bestStandardWalk}m '
+          'margin=${margin}m ${result ? '≤' : '>'} $_collapseWalkMarginMin '
+          '→症状(1)=${result ? '達' : '未達'} → collapse=$result',
     );
     return result;
   }
@@ -678,7 +692,7 @@ class TransitRouteService implements RouteService {
       final boardAt = departureAt.add(Duration(minutes: walk1.totalMin));
       final xToGoal = await _fetchTransitFrom(x.coord, goal, boardAt);
       if (xToGoal == null) {
-        _log('board-search i=$i walk1=${walk1.totalMin}m guidance失敗');
+        _log(() => 'board-search i=$i walk1=${walk1.totalMin}m guidance失敗');
         return built[i] = null;
       }
       final walk1Seg = walk1.segments.first;
@@ -688,9 +702,10 @@ class TransitRouteService implements RouteService {
         segments: [if (walk1Seg.minutes > 0) walk1Seg, ...xToGoal.segments],
       );
       _log(
-        'board-search i=$i walk1=${walk1.totalMin}m '
-        '乗車駅=${_boardingStationOf(cand)} '
-        '${_candLine(cand, budgetMin, departureAt)}',
+        () =>
+            'board-search i=$i walk1=${walk1.totalMin}m '
+            '乗車駅=${_boardingStationOf(cand)} '
+            '${_candLine(cand, budgetMin, departureAt)}',
       );
       return built[i] = cand;
     }
@@ -712,8 +727,9 @@ class TransitRouteService implements RouteService {
       },
     );
     _log(
-      'board-search: 実測k分割並列探索の境界 best='
-      '${best == null ? 'null(予算内乗車駅なし)' : '$best'} / コリドー点${stops.length}',
+      () =>
+          'board-search: 実測k分割並列探索の境界 best='
+          '${best == null ? 'null(予算内乗車駅なし)' : '$best'} / コリドー点${stops.length}',
     );
     // 探索が評価した点（メモ化済み）のうち、予算内の候補を「全部」返す。境界 best 1本だけ
     // でなく全部を返すのは：(1) 到着は実街路で非単調になり得る（後方の停車駅が origin に近い等）
@@ -725,7 +741,7 @@ class TransitRouteService implements RouteService {
         if (c != null && arrivalMinutes(c.segments, departureAt) <= budgetMin)
           c,
     ];
-    _log('board-search: 予算内候補 ${within.length}件を返す');
+    _log(() => 'board-search: 予算内候補 ${within.length}件を返す');
     return within;
   }
 
