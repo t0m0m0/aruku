@@ -196,6 +196,27 @@ void main() {
       expect(s.container.read(appStateProvider).isRerouting, isFalse);
     });
 
+    test('電車区間中の逸脱では再検索しない', () async {
+      final s = setup();
+      addTearDown(s.pos.close);
+      addTearDown(s.container.dispose);
+
+      final notifier = s.container.read(appStateProvider.notifier);
+      notifier.setDestination('渋谷', latLng: const GeoPoint(35.658, 139.701));
+      await notifier.startSearch();
+      notifier.go(Screen.nav);
+
+      // sampleRoutePlan の電車区間（原宿→渋谷）から東へ 135m ほど逸脱した点。
+      // 閾値（50m）は超えるが、最寄り区間が電車のため再検索は抑制される。
+      const offRouteNearTrain = GeoPoint(35.66715, 139.70385);
+      for (var i = 0; i < 5; i++) {
+        s.pos.add(offRouteNearTrain);
+        await tick();
+      }
+
+      expect(s.route.calls, 1);
+    });
+
     test('クールダウン中は連続して再検索しない', () async {
       final s = setup();
       addTearDown(s.pos.close);
