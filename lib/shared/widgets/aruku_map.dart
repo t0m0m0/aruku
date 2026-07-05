@@ -48,6 +48,21 @@ class ArukuMap extends StatefulWidget {
   State<ArukuMap> createState() => _ArukuMapState();
 }
 
+/// `didUpdateWidget` で自動 `_fitBounds` を実行すべきか判定する。
+///
+/// nav variant はリルート成功時の `route` 差し替え（＝routeBounds 変化）でも
+/// ルート全体俯瞰へカメラが戻らないよう、自動フィットを行わない。
+/// 初回表示時のフィット（[_ArukuMapState._onMapCreated]）は対象外。
+@visibleForTesting
+bool shouldAutoFitBounds({
+  required ArukuMapVariant variant,
+  required LatLngBounds? oldBounds,
+  required LatLngBounds? newBounds,
+}) {
+  if (variant == ArukuMapVariant.nav) return false;
+  return oldBounds != newBounds;
+}
+
 class _ArukuMapState extends State<ArukuMap> {
   GoogleMapController? _controller;
 
@@ -77,7 +92,11 @@ class _ArukuMapState extends State<ArukuMap> {
   @override
   void didUpdateWidget(covariant ArukuMap oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.routeBounds != widget.routeBounds) {
+    if (shouldAutoFitBounds(
+      variant: widget.variant,
+      oldBounds: oldWidget.routeBounds,
+      newBounds: widget.routeBounds,
+    )) {
       _fitBounds();
     }
   }
