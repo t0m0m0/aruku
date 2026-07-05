@@ -80,7 +80,7 @@ void main() {
       final container = _containerFor(_planWith(totalMin: 100, budgetMin: 120));
       await _pump(tester, container);
 
-      // 数字と単位を別Textに分割（DM Mono と日本語の混植・折り返しを解消）。
+      // 数字と単位を別Textに分割（桁揃え数字と日本語の混植・折り返しを解消）。
       expect(find.text('1'), findsWidgets);
       expect(find.text('時間'), findsWidgets);
       expect(find.text('40'), findsWidgets);

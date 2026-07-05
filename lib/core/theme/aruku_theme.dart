@@ -33,7 +33,7 @@ class ArukuTheme {
   }
 
   static TextTheme _buildTextTheme(Color ink) {
-    final jp = GoogleFonts.mPlusRounded1cTextTheme();
+    final jp = GoogleFonts.notoSansJpTextTheme();
     return jp.copyWith(
       displayLarge: jp.displayLarge?.copyWith(
         color: ink,
@@ -71,14 +71,17 @@ class ArukuTheme {
   }
 }
 
-/// Tabular monospace number style — DM Mono.
+/// Tabular number style — Noto Sans JP with tabular figures.
+///
+/// Noto Sans JP is proportional, so [FontFeature.tabularFigures] is kept to
+/// prevent digit jitter in count-up displays (steps, time, distance).
 TextStyle numStyle({
   required double size,
   FontWeight weight = FontWeight.w500,
   Color? color,
   double letterSpacing = -0.02,
 }) {
-  return GoogleFonts.dmMono(
+  return GoogleFonts.notoSansJp(
     fontSize: size,
     fontWeight: weight,
     color: color,
@@ -88,7 +91,7 @@ TextStyle numStyle({
   );
 }
 
-/// JP text style helper (M PLUS Rounded 1c).
+/// JP text style helper (Noto Sans JP).
 TextStyle jpStyle({
   required double size,
   FontWeight weight = FontWeight.w500,
@@ -96,7 +99,7 @@ TextStyle jpStyle({
   double? letterSpacing,
   double? height,
 }) {
-  return GoogleFonts.mPlusRounded1c(
+  return GoogleFonts.notoSansJp(
     fontSize: size,
     fontWeight: weight,
     color: color,
