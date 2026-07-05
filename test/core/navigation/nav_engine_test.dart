@@ -98,6 +98,42 @@ void main() {
       expect(near.etaMinutesRemaining, lessThanOrEqualTo(30));
     });
 
+    test('ETAは距離按分ではなく区間ごとの所要時間を積み上げて算出する', () {
+      // 徒歩1km/10分 → 電車10km/5分。電車は徒歩よりはるかに速い。
+      final hybrid = _route(
+        totalMin: 15,
+        totalKm: 11.0,
+        walkKm: 1.0,
+        segments: const [
+          RouteSegment(
+            type: SegmentType.walk,
+            fromName: 'A',
+            toName: 'S1',
+            minutes: 10,
+            km: 1.0,
+            kcal: 50,
+            polyline: [GeoPoint(0, 0), GeoPoint(0, 0.009)],
+          ),
+          RouteSegment(
+            type: SegmentType.train,
+            fromName: 'S1',
+            toName: 'S2',
+            minutes: 5,
+            km: 10.0,
+            polyline: [GeoPoint(0, 0.009), GeoPoint(0, 0.099)],
+          ),
+        ],
+      );
+      // 徒歩区間を歩き切り、電車に乗った直後の地点。
+      final g = computeGuidance(
+        route: hybrid,
+        current: const GeoPoint(0, 0.0095),
+      );
+      // 誤: 距離按分だと s≈1000m/11000m の進捗で ETA≈13.6分になってしまう。
+      // 正: 徒歩10分は消化済みなので残りは電車の5分程度のはず。
+      expect(g.etaMinutesRemaining, lessThanOrEqualTo(6));
+    });
+
     test('直線経路は開始時点から到着案内', () {
       final straight = _route(
         segments: const [
