@@ -70,6 +70,17 @@ void main() {
       expect(g.nextManeuver, isNull);
     });
 
+    test('totalKmはポリライン実測合計でtraveledKm+remainingKmと一致する', () {
+      // route.totalKm(2.2)はAPI由来の概算値で、Lシェイプの実測合計とは
+      // 一致しない。totalKmは常にtraveledKm+remainingKmと一致すべき。
+      final g = computeGuidance(
+        route: lRoute,
+        current: const GeoPoint(0, 0.005),
+      );
+      expect(g.totalKm, closeTo(g.traveledKm + g.remainingKm, 0.0001));
+      expect(g.totalKm, isNot(closeTo(2.2, 0.0001)));
+    });
+
     test('前進すると進捗↑・残距離↓・消費kcal↑', () {
       final near = computeGuidance(
         route: lRoute,
