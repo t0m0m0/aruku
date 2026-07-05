@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:aruku/core/models/activity_snapshot.dart';
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/location_state.dart';
@@ -12,7 +14,38 @@ import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// ルーターの遷移アニメ（[kRouteTransitionDuration]）を完了させる。
+/// loading / nav 画面は無限アニメで pumpAndSettle できないため固定時間で送る。
+/// 時間はソースの定数を参照するため、値を変えてもテストが自動追従する。
+Future<void> pumpTransition(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump(kRouteTransitionDuration);
+}
+
+/// 応答を外部から解放できるルートサービス。loading 状態の維持や、
+/// ローディング中の画面確認に使う。
+class HoldingRouteService implements RouteService {
+  HoldingRouteService(this.gate);
+
+  final Completer<void> gate;
+
+  @override
+  Future<RoutePlan> plan({
+    required String? destination,
+    required GeoPoint? destinationLatLng,
+    required TimeValue departure,
+    required TimeValue arrival,
+    GeoPoint? origin,
+    String? originName,
+    void Function(RoutePhase)? onProgress,
+  }) async {
+    await gate.future;
+    return testRoutePlan;
+  }
+}
 
 class FakeLocationService implements LocationService {
   @override

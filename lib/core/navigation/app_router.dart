@@ -16,13 +16,16 @@ import 'screen_paths.dart';
 
 /// 旧 AnimatedSwitcher（main.dart の _Root）と同じ見た目の遷移。
 /// fade + ごく小さな上方向スライドを 220ms で再生する。
-const _transitionDuration = Duration(milliseconds: 220);
+///
+/// テストが遷移完了を待つ際にも参照できるよう公開する（マジックナンバーの
+/// 散在を避け、値を変えてもテストが自動追従する）。
+const kRouteTransitionDuration = Duration(milliseconds: 220);
 
 CustomTransitionPage<void> _page(GoRouterState state, Widget child) {
   return CustomTransitionPage<void>(
     key: state.pageKey,
-    transitionDuration: _transitionDuration,
-    reverseTransitionDuration: _transitionDuration,
+    transitionDuration: kRouteTransitionDuration,
+    reverseTransitionDuration: kRouteTransitionDuration,
     transitionsBuilder: (context, animation, secondaryAnimation, child) {
       final curved = CurvedAnimation(
         parent: animation,
@@ -75,7 +78,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         Screen.error => app.routeErrorKind == null,
         _ => false,
       };
-      return missingPrerequisite ? Screen.home.path : null;
+      return missingPrerequisite ? ScreenPath.fallback.path : null;
     },
     routes: [
       GoRoute(

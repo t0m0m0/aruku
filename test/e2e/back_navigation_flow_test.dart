@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:aruku/core/models/geo_point.dart';
-import 'package:aruku/core/models/route_plan.dart';
-import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,11 +21,6 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
   });
-
-  Future<void> pumpTransition(WidgetTester tester) async {
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-  }
 
   Future<void> back(WidgetTester tester) async {
     await tester.binding.handlePopRoute();
@@ -149,7 +142,7 @@ void main() {
     final gate = Completer<void>();
     final container = await pumpApp(
       tester,
-      routeService: _HoldingRouteService(gate),
+      routeService: HoldingRouteService(gate),
     );
     addTearDown(gate.complete);
     final notifier = container.read(appStateProvider.notifier);
@@ -161,24 +154,4 @@ void main() {
     await back(tester);
     expect(screenOf(container), Screen.loading);
   });
-}
-
-class _HoldingRouteService implements RouteService {
-  _HoldingRouteService(this._gate);
-
-  final Completer<void> _gate;
-
-  @override
-  Future<RoutePlan> plan({
-    required String? destination,
-    required GeoPoint? destinationLatLng,
-    required TimeValue departure,
-    required TimeValue arrival,
-    GeoPoint? origin,
-    String? originName,
-    void Function(RoutePhase)? onProgress,
-  }) async {
-    await _gate.future;
-    return testRoutePlan;
-  }
 }

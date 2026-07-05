@@ -1,11 +1,8 @@
 import 'dart:async';
 
 import 'package:aruku/core/models/geo_point.dart';
-import 'package:aruku/core/models/route_plan.dart';
-import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/navigation/app_router.dart';
 import 'package:aruku/core/navigation/screen_paths.dart';
-import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/features/auth/auth_screen.dart';
@@ -20,13 +17,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../e2e/support/e2e_helpers.dart';
-
-/// 遷移アニメーション（220ms）を確実に終わらせる pump。
-/// loading 画面はスピナーが回り続け pumpAndSettle できないため固定時間で送る。
-Future<void> pumpTransition(WidgetTester tester) async {
-  await tester.pump();
-  await tester.pump(const Duration(milliseconds: 300));
-}
 
 Widget routerApp(ProviderContainer container) => UncontrolledProviderScope(
   container: container,
@@ -102,7 +92,7 @@ void main() {
     testWidgets('loading での back は何も起きない', (tester) async {
       final gate = Completer<void>();
       final container = await makeContainer(
-        routeService: _HoldingRouteService(gate),
+        routeService: HoldingRouteService(gate),
       );
       addTearDown(container.dispose);
       addTearDown(gate.complete);
@@ -166,25 +156,4 @@ void main() {
       expect(find.byType(ResultScreen), findsOneWidget);
     });
   });
-}
-
-/// 応答を外部制御できるルートサービス。loading 状態の維持に使う。
-class _HoldingRouteService implements RouteService {
-  _HoldingRouteService(this._gate);
-
-  final Completer<void> _gate;
-
-  @override
-  Future<RoutePlan> plan({
-    required String? destination,
-    required GeoPoint? destinationLatLng,
-    required TimeValue departure,
-    required TimeValue arrival,
-    GeoPoint? origin,
-    String? originName,
-    void Function(RoutePhase)? onProgress,
-  }) async {
-    await _gate.future;
-    return testRoutePlan;
-  }
 }

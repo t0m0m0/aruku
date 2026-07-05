@@ -15,11 +15,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../e2e/support/e2e_helpers.dart';
 
-Future<void> pumpTransition(WidgetTester tester) async {
-  await tester.pump();
-  await tester.pump(const Duration(milliseconds: 300));
-}
-
 Widget routerApp(ProviderContainer container) => UncontrolledProviderScope(
   container: container,
   child: MaterialApp.router(
@@ -119,6 +114,38 @@ void main() {
     location.controller.add(const GeoPoint(35.6580, 139.7016));
     await tester.pump();
     expect(container.read(appStateProvider).currentPosition, isNull);
+  });
+
+  testWidgets('nav への deep link（router 経由）でも GPS 追跡が開始する', (tester) async {
+    // go() 経由ではなく router.go（＝deep link と同じ経路）で nav へ入っても、
+    // routerDelegate リスナ→syncScreen→_startTracking が発火することを確認する。
+    final location = _StreamLocationService();
+    addTearDown(location.controller.close);
+    final container = await makeContainer(
+      routeService: const FixedRouteService(testRoutePlan),
+      locationService: location,
+    );
+    addTearDown(container.dispose);
+    final router = container.read(goRouterProvider);
+
+    await tester.pumpWidget(routerApp(container));
+    await pumpTransition(tester);
+
+    // route を確定（redirect ガード通過の前提）。go() は使わない。
+    final notifier = container.read(appStateProvider.notifier);
+    notifier.setDestination('渋谷駅', latLng: const GeoPoint(35.658, 139.702));
+    await notifier.startSearch();
+    await pumpTransition(tester);
+
+    // router から直接 /home/nav へ（アプリ内 go() を経由しない）。
+    router.go(Screen.nav.path);
+    await pumpTransition(tester);
+    expect(container.read(appStateProvider).screen, Screen.nav);
+
+    // 追跡が開始しているので現在地が反映される。
+    location.controller.add(const GeoPoint(35.6685, 139.7024));
+    await tester.pump();
+    expect(container.read(appStateProvider).currentPosition, isNotNull);
   });
 
   testWidgets('同期がエコーで発散しない', (tester) async {

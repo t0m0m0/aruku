@@ -530,6 +530,11 @@ class AppNotifier extends Notifier<AppState> {
     // result/nav↔route、error↔routeErrorKind）は必ず同一 copyWith で
     // まとめて更新する。app_router.dart の redirect ガードがこの前提で
     // deep link を弾くため、片方だけ設定すると正規遷移まで跳ね返される。
+    //
+    // ここは screen を [syncScreen] ではなく直接 copyWith する。startSearch は
+    // home→loading→result/error のみを扱い nav を経由しないため GPS 副作用は
+    // 不要で、screen 変更は goRouterProvider の ref.listen が router へ伝搬する。
+    // nav へ遷移する新経路をここに足す場合は syncScreen を通すこと。
     state = state.copyWith(
       screen: Screen.loading,
       routeErrorKind: null,
