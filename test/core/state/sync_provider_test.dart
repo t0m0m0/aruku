@@ -150,5 +150,73 @@ void main() {
     await container.read(syncProvider.notifier).sync();
 
     expect(sync.store['u1']!.favorites.single.name, '新しい');
+    expect(sync.pushCount, 1);
+  });
+
+  test('リモートが勝った場合は取り込んだ内容を押し戻さない', () async {
+    sync.store['u1'] = remoteSnapshot(
+      updatedAt: DateTime.utc(2030, 1, 1),
+      favorites: const [FavoritePlace(name: '京都駅', placeId: 'k1')],
+    );
+    final container = await makeContainer(
+      user: const AuthUser(uid: 'u1', email: 'a@example.com'),
+    );
+
+    await container.read(syncProvider.notifier).sync();
+
+    // fetch した remote をそのまま push し直すのは無駄な書き込みなので行わない。
+    expect(sync.pushCount, 0);
+    expect(container.read(syncProvider).phase, SyncPhase.success);
+    expect(container.read(syncProvider).lastSyncedAt, isNotNull);
+  });
+
+  test('変更が無ければ push しない（無駄な Firestore 書き込みを避ける）', () async {
+    // ローカルとリモートが（更新時刻を含め）同一なら書き込むものが無い。
+    final at = DateTime.utc(2030, 1, 1);
+    sync.store['u1'] = remoteSnapshot(updatedAt: at);
+    final container = await makeContainer(
+      user: const AuthUser(uid: 'u1', email: 'a@example.com'),
+    );
+    final meta = await container.read(syncMetaRepositoryProvider.future);
+    await meta.markLocalChanged(at);
+
+    await container.read(syncProvider.notifier).sync();
+
+    expect(sync.pushCount, 0);
+    expect(container.read(syncProvider).phase, SyncPhase.success);
+  });
+
+  test('push 後の再同期は往復しても no-op（pushCount が増えない）', () async {
+    final container = await makeContainer(
+      user: const AuthUser(uid: 'u1', email: 'a@example.com'),
+    );
+    final favRepo = await container.read(favoritesRepositoryProvider.future);
+    await favRepo.toggle(const FavoritePlace(name: '東京駅', placeId: 'p1'));
+
+    // 初回はリモートが空なのでアップロードする。
+    await container.read(syncProvider.notifier).sync();
+    expect(sync.pushCount, 1);
+
+    // 変更していないので 2 回目はリポジトリ往復を経ても書き込まない。
+    await container.read(syncProvider.notifier).sync();
+    expect(sync.pushCount, 1);
+  });
+
+  test('リモート取り込み後の再同期も往復して no-op', () async {
+    sync.store['u1'] = remoteSnapshot(
+      updatedAt: DateTime.utc(2030, 1, 1),
+      favorites: const [FavoritePlace(name: '京都駅', placeId: 'k1')],
+    );
+    final container = await makeContainer(
+      user: const AuthUser(uid: 'u1', email: 'a@example.com'),
+    );
+
+    // リモートが勝つので取り込むが押し戻さない。
+    await container.read(syncProvider.notifier).sync();
+    expect(sync.pushCount, 0);
+
+    // 取り込んだ内容をローカルから再ロードしても内容一致で書き込まない。
+    await container.read(syncProvider.notifier).sync();
+    expect(sync.pushCount, 0);
   });
 }

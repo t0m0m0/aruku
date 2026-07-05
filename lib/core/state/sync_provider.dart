@@ -85,8 +85,12 @@ class SyncNotifier extends Notifier<SyncStatus> {
         ref.invalidate(recentOriginsProvider);
       }
 
-      // リモートをマージ結果へ揃え、ローカルクロックを同期点に合わせる。
-      await service.push(user.uid, merged);
+      // リモートが既にマージ結果と同一なら push を省き、無駄な Firestore
+      // 書き込みを避ける（リモートが勝った直後や、変更が無い定期同期など）。
+      if (remote == null || !merged.hasSameSnapshot(remote)) {
+        await service.push(user.uid, merged);
+      }
+      // ローカルクロックを同期点に合わせる。
       await meta.markLocalChanged(merged.updatedAt);
       final syncedAt = DateTime.now().toUtc();
       await meta.setSyncedAt(syncedAt);
