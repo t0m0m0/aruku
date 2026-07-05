@@ -1,27 +1,51 @@
+import 'dart:async';
+
 import 'package:aruku/core/models/activity_snapshot.dart';
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/location_state.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
+import 'package:aruku/core/navigation/app_router.dart';
 import 'package:aruku/core/services/activity_service.dart';
 import 'package:aruku/core/services/location_service.dart';
 import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:aruku/core/services/route_service.dart';
-import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
-import 'package:aruku/features/auth/auth_screen.dart';
-import 'package:aruku/features/error/error_screen.dart';
-import 'package:aruku/features/home/home_screen.dart';
-import 'package:aruku/features/loading/loading_screen.dart';
-import 'package:aruku/features/navigation/nav_screen.dart';
-import 'package:aruku/features/onboarding/onboarding_screen.dart';
-import 'package:aruku/features/result/result_screen.dart';
-import 'package:aruku/features/search/search_screen.dart';
-import 'package:aruku/features/settings/settings_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// ルーターの遷移アニメ（[kRouteTransitionDuration]）を完了させる。
+/// loading / nav 画面は無限アニメで pumpAndSettle できないため固定時間で送る。
+/// 時間はソースの定数を参照するため、値を変えてもテストが自動追従する。
+Future<void> pumpTransition(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump(kRouteTransitionDuration);
+}
+
+/// 応答を外部から解放できるルートサービス。loading 状態の維持や、
+/// ローディング中の画面確認に使う。
+class HoldingRouteService implements RouteService {
+  HoldingRouteService(this.gate);
+
+  final Completer<void> gate;
+
+  @override
+  Future<RoutePlan> plan({
+    required String? destination,
+    required GeoPoint? destinationLatLng,
+    required TimeValue departure,
+    required TimeValue arrival,
+    GeoPoint? origin,
+    String? originName,
+    void Function(RoutePhase)? onProgress,
+  }) async {
+    await gate.future;
+    return testRoutePlan;
+  }
+}
 
 class FakeLocationService implements LocationService {
   @override
@@ -78,47 +102,34 @@ class FailingRouteService implements RouteService {
   }
 }
 
-/// アプリ全体のルーティングを再現するテスト用ルートウィジェット。
-/// main.dart の _Root と同等だが、アニメーションを省いてテストを高速化する。
-class TestRoot extends ConsumerWidget {
-  const TestRoot({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return switch (ref.watch(appStateProvider).screen) {
-      Screen.onboarding => const OnboardingScreen(),
-      Screen.home => const HomeScreen(),
-      Screen.settings => const SettingsScreen(),
-      Screen.auth => const AuthScreen(),
-      Screen.search => const SearchScreen(),
-      Screen.searchOrigin => const SearchScreen(mode: SearchMode.origin),
-      Screen.loading => const LoadingScreen(),
-      Screen.result => const ResultScreen(),
-      Screen.nav => const NavScreen(),
-      Screen.error => const ErrorScreen(),
-    };
-  }
-}
-
+/// 本番と同じ goRouterProvider でアプリ全体を組み立てる。
+/// TestRoot（switch の複製）は廃止し、実 Navigator スタックで検証する。
 Widget appWidget(ProviderContainer container) => UncontrolledProviderScope(
   container: container,
-  child: MaterialApp(theme: ArukuTheme.light(), home: const TestRoot()),
+  child: MaterialApp.router(
+    theme: ArukuTheme.light(),
+    routerConfig: container.read(goRouterProvider),
+  ),
 );
 
 /// 共通のプロバイダオーバーライドでコンテナを生成する。
 ///
 /// [onboardingDone] でオンボーディング完了状態を制御する。
-/// [routeService] が指定された場合は [routeServiceProvider] を差し替える。
+/// [routeService] / [locationService] が指定された場合は該当プロバイダを
+/// 差し替える（位置ストリームを外部制御したいテスト向け）。
 Future<ProviderContainer> makeContainer({
   bool onboardingDone = true,
   RouteService? routeService,
+  LocationService? locationService,
 }) async {
   final prefs = await SharedPreferences.getInstance();
   return ProviderContainer(
     overrides: [
       sharedPreferencesProvider.overrideWith((ref) => prefs),
       onboardingCompletedProvider.overrideWithValue(onboardingDone),
-      locationServiceProvider.overrideWithValue(FakeLocationService()),
+      locationServiceProvider.overrideWithValue(
+        locationService ?? FakeLocationService(),
+      ),
       activityServiceProvider.overrideWithValue(FakeActivityService()),
       if (routeService != null)
         routeServiceProvider.overrideWithValue(routeService),

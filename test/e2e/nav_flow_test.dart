@@ -47,6 +47,9 @@ void main() {
 
     await tester.tap(find.text('このルートで歩く'));
     await tester.pump();
+    // ルーターの遷移アニメ（220ms）を完了させる。nav 画面は位置ドットが
+    // アニメし続け pumpAndSettle できないため固定時間で送る。
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(setup.container.read(appStateProvider).screen, Screen.nav);
     expect(find.byKey(const Key('nav-exit-button')), findsOneWidget);
@@ -58,11 +61,15 @@ void main() {
 
     await tester.tap(find.text('このルートで歩く'));
     await tester.pump();
+    // ルーターの遷移アニメ（220ms）を完了させる。nav 画面は位置ドットが
+    // アニメし続け pumpAndSettle できないため固定時間で送る。
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(setup.container.read(appStateProvider).screen, Screen.nav);
 
     await tester.tap(find.byKey(const Key('nav-exit-button')));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(setup.container.read(appStateProvider).screen, Screen.home);
   });
@@ -76,10 +83,14 @@ void main() {
 
     await tester.tap(find.text('このルートで歩く'));
     await tester.pump();
+    // ルーターの遷移アニメ（220ms）を完了させる。nav 画面は位置ドットが
+    // アニメし続け pumpAndSettle できないため固定時間で送る。
+    await tester.pump(const Duration(milliseconds: 300));
 
     // ナビ終了
     await tester.tap(find.byKey(const Key('nav-exit-button')));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
     // 終了後: currentPosition はリセットされる
     expect(setup.container.read(appStateProvider).currentPosition, isNull);

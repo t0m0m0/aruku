@@ -7,19 +7,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/config/app_config.dart';
+import 'core/navigation/app_router.dart';
 import 'core/services/onboarding_repository.dart';
 import 'core/services/recents_repository.dart';
-import 'core/state/app_state.dart';
 import 'core/theme/aruku_theme.dart';
-import 'features/auth/auth_screen.dart';
-import 'features/error/error_screen.dart';
-import 'features/home/home_screen.dart';
-import 'features/loading/loading_screen.dart';
-import 'features/navigation/nav_screen.dart';
-import 'features/onboarding/onboarding_screen.dart';
-import 'features/result/result_screen.dart';
-import 'features/search/search_screen.dart';
-import 'features/settings/settings_screen.dart';
 import 'firebase_options.dart';
 
 Future<void> main() async {
@@ -87,90 +78,18 @@ Future<void> _activateAppCheck() {
   );
 }
 
-class ArukuApp extends StatelessWidget {
+class ArukuApp extends ConsumerWidget {
   const ArukuApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
+  Widget build(BuildContext context, WidgetRef ref) {
+    // 画面遷移は go_router が権威。ルートツリー・戻る挙動・遷移アニメは
+    // すべて goRouterProvider（lib/core/navigation/app_router.dart）に集約。
+    return MaterialApp.router(
       title: 'あるく',
       debugShowCheckedModeBanner: false,
       theme: ArukuTheme.light(),
-      home: const _Root(),
-    );
-  }
-}
-
-class _Root extends ConsumerWidget {
-  const _Root();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(appStateProvider);
-    final screen = state.screen;
-
-    final Widget body = switch (screen) {
-      Screen.onboarding => const OnboardingScreen(),
-      Screen.home => const HomeScreen(),
-      Screen.settings => const SettingsScreen(),
-      Screen.auth => const AuthScreen(),
-      Screen.search => const SearchScreen(),
-      Screen.searchOrigin => const SearchScreen(mode: SearchMode.origin),
-      Screen.loading => const LoadingScreen(),
-      Screen.result => const ResultScreen(),
-      Screen.nav => const NavScreen(),
-      Screen.error => const ErrorScreen(),
-    };
-
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        // 認証は設定から開くため、戻るは設定へ。それ以外はホームへ。
-        if (screen == Screen.auth) {
-          ref.read(appStateProvider.notifier).go(Screen.settings);
-        } else if (screen == Screen.settings ||
-            screen == Screen.search ||
-            screen == Screen.searchOrigin ||
-            screen == Screen.result ||
-            screen == Screen.nav ||
-            screen == Screen.error) {
-          ref.read(appStateProvider.notifier).go(Screen.home);
-        }
-      },
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 220),
-            switchInCurve: Curves.easeOutCubic,
-            layoutBuilder: (currentChild, previousChildren) {
-              return Stack(
-                fit: StackFit.expand,
-                alignment: Alignment.center,
-                children: <Widget>[
-                  ...previousChildren.map((w) => Positioned.fill(child: w)),
-                  if (currentChild != null)
-                    Positioned.fill(child: currentChild),
-                ],
-              );
-            },
-            transitionBuilder: (child, anim) {
-              return FadeTransition(
-                opacity: anim,
-                child: SlideTransition(
-                  position: Tween<Offset>(
-                    begin: const Offset(0, 0.02),
-                    end: Offset.zero,
-                  ).animate(anim),
-                  child: child,
-                ),
-              );
-            },
-            child: KeyedSubtree(key: ValueKey(screen), child: body),
-          ),
-        ],
-      ),
+      routerConfig: ref.watch(goRouterProvider),
     );
   }
 }

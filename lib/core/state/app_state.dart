@@ -395,7 +395,15 @@ class AppNotifier extends Notifier<AppState> {
     return 0;
   }
 
-  void go(Screen s) {
+  void go(Screen s) => syncScreen(s);
+
+  /// screen を [s] に揃え、nav 出入りの GPS 追跡を開始/停止する。
+  ///
+  /// アプリ内遷移（[go]）と router からの書き戻し（pop / deep link /
+  /// redirect）の両方がここを通るため、どの経路でも副作用が同一に発火する。
+  /// 同値なら何もしない（router との相互同期がエコーで往復しないための冪等性）。
+  void syncScreen(Screen s) {
+    if (state.screen == s) return;
     state = state.copyWith(screen: s);
     if (s == Screen.nav) {
       _startTracking();
@@ -518,6 +526,15 @@ class AppNotifier extends Notifier<AppState> {
   }
 
   Future<void> startSearch() async {
+    // 不変条件: screen と、その画面の表示前提データ（loading↔routePhase、
+    // result/nav↔route、error↔routeErrorKind）は必ず同一 copyWith で
+    // まとめて更新する。app_router.dart の redirect ガードがこの前提で
+    // deep link を弾くため、片方だけ設定すると正規遷移まで跳ね返される。
+    //
+    // ここは screen を [syncScreen] ではなく直接 copyWith する。startSearch は
+    // home→loading→result/error のみを扱い nav を経由しないため GPS 副作用は
+    // 不要で、screen 変更は goRouterProvider の ref.listen が router へ伝搬する。
+    // nav へ遷移する新経路をここに足す場合は syncScreen を通すこと。
     state = state.copyWith(
       screen: Screen.loading,
       routeErrorKind: null,
