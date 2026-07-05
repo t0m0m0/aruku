@@ -311,4 +311,56 @@ void main() {
       expect(g.offRouteMeters, greaterThan(100.0));
     });
   });
+
+  group('isOnTrainSegment', () {
+    // 徒歩(東)→電車(北)→徒歩(東)。
+    final mixed = _route(
+      totalKm: 3.0,
+      walkKm: 2.0,
+      segments: const [
+        RouteSegment(
+          type: SegmentType.walk,
+          fromName: 'A',
+          toName: 'S1',
+          minutes: 10,
+          km: 1.0,
+          kcal: 50,
+          polyline: [GeoPoint(0, 0), GeoPoint(0, 0.01)],
+        ),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'S1',
+          toName: 'S2',
+          minutes: 5,
+          km: 1.0,
+          polyline: [GeoPoint(0, 0.01), GeoPoint(0.01, 0.01)],
+        ),
+        RouteSegment(
+          type: SegmentType.walk,
+          fromName: 'S2',
+          toName: 'B',
+          minutes: 10,
+          km: 1.0,
+          kcal: 50,
+          polyline: [GeoPoint(0.01, 0.01), GeoPoint(0.01, 0.02)],
+        ),
+      ],
+    );
+
+    test('最寄り区間が電車のとき true になる', () {
+      final g = computeGuidance(
+        route: mixed,
+        current: const GeoPoint(0.005, 0.01),
+      );
+      expect(g.isOnTrainSegment, isTrue);
+    });
+
+    test('最寄り区間が徒歩のとき false になる', () {
+      final g = computeGuidance(
+        route: mixed,
+        current: const GeoPoint(0, 0.005),
+      );
+      expect(g.isOnTrainSegment, isFalse);
+    });
+  });
 }
