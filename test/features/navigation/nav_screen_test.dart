@@ -104,4 +104,16 @@ void main() {
 
     expect(find.text('一時停止 · 寄り道'), findsNothing);
   });
+
+  group('navCameraPosition', () {
+    test('ナビ視点のズーム/チルトを維持したカメラ位置を返す', () {
+      const pos = GeoPoint(35.681, 139.767);
+
+      final cam = navCameraPosition(pos);
+
+      expect(cam.target, const LatLng(35.681, 139.767));
+      expect(cam.zoom, ArukuMapVariant.nav.zoom);
+      expect(cam.tilt, ArukuMapVariant.nav.tilt);
+    });
+  });
 }
