@@ -79,13 +79,16 @@ class _Maneuver {
 }
 
 class _FlatPath {
-  const _FlatPath(this.points, this.walkPoint);
+  const _FlatPath(this.points, this.walkPoint, this.segIndex);
 
   /// 全区間を連結した頂点列。
   final List<GeoPoint> points;
 
   /// 各頂点が徒歩区間由来か（kcal 按分用）。
   final List<bool> walkPoint;
+
+  /// 各頂点が由来する route.segments のインデックス（ETA の区間按分用）。
+  final List<int> segIndex;
 }
 
 /// [route] のジオメトリと [current] から表示用のナビ状態を算出する。
@@ -144,6 +147,17 @@ NavGuidance computeGuidance({
       ? 0
       : (route.kcal * (traveledWalk / totalWalk)).round();
 
+  final elapsedMin = _elapsedMinutes(
+    route: route,
+    edgeLen: edgeLen,
+    edgeSeg: flat.segIndex,
+    s: s,
+  );
+  final etaMinutesRemaining = (route.totalMin - elapsedMin).clamp(
+    0.0,
+    route.totalMin.toDouble(),
+  );
+
   // 曲がり地点（末尾に arrive を必ず付ける）。
   final events = _maneuvers(pts, edgeLen, flat.walkPoint)
     ..add(_Maneuver(NavManeuver.arrive, totalLen));
@@ -166,7 +180,7 @@ NavGuidance computeGuidance({
     distanceToNextTurnNextM: next == null
         ? null
         : (next.distanceAlong - s).clamp(0, totalLen).round(),
-    etaMinutesRemaining: (route.totalMin * (1 - progress)).round(),
+    etaMinutesRemaining: etaMinutesRemaining.round(),
     consumedKcal: consumedKcal,
     offRouteMeters: snap.offsetMeters,
     isOnTrainSegment: !edgeWalk[snap.segmentIndex],
@@ -176,14 +190,59 @@ NavGuidance computeGuidance({
 _FlatPath _flatten(RoutePlan route) {
   final pts = <GeoPoint>[];
   final walk = <bool>[];
-  for (final seg in route.segments) {
+  final segIndex = <int>[];
+  for (var i = 0; i < route.segments.length; i++) {
+    final seg = route.segments[i];
     final isWalk = seg.type == SegmentType.walk;
     for (final p in seg.polyline) {
       pts.add(p);
       walk.add(isWalk);
+      segIndex.add(i);
     }
   }
-  return _FlatPath(pts, walk);
+  return _FlatPath(pts, walk, segIndex);
+}
+
+/// 現在地までの走破距離 [s] から、区間ごとの実所要時間（[RouteSegment.minutes]）を
+/// 積み上げて経過時間（分）を算出する。距離按分の進捗率をそのまま時間に使うと、
+/// 徒歩より大幅に速い電車区間で ETA が実態と乖離するため、区間境界ごとに
+/// その区間の実所要時間を計上し、現在滞在中の区間内でのみ距離按分する。
+double _elapsedMinutes({
+  required RoutePlan route,
+  required List<double> edgeLen,
+  required List<int> edgeSeg,
+  required double s,
+}) {
+  final segLen = List<double>.filled(route.segments.length, 0.0);
+  for (var i = 0; i < edgeLen.length; i++) {
+    segLen[edgeSeg[i]] += edgeLen[i];
+  }
+
+  // route.totalMin は乗換待ちや実測到着時刻を含み、区間の minutes 合計と
+  // 一致しないことがある（route_plan_builder._advance を参照）。区間間の
+  // 相対的な所要時間比は保ったまま totalMin に正規化し、走破完了時に
+  // 必ず 0 分へ収束するようにする。
+  final rawSum = route.segments.fold<double>(0, (a, seg) => a + seg.minutes);
+  final scale = rawSum == 0 ? 1.0 : route.totalMin / rawSum;
+
+  var elapsed = 0.0;
+  var segStart = 0.0;
+  for (var i = 0; i < route.segments.length; i++) {
+    final len = segLen[i];
+    final segEnd = segStart + len;
+    final minutes = route.segments[i].minutes * scale;
+    if (s >= segEnd) {
+      elapsed += minutes;
+    } else if (s > segStart) {
+      final frac = len == 0 ? 1.0 : ((s - segStart) / len).clamp(0.0, 1.0);
+      elapsed += minutes * frac;
+      break;
+    } else {
+      break;
+    }
+    segStart = segEnd;
+  }
+  return elapsed;
 }
 
 /// 連続する辺の方位差から曲がり地点を抽出する。
