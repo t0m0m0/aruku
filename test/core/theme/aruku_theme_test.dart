@@ -9,10 +9,25 @@ import 'package:google_fonts/google_fonts.dart';
 /// テスト環境では実体を取得しないためロードは失敗するが、検証したいのは
 /// [TextStyle.fontFamily]（同期的に確定する）だけなので、失敗した非同期
 /// ロードのエラーを隔離ゾーンで握りつぶして未処理エラーにしないようにする。
+///
+/// ゾーンのハンドラは非同期エラーのみ握りつぶす。[body] が同期例外を投げた
+/// 場合はそのまま再送出し、無関係な [LateInitializationError] に化けさせない。
 T _fontFamilyOnly<T>(T Function() body) {
-  late T result;
-  runZonedGuarded(() => result = body(), (_, _) {});
-  return result;
+  T? result;
+  Object? syncError;
+  StackTrace? syncStack;
+  runZonedGuarded(() {
+    try {
+      result = body();
+    } catch (e, s) {
+      syncError = e;
+      syncStack = s;
+    }
+  }, (_, _) {});
+  if (syncError != null) {
+    Error.throwWithStackTrace(syncError!, syncStack!);
+  }
+  return result as T;
 }
 
 void main() {
