@@ -34,6 +34,7 @@ class NavGuidance {
     required this.etaMinutesRemaining,
     required this.consumedKcal,
     required this.offRouteMeters,
+    required this.isOnTrainSegment,
   });
 
   /// 0–1 の進捗率。
@@ -59,6 +60,10 @@ class NavGuidance {
 
   /// 現在地から経路までの最短距離（メートル）。オフルート判定に使う。
   final double offRouteMeters;
+
+  /// 現在地の最寄り区間が電車かどうか。電車区間はポリライン誤差が
+  /// 大きく出やすいため、オフルート再検索の抑制に使う。
+  final bool isOnTrainSegment;
 }
 
 /// 曲がりとして認識する最小角度。これ未満は直進扱い。
@@ -103,6 +108,7 @@ NavGuidance computeGuidance({
       etaMinutesRemaining: route.totalMin,
       consumedKcal: 0,
       offRouteMeters: 0,
+      isOnTrainSegment: false,
     );
   }
 
@@ -163,6 +169,7 @@ NavGuidance computeGuidance({
     etaMinutesRemaining: (route.totalMin * (1 - progress)).round(),
     consumedKcal: consumedKcal,
     offRouteMeters: snap.offsetMeters,
+    isOnTrainSegment: !edgeWalk[snap.segmentIndex],
   );
 }
 

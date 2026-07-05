@@ -446,8 +446,11 @@ class AppNotifier extends Notifier<AppState> {
     final route = state.route;
     if (route == null || state.isRerouting) return;
 
-    final offRoute = computeGuidance(route: route, current: p).offRouteMeters;
-    if (offRoute <= kRerouteThresholdMeters) {
+    final guidance = computeGuidance(route: route, current: p);
+    // 電車区間はポリラインの間引き・簡略化で数十m単位のずれが出やすく、
+    // 徒歩想定の閾値では誤ってリルートしてしまうため対象外にする。
+    if (guidance.isOnTrainSegment ||
+        guidance.offRouteMeters <= kRerouteThresholdMeters) {
       _offRouteFixes = 0;
       return;
     }
