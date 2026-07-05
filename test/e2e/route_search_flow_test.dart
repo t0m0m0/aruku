@@ -64,6 +64,9 @@ void main() {
 
     await tester.tap(find.text('ルートを検索'));
     await tester.pump();
+    // ルーターの遷移アニメ（220ms）を完了させ loading 画面を可視化する。
+    // スピナーが回り続けるため pumpAndSettle は使えず固定時間で送る。
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(container.read(appStateProvider).screen, Screen.loading);
     expect(find.text('歩ける道を、探しています'), findsOneWidget);

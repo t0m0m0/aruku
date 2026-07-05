@@ -3,22 +3,13 @@ import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/location_state.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
+import 'package:aruku/core/navigation/app_router.dart';
 import 'package:aruku/core/services/activity_service.dart';
 import 'package:aruku/core/services/location_service.dart';
 import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:aruku/core/services/route_service.dart';
-import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
-import 'package:aruku/features/auth/auth_screen.dart';
-import 'package:aruku/features/error/error_screen.dart';
-import 'package:aruku/features/home/home_screen.dart';
-import 'package:aruku/features/loading/loading_screen.dart';
-import 'package:aruku/features/navigation/nav_screen.dart';
-import 'package:aruku/features/onboarding/onboarding_screen.dart';
-import 'package:aruku/features/result/result_screen.dart';
-import 'package:aruku/features/search/search_screen.dart';
-import 'package:aruku/features/settings/settings_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -78,31 +69,14 @@ class FailingRouteService implements RouteService {
   }
 }
 
-/// アプリ全体のルーティングを再現するテスト用ルートウィジェット。
-/// main.dart の _Root と同等だが、アニメーションを省いてテストを高速化する。
-class TestRoot extends ConsumerWidget {
-  const TestRoot({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return switch (ref.watch(appStateProvider).screen) {
-      Screen.onboarding => const OnboardingScreen(),
-      Screen.home => const HomeScreen(),
-      Screen.settings => const SettingsScreen(),
-      Screen.auth => const AuthScreen(),
-      Screen.search => const SearchScreen(),
-      Screen.searchOrigin => const SearchScreen(mode: SearchMode.origin),
-      Screen.loading => const LoadingScreen(),
-      Screen.result => const ResultScreen(),
-      Screen.nav => const NavScreen(),
-      Screen.error => const ErrorScreen(),
-    };
-  }
-}
-
+/// 本番と同じ goRouterProvider でアプリ全体を組み立てる。
+/// TestRoot（switch の複製）は廃止し、実 Navigator スタックで検証する。
 Widget appWidget(ProviderContainer container) => UncontrolledProviderScope(
   container: container,
-  child: MaterialApp(theme: ArukuTheme.light(), home: const TestRoot()),
+  child: MaterialApp.router(
+    theme: ArukuTheme.light(),
+    routerConfig: container.read(goRouterProvider),
+  ),
 );
 
 /// 共通のプロバイダオーバーライドでコンテナを生成する。
