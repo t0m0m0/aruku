@@ -526,6 +526,10 @@ class AppNotifier extends Notifier<AppState> {
   }
 
   Future<void> startSearch() async {
+    // 不変条件: screen と、その画面の表示前提データ（loading↔routePhase、
+    // result/nav↔route、error↔routeErrorKind）は必ず同一 copyWith で
+    // まとめて更新する。app_router.dart の redirect ガードがこの前提で
+    // deep link を弾くため、片方だけ設定すると正規遷移まで跳ね返される。
     state = state.copyWith(
       screen: Screen.loading,
       routeErrorKind: null,
