@@ -78,7 +78,7 @@ class _NavScreenState extends ConsumerState<NavScreen> {
         ? computeGuidance(route: route, current: current)
         : null;
 
-    final totalKm = route?.totalKm ?? 0.0;
+    final totalKm = guidance?.totalKm ?? route?.totalKm ?? 0.0;
     final markers = <Marker>{
       if (route != null) ...route.toMarkers(),
       if (current != null)
