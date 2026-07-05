@@ -134,6 +134,40 @@ void main() {
       expect(g.etaMinutesRemaining, lessThanOrEqualTo(6));
     });
 
+    test('区間所要時間の合計がtotalMinと一致しない（乗換待ち等）場合も到着時にETAが0になる', () {
+      // 徒歩1km/10分 + 電車9km/5分の距離概算合計は15分だが、乗換待ちを
+      // totalMinに含めているため totalMin=20（route_plan_builderの_advance仕様）。
+      final withWait = _route(
+        totalMin: 20,
+        totalKm: 10.0,
+        walkKm: 1.0,
+        segments: const [
+          RouteSegment(
+            type: SegmentType.walk,
+            fromName: 'A',
+            toName: 'S1',
+            minutes: 10,
+            km: 1.0,
+            kcal: 50,
+            polyline: [GeoPoint(0, 0), GeoPoint(0, 0.009)],
+          ),
+          RouteSegment(
+            type: SegmentType.train,
+            fromName: 'S1',
+            toName: 'S2',
+            minutes: 5,
+            km: 9.0,
+            polyline: [GeoPoint(0, 0.009), GeoPoint(0, 0.09)],
+          ),
+        ],
+      );
+      final g = computeGuidance(
+        route: withWait,
+        current: const GeoPoint(0, 0.09),
+      );
+      expect(g.etaMinutesRemaining, 0);
+    });
+
     test('直線経路は開始時点から到着案内', () {
       final straight = _route(
         segments: const [

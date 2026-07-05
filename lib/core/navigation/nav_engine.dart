@@ -218,12 +218,19 @@ double _elapsedMinutes({
     segLen[edgeSeg[i]] += edgeLen[i];
   }
 
+  // route.totalMin は乗換待ちや実測到着時刻を含み、区間の minutes 合計と
+  // 一致しないことがある（route_plan_builder._advance を参照）。区間間の
+  // 相対的な所要時間比は保ったまま totalMin に正規化し、走破完了時に
+  // 必ず 0 分へ収束するようにする。
+  final rawSum = route.segments.fold<double>(0, (a, seg) => a + seg.minutes);
+  final scale = rawSum == 0 ? 1.0 : route.totalMin / rawSum;
+
   var elapsed = 0.0;
   var segStart = 0.0;
   for (var i = 0; i < route.segments.length; i++) {
     final len = segLen[i];
     final segEnd = segStart + len;
-    final minutes = route.segments[i].minutes;
+    final minutes = route.segments[i].minutes * scale;
     if (s >= segEnd) {
       elapsed += minutes;
     } else if (s > segStart) {
