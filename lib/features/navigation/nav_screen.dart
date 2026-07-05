@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../../core/models/geo_point.dart';
 import '../../core/navigation/nav_engine.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
@@ -12,6 +13,13 @@ import '../../shared/widgets/aruku_card.dart';
 import '../../shared/widgets/aruku_map.dart';
 
 part 'nav_widgets.dart';
+
+/// ナビ視点（zoom17/tilt45）を維持したまま [pos] を中心とするカメラ位置。
+CameraPosition navCameraPosition(GeoPoint pos) => CameraPosition(
+  target: LatLng(pos.lat, pos.lng),
+  zoom: ArukuMapVariant.nav.zoom,
+  tilt: ArukuMapVariant.nav.tilt,
+);
 
 class NavScreen extends ConsumerStatefulWidget {
   const NavScreen({super.key});
@@ -36,13 +44,16 @@ class _NavScreenState extends ConsumerState<NavScreen> {
     final controller = _mapController;
     if (pos == null || controller == null) return;
     controller.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: LatLng(pos.lat, pos.lng),
-          zoom: ArukuMapVariant.nav.zoom,
-          tilt: ArukuMapVariant.nav.tilt,
-        ),
-      ),
+      CameraUpdate.newCameraPosition(navCameraPosition(pos)),
+    );
+  }
+
+  /// ルート全体俯瞰フィット完了後、現在地が既にあればナビ視点へ切り替える。
+  void _snapToNavCamera(GoogleMapController controller) {
+    final pos = ref.read(appStateProvider).currentPosition;
+    if (pos == null) return;
+    controller.animateCamera(
+      CameraUpdate.newCameraPosition(navCameraPosition(pos)),
     );
   }
 
@@ -58,7 +69,7 @@ class _NavScreenState extends ConsumerState<NavScreen> {
     ref.listen(appStateProvider.select((s) => s.currentPosition), (_, next) {
       if (next != null) {
         _mapController?.animateCamera(
-          CameraUpdate.newLatLng(LatLng(next.lat, next.lng)),
+          CameraUpdate.newCameraPosition(navCameraPosition(next)),
         );
       }
     });
@@ -93,6 +104,7 @@ class _NavScreenState extends ConsumerState<NavScreen> {
               routeBounds: route?.toBounds(),
               mapType: _mapType,
               onMapReady: (controller) => _mapController = controller,
+              onFitBoundsComplete: _snapToNavCamera,
             ),
           ),
 
