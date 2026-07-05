@@ -126,6 +126,19 @@ void main() {
       );
       expect(rows, isNull);
     });
+
+    // fetchGuidanceAt は TIMEOUT を再送出するのに対し fetchWalkMatrix は握り潰す、
+    // という挙動差が本クラスの要点なので明示的に固定する（回帰防止）。
+    test('タイムアウトも null（直線推定へフォールバック）', () async {
+      final client = _client(
+        MockClient((req) async => throw TimeoutException('slow')),
+      );
+      final rows = await client.fetchWalkMatrix(
+        const [GeoPoint(0, 0)],
+        const [GeoPoint(1, 1)],
+      );
+      expect(rows, isNull);
+    });
   });
 
   group('fetchWalkRoute', () {
@@ -158,13 +171,40 @@ void main() {
     });
   });
 
-  group('transitBaseUrl', () {
-    test('末尾スラッシュを正規化する', () {
+  group('baseUrl 正規化', () {
+    test('transitBaseUrl 末尾スラッシュを除去する', () {
       final client = _client(
         MockClient((_) async => _json(const {})),
         transitBase: 'https://transit.example///',
       );
       expect(client.transitBaseUrl, 'https://transit.example');
+      expect(client.hasTransitApi, isTrue);
+    });
+
+    test('空の transitBaseUrl は hasTransitApi=false', () {
+      final client = _client(
+        MockClient((_) async => _json(const {})),
+        transitBase: '',
+      );
+      expect(client.hasTransitApi, isFalse);
+    });
+
+    // proxyBaseUrl の末尾スラッシュ正規化は _fetchProxy の URL 組み立てに効く。
+    // 実リクエストの path が二重スラッシュにならないことで確認する。
+    test('proxyBaseUrl 末尾スラッシュを除去し二重スラッシュを防ぐ', () async {
+      late Uri captured;
+      final client = _client(
+        MockClient((req) async {
+          captured = req.url;
+          return _json({'routes': const []});
+        }),
+        proxy: 'https://proxy.example///',
+      );
+      await client.fetchWalkRoute(
+        const GeoPoint(35.0, 139.0),
+        const GeoPoint(35.5, 139.5),
+      );
+      expect(captured.path, '/googleWalkProxy');
     });
   });
 }

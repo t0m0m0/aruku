@@ -37,8 +37,12 @@ class TransitApiClient {
   /// `/guidance/plan` で取得する候補数。
   static const int _numItineraries = 5;
 
-  /// 正規化済みの Transit API ベース URL。空なら `NO_TRANSIT_API`（呼び出し側で判定）。
+  /// 正規化済みの Transit API ベース URL（テスト・観測用）。
   String get transitBaseUrl => _transitBaseUrl;
+
+  /// Transit API のベース URL が設定済みか。未設定なら呼び出し側は `NO_TRANSIT_API`
+  /// を投げる。設定知識を通信層に閉じ込め、ドメイン層が URL 文字列を覗かないための述語。
+  bool get hasTransitApi => _transitBaseUrl.isNotEmpty;
 
   // ---- Transit API（直叩き） ----
 

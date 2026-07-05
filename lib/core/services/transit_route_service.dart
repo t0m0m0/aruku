@@ -86,9 +86,7 @@ class TransitRouteService implements RouteService {
     String? originName,
     void Function(RoutePhase)? onProgress,
   }) async {
-    if (_api.transitBaseUrl.isEmpty) {
-      throw const RouteException('NO_TRANSIT_API');
-    }
+    if (!_api.hasTransitApi) throw const RouteException('NO_TRANSIT_API');
     if (origin == null) throw const RouteException('NO_ORIGIN');
     if (destinationLatLng == null) throw const RouteException('NO_DESTINATION');
     final budgetMin = budgetMinutes(departure, arrival);
