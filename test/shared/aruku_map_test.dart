@@ -99,6 +99,61 @@ void main() {
     });
   });
 
+  group('shouldAutoFitBounds', () {
+    final boundsA = LatLngBounds(
+      southwest: const LatLng(35.0, 139.0),
+      northeast: const LatLng(35.1, 139.1),
+    );
+    final boundsB = LatLngBounds(
+      southwest: const LatLng(35.2, 139.2),
+      northeast: const LatLng(35.3, 139.3),
+    );
+
+    test('nav variant は routeBounds が変わっても自動フィットしない（リルート対策）', () {
+      expect(
+        shouldAutoFitBounds(
+          variant: ArukuMapVariant.nav,
+          oldBounds: boundsA,
+          newBounds: boundsB,
+        ),
+        isFalse,
+      );
+    });
+
+    test('full variant は routeBounds が変わると自動フィットする', () {
+      expect(
+        shouldAutoFitBounds(
+          variant: ArukuMapVariant.full,
+          oldBounds: boundsA,
+          newBounds: boundsB,
+        ),
+        isTrue,
+      );
+    });
+
+    test('thumb variant は routeBounds が変わると自動フィットする', () {
+      expect(
+        shouldAutoFitBounds(
+          variant: ArukuMapVariant.thumb,
+          oldBounds: boundsA,
+          newBounds: boundsB,
+        ),
+        isTrue,
+      );
+    });
+
+    test('bounds が変わらなければ variant に関わらず自動フィットしない', () {
+      expect(
+        shouldAutoFitBounds(
+          variant: ArukuMapVariant.full,
+          oldBounds: boundsA,
+          newBounds: boundsA,
+        ),
+        isFalse,
+      );
+    });
+  });
+
   group('Wakaba map style JSON', () {
     test('is a valid, non-empty JSON array', () {
       final decoded = jsonDecode(arukuWakabaMapStyle);
