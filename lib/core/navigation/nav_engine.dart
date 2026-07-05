@@ -25,6 +25,7 @@ enum NavManeuver {
 class NavGuidance {
   const NavGuidance({
     required this.progress,
+    required this.totalKm,
     required this.traveledKm,
     required this.remainingKm,
     required this.distanceToNextTurnM,
@@ -39,6 +40,10 @@ class NavGuidance {
 
   /// 0–1 の進捗率。
   final double progress;
+
+  /// 合計距離（km）。route.totalKm（API由来）ではなく、traveledKm/remainingKm
+  /// と同じポリライン実測値から算出し、三者の合計不一致を防ぐ。
+  final double totalKm;
   final double traveledKm;
   final double remainingKm;
 
@@ -102,6 +107,7 @@ NavGuidance computeGuidance({
   if (pts.length < 2) {
     return NavGuidance(
       progress: 0,
+      totalKm: route.totalKm,
       traveledKm: 0,
       remainingKm: route.totalKm,
       distanceToNextTurnM: 0,
@@ -170,6 +176,7 @@ NavGuidance computeGuidance({
 
   return NavGuidance(
     progress: progress,
+    totalKm: totalLen / 1000,
     traveledKm: s / 1000,
     remainingKm: remaining / 1000,
     distanceToNextTurnM: (currentEvent.distanceAlong - s)
