@@ -11,7 +11,7 @@ import 'package:google_fonts/google_fonts.dart';
 /// ロードのエラーを隔離ゾーンで握りつぶして未処理エラーにしないようにする。
 T _fontFamilyOnly<T>(T Function() body) {
   late T result;
-  runZonedGuarded(() => result = body(), (_, __) {});
+  runZonedGuarded(() => result = body(), (_, _) {});
   return result;
 }
 
