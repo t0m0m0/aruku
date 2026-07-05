@@ -1,10 +1,6 @@
-import 'dart:async';
-import 'dart:convert';
-
 import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
 import 'package:http/http.dart' as http;
 
-import '../config/app_config.dart';
 import '../models/geo_point.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
@@ -12,6 +8,7 @@ import 'hybrid_route_selector.dart';
 import 'route_diagnostics.dart';
 import 'route_plan_builder.dart';
 import 'route_service.dart';
+import 'transit_api_client.dart';
 import 'transit_plan_parser.dart';
 
 /// Transit API（`/guidance/plan`）から、予算内で徒歩を最大化するルートを生成する
@@ -34,27 +31,20 @@ class TransitRouteService implements RouteService {
     String? transitBaseUrl,
     String? proxyBaseUrl,
     DateTime Function()? clock,
-  }) : _transit = transitClient ?? http.Client(),
-       _proxy = proxyClient ?? http.Client(),
-       _clock = clock ?? DateTime.now,
-       _transitBaseUrl = (transitBaseUrl ?? AppConfig.transitApiBaseUrl)
-           .replaceAll(RegExp(r'/+$'), ''),
-       _proxyBaseUrl = (proxyBaseUrl ?? AppConfig.proxyBaseUrl).replaceAll(
-         RegExp(r'/+$'),
-         '',
-       );
+  }) : _api = TransitApiClient(
+         transitClient: transitClient,
+         proxyClient: proxyClient,
+         transitBaseUrl: transitBaseUrl,
+         proxyBaseUrl: proxyBaseUrl,
+       ),
+       _clock = clock ?? DateTime.now;
 
-  final http.Client _transit;
-  final http.Client _proxy;
-  final String _transitBaseUrl;
-  final String _proxyBaseUrl;
+  /// Transit API / Google プロキシへの HTTP 通信（#169）。
+  final TransitApiClient _api;
   final DateTime Function() _clock;
 
   /// 選定の診断ログ整形（#169）。`verbose` は既定で [kDebugMode]。
   final RouteDiagnostics _diag = const RouteDiagnostics();
-
-  /// `/guidance/plan` で取得する候補数。
-  static const int _numItineraries = 5;
 
   /// 採用候補を enrich（街路実測）で検証して選び直す試行上限。
   static const int _maxEnrichAttempts = 8;
@@ -96,7 +86,9 @@ class TransitRouteService implements RouteService {
     String? originName,
     void Function(RoutePhase)? onProgress,
   }) async {
-    if (_transitBaseUrl.isEmpty) throw const RouteException('NO_TRANSIT_API');
+    if (_api.transitBaseUrl.isEmpty) {
+      throw const RouteException('NO_TRANSIT_API');
+    }
     if (origin == null) throw const RouteException('NO_ORIGIN');
     if (destinationLatLng == null) throw const RouteException('NO_DESTINATION');
     final budgetMin = budgetMinutes(departure, arrival);
@@ -104,7 +96,11 @@ class TransitRouteService implements RouteService {
     onProgress?.call(RoutePhase.routing);
 
     final departureAt = _departureDateTime(departure);
-    final body = await _fetchGuidance(origin, destinationLatLng, departureAt);
+    final body = await _api.fetchGuidanceAt(
+      origin,
+      destinationLatLng,
+      departureAt,
+    );
     final options = parseGuidancePlan(body);
     if (options.isEmpty) throw const RouteException('ZERO_RESULTS');
 
@@ -320,7 +316,7 @@ class TransitRouteService implements RouteService {
   _fetchTrainEndpoints(GeoPoint board, GeoPoint alight, DateTime at) async {
     final Map<String, dynamic> body;
     try {
-      body = await _fetchGuidanceAt(board, alight, at);
+      body = await _api.fetchGuidanceAt(board, alight, at);
     } on RouteException {
       return null;
     }
@@ -724,10 +720,10 @@ class TransitRouteService implements RouteService {
   ) async {
     // 乗車側・降車側のマトリクスは互いに独立なので並列に投げる（#163）。
     final boardDests = [...boardStops, goal];
-    final boardFuture = _fetchWalkMatrix([origin], boardDests);
+    final boardFuture = _api.fetchWalkMatrix([origin], boardDests);
     final alightFuture = alightStops.isEmpty
         ? Future<List<dynamic>?>.value(null)
-        : _fetchWalkMatrix(alightStops, [goal]);
+        : _api.fetchWalkMatrix(alightStops, [goal]);
     final boardRows = await boardFuture;
     final alightRows = await alightFuture;
     if (boardRows != null) {
@@ -942,33 +938,7 @@ class TransitRouteService implements RouteService {
     return km;
   }
 
-  // ---- Transit API（直叩き） ----
-
-  Future<Map<String, dynamic>> _fetchGuidance(
-    GeoPoint origin,
-    GeoPoint goal,
-    DateTime departureAt,
-  ) => _fetchGuidanceAt(origin, goal, departureAt);
-
-  Future<Map<String, dynamic>> _fetchGuidanceAt(
-    GeoPoint start,
-    GeoPoint goal,
-    DateTime at,
-  ) async {
-    final uri = Uri.parse('$_transitBaseUrl/api/v1/guidance/plan').replace(
-      queryParameters: {
-        'from': 'geo:${start.lat},${start.lng}',
-        'to': 'geo:${goal.lat},${goal.lng}',
-        'date': _formatDate(at),
-        'time': _formatTime(at),
-        'type': 'departure',
-        'numItineraries': '$_numItineraries',
-      },
-    );
-    final res = await _getOrTimeout(_transit, uri);
-    if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
-    return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
-  }
+  // ---- Transit API（[TransitApiClient] 経由の引き直し） ----
 
   /// 乗車駅候補 X から goal への経路を引き直し、最初に電車を含む option を
   /// [RouteCandidate] で返す（乗車駅探索の評価関数）。電車を含む option が無ければ null。
@@ -979,7 +949,7 @@ class TransitRouteService implements RouteService {
   ) async {
     final Map<String, dynamic> body;
     try {
-      body = await _fetchGuidanceAt(x, goal, at);
+      body = await _api.fetchGuidanceAt(x, goal, at);
     } on RouteException {
       return null;
     }
@@ -991,23 +961,7 @@ class TransitRouteService implements RouteService {
     return null;
   }
 
-  // ---- Google Routes（プロキシ） ----
-
-  Future<List<dynamic>?> _fetchWalkMatrix(
-    List<GeoPoint> origins,
-    List<GeoPoint> dests,
-  ) async {
-    String join(List<GeoPoint> ps) =>
-        ps.map((p) => '${p.lat},${p.lng}').join(';');
-    try {
-      return await _fetchProxyArray('googleWalkMatrixProxy', {
-        'origins': join(origins),
-        'destinations': join(dests),
-      });
-    } on RouteException {
-      return null;
-    }
-  }
+  // ---- Google Routes（[TransitApiClient] 経由の徒歩実測をドメイン候補へ変換） ----
 
   /// origin→dest の徒歩を Google Routes(WALK, プロキシ経由)で取得して徒歩区間候補にする。
   /// レッグ単位キャッシュ（座標5桁丸めキー）。失敗時は null。
@@ -1023,10 +977,7 @@ class TransitRouteService implements RouteService {
       if (hit != null) return _renameWalk(hit, fromName, toName);
     }
     try {
-      final body = await _fetchProxy('googleWalkProxy', {
-        'start': '${origin.lat},${origin.lng}',
-        'goal': '${dest.lat},${dest.lng}',
-      });
+      final body = await _api.fetchWalkRoute(origin, dest);
       final routes = body['routes'] as List<dynamic>? ?? const [];
       if (routes.isEmpty) return null;
       final route = routes.first as Map<String, dynamic>;
@@ -1114,43 +1065,6 @@ class TransitRouteService implements RouteService {
     ];
   }
 
-  Future<Map<String, dynamic>> _fetchProxy(
-    String path,
-    Map<String, String> params,
-  ) async {
-    final uri = Uri.parse(
-      '$_proxyBaseUrl/$path',
-    ).replace(queryParameters: params);
-    final res = await _getOrTimeout(_proxy, uri);
-    if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
-    return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
-  }
-
-  Future<List<dynamic>> _fetchProxyArray(
-    String path,
-    Map<String, String> params,
-  ) async {
-    final uri = Uri.parse(
-      '$_proxyBaseUrl/$path',
-    ).replace(queryParameters: params);
-    final res = await _getOrTimeout(_proxy, uri);
-    if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
-    final decoded = jsonDecode(utf8.decode(res.bodyBytes));
-    if (decoded is! List) throw const RouteException('MATRIX_NOT_ARRAY');
-    return decoded;
-  }
-
-  /// [client] で [uri] を GET し、タイムアウト（[TimeoutHttpClient]・#156）を
-  /// `RouteException('TIMEOUT')` へ変換する。これで無応答は既存の UI エラー処理と
-  /// 縮退（失敗レッグは `on RouteException` で直線推定・候補スキップ）にそのまま乗る。
-  Future<http.Response> _getOrTimeout(http.Client client, Uri uri) async {
-    try {
-      return await client.get(uri);
-    } on TimeoutException {
-      throw const RouteException('TIMEOUT');
-    }
-  }
-
   /// 出発の絶対時刻。dateOffset（isNow→0）で日付を決定する（NAVITIME 版と同基準）。
   DateTime _departureDateTime(TimeValue t) {
     final now = _clock();
@@ -1162,14 +1076,6 @@ class TransitRouteService implements RouteService {
       t.m,
     ).add(Duration(days: effectiveOffset(t)));
   }
-
-  String _formatDate(DateTime dt) =>
-      '${dt.year.toString().padLeft(4, '0')}'
-      '${dt.month.toString().padLeft(2, '0')}'
-      '${dt.day.toString().padLeft(2, '0')}';
-
-  String _formatTime(DateTime dt) =>
-      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
 }
 
 /// 乗車駅探索・ハイブリッドの候補点。コリドー座標（停車駅 or 線路点）から作る。
