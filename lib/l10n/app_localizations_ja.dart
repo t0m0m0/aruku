@@ -429,4 +429,22 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get onboardWeeklyKcalTrailer => '通勤を歩くだけで';
+
+  @override
+  String get settingsTitle => '設定';
+
+  @override
+  String get settingsNotificationsSection => '通知';
+
+  @override
+  String get settingsReceiveNotifications => '通知を受け取る';
+
+  @override
+  String get settingsPermissionsSection => '権限';
+
+  @override
+  String get settingsLocationNotificationPermission => '位置情報・通知の権限';
+
+  @override
+  String get settingsOpenDeviceSettings => '端末設定を開く';
 }

@@ -325,5 +325,18 @@
   "onboardWeeklyKcalLead": "最初の1週間で",
   "@onboardWeeklyKcalLead": {},
   "onboardWeeklyKcalTrailer": "通勤を歩くだけで",
-  "@onboardWeeklyKcalTrailer": {}
+  "@onboardWeeklyKcalTrailer": {},
+
+  "settingsTitle": "設定",
+  "@settingsTitle": {},
+  "settingsNotificationsSection": "通知",
+  "@settingsNotificationsSection": {},
+  "settingsReceiveNotifications": "通知を受け取る",
+  "@settingsReceiveNotifications": {},
+  "settingsPermissionsSection": "権限",
+  "@settingsPermissionsSection": {},
+  "settingsLocationNotificationPermission": "位置情報・通知の権限",
+  "@settingsLocationNotificationPermission": {},
+  "settingsOpenDeviceSettings": "端末設定を開く",
+  "@settingsOpenDeviceSettings": {}
 }

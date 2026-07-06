@@ -891,6 +891,42 @@ abstract class AppLocalizations {
   /// In ja, this message translates to:
   /// **'通勤を歩くだけで'**
   String get onboardWeeklyKcalTrailer;
+
+  /// No description provided for @settingsTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'設定'**
+  String get settingsTitle;
+
+  /// No description provided for @settingsNotificationsSection.
+  ///
+  /// In ja, this message translates to:
+  /// **'通知'**
+  String get settingsNotificationsSection;
+
+  /// No description provided for @settingsReceiveNotifications.
+  ///
+  /// In ja, this message translates to:
+  /// **'通知を受け取る'**
+  String get settingsReceiveNotifications;
+
+  /// No description provided for @settingsPermissionsSection.
+  ///
+  /// In ja, this message translates to:
+  /// **'権限'**
+  String get settingsPermissionsSection;
+
+  /// No description provided for @settingsLocationNotificationPermission.
+  ///
+  /// In ja, this message translates to:
+  /// **'位置情報・通知の権限'**
+  String get settingsLocationNotificationPermission;
+
+  /// No description provided for @settingsOpenDeviceSettings.
+  ///
+  /// In ja, this message translates to:
+  /// **'端末設定を開く'**
+  String get settingsOpenDeviceSettings;
 }
 
 class _AppLocalizationsDelegate
