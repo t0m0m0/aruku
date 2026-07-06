@@ -423,9 +423,13 @@ class AppNotifier extends Notifier<AppState> {
         .positionStream()
         .listen(
           _onPosition,
-          // GPS 喪失や位置サービス停止で流れる一時的なエラーは無視し、
-          // 未捕捉例外を防ぐ。最後に取得した現在地を保持する。
-          onError: (_) {},
+          // GPS 喪失や位置サービス停止で流れるエラーは未捕捉例外にせず、
+          // locationState に反映してナビ画面へバナー表示できるようにする。
+          // 最後に取得した現在地はそのまま保持する（表示は消さない）。
+          onError: (_) {
+            if (_disposed) return;
+            state = state.copyWith(locationState: const LocationUnavailable());
+          },
         );
   }
 
@@ -440,8 +444,13 @@ class AppNotifier extends Notifier<AppState> {
   }
 
   /// 現在地の更新を反映し、オフルートが継続していれば自動再検索を起動する。
+  /// ストリームエラー後に位置が復帰した場合、GPS喪失バナーを解消するため
+  /// locationState も LocationAvailable に戻す。
   void _onPosition(GeoPoint p) {
-    state = state.copyWith(currentPosition: p);
+    state = state.copyWith(
+      currentPosition: p,
+      locationState: LocationAvailable(p),
+    );
     _maybeReroute(p);
   }
 
