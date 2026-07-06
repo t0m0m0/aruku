@@ -61,3 +61,32 @@ const sampleRoutePlan = RoutePlan(
     TimelineNode(time: '10:40', place: '渋谷ヒカリエ', sub: '到着 · 制限内 ✓'),
   ],
 );
+
+/// 左折を1つだけ含む徒歩専用のL字経路（案内アイコン種別のテスト用）。
+/// 東へ進み→左折して北上する形状（`nav_engine_test.dart` のL字ルートと同型）。
+const leftTurnRoutePlan = RoutePlan(
+  from: 'A地点',
+  to: 'B地点',
+  totalKm: 1.0,
+  totalMin: 15,
+  budgetMin: 30,
+  kcal: 50,
+  walkKm: 1.0,
+  walkRatio: 1.0,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A地点',
+      toName: 'B地点',
+      km: 1.0,
+      minutes: 15,
+      kcal: 50,
+      polyline: [
+        GeoPoint(35.0, 139.0),
+        GeoPoint(35.0, 139.01),
+        GeoPoint(35.01, 139.01),
+      ],
+    ),
+  ],
+  timelineNodes: [],
+);

@@ -21,6 +21,31 @@ class _NavChip extends StatelessWidget {
   }
 }
 
+/// [maneuver] に応じた案内アイコンと、テスト識別用のキー種別。
+({String key, Widget icon}) _maneuverIcon(NavManeuver? maneuver, Color color) {
+  Widget arrow(double angle) => angle == 0
+      ? Ic.arrowUp(size: 32, color: color)
+      : Transform.rotate(
+          angle: angle,
+          child: Ic.arrowUp(size: 32, color: color),
+        );
+  return switch (maneuver) {
+    NavManeuver.board || NavManeuver.alight => (
+      key: 'train',
+      icon: Ic.train(size: 32, color: color),
+    ),
+    NavManeuver.arrive => (
+      key: 'arrive',
+      icon: Ic.flag(size: 32, color: color),
+    ),
+    NavManeuver.left => (key: 'left', icon: arrow(-math.pi / 2)),
+    NavManeuver.right => (key: 'right', icon: arrow(math.pi / 2)),
+    NavManeuver.slightLeft => (key: 'slight-left', icon: arrow(-math.pi / 4)),
+    NavManeuver.slightRight => (key: 'slight-right', icon: arrow(math.pi / 4)),
+    NavManeuver.straight || null => (key: 'straight', icon: arrow(0)),
+  };
+}
+
 /// [maneuver] の案内文言。乗車/下車は路線名・駅名を織り込む。
 String _maneuverText(
   NavManeuver? maneuver, {
@@ -42,9 +67,7 @@ class _InstructionCard extends StatelessWidget {
     final c = context.c;
     final g = guidance;
     final hasNext = g?.nextManeuver != null;
-    final isCurrentTrainEvent =
-        g?.currentManeuver == NavManeuver.board ||
-        g?.currentManeuver == NavManeuver.alight;
+    final maneuverIcon = _maneuverIcon(g?.currentManeuver, c.ivory);
     return Column(
       children: [
         Container(
@@ -70,9 +93,8 @@ class _InstructionCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(18),
                 ),
                 child: Center(
-                  child: isCurrentTrainEvent
-                      ? Ic.train(size: 32, color: c.ivory)
-                      : Ic.arrowUp(size: 32, color: c.ivory),
+                  key: Key('nav-maneuver-icon-${maneuverIcon.key}'),
+                  child: maneuverIcon.icon,
                 ),
               ),
               const SizedBox(width: 16),
