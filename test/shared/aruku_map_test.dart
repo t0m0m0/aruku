@@ -109,6 +109,16 @@ void main() {
       map.onCameraMoveStarted?.call();
       expect(called, isTrue);
     });
+
+    testWidgets('forwards onCameraIdle to GoogleMap', (tester) async {
+      var called = false;
+      await tester.pumpWidget(
+        _host(ArukuMap(useRealMap: true, onCameraIdle: () => called = true)),
+      );
+      final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
+      map.onCameraIdle?.call();
+      expect(called, isTrue);
+    });
   });
 
   group('shouldAutoFitBounds', () {

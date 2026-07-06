@@ -44,22 +44,28 @@ class _NavScreenState extends ConsumerState<NavScreen> {
   /// GPS更新にカメラを追従させるかどうか。ユーザーが地図を操作すると解除される。
   bool _autoFollow = true;
 
-  /// こちらから `animateCamera` を呼んでいる最中かどうか。
+  /// こちらから `animateCamera` を呼んだ移動がまだ収まっていないかどうか。
+  /// `animateCamera` の返す Future はプラットフォーム呼び出しの ack で完了し、
+  /// アニメーション終了（＝`onCameraIdle`）より先に完了しうるため、
+  /// このフラグは await ではなく `onCameraIdle` で解除する。
   /// `onCameraMoveStarted` はプログラム由来の移動でも発火するため、
   /// ユーザー操作由来かどうかをこのフラグで判別する。
   bool _isProgrammaticCamera = false;
 
-  Future<void> _animateCamera(CameraUpdate update) async {
+  void _animateCamera(CameraUpdate update) {
     final controller = _mapController;
     if (controller == null) return;
     _isProgrammaticCamera = true;
-    await controller.animateCamera(update);
-    if (mounted) _isProgrammaticCamera = false;
+    controller.animateCamera(update);
   }
 
   void _onCameraMoveStarted() {
     if (_isProgrammaticCamera || !_autoFollow) return;
     setState(() => _autoFollow = false);
+  }
+
+  void _onCameraIdle() {
+    _isProgrammaticCamera = false;
   }
 
   /// 「現在地に戻る」: 追従を再開し、即座に現在地へカメラを寄せる。
@@ -148,6 +154,7 @@ class _NavScreenState extends ConsumerState<NavScreen> {
               onMapReady: (controller) => _mapController = controller,
               onFitBoundsComplete: _snapToNavCamera,
               onCameraMoveStarted: _onCameraMoveStarted,
+              onCameraIdle: _onCameraIdle,
             ),
           ),
 
