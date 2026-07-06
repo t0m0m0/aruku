@@ -94,6 +94,8 @@ void main() {
       await tester.pumpWidget(wrap(_NavNotifier(noFixState)));
       await tester.pump();
 
+      // 到着・消費の両欄とも guidance の有無だけで駆動されるため常に同時に
+      // 切り替わる。片方だけ「取得中」のままになるケースは存在しない。
       expect(find.text('取得中'), findsNWidgets(2));
       expect(find.text(noFixState.arrival.format()), findsNothing);
       expect(find.text('999'), findsNothing);

@@ -328,14 +328,7 @@ class _StatsBar extends StatelessWidget {
                                 color: c.ink,
                               ),
                             )
-                          : Text(
-                              '取得中',
-                              style: jpStyle(
-                                size: 16,
-                                weight: FontWeight.w700,
-                                color: c.ink3,
-                              ),
-                            ),
+                          : _PendingFixLabel(color: c.ink3),
                     ],
                   ),
                 ),
@@ -422,14 +415,7 @@ class _StatsBar extends StatelessWidget {
                                   ),
                                 ],
                               )
-                            : Text(
-                                '取得中',
-                                style: jpStyle(
-                                  size: 16,
-                                  weight: FontWeight.w700,
-                                  color: c.ink3,
-                                ),
-                              ),
+                            : _PendingFixLabel(color: c.ink3),
                       ],
                     ),
                   ),
@@ -464,5 +450,19 @@ class _Sep extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     return Container(width: 1, color: c.hairline);
+  }
+}
+
+/// GPS初回フィックス前、意味の異なる代替値の代わりに表示する「取得中」ラベル。
+class _PendingFixLabel extends StatelessWidget {
+  const _PendingFixLabel({required this.color});
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      '取得中',
+      style: jpStyle(size: 16, weight: FontWeight.w700, color: color),
+    );
   }
 }
