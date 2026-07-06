@@ -89,6 +89,36 @@ class _NavScreenState extends ConsumerState<NavScreen> {
     _animateCamera(CameraUpdate.newCameraPosition(navCameraPosition(pos)));
   }
 
+  /// 「ナビを終了しますか？」確認ダイアログ。終了が選ばれた場合のみ true を返す。
+  Future<bool> _confirmEndNav() async {
+    final c = context.c;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('ナビを終了しますか？'),
+        actions: [
+          TextButton(
+            key: const Key('nav-exit-cancel-button'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            key: const Key('nav-exit-confirm-button'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text('終了', style: TextStyle(color: c.danger)),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
+  }
+
+  Future<void> _handleExitRequested() async {
+    final confirmed = await _confirmEndNav();
+    if (!mounted || !confirmed) return;
+    ref.read(appStateProvider.notifier).go(Screen.home);
+  }
+
   void _toggleLayer() {
     setState(() {
       _mapType = _mapType == MapType.normal ? MapType.hybrid : MapType.normal;
@@ -112,7 +142,6 @@ class _NavScreenState extends ConsumerState<NavScreen> {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    final notifier = ref.read(appStateProvider.notifier);
     final state = ref.watch(appStateProvider);
     final route = state.route;
     final current = state.currentPosition;
@@ -152,103 +181,110 @@ class _NavScreenState extends ConsumerState<NavScreen> {
         ),
     };
 
-    return Material(
-      color: c.mapBg,
-      child: Stack(
-        children: [
-          // Full-bleed map
-          Positioned.fill(
-            child: ArukuMap(
-              variant: ArukuMapVariant.nav,
-              polylines: route?.toPolylines() ?? const {},
-              markers: markers,
-              routeBounds: route?.toBounds(),
-              mapType: _mapType,
-              onMapReady: (controller) => _mapController = controller,
-              onFitBoundsComplete: _snapToNavCamera,
-              onCameraMoveStarted: _onCameraMoveStarted,
-              onCameraIdle: _onCameraIdle,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _handleExitRequested();
+      },
+      child: Material(
+        color: c.mapBg,
+        child: Stack(
+          children: [
+            // Full-bleed map
+            Positioned.fill(
+              child: ArukuMap(
+                variant: ArukuMapVariant.nav,
+                polylines: route?.toPolylines() ?? const {},
+                markers: markers,
+                routeBounds: route?.toBounds(),
+                mapType: _mapType,
+                onMapReady: (controller) => _mapController = controller,
+                onFitBoundsComplete: _snapToNavCamera,
+                onCameraMoveStarted: _onCameraMoveStarted,
+                onCameraIdle: _onCameraIdle,
+              ),
             ),
-          ),
 
-          SafeArea(
-            child: Column(
-              children: [
-                // Top instruction card
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
-                  child: _InstructionCard(
-                    guidance: guidance,
-                    destination: route?.to,
-                  ),
-                ),
-                if (state.isRerouting)
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(12, 8, 12, 0),
-                    child: _RerouteBanner(),
-                  ),
-                const Spacer(),
-                if (!_autoFollow)
+            SafeArea(
+              child: Column(
+                children: [
+                  // Top instruction card
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: ArukuButton(
-                      key: const Key('nav-recenter-button'),
-                      label: '現在地に戻る',
-                      onPressed: _recenter,
-                      icon: Ic.locate(size: 16, color: c.ivory),
-                      iconGap: 8,
-                      fullWidth: false,
-                      height: 44,
-                      borderRadius: 22,
-                      backgroundColor: c.moss700,
-                      textStyle: jpStyle(
-                        size: 13,
-                        weight: FontWeight.w800,
-                        color: c.ivory,
-                        letterSpacing: 0.06 * 13,
-                      ),
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+                    child: _InstructionCard(
+                      guidance: guidance,
+                      destination: route?.to,
                     ),
                   ),
-                // Bottom stats bar
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-                  child: _StatsBar(
-                    traveledKm: guidance?.traveledKm ?? 0.0,
-                    totalKm: totalKm,
-                    progress: guidance?.progress ?? 0.0,
-                    remainingKm: guidance?.remainingKm ?? totalKm,
-                    arrivalTime: guidance != null
-                        ? _formatArrival(guidance.etaMinutesRemaining)
-                        : state.arrival.format(),
-                    consumedKcal: guidance?.consumedKcal ?? state.todayKcal,
-                    onExit: () => notifier.go(Screen.home),
+                  if (state.isRerouting)
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(12, 8, 12, 0),
+                      child: _RerouteBanner(),
+                    ),
+                  const Spacer(),
+                  if (!_autoFollow)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: ArukuButton(
+                        key: const Key('nav-recenter-button'),
+                        label: '現在地に戻る',
+                        onPressed: _recenter,
+                        icon: Ic.locate(size: 16, color: c.ivory),
+                        iconGap: 8,
+                        fullWidth: false,
+                        height: 44,
+                        borderRadius: 22,
+                        backgroundColor: c.moss700,
+                        textStyle: jpStyle(
+                          size: 13,
+                          weight: FontWeight.w800,
+                          color: c.ivory,
+                          letterSpacing: 0.06 * 13,
+                        ),
+                      ),
+                    ),
+                  // Bottom stats bar
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                    child: _StatsBar(
+                      traveledKm: guidance?.traveledKm ?? 0.0,
+                      totalKm: totalKm,
+                      progress: guidance?.progress ?? 0.0,
+                      remainingKm: guidance?.remainingKm ?? totalKm,
+                      arrivalTime: guidance != null
+                          ? _formatArrival(guidance.etaMinutesRemaining)
+                          : state.arrival.format(),
+                      consumedKcal: guidance?.consumedKcal ?? state.todayKcal,
+                      onExit: _handleExitRequested,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
 
-          // Right controls
-          Positioned(
-            right: 12,
-            top: 220,
-            child: Column(
-              children: [
-                _NavChip(
-                  key: const Key('nav-layer-chip'),
-                  icon: Ic.layers(size: 20, color: c.ink2),
-                  onTap: _toggleLayer,
-                ),
-                const SizedBox(height: 8),
-                _NavChip(
-                  key: const Key('nav-compass-chip'),
-                  icon: Ic.compass(size: 20, color: c.ink2),
-                  onTap: _resetNorth,
-                ),
-              ],
+            // Right controls
+            Positioned(
+              right: 12,
+              top: 220,
+              child: Column(
+                children: [
+                  _NavChip(
+                    key: const Key('nav-layer-chip'),
+                    icon: Ic.layers(size: 20, color: c.ink2),
+                    onTap: _toggleLayer,
+                  ),
+                  const SizedBox(height: 8),
+                  _NavChip(
+                    key: const Key('nav-compass-chip'),
+                    icon: Ic.compass(size: 20, color: c.ink2),
+                    onTap: _resetNorth,
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
