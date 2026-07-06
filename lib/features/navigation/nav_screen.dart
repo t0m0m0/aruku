@@ -6,6 +6,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/models/geo_point.dart';
+import '../../core/models/location_state.dart';
 import '../../core/models/route_plan.dart';
 import '../../core/navigation/nav_engine.dart';
 import '../../core/state/app_state.dart';
@@ -264,10 +265,20 @@ class _NavScreenState extends ConsumerState<NavScreen> {
                             destination: route?.to,
                           ),
                         ),
+                        if (state.locationState is LocationUnavailable)
+                          const Padding(
+                            padding: EdgeInsets.fromLTRB(12, 8, 12, 0),
+                            child: _GpsLostBanner(),
+                          ),
                         if (state.isRerouting)
                           const Padding(
                             padding: EdgeInsets.fromLTRB(12, 8, 12, 0),
                             child: _RerouteBanner(),
+                          )
+                        else if (state.rerouteFailed)
+                          const Padding(
+                            padding: EdgeInsets.fromLTRB(12, 8, 12, 0),
+                            child: _RerouteFailedBanner(),
                           ),
                         const Spacer(),
                         if (!_autoFollow)
