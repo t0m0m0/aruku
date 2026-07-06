@@ -41,6 +41,35 @@ class _NavScreenState extends ConsumerState<NavScreen> {
   double? _lastDistanceAlongMeters;
   RoutePlan? _lastRouteForDistance;
 
+  /// GPS更新にカメラを追従させるかどうか。ユーザーが地図を操作すると解除される。
+  bool _autoFollow = true;
+
+  /// こちらから `animateCamera` を呼んでいる最中かどうか。
+  /// `onCameraMoveStarted` はプログラム由来の移動でも発火するため、
+  /// ユーザー操作由来かどうかをこのフラグで判別する。
+  bool _isProgrammaticCamera = false;
+
+  Future<void> _animateCamera(CameraUpdate update) async {
+    final controller = _mapController;
+    if (controller == null) return;
+    _isProgrammaticCamera = true;
+    await controller.animateCamera(update);
+    if (mounted) _isProgrammaticCamera = false;
+  }
+
+  void _onCameraMoveStarted() {
+    if (_isProgrammaticCamera || !_autoFollow) return;
+    setState(() => _autoFollow = false);
+  }
+
+  /// 「現在地に戻る」: 追従を再開し、即座に現在地へカメラを寄せる。
+  void _recenter() {
+    final pos = ref.read(appStateProvider).currentPosition;
+    if (pos == null) return;
+    setState(() => _autoFollow = true);
+    _animateCamera(CameraUpdate.newCameraPosition(navCameraPosition(pos)));
+  }
+
   void _toggleLayer() {
     setState(() {
       _mapType = _mapType == MapType.normal ? MapType.hybrid : MapType.normal;
@@ -50,20 +79,15 @@ class _NavScreenState extends ConsumerState<NavScreen> {
   /// コンパス: 現在地を中心に北向き（bearing 0）へ戻す。
   void _resetNorth() {
     final pos = ref.read(appStateProvider).currentPosition;
-    final controller = _mapController;
-    if (pos == null || controller == null) return;
-    controller.animateCamera(
-      CameraUpdate.newCameraPosition(navCameraPosition(pos)),
-    );
+    if (pos == null) return;
+    _animateCamera(CameraUpdate.newCameraPosition(navCameraPosition(pos)));
   }
 
   /// ルート全体俯瞰フィット完了後、現在地が既にあればナビ視点へ切り替える。
   void _snapToNavCamera(GoogleMapController controller) {
     final pos = ref.read(appStateProvider).currentPosition;
     if (pos == null) return;
-    controller.animateCamera(
-      CameraUpdate.newCameraPosition(navCameraPosition(pos)),
-    );
+    _animateCamera(CameraUpdate.newCameraPosition(navCameraPosition(pos)));
   }
 
   @override
@@ -74,12 +98,10 @@ class _NavScreenState extends ConsumerState<NavScreen> {
     final route = state.route;
     final current = state.currentPosition;
 
-    // 実移動に追従して地図カメラを現在地へ寄せる。
+    // 実移動に追従して地図カメラを現在地へ寄せる（追従中のみ）。
     ref.listen(appStateProvider.select((s) => s.currentPosition), (_, next) {
-      if (next != null) {
-        _mapController?.animateCamera(
-          CameraUpdate.newCameraPosition(navCameraPosition(next)),
-        );
+      if (next != null && _autoFollow) {
+        _animateCamera(CameraUpdate.newCameraPosition(navCameraPosition(next)));
       }
     });
 
@@ -125,6 +147,7 @@ class _NavScreenState extends ConsumerState<NavScreen> {
               mapType: _mapType,
               onMapReady: (controller) => _mapController = controller,
               onFitBoundsComplete: _snapToNavCamera,
+              onCameraMoveStarted: _onCameraMoveStarted,
             ),
           ),
 
@@ -145,6 +168,27 @@ class _NavScreenState extends ConsumerState<NavScreen> {
                     child: _RerouteBanner(),
                   ),
                 const Spacer(),
+                if (!_autoFollow)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: ArukuButton(
+                      key: const Key('nav-recenter-button'),
+                      label: '現在地に戻る',
+                      onPressed: _recenter,
+                      icon: Ic.locate(size: 16, color: c.ivory),
+                      iconGap: 8,
+                      fullWidth: false,
+                      height: 44,
+                      borderRadius: 22,
+                      backgroundColor: c.moss700,
+                      textStyle: jpStyle(
+                        size: 13,
+                        weight: FontWeight.w800,
+                        color: c.ivory,
+                        letterSpacing: 0.06 * 13,
+                      ),
+                    ),
+                  ),
                 // Bottom stats bar
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
