@@ -15,6 +15,7 @@ import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
 import '../../shared/widgets/aruku_card.dart';
 import '../../shared/widgets/aruku_map.dart';
+import 'nav_marker_icon.dart';
 
 part 'nav_widgets.dart';
 
@@ -24,6 +25,30 @@ CameraPosition navCameraPosition(GeoPoint pos) => CameraPosition(
   zoom: ArukuMapVariant.nav.zoom,
   tilt: ArukuMapVariant.nav.tilt,
 );
+
+/// 現在地マーカーを組み立てる。headingが取得できていて進行方向つきアイコン
+/// ([directionalIcon]、円形・中心アンカー)の読込も済んでいればそれを使い
+/// 回転させる。どちらか未確定なら既存の涙型ピン（先端＝下端がアンカー）に
+/// フォールバックするため、アンカーもアイコンの形状に合わせて出し分ける。
+Marker currentLocationMarker({
+  required GeoPoint current,
+  required BitmapDescriptor? directionalIcon,
+}) {
+  final usesDirectionalIcon =
+      current.heading != null && directionalIcon != null;
+  return Marker(
+    markerId: const MarkerId('current'),
+    position: LatLng(current.lat, current.lng),
+    icon: usesDirectionalIcon
+        ? directionalIcon
+        : BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+    rotation: current.heading ?? 0,
+    flat: current.heading != null,
+    anchor: usesDirectionalIcon
+        ? const Offset(0.5, 0.5)
+        : const Offset(0.5, 1.0),
+  );
+}
 
 class NavScreen extends ConsumerStatefulWidget {
   const NavScreen({super.key});
@@ -53,10 +78,25 @@ class _NavScreenState extends ConsumerState<NavScreen> {
   /// ユーザー操作由来かどうかをこのフラグで判別する。
   bool _isProgrammaticCamera = false;
 
+  /// 進行方向つき現在地マーカーのアイコン。生成が非同期のため、完了までは
+  /// 従来の汎用ピンにフォールバックする。
+  BitmapDescriptor? _directionalMarkerIcon;
+
   @override
   void initState() {
     super.initState();
     WakelockPlus.enable();
+    // フォールバックの defaultMarkerWithHue(hueAzure) と色味を揃える。
+    final azure = const HSVColor.fromAHSV(
+      1.0,
+      BitmapDescriptor.hueAzure,
+      1.0,
+      1.0,
+    ).toColor();
+    buildDirectionalMarkerIcon(color: azure).then((icon) {
+      if (!mounted) return;
+      setState(() => _directionalMarkerIcon = icon);
+    });
   }
 
   @override
@@ -172,118 +212,130 @@ class _NavScreenState extends ConsumerState<NavScreen> {
     final markers = <Marker>{
       if (route != null) ...route.toMarkers(),
       if (current != null)
-        Marker(
-          markerId: const MarkerId('current'),
-          position: LatLng(current.lat, current.lng),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueAzure,
-          ),
+        currentLocationMarker(
+          current: current,
+          directionalIcon: _directionalMarkerIcon,
         ),
     };
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) async {
-        if (didPop) return;
-        await _handleExitRequested();
-      },
-      child: Material(
-        color: c.mapBg,
-        child: Stack(
-          children: [
-            // Full-bleed map
-            Positioned.fill(
-              child: ArukuMap(
-                variant: ArukuMapVariant.nav,
-                polylines: route?.toPolylines() ?? const {},
-                markers: markers,
-                routeBounds: route?.toBounds(),
-                mapType: _mapType,
-                onMapReady: (controller) => _mapController = controller,
-                onFitBoundsComplete: _snapToNavCamera,
-                onCameraMoveStarted: _onCameraMoveStarted,
-                onCameraIdle: _onCameraIdle,
-              ),
-            ),
+    // 案内カード・下部バーは固定サイズの地図オーバーレイのため、無制限な文字
+    // 拡大だとオーバーフローする。読みやすさは確保しつつ上限でクランプする。
+    final clampedTextScaler = MediaQuery.textScalerOf(
+      context,
+    ).clamp(maxScaleFactor: 1.3);
 
-            SafeArea(
-              child: Column(
-                children: [
-                  // Top instruction card
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
-                    child: _InstructionCard(
-                      guidance: guidance,
-                      destination: route?.to,
-                    ),
-                  ),
-                  if (state.isRerouting)
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(12, 8, 12, 0),
-                      child: _RerouteBanner(),
-                    ),
-                  const Spacer(),
-                  if (!_autoFollow)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: ArukuButton(
-                        key: const Key('nav-recenter-button'),
-                        label: '現在地に戻る',
-                        onPressed: _recenter,
-                        icon: Ic.locate(size: 16, color: c.ivory),
-                        iconGap: 8,
-                        fullWidth: false,
-                        height: 44,
-                        borderRadius: 22,
-                        backgroundColor: c.moss700,
-                        textStyle: jpStyle(
-                          size: 13,
-                          weight: FontWeight.w800,
-                          color: c.ivory,
-                          letterSpacing: 0.06 * 13,
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(textScaler: clampedTextScaler),
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) async {
+          if (didPop) return;
+          await _handleExitRequested();
+        },
+        child: Material(
+          color: c.mapBg,
+          child: Stack(
+            children: [
+              // Full-bleed map
+              Positioned.fill(
+                child: ArukuMap(
+                  variant: ArukuMapVariant.nav,
+                  polylines: route?.toPolylines() ?? const {},
+                  markers: markers,
+                  routeBounds: route?.toBounds(),
+                  mapType: _mapType,
+                  onMapReady: (controller) => _mapController = controller,
+                  onFitBoundsComplete: _snapToNavCamera,
+                  onCameraMoveStarted: _onCameraMoveStarted,
+                  onCameraIdle: _onCameraIdle,
+                ),
+              ),
+
+              SafeArea(
+                child: Stack(
+                  children: [
+                    Column(
+                      children: [
+                        // Top instruction card
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+                          child: _InstructionCard(
+                            guidance: guidance,
+                            destination: route?.to,
+                          ),
                         ),
+                        if (state.isRerouting)
+                          const Padding(
+                            padding: EdgeInsets.fromLTRB(12, 8, 12, 0),
+                            child: _RerouteBanner(),
+                          ),
+                        const Spacer(),
+                        if (!_autoFollow)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: ArukuButton(
+                              key: const Key('nav-recenter-button'),
+                              label: '現在地に戻る',
+                              onPressed: _recenter,
+                              icon: Ic.locate(size: 16, color: c.ivory),
+                              iconGap: 8,
+                              fullWidth: false,
+                              height: 44,
+                              borderRadius: 22,
+                              backgroundColor: c.moss700,
+                              textStyle: jpStyle(
+                                size: 13,
+                                weight: FontWeight.w800,
+                                color: c.ivory,
+                                letterSpacing: 0.06 * 13,
+                              ),
+                            ),
+                          ),
+                        // Bottom stats bar
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                          child: _StatsBar(
+                            traveledKm: guidance?.traveledKm ?? 0.0,
+                            totalKm: totalKm,
+                            progress: guidance?.progress ?? 0.0,
+                            remainingKm: guidance?.remainingKm ?? totalKm,
+                            arrivalTime: guidance != null
+                                ? _formatArrival(guidance.etaMinutesRemaining)
+                                : null,
+                            consumedKcal: guidance?.consumedKcal,
+                            onExit: _handleExitRequested,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    // Right controls: 案内カード（可変長）の下に固定オフセットで配置。
+                    Positioned(
+                      right: 12,
+                      top: 96,
+                      child: Column(
+                        children: [
+                          _NavChip(
+                            key: const Key('nav-layer-chip'),
+                            icon: Ic.layers(size: 20, color: c.ink2),
+                            onTap: _toggleLayer,
+                            semanticLabel: '地図の種別を切り替える',
+                          ),
+                          const SizedBox(height: 8),
+                          _NavChip(
+                            key: const Key('nav-compass-chip'),
+                            icon: Ic.compass(size: 20, color: c.ink2),
+                            onTap: _resetNorth,
+                            semanticLabel: '地図を北向きに戻す',
+                          ),
+                        ],
                       ),
                     ),
-                  // Bottom stats bar
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-                    child: _StatsBar(
-                      traveledKm: guidance?.traveledKm ?? 0.0,
-                      totalKm: totalKm,
-                      progress: guidance?.progress ?? 0.0,
-                      remainingKm: guidance?.remainingKm ?? totalKm,
-                      arrivalTime: guidance != null
-                          ? _formatArrival(guidance.etaMinutesRemaining)
-                          : null,
-                      consumedKcal: guidance?.consumedKcal,
-                      onExit: _handleExitRequested,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-
-            // Right controls
-            Positioned(
-              right: 12,
-              top: 220,
-              child: Column(
-                children: [
-                  _NavChip(
-                    key: const Key('nav-layer-chip'),
-                    icon: Ic.layers(size: 20, color: c.ink2),
-                    onTap: _toggleLayer,
-                  ),
-                  const SizedBox(height: 8),
-                  _NavChip(
-                    key: const Key('nav-compass-chip'),
-                    icon: Ic.compass(size: 20, color: c.ink2),
-                    onTap: _resetNorth,
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

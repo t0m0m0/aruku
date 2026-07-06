@@ -326,6 +326,118 @@ void main() {
     });
   });
 
+  group('右側チップ列のレイアウト', () {
+    testWidgets('セーフエリアの上部インセットより下に配置される（固定値でオーバーラップしない）', (tester) async {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.padding = const FakeViewPadding(top: 300);
+      addTearDown(tester.view.resetPadding);
+
+      await tester.pumpWidget(wrap(_NavNotifier(navState())));
+      await tester.pump();
+
+      final chipTop = tester
+          .getTopLeft(find.byKey(const Key('nav-layer-chip')))
+          .dy;
+
+      expect(chipTop, greaterThanOrEqualTo(300));
+    });
+  });
+
+  group('チップのアクセシビリティラベル', () {
+    testWidgets('レイヤー切替・コンパスの各チップにSemanticsラベルを持つ', (tester) async {
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(wrap(_NavNotifier(navState())));
+      await tester.pump();
+
+      expect(find.bySemanticsLabel('地図の種別を切り替える'), findsOneWidget);
+      expect(find.bySemanticsLabel('地図を北向きに戻す'), findsOneWidget);
+
+      handle.dispose();
+    });
+  });
+
+  group('文字拡大設定への対応', () {
+    testWidgets('文字拡大を最大にしても案内カード・下部バーがオーバーフローしない', (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 3.0;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+      await tester.pumpWidget(wrap(_NavNotifier(navState())));
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('現在地マーカーの方向表示', () {
+    Marker currentMarker(WidgetTester tester) => tester
+        .widget<ArukuMap>(find.byType(ArukuMap))
+        .markers
+        .firstWhere((m) => m.markerId == const MarkerId('current'));
+
+    testWidgets('headingがあればマーカーをその向きに回転させる', (tester) async {
+      const withHeading = GeoPoint(35.6790, 139.7035, heading: 45.0);
+      await tester.pumpWidget(
+        wrap(_NavNotifier(navState().copyWith(currentPosition: withHeading))),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final marker = currentMarker(tester);
+      expect(marker.rotation, 45.0);
+      expect(marker.flat, isTrue);
+    });
+
+    testWidgets('heading未取得時は回転させない', (tester) async {
+      await tester.pumpWidget(wrap(_NavNotifier(navState())));
+      await tester.pump();
+      await tester.pump();
+
+      final marker = currentMarker(tester);
+      expect(marker.rotation, 0.0);
+    });
+
+    group('currentLocationMarker（アイコン読込状況ごとのアンカー整合性）', () {
+      // dart:ui を使うアイコン生成は実機非同期処理のためウィジェットテストの
+      // pump では待てない。マーカー組み立てをピュア関数として切り出し、
+      // アイコンの読込状況を直接注入して検証する。
+      final fakeIcon = BitmapDescriptor.defaultMarkerWithHue(
+        BitmapDescriptor.hueGreen,
+      );
+      const withHeading = GeoPoint(35.6790, 139.7035, heading: 45.0);
+
+      test('heading取得済み・アイコン読込済みなら円形アイコンの中心をアンカーにする', () {
+        final marker = currentLocationMarker(
+          current: withHeading,
+          directionalIcon: fakeIcon,
+        );
+
+        expect(marker.anchor, const Offset(0.5, 0.5));
+        expect(marker.icon, fakeIcon);
+        expect(marker.rotation, 45.0);
+        expect(marker.flat, isTrue);
+      });
+
+      test('heading取得済みでもアイコン未読込なら涙型ピンの先端をアンカーにする', () {
+        final marker = currentLocationMarker(
+          current: withHeading,
+          directionalIcon: null,
+        );
+
+        expect(marker.anchor, const Offset(0.5, 1.0));
+      });
+
+      test('heading未取得ならアイコン読込済みでも涙型ピンの先端をアンカーにする', () {
+        final marker = currentLocationMarker(
+          current: const GeoPoint(35.6790, 139.7035),
+          directionalIcon: fakeIcon,
+        );
+
+        expect(marker.anchor, const Offset(0.5, 1.0));
+        expect(marker.rotation, 0.0);
+      });
+    });
+  });
+
   group('navCameraPosition', () {
     test('ナビ視点のズーム/チルトを維持したカメラ位置を返す', () {
       const pos = GeoPoint(35.681, 139.767);

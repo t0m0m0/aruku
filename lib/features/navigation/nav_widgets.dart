@@ -1,21 +1,31 @@
 part of 'nav_screen.dart';
 
 class _NavChip extends StatelessWidget {
-  const _NavChip({super.key, required this.icon, this.onTap});
+  const _NavChip({
+    super.key,
+    required this.icon,
+    this.onTap,
+    required this.semanticLabel,
+  });
   final Widget icon;
   final VoidCallback? onTap;
+  final String semanticLabel;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: ArukuTokens.navChipSurface,
-      borderRadius: BorderRadius.circular(14),
-      elevation: 2,
-      shadowColor: ArukuTokens.shadowChip,
-      child: InkWell(
-        onTap: onTap,
+    return Semantics(
+      label: semanticLabel,
+      button: true,
+      child: Material(
+        color: ArukuTokens.navChipSurface,
         borderRadius: BorderRadius.circular(14),
-        child: SizedBox(width: 44, height: 44, child: Center(child: icon)),
+        elevation: 2,
+        shadowColor: ArukuTokens.shadowChip,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: SizedBox(width: 44, height: 44, child: Center(child: icon)),
+        ),
       ),
     );
   }

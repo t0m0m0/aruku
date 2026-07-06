@@ -48,12 +48,21 @@ class GeolocatorLocationService implements LocationService {
   }
 
   @override
-  Stream<GeoPoint> positionStream() => Geolocator.getPositionStream(
-    locationSettings: const LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 5,
-    ),
-  ).map((p) => GeoPoint(p.latitude, p.longitude));
+  Stream<GeoPoint> positionStream() =>
+      Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 5,
+        ),
+      ).map(
+        (p) => GeoPoint(
+          p.latitude,
+          p.longitude,
+          // heading は取得不能時に負値やNaNを返すプラットフォームがあるため、
+          // 有効な向き（0〜360度）のみ伝播する。
+          heading: (p.heading >= 0 && p.heading <= 360) ? p.heading : null,
+        ),
+      );
 }
 
 final locationServiceProvider = Provider<LocationService>(
