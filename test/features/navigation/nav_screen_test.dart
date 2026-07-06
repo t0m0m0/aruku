@@ -8,8 +8,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:wakelock_plus_platform_interface/wakelock_plus_platform_interface.dart';
 
 import '../../support/route_plan_fixtures.dart';
+
+/// wakelock の toggle 呼び出しを記録するテスト用フェイク実装。
+class _FakeWakelockPlatform extends WakelockPlusPlatformInterface {
+  final calls = <bool>[];
+
+  @override
+  Future<void> toggle({required bool enable}) async {
+    calls.add(enable);
+  }
+
+  @override
+  Future<bool> get enabled async => calls.isNotEmpty && calls.last;
+}
 
 /// build() で位置取得を起動せず、preset した状態を返すテスト用 Notifier。
 class _NavNotifier extends AppNotifier {
@@ -184,6 +199,38 @@ void main() {
       await tester.pump();
 
       expect(find.byKey(const Key('nav-recenter-button')), findsNothing);
+    });
+  });
+
+  group('wakelock', () {
+    late _FakeWakelockPlatform fake;
+    late WakelockPlusPlatformInterface original;
+
+    setUp(() {
+      fake = _FakeWakelockPlatform();
+      original = wakelockPlusPlatformInstance;
+      wakelockPlusPlatformInstance = fake;
+    });
+
+    tearDown(() {
+      wakelockPlusPlatformInstance = original;
+    });
+
+    testWidgets('ナビ画面表示中はスリープ防止を有効化する', (tester) async {
+      await tester.pumpWidget(wrap(_NavNotifier(navState())));
+      await tester.pump();
+
+      expect(fake.calls, contains(true));
+    });
+
+    testWidgets('ナビ画面を離れるとスリープ防止を解除する', (tester) async {
+      await tester.pumpWidget(wrap(_NavNotifier(navState())));
+      await tester.pump();
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      await tester.pump();
+
+      expect(fake.calls.last, isFalse);
     });
   });
 

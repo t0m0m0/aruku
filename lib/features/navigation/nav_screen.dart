@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/models/geo_point.dart';
 import '../../core/models/route_plan.dart';
@@ -51,6 +52,18 @@ class _NavScreenState extends ConsumerState<NavScreen> {
   /// `onCameraMoveStarted` はプログラム由来の移動でも発火するため、
   /// ユーザー操作由来かどうかをこのフラグで判別する。
   bool _isProgrammaticCamera = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WakelockPlus.enable();
+  }
+
+  @override
+  void dispose() {
+    WakelockPlus.disable();
+    super.dispose();
+  }
 
   void _animateCamera(CameraUpdate update) {
     final controller = _mapController;
