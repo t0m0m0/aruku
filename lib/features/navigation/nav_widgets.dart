@@ -231,8 +231,8 @@ class _StatsBar extends StatelessWidget {
   final double totalKm;
   final double progress;
   final double remainingKm;
-  final String arrivalTime;
-  final int consumedKcal;
+  final String? arrivalTime;
+  final int? consumedKcal;
   final VoidCallback onExit;
 
   @override
@@ -319,14 +319,23 @@ class _StatsBar extends StatelessWidget {
                           letterSpacing: 0.06 * 10,
                         ),
                       ),
-                      Text(
-                        arrivalTime,
-                        style: numStyle(
-                          size: 28,
-                          weight: FontWeight.w500,
-                          color: c.ink,
-                        ),
-                      ),
+                      arrivalTime != null
+                          ? Text(
+                              arrivalTime!,
+                              style: numStyle(
+                                size: 28,
+                                weight: FontWeight.w500,
+                                color: c.ink,
+                              ),
+                            )
+                          : Text(
+                              '取得中',
+                              style: jpStyle(
+                                size: 16,
+                                weight: FontWeight.w700,
+                                color: c.ink3,
+                              ),
+                            ),
                     ],
                   ),
                 ),
@@ -389,29 +398,38 @@ class _StatsBar extends StatelessWidget {
                             letterSpacing: 0.06 * 10,
                           ),
                         ),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
-                          children: [
-                            Text(
-                              '$consumedKcal',
-                              style: numStyle(
-                                size: 28,
-                                weight: FontWeight.w500,
-                                color: c.burnt,
+                        consumedKcal != null
+                            ? Row(
+                                crossAxisAlignment: CrossAxisAlignment.baseline,
+                                textBaseline: TextBaseline.alphabetic,
+                                children: [
+                                  Text(
+                                    '$consumedKcal',
+                                    style: numStyle(
+                                      size: 28,
+                                      weight: FontWeight.w500,
+                                      color: c.burnt,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'kcal',
+                                    style: jpStyle(
+                                      size: 12,
+                                      weight: FontWeight.w700,
+                                      color: c.burnt,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : Text(
+                                '取得中',
+                                style: jpStyle(
+                                  size: 16,
+                                  weight: FontWeight.w700,
+                                  color: c.ink3,
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'kcal',
-                              style: jpStyle(
-                                size: 12,
-                                weight: FontWeight.w700,
-                                color: c.burnt,
-                              ),
-                            ),
-                          ],
-                        ),
                       ],
                     ),
                   ),
