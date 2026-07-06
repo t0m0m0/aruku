@@ -21,6 +21,17 @@ class _NavChip extends StatelessWidget {
   }
 }
 
+/// [maneuver] の案内文言。乗車/下車は路線名・駅名を織り込む。
+String _maneuverText(
+  NavManeuver? maneuver, {
+  String? line,
+  String? stationName,
+}) => switch (maneuver) {
+  NavManeuver.board => '${line ?? '電車'}に乗車',
+  NavManeuver.alight => '${stationName ?? '駅'}で下車',
+  _ => maneuver?.label ?? '直進',
+};
+
 class _InstructionCard extends StatelessWidget {
   const _InstructionCard({this.guidance, this.destination});
   final NavGuidance? guidance;
@@ -31,6 +42,9 @@ class _InstructionCard extends StatelessWidget {
     final c = context.c;
     final g = guidance;
     final hasNext = g?.nextManeuver != null;
+    final isCurrentTrainEvent =
+        g?.currentManeuver == NavManeuver.board ||
+        g?.currentManeuver == NavManeuver.alight;
     return Column(
       children: [
         Container(
@@ -55,7 +69,11 @@ class _InstructionCard extends StatelessWidget {
                   color: ArukuTokens.glassWhite,
                   borderRadius: BorderRadius.circular(18),
                 ),
-                child: Center(child: Ic.arrowUp(size: 32, color: c.ivory)),
+                child: Center(
+                  child: isCurrentTrainEvent
+                      ? Ic.train(size: 32, color: c.ivory)
+                      : Ic.arrowUp(size: 32, color: c.ivory),
+                ),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -76,7 +94,7 @@ class _InstructionCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          'm ${g?.currentManeuver.label ?? '直進'}',
+                          'm ${_maneuverText(g?.currentManeuver, line: g?.currentLine, stationName: g?.currentStationName)}',
                           style: jpStyle(
                             size: 14,
                             weight: FontWeight.w700,
@@ -126,7 +144,13 @@ class _InstructionCard extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               Text(
-                g?.nextManeuver?.label ?? '--',
+                hasNext
+                    ? _maneuverText(
+                        g?.nextManeuver,
+                        line: g?.nextLine,
+                        stationName: g?.nextStationName,
+                      )
+                    : '--',
                 style: jpStyle(
                   size: 12,
                   weight: FontWeight.w600,
