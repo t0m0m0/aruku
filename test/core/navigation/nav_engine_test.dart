@@ -70,6 +70,45 @@ void main() {
       expect(g.nextManeuver, isNull);
     });
 
+    test('自己交差する経路ではpreviousDistanceAlongMetersで進捗のジャンプを防ぐ', () {
+      // 往路(緯度0)を東へ進み、並走する復路(緯度0.0006)で西へ戻る折り返し経路。
+      final loop = _route(
+        segments: [
+          RouteSegment(
+            type: SegmentType.walk,
+            fromName: 'A',
+            toName: 'B',
+            minutes: 30,
+            km: 2.2,
+            kcal: 100,
+            polyline: [
+              for (var i = 0; i <= 10; i++) GeoPoint(0, i * 0.1),
+              for (var i = 9; i >= 0; i--) GeoPoint(0.0006, i * 0.1),
+            ],
+          ),
+        ],
+      );
+
+      final without = computeGuidance(
+        route: loop,
+        current: const GeoPoint(0.0004, 0.5),
+      );
+      // 直前位置を往路上(緯度0, 経度0.5)相当として渡すと、並走する復路側へ
+      // 進捗が飛ばず往路側にとどまる。
+      final previous = computeGuidance(
+        route: loop,
+        current: const GeoPoint(0, 0.5),
+      ).traveledKm;
+      final withPrevious = computeGuidance(
+        route: loop,
+        current: const GeoPoint(0.0004, 0.5),
+        previousDistanceAlongMeters: previous * 1000,
+      );
+
+      expect(withPrevious.traveledKm, isNot(closeTo(without.traveledKm, 1)));
+      expect(withPrevious.traveledKm, closeTo(previous, 1));
+    });
+
     test('totalKmはポリライン実測合計でtraveledKm+remainingKmと一致する', () {
       // route.totalKm(2.2)はAPI由来の概算値で、Lシェイプの実測合計とは
       // 一致しない。totalKmは常にtraveledKm+remainingKmと一致すべき。

@@ -80,5 +80,37 @@ void main() {
       final firstEdge = metersBetween(path[0], path[1]);
       expect(snap.distanceAlongMeters, greaterThan(firstEdge));
     });
+
+    group('自己交差・並走経路でのヒステリシス', () {
+      // 往路(緯度0)を東へ進み、復路(緯度0.0006、往路とほぼ並走)で西へ戻る
+      // 折り返し経路。並走区間があるため、往路上の点は復路の辺とも近接する。
+      final path = [
+        for (var i = 0; i <= 10; i++) GeoPoint(0, i * 0.1),
+        for (var i = 9; i >= 0; i--) GeoPoint(0.0006, i * 0.1),
+      ];
+
+      test('直前位置未指定ならグローバル最近傍（並走する復路側）にスナップする', () {
+        final snap = snapToPolyline(path, const GeoPoint(0.0004, 0.5));
+        // 復路(緯度0.0006)の方が往路(緯度0)よりオフセットが小さいため、
+        // グローバル探索では経路後半の復路側に飛んでしまう。
+        expect(snap.segmentIndex, greaterThanOrEqualTo(10));
+      });
+
+      test('直前位置を指定すると連続性を優先し往路側にとどまる', () {
+        final previous = snapToPolyline(
+          path,
+          const GeoPoint(0, 0.5),
+        ).distanceAlongMeters;
+
+        final snap = snapToPolyline(
+          path,
+          const GeoPoint(0.0004, 0.5),
+          previousDistanceAlongMeters: previous,
+        );
+
+        expect(snap.segmentIndex, lessThan(10));
+        expect(snap.distanceAlongMeters, closeTo(previous, 1000));
+      });
+    });
   });
 }
