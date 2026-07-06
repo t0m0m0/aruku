@@ -19,6 +19,8 @@ class ArukuMap extends StatefulWidget {
     this.mapType = MapType.normal,
     this.onMapReady,
     this.onFitBoundsComplete,
+    this.onCameraMoveStarted,
+    this.onCameraIdle,
   });
 
   final ArukuMapVariant variant;
@@ -40,6 +42,12 @@ class ArukuMap extends StatefulWidget {
 
   /// ルート全体俯瞰への `_fitBounds` 完了時に呼ばれる（ナビ視点への切り替え用）。
   final void Function(GoogleMapController controller)? onFitBoundsComplete;
+
+  /// カメラ移動開始時（`GoogleMap.onCameraMoveStarted` の素通し）。
+  final VoidCallback? onCameraMoveStarted;
+
+  /// カメラ移動が停止した時（`GoogleMap.onCameraIdle` の素通し）。
+  final VoidCallback? onCameraIdle;
 
   /// 渋谷駅付近（デザインの基準エリア）。[routeBounds] 未指定時の初期位置。
   static const LatLng _defaultTarget = LatLng(35.6679, 139.7038);
@@ -124,6 +132,8 @@ class _ArukuMapState extends State<ArukuMap> {
         polylines: widget.polylines,
         markers: widget.markers,
         onMapCreated: _onMapCreated,
+        onCameraMoveStarted: widget.onCameraMoveStarted,
+        onCameraIdle: widget.onCameraIdle,
       );
     }
     return CustomPaint(

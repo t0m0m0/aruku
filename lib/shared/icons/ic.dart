@@ -72,6 +72,8 @@ class Ic extends StatelessWidget {
       Ic._(size: size, painter: _IconPainter(_layers, color));
   static Widget pause({double size = 20, required Color color}) =>
       Ic._(size: size, painter: _IconPainter(_pause, color, filled: true));
+  static Widget locate({double size = 20, required Color color}) =>
+      Ic._(size: size, painter: _IconPainter(_locate, color));
 }
 
 enum ChevronDir { left, right, up, down }
@@ -386,6 +388,14 @@ void _layers(Canvas c, Paint p, double s) {
     ..lineTo(12 * s, 21 * s)
     ..lineTo(21 * s, 16 * s);
   c.drawPath(l3, p);
+}
+
+void _locate(Canvas c, Paint p, double s) {
+  c.drawCircle(Offset(12 * s, 12 * s), 3 * s, p);
+  c.drawLine(Offset(12 * s, 2 * s), Offset(12 * s, 6 * s), p);
+  c.drawLine(Offset(12 * s, 18 * s), Offset(12 * s, 22 * s), p);
+  c.drawLine(Offset(2 * s, 12 * s), Offset(6 * s, 12 * s), p);
+  c.drawLine(Offset(18 * s, 12 * s), Offset(22 * s, 12 * s), p);
 }
 
 void _pause(Canvas c, Paint p, double s) {
