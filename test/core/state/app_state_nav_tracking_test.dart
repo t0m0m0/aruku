@@ -100,5 +100,61 @@ void main() {
         const GeoPoint(35.0, 139.0),
       );
     });
+
+    test('位置ストリームのエラーで locationState が LocationUnavailable になる', () async {
+      final controller = StreamController<GeoPoint>.broadcast();
+      addTearDown(controller.close);
+      final container = ProviderContainer(
+        overrides: [
+          locationServiceProvider.overrideWithValue(
+            _StreamLocationService(controller),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final notifier = container.read(appStateProvider.notifier);
+      notifier.go(Screen.nav);
+      controller.add(const GeoPoint(35.0, 139.0));
+      await Future<void>.delayed(Duration.zero);
+
+      controller.addError(Exception('GPS lost'));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        container.read(appStateProvider).locationState,
+        isA<LocationUnavailable>(),
+      );
+    });
+
+    test('GPS復帰で位置が届くと locationState が LocationAvailable に戻る', () async {
+      final controller = StreamController<GeoPoint>.broadcast();
+      addTearDown(controller.close);
+      final container = ProviderContainer(
+        overrides: [
+          locationServiceProvider.overrideWithValue(
+            _StreamLocationService(controller),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final notifier = container.read(appStateProvider.notifier);
+      notifier.go(Screen.nav);
+      controller.addError(Exception('GPS lost'));
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        container.read(appStateProvider).locationState,
+        isA<LocationUnavailable>(),
+      );
+
+      controller.add(const GeoPoint(35.0, 139.0));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        container.read(appStateProvider).locationState,
+        isA<LocationAvailable>(),
+      );
+    });
   });
 }
