@@ -98,6 +98,7 @@ class AppState {
     this.todayKm = 0.0,
     this.todayKcal = 0,
     this.isRerouting = false,
+    this.rerouteFailed = false,
   });
 
   final Screen screen;
@@ -122,6 +123,10 @@ class AppState {
 
   /// オフルートからの自動再検索が進行中か。
   final bool isRerouting;
+
+  /// 直近の自動再検索が失敗し、旧ルートを表示し続けている状態か。
+  /// 次の再検索開始時にリセットされる（成功すれば false のまま）。
+  final bool rerouteFailed;
 
   /// 出発〜到着の時間予算（分）。日跨ぎ（dateOffset / isNow）を考慮する。
   int get budgetMinutes => planner.budgetMinutes(departure, arrival);
@@ -166,6 +171,7 @@ class AppState {
     double? todayKm,
     int? todayKcal,
     bool? isRerouting,
+    bool? rerouteFailed,
   }) {
     return AppState(
       screen: screen ?? this.screen,
@@ -198,6 +204,7 @@ class AppState {
       todayKm: todayKm ?? this.todayKm,
       todayKcal: todayKcal ?? this.todayKcal,
       isRerouting: isRerouting ?? this.isRerouting,
+      rerouteFailed: rerouteFailed ?? this.rerouteFailed,
     );
   }
 
@@ -491,7 +498,7 @@ class AppNotifier extends Notifier<AppState> {
   /// 現在地 [from] を起点に同じ目的地へルートを再計算し、成功時に差し替える。
   /// 失敗時は旧ルートを保持する（圏外などで案内が消えないように）。
   Future<void> _reroute(GeoPoint from) async {
-    state = state.copyWith(isRerouting: true);
+    state = state.copyWith(isRerouting: true, rerouteFailed: false);
     final now = DateTime.now();
     try {
       final plan = await ref
@@ -510,7 +517,8 @@ class AppNotifier extends Notifier<AppState> {
       _lastDistanceAlongMeters = null;
     } catch (_) {
       if (_disposed) return;
-      state = state.copyWith(isRerouting: false);
+      // 旧ルートは保持したまま、ナビ画面にバナー表示できるよう失敗を残す。
+      state = state.copyWith(isRerouting: false, rerouteFailed: true);
     } finally {
       _offRouteFixes = 0;
       // クールダウンは再検索「開始時刻」を起点にする。完了時刻だと
