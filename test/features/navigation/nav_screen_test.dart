@@ -368,6 +368,35 @@ void main() {
     });
   });
 
+  group('現在地マーカーの方向表示', () {
+    Marker currentMarker(WidgetTester tester) => tester
+        .widget<ArukuMap>(find.byType(ArukuMap))
+        .markers
+        .firstWhere((m) => m.markerId == const MarkerId('current'));
+
+    testWidgets('headingがあればマーカーをその向きに回転させる', (tester) async {
+      const withHeading = GeoPoint(35.6790, 139.7035, heading: 45.0);
+      await tester.pumpWidget(
+        wrap(_NavNotifier(navState().copyWith(currentPosition: withHeading))),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final marker = currentMarker(tester);
+      expect(marker.rotation, 45.0);
+      expect(marker.flat, isTrue);
+    });
+
+    testWidgets('heading未取得時は回転させない', (tester) async {
+      await tester.pumpWidget(wrap(_NavNotifier(navState())));
+      await tester.pump();
+      await tester.pump();
+
+      final marker = currentMarker(tester);
+      expect(marker.rotation, 0.0);
+    });
+  });
+
   group('navCameraPosition', () {
     test('ナビ視点のズーム/チルトを維持したカメラ位置を返す', () {
       const pos = GeoPoint(35.681, 139.767);
