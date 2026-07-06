@@ -341,13 +341,14 @@ void main() {
           ),
         ],
       );
-      // 第1徒歩区間を歩行中。電車の 90 度カーブを「右折」と案内しない。
+      // 第1徒歩区間を歩行中。電車の 90 度カーブを「右折」と案内しない
+      // （次の操作は乗車イベントになる）。
       final g = computeGuidance(
         route: mixed,
         current: const GeoPoint(0, 0.005),
       );
-      expect(g.currentManeuver, NavManeuver.arrive);
-      expect(g.nextManeuver, isNull);
+      expect(g.currentManeuver, NavManeuver.board);
+      expect(g.nextManeuver, NavManeuver.alight);
     });
 
     test('電車区間の後の徒歩区間の曲がりは案内する', () {
@@ -481,6 +482,72 @@ void main() {
         current: const GeoPoint(0, 0.005),
       );
       expect(g.isOnTrainSegment, isFalse);
+    });
+  });
+
+  group('乗車/下車イベント', () {
+    // 徒歩(東, A→S1)→電車(北, S1で乗車・S2で下車)→徒歩(東, S2→B)。
+    final mixed = _route(
+      totalKm: 3.0,
+      walkKm: 2.0,
+      segments: const [
+        RouteSegment(
+          type: SegmentType.walk,
+          fromName: 'A',
+          toName: 'S1',
+          minutes: 10,
+          km: 1.0,
+          kcal: 50,
+          polyline: [GeoPoint(0, 0), GeoPoint(0, 0.01)],
+        ),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'S1',
+          toName: 'S2',
+          minutes: 5,
+          km: 1.0,
+          line: '山手線',
+          polyline: [GeoPoint(0, 0.01), GeoPoint(0.01, 0.01)],
+        ),
+        RouteSegment(
+          type: SegmentType.walk,
+          fromName: 'S2',
+          toName: 'B',
+          minutes: 10,
+          km: 1.0,
+          kcal: 50,
+          polyline: [GeoPoint(0.01, 0.01), GeoPoint(0.01, 0.02)],
+        ),
+      ],
+    );
+
+    test('電車区間手前では次の操作が乗車になり路線名・乗車駅名を持つ', () {
+      final g = computeGuidance(
+        route: mixed,
+        current: const GeoPoint(0, 0.005),
+      );
+      expect(g.currentManeuver, NavManeuver.board);
+      expect(g.currentLine, '山手線');
+      expect(g.currentStationName, 'S1');
+    });
+
+    test('電車乗車中は次の操作が下車になり路線名・降車駅名を持つ', () {
+      final g = computeGuidance(
+        route: mixed,
+        current: const GeoPoint(0.005, 0.01),
+      );
+      expect(g.currentManeuver, NavManeuver.alight);
+      expect(g.currentLine, '山手線');
+      expect(g.currentStationName, 'S2');
+    });
+
+    test('下車後の徒歩区間では乗車/下車イベントは既出扱いになり案内に出ない', () {
+      final g = computeGuidance(
+        route: mixed,
+        current: const GeoPoint(0.01, 0.015),
+      );
+      expect(g.currentManeuver, NavManeuver.arrive);
+      expect(g.currentStationName, isNull);
     });
   });
 }
