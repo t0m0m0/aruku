@@ -15,6 +15,7 @@ import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
 import '../../shared/widgets/aruku_card.dart';
 import '../../shared/widgets/aruku_map.dart';
+import 'nav_marker_icon.dart';
 
 part 'nav_widgets.dart';
 
@@ -53,10 +54,20 @@ class _NavScreenState extends ConsumerState<NavScreen> {
   /// ユーザー操作由来かどうかをこのフラグで判別する。
   bool _isProgrammaticCamera = false;
 
+  /// 進行方向つき現在地マーカーのアイコン。生成が非同期のため、完了までは
+  /// 従来の汎用ピンにフォールバックする。
+  BitmapDescriptor? _directionalMarkerIcon;
+
   @override
   void initState() {
     super.initState();
     WakelockPlus.enable();
+    buildDirectionalMarkerIcon(
+      color: const Color(0xFF1E88C7), // hueAzureに相当する現在地マーカー色
+    ).then((icon) {
+      if (!mounted) return;
+      setState(() => _directionalMarkerIcon = icon);
+    });
   }
 
   @override
@@ -175,9 +186,14 @@ class _NavScreenState extends ConsumerState<NavScreen> {
         Marker(
           markerId: const MarkerId('current'),
           position: LatLng(current.lat, current.lng),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueAzure,
-          ),
+          icon: (current.heading != null && _directionalMarkerIcon != null)
+              ? _directionalMarkerIcon!
+              : BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueAzure,
+                ),
+          rotation: current.heading ?? 0,
+          flat: current.heading != null,
+          anchor: const Offset(0.5, 0.5),
         ),
     };
 
