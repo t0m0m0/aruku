@@ -105,15 +105,16 @@ void main() {
     expect(find.text('一時停止 · 寄り道'), findsNothing);
   });
 
-  testWidgets('電車乗車前は路線名付きの乗車案内を表示する', (tester) async {
+  testWidgets('電車乗車前は路線名付きの乗車案内を表示し、電車アイコンを出す', (tester) async {
     // sampleRoutePlanの徒歩区間終盤（電車区間手前）。
     await tester.pumpWidget(wrap(_NavNotifier(navState())));
     await tester.pump();
 
     expect(find.textContaining('JR山手線に乗車'), findsOneWidget);
+    expect(find.byKey(const Key('nav-maneuver-icon-train')), findsOneWidget);
   });
 
-  testWidgets('電車乗車中は降車駅名付きの下車案内を表示する', (tester) async {
+  testWidgets('電車乗車中は降車駅名付きの下車案内を表示し、電車アイコンを出す', (tester) async {
     const onTrain = GeoPoint(35.6640, 139.7020);
     await tester.pumpWidget(
       wrap(_NavNotifier(navState().copyWith(currentPosition: onTrain))),
@@ -121,6 +122,35 @@ void main() {
     await tester.pump();
 
     expect(find.textContaining('渋谷で下車'), findsOneWidget);
+    expect(find.byKey(const Key('nav-maneuver-icon-train')), findsOneWidget);
+  });
+
+  testWidgets('まもなく到着時は到着アイコンを表示する', (tester) async {
+    const arriveNear = GeoPoint(35.6591, 139.7030);
+    await tester.pumpWidget(
+      wrap(_NavNotifier(navState().copyWith(currentPosition: arriveNear))),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const Key('nav-maneuver-icon-arrive')), findsOneWidget);
+  });
+
+  testWidgets('左折時は左折アイコンを表示する（直進矢印固定ではない）', (tester) async {
+    const beforeTurn = GeoPoint(35.0, 139.001);
+    await tester.pumpWidget(
+      wrap(
+        _NavNotifier(
+          navState().copyWith(
+            route: leftTurnRoutePlan,
+            currentPosition: beforeTurn,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const Key('nav-maneuver-icon-left')), findsOneWidget);
+    expect(find.byKey(const Key('nav-maneuver-icon-straight')), findsNothing);
   });
 
   group('navCameraPosition', () {
