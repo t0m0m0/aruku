@@ -84,17 +84,73 @@ void main() {
     expect(find.text(before), findsNothing);
   });
 
-  testWidgets('終了ボタンをタップするとホームへ戻る', (tester) async {
-    final notifier = _NavNotifier(navState());
-    await tester.pumpWidget(wrap(notifier));
-    await tester.pump();
+  group('ナビ終了の確認', () {
+    testWidgets('終了ボタンをタップすると確認ダイアログを表示し、即座には戻らない', (tester) async {
+      final notifier = _NavNotifier(navState());
+      await tester.pumpWidget(wrap(notifier));
+      await tester.pump();
 
-    expect(find.text('終了'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('nav-exit-button')));
+      await tester.pump();
 
-    await tester.tap(find.byKey(const Key('nav-exit-button')));
-    await tester.pump();
+      expect(find.text('ナビを終了しますか？'), findsOneWidget);
+      expect(notifier.state.screen, Screen.nav);
+    });
 
-    expect(notifier.state.screen, Screen.home);
+    testWidgets('確認ダイアログで「終了」を選ぶとホームへ戻る', (tester) async {
+      final notifier = _NavNotifier(navState());
+      await tester.pumpWidget(wrap(notifier));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('nav-exit-button')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('nav-exit-confirm-button')));
+      await tester.pump();
+
+      expect(notifier.state.screen, Screen.home);
+      expect(find.text('ナビを終了しますか？'), findsNothing);
+    });
+
+    testWidgets('確認ダイアログで「キャンセル」を選ぶとナビ画面に留まる', (tester) async {
+      final notifier = _NavNotifier(navState());
+      await tester.pumpWidget(wrap(notifier));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('nav-exit-button')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('nav-exit-cancel-button')));
+      await tester.pump();
+
+      expect(notifier.state.screen, Screen.nav);
+      expect(find.text('ナビを終了しますか？'), findsNothing);
+    });
+
+    testWidgets('システムバックでも確認ダイアログを表示し、終了/キャンセルの分岐が効く', (tester) async {
+      final notifier = _NavNotifier(navState());
+      await tester.pumpWidget(wrap(notifier));
+      await tester.pump();
+
+      final popScopeFinder = find.byWidgetPredicate((w) => w is PopScope);
+      final popScope = tester.widget(popScopeFinder) as PopScope;
+      expect(popScope.canPop, isFalse);
+
+      popScope.onPopInvokedWithResult!(false, null);
+      await tester.pump();
+      expect(find.text('ナビを終了しますか？'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('nav-exit-cancel-button')));
+      await tester.pump();
+      expect(notifier.state.screen, Screen.nav);
+
+      (tester.widget(popScopeFinder) as PopScope).onPopInvokedWithResult!(
+        false,
+        null,
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('nav-exit-confirm-button')));
+      await tester.pump();
+      expect(notifier.state.screen, Screen.home);
+    });
   });
 
   testWidgets('レイヤーチップで地図種別が通常↔航空写真に切り替わる', (tester) async {

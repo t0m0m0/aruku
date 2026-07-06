@@ -103,8 +103,11 @@ void main() {
     await tester.pump();
     expect(container.read(appStateProvider).currentPosition, isNotNull);
 
-    // 実 pop で home へ戻る → 書き戻し経由で追跡が停止・位置がクリアされる。
+    // 実 pop で home へ戻る → 確認ダイアログで終了を選ぶと書き戻し経由で
+    // 追跡が停止・位置がクリアされる。
     await tester.binding.handlePopRoute();
+    await pumpTransition(tester);
+    await tester.tap(find.byKey(const Key('nav-exit-confirm-button')));
     await pumpTransition(tester);
 
     expect(container.read(appStateProvider).screen, Screen.home);
