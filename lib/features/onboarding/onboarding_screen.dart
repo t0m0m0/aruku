@@ -8,6 +8,7 @@ import '../../core/constants/app_constants.dart';
 import '../../core/services/onboarding_repository.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
+import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
 import '../../shared/widgets/aruku_card.dart';
@@ -79,6 +80,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     final isLast = _page == _pageCount - 1;
     return Material(
       color: c.ivory,
@@ -124,7 +126,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   const ArukuLogo(size: 36),
                   const SizedBox(width: 10),
                   Text(
-                    'あるく',
+                    l10n.appTitle,
                     style: jpStyle(
                       size: 22,
                       weight: FontWeight.w800,
@@ -181,10 +183,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               bottom: _ctaBottom,
               child: Column(
                 children: [
-                  _CTAButton(label: isLast ? 'はじめる' : '次へ', onPressed: _onCta),
+                  _CTAButton(
+                    label: isLast ? l10n.onboardStart : l10n.onboardNext,
+                    onPressed: _onCta,
+                  ),
                   const SizedBox(height: 14),
                   Text(
-                    '続行で利用規約とプライバシーに同意したことになります',
+                    l10n.onboardTermsNotice,
                     style: jpStyle(
                       size: 12,
                       weight: FontWeight.w500,

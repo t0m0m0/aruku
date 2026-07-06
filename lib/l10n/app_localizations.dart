@@ -783,6 +783,114 @@ abstract class AppLocalizations {
   /// In ja, this message translates to:
   /// **'取得中'**
   String get navPendingFix;
+
+  /// No description provided for @onboardCoreTitleLead.
+  ///
+  /// In ja, this message translates to:
+  /// **'電車はなるべく、\n'**
+  String get onboardCoreTitleLead;
+
+  /// No description provided for @onboardCoreTitleHighlight.
+  ///
+  /// In ja, this message translates to:
+  /// **'乗らない'**
+  String get onboardCoreTitleHighlight;
+
+  /// No description provided for @onboardCoreDescription.
+  ///
+  /// In ja, this message translates to:
+  /// **'時間内に着く範囲で、\nいちばん歩けるルートを案内します。'**
+  String get onboardCoreDescription;
+
+  /// No description provided for @onboardHowToTitleLead.
+  ///
+  /// In ja, this message translates to:
+  /// **'着く時間を、\n'**
+  String get onboardHowToTitleLead;
+
+  /// No description provided for @onboardHowToTitleHighlight.
+  ///
+  /// In ja, this message translates to:
+  /// **'指定するだけ'**
+  String get onboardHowToTitleHighlight;
+
+  /// No description provided for @onboardHowToDescription.
+  ///
+  /// In ja, this message translates to:
+  /// **'あとはアプリが、間に合う範囲で\nいちばん歩けるルートを選びます。'**
+  String get onboardHowToDescription;
+
+  /// No description provided for @onboardHowToFeatureTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'到着時刻をセット'**
+  String get onboardHowToFeatureTitle;
+
+  /// No description provided for @onboardHowToFeatureSubtitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'出発／到着のどちらでも指定できます'**
+  String get onboardHowToFeatureSubtitle;
+
+  /// No description provided for @onboardRecordTitleLead.
+  ///
+  /// In ja, this message translates to:
+  /// **'あなたの歩みを、\n'**
+  String get onboardRecordTitleLead;
+
+  /// No description provided for @onboardRecordTitleHighlight.
+  ///
+  /// In ja, this message translates to:
+  /// **'記録する'**
+  String get onboardRecordTitleHighlight;
+
+  /// No description provided for @onboardRecordDescription.
+  ///
+  /// In ja, this message translates to:
+  /// **'歩数・距離・消費カロリーを記録して、\n続けた歩みを可視化します。'**
+  String get onboardRecordDescription;
+
+  /// No description provided for @onboardRecordFeatureTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'毎日の歩みを記録'**
+  String get onboardRecordFeatureTitle;
+
+  /// No description provided for @onboardRecordFeatureSubtitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'歩数・距離・カロリーをまとめて確認'**
+  String get onboardRecordFeatureSubtitle;
+
+  /// No description provided for @onboardStart.
+  ///
+  /// In ja, this message translates to:
+  /// **'はじめる'**
+  String get onboardStart;
+
+  /// No description provided for @onboardNext.
+  ///
+  /// In ja, this message translates to:
+  /// **'次へ'**
+  String get onboardNext;
+
+  /// No description provided for @onboardTermsNotice.
+  ///
+  /// In ja, this message translates to:
+  /// **'続行で利用規約とプライバシーに同意したことになります'**
+  String get onboardTermsNotice;
+
+  /// No description provided for @onboardWeeklyKcalLead.
+  ///
+  /// In ja, this message translates to:
+  /// **'最初の1週間で'**
+  String get onboardWeeklyKcalLead;
+
+  /// No description provided for @onboardWeeklyKcalTrailer.
+  ///
+  /// In ja, this message translates to:
+  /// **'通勤を歩くだけで'**
+  String get onboardWeeklyKcalTrailer;
 }
 
 class _AppLocalizationsDelegate

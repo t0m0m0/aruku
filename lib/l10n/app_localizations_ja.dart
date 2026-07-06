@@ -375,4 +375,58 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get navPendingFix => '取得中';
+
+  @override
+  String get onboardCoreTitleLead => '電車はなるべく、\n';
+
+  @override
+  String get onboardCoreTitleHighlight => '乗らない';
+
+  @override
+  String get onboardCoreDescription => '時間内に着く範囲で、\nいちばん歩けるルートを案内します。';
+
+  @override
+  String get onboardHowToTitleLead => '着く時間を、\n';
+
+  @override
+  String get onboardHowToTitleHighlight => '指定するだけ';
+
+  @override
+  String get onboardHowToDescription => 'あとはアプリが、間に合う範囲で\nいちばん歩けるルートを選びます。';
+
+  @override
+  String get onboardHowToFeatureTitle => '到着時刻をセット';
+
+  @override
+  String get onboardHowToFeatureSubtitle => '出発／到着のどちらでも指定できます';
+
+  @override
+  String get onboardRecordTitleLead => 'あなたの歩みを、\n';
+
+  @override
+  String get onboardRecordTitleHighlight => '記録する';
+
+  @override
+  String get onboardRecordDescription => '歩数・距離・消費カロリーを記録して、\n続けた歩みを可視化します。';
+
+  @override
+  String get onboardRecordFeatureTitle => '毎日の歩みを記録';
+
+  @override
+  String get onboardRecordFeatureSubtitle => '歩数・距離・カロリーをまとめて確認';
+
+  @override
+  String get onboardStart => 'はじめる';
+
+  @override
+  String get onboardNext => '次へ';
+
+  @override
+  String get onboardTermsNotice => '続行で利用規約とプライバシーに同意したことになります';
+
+  @override
+  String get onboardWeeklyKcalLead => '最初の1週間で';
+
+  @override
+  String get onboardWeeklyKcalTrailer => '通勤を歩くだけで';
 }
