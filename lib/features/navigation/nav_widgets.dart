@@ -226,6 +226,58 @@ class _RerouteBanner extends StatelessWidget {
   }
 }
 
+/// GPS/位置情報の取得に失敗している間、ナビ中に表示する警告バナー。
+class _GpsLostBanner extends StatelessWidget {
+  const _GpsLostBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return ArukuCard(
+      borderRadius: 14,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      color: c.dangerSoft,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.gps_off, size: 16, color: c.danger),
+          const SizedBox(width: 10),
+          Text(
+            '位置情報を取得できません。設定をご確認ください',
+            style: jpStyle(size: 13, weight: FontWeight.w700, color: c.danger),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 自動再検索に失敗し旧ルートを表示し続けている間に出す軽量バナー。
+class _RerouteFailedBanner extends StatelessWidget {
+  const _RerouteFailedBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return ArukuCard(
+      borderRadius: 14,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      color: c.dangerSoft,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.error_outline, size: 16, color: c.danger),
+          const SizedBox(width: 10),
+          Text(
+            '再検索に失敗しました。旧ルートを表示中',
+            style: jpStyle(size: 13, weight: FontWeight.w700, color: c.danger),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _StatsBar extends StatelessWidget {
   const _StatsBar({
     required this.traveledKm,
