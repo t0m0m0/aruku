@@ -153,6 +153,40 @@ void main() {
     expect(find.byKey(const Key('nav-maneuver-icon-straight')), findsNothing);
   });
 
+  group('地図の自動追従', () {
+    testWidgets('初期状態では「現在地に戻る」ボタンを表示しない', (tester) async {
+      await tester.pumpWidget(wrap(_NavNotifier(navState())));
+      await tester.pump();
+
+      expect(find.byKey(const Key('nav-recenter-button')), findsNothing);
+    });
+
+    testWidgets('地図をユーザーが操作すると「現在地に戻る」ボタンを表示する', (tester) async {
+      await tester.pumpWidget(wrap(_NavNotifier(navState())));
+      await tester.pump();
+
+      final map = tester.widget<ArukuMap>(find.byType(ArukuMap));
+      map.onCameraMoveStarted!();
+      await tester.pump();
+
+      expect(find.byKey(const Key('nav-recenter-button')), findsOneWidget);
+    });
+
+    testWidgets('「現在地に戻る」をタップすると追従を再開しボタンが消える', (tester) async {
+      await tester.pumpWidget(wrap(_NavNotifier(navState())));
+      await tester.pump();
+
+      tester.widget<ArukuMap>(find.byType(ArukuMap)).onCameraMoveStarted!();
+      await tester.pump();
+      expect(find.byKey(const Key('nav-recenter-button')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('nav-recenter-button')));
+      await tester.pump();
+
+      expect(find.byKey(const Key('nav-recenter-button')), findsNothing);
+    });
+  });
+
   group('navCameraPosition', () {
     test('ナビ視点のズーム/チルトを維持したカメラ位置を返す', () {
       const pos = GeoPoint(35.681, 139.767);

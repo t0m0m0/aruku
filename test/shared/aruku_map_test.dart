@@ -97,6 +97,18 @@ void main() {
       expect(map.polylines, isEmpty);
       expect(map.markers, isEmpty);
     });
+
+    testWidgets('forwards onCameraMoveStarted to GoogleMap', (tester) async {
+      var called = false;
+      await tester.pumpWidget(
+        _host(
+          ArukuMap(useRealMap: true, onCameraMoveStarted: () => called = true),
+        ),
+      );
+      final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
+      map.onCameraMoveStarted?.call();
+      expect(called, isTrue);
+    });
   });
 
   group('shouldAutoFitBounds', () {
