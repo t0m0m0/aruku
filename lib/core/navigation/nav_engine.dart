@@ -97,9 +97,14 @@ class _FlatPath {
 }
 
 /// [route] のジオメトリと [current] から表示用のナビ状態を算出する。
+///
+/// [previousDistanceAlongMeters] を渡すと、自己交差・並走区間での
+/// スナップジャンプを避けるため直前位置との連続性を優先する
+/// （[snapToPolyline] 参照）。
 NavGuidance computeGuidance({
   required RoutePlan route,
   required GeoPoint current,
+  double? previousDistanceAlongMeters,
 }) {
   final flat = _flatten(route);
   final pts = flat.points;
@@ -132,7 +137,11 @@ NavGuidance computeGuidance({
     totalLen += len;
   }
 
-  final snap = snapToPolyline(pts, current);
+  final snap = snapToPolyline(
+    pts,
+    current,
+    previousDistanceAlongMeters: previousDistanceAlongMeters,
+  );
   final s = snap.distanceAlongMeters.clamp(0.0, totalLen);
   final progress = totalLen == 0 ? 0.0 : (s / totalLen).clamp(0.0, 1.0);
   final remaining = (totalLen - s).clamp(0.0, totalLen);

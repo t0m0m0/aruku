@@ -239,6 +239,10 @@ class AppNotifier extends Notifier<AppState> {
   /// 連続してオフルートと判定された回数。閾値内に戻るとリセットする。
   int _offRouteFixes = 0;
 
+  /// 直前フィックスでのポリライン沿い累積距離（メートル）。自己交差・並走
+  /// 区間でのスナップジャンプを防ぐため [computeGuidance] へ渡す。
+  double? _lastDistanceAlongMeters;
+
   /// 直近で自動再検索を実行した時刻。クールダウン判定に使う。
   DateTime? _lastRerouteAt;
 
@@ -429,6 +433,7 @@ class AppNotifier extends Notifier<AppState> {
     _posSub?.cancel();
     _posSub = null;
     _offRouteFixes = 0;
+    _lastDistanceAlongMeters = null;
     if (state.currentPosition != null) {
       state = state.copyWith(currentPosition: null);
     }
@@ -446,7 +451,12 @@ class AppNotifier extends Notifier<AppState> {
     final route = state.route;
     if (route == null || state.isRerouting) return;
 
-    final guidance = computeGuidance(route: route, current: p);
+    final guidance = computeGuidance(
+      route: route,
+      current: p,
+      previousDistanceAlongMeters: _lastDistanceAlongMeters,
+    );
+    _lastDistanceAlongMeters = guidance.traveledKm * 1000;
     // 電車区間はポリラインの間引き・簡略化で数十m単位のずれが出やすく、
     // 徒歩想定の閾値では誤ってリルートしてしまうため対象外にする。
     if (guidance.isOnTrainSegment ||
@@ -487,6 +497,8 @@ class AppNotifier extends Notifier<AppState> {
           );
       if (_disposed) return;
       state = state.copyWith(route: plan, isRerouting: false);
+      // 新しい経路のポリラインは旧経路と別物なので、直前の累積距離は無効。
+      _lastDistanceAlongMeters = null;
     } catch (_) {
       if (_disposed) return;
       state = state.copyWith(isRerouting: false);

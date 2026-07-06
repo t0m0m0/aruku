@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../core/models/geo_point.dart';
+import '../../core/models/route_plan.dart';
 import '../../core/navigation/nav_engine.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
@@ -31,6 +32,12 @@ class NavScreen extends ConsumerStatefulWidget {
 class _NavScreenState extends ConsumerState<NavScreen> {
   GoogleMapController? _mapController;
   MapType _mapType = MapType.normal;
+
+  /// 直前フレームでのポリライン沿い累積距離（メートル）。自己交差・並走
+  /// 区間でのスナップジャンプを防ぐため [computeGuidance] へ渡す。
+  /// 経路が変わったら（再検索等）無効なので破棄する。
+  double? _lastDistanceAlongMeters;
+  RoutePlan? _lastRouteForDistance;
 
   void _toggleLayer() {
     setState(() {
@@ -74,9 +81,20 @@ class _NavScreenState extends ConsumerState<NavScreen> {
       }
     });
 
+    if (route != _lastRouteForDistance) {
+      _lastRouteForDistance = route;
+      _lastDistanceAlongMeters = null;
+    }
     final guidance = (route != null && current != null)
-        ? computeGuidance(route: route, current: current)
+        ? computeGuidance(
+            route: route,
+            current: current,
+            previousDistanceAlongMeters: _lastDistanceAlongMeters,
+          )
         : null;
+    if (guidance != null) {
+      _lastDistanceAlongMeters = guidance.traveledKm * 1000;
+    }
 
     final totalKm = guidance?.totalKm ?? route?.totalKm ?? 0.0;
     final markers = <Marker>{
