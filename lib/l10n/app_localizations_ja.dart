@@ -61,4 +61,40 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get routeErrorUnknownDescription => '時間をおいてもう一度お試しください';
+
+  @override
+  String get authLoginTitle => 'ログイン';
+
+  @override
+  String get authSignUpTitle => 'アカウント作成';
+
+  @override
+  String get authLoginSubtitle => 'メールアドレスでログインします。';
+
+  @override
+  String get authSignUpSubtitle => 'メールアドレスで新しいアカウントを作成します。';
+
+  @override
+  String get authEmailHint => 'メールアドレス';
+
+  @override
+  String get authPasswordHint => 'パスワード';
+
+  @override
+  String get authSignUpButton => '登録する';
+
+  @override
+  String get authToggleToSignUp => 'アカウントをお持ちでない方はこちら';
+
+  @override
+  String get authToggleToLogin => '既にアカウントをお持ちの方はこちら';
+
+  @override
+  String get authOrDivider => 'または';
+
+  @override
+  String get authContinueAsGuest => 'ゲストとして続ける';
+
+  @override
+  String get authValidationEmptyFields => 'メールアドレスとパスワードを入力してください。';
 }

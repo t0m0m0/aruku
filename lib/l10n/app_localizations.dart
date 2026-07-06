@@ -201,6 +201,78 @@ abstract class AppLocalizations {
   /// In ja, this message translates to:
   /// **'時間をおいてもう一度お試しください'**
   String get routeErrorUnknownDescription;
+
+  /// No description provided for @authLoginTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'ログイン'**
+  String get authLoginTitle;
+
+  /// No description provided for @authSignUpTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'アカウント作成'**
+  String get authSignUpTitle;
+
+  /// No description provided for @authLoginSubtitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'メールアドレスでログインします。'**
+  String get authLoginSubtitle;
+
+  /// No description provided for @authSignUpSubtitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'メールアドレスで新しいアカウントを作成します。'**
+  String get authSignUpSubtitle;
+
+  /// No description provided for @authEmailHint.
+  ///
+  /// In ja, this message translates to:
+  /// **'メールアドレス'**
+  String get authEmailHint;
+
+  /// No description provided for @authPasswordHint.
+  ///
+  /// In ja, this message translates to:
+  /// **'パスワード'**
+  String get authPasswordHint;
+
+  /// No description provided for @authSignUpButton.
+  ///
+  /// In ja, this message translates to:
+  /// **'登録する'**
+  String get authSignUpButton;
+
+  /// No description provided for @authToggleToSignUp.
+  ///
+  /// In ja, this message translates to:
+  /// **'アカウントをお持ちでない方はこちら'**
+  String get authToggleToSignUp;
+
+  /// No description provided for @authToggleToLogin.
+  ///
+  /// In ja, this message translates to:
+  /// **'既にアカウントをお持ちの方はこちら'**
+  String get authToggleToLogin;
+
+  /// No description provided for @authOrDivider.
+  ///
+  /// In ja, this message translates to:
+  /// **'または'**
+  String get authOrDivider;
+
+  /// No description provided for @authContinueAsGuest.
+  ///
+  /// In ja, this message translates to:
+  /// **'ゲストとして続ける'**
+  String get authContinueAsGuest;
+
+  /// No description provided for @authValidationEmptyFields.
+  ///
+  /// In ja, this message translates to:
+  /// **'メールアドレスとパスワードを入力してください。'**
+  String get authValidationEmptyFields;
 }
 
 class _AppLocalizationsDelegate
