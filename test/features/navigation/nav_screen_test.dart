@@ -326,6 +326,36 @@ void main() {
     });
   });
 
+  group('右側チップ列のレイアウト', () {
+    testWidgets('セーフエリアの上部インセットより下に配置される（固定値でオーバーラップしない）', (tester) async {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.padding = const FakeViewPadding(top: 300);
+      addTearDown(tester.view.resetPadding);
+
+      await tester.pumpWidget(wrap(_NavNotifier(navState())));
+      await tester.pump();
+
+      final chipTop = tester
+          .getTopLeft(find.byKey(const Key('nav-layer-chip')))
+          .dy;
+
+      expect(chipTop, greaterThanOrEqualTo(300));
+    });
+  });
+
+  group('チップのアクセシビリティラベル', () {
+    testWidgets('レイヤー切替・コンパスの各チップにSemanticsラベルを持つ', (tester) async {
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(wrap(_NavNotifier(navState())));
+      await tester.pump();
+
+      expect(find.bySemanticsLabel('地図の種別を切り替える'), findsOneWidget);
+      expect(find.bySemanticsLabel('地図を北向きに戻す'), findsOneWidget);
+
+      handle.dispose();
+    });
+  });
+
   group('navCameraPosition', () {
     test('ナビ視点のズーム/チルトを維持したカメラ位置を返す', () {
       const pos = GeoPoint(35.681, 139.767);
