@@ -10,6 +10,7 @@ import 'package:aruku/core/state/settings_provider.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/features/home/home_screen.dart';
 import 'package:aruku/features/settings/settings_screen.dart';
+import 'package:aruku/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -46,7 +47,12 @@ Future<ProviderContainer> _container() async {
 Widget _wrap(ProviderContainer container, Widget child) =>
     UncontrolledProviderScope(
       container: container,
-      child: MaterialApp(theme: ArukuTheme.light(), home: child),
+      child: MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        theme: ArukuTheme.light(),
+        home: child,
+      ),
     );
 
 void main() {

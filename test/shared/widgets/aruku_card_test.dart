@@ -1,9 +1,12 @@
 import 'package:aruku/core/theme/aruku_theme.dart';
+import 'package:aruku/l10n/app_localizations.dart';
 import 'package:aruku/shared/widgets/aruku_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Widget _host(Widget child) => MaterialApp(
+  localizationsDelegates: AppLocalizations.localizationsDelegates,
+  supportedLocales: AppLocalizations.supportedLocales,
   theme: ArukuTheme.light(),
   home: Scaffold(body: child),
 );
