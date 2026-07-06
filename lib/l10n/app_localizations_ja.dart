@@ -97,4 +97,91 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get authValidationEmptyFields => 'メールアドレスとパスワードを入力してください。';
+
+  @override
+  String get weekdayMon => '月';
+
+  @override
+  String get weekdayTue => '火';
+
+  @override
+  String get weekdayWed => '水';
+
+  @override
+  String get weekdayThu => '木';
+
+  @override
+  String get weekdayFri => '金';
+
+  @override
+  String get weekdaySat => '土';
+
+  @override
+  String get weekdaySun => '日';
+
+  @override
+  String get greetingMorning => 'おはようございます';
+
+  @override
+  String get greetingAfternoon => 'こんにちは';
+
+  @override
+  String get greetingEvening => 'こんばんは';
+
+  @override
+  String dateMonthDayLabel(int month, int day) {
+    return '$month月$day日';
+  }
+
+  @override
+  String get homeGreetingLead => '今日も、';
+
+  @override
+  String get homeGreetingHighlight => '歩こう。';
+
+  @override
+  String get homeTimeSectionLabel => '時間';
+
+  @override
+  String get homeWalkableSuffix => ' 歩ける';
+
+  @override
+  String get homeDepartureLabel => '出発';
+
+  @override
+  String get homeArrivalLabel => '到着';
+
+  @override
+  String get homeDestinationLabel => '目的地';
+
+  @override
+  String get homeRefreshLocation => '現在地を再取得';
+
+  @override
+  String get homeDestinationPlaceholder => 'どこへ歩く?';
+
+  @override
+  String get homeSearchDestination => '目的地を検索';
+
+  @override
+  String homeWeeklyGoal(String goalKm) {
+    return '今週の目標 ${goalKm}km';
+  }
+
+  @override
+  String get homeToday => '今日';
+
+  @override
+  String get homeStepsUnit => '歩 ·';
+
+  @override
+  String homeStreakDays(int days) {
+    return '$days日連続';
+  }
+
+  @override
+  String get homeSearchRoute => 'ルートを検索';
+
+  @override
+  String get homeChooseDestination => '目的地を選ぶ';
 }

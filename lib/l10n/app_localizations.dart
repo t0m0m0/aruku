@@ -273,6 +273,168 @@ abstract class AppLocalizations {
   /// In ja, this message translates to:
   /// **'メールアドレスとパスワードを入力してください。'**
   String get authValidationEmptyFields;
+
+  /// No description provided for @weekdayMon.
+  ///
+  /// In ja, this message translates to:
+  /// **'月'**
+  String get weekdayMon;
+
+  /// No description provided for @weekdayTue.
+  ///
+  /// In ja, this message translates to:
+  /// **'火'**
+  String get weekdayTue;
+
+  /// No description provided for @weekdayWed.
+  ///
+  /// In ja, this message translates to:
+  /// **'水'**
+  String get weekdayWed;
+
+  /// No description provided for @weekdayThu.
+  ///
+  /// In ja, this message translates to:
+  /// **'木'**
+  String get weekdayThu;
+
+  /// No description provided for @weekdayFri.
+  ///
+  /// In ja, this message translates to:
+  /// **'金'**
+  String get weekdayFri;
+
+  /// No description provided for @weekdaySat.
+  ///
+  /// In ja, this message translates to:
+  /// **'土'**
+  String get weekdaySat;
+
+  /// No description provided for @weekdaySun.
+  ///
+  /// In ja, this message translates to:
+  /// **'日'**
+  String get weekdaySun;
+
+  /// No description provided for @greetingMorning.
+  ///
+  /// In ja, this message translates to:
+  /// **'おはようございます'**
+  String get greetingMorning;
+
+  /// No description provided for @greetingAfternoon.
+  ///
+  /// In ja, this message translates to:
+  /// **'こんにちは'**
+  String get greetingAfternoon;
+
+  /// No description provided for @greetingEvening.
+  ///
+  /// In ja, this message translates to:
+  /// **'こんばんは'**
+  String get greetingEvening;
+
+  /// No description provided for @dateMonthDayLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'{month}月{day}日'**
+  String dateMonthDayLabel(int month, int day);
+
+  /// No description provided for @homeGreetingLead.
+  ///
+  /// In ja, this message translates to:
+  /// **'今日も、'**
+  String get homeGreetingLead;
+
+  /// No description provided for @homeGreetingHighlight.
+  ///
+  /// In ja, this message translates to:
+  /// **'歩こう。'**
+  String get homeGreetingHighlight;
+
+  /// No description provided for @homeTimeSectionLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'時間'**
+  String get homeTimeSectionLabel;
+
+  /// No description provided for @homeWalkableSuffix.
+  ///
+  /// In ja, this message translates to:
+  /// **' 歩ける'**
+  String get homeWalkableSuffix;
+
+  /// No description provided for @homeDepartureLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'出発'**
+  String get homeDepartureLabel;
+
+  /// No description provided for @homeArrivalLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'到着'**
+  String get homeArrivalLabel;
+
+  /// No description provided for @homeDestinationLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'目的地'**
+  String get homeDestinationLabel;
+
+  /// No description provided for @homeRefreshLocation.
+  ///
+  /// In ja, this message translates to:
+  /// **'現在地を再取得'**
+  String get homeRefreshLocation;
+
+  /// No description provided for @homeDestinationPlaceholder.
+  ///
+  /// In ja, this message translates to:
+  /// **'どこへ歩く?'**
+  String get homeDestinationPlaceholder;
+
+  /// No description provided for @homeSearchDestination.
+  ///
+  /// In ja, this message translates to:
+  /// **'目的地を検索'**
+  String get homeSearchDestination;
+
+  /// No description provided for @homeWeeklyGoal.
+  ///
+  /// In ja, this message translates to:
+  /// **'今週の目標 {goalKm}km'**
+  String homeWeeklyGoal(String goalKm);
+
+  /// No description provided for @homeToday.
+  ///
+  /// In ja, this message translates to:
+  /// **'今日'**
+  String get homeToday;
+
+  /// No description provided for @homeStepsUnit.
+  ///
+  /// In ja, this message translates to:
+  /// **'歩 ·'**
+  String get homeStepsUnit;
+
+  /// No description provided for @homeStreakDays.
+  ///
+  /// In ja, this message translates to:
+  /// **'{days}日連続'**
+  String homeStreakDays(int days);
+
+  /// No description provided for @homeSearchRoute.
+  ///
+  /// In ja, this message translates to:
+  /// **'ルートを検索'**
+  String get homeSearchRoute;
+
+  /// No description provided for @homeChooseDestination.
+  ///
+  /// In ja, this message translates to:
+  /// **'目的地を選ぶ'**
+  String get homeChooseDestination;
 }
 
 class _AppLocalizationsDelegate

@@ -64,5 +64,74 @@
   "authContinueAsGuest": "ゲストとして続ける",
   "@authContinueAsGuest": {},
   "authValidationEmptyFields": "メールアドレスとパスワードを入力してください。",
-  "@authValidationEmptyFields": {}
+  "@authValidationEmptyFields": {},
+
+  "weekdayMon": "月",
+  "@weekdayMon": {},
+  "weekdayTue": "火",
+  "@weekdayTue": {},
+  "weekdayWed": "水",
+  "@weekdayWed": {},
+  "weekdayThu": "木",
+  "@weekdayThu": {},
+  "weekdayFri": "金",
+  "@weekdayFri": {},
+  "weekdaySat": "土",
+  "@weekdaySat": {},
+  "weekdaySun": "日",
+  "@weekdaySun": {},
+  "greetingMorning": "おはようございます",
+  "@greetingMorning": {},
+  "greetingAfternoon": "こんにちは",
+  "@greetingAfternoon": {},
+  "greetingEvening": "こんばんは",
+  "@greetingEvening": {},
+  "dateMonthDayLabel": "{month}月{day}日",
+  "@dateMonthDayLabel": {
+    "placeholders": {
+      "month": { "type": "int" },
+      "day": { "type": "int" }
+    }
+  },
+
+  "homeGreetingLead": "今日も、",
+  "@homeGreetingLead": {},
+  "homeGreetingHighlight": "歩こう。",
+  "@homeGreetingHighlight": {},
+  "homeTimeSectionLabel": "時間",
+  "@homeTimeSectionLabel": {},
+  "homeWalkableSuffix": " 歩ける",
+  "@homeWalkableSuffix": {},
+  "homeDepartureLabel": "出発",
+  "@homeDepartureLabel": {},
+  "homeArrivalLabel": "到着",
+  "@homeArrivalLabel": {},
+  "homeDestinationLabel": "目的地",
+  "@homeDestinationLabel": {},
+  "homeRefreshLocation": "現在地を再取得",
+  "@homeRefreshLocation": {},
+  "homeDestinationPlaceholder": "どこへ歩く?",
+  "@homeDestinationPlaceholder": {},
+  "homeSearchDestination": "目的地を検索",
+  "@homeSearchDestination": {},
+  "homeWeeklyGoal": "今週の目標 {goalKm}km",
+  "@homeWeeklyGoal": {
+    "placeholders": {
+      "goalKm": { "type": "String" }
+    }
+  },
+  "homeToday": "今日",
+  "@homeToday": {},
+  "homeStepsUnit": "歩 ·",
+  "@homeStepsUnit": {},
+  "homeStreakDays": "{days}日連続",
+  "@homeStreakDays": {
+    "placeholders": {
+      "days": { "type": "int" }
+    }
+  },
+  "homeSearchRoute": "ルートを検索",
+  "@homeSearchRoute": {},
+  "homeChooseDestination": "目的地を選ぶ",
+  "@homeChooseDestination": {}
 }

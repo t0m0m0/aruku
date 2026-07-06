@@ -1,3 +1,5 @@
+import '../../l10n/app_localizations.dart';
+
 class AppConstants {
   AppConstants._();
 
@@ -6,20 +8,28 @@ class AppConstants {
   /// 週間ウォーキング目標距離（km）。
   static const double weeklyGoalKm = 10.0;
 
-  static String todayDateLabel() {
+  static String todayDateLabel(AppLocalizations l10n) {
     final now = DateTime.now();
-    const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
+    final weekdays = [
+      l10n.weekdayMon,
+      l10n.weekdayTue,
+      l10n.weekdayWed,
+      l10n.weekdayThu,
+      l10n.weekdayFri,
+      l10n.weekdaySat,
+      l10n.weekdaySun,
+    ];
     final day = weekdays[now.weekday - 1];
-    return '${now.month}月${now.day}日 ($day)';
+    return '${l10n.dateMonthDayLabel(now.month, now.day)} ($day)';
   }
 
-  static String todayGreeting() {
+  static String todayGreeting(AppLocalizations l10n) {
     final now = DateTime.now();
     final greeting = now.hour < 12
-        ? 'おはようございます'
+        ? l10n.greetingMorning
         : now.hour < 18
-        ? 'こんにちは'
-        : 'こんばんは';
-    return '${todayDateLabel()} · $greeting';
+        ? l10n.greetingAfternoon
+        : l10n.greetingEvening;
+    return '${todayDateLabel(l10n)} · $greeting';
   }
 }
