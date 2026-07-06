@@ -243,7 +243,7 @@ class _GpsLostBanner extends StatelessWidget {
           Icon(Icons.gps_off, size: 16, color: c.danger),
           const SizedBox(width: 10),
           Text(
-            '位置情報を取得できません。設定をご確認ください',
+            '現在地を取得できません。電波状況の良い場所で再試行します',
             style: jpStyle(size: 13, weight: FontWeight.w700, color: c.danger),
           ),
         ],

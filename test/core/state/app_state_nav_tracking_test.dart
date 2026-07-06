@@ -156,5 +156,38 @@ void main() {
         isA<LocationAvailable>(),
       );
     });
+
+    test('nav 退場でGPS喪失状態を持ち越さず現在地を取得し直す', () async {
+      final controller = StreamController<GeoPoint>.broadcast();
+      addTearDown(controller.close);
+      final container = ProviderContainer(
+        overrides: [
+          locationServiceProvider.overrideWithValue(
+            _StreamLocationService(controller),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final notifier = container.read(appStateProvider.notifier);
+      notifier.go(Screen.nav);
+      controller.addError(Exception('GPS lost'));
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        container.read(appStateProvider).locationState,
+        isA<LocationUnavailable>(),
+      );
+
+      notifier.go(Screen.home);
+      await Future<void>.delayed(Duration.zero);
+
+      // _StreamLocationService.request() は LocationDenied を返すスタブ。
+      // ナビ喪失時の stale な LocationUnavailable のままではなく、
+      // 退場時に取り直した最新の判定に置き換わっている。
+      expect(
+        container.read(appStateProvider).locationState,
+        isA<LocationDenied>(),
+      );
+    });
   });
 }

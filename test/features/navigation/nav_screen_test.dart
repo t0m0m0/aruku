@@ -129,7 +129,7 @@ void main() {
       await tester.pumpWidget(wrap(notifier));
       await tester.pump();
 
-      expect(find.text('位置情報を取得できません。設定をご確認ください'), findsOneWidget);
+      expect(find.text('現在地を取得できません。電波状況の良い場所で再試行します'), findsOneWidget);
     });
 
     testWidgets('位置情報が取得できている間はGPS喪失バナーを表示しない', (tester) async {
@@ -137,7 +137,7 @@ void main() {
       await tester.pumpWidget(wrap(notifier));
       await tester.pump();
 
-      expect(find.text('位置情報を取得できません。設定をご確認ください'), findsNothing);
+      expect(find.text('現在地を取得できません。電波状況の良い場所で再試行します'), findsNothing);
     });
 
     testWidgets('リルート失敗時は失敗バナーを表示する', (tester) async {

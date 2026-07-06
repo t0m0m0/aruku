@@ -448,6 +448,10 @@ class AppNotifier extends Notifier<AppState> {
     if (state.currentPosition != null) {
       state = state.copyWith(currentPosition: null);
     }
+    // ナビ中の GPS 喪失/リルート失敗は退場後の検索画面（位置バイアス等）へ
+    // 持ち越したくない。実際の現在地を取り直して locationState を最新化する。
+    state = state.copyWith(rerouteFailed: false);
+    unawaited(_fetchLocation());
   }
 
   /// 現在地の更新を反映し、オフルートが継続していれば自動再検索を起動する。
