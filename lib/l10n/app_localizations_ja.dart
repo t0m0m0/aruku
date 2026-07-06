@@ -300,4 +300,79 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get resultTrainDefaultLabel => '電車';
+
+  @override
+  String get navConfirmExitTitle => 'ナビを終了しますか？';
+
+  @override
+  String get navExit => '終了';
+
+  @override
+  String get navRecenterButton => '現在地に戻る';
+
+  @override
+  String get navToggleMapType => '地図の種別を切り替える';
+
+  @override
+  String get navResetNorth => '地図を北向きに戻す';
+
+  @override
+  String get navManeuverStraight => '直進';
+
+  @override
+  String get navManeuverSlightLeft => '斜め左';
+
+  @override
+  String get navManeuverSlightRight => '斜め右';
+
+  @override
+  String get navManeuverLeft => '左折';
+
+  @override
+  String get navManeuverRight => '右折';
+
+  @override
+  String get navManeuverArrive => 'まもなく到着';
+
+  @override
+  String get navManeuverBoardGeneric => '乗車';
+
+  @override
+  String get navManeuverAlightGeneric => '下車';
+
+  @override
+  String navManeuverBoard(String line) {
+    return '$lineに乗車';
+  }
+
+  @override
+  String navManeuverAlight(String station) {
+    return '$stationで下車';
+  }
+
+  @override
+  String get navStationDefault => '駅';
+
+  @override
+  String navDestinationSuffix(String destination) {
+    return '$destination まで';
+  }
+
+  @override
+  String get navRerouting => 'ルートを再検索中…';
+
+  @override
+  String get navGpsLost => '現在地を取得できません。電波状況の良い場所で再試行します';
+
+  @override
+  String get navRerouteFailed => '再検索に失敗しました。旧ルートを表示中';
+
+  @override
+  String get navRemainingLabel => '残り';
+
+  @override
+  String get navConsumedLabel => '消費';
+
+  @override
+  String get navPendingFix => '取得中';
 }

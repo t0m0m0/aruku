@@ -645,6 +645,144 @@ abstract class AppLocalizations {
   /// In ja, this message translates to:
   /// **'電車'**
   String get resultTrainDefaultLabel;
+
+  /// No description provided for @navConfirmExitTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'ナビを終了しますか？'**
+  String get navConfirmExitTitle;
+
+  /// No description provided for @navExit.
+  ///
+  /// In ja, this message translates to:
+  /// **'終了'**
+  String get navExit;
+
+  /// No description provided for @navRecenterButton.
+  ///
+  /// In ja, this message translates to:
+  /// **'現在地に戻る'**
+  String get navRecenterButton;
+
+  /// No description provided for @navToggleMapType.
+  ///
+  /// In ja, this message translates to:
+  /// **'地図の種別を切り替える'**
+  String get navToggleMapType;
+
+  /// No description provided for @navResetNorth.
+  ///
+  /// In ja, this message translates to:
+  /// **'地図を北向きに戻す'**
+  String get navResetNorth;
+
+  /// No description provided for @navManeuverStraight.
+  ///
+  /// In ja, this message translates to:
+  /// **'直進'**
+  String get navManeuverStraight;
+
+  /// No description provided for @navManeuverSlightLeft.
+  ///
+  /// In ja, this message translates to:
+  /// **'斜め左'**
+  String get navManeuverSlightLeft;
+
+  /// No description provided for @navManeuverSlightRight.
+  ///
+  /// In ja, this message translates to:
+  /// **'斜め右'**
+  String get navManeuverSlightRight;
+
+  /// No description provided for @navManeuverLeft.
+  ///
+  /// In ja, this message translates to:
+  /// **'左折'**
+  String get navManeuverLeft;
+
+  /// No description provided for @navManeuverRight.
+  ///
+  /// In ja, this message translates to:
+  /// **'右折'**
+  String get navManeuverRight;
+
+  /// No description provided for @navManeuverArrive.
+  ///
+  /// In ja, this message translates to:
+  /// **'まもなく到着'**
+  String get navManeuverArrive;
+
+  /// No description provided for @navManeuverBoardGeneric.
+  ///
+  /// In ja, this message translates to:
+  /// **'乗車'**
+  String get navManeuverBoardGeneric;
+
+  /// No description provided for @navManeuverAlightGeneric.
+  ///
+  /// In ja, this message translates to:
+  /// **'下車'**
+  String get navManeuverAlightGeneric;
+
+  /// No description provided for @navManeuverBoard.
+  ///
+  /// In ja, this message translates to:
+  /// **'{line}に乗車'**
+  String navManeuverBoard(String line);
+
+  /// No description provided for @navManeuverAlight.
+  ///
+  /// In ja, this message translates to:
+  /// **'{station}で下車'**
+  String navManeuverAlight(String station);
+
+  /// No description provided for @navStationDefault.
+  ///
+  /// In ja, this message translates to:
+  /// **'駅'**
+  String get navStationDefault;
+
+  /// No description provided for @navDestinationSuffix.
+  ///
+  /// In ja, this message translates to:
+  /// **'{destination} まで'**
+  String navDestinationSuffix(String destination);
+
+  /// No description provided for @navRerouting.
+  ///
+  /// In ja, this message translates to:
+  /// **'ルートを再検索中…'**
+  String get navRerouting;
+
+  /// No description provided for @navGpsLost.
+  ///
+  /// In ja, this message translates to:
+  /// **'現在地を取得できません。電波状況の良い場所で再試行します'**
+  String get navGpsLost;
+
+  /// No description provided for @navRerouteFailed.
+  ///
+  /// In ja, this message translates to:
+  /// **'再検索に失敗しました。旧ルートを表示中'**
+  String get navRerouteFailed;
+
+  /// No description provided for @navRemainingLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'残り'**
+  String get navRemainingLabel;
+
+  /// No description provided for @navConsumedLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'消費'**
+  String get navConsumedLabel;
+
+  /// No description provided for @navPendingFix.
+  ///
+  /// In ja, this message translates to:
+  /// **'取得中'**
+  String get navPendingFix;
 }
 
 class _AppLocalizationsDelegate

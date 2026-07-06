@@ -58,13 +58,19 @@ class _NavChip extends StatelessWidget {
 
 /// [maneuver] の案内文言。乗車/下車は路線名・駅名を織り込む。
 String _maneuverText(
+  AppLocalizations l10n,
   NavManeuver? maneuver, {
   String? line,
   String? stationName,
 }) => switch (maneuver) {
-  NavManeuver.board => '${line ?? '電車'}に乗車',
-  NavManeuver.alight => '${stationName ?? '駅'}で下車',
-  _ => maneuver?.label ?? '直進',
+  NavManeuver.board => l10n.navManeuverBoard(
+    line ?? l10n.resultTrainDefaultLabel,
+  ),
+  NavManeuver.alight => l10n.navManeuverAlight(
+    stationName ?? l10n.navStationDefault,
+  ),
+  null => l10n.navManeuverStraight,
+  _ => maneuverLabel(l10n, maneuver),
 };
 
 class _InstructionCard extends StatelessWidget {
@@ -75,6 +81,7 @@ class _InstructionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     final g = guidance;
     final hasNext = g?.nextManeuver != null;
     final maneuverIcon = _maneuverIcon(g?.currentManeuver, c.ivory);
@@ -126,7 +133,7 @@ class _InstructionCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          'm ${_maneuverText(g?.currentManeuver, line: g?.currentLine, stationName: g?.currentStationName)}',
+                          'm ${_maneuverText(l10n, g?.currentManeuver, line: g?.currentLine, stationName: g?.currentStationName)}',
                           style: jpStyle(
                             size: 14,
                             weight: FontWeight.w700,
@@ -137,7 +144,9 @@ class _InstructionCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      destination != null ? '$destination まで' : '--',
+                      destination != null
+                          ? l10n.navDestinationSuffix(destination!)
+                          : '--',
                       style: jpStyle(
                         size: 13,
                         weight: FontWeight.w500,
@@ -178,6 +187,7 @@ class _InstructionCard extends StatelessWidget {
               Text(
                 hasNext
                     ? _maneuverText(
+                        l10n,
                         g?.nextManeuver,
                         line: g?.nextLine,
                         stationName: g?.nextStationName,
@@ -217,7 +227,7 @@ class _RerouteBanner extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Text(
-            'ルートを再検索中…',
+            AppLocalizations.of(context).navRerouting,
             style: jpStyle(size: 13, weight: FontWeight.w700, color: c.moss700),
           ),
         ],
@@ -243,7 +253,7 @@ class _GpsLostBanner extends StatelessWidget {
           Icon(Icons.gps_off, size: 16, color: c.danger),
           const SizedBox(width: 10),
           Text(
-            '現在地を取得できません。電波状況の良い場所で再試行します',
+            AppLocalizations.of(context).navGpsLost,
             style: jpStyle(size: 13, weight: FontWeight.w700, color: c.danger),
           ),
         ],
@@ -269,7 +279,7 @@ class _RerouteFailedBanner extends StatelessWidget {
           Icon(Icons.error_outline, size: 16, color: c.danger),
           const SizedBox(width: 10),
           Text(
-            '再検索に失敗しました。旧ルートを表示中',
+            AppLocalizations.of(context).navRerouteFailed,
             style: jpStyle(size: 13, weight: FontWeight.w700, color: c.danger),
           ),
         ],
@@ -300,6 +310,7 @@ class _StatsBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     return ArukuCard(
       borderRadius: 22,
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
@@ -373,7 +384,7 @@ class _StatsBar extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '到着',
+                        l10n.homeArrivalLabel,
                         style: jpStyle(
                           size: 10,
                           weight: FontWeight.w700,
@@ -402,7 +413,7 @@ class _StatsBar extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '残り',
+                          l10n.navRemainingLabel,
                           style: jpStyle(
                             size: 10,
                             weight: FontWeight.w700,
@@ -445,7 +456,7 @@ class _StatsBar extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '消費',
+                          l10n.navConsumedLabel,
                           style: jpStyle(
                             size: 10,
                             weight: FontWeight.w700,
@@ -488,7 +499,7 @@ class _StatsBar extends StatelessWidget {
           const SizedBox(height: 14),
           ArukuButton(
             key: const Key('nav-exit-button'),
-            label: '終了',
+            label: l10n.navExit,
             onPressed: onExit,
             icon: Ic.close(size: 16, color: c.danger),
             iconGap: 8,
@@ -523,7 +534,7 @@ class _PendingFixLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Text(
-      '取得中',
+      AppLocalizations.of(context).navPendingFix,
       style: jpStyle(size: 16, weight: FontWeight.w700, color: color),
     );
   }
