@@ -7,6 +7,7 @@ class _TotalsStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 16),
       decoration: BoxDecoration(
@@ -21,14 +22,14 @@ class _TotalsStrip extends StatelessWidget {
           Expanded(
             flex: 11,
             child: _Metric(
-              label: '所要時間',
+              label: l10n.resultMetricDuration,
               value: _DurationValue(minutes: route.totalMin),
             ),
           ),
           Expanded(
             flex: 10,
             child: _Metric(
-              label: '徒歩距離',
+              label: l10n.resultMetricWalkDistance,
               divider: true,
               value: _ValueWithUnit(
                 value: route.walkKm.toStringAsFixed(1),
@@ -39,7 +40,7 @@ class _TotalsStrip extends StatelessWidget {
           Expanded(
             flex: 12,
             child: _Metric(
-              label: '消費カロリー',
+              label: l10n.resultMetricCalories,
               divider: true,
               value: _ValueWithUnit(
                 value: '${route.kcal}',
@@ -156,6 +157,7 @@ class _DurationValue extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     final num = numStyle(size: 22, weight: FontWeight.w500, color: c.ink);
     final unit = jpStyle(size: 12, weight: FontWeight.w700, color: c.ink3);
 
@@ -171,13 +173,13 @@ class _DurationValue extends StatelessWidget {
       children: [
         if (h > 0) ...[
           Text('$h', style: num),
-          Text('時間', style: unit),
+          Text(l10n.resultHourUnit, style: unit),
           const SizedBox(width: 2),
           Text(m.toString().padLeft(2, '0'), style: num),
-          Text('分', style: unit),
+          Text(l10n.resultMinuteUnit, style: unit),
         ] else ...[
           Text('$m', style: num),
-          Text('分', style: unit),
+          Text(l10n.resultMinuteUnit, style: unit),
         ],
       ],
     );
@@ -191,6 +193,7 @@ class _WalkRatioRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     return Row(
       children: [
         SizedBox(
@@ -212,12 +215,16 @@ class _WalkRatioRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '距離の ${(route.walkRatio * 100).round()}% を歩いて移動',
+                l10n.resultWalkRatioLabel((route.walkRatio * 100).round()),
                 style: jpStyle(size: 12, weight: FontWeight.w800, color: c.ink),
               ),
               const SizedBox(height: 2),
               Text(
-                '制限 ${TimeValue.formatBudget(route.budgetMin)}のうち ${TimeValue.formatBudget(route.totalMin)} で到着 · ${route.budgetMin - route.totalMin}分 余裕',
+                l10n.resultBudgetSummary(
+                  TimeValue.formatBudget(route.budgetMin),
+                  TimeValue.formatBudget(route.totalMin),
+                  route.budgetMin - route.totalMin,
+                ),
                 style: jpStyle(
                   size: 11,
                   weight: FontWeight.w500,

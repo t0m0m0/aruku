@@ -177,5 +177,57 @@
   "pickerDone": "完了",
   "@pickerDone": {},
   "pickerNow": "現在時刻",
-  "@pickerNow": {}
+  "@pickerNow": {},
+
+  "resultNoRouteMessage": "ルートがありません",
+  "@resultNoRouteMessage": {},
+  "resultBackToSearch": "検索に戻る",
+  "@resultBackToSearch": {},
+  "resultDepartureLabel": "{dateLabel} · {time} 出発",
+  "@resultDepartureLabel": {
+    "placeholders": {
+      "dateLabel": { "type": "String" },
+      "time": { "type": "String" }
+    }
+  },
+  "resultOverBudgetTitle": "制限時間を{overMin}分超過しています",
+  "@resultOverBudgetTitle": {
+    "placeholders": {
+      "overMin": { "type": "int" }
+    }
+  },
+  "resultOverBudgetHint": "時間内に到達できる経路がないため、最短の経路を表示しています",
+  "@resultOverBudgetHint": {},
+  "resultChangeConditions": "条件を変更",
+  "@resultChangeConditions": {},
+  "resultWalkThisRoute": "このルートで歩く",
+  "@resultWalkThisRoute": {},
+  "resultHourUnit": "時間",
+  "@resultHourUnit": {},
+  "resultMinuteUnit": "分",
+  "@resultMinuteUnit": {},
+  "resultMetricDuration": "所要時間",
+  "@resultMetricDuration": {},
+  "resultMetricWalkDistance": "徒歩距離",
+  "@resultMetricWalkDistance": {},
+  "resultMetricCalories": "消費カロリー",
+  "@resultMetricCalories": {},
+  "resultWalkRatioLabel": "距離の {percent}% を歩いて移動",
+  "@resultWalkRatioLabel": {
+    "placeholders": {
+      "percent": { "type": "int" }
+    }
+  },
+  "resultBudgetSummary": "制限 {budget}のうち {total} で到着 · {slack}分 余裕",
+  "@resultBudgetSummary": {
+    "placeholders": {
+      "budget": { "type": "String" },
+      "total": { "type": "String" },
+      "slack": { "type": "int" }
+    }
+  },
+  "resultWalkLabel": "徒歩",
+  "@resultWalkLabel": {},
+  "resultTrainDefaultLabel": "電車",
+  "@resultTrainDefaultLabel": {}
 }

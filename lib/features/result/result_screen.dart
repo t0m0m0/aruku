@@ -10,6 +10,7 @@ import '../../core/models/time_value.dart';
 import '../../core/state/app_state.dart';
 import '../../core/state/favorites_provider.dart';
 import '../../core/theme/aruku_theme.dart';
+import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
 import '../../shared/widgets/aruku_card.dart';
@@ -23,6 +24,7 @@ class ResultScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     final notifier = ref.read(appStateProvider.notifier);
     final state = ref.watch(appStateProvider);
     final favorites =
@@ -37,7 +39,7 @@ class ResultScreen extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'ルートがありません',
+                  l10n.resultNoRouteMessage,
                   style: jpStyle(
                     size: 18,
                     weight: FontWeight.w800,
@@ -57,7 +59,7 @@ class ResultScreen extends ConsumerWidget {
                         vertical: 14,
                       ),
                       child: Text(
-                        '検索に戻る',
+                        l10n.resultBackToSearch,
                         style: jpStyle(
                           size: 15,
                           weight: FontWeight.w800,
@@ -95,7 +97,10 @@ class ResultScreen extends ConsumerWidget {
                   Expanded(
                     child: Center(
                       child: Text(
-                        '${state.departure.fullDateLabel()} · ${state.departure.format()} 出発',
+                        l10n.resultDepartureLabel(
+                          state.departure.fullDateLabel(),
+                          state.departure.format(),
+                        ),
                         style: jpStyle(
                           size: 12,
                           weight: FontWeight.w700,
@@ -181,6 +186,7 @@ class _OverBudgetBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     return Container(
       margin: const EdgeInsets.fromLTRB(14, 0, 14, 4),
       padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
@@ -198,7 +204,7 @@ class _OverBudgetBanner extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '制限時間を$overMin分超過しています',
+                  l10n.resultOverBudgetTitle(overMin),
                   style: jpStyle(
                     size: 13,
                     weight: FontWeight.w800,
@@ -209,7 +215,7 @@ class _OverBudgetBanner extends StatelessWidget {
                 Text(
                   // 予算内に間に合う経路が無いため best-effort（最短）を表示して
                   // いる状態。検索失敗のように見せず、最短経路を出している旨を伝える。
-                  '時間内に到達できる経路がないため、最短の経路を表示しています',
+                  l10n.resultOverBudgetHint,
                   style: jpStyle(
                     size: 11,
                     weight: FontWeight.w500,
@@ -232,7 +238,7 @@ class _OverBudgetBanner extends StatelessWidget {
                   vertical: 10,
                 ),
                 child: Text(
-                  '条件を変更',
+                  l10n.resultChangeConditions,
                   style: jpStyle(
                     size: 12,
                     weight: FontWeight.w800,
@@ -342,6 +348,7 @@ class _CtaRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     return Row(
       children: [
         Container(
@@ -357,7 +364,7 @@ class _CtaRow extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: ArukuButton(
-            label: 'このルートで歩く',
+            label: l10n.resultWalkThisRoute,
             onPressed: onNav,
             icon: Ic.arrowUp(size: 18, color: c.ivory),
             iconGap: 8,

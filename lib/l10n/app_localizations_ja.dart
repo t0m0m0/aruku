@@ -244,4 +244,60 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get pickerNow => '現在時刻';
+
+  @override
+  String get resultNoRouteMessage => 'ルートがありません';
+
+  @override
+  String get resultBackToSearch => '検索に戻る';
+
+  @override
+  String resultDepartureLabel(String dateLabel, String time) {
+    return '$dateLabel · $time 出発';
+  }
+
+  @override
+  String resultOverBudgetTitle(int overMin) {
+    return '制限時間を$overMin分超過しています';
+  }
+
+  @override
+  String get resultOverBudgetHint => '時間内に到達できる経路がないため、最短の経路を表示しています';
+
+  @override
+  String get resultChangeConditions => '条件を変更';
+
+  @override
+  String get resultWalkThisRoute => 'このルートで歩く';
+
+  @override
+  String get resultHourUnit => '時間';
+
+  @override
+  String get resultMinuteUnit => '分';
+
+  @override
+  String get resultMetricDuration => '所要時間';
+
+  @override
+  String get resultMetricWalkDistance => '徒歩距離';
+
+  @override
+  String get resultMetricCalories => '消費カロリー';
+
+  @override
+  String resultWalkRatioLabel(int percent) {
+    return '距離の $percent% を歩いて移動';
+  }
+
+  @override
+  String resultBudgetSummary(String budget, String total, int slack) {
+    return '制限 $budgetのうち $total で到着 · $slack分 余裕';
+  }
+
+  @override
+  String get resultWalkLabel => '徒歩';
+
+  @override
+  String get resultTrainDefaultLabel => '電車';
 }

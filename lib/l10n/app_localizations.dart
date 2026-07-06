@@ -549,6 +549,102 @@ abstract class AppLocalizations {
   /// In ja, this message translates to:
   /// **'現在時刻'**
   String get pickerNow;
+
+  /// No description provided for @resultNoRouteMessage.
+  ///
+  /// In ja, this message translates to:
+  /// **'ルートがありません'**
+  String get resultNoRouteMessage;
+
+  /// No description provided for @resultBackToSearch.
+  ///
+  /// In ja, this message translates to:
+  /// **'検索に戻る'**
+  String get resultBackToSearch;
+
+  /// No description provided for @resultDepartureLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'{dateLabel} · {time} 出発'**
+  String resultDepartureLabel(String dateLabel, String time);
+
+  /// No description provided for @resultOverBudgetTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'制限時間を{overMin}分超過しています'**
+  String resultOverBudgetTitle(int overMin);
+
+  /// No description provided for @resultOverBudgetHint.
+  ///
+  /// In ja, this message translates to:
+  /// **'時間内に到達できる経路がないため、最短の経路を表示しています'**
+  String get resultOverBudgetHint;
+
+  /// No description provided for @resultChangeConditions.
+  ///
+  /// In ja, this message translates to:
+  /// **'条件を変更'**
+  String get resultChangeConditions;
+
+  /// No description provided for @resultWalkThisRoute.
+  ///
+  /// In ja, this message translates to:
+  /// **'このルートで歩く'**
+  String get resultWalkThisRoute;
+
+  /// No description provided for @resultHourUnit.
+  ///
+  /// In ja, this message translates to:
+  /// **'時間'**
+  String get resultHourUnit;
+
+  /// No description provided for @resultMinuteUnit.
+  ///
+  /// In ja, this message translates to:
+  /// **'分'**
+  String get resultMinuteUnit;
+
+  /// No description provided for @resultMetricDuration.
+  ///
+  /// In ja, this message translates to:
+  /// **'所要時間'**
+  String get resultMetricDuration;
+
+  /// No description provided for @resultMetricWalkDistance.
+  ///
+  /// In ja, this message translates to:
+  /// **'徒歩距離'**
+  String get resultMetricWalkDistance;
+
+  /// No description provided for @resultMetricCalories.
+  ///
+  /// In ja, this message translates to:
+  /// **'消費カロリー'**
+  String get resultMetricCalories;
+
+  /// No description provided for @resultWalkRatioLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'距離の {percent}% を歩いて移動'**
+  String resultWalkRatioLabel(int percent);
+
+  /// No description provided for @resultBudgetSummary.
+  ///
+  /// In ja, this message translates to:
+  /// **'制限 {budget}のうち {total} で到着 · {slack}分 余裕'**
+  String resultBudgetSummary(String budget, String total, int slack);
+
+  /// No description provided for @resultWalkLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'徒歩'**
+  String get resultWalkLabel;
+
+  /// No description provided for @resultTrainDefaultLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'電車'**
+  String get resultTrainDefaultLabel;
 }
 
 class _AppLocalizationsDelegate

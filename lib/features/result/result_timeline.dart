@@ -129,27 +129,28 @@ class _TimelineSegmentRow extends StatelessWidget {
   final RouteSegment seg;
 
   /// 区間所要分を「大きい数字＋小さい単位」で組む。60分以上は n時m分 へ分解する。
-  List<Widget> _durationParts(int minutes, Color color) {
+  List<Widget> _durationParts(int minutes, Color color, AppLocalizations l10n) {
     final num = numStyle(size: 12, weight: FontWeight.w800, color: color);
     final unit = jpStyle(size: 10, weight: FontWeight.w700, color: color);
     if (minutes >= 60) {
       return [
         Text('${minutes ~/ 60}', style: num),
-        Text('時間', style: unit),
+        Text(l10n.resultHourUnit, style: unit),
         Text((minutes % 60).toString().padLeft(2, '0'), style: num),
-        Text('分', style: unit),
+        Text(l10n.resultMinuteUnit, style: unit),
       ];
     }
     return [
       Text('$minutes', style: num),
       const SizedBox(width: 1),
-      Text('分', style: unit),
+      Text(l10n.resultMinuteUnit, style: unit),
     ];
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     final isWalk = seg.type == SegmentType.walk;
     final color = isWalk ? c.moss600 : c.train;
     return Padding(
@@ -190,7 +191,9 @@ class _TimelineSegmentRow extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            isWalk ? '徒歩' : (seg.line ?? '電車'),
+                            isWalk
+                                ? l10n.resultWalkLabel
+                                : (seg.line ?? l10n.resultTrainDefaultLabel),
                             style: jpStyle(
                               size: 13,
                               weight: FontWeight.w700,
@@ -201,7 +204,7 @@ class _TimelineSegmentRow extends StatelessWidget {
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.baseline,
                           textBaseline: TextBaseline.alphabetic,
-                          children: _durationParts(seg.minutes, color),
+                          children: _durationParts(seg.minutes, color, l10n),
                         ),
                       ],
                     ),
