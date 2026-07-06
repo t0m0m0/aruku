@@ -99,6 +99,108 @@ abstract class AppLocalizations {
   /// In ja, this message translates to:
   /// **'あるく'**
   String get appTitle;
+
+  /// No description provided for @authErrorInvalidEmail.
+  ///
+  /// In ja, this message translates to:
+  /// **'メールアドレスの形式が正しくありません。'**
+  String get authErrorInvalidEmail;
+
+  /// No description provided for @authErrorEmailInUse.
+  ///
+  /// In ja, this message translates to:
+  /// **'このメールアドレスは既に登録されています。'**
+  String get authErrorEmailInUse;
+
+  /// No description provided for @authErrorWeakPassword.
+  ///
+  /// In ja, this message translates to:
+  /// **'パスワードは6文字以上で設定してください。'**
+  String get authErrorWeakPassword;
+
+  /// No description provided for @authErrorWrongCredentials.
+  ///
+  /// In ja, this message translates to:
+  /// **'メールアドレスまたはパスワードが正しくありません。'**
+  String get authErrorWrongCredentials;
+
+  /// No description provided for @authErrorNetwork.
+  ///
+  /// In ja, this message translates to:
+  /// **'ネットワークに接続できませんでした。通信環境をご確認ください。'**
+  String get authErrorNetwork;
+
+  /// No description provided for @authErrorTooManyRequests.
+  ///
+  /// In ja, this message translates to:
+  /// **'試行回数が多すぎます。しばらくしてからお試しください。'**
+  String get authErrorTooManyRequests;
+
+  /// No description provided for @authErrorUnknown.
+  ///
+  /// In ja, this message translates to:
+  /// **'認証に失敗しました。時間をおいて再度お試しください。'**
+  String get authErrorUnknown;
+
+  /// No description provided for @routeErrorNetworkTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'通信に失敗しました'**
+  String get routeErrorNetworkTitle;
+
+  /// No description provided for @routeErrorNetworkDescription.
+  ///
+  /// In ja, this message translates to:
+  /// **'通信状況を確認してもう一度お試しください'**
+  String get routeErrorNetworkDescription;
+
+  /// No description provided for @routeErrorNoResultsTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'ルートが見つかりませんでした'**
+  String get routeErrorNoResultsTitle;
+
+  /// No description provided for @routeErrorNoResultsDescription.
+  ///
+  /// In ja, this message translates to:
+  /// **'目的地や出発・到着時刻を変えてお試しください'**
+  String get routeErrorNoResultsDescription;
+
+  /// No description provided for @routeErrorNoLocationTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'現在地を取得できませんでした'**
+  String get routeErrorNoLocationTitle;
+
+  /// No description provided for @routeErrorNoLocationDescription.
+  ///
+  /// In ja, this message translates to:
+  /// **'位置情報を有効にしてもう一度お試しください'**
+  String get routeErrorNoLocationDescription;
+
+  /// No description provided for @routeErrorNoDestinationTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'目的地が選ばれていません'**
+  String get routeErrorNoDestinationTitle;
+
+  /// No description provided for @routeErrorNoDestinationDescription.
+  ///
+  /// In ja, this message translates to:
+  /// **'目的地を選んでもう一度検索してください'**
+  String get routeErrorNoDestinationDescription;
+
+  /// No description provided for @routeErrorUnknownTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'ルートを取得できませんでした'**
+  String get routeErrorUnknownTitle;
+
+  /// No description provided for @routeErrorUnknownDescription.
+  ///
+  /// In ja, this message translates to:
+  /// **'時間をおいてもう一度お試しください'**
+  String get routeErrorUnknownDescription;
 }
 
 class _AppLocalizationsDelegate

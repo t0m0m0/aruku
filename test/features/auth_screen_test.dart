@@ -9,6 +9,7 @@ import 'package:aruku/core/services/sync_service.dart';
 import 'package:aruku/core/state/auth_provider.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/features/auth/auth_screen.dart';
+import 'package:aruku/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -53,7 +54,12 @@ void main() {
 
   Widget wrap(ProviderContainer container) => UncontrolledProviderScope(
     container: container,
-    child: MaterialApp(theme: ArukuTheme.light(), home: const AuthScreen()),
+    child: MaterialApp(
+      theme: ArukuTheme.light(),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: const AuthScreen(),
+    ),
   );
 
   setUp(() {
@@ -130,8 +136,9 @@ void main() {
     await tester.tap(find.widgetWithText(InkWell, 'ログイン'));
     await tester.pumpAndSettle();
 
+    final l10n = await AppLocalizations.delegate.load(const Locale('ja'));
     expect(
-      find.text(const AuthException(AuthErrorKind.wrongCredentials).message),
+      find.text(authErrorMessage(l10n, AuthErrorKind.wrongCredentials)),
       findsOneWidget,
     );
     expect(container.read(authProvider).value, isNull);

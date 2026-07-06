@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/route_error.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
+import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
 
@@ -16,7 +17,7 @@ class ErrorScreen extends ConsumerWidget {
     final notifier = ref.read(appStateProvider.notifier);
     final kind =
         ref.watch(appStateProvider).routeErrorKind ?? RouteErrorKind.unknown;
-    final view = routeErrorView(kind);
+    final view = routeErrorView(AppLocalizations.of(context), kind);
 
     final retry = _Action(label: '再試行', onTap: () => notifier.startSearch());
     final changeConditions = _Action(

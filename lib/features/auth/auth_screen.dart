@@ -8,6 +8,7 @@ import '../../core/state/app_state.dart';
 import '../../core/state/auth_provider.dart';
 import '../../core/state/sync_provider.dart';
 import '../../core/theme/aruku_theme.dart';
+import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
 
@@ -84,7 +85,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       ref.read(appStateProvider.notifier).go(Screen.settings);
     } on AuthException catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.message);
+      setState(
+        () => _error = authErrorMessage(AppLocalizations.of(context), e.kind),
+      );
     } finally {
       if (mounted) setState(() => _submitting = false);
     }

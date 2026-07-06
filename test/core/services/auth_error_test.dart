@@ -1,7 +1,15 @@
 import 'package:aruku/core/services/auth_error.dart';
+import 'package:aruku/l10n/app_localizations.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  late AppLocalizations l10n;
+
+  setUpAll(() async {
+    l10n = await AppLocalizations.delegate.load(const Locale('ja'));
+  });
+
   test('既知の Firebase エラーコードを種別へ写す', () {
     expect(authErrorKindFromCode('invalid-email'), AuthErrorKind.invalidEmail);
     expect(
@@ -37,7 +45,7 @@ void main() {
 
   test('各種別に日本語メッセージがある', () {
     for (final kind in AuthErrorKind.values) {
-      expect(AuthException(kind).message, isNotEmpty);
+      expect(authErrorMessage(l10n, kind), isNotEmpty);
     }
   });
 }

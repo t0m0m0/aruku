@@ -3,5 +3,41 @@
   "appTitle": "あるく",
   "@appTitle": {
     "description": "アプリタイトル（MaterialApp.title に使用）"
-  }
+  },
+
+  "authErrorInvalidEmail": "メールアドレスの形式が正しくありません。",
+  "@authErrorInvalidEmail": {},
+  "authErrorEmailInUse": "このメールアドレスは既に登録されています。",
+  "@authErrorEmailInUse": {},
+  "authErrorWeakPassword": "パスワードは6文字以上で設定してください。",
+  "@authErrorWeakPassword": {},
+  "authErrorWrongCredentials": "メールアドレスまたはパスワードが正しくありません。",
+  "@authErrorWrongCredentials": {},
+  "authErrorNetwork": "ネットワークに接続できませんでした。通信環境をご確認ください。",
+  "@authErrorNetwork": {},
+  "authErrorTooManyRequests": "試行回数が多すぎます。しばらくしてからお試しください。",
+  "@authErrorTooManyRequests": {},
+  "authErrorUnknown": "認証に失敗しました。時間をおいて再度お試しください。",
+  "@authErrorUnknown": {},
+
+  "routeErrorNetworkTitle": "通信に失敗しました",
+  "@routeErrorNetworkTitle": {},
+  "routeErrorNetworkDescription": "通信状況を確認してもう一度お試しください",
+  "@routeErrorNetworkDescription": {},
+  "routeErrorNoResultsTitle": "ルートが見つかりませんでした",
+  "@routeErrorNoResultsTitle": {},
+  "routeErrorNoResultsDescription": "目的地や出発・到着時刻を変えてお試しください",
+  "@routeErrorNoResultsDescription": {},
+  "routeErrorNoLocationTitle": "現在地を取得できませんでした",
+  "@routeErrorNoLocationTitle": {},
+  "routeErrorNoLocationDescription": "位置情報を有効にしてもう一度お試しください",
+  "@routeErrorNoLocationDescription": {},
+  "routeErrorNoDestinationTitle": "目的地が選ばれていません",
+  "@routeErrorNoDestinationTitle": {},
+  "routeErrorNoDestinationDescription": "目的地を選んでもう一度検索してください",
+  "@routeErrorNoDestinationDescription": {},
+  "routeErrorUnknownTitle": "ルートを取得できませんでした",
+  "@routeErrorUnknownTitle": {},
+  "routeErrorUnknownDescription": "時間をおいてもう一度お試しください",
+  "@routeErrorUnknownDescription": {}
 }
