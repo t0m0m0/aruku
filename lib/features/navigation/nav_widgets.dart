@@ -231,8 +231,8 @@ class _StatsBar extends StatelessWidget {
   final double totalKm;
   final double progress;
   final double remainingKm;
-  final String arrivalTime;
-  final int consumedKcal;
+  final String? arrivalTime;
+  final int? consumedKcal;
   final VoidCallback onExit;
 
   @override
@@ -319,14 +319,16 @@ class _StatsBar extends StatelessWidget {
                           letterSpacing: 0.06 * 10,
                         ),
                       ),
-                      Text(
-                        arrivalTime,
-                        style: numStyle(
-                          size: 28,
-                          weight: FontWeight.w500,
-                          color: c.ink,
-                        ),
-                      ),
+                      arrivalTime != null
+                          ? Text(
+                              arrivalTime!,
+                              style: numStyle(
+                                size: 28,
+                                weight: FontWeight.w500,
+                                color: c.ink,
+                              ),
+                            )
+                          : _PendingFixLabel(color: c.ink3),
                     ],
                   ),
                 ),
@@ -389,29 +391,31 @@ class _StatsBar extends StatelessWidget {
                             letterSpacing: 0.06 * 10,
                           ),
                         ),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
-                          children: [
-                            Text(
-                              '$consumedKcal',
-                              style: numStyle(
-                                size: 28,
-                                weight: FontWeight.w500,
-                                color: c.burnt,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'kcal',
-                              style: jpStyle(
-                                size: 12,
-                                weight: FontWeight.w700,
-                                color: c.burnt,
-                              ),
-                            ),
-                          ],
-                        ),
+                        consumedKcal != null
+                            ? Row(
+                                crossAxisAlignment: CrossAxisAlignment.baseline,
+                                textBaseline: TextBaseline.alphabetic,
+                                children: [
+                                  Text(
+                                    '$consumedKcal',
+                                    style: numStyle(
+                                      size: 28,
+                                      weight: FontWeight.w500,
+                                      color: c.burnt,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'kcal',
+                                    style: jpStyle(
+                                      size: 12,
+                                      weight: FontWeight.w700,
+                                      color: c.burnt,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : _PendingFixLabel(color: c.ink3),
                       ],
                     ),
                   ),
@@ -446,5 +450,19 @@ class _Sep extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     return Container(width: 1, color: c.hairline);
+  }
+}
+
+/// GPS初回フィックス前、意味の異なる代替値の代わりに表示する「取得中」ラベル。
+class _PendingFixLabel extends StatelessWidget {
+  const _PendingFixLabel({required this.color});
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      '取得中',
+      style: jpStyle(size: 16, weight: FontWeight.w700, color: color),
+    );
   }
 }

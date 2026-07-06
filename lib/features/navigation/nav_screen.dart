@@ -254,8 +254,8 @@ class _NavScreenState extends ConsumerState<NavScreen> {
                       remainingKm: guidance?.remainingKm ?? totalKm,
                       arrivalTime: guidance != null
                           ? _formatArrival(guidance.etaMinutesRemaining)
-                          : state.arrival.format(),
-                      consumedKcal: guidance?.consumedKcal ?? state.todayKcal,
+                          : null,
+                      consumedKcal: guidance?.consumedKcal,
                       onExit: _handleExitRequested,
                     ),
                   ),
