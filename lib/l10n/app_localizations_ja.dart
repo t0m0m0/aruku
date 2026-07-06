@@ -184,4 +184,55 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get homeChooseDestination => '目的地を選ぶ';
+
+  @override
+  String searchErrorWithStatus(String status) {
+    return '検索できませんでした ($status)';
+  }
+
+  @override
+  String get searchErrorGeneric => '検索できませんでした';
+
+  @override
+  String get searchNetworkHint => '通信状況を確認してください';
+
+  @override
+  String get searchEmptyTitle => '候補が見つかりませんでした';
+
+  @override
+  String get searchEmptyHint => '別のキーワードで試してください';
+
+  @override
+  String get searchOriginHint => '出発地を検索';
+
+  @override
+  String get searchDestinationHint => '目的地を検索';
+
+  @override
+  String get searchNearbyToggle => '近くの店';
+
+  @override
+  String get searchPickFailedOrigin => 'この出発地は位置情報を取得できませんでした。別の候補を選んでください';
+
+  @override
+  String get searchPickFailedDestination =>
+      'この目的地は位置情報を取得できませんでした。別の候補を選んでください';
+
+  @override
+  String get searchUseCurrentLocation => '現在地を使う';
+
+  @override
+  String get searchFavoritesSectionTitle => 'お気に入り';
+
+  @override
+  String get searchRecentOrigins => '最近の出発地';
+
+  @override
+  String get searchRecentDestinations => '最近の目的地';
+
+  @override
+  String get searchClearHistory => '履歴を消去';
+
+  @override
+  String get searchCurrentLocationName => '現在地';
 }

@@ -435,6 +435,102 @@ abstract class AppLocalizations {
   /// In ja, this message translates to:
   /// **'目的地を選ぶ'**
   String get homeChooseDestination;
+
+  /// No description provided for @searchErrorWithStatus.
+  ///
+  /// In ja, this message translates to:
+  /// **'検索できませんでした ({status})'**
+  String searchErrorWithStatus(String status);
+
+  /// No description provided for @searchErrorGeneric.
+  ///
+  /// In ja, this message translates to:
+  /// **'検索できませんでした'**
+  String get searchErrorGeneric;
+
+  /// No description provided for @searchNetworkHint.
+  ///
+  /// In ja, this message translates to:
+  /// **'通信状況を確認してください'**
+  String get searchNetworkHint;
+
+  /// No description provided for @searchEmptyTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'候補が見つかりませんでした'**
+  String get searchEmptyTitle;
+
+  /// No description provided for @searchEmptyHint.
+  ///
+  /// In ja, this message translates to:
+  /// **'別のキーワードで試してください'**
+  String get searchEmptyHint;
+
+  /// No description provided for @searchOriginHint.
+  ///
+  /// In ja, this message translates to:
+  /// **'出発地を検索'**
+  String get searchOriginHint;
+
+  /// No description provided for @searchDestinationHint.
+  ///
+  /// In ja, this message translates to:
+  /// **'目的地を検索'**
+  String get searchDestinationHint;
+
+  /// No description provided for @searchNearbyToggle.
+  ///
+  /// In ja, this message translates to:
+  /// **'近くの店'**
+  String get searchNearbyToggle;
+
+  /// No description provided for @searchPickFailedOrigin.
+  ///
+  /// In ja, this message translates to:
+  /// **'この出発地は位置情報を取得できませんでした。別の候補を選んでください'**
+  String get searchPickFailedOrigin;
+
+  /// No description provided for @searchPickFailedDestination.
+  ///
+  /// In ja, this message translates to:
+  /// **'この目的地は位置情報を取得できませんでした。別の候補を選んでください'**
+  String get searchPickFailedDestination;
+
+  /// No description provided for @searchUseCurrentLocation.
+  ///
+  /// In ja, this message translates to:
+  /// **'現在地を使う'**
+  String get searchUseCurrentLocation;
+
+  /// No description provided for @searchFavoritesSectionTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'お気に入り'**
+  String get searchFavoritesSectionTitle;
+
+  /// No description provided for @searchRecentOrigins.
+  ///
+  /// In ja, this message translates to:
+  /// **'最近の出発地'**
+  String get searchRecentOrigins;
+
+  /// No description provided for @searchRecentDestinations.
+  ///
+  /// In ja, this message translates to:
+  /// **'最近の目的地'**
+  String get searchRecentDestinations;
+
+  /// No description provided for @searchClearHistory.
+  ///
+  /// In ja, this message translates to:
+  /// **'履歴を消去'**
+  String get searchClearHistory;
+
+  /// No description provided for @searchCurrentLocationName.
+  ///
+  /// In ja, this message translates to:
+  /// **'現在地'**
+  String get searchCurrentLocationName;
 }
 
 class _AppLocalizationsDelegate

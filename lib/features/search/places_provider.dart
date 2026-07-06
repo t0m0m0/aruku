@@ -21,13 +21,17 @@ class SearchState {
   const SearchState({
     this.status = SearchStatus.idle,
     this.suggestions = const [],
-    this.errorMessage,
+    this.errorStatus,
     this.nearby = false,
   });
 
   final SearchStatus status;
   final List<PlacePrediction> suggestions;
-  final String? errorMessage;
+
+  /// PlacesException の生ステータス（例: 'REQUEST_DENIED'）。null は原因不明の
+  /// 汎用エラー。UI 層（BuildContext を持つ側）で AppLocalizations 経由の
+  /// メッセージへ変換する（#170）。
+  final String? errorStatus;
 
   /// 「近くの店」モード（#146）。ON のとき Autocomplete 結果を現在地からの
   /// 距離（distanceMeters）昇順へ再ソートする（系統は typeahead と同じ・C案）。
@@ -36,12 +40,12 @@ class SearchState {
   SearchState copyWith({
     SearchStatus? status,
     List<PlacePrediction>? suggestions,
-    String? errorMessage,
+    String? errorStatus,
     bool? nearby,
   }) => SearchState(
     status: status ?? this.status,
     suggestions: suggestions ?? this.suggestions,
-    errorMessage: errorMessage,
+    errorStatus: errorStatus,
     nearby: nearby ?? this.nearby,
   );
 }
@@ -133,16 +137,10 @@ class PlacesNotifier extends Notifier<SearchState> {
       );
     } on PlacesException catch (e) {
       if (gen != _generation) return;
-      state = state.copyWith(
-        status: SearchStatus.error,
-        errorMessage: '検索できませんでした (${e.status})',
-      );
+      state = state.copyWith(status: SearchStatus.error, errorStatus: e.status);
     } catch (_) {
       if (gen != _generation) return;
-      state = state.copyWith(
-        status: SearchStatus.error,
-        errorMessage: '検索できませんでした',
-      );
+      state = state.copyWith(status: SearchStatus.error);
     }
   }
 }

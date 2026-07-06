@@ -133,5 +133,42 @@
   "homeSearchRoute": "ルートを検索",
   "@homeSearchRoute": {},
   "homeChooseDestination": "目的地を選ぶ",
-  "@homeChooseDestination": {}
+  "@homeChooseDestination": {},
+
+  "searchErrorWithStatus": "検索できませんでした ({status})",
+  "@searchErrorWithStatus": {
+    "placeholders": {
+      "status": { "type": "String" }
+    }
+  },
+  "searchErrorGeneric": "検索できませんでした",
+  "@searchErrorGeneric": {},
+  "searchNetworkHint": "通信状況を確認してください",
+  "@searchNetworkHint": {},
+  "searchEmptyTitle": "候補が見つかりませんでした",
+  "@searchEmptyTitle": {},
+  "searchEmptyHint": "別のキーワードで試してください",
+  "@searchEmptyHint": {},
+  "searchOriginHint": "出発地を検索",
+  "@searchOriginHint": {},
+  "searchDestinationHint": "目的地を検索",
+  "@searchDestinationHint": {},
+  "searchNearbyToggle": "近くの店",
+  "@searchNearbyToggle": {},
+  "searchPickFailedOrigin": "この出発地は位置情報を取得できませんでした。別の候補を選んでください",
+  "@searchPickFailedOrigin": {},
+  "searchPickFailedDestination": "この目的地は位置情報を取得できませんでした。別の候補を選んでください",
+  "@searchPickFailedDestination": {},
+  "searchUseCurrentLocation": "現在地を使う",
+  "@searchUseCurrentLocation": {},
+  "searchFavoritesSectionTitle": "お気に入り",
+  "@searchFavoritesSectionTitle": {},
+  "searchRecentOrigins": "最近の出発地",
+  "@searchRecentOrigins": {},
+  "searchRecentDestinations": "最近の目的地",
+  "@searchRecentDestinations": {},
+  "searchClearHistory": "履歴を消去",
+  "@searchClearHistory": {},
+  "searchCurrentLocationName": "現在地",
+  "@searchCurrentLocationName": {}
 }
