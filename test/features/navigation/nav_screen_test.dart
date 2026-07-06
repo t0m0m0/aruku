@@ -1,4 +1,5 @@
 import 'package:aruku/core/models/geo_point.dart';
+import 'package:aruku/core/models/location_state.dart';
 import 'package:aruku/core/navigation/nav_engine.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
@@ -117,6 +118,42 @@ void main() {
       await tester.pump();
 
       expect(find.text('取得中'), findsNothing);
+    });
+  });
+
+  group('GPS喪失・リルート失敗のフィードバック', () {
+    testWidgets('位置情報が取得できない状態ではGPS喪失バナーを表示する', (tester) async {
+      final notifier = _NavNotifier(
+        navState().copyWith(locationState: const LocationUnavailable()),
+      );
+      await tester.pumpWidget(wrap(notifier));
+      await tester.pump();
+
+      expect(find.text('位置情報を取得できません。設定をご確認ください'), findsOneWidget);
+    });
+
+    testWidgets('位置情報が取得できている間はGPS喪失バナーを表示しない', (tester) async {
+      final notifier = _NavNotifier(navState());
+      await tester.pumpWidget(wrap(notifier));
+      await tester.pump();
+
+      expect(find.text('位置情報を取得できません。設定をご確認ください'), findsNothing);
+    });
+
+    testWidgets('リルート失敗時は失敗バナーを表示する', (tester) async {
+      final notifier = _NavNotifier(navState().copyWith(rerouteFailed: true));
+      await tester.pumpWidget(wrap(notifier));
+      await tester.pump();
+
+      expect(find.text('再検索に失敗しました。旧ルートを表示中'), findsOneWidget);
+    });
+
+    testWidgets('リルート失敗していない間は失敗バナーを表示しない', (tester) async {
+      final notifier = _NavNotifier(navState());
+      await tester.pumpWidget(wrap(notifier));
+      await tester.pump();
+
+      expect(find.text('再検索に失敗しました。旧ルートを表示中'), findsNothing);
     });
   });
 
