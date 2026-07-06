@@ -196,6 +196,44 @@ void main() {
       expect(s.container.read(appStateProvider).isRerouting, isFalse);
     });
 
+    test('再検索に失敗すると rerouteFailed が true になる', () async {
+      final s = setup(failReroute: true);
+      addTearDown(s.pos.close);
+      addTearDown(s.container.dispose);
+
+      final notifier = s.container.read(appStateProvider.notifier);
+      notifier.setDestination('渋谷', latLng: const GeoPoint(35.658, 139.701));
+      await notifier.startSearch();
+      notifier.go(Screen.nav);
+
+      for (var i = 0; i < 3; i++) {
+        s.pos.add(offRoute);
+        await tick();
+      }
+      await tick();
+
+      expect(s.container.read(appStateProvider).rerouteFailed, isTrue);
+    });
+
+    test('再検索に成功すると rerouteFailed が false に戻る', () async {
+      final s = setup();
+      addTearDown(s.pos.close);
+      addTearDown(s.container.dispose);
+
+      final notifier = s.container.read(appStateProvider.notifier);
+      notifier.setDestination('渋谷', latLng: const GeoPoint(35.658, 139.701));
+      await notifier.startSearch();
+      notifier.go(Screen.nav);
+
+      for (var i = 0; i < 3; i++) {
+        s.pos.add(offRoute);
+        await tick();
+      }
+      await tick();
+
+      expect(s.container.read(appStateProvider).rerouteFailed, isFalse);
+    });
+
     test('電車区間中の逸脱では再検索しない', () async {
       final s = setup();
       addTearDown(s.pos.close);
