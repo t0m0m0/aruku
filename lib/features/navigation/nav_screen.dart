@@ -26,6 +26,30 @@ CameraPosition navCameraPosition(GeoPoint pos) => CameraPosition(
   tilt: ArukuMapVariant.nav.tilt,
 );
 
+/// 現在地マーカーを組み立てる。headingが取得できていて進行方向つきアイコン
+/// ([directionalIcon]、円形・中心アンカー)の読込も済んでいればそれを使い
+/// 回転させる。どちらか未確定なら既存の涙型ピン（先端＝下端がアンカー）に
+/// フォールバックするため、アンカーもアイコンの形状に合わせて出し分ける。
+Marker currentLocationMarker({
+  required GeoPoint current,
+  required BitmapDescriptor? directionalIcon,
+}) {
+  final usesDirectionalIcon =
+      current.heading != null && directionalIcon != null;
+  return Marker(
+    markerId: const MarkerId('current'),
+    position: LatLng(current.lat, current.lng),
+    icon: usesDirectionalIcon
+        ? directionalIcon
+        : BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+    rotation: current.heading ?? 0,
+    flat: current.heading != null,
+    anchor: usesDirectionalIcon
+        ? const Offset(0.5, 0.5)
+        : const Offset(0.5, 1.0),
+  );
+}
+
 class NavScreen extends ConsumerStatefulWidget {
   const NavScreen({super.key});
 
@@ -62,9 +86,14 @@ class _NavScreenState extends ConsumerState<NavScreen> {
   void initState() {
     super.initState();
     WakelockPlus.enable();
-    buildDirectionalMarkerIcon(
-      color: const Color(0xFF1E88C7), // hueAzureに相当する現在地マーカー色
-    ).then((icon) {
+    // フォールバックの defaultMarkerWithHue(hueAzure) と色味を揃える。
+    final azure = const HSVColor.fromAHSV(
+      1.0,
+      BitmapDescriptor.hueAzure,
+      1.0,
+      1.0,
+    ).toColor();
+    buildDirectionalMarkerIcon(color: azure).then((icon) {
       if (!mounted) return;
       setState(() => _directionalMarkerIcon = icon);
     });
@@ -183,17 +212,9 @@ class _NavScreenState extends ConsumerState<NavScreen> {
     final markers = <Marker>{
       if (route != null) ...route.toMarkers(),
       if (current != null)
-        Marker(
-          markerId: const MarkerId('current'),
-          position: LatLng(current.lat, current.lng),
-          icon: (current.heading != null && _directionalMarkerIcon != null)
-              ? _directionalMarkerIcon!
-              : BitmapDescriptor.defaultMarkerWithHue(
-                  BitmapDescriptor.hueAzure,
-                ),
-          rotation: current.heading ?? 0,
-          flat: current.heading != null,
-          anchor: const Offset(0.5, 0.5),
+        currentLocationMarker(
+          current: current,
+          directionalIcon: _directionalMarkerIcon,
         ),
     };
 

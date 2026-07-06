@@ -395,6 +395,47 @@ void main() {
       final marker = currentMarker(tester);
       expect(marker.rotation, 0.0);
     });
+
+    group('currentLocationMarker（アイコン読込状況ごとのアンカー整合性）', () {
+      // dart:ui を使うアイコン生成は実機非同期処理のためウィジェットテストの
+      // pump では待てない。マーカー組み立てをピュア関数として切り出し、
+      // アイコンの読込状況を直接注入して検証する。
+      final fakeIcon = BitmapDescriptor.defaultMarkerWithHue(
+        BitmapDescriptor.hueGreen,
+      );
+      const withHeading = GeoPoint(35.6790, 139.7035, heading: 45.0);
+
+      test('heading取得済み・アイコン読込済みなら円形アイコンの中心をアンカーにする', () {
+        final marker = currentLocationMarker(
+          current: withHeading,
+          directionalIcon: fakeIcon,
+        );
+
+        expect(marker.anchor, const Offset(0.5, 0.5));
+        expect(marker.icon, fakeIcon);
+        expect(marker.rotation, 45.0);
+        expect(marker.flat, isTrue);
+      });
+
+      test('heading取得済みでもアイコン未読込なら涙型ピンの先端をアンカーにする', () {
+        final marker = currentLocationMarker(
+          current: withHeading,
+          directionalIcon: null,
+        );
+
+        expect(marker.anchor, const Offset(0.5, 1.0));
+      });
+
+      test('heading未取得ならアイコン読込済みでも涙型ピンの先端をアンカーにする', () {
+        final marker = currentLocationMarker(
+          current: const GeoPoint(35.6790, 139.7035),
+          directionalIcon: fakeIcon,
+        );
+
+        expect(marker.anchor, const Offset(0.5, 1.0));
+        expect(marker.rotation, 0.0);
+      });
+    });
   });
 
   group('navCameraPosition', () {
