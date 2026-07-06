@@ -1,0 +1,7 @@
+{
+  "@@locale": "ja",
+  "appTitle": "あるく",
+  "@appTitle": {
+    "description": "アプリタイトル（MaterialApp.title に使用）"
+  }
+}

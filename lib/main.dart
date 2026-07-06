@@ -12,6 +12,7 @@ import 'core/services/onboarding_repository.dart';
 import 'core/services/recents_repository.dart';
 import 'core/theme/aruku_theme.dart';
 import 'firebase_options.dart';
+import 'l10n/app_localizations.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -86,7 +87,9 @@ class ArukuApp extends ConsumerWidget {
     // 画面遷移は go_router が権威。ルートツリー・戻る挙動・遷移アニメは
     // すべて goRouterProvider（lib/core/navigation/app_router.dart）に集約。
     return MaterialApp.router(
-      title: 'あるく',
+      onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       debugShowCheckedModeBanner: false,
       theme: ArukuTheme.light(),
       routerConfig: ref.watch(goRouterProvider),
