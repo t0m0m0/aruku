@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -81,7 +82,7 @@ void main() {
     expect(screenOf(container), Screen.home);
   });
 
-  testWidgets('result / nav からの back は home へ戻る', (tester) async {
+  testWidgets('result からの back は home へ戻る', (tester) async {
     final container = await pumpApp(
       tester,
       routeService: const FixedRouteService(testRoutePlan),
@@ -94,6 +95,17 @@ void main() {
 
     await back(tester);
     expect(screenOf(container), Screen.home);
+  });
+
+  testWidgets('nav からの back は確認ダイアログを経由して home へ戻る', (tester) async {
+    final container = await pumpApp(
+      tester,
+      routeService: const FixedRouteService(testRoutePlan),
+    );
+    final notifier = container.read(appStateProvider.notifier);
+    notifier.setDestination('渋谷駅', latLng: const GeoPoint(35.658, 139.702));
+    await notifier.startSearch();
+    await pumpTransition(tester);
 
     // nav へ（result 経由で route は保持されている）。
     notifier.go(Screen.nav);
@@ -101,6 +113,11 @@ void main() {
     expect(screenOf(container), Screen.nav);
 
     await back(tester);
+    expect(find.text('ナビを終了しますか？'), findsOneWidget);
+    expect(screenOf(container), Screen.nav);
+
+    await tester.tap(find.byKey(const Key('nav-exit-confirm-button')));
+    await pumpTransition(tester);
     expect(screenOf(container), Screen.home);
   });
 

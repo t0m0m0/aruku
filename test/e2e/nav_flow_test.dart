@@ -69,6 +69,8 @@ void main() {
 
     await tester.tap(find.byKey(const Key('nav-exit-button')));
     await tester.pump();
+    await tester.tap(find.byKey(const Key('nav-exit-confirm-button')));
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(setup.container.read(appStateProvider).screen, Screen.home);
@@ -89,6 +91,8 @@ void main() {
 
     // ナビ終了
     await tester.tap(find.byKey(const Key('nav-exit-button')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('nav-exit-confirm-button')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
