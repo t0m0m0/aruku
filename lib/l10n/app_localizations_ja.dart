@@ -447,4 +447,20 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get settingsOpenDeviceSettings => '端末設定を開く';
+
+  @override
+  String get errorRetry => '再試行';
+
+  @override
+  String loadingDestinationBudget(String dest, String budget) {
+    return '$dest まで · 制限 $budget';
+  }
+
+  @override
+  String loadingBudgetOnly(String budget) {
+    return '制限 $budget';
+  }
+
+  @override
+  String get loadingSearchingMessage => '歩ける道を、探しています';
 }

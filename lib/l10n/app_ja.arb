@@ -338,5 +338,23 @@
   "settingsLocationNotificationPermission": "位置情報・通知の権限",
   "@settingsLocationNotificationPermission": {},
   "settingsOpenDeviceSettings": "端末設定を開く",
-  "@settingsOpenDeviceSettings": {}
+  "@settingsOpenDeviceSettings": {},
+
+  "errorRetry": "再試行",
+  "@errorRetry": {},
+  "loadingDestinationBudget": "{dest} まで · 制限 {budget}",
+  "@loadingDestinationBudget": {
+    "placeholders": {
+      "dest": { "type": "String" },
+      "budget": { "type": "String" }
+    }
+  },
+  "loadingBudgetOnly": "制限 {budget}",
+  "@loadingBudgetOnly": {
+    "placeholders": {
+      "budget": { "type": "String" }
+    }
+  },
+  "loadingSearchingMessage": "歩ける道を、探しています",
+  "@loadingSearchingMessage": {}
 }

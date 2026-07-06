@@ -17,15 +17,19 @@ class ErrorScreen extends ConsumerWidget {
     final notifier = ref.read(appStateProvider.notifier);
     final kind =
         ref.watch(appStateProvider).routeErrorKind ?? RouteErrorKind.unknown;
-    final view = routeErrorView(AppLocalizations.of(context), kind);
+    final l10n = AppLocalizations.of(context);
+    final view = routeErrorView(l10n, kind);
 
-    final retry = _Action(label: '再試行', onTap: () => notifier.startSearch());
+    final retry = _Action(
+      label: l10n.errorRetry,
+      onTap: () => notifier.startSearch(),
+    );
     final changeConditions = _Action(
-      label: '条件を変更',
+      label: l10n.resultChangeConditions,
       onTap: () => notifier.go(Screen.home),
     );
     final back = _Action(
-      label: '検索に戻る',
+      label: l10n.resultBackToSearch,
       onTap: () => notifier.go(Screen.search),
     );
     final (

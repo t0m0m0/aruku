@@ -8,6 +8,7 @@ import '../../core/models/time_value.dart';
 import '../../core/services/route_service.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
+import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_map.dart';
 
@@ -51,12 +52,13 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     final state = ref.watch(appStateProvider);
     final budget = TimeValue.formatBudgetJp(state.budgetMinutes);
     final dest = state.destination;
     final subtitle = dest != null && dest.isNotEmpty
-        ? '$dest まで · 制限 $budget'
-        : '制限 $budget';
+        ? l10n.loadingDestinationBudget(dest, budget)
+        : l10n.loadingBudgetOnly(budget);
     final phaseIndex = switch (state.routePhase) {
       RoutePhase.routing => 0,
       RoutePhase.walkability => 1,
@@ -168,7 +170,7 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
                 ),
                 const SizedBox(height: 28),
                 Text(
-                  '歩ける道を、探しています',
+                  l10n.loadingSearchingMessage,
                   style: jpStyle(
                     size: 22,
                     weight: FontWeight.w800,

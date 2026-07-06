@@ -927,6 +927,30 @@ abstract class AppLocalizations {
   /// In ja, this message translates to:
   /// **'端末設定を開く'**
   String get settingsOpenDeviceSettings;
+
+  /// No description provided for @errorRetry.
+  ///
+  /// In ja, this message translates to:
+  /// **'再試行'**
+  String get errorRetry;
+
+  /// No description provided for @loadingDestinationBudget.
+  ///
+  /// In ja, this message translates to:
+  /// **'{dest} まで · 制限 {budget}'**
+  String loadingDestinationBudget(String dest, String budget);
+
+  /// No description provided for @loadingBudgetOnly.
+  ///
+  /// In ja, this message translates to:
+  /// **'制限 {budget}'**
+  String loadingBudgetOnly(String budget);
+
+  /// No description provided for @loadingSearchingMessage.
+  ///
+  /// In ja, this message translates to:
+  /// **'歩ける道を、探しています'**
+  String get loadingSearchingMessage;
 }
 
 class _AppLocalizationsDelegate
