@@ -531,6 +531,24 @@ abstract class AppLocalizations {
   /// In ja, this message translates to:
   /// **'現在地'**
   String get searchCurrentLocationName;
+
+  /// No description provided for @pickerCancel.
+  ///
+  /// In ja, this message translates to:
+  /// **'キャンセル'**
+  String get pickerCancel;
+
+  /// No description provided for @pickerDone.
+  ///
+  /// In ja, this message translates to:
+  /// **'完了'**
+  String get pickerDone;
+
+  /// No description provided for @pickerNow.
+  ///
+  /// In ja, this message translates to:
+  /// **'現在時刻'**
+  String get pickerNow;
 }
 
 class _AppLocalizationsDelegate

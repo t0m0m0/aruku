@@ -170,5 +170,12 @@
   "searchClearHistory": "履歴を消去",
   "@searchClearHistory": {},
   "searchCurrentLocationName": "現在地",
-  "@searchCurrentLocationName": {}
+  "@searchCurrentLocationName": {},
+
+  "pickerCancel": "キャンセル",
+  "@pickerCancel": {},
+  "pickerDone": "完了",
+  "@pickerDone": {},
+  "pickerNow": "現在時刻",
+  "@pickerNow": {}
 }

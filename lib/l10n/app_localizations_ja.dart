@@ -235,4 +235,13 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get searchCurrentLocationName => '現在地';
+
+  @override
+  String get pickerCancel => 'キャンセル';
+
+  @override
+  String get pickerDone => '完了';
+
+  @override
+  String get pickerNow => '現在時刻';
 }
