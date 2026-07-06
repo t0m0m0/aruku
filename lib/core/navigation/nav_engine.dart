@@ -9,7 +9,9 @@ enum NavManeuver {
   slightRight,
   left,
   right,
-  arrive;
+  arrive,
+  board,
+  alight;
 
   String get label => switch (this) {
     NavManeuver.straight => '直進',
@@ -18,6 +20,8 @@ enum NavManeuver {
     NavManeuver.left => '左折',
     NavManeuver.right => '右折',
     NavManeuver.arrive => 'まもなく到着',
+    NavManeuver.board => '乗車',
+    NavManeuver.alight => '下車',
   };
 }
 
@@ -36,6 +40,10 @@ class NavGuidance {
     required this.consumedKcal,
     required this.offRouteMeters,
     required this.isOnTrainSegment,
+    this.currentLine,
+    this.currentStationName,
+    this.nextLine,
+    this.nextStationName,
   });
 
   /// 0–1 の進捗率。
@@ -69,6 +77,19 @@ class NavGuidance {
   /// 現在地の最寄り区間が電車かどうか。電車区間はポリライン誤差が
   /// 大きく出やすいため、オフルート再検索の抑制に使う。
   final bool isOnTrainSegment;
+
+  /// [currentManeuver] が [NavManeuver.board]/[NavManeuver.alight] のときの路線名。
+  final String? currentLine;
+
+  /// [currentManeuver] が [NavManeuver.board]/[NavManeuver.alight] のときの駅名
+  /// （乗車なら乗車駅、下車なら降車駅）。
+  final String? currentStationName;
+
+  /// [nextManeuver] が [NavManeuver.board]/[NavManeuver.alight] のときの路線名。
+  final String? nextLine;
+
+  /// [nextManeuver] が [NavManeuver.board]/[NavManeuver.alight] のときの駅名。
+  final String? nextStationName;
 }
 
 /// 曲がりとして認識する最小角度。これ未満は直進扱い。
@@ -78,9 +99,18 @@ const double _turnThresholdDeg = 25;
 const double _sharpThresholdDeg = 50;
 
 class _Maneuver {
-  const _Maneuver(this.maneuver, this.distanceAlong);
+  const _Maneuver(
+    this.maneuver,
+    this.distanceAlong, {
+    this.line,
+    this.stationName,
+  });
   final NavManeuver maneuver;
   final double distanceAlong;
+
+  /// [NavManeuver.board]/[NavManeuver.alight] のときの路線名・駅名。
+  final String? line;
+  final String? stationName;
 }
 
 class _FlatPath {
@@ -123,6 +153,10 @@ NavGuidance computeGuidance({
       consumedKcal: 0,
       offRouteMeters: 0,
       isOnTrainSegment: false,
+      currentLine: null,
+      currentStationName: null,
+      nextLine: null,
+      nextStationName: null,
     );
   }
 
@@ -173,9 +207,14 @@ NavGuidance computeGuidance({
     route.totalMin.toDouble(),
   );
 
-  // 曲がり地点（末尾に arrive を必ず付ける）。
-  final events = _maneuvers(pts, edgeLen, flat.walkPoint)
-    ..add(_Maneuver(NavManeuver.arrive, totalLen));
+  // 曲がり地点・乗車/下車地点を距離順にマージし、末尾に arrive を必ず付ける。
+  final events =
+      [
+          ..._maneuvers(pts, edgeLen, flat.walkPoint),
+          ..._trainEvents(route, pts, edgeLen, flat.segIndex),
+        ]
+        ..sort((a, b) => a.distanceAlong.compareTo(b.distanceAlong))
+        ..add(_Maneuver(NavManeuver.arrive, totalLen));
 
   var k = events.indexWhere((e) => e.distanceAlong > s + 1.0);
   if (k < 0) k = events.length - 1;
@@ -200,6 +239,10 @@ NavGuidance computeGuidance({
     consumedKcal: consumedKcal,
     offRouteMeters: snap.offsetMeters,
     isOnTrainSegment: !edgeWalk[snap.segmentIndex],
+    currentLine: currentEvent.line,
+    currentStationName: currentEvent.stationName,
+    nextLine: next?.line,
+    nextStationName: next?.stationName,
   );
 }
 
@@ -285,6 +328,47 @@ List<_Maneuver> _maneuvers(
         ? (right ? NavManeuver.right : NavManeuver.left)
         : (right ? NavManeuver.slightRight : NavManeuver.slightLeft);
     out.add(_Maneuver(maneuver, cum));
+  }
+  return out;
+}
+
+/// 電車区間の開始・終了地点に乗車/下車イベントを生成する。
+List<_Maneuver> _trainEvents(
+  RoutePlan route,
+  List<GeoPoint> pts,
+  List<double> edgeLen,
+  List<int> segIndex,
+) {
+  final cumAtVertex = List<double>.filled(pts.length, 0.0);
+  for (var j = 1; j < pts.length; j++) {
+    cumAtVertex[j] = cumAtVertex[j - 1] + edgeLen[j - 1];
+  }
+
+  final out = <_Maneuver>[];
+  for (var i = 0; i < route.segments.length; i++) {
+    final seg = route.segments[i];
+    if (seg.type != SegmentType.train) continue;
+    final vertices = [
+      for (var j = 0; j < segIndex.length; j++)
+        if (segIndex[j] == i) j,
+    ];
+    if (vertices.isEmpty) continue;
+    out.add(
+      _Maneuver(
+        NavManeuver.board,
+        cumAtVertex[vertices.first],
+        line: seg.line,
+        stationName: seg.fromName,
+      ),
+    );
+    out.add(
+      _Maneuver(
+        NavManeuver.alight,
+        cumAtVertex[vertices.last],
+        line: seg.line,
+        stationName: seg.toName,
+      ),
+    );
   }
   return out;
 }

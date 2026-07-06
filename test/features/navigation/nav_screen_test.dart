@@ -105,6 +105,24 @@ void main() {
     expect(find.text('一時停止 · 寄り道'), findsNothing);
   });
 
+  testWidgets('電車乗車前は路線名付きの乗車案内を表示する', (tester) async {
+    // sampleRoutePlanの徒歩区間終盤（電車区間手前）。
+    await tester.pumpWidget(wrap(_NavNotifier(navState())));
+    await tester.pump();
+
+    expect(find.textContaining('JR山手線に乗車'), findsOneWidget);
+  });
+
+  testWidgets('電車乗車中は降車駅名付きの下車案内を表示する', (tester) async {
+    const onTrain = GeoPoint(35.6640, 139.7020);
+    await tester.pumpWidget(
+      wrap(_NavNotifier(navState().copyWith(currentPosition: onTrain))),
+    );
+    await tester.pump();
+
+    expect(find.textContaining('渋谷で下車'), findsOneWidget);
+  });
+
   group('navCameraPosition', () {
     test('ナビ視点のズーム/チルトを維持したカメラ位置を返す', () {
       const pos = GeoPoint(35.681, 139.767);
