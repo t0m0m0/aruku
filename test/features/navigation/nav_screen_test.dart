@@ -356,6 +356,18 @@ void main() {
     });
   });
 
+  group('文字拡大設定への対応', () {
+    testWidgets('文字拡大を最大にしても案内カード・下部バーがオーバーフローしない', (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 3.0;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+      await tester.pumpWidget(wrap(_NavNotifier(navState())));
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('navCameraPosition', () {
     test('ナビ視点のズーム/チルトを維持したカメラ位置を返す', () {
       const pos = GeoPoint(35.681, 139.767);
