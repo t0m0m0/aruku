@@ -84,6 +84,40 @@ void main() {
     expect(find.text(before), findsNothing);
   });
 
+  group('GPS初回フィックス前の表示', () {
+    testWidgets('現在地未取得時は到着・消費欄に取得中を表示し、無関係な代替値を出さない', (tester) async {
+      final noFixState = AppState.initial.copyWith(
+        screen: Screen.nav,
+        route: sampleRoutePlan,
+        todayKcal: 999,
+      );
+      await tester.pumpWidget(wrap(_NavNotifier(noFixState)));
+      await tester.pump();
+
+      expect(find.text('取得中'), findsNWidgets(2));
+      expect(find.text(noFixState.arrival.format()), findsNothing);
+      expect(find.text('999'), findsNothing);
+    });
+
+    testWidgets('現在地取得後は取得中が消え実値に切り替わる', (tester) async {
+      final notifier = _NavNotifier(
+        AppState.initial.copyWith(
+          screen: Screen.nav,
+          route: sampleRoutePlan,
+          todayKcal: 999,
+        ),
+      );
+      await tester.pumpWidget(wrap(notifier));
+      await tester.pump();
+      expect(find.text('取得中'), findsNWidgets(2));
+
+      notifier.setPos(mid);
+      await tester.pump();
+
+      expect(find.text('取得中'), findsNothing);
+    });
+  });
+
   group('ナビ終了の確認', () {
     testWidgets('終了ボタンをタップすると確認ダイアログを表示し、即座には戻らない', (tester) async {
       final notifier = _NavNotifier(navState());
