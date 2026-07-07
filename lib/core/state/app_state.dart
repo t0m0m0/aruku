@@ -604,11 +604,11 @@ class AppNotifier extends Notifier<AppState> {
             origin: origin,
             originName: state.departureNameForRoute,
             onProgress: (phase) {
-              if (generation != _searchGeneration) return;
+              if (generation != _searchGeneration || _disposed) return;
               state = state.copyWith(routePhase: phase);
             },
           );
-      if (generation != _searchGeneration) return;
+      if (generation != _searchGeneration || _disposed) return;
       state = state.copyWith(
         screen: Screen.result,
         route: plan,
@@ -616,7 +616,7 @@ class AppNotifier extends Notifier<AppState> {
         routePhase: null,
       );
     } catch (e) {
-      if (generation != _searchGeneration) return;
+      if (generation != _searchGeneration || _disposed) return;
       state = state.copyWith(
         screen: Screen.error,
         routeErrorKind: classifyRouteError(e),
@@ -630,6 +630,10 @@ class AppNotifier extends Notifier<AppState> {
   /// 破棄されるようにする。screen とローディングの表示前提データ（routePhase）を
   /// 同一 copyWith で一括更新し、redirect ガードの不変条件を保つ。screen 変更は
   /// [startSearch] と同様に ref.listen 経由で router へ伝搬する。
+  ///
+  /// 進行中の HTTP リクエスト自体は中断しない（`RouteService.plan` に中断手段は
+  /// 無い）。応答は世代不一致で捨てるだけなので、体感は即ホームへ戻る一方、通信は
+  /// 完了まで走り切る。
   void cancelSearch() {
     _searchGeneration++;
     state = state.copyWith(

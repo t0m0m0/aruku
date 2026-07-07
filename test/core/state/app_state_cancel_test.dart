@@ -24,7 +24,11 @@ const _plan = RoutePlan(
 /// 進捗を任意段階まで通知したあと completer が完了するまで待機するフェイク。
 /// キャンセルが「進行中のリクエスト」を跨ぐ状況を再現するために使う。
 class _GatedRouteService implements RouteService {
-  final completer = Completer<void>();
+  Completer<void> completer = Completer<void>();
+
+  /// false にすると completer を待たず即応答する（キャンセル後の再検索を同一
+  /// Notifier で検証するために 2 回目だけゲートを外す）。
+  bool gated = true;
   void Function(RoutePhase)? lastOnProgress;
 
   @override
@@ -39,7 +43,7 @@ class _GatedRouteService implements RouteService {
   }) async {
     lastOnProgress = onProgress;
     onProgress?.call(RoutePhase.routing);
-    await completer.future;
+    if (gated) await completer.future;
     return _plan;
   }
 }
@@ -105,7 +109,7 @@ void main() {
       await future;
     });
 
-    test('キャンセル後に再検索するとその結果は正しく反映される', () async {
+    test('同一 Notifier でキャンセル後に再検索すると result へ遷移する', () async {
       final service = _GatedRouteService();
       final container = _containerWith(service);
       final notifier = container.read(appStateProvider.notifier);
@@ -116,25 +120,29 @@ void main() {
       await first;
       expect(container.read(appStateProvider).screen, Screen.home);
 
-      // 2 回目の検索は別世代なので通常どおり result へ遷移する。
-      final service2 = _ImmediateRouteService();
-      final container2 = _containerWith(service2);
-      await container2.read(appStateProvider.notifier).startSearch();
-      expect(container2.read(appStateProvider).screen, Screen.result);
+      // 世代が進んだ同一 Notifier で 2 回目を実行しても、その結果は正しく
+      // 反映される（ガードが自世代の完了まで捨ててしまわないこと）。
+      service.gated = false;
+      await notifier.startSearch();
+      expect(container.read(appStateProvider).screen, Screen.result);
+      expect(container.read(appStateProvider).route, same(_plan));
+    });
+
+    test('provider dispose 後に plan が完了しても例外を投げず state を書かない', () async {
+      final service = _GatedRouteService();
+      // 意図的に container を手動 dispose するため addTearDown は使わない。
+      final container = ProviderContainer(
+        overrides: [routeServiceProvider.overrideWithValue(service)],
+      );
+      final notifier = container.read(appStateProvider.notifier);
+
+      final future = notifier.startSearch();
+      container.dispose(); // _disposed = true
+      service.completer.complete();
+
+      // dispose 済み Notifier への state 書き込み（Riverpod 3.x では StateError）を
+      // 避け、未捕捉例外なく完了する。
+      await expectLater(future, completes);
     });
   });
-}
-
-/// 即座に成功するフェイク（回帰確認用）。
-class _ImmediateRouteService implements RouteService {
-  @override
-  Future<RoutePlan> plan({
-    required String? destination,
-    required GeoPoint? destinationLatLng,
-    required TimeValue departure,
-    required TimeValue arrival,
-    GeoPoint? origin,
-    String? originName,
-    void Function(RoutePhase)? onProgress,
-  }) async => _plan;
 }
