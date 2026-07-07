@@ -74,6 +74,8 @@ class Ic extends StatelessWidget {
       Ic._(size: size, painter: _IconPainter(_pause, color, filled: true));
   static Widget locate({double size = 20, required Color color}) =>
       Ic._(size: size, painter: _IconPainter(_locate, color));
+  static Widget share({double size = 20, required Color color}) =>
+      Ic._(size: size, painter: _IconPainter(_share, color));
 }
 
 enum ChevronDir { left, right, up, down }
@@ -396,6 +398,16 @@ void _locate(Canvas c, Paint p, double s) {
   c.drawLine(Offset(12 * s, 18 * s), Offset(12 * s, 22 * s), p);
   c.drawLine(Offset(2 * s, 12 * s), Offset(6 * s, 12 * s), p);
   c.drawLine(Offset(18 * s, 12 * s), Offset(22 * s, 12 * s), p);
+}
+
+void _share(Canvas c, Paint p, double s) {
+  // 3ノードを2本の線でつなぐ定番の共有アイコン。
+  const r = 2.2;
+  c.drawLine(Offset(8.9 * s, 11 * s), Offset(15.1 * s, 7 * s), p);
+  c.drawLine(Offset(8.9 * s, 13 * s), Offset(15.1 * s, 17 * s), p);
+  c.drawCircle(Offset(7 * s, 12 * s), r * s, p);
+  c.drawCircle(Offset(17 * s, 6 * s), r * s, p);
+  c.drawCircle(Offset(17 * s, 18 * s), r * s, p);
 }
 
 void _pause(Canvas c, Paint p, double s) {

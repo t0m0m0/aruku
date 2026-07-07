@@ -20,6 +20,7 @@ extension ScreenPath on Screen {
     Screen.loading => '/home/loading',
     Screen.result => '/home/result',
     Screen.nav => '/home/nav',
+    Screen.complete => '/home/complete',
     Screen.error => '/home/error',
   };
 

@@ -84,6 +84,10 @@ class _NavScreenState extends ConsumerState<NavScreen> {
   /// 従来の汎用ピンにフォールバックする。
   BitmapDescriptor? _directionalMarkerIcon;
 
+  /// 歩行完了（完了画面への遷移）を一度だけ発火させるためのガード。
+  /// 到着の自動検出・手動完了のどちらから呼ばれても二重遷移しない。
+  bool _completed = false;
+
   @override
   void initState() {
     super.initState();
@@ -162,6 +166,30 @@ class _NavScreenState extends ConsumerState<NavScreen> {
     ref.read(appStateProvider.notifier).go(Screen.home);
   }
 
+  /// 到着とみなす残り距離（km）。ほぼ終点（約8m以内）に達したら完了画面へ遷移する。
+  /// 「まもなく到着」案内を出す手前で誤発火しないよう実到着相当まで絞り、
+  /// GPS 誤差で自動発火しない場合は「歩き終わった」ボタンを導線とする。
+  static const double _arriveRemainingKm = 0.008;
+
+  /// 歩行完了サマリーを確定し完了画面へ遷移する。到着自動検出と手動完了の
+  /// 双方の入口。実際に歩いた徒歩距離（電車区間を除く）と消費 kcal を渡す。
+  void _finishWalk(NavGuidance guidance, RoutePlan route) {
+    if (_completed) return;
+    _completed = true;
+    final walkedKm = (route.walkKm - guidance.remainingWalkKm).clamp(
+      0.0,
+      route.walkKm,
+    );
+    ref
+        .read(appStateProvider.notifier)
+        .finishWalk(
+          distanceKm: walkedKm,
+          kcal: guidance.consumedKcal,
+          from: route.from,
+          to: route.to,
+        );
+  }
+
   void _toggleLayer() {
     setState(() {
       _mapType = _mapType == MapType.normal ? MapType.hybrid : MapType.normal;
@@ -210,6 +238,17 @@ class _NavScreenState extends ConsumerState<NavScreen> {
         : null;
     if (guidance != null) {
       _lastDistanceAlongMeters = guidance.traveledKm * 1000;
+    }
+
+    // 到着（残り距離が閾値以下）を検出したら、フレーム後に完了画面へ遷移する。
+    // build 中に state を変更しないよう postFrame にずらし、_completed で一度だけ発火。
+    if (guidance != null &&
+        route != null &&
+        !_completed &&
+        guidance.remainingKm <= _arriveRemainingKm) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _finishWalk(guidance, route);
+      });
     }
 
     final totalKm = guidance?.totalKm ?? route?.totalKm ?? 0.0;
@@ -297,6 +336,29 @@ class _NavScreenState extends ConsumerState<NavScreen> {
                               height: 44,
                               borderRadius: 22,
                               backgroundColor: c.moss700,
+                              textStyle: jpStyle(
+                                size: 13,
+                                weight: FontWeight.w800,
+                                color: c.ivory,
+                                letterSpacing: 0.06 * 13,
+                              ),
+                            ),
+                          ),
+                        // 「歩き終わった」手動完了ボタン。到着自動検出が GPS 誤差で
+                        // 発火しない場合の導線として常時提示する。
+                        if (guidance != null && route != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: ArukuButton(
+                              key: const Key('nav-finish-button'),
+                              label: l10n.navFinishButton,
+                              onPressed: () => _finishWalk(guidance, route),
+                              icon: Ic.flag(size: 16, color: c.ivory),
+                              iconGap: 8,
+                              fullWidth: false,
+                              height: 44,
+                              borderRadius: 22,
+                              backgroundColor: c.burnt,
                               textStyle: jpStyle(
                                 size: 13,
                                 weight: FontWeight.w800,
