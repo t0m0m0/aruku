@@ -440,6 +440,17 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsReceiveNotifications => '通知を受け取る';
 
   @override
+  String get settingsWeeklyGoalSection => '週間目標';
+
+  @override
+  String get settingsWeeklyGoalLabel => '1週間の目標距離';
+
+  @override
+  String settingsWeeklyGoalValue(String km) {
+    return '${km}km';
+  }
+
+  @override
   String get settingsPermissionsSection => '権限';
 
   @override
