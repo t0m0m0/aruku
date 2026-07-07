@@ -40,6 +40,7 @@ class SettingsScreen extends ConsumerWidget {
                 children: [
                   IconButton(
                     onPressed: () => notifier.go(Screen.home),
+                    tooltip: l10n.commonBack,
                     icon: Ic.chevron(
                       size: 20,
                       color: c.ink,

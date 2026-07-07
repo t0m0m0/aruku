@@ -56,17 +56,23 @@ class _TextLink extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     return Center(
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Text(
-            label,
-            style: jpStyle(
-              size: 13,
-              weight: FontWeight.w700,
-              color: onTap == null ? c.ink3 : c.moss600,
+      child: MergeSemantics(
+        child: Semantics(
+          button: true,
+          enabled: onTap != null,
+          child: GestureDetector(
+            onTap: onTap,
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Text(
+                label,
+                style: jpStyle(
+                  size: 13,
+                  weight: FontWeight.w700,
+                  color: onTap == null ? c.ink3 : c.moss600,
+                ),
+              ),
             ),
           ),
         ),

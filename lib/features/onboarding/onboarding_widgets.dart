@@ -133,36 +133,49 @@ class _StatsTeaser extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
+                // 文字拡大時は数値＋単位と補足が 1 行に収まらないため、
+                // Wrap で補足を次行へ折り返してオーバーフローを防ぐ。
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 2,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Text(
-                      '${AppConstants.weeklyKcalEstimate ~/ 1000},${(AppConstants.weeklyKcalEstimate % 1000).toString().padLeft(3, '0')}',
-                      style: numStyle(
-                        size: 32,
-                        weight: FontWeight.w600,
-                        color: c.ink,
+                    // 大きな数値は文字拡大でカード幅を超えるため、必要時のみ
+                    // 縮小して収める（通常サイズでは等倍のまま）。
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            '${AppConstants.weeklyKcalEstimate ~/ 1000},${(AppConstants.weeklyKcalEstimate % 1000).toString().padLeft(3, '0')}',
+                            style: numStyle(
+                              size: 32,
+                              weight: FontWeight.w600,
+                              color: c.ink,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'kcal',
+                            style: jpStyle(
+                              size: 13,
+                              weight: FontWeight.w700,
+                              color: c.ink2,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 6),
                     Text(
-                      'kcal',
+                      l10n.onboardWeeklyKcalTrailer,
                       style: jpStyle(
-                        size: 13,
-                        weight: FontWeight.w700,
-                        color: c.ink2,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        l10n.onboardWeeklyKcalTrailer,
-                        style: jpStyle(
-                          size: 12,
-                          weight: FontWeight.w500,
-                          color: c.ink3,
-                        ),
+                        size: 12,
+                        weight: FontWeight.w500,
+                        color: c.ink3,
                       ),
                     ),
                   ],

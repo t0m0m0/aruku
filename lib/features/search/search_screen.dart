@@ -176,6 +176,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 children: [
                   IconButton(
                     onPressed: () => notifier.go(Screen.home),
+                    tooltip: l10n.commonBack,
                     icon: Ic.chevron(
                       size: 20,
                       color: c.ink,
@@ -230,12 +231,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                             ),
                           ),
                           if (_ctl.text.isNotEmpty)
-                            InkWell(
-                              onTap: () {
-                                setState(() => _ctl.clear());
-                                ref.read(placesProvider.notifier).search('');
-                              },
-                              child: Ic.close(size: 18, color: c.ink3),
+                            Semantics(
+                              button: true,
+                              label: l10n.searchClearInput,
+                              child: InkWell(
+                                onTap: () {
+                                  setState(() => _ctl.clear());
+                                  ref.read(placesProvider.notifier).search('');
+                                },
+                                child: Ic.close(size: 18, color: c.ink3),
+                              ),
                             ),
                         ],
                       ),
@@ -260,31 +265,42 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       alignment: Alignment.centerLeft,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-        child: InkWell(
-          key: const ValueKey('nearby-toggle'),
-          onTap: () => ref.read(placesProvider.notifier).setNearby(!nearby),
-          borderRadius: BorderRadius.circular(20),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: nearby ? c.moss500 : c.paper,
+        child: MergeSemantics(
+          child: Semantics(
+            button: true,
+            // 近くの店フィルタは単独のON/OFFトグルのため、択一選択の
+            // goalChip(selected)ではなくSwitch同様のtoggledで状態を伝える。
+            toggled: nearby,
+            child: InkWell(
+              key: const ValueKey('nearby-toggle'),
+              onTap: () => ref.read(placesProvider.notifier).setNearby(!nearby),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: nearby ? c.moss500 : c.hairline),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Ic.compass(size: 15, color: nearby ? c.paper : c.ink3),
-                const SizedBox(width: 6),
-                Text(
-                  l10n.searchNearbyToggle,
-                  style: jpStyle(
-                    size: 13,
-                    weight: FontWeight.w700,
-                    color: nearby ? c.paper : c.ink3,
-                  ),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
                 ),
-              ],
+                decoration: BoxDecoration(
+                  color: nearby ? c.moss500 : c.paper,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: nearby ? c.moss500 : c.hairline),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Ic.compass(size: 15, color: nearby ? c.paper : c.ink3),
+                    const SizedBox(width: 6),
+                    Text(
+                      l10n.searchNearbyToggle,
+                      style: jpStyle(
+                        size: 13,
+                        weight: FontWeight.w700,
+                        color: nearby ? c.paper : c.ink3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -576,16 +592,20 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                     ),
                     // 末尾のスターで解除。タイル本体のタップ（選択）とは
                     // 別ジェスチャとして扱われ、こちらが優先される。
-                    InkWell(
-                      key: ValueKey('favorite-remove-${f.dedupeKey}'),
-                      onTap: () => _removeFavorite(f),
-                      borderRadius: BorderRadius.circular(12),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Ic.star(
-                          size: 18,
-                          color: c.moss600,
-                          filled: true,
+                    Semantics(
+                      button: true,
+                      label: l10n.searchRemoveFavorite,
+                      child: InkWell(
+                        key: ValueKey('favorite-remove-${f.dedupeKey}'),
+                        onTap: () => _removeFavorite(f),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Ic.star(
+                            size: 18,
+                            color: c.moss600,
+                            filled: true,
+                          ),
                         ),
                       ),
                     ),

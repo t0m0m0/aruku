@@ -89,4 +89,23 @@ void main() {
 
     expect(find.textContaining('超過'), findsNothing);
   });
+
+  testWidgets('ヘッダーの戻る・お気に入り・出発ボタンにVoiceOverラベルがある', (tester) async {
+    final handle = tester.ensureSemantics();
+    final container = _containerFor(sampleRoutePlan);
+    await container.read(appStateProvider.notifier).startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    // アイコンのみのヘッダーボタンにラベルが付く（未登録なので「追加」）。
+    expect(find.bySemanticsLabel('戻る'), findsOneWidget);
+    expect(find.bySemanticsLabel('お気に入りに追加'), findsOneWidget);
+
+    // 経路開始CTAはボタンとして公開される。
+    expect(
+      tester.getSemantics(find.text('このルートで歩く')),
+      containsSemantics(isButton: true, hasTapAction: true),
+    );
+    handle.dispose();
+  });
 }

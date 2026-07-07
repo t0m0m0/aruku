@@ -90,7 +90,7 @@ class ArukuColors extends ThemeExtension<ArukuColors> {
     sand: Color(0xFFEEF1DC),
     ink: Color(0xFF1D2418),
     ink2: Color(0xFF4A5645),
-    ink3: Color(0xFF8A9583),
+    ink3: Color(0xFF5F6E58),
     ink4: Color(0xFFC8CFC1),
     hairline: Color(0x141D2418),
     walk: ArukuTokens.routeWalk,

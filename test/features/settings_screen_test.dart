@@ -165,4 +165,71 @@ void main() {
 
     expect(container.read(appStateProvider).screen, Screen.settings);
   });
+
+  testWidgets('ホームの設定ボタンにVoiceOverラベルがある', (tester) async {
+    final handle = tester.ensureSemantics();
+    final container = await _container();
+    addTearDown(container.dispose);
+    container.read(appStateProvider);
+
+    await tester.pumpWidget(_wrap(container, const HomeScreen()));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSemantics(find.byKey(const Key('home-settings-button'))),
+      containsSemantics(label: '設定を開く', isButton: true),
+    );
+    handle.dispose();
+  });
+
+  testWidgets('通知スイッチはラベルと状態が1ノードに統合される（VoiceOver）', (tester) async {
+    final handle = tester.ensureSemantics();
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSemantics(find.text('通知を受け取る')),
+      containsSemantics(label: '通知を受け取る', hasToggledState: true),
+    );
+    handle.dispose();
+  });
+
+  testWidgets('目標プリセットは選択状態をボタンとして公開する（VoiceOver）', (tester) async {
+    final handle = tester.ensureSemantics();
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    // 既定 10km は選択、20km は非選択。
+    expect(
+      tester.getSemantics(find.byKey(const Key('goal_preset_10'))),
+      containsSemantics(isButton: true, isSelected: true),
+    );
+    expect(
+      tester.getSemantics(find.byKey(const Key('goal_preset_20'))),
+      containsSemantics(isButton: true, isSelected: false),
+    );
+    handle.dispose();
+  });
+
+  testWidgets('権限リンク行はボタンとして公開され、戻るボタンにラベルがある（VoiceOver）', (tester) async {
+    final handle = tester.ensureSemantics();
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSemantics(find.text('位置情報・通知の権限')),
+      containsSemantics(isButton: true),
+    );
+    expect(find.byTooltip('戻る'), findsOneWidget);
+    handle.dispose();
+  });
 }
