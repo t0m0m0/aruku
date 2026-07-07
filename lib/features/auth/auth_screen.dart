@@ -113,6 +113,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
               child: IconButton(
                 onPressed: () =>
                     ref.read(appStateProvider.notifier).go(Screen.settings),
+                tooltip: l10n.commonBack,
                 icon: Ic.chevron(size: 20, color: c.ink, dir: ChevronDir.left),
                 style: IconButton.styleFrom(
                   backgroundColor: Colors.transparent,

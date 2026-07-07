@@ -88,16 +88,20 @@ class HomeScreen extends ConsumerWidget {
                       ],
                     ),
                   ),
-                  GestureDetector(
-                    key: const Key('home-settings-button'),
-                    onTap: () => notifier.go(Screen.settings),
-                    behavior: HitTestBehavior.opaque,
-                    child: ArukuCard(
-                      width: 44,
-                      height: 44,
-                      borderRadius: 14,
-                      child: Center(
-                        child: Ic.settings(size: 20, color: c.ink2),
+                  Semantics(
+                    button: true,
+                    label: l10n.homeOpenSettings,
+                    child: GestureDetector(
+                      key: const Key('home-settings-button'),
+                      onTap: () => notifier.go(Screen.settings),
+                      behavior: HitTestBehavior.opaque,
+                      child: ArukuCard(
+                        width: 44,
+                        height: 44,
+                        borderRadius: 14,
+                        child: Center(
+                          child: Ic.settings(size: 20, color: c.ink2),
+                        ),
                       ),
                     ),
                   ),

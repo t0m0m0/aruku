@@ -477,4 +477,22 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get loadingCancelButton => 'キャンセル';
+
+  @override
+  String get commonBack => '戻る';
+
+  @override
+  String get homeOpenSettings => '設定を開く';
+
+  @override
+  String get searchClearInput => '入力を消去';
+
+  @override
+  String get searchRemoveFavorite => 'お気に入りから削除';
+
+  @override
+  String get resultAddFavorite => 'お気に入りに追加';
+
+  @override
+  String get resultRemoveFavorite => 'お気に入りから削除';
 }

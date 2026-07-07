@@ -87,6 +87,7 @@ class ResultScreen extends ConsumerWidget {
               child: Row(
                 children: [
                   _HeaderButton(
+                    semanticLabel: l10n.commonBack,
                     child: Ic.chevron(
                       size: 18,
                       color: c.ink,
@@ -120,6 +121,9 @@ class ResultScreen extends ConsumerWidget {
                       );
                       return _HeaderButton(
                         key: const ValueKey('result-star-button'),
+                        semanticLabel: isFav
+                            ? l10n.resultRemoveFavorite
+                            : l10n.resultAddFavorite,
                         child: Ic.star(
                           size: 18,
                           color: isFav ? c.moss600 : c.ink,
@@ -255,27 +259,39 @@ class _OverBudgetBanner extends StatelessWidget {
 }
 
 class _HeaderButton extends StatelessWidget {
-  const _HeaderButton({required this.child, required this.onTap, super.key});
+  const _HeaderButton({
+    required this.child,
+    required this.onTap,
+    required this.semanticLabel,
+    super.key,
+  });
   final Widget child;
   final VoidCallback onTap;
+
+  /// アイコンのみのボタンのため、VoiceOver 用にラベルを必須で受け取る。
+  final String semanticLabel;
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Material(
-      color: c.paper,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      child: Material(
+        color: c.paper,
         borderRadius: BorderRadius.circular(12),
-        child: Ink(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: c.hairline),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Ink(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: c.hairline),
+            ),
+            child: Center(child: child),
           ),
-          child: Center(child: child),
         ),
       ),
     );

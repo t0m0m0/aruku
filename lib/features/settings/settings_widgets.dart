@@ -44,22 +44,26 @@ class _SwitchRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: jpStyle(size: 15, weight: FontWeight.w600, color: c.ink),
+    // ラベルとスイッチを 1 ノードに統合し、VoiceOver が
+    // 「<ラベ>, スイッチ, オン/オフ」と関連づけて読み上げるようにする。
+    return MergeSemantics(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: jpStyle(size: 15, weight: FontWeight.w600, color: c.ink),
+              ),
             ),
-          ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-            activeTrackColor: c.moss500,
-          ),
-        ],
+            Switch(
+              value: value,
+              onChanged: onChanged,
+              activeTrackColor: c.moss500,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -127,20 +131,27 @@ class _GoalChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Material(
-      color: selected ? c.moss500 : c.moss100,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-          child: Text(
-            text,
-            style: numStyle(
-              size: 14,
-              weight: FontWeight.w700,
-              color: selected ? Colors.white : c.moss700,
+    // 選択状態を VoiceOver に伝えるため selected を明示する。
+    return MergeSemantics(
+      child: Semantics(
+        button: true,
+        selected: selected,
+        child: Material(
+          color: selected ? c.moss500 : c.moss100,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+              child: Text(
+                text,
+                style: numStyle(
+                  size: 14,
+                  weight: FontWeight.w700,
+                  color: selected ? Colors.white : c.moss700,
+                ),
+              ),
             ),
           ),
         ),
@@ -166,29 +177,40 @@ class _LinkRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     final enabled = onTap != null;
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: jpStyle(
-                  size: 15,
-                  weight: FontWeight.w600,
-                  color: enabled ? c.ink : c.ink3,
+    // ラベルと補足（trailing）をまとめ、ボタンとして 1 ノードで読み上げる。
+    return MergeSemantics(
+      child: Semantics(
+        button: true,
+        enabled: enabled,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: jpStyle(
+                      size: 15,
+                      weight: FontWeight.w600,
+                      color: enabled ? c.ink : c.ink3,
+                    ),
+                  ),
                 ),
-              ),
+                Text(
+                  trailing,
+                  style: jpStyle(
+                    size: 13,
+                    weight: FontWeight.w600,
+                    color: c.ink3,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Ic.chevron(size: 16, color: c.ink3, dir: ChevronDir.right),
+              ],
             ),
-            Text(
-              trailing,
-              style: jpStyle(size: 13, weight: FontWeight.w600, color: c.ink3),
-            ),
-            const SizedBox(width: 4),
-            Ic.chevron(size: 16, color: c.ink3, dir: ChevronDir.right),
-          ],
+          ),
         ),
       ),
     );

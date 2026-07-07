@@ -368,5 +368,30 @@
   "loadingSearchingMessage": "歩ける道を、探しています",
   "@loadingSearchingMessage": {},
   "loadingCancelButton": "キャンセル",
-  "@loadingCancelButton": {}
+  "@loadingCancelButton": {},
+
+  "commonBack": "戻る",
+  "@commonBack": {
+    "description": "戻るボタンのVoiceOverラベル（各画面ヘッダー共通）"
+  },
+  "homeOpenSettings": "設定を開く",
+  "@homeOpenSettings": {
+    "description": "ホーム右上の設定ボタンのVoiceOverラベル"
+  },
+  "searchClearInput": "入力を消去",
+  "@searchClearInput": {
+    "description": "検索フィールドのクリアボタンのVoiceOverラベル"
+  },
+  "searchRemoveFavorite": "お気に入りから削除",
+  "@searchRemoveFavorite": {
+    "description": "検索候補のお気に入り解除ボタンのVoiceOverラベル"
+  },
+  "resultAddFavorite": "お気に入りに追加",
+  "@resultAddFavorite": {
+    "description": "結果画面のお気に入り追加ボタンのVoiceOverラベル"
+  },
+  "resultRemoveFavorite": "お気に入りから削除",
+  "@resultRemoveFavorite": {
+    "description": "結果画面のお気に入り解除ボタンのVoiceOverラベル"
+  }
 }

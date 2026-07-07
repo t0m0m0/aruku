@@ -98,23 +98,30 @@ class ArukuButton extends StatelessWidget {
             ],
           );
 
-    return Material(
-      color: bg,
-      borderRadius: radius,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: radius,
-        child: Ink(
-          width: fullWidth ? double.infinity : null,
-          height: height,
-          decoration: BoxDecoration(
+    // ラベル文字・ボタン役割・タップ操作を 1 つのセマンティクスノードへ統合し、
+    // VoiceOver が「<ラベル>, ボタン」と一度だけ読み上げるようにする。
+    return MergeSemantics(
+      child: Semantics(
+        button: true,
+        child: Material(
+          color: bg,
+          borderRadius: radius,
+          child: InkWell(
+            onTap: onPressed,
             borderRadius: radius,
-            border: isFilled
-                ? null
-                : Border.all(color: borderColor ?? c.hairline),
-            boxShadow: shadow,
+            child: Ink(
+              width: fullWidth ? double.infinity : null,
+              height: height,
+              decoration: BoxDecoration(
+                borderRadius: radius,
+                border: isFilled
+                    ? null
+                    : Border.all(color: borderColor ?? c.hairline),
+                boxShadow: shadow,
+              ),
+              child: Center(child: content),
+            ),
           ),
-          child: Center(child: content),
         ),
       ),
     );

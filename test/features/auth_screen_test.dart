@@ -143,4 +143,27 @@ void main() {
     );
     expect(container.read(authProvider).value, isNull);
   });
+
+  testWidgets('戻る・テキストリンク・送信がVoiceOverで操作できる', (tester) async {
+    final handle = tester.ensureSemantics();
+    final container = makeContainer();
+    await container.read(authProvider.future);
+
+    await tester.pumpWidget(wrap(container));
+    await tester.pumpAndSettle();
+
+    // 戻る（アイコンのみ）はツールチップ経由でラベルを持つ。
+    expect(find.byTooltip('戻る'), findsOneWidget);
+
+    // テキストリンクとメインCTAはボタンとして公開される。
+    expect(
+      tester.getSemantics(find.text('ゲストとして続ける')),
+      containsSemantics(isButton: true),
+    );
+    expect(
+      tester.getSemantics(find.widgetWithText(InkWell, 'ログイン')),
+      containsSemantics(isButton: true, hasTapAction: true),
+    );
+    handle.dispose();
+  });
 }

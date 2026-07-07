@@ -975,6 +975,42 @@ abstract class AppLocalizations {
   /// In ja, this message translates to:
   /// **'キャンセル'**
   String get loadingCancelButton;
+
+  /// 戻るボタンのVoiceOverラベル（各画面ヘッダー共通）
+  ///
+  /// In ja, this message translates to:
+  /// **'戻る'**
+  String get commonBack;
+
+  /// ホーム右上の設定ボタンのVoiceOverラベル
+  ///
+  /// In ja, this message translates to:
+  /// **'設定を開く'**
+  String get homeOpenSettings;
+
+  /// 検索フィールドのクリアボタンのVoiceOverラベル
+  ///
+  /// In ja, this message translates to:
+  /// **'入力を消去'**
+  String get searchClearInput;
+
+  /// 検索候補のお気に入り解除ボタンのVoiceOverラベル
+  ///
+  /// In ja, this message translates to:
+  /// **'お気に入りから削除'**
+  String get searchRemoveFavorite;
+
+  /// 結果画面のお気に入り追加ボタンのVoiceOverラベル
+  ///
+  /// In ja, this message translates to:
+  /// **'お気に入りに追加'**
+  String get resultAddFavorite;
+
+  /// 結果画面のお気に入り解除ボタンのVoiceOverラベル
+  ///
+  /// In ja, this message translates to:
+  /// **'お気に入りから削除'**
+  String get resultRemoveFavorite;
 }
 
 class _AppLocalizationsDelegate
