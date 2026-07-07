@@ -44,4 +44,18 @@ void main() {
     final repo = await container.read(settingsRepositoryProvider.future);
     expect(repo.load().notificationsEnabled, isFalse);
   });
+
+  test('setWeeklyGoalKm で値が変わり永続化される', () async {
+    final container = await makeContainer();
+    addTearDown(container.dispose);
+    await container.read(settingsProvider.future);
+
+    await container.read(settingsProvider.notifier).setWeeklyGoalKm(20);
+
+    expect(container.read(settingsProvider).value!.weeklyGoalKm, 20);
+
+    // 永続化されている（リポジトリから読み直しても残る）。
+    final repo = await container.read(settingsRepositoryProvider.future);
+    expect(repo.load().weeklyGoalKm, 20);
+  });
 }
