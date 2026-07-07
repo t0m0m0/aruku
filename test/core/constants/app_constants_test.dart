@@ -8,7 +8,7 @@ void main() {
     });
 
     test('週間目標プリセットは昇順で既定値を含む', () {
-      final presets = AppConstants.weeklyGoalPresetsKm;
+      const presets = AppConstants.weeklyGoalPresetsKm;
       expect(presets, isNotEmpty);
       expect(presets, contains(AppConstants.weeklyGoalKm));
       final sorted = [...presets]..sort();
