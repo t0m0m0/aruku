@@ -9,6 +9,7 @@ class AppSettings {
   const AppSettings({
     this.notificationsEnabled = true,
     this.weeklyGoalKm = AppConstants.weeklyGoalKm,
+    this.healthKitEnabled = false,
   });
 
   /// 通知の許可フラグ。
@@ -17,23 +18,34 @@ class AppSettings {
   /// 週間ウォーキング目標距離（km）。常に正の値。
   final double weeklyGoalKm;
 
+  /// HealthKit（Apple ヘルスケア）連携の有効フラグ。オプトインのため既定はオフ。
+  /// オンのとき歩行セッションをワークアウトとして書き込む。
+  final bool healthKitEnabled;
+
   static const AppSettings defaults = AppSettings();
 
-  AppSettings copyWith({bool? notificationsEnabled, double? weeklyGoalKm}) {
+  AppSettings copyWith({
+    bool? notificationsEnabled,
+    double? weeklyGoalKm,
+    bool? healthKitEnabled,
+  }) {
     return AppSettings(
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
       weeklyGoalKm: weeklyGoalKm ?? this.weeklyGoalKm,
+      healthKitEnabled: healthKitEnabled ?? this.healthKitEnabled,
     );
   }
 
   Map<String, dynamic> toJson() => {
     'notificationsEnabled': notificationsEnabled,
     'weeklyGoalKm': weeklyGoalKm,
+    'healthKitEnabled': healthKitEnabled,
   };
 
   static AppSettings fromJson(Map<String, dynamic> json) {
     final notifications = json['notificationsEnabled'];
     final goal = json['weeklyGoalKm'];
+    final healthKit = json['healthKitEnabled'];
     return AppSettings(
       notificationsEnabled: notifications is bool
           ? notifications
@@ -42,6 +54,9 @@ class AppSettings {
       weeklyGoalKm: goal is num && goal > 0
           ? goal.toDouble()
           : defaults.weeklyGoalKm,
+      healthKitEnabled: healthKit is bool
+          ? healthKit
+          : defaults.healthKitEnabled,
     );
   }
 
@@ -50,8 +65,10 @@ class AppSettings {
       identical(this, other) ||
       other is AppSettings &&
           notificationsEnabled == other.notificationsEnabled &&
-          weeklyGoalKm == other.weeklyGoalKm;
+          weeklyGoalKm == other.weeklyGoalKm &&
+          healthKitEnabled == other.healthKitEnabled;
 
   @override
-  int get hashCode => Object.hash(notificationsEnabled, weeklyGoalKm);
+  int get hashCode =>
+      Object.hash(notificationsEnabled, weeklyGoalKm, healthKitEnabled);
 }
