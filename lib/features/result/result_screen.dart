@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/favorite_place.dart';
 import '../../core/models/route_plan.dart';
 import '../../core/models/time_value.dart';
+import '../../core/services/share_service.dart';
 import '../../core/state/app_state.dart';
 import '../../core/state/favorites_provider.dart';
 import '../../core/theme/aruku_theme.dart';
@@ -120,6 +121,24 @@ class ResultScreen extends ConsumerWidget {
                         ),
                       ),
                     ),
+                    _HeaderButton(
+                      key: const ValueKey('result-share-button'),
+                      semanticLabel: l10n.resultShareButton,
+                      child: Ic.share(size: 18, color: c.ink),
+                      onTap: () => unawaited(
+                        ref
+                            .read(shareServiceProvider)
+                            .shareText(
+                              text: l10n.resultShareText(
+                                route.from,
+                                route.to,
+                                route.walkKm.toStringAsFixed(1),
+                                route.kcal,
+                              ),
+                            ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     Builder(
                       builder: (context) {
                         final place = FavoritePlace(

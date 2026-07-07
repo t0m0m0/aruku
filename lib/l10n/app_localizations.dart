@@ -646,6 +646,54 @@ abstract class AppLocalizations {
   /// **'電車'**
   String get resultTrainDefaultLabel;
 
+  /// No description provided for @resultShareButton.
+  ///
+  /// In ja, this message translates to:
+  /// **'ルートを共有'**
+  String get resultShareButton;
+
+  /// No description provided for @resultShareText.
+  ///
+  /// In ja, this message translates to:
+  /// **'{from} → {to} を歩くルート🚶\n徒歩{walkKm}km・{kcal}kcal\n#アルク #ウォーキング'**
+  String resultShareText(String from, String to, String walkKm, int kcal);
+
+  /// No description provided for @navFinishButton.
+  ///
+  /// In ja, this message translates to:
+  /// **'歩き終わった'**
+  String get navFinishButton;
+
+  /// No description provided for @completeTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'歩き切りました！'**
+  String get completeTitle;
+
+  /// No description provided for @completeShareButton.
+  ///
+  /// In ja, this message translates to:
+  /// **'記録をシェア'**
+  String get completeShareButton;
+
+  /// No description provided for @completeHomeButton.
+  ///
+  /// In ja, this message translates to:
+  /// **'ホームに戻る'**
+  String get completeHomeButton;
+
+  /// No description provided for @completeShareText.
+  ///
+  /// In ja, this message translates to:
+  /// **'{distanceKm}km 歩きました！（{kcal}kcal）\n#アルク #ウォーキング #おさんぽ'**
+  String completeShareText(String distanceKm, int kcal);
+
+  /// No description provided for @shareCardHashtags.
+  ///
+  /// In ja, this message translates to:
+  /// **'#アルク #ウォーキング'**
+  String get shareCardHashtags;
+
   /// No description provided for @navConfirmExitTitle.
   ///
   /// In ja, this message translates to:

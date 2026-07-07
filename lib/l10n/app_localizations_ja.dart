@@ -302,6 +302,34 @@ class AppLocalizationsJa extends AppLocalizations {
   String get resultTrainDefaultLabel => '電車';
 
   @override
+  String get resultShareButton => 'ルートを共有';
+
+  @override
+  String resultShareText(String from, String to, String walkKm, int kcal) {
+    return '$from → $to を歩くルート🚶\n徒歩${walkKm}km・${kcal}kcal\n#アルク #ウォーキング';
+  }
+
+  @override
+  String get navFinishButton => '歩き終わった';
+
+  @override
+  String get completeTitle => '歩き切りました！';
+
+  @override
+  String get completeShareButton => '記録をシェア';
+
+  @override
+  String get completeHomeButton => 'ホームに戻る';
+
+  @override
+  String completeShareText(String distanceKm, int kcal) {
+    return '${distanceKm}km 歩きました！（${kcal}kcal）\n#アルク #ウォーキング #おさんぽ';
+  }
+
+  @override
+  String get shareCardHashtags => '#アルク #ウォーキング';
+
+  @override
   String get navConfirmExitTitle => 'ナビを終了しますか？';
 
   @override

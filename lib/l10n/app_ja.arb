@@ -230,6 +230,34 @@
   "@resultWalkLabel": {},
   "resultTrainDefaultLabel": "電車",
   "@resultTrainDefaultLabel": {},
+  "resultShareButton": "ルートを共有",
+  "@resultShareButton": {},
+  "resultShareText": "{from} → {to} を歩くルート🚶\n徒歩{walkKm}km・{kcal}kcal\n#アルク #ウォーキング",
+  "@resultShareText": {
+    "placeholders": {
+      "from": { "type": "String" },
+      "to": { "type": "String" },
+      "walkKm": { "type": "String" },
+      "kcal": { "type": "int" }
+    }
+  },
+  "navFinishButton": "歩き終わった",
+  "@navFinishButton": {},
+  "completeTitle": "歩き切りました！",
+  "@completeTitle": {},
+  "completeShareButton": "記録をシェア",
+  "@completeShareButton": {},
+  "completeHomeButton": "ホームに戻る",
+  "@completeHomeButton": {},
+  "completeShareText": "{distanceKm}km 歩きました！（{kcal}kcal）\n#アルク #ウォーキング #おさんぽ",
+  "@completeShareText": {
+    "placeholders": {
+      "distanceKm": { "type": "String" },
+      "kcal": { "type": "int" }
+    }
+  },
+  "shareCardHashtags": "#アルク #ウォーキング",
+  "@shareCardHashtags": {},
 
   "navConfirmExitTitle": "ナビを終了しますか？",
   "@navConfirmExitTitle": {},
