@@ -356,5 +356,7 @@
     }
   },
   "loadingSearchingMessage": "歩ける道を、探しています",
-  "@loadingSearchingMessage": {}
+  "@loadingSearchingMessage": {},
+  "loadingCancelButton": "キャンセル",
+  "@loadingCancelButton": {}
 }

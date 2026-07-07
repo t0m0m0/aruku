@@ -160,4 +160,29 @@ void main() {
 
     service.completer.complete();
   });
+
+  testWidgets('キャンセルボタンをタップするとホームへ戻る', (tester) async {
+    final service = _GatedRouteService([RoutePhase.routing]);
+    final container = ProviderContainer(
+      overrides: [routeServiceProvider.overrideWithValue(service)],
+    );
+    addTearDown(container.dispose);
+    final notifier = container.read(appStateProvider.notifier);
+    unawaited(notifier.startSearch());
+
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+    expect(container.read(appStateProvider).screen, Screen.loading);
+
+    final label = AppLocalizations.of(
+      tester.element(find.byType(LoadingScreen)),
+    ).loadingCancelButton;
+    await tester.tap(find.text(label));
+    await tester.pump();
+
+    expect(container.read(appStateProvider).screen, Screen.home);
+    expect(container.read(appStateProvider).routePhase, isNull);
+
+    service.completer.complete();
+  });
 }
