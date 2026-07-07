@@ -167,6 +167,11 @@ RoutePlan buildRoutePlan({
   required int budgetMin,
   DateTime? departureAt,
 }) {
+  // 距離・所要ともに実質ゼロの徒歩レッグ（同駅乗換など #225）はノイズなので除外する。
+  // segments と timelineNodes の 1:1 対応を保つため、ノード生成前にここで落とす。全データ源が
+  // 通る共有関数なので、parser 側で漏れても表示前に確実に取り除く保険になる。
+  segments = segments.where((s) => !s.isZeroWalk).toList();
+
   final totalKm = segments.fold<double>(0, (a, s) => a + (s.km ?? 0));
   final walkKm = segments
       .where((s) => s.type == SegmentType.walk)

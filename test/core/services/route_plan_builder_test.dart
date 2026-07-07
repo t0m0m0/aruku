@@ -109,6 +109,60 @@ void main() {
       expect(plan.timelineNodes[3].sub, '2号線');
     });
 
+    test('0km・0分の徒歩レッグは除外し直結乗換にする（#225 保険）', () {
+      // 同駅乗換で挿入され得る 0km・0分の徒歩レッグは segments から落とし、
+      // timelineNodes と 1:1 対応を保ったまま直結乗換として描く。
+      final segments = [
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'S1',
+          toName: 'S2',
+          minutes: 15,
+          line: '1号線',
+          depTime: DateTime(2026, 5, 22, 9, 10),
+          arrTime: DateTime(2026, 5, 22, 9, 25),
+        ),
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: 'S2',
+          toName: 'S2',
+          minutes: 0,
+          km: 0,
+          kcal: 0,
+        ),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'S2',
+          toName: 'S3',
+          minutes: 20,
+          line: '2号線',
+          depTime: DateTime(2026, 5, 22, 9, 40),
+          arrTime: DateTime(2026, 5, 22, 10, 0),
+        ),
+      ];
+
+      final plan = buildRoutePlan(
+        from: 'S1',
+        to: 'S3',
+        segments: segments,
+        departure: const TimeValue(h: 9, m: 10),
+        budgetMin: 90,
+        departureAt: DateTime(2026, 5, 22, 9, 10),
+      );
+
+      // 0値 walk は segments から除外され電車2本のみ。
+      expect(plan.segments.map((s) => s.type), [
+        SegmentType.train,
+        SegmentType.train,
+      ]);
+      // ノード列は [S1出発, S2着(カード無し), S2発, S3到着]。
+      // S2 は「着（カード無し）」＋「発」の直結乗換2行になる。
+      expect(plan.timelineNodes[1].place, 'S2');
+      expect(plan.timelineNodes[1].cardBelow, isFalse);
+      expect(plan.timelineNodes[2].place, 'S2');
+      expect(plan.timelineNodes[2].sub, '2号線');
+    });
+
     test('待ち時間が無い電車ノードは路線名のみ表示する', () {
       final segments = [
         const RouteSegment(
