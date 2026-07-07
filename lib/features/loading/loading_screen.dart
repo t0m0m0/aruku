@@ -188,6 +188,26 @@ class _LoadingScreenState extends ConsumerState<LoadingScreen>
                 ),
                 const SizedBox(height: 32),
                 _ProgressBar(phaseIndex: phaseIndex),
+                const SizedBox(height: 24),
+                TextButton(
+                  onPressed: () =>
+                      ref.read(appStateProvider.notifier).cancelSearch(),
+                  style: TextButton.styleFrom(
+                    foregroundColor: c.ink3,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 10,
+                    ),
+                  ),
+                  child: Text(
+                    l10n.loadingCancelButton,
+                    style: jpStyle(
+                      size: 14,
+                      weight: FontWeight.w600,
+                      color: c.ink3,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),

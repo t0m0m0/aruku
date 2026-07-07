@@ -463,4 +463,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get loadingSearchingMessage => '歩ける道を、探しています';
+
+  @override
+  String get loadingCancelButton => 'キャンセル';
 }

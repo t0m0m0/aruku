@@ -253,6 +253,11 @@ class AppNotifier extends Notifier<AppState> {
   /// 直近で自動再検索を実行した時刻。クールダウン判定に使う。
   DateTime? _lastRerouteAt;
 
+  /// 検索の世代番号。[startSearch] のたびに繰り上げ、[cancelSearch] でも繰り上げる。
+  /// 進行中の `plan()` が完了・進捗通知した時点で開始時の世代と一致しなければ、
+  /// その結果はキャンセル済み（または後続検索に上書きされた stale）として捨てる。
+  int _searchGeneration = 0;
+
   @override
   AppState build() {
     ref.onDispose(() {
@@ -571,6 +576,12 @@ class AppNotifier extends Notifier<AppState> {
     // home→loading→result/error のみを扱い nav を経由しないため GPS 副作用は
     // 不要で、screen 変更は goRouterProvider の ref.listen が router へ伝搬する。
     // nav へ遷移する新経路をここに足す場合は syncScreen を通すこと。
+    //
+    // 世代番号を採番し、進捗通知・成否の反映前に一致を確認する。ローディング中に
+    // [cancelSearch]（または次の startSearch）が世代を進めていれば、この探索は
+    // 破棄済みなので結果を state へ書かない（キャンセル後に古い応答がホームから
+    // result へ引き戻すのを防ぐ・#221）。
+    final generation = ++_searchGeneration;
     state = state.copyWith(
       screen: Screen.loading,
       routeErrorKind: null,
@@ -592,8 +603,12 @@ class AppNotifier extends Notifier<AppState> {
             arrival: state.arrival,
             origin: origin,
             originName: state.departureNameForRoute,
-            onProgress: (phase) => state = state.copyWith(routePhase: phase),
+            onProgress: (phase) {
+              if (generation != _searchGeneration || _disposed) return;
+              state = state.copyWith(routePhase: phase);
+            },
           );
+      if (generation != _searchGeneration || _disposed) return;
       state = state.copyWith(
         screen: Screen.result,
         route: plan,
@@ -601,12 +616,31 @@ class AppNotifier extends Notifier<AppState> {
         routePhase: null,
       );
     } catch (e) {
+      if (generation != _searchGeneration || _disposed) return;
       state = state.copyWith(
         screen: Screen.error,
         routeErrorKind: classifyRouteError(e),
         routePhase: null,
       );
     }
+  }
+
+  /// ローディング中の探索をキャンセルしてホームへ戻す（#221）。世代番号を進めて
+  /// 進行中の `plan()` を無効化し、後から完了・進捗通知が来ても [startSearch] 側で
+  /// 破棄されるようにする。screen とローディングの表示前提データ（routePhase）を
+  /// 同一 copyWith で一括更新し、redirect ガードの不変条件を保つ。screen 変更は
+  /// [startSearch] と同様に ref.listen 経由で router へ伝搬する。
+  ///
+  /// 進行中の HTTP リクエスト自体は中断しない（`RouteService.plan` に中断手段は
+  /// 無い）。応答は世代不一致で捨てるだけなので、体感は即ホームへ戻る一方、通信は
+  /// 完了まで走り切る。
+  void cancelSearch() {
+    _searchGeneration++;
+    state = state.copyWith(
+      screen: Screen.home,
+      routePhase: null,
+      routeErrorKind: null,
+    );
   }
 }
 

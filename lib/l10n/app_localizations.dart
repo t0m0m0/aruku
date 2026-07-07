@@ -951,6 +951,12 @@ abstract class AppLocalizations {
   /// In ja, this message translates to:
   /// **'歩ける道を、探しています'**
   String get loadingSearchingMessage;
+
+  /// No description provided for @loadingCancelButton.
+  ///
+  /// In ja, this message translates to:
+  /// **'キャンセル'**
+  String get loadingCancelButton;
 }
 
 class _AppLocalizationsDelegate
