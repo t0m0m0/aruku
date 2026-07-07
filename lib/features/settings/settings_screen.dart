@@ -6,6 +6,7 @@ import '../../core/models/app_settings.dart';
 import '../../core/state/app_state.dart';
 import '../../core/state/settings_provider.dart';
 import '../../core/theme/aruku_theme.dart';
+import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_card.dart';
 
@@ -18,6 +19,7 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     final notifier = ref.read(appStateProvider.notifier);
     final settingsAsync = ref.watch(settingsProvider);
     final settings = settingsAsync.value ?? AppSettings.defaults;
@@ -51,7 +53,7 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    '設定',
+                    l10n.settingsTitle,
                     style: jpStyle(
                       size: 20,
                       weight: FontWeight.w800,
@@ -66,22 +68,22 @@ class SettingsScreen extends ConsumerWidget {
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
                 children: [
                   _SettingsSection(
-                    title: '通知',
+                    title: l10n.settingsNotificationsSection,
                     children: [
                       _SwitchRow(
-                        label: '通知を受け取る',
+                        label: l10n.settingsReceiveNotifications,
                         value: settings.notificationsEnabled,
                         onChanged: settingsNotifier.setNotifications,
                       ),
                     ],
                   ),
                   const SizedBox(height: 16),
-                  const _SettingsSection(
-                    title: '権限',
+                  _SettingsSection(
+                    title: l10n.settingsPermissionsSection,
                     children: [
                       _LinkRow(
-                        label: '位置情報・通知の権限',
-                        trailing: '端末設定を開く',
+                        label: l10n.settingsLocationNotificationPermission,
+                        trailing: l10n.settingsOpenDeviceSettings,
                         onTap: openAppSettings,
                       ),
                     ],

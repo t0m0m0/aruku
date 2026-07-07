@@ -8,6 +8,7 @@ import '../../core/constants/app_constants.dart';
 import '../../core/models/time_value.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
+import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
 import '../../shared/widgets/aruku_card.dart';
@@ -29,6 +30,7 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     final state = ref.watch(appStateProvider);
     final notifier = ref.read(appStateProvider.notifier);
     final destination = state.destination;
@@ -52,7 +54,7 @@ class HomeScreen extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          AppConstants.todayGreeting(),
+                          AppConstants.todayGreeting(l10n),
                           style: jpStyle(
                             size: 13,
                             weight: FontWeight.w600,
@@ -70,9 +72,9 @@ class HomeScreen extends ConsumerWidget {
                               letterSpacing: -0.01 * 26,
                             ),
                             children: [
-                              const TextSpan(text: '今日も、'),
+                              TextSpan(text: l10n.homeGreetingLead),
                               TextSpan(
-                                text: '歩こう。',
+                                text: l10n.homeGreetingHighlight,
                                 style: TextStyle(color: c.moss600),
                               ),
                             ],
@@ -123,7 +125,7 @@ class HomeScreen extends ConsumerWidget {
                         Ic.clock(size: 12, color: c.ink2),
                         const SizedBox(width: 5),
                         Text(
-                          '時間',
+                          l10n.homeTimeSectionLabel,
                           style: jpStyle(
                             size: 11,
                             weight: FontWeight.w800,
@@ -147,7 +149,7 @@ class HomeScreen extends ConsumerWidget {
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
-                              const TextSpan(text: ' 歩ける'),
+                              TextSpan(text: l10n.homeWalkableSuffix),
                             ],
                           ),
                         ),
@@ -162,7 +164,7 @@ class HomeScreen extends ConsumerWidget {
                           Expanded(
                             child: _TimeField(
                               key: const Key('time_field_depart'),
-                              label: '出発',
+                              label: l10n.homeDepartureLabel,
                               time: dep.format(),
                               date: dep.dateLabel(),
                               onTap: () =>
@@ -182,7 +184,7 @@ class HomeScreen extends ConsumerWidget {
                           Expanded(
                             child: _TimeField(
                               key: const Key('time_field_arrival'),
-                              label: '到着',
+                              label: l10n.homeArrivalLabel,
                               time: arr.format(),
                               date: arr.dateLabel(),
                               onTap: () =>

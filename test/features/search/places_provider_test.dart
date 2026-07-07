@@ -143,7 +143,7 @@ void main() {
 
         final state = container.read(placesProvider);
         expect(state.status, SearchStatus.error);
-        expect(state.errorMessage, isNotNull);
+        expect(state.errorStatus, 'REQUEST_DENIED');
       });
     });
 

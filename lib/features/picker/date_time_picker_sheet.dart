@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/time_value.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
+import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
 
 /// 日付＋時刻を1つのホイールで選ぶ Cupertino 風シートを開く。
@@ -131,6 +132,7 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     return Material(
       color: c.paper,
       borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
@@ -162,12 +164,12 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
                   children: {
                     PickerMode.depart: _segLabel(
                       'seg_depart',
-                      '出発',
+                      l10n.homeDepartureLabel,
                       _mode == PickerMode.depart,
                     ),
                     PickerMode.arrival: _segLabel(
                       'seg_arrival',
-                      '到着',
+                      l10n.homeArrivalLabel,
                       _mode == PickerMode.arrival,
                     ),
                   },
@@ -211,7 +213,7 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
                   Expanded(
                     child: _SheetButton(
                       key: const Key('picker_cancel'),
-                      label: 'キャンセル',
+                      label: l10n.pickerCancel,
                       filled: false,
                       onTap: () => Navigator.of(context).pop(),
                     ),
@@ -220,7 +222,7 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
                   Expanded(
                     child: _SheetButton(
                       key: const Key('picker_done'),
-                      label: '完了',
+                      label: l10n.pickerDone,
                       filled: true,
                       onTap: _confirm,
                     ),
@@ -274,7 +276,7 @@ class _NowButton extends StatelessWidget {
               Ic.clock(size: 13, color: c.moss700),
               const SizedBox(width: 6),
               Text(
-                '現在時刻',
+                AppLocalizations.of(context).pickerNow,
                 style: jpStyle(
                   size: 13,
                   weight: FontWeight.w800,

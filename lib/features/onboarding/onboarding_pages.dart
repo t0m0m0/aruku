@@ -58,6 +58,7 @@ class _CorePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     return _OnboardPage(
       eyebrow: FutureBuilder<PackageInfo>(
         future: _packageInfoFuture,
@@ -75,14 +76,14 @@ class _CorePage extends StatelessWidget {
         },
       ),
       title: [
-        const TextSpan(text: '電車はなるべく、\n'),
+        TextSpan(text: l10n.onboardCoreTitleLead),
         TextSpan(
-          text: '乗らない',
+          text: l10n.onboardCoreTitleHighlight,
           style: TextStyle(color: c.moss600),
         ),
         const TextSpan(text: '。'),
       ],
-      description: '時間内に着く範囲で、\nいちばん歩けるルートを案内します。',
+      description: l10n.onboardCoreDescription,
       visual: _StatsTeaser(),
     );
   }
@@ -94,22 +95,23 @@ class _HowToPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     return _OnboardPage(
       eyebrow: _Eyebrow('HOW IT WORKS', color: c.moss600),
       title: [
-        const TextSpan(text: '着く時間を、\n'),
+        TextSpan(text: l10n.onboardHowToTitleLead),
         TextSpan(
-          text: '指定するだけ',
+          text: l10n.onboardHowToTitleHighlight,
           style: TextStyle(color: c.moss600),
         ),
         const TextSpan(text: '。'),
       ],
-      description: 'あとはアプリが、間に合う範囲で\nいちばん歩けるルートを選びます。',
+      description: l10n.onboardHowToDescription,
       visual: _FeatureCard(
         icon: Ic.clock(size: 28, color: c.moss600),
         iconBg: c.moss50,
-        title: '到着時刻をセット',
-        subtitle: '出発／到着のどちらでも指定できます',
+        title: l10n.onboardHowToFeatureTitle,
+        subtitle: l10n.onboardHowToFeatureSubtitle,
       ),
     );
   }
@@ -121,22 +123,23 @@ class _RecordPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     return _OnboardPage(
       eyebrow: _Eyebrow('YOUR RECORD', color: c.moss600),
       title: [
-        const TextSpan(text: 'あなたの歩みを、\n'),
+        TextSpan(text: l10n.onboardRecordTitleLead),
         TextSpan(
-          text: '記録する',
+          text: l10n.onboardRecordTitleHighlight,
           style: TextStyle(color: c.moss600),
         ),
         const TextSpan(text: '。'),
       ],
-      description: '歩数・距離・消費カロリーを記録して、\n続けた歩みを可視化します。',
+      description: l10n.onboardRecordDescription,
       visual: _FeatureCard(
         icon: Ic.walk(size: 28, color: c.burnt),
         iconBg: c.burntSoft,
-        title: '毎日の歩みを記録',
-        subtitle: '歩数・距離・カロリーをまとめて確認',
+        title: l10n.onboardRecordFeatureTitle,
+        subtitle: l10n.onboardRecordFeatureSubtitle,
       ),
     );
   }

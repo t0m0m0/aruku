@@ -1,6 +1,8 @@
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/navigation/nav_engine.dart';
+import 'package:aruku/l10n/app_localizations.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 RoutePlan _route({
@@ -23,14 +25,20 @@ RoutePlan _route({
 );
 
 void main() {
-  group('NavManeuver.label', () {
+  group('maneuverLabel', () {
+    late AppLocalizations l10n;
+
+    setUpAll(() async {
+      l10n = await AppLocalizations.delegate.load(const Locale('ja'));
+    });
+
     test('日本語ラベルを返す', () {
-      expect(NavManeuver.straight.label, '直進');
-      expect(NavManeuver.left.label, '左折');
-      expect(NavManeuver.right.label, '右折');
-      expect(NavManeuver.slightLeft.label, '斜め左');
-      expect(NavManeuver.slightRight.label, '斜め右');
-      expect(NavManeuver.arrive.label, 'まもなく到着');
+      expect(maneuverLabel(l10n, NavManeuver.straight), '直進');
+      expect(maneuverLabel(l10n, NavManeuver.left), '左折');
+      expect(maneuverLabel(l10n, NavManeuver.right), '右折');
+      expect(maneuverLabel(l10n, NavManeuver.slightLeft), '斜め左');
+      expect(maneuverLabel(l10n, NavManeuver.slightRight), '斜め右');
+      expect(maneuverLabel(l10n, NavManeuver.arrive), 'まもなく到着');
     });
   });
 

@@ -17,6 +17,7 @@ class _DestinationCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     // 「出発」「目的地」ラベル共通スタイル（2箇所で同期させる）
     final labelStyle = jpStyle(
       size: 12,
@@ -79,7 +80,7 @@ class _DestinationCard extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('出発', style: labelStyle),
+                            Text(l10n.homeDepartureLabel, style: labelStyle),
                             const SizedBox(height: 2),
                             Text(
                               departure,
@@ -95,7 +96,7 @@ class _DestinationCard extends StatelessWidget {
                       // 現在地を再取得するコンパスボタン（HIG: 44px タップ領域）
                       _IconHit(
                         key: const Key('home-origin-compass'),
-                        label: '現在地を再取得',
+                        label: l10n.homeRefreshLocation,
                         onTap: onRefreshLocation,
                         child: Ic.compass(size: 20, color: c.ink2),
                       ),
@@ -115,10 +116,10 @@ class _DestinationCard extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('目的地', style: labelStyle),
+                            Text(l10n.homeDestinationLabel, style: labelStyle),
                             const SizedBox(height: 2),
                             Text(
-                              destination ?? 'どこへ歩く?',
+                              destination ?? l10n.homeDestinationPlaceholder,
                               style: jpStyle(
                                 size: 16,
                                 weight: destination != null
@@ -134,7 +135,7 @@ class _DestinationCard extends StatelessWidget {
                       // 領域＋ボタン意味付けで一貫させる。
                       _IconHit(
                         key: const Key('home-destination-search'),
-                        label: '目的地を検索',
+                        label: l10n.homeSearchDestination,
                         onTap: onTapDestination,
                         child: Container(
                           width: 36,
@@ -307,6 +308,7 @@ class _WeeklyGoalCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     const goal = AppConstants.weeklyGoalKm;
     final pct = goal <= 0 ? 0.0 : (weekKm / goal).clamp(0.0, 1.0);
 
@@ -352,7 +354,7 @@ class _WeeklyGoalCard extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  '今週の目標 ${_fmtKm(goal)}km',
+                  l10n.homeWeeklyGoal(_fmtKm(goal)),
                   style: jpStyle(
                     size: 13,
                     weight: FontWeight.w800,
@@ -417,6 +419,7 @@ class _TodayLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     final labelStyle = jpStyle(
       size: 13,
       weight: FontWeight.w600,
@@ -435,11 +438,11 @@ class _TodayLine extends StatelessWidget {
       runSpacing: 2,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        t('今日'),
+        t(l10n.homeToday),
         t(todayKm.toStringAsFixed(1), number: true),
         t('km ·'),
         t(_fmtInt(todaySteps), number: true),
-        t('歩 ·'),
+        t(l10n.homeStepsUnit),
         t('$todayKcal', number: true),
         t('kcal'),
         Row(
@@ -448,7 +451,7 @@ class _TodayLine extends StatelessWidget {
             Ic.fire(size: 12, color: c.burnt),
             const SizedBox(width: 3),
             Text(
-              '$streakDays日連続',
+              l10n.homeStreakDays(streakDays),
               style: jpStyle(size: 13, weight: FontWeight.w800, color: c.burnt),
             ),
           ],
@@ -506,8 +509,9 @@ class _SearchCTA extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     return ArukuButton(
-      label: hasDestination ? 'ルートを検索' : '目的地を選ぶ',
+      label: hasDestination ? l10n.homeSearchRoute : l10n.homeChooseDestination,
       onPressed: onPressed,
       icon: hasDestination
           ? Ic.routes(size: 20, color: c.ivory)

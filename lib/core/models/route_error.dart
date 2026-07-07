@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../../l10n/app_localizations.dart';
 import '../services/route_service.dart';
 
 /// ルート計算失敗の種別。UI の文言と復帰導線の出し分けに使う。
@@ -58,35 +59,36 @@ RouteErrorKind classifyRouteError(Object error) {
   return RouteErrorKind.unknown;
 }
 
-RouteErrorView routeErrorView(RouteErrorKind kind) => switch (kind) {
-  RouteErrorKind.network => const RouteErrorView(
-    kind: RouteErrorKind.network,
-    title: '通信に失敗しました',
-    description: '通信状況を確認してもう一度お試しください',
-    primaryRecovery: RouteRecovery.retry,
-  ),
-  RouteErrorKind.noResults => const RouteErrorView(
-    kind: RouteErrorKind.noResults,
-    title: 'ルートが見つかりませんでした',
-    description: '目的地や出発・到着時刻を変えてお試しください',
-    primaryRecovery: RouteRecovery.changeConditions,
-  ),
-  RouteErrorKind.noLocation => const RouteErrorView(
-    kind: RouteErrorKind.noLocation,
-    title: '現在地を取得できませんでした',
-    description: '位置情報を有効にしてもう一度お試しください',
-    primaryRecovery: RouteRecovery.retry,
-  ),
-  RouteErrorKind.noDestination => const RouteErrorView(
-    kind: RouteErrorKind.noDestination,
-    title: '目的地が選ばれていません',
-    description: '目的地を選んでもう一度検索してください',
-    primaryRecovery: RouteRecovery.changeConditions,
-  ),
-  RouteErrorKind.unknown => const RouteErrorView(
-    kind: RouteErrorKind.unknown,
-    title: 'ルートを取得できませんでした',
-    description: '時間をおいてもう一度お試しください',
-    primaryRecovery: RouteRecovery.retry,
-  ),
-};
+RouteErrorView routeErrorView(AppLocalizations l10n, RouteErrorKind kind) =>
+    switch (kind) {
+      RouteErrorKind.network => RouteErrorView(
+        kind: RouteErrorKind.network,
+        title: l10n.routeErrorNetworkTitle,
+        description: l10n.routeErrorNetworkDescription,
+        primaryRecovery: RouteRecovery.retry,
+      ),
+      RouteErrorKind.noResults => RouteErrorView(
+        kind: RouteErrorKind.noResults,
+        title: l10n.routeErrorNoResultsTitle,
+        description: l10n.routeErrorNoResultsDescription,
+        primaryRecovery: RouteRecovery.changeConditions,
+      ),
+      RouteErrorKind.noLocation => RouteErrorView(
+        kind: RouteErrorKind.noLocation,
+        title: l10n.routeErrorNoLocationTitle,
+        description: l10n.routeErrorNoLocationDescription,
+        primaryRecovery: RouteRecovery.retry,
+      ),
+      RouteErrorKind.noDestination => RouteErrorView(
+        kind: RouteErrorKind.noDestination,
+        title: l10n.routeErrorNoDestinationTitle,
+        description: l10n.routeErrorNoDestinationDescription,
+        primaryRecovery: RouteRecovery.changeConditions,
+      ),
+      RouteErrorKind.unknown => RouteErrorView(
+        kind: RouteErrorKind.unknown,
+        title: l10n.routeErrorUnknownTitle,
+        description: l10n.routeErrorUnknownDescription,
+        primaryRecovery: RouteRecovery.retry,
+      ),
+    };

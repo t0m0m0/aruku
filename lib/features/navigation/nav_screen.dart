@@ -11,6 +11,7 @@ import '../../core/models/route_plan.dart';
 import '../../core/navigation/nav_engine.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
+import '../../l10n/app_localizations.dart';
 import '../../shared/extensions/route_map_overlays.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
@@ -133,20 +134,21 @@ class _NavScreenState extends ConsumerState<NavScreen> {
   /// 「ナビを終了しますか？」確認ダイアログ。終了が選ばれた場合のみ true を返す。
   Future<bool> _confirmEndNav() async {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('ナビを終了しますか？'),
+        title: Text(l10n.navConfirmExitTitle),
         actions: [
           TextButton(
             key: const Key('nav-exit-cancel-button'),
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('キャンセル'),
+            child: Text(l10n.pickerCancel),
           ),
           TextButton(
             key: const Key('nav-exit-confirm-button'),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text('終了', style: TextStyle(color: c.danger)),
+            child: Text(l10n.navExit, style: TextStyle(color: c.danger)),
           ),
         ],
       ),
@@ -183,6 +185,7 @@ class _NavScreenState extends ConsumerState<NavScreen> {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     final state = ref.watch(appStateProvider);
     final route = state.route;
     final current = state.currentPosition;
@@ -286,7 +289,7 @@ class _NavScreenState extends ConsumerState<NavScreen> {
                             padding: const EdgeInsets.only(bottom: 12),
                             child: ArukuButton(
                               key: const Key('nav-recenter-button'),
-                              label: '現在地に戻る',
+                              label: l10n.navRecenterButton,
                               onPressed: _recenter,
                               icon: Ic.locate(size: 16, color: c.ivory),
                               iconGap: 8,
@@ -330,14 +333,14 @@ class _NavScreenState extends ConsumerState<NavScreen> {
                             key: const Key('nav-layer-chip'),
                             icon: Ic.layers(size: 20, color: c.ink2),
                             onTap: _toggleLayer,
-                            semanticLabel: '地図の種別を切り替える',
+                            semanticLabel: l10n.navToggleMapType,
                           ),
                           const SizedBox(height: 8),
                           _NavChip(
                             key: const Key('nav-compass-chip'),
                             icon: Ic.compass(size: 20, color: c.ink2),
                             onTap: _resetNorth,
-                            semanticLabel: '地図を北向きに戻す',
+                            semanticLabel: l10n.navResetNorth,
                           ),
                         ],
                       ),

@@ -1,3 +1,4 @@
+import '../../l10n/app_localizations.dart';
 import '../geo/geo_math.dart';
 import '../models/geo_point.dart';
 import '../models/route_plan.dart';
@@ -11,19 +12,22 @@ enum NavManeuver {
   right,
   arrive,
   board,
-  alight;
-
-  String get label => switch (this) {
-    NavManeuver.straight => '直進',
-    NavManeuver.slightLeft => '斜め左',
-    NavManeuver.slightRight => '斜め右',
-    NavManeuver.left => '左折',
-    NavManeuver.right => '右折',
-    NavManeuver.arrive => 'まもなく到着',
-    NavManeuver.board => '乗車',
-    NavManeuver.alight => '下車',
-  };
+  alight,
 }
+
+/// [maneuver] のローカライズ済みラベル。UI 層（BuildContext を持つ側）で
+/// AppLocalizations を解決してから呼び出す。
+String maneuverLabel(AppLocalizations l10n, NavManeuver maneuver) =>
+    switch (maneuver) {
+      NavManeuver.straight => l10n.navManeuverStraight,
+      NavManeuver.slightLeft => l10n.navManeuverSlightLeft,
+      NavManeuver.slightRight => l10n.navManeuverSlightRight,
+      NavManeuver.left => l10n.navManeuverLeft,
+      NavManeuver.right => l10n.navManeuverRight,
+      NavManeuver.arrive => l10n.navManeuverArrive,
+      NavManeuver.board => l10n.navManeuverBoardGeneric,
+      NavManeuver.alight => l10n.navManeuverAlightGeneric,
+    };
 
 /// 現在地から算出したナビ表示状態。
 class NavGuidance {

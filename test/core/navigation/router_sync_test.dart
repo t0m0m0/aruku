@@ -8,6 +8,7 @@ import 'package:aruku/core/services/location_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/features/settings/settings_screen.dart';
+import 'package:aruku/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +19,8 @@ import '../../e2e/support/e2e_helpers.dart';
 Widget routerApp(ProviderContainer container) => UncontrolledProviderScope(
   container: container,
   child: MaterialApp.router(
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
     theme: ArukuTheme.light(),
     routerConfig: container.read(goRouterProvider),
   ),

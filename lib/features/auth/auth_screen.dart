@@ -8,6 +8,7 @@ import '../../core/state/app_state.dart';
 import '../../core/state/auth_provider.dart';
 import '../../core/state/sync_provider.dart';
 import '../../core/theme/aruku_theme.dart';
+import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
 
@@ -50,7 +51,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     final email = _email.text.trim();
     final password = _password.text;
     if (email.isEmpty || password.isEmpty) {
-      setState(() => _error = 'メールアドレスとパスワードを入力してください。');
+      setState(
+        () => _error = AppLocalizations.of(context).authValidationEmptyFields,
+      );
       return;
     }
     await _run(() {
@@ -84,7 +87,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       ref.read(appStateProvider.notifier).go(Screen.settings);
     } on AuthException catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.message);
+      setState(
+        () => _error = authErrorMessage(AppLocalizations.of(context), e.kind),
+      );
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -93,6 +98,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     final isLogin = _mode == _Mode.login;
 
     return Material(
@@ -122,7 +128,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
                 children: [
                   Text(
-                    isLogin ? 'ログイン' : 'アカウント作成',
+                    isLogin ? l10n.authLoginTitle : l10n.authSignUpTitle,
                     style: jpStyle(
                       size: 28,
                       weight: FontWeight.w800,
@@ -131,7 +137,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    isLogin ? 'メールアドレスでログインします。' : 'メールアドレスで新しいアカウントを作成します。',
+                    isLogin ? l10n.authLoginSubtitle : l10n.authSignUpSubtitle,
                     style: jpStyle(
                       size: 13,
                       weight: FontWeight.w600,
@@ -141,13 +147,13 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   const SizedBox(height: 24),
                   _AuthField(
                     controller: _email,
-                    hint: 'メールアドレス',
+                    hint: l10n.authEmailHint,
                     keyboardType: TextInputType.emailAddress,
                   ),
                   const SizedBox(height: 12),
                   _AuthField(
                     controller: _password,
-                    hint: 'パスワード',
+                    hint: l10n.authPasswordHint,
                     obscure: true,
                   ),
                   if (_error != null) ...[
@@ -164,12 +170,16 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   ],
                   const SizedBox(height: 20),
                   ArukuButton(
-                    label: isLogin ? 'ログイン' : '登録する',
+                    label: isLogin
+                        ? l10n.authLoginTitle
+                        : l10n.authSignUpButton,
                     onPressed: _submit,
                   ),
                   const SizedBox(height: 12),
                   _TextLink(
-                    label: isLogin ? 'アカウントをお持ちでない方はこちら' : '既にアカウントをお持ちの方はこちら',
+                    label: isLogin
+                        ? l10n.authToggleToSignUp
+                        : l10n.authToggleToLogin,
                     onTap: _submitting ? null : _toggleMode,
                   ),
                   const SizedBox(height: 24),
@@ -179,7 +189,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         child: Text(
-                          'または',
+                          l10n.authOrDivider,
                           style: jpStyle(
                             size: 12,
                             weight: FontWeight.w600,
@@ -192,7 +202,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   ),
                   const SizedBox(height: 24),
                   _TextLink(
-                    label: 'ゲストとして続ける',
+                    label: l10n.authContinueAsGuest,
                     onTap: _submitting ? null : _continueAsGuest,
                   ),
                 ],

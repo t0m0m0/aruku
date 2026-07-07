@@ -110,6 +110,7 @@ class _StatsTeaser extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     return _Card(
       child: Row(
         children: [
@@ -123,7 +124,7 @@ class _StatsTeaser extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '最初の1週間で',
+                  l10n.onboardWeeklyKcalLead,
                   style: jpStyle(
                     size: 11,
                     weight: FontWeight.w600,
@@ -156,7 +157,7 @@ class _StatsTeaser extends StatelessWidget {
                     const SizedBox(width: 8),
                     Flexible(
                       child: Text(
-                        '通勤を歩くだけで',
+                        l10n.onboardWeeklyKcalTrailer,
                         style: jpStyle(
                           size: 12,
                           weight: FontWeight.w500,

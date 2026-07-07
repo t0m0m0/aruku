@@ -4,6 +4,7 @@ import 'package:aruku/core/navigation/nav_engine.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/features/navigation/nav_screen.dart';
+import 'package:aruku/l10n/app_localizations.dart';
 import 'package:aruku/shared/widgets/aruku_map.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -50,7 +51,12 @@ void main() {
 
   Widget wrap(_NavNotifier notifier) => ProviderScope(
     overrides: [appStateProvider.overrideWith(() => notifier)],
-    child: MaterialApp(theme: ArukuTheme.light(), home: const NavScreen()),
+    child: MaterialApp(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      theme: ArukuTheme.light(),
+      home: const NavScreen(),
+    ),
   );
 
   AppState navState() => AppState.initial.copyWith(

@@ -13,6 +13,7 @@ import '../../core/state/app_state.dart';
 import '../../core/state/favorites_provider.dart';
 import '../../core/state/recents_provider.dart';
 import '../../core/theme/aruku_theme.dart';
+import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
 import 'places_provider.dart';
 
@@ -145,7 +146,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
     final locationState = ref.read(appStateProvider).locationState;
     if (locationState case LocationAvailable(:final position)) {
-      notifier.setDestination('現在地', latLng: position);
+      notifier.setDestination(
+        AppLocalizations.of(context).searchCurrentLocationName,
+        latLng: position,
+      );
       notifier.go(Screen.home);
     }
   }
@@ -153,6 +157,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     final notifier = ref.read(appStateProvider.notifier);
     final searchState = ref.watch(placesProvider);
     // 「近くの店」モードは候補を現在地からの距離で昇順へ再ソートするため、現在地が
@@ -219,8 +224,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                                   vertical: 12,
                                 ),
                                 hintText: widget.mode == SearchMode.origin
-                                    ? '出発地を検索'
-                                    : '目的地を検索',
+                                    ? l10n.searchOriginHint
+                                    : l10n.searchDestinationHint,
                               ),
                             ),
                           ),
@@ -240,9 +245,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               ),
             ),
 
-            if (hasLocation) _buildModeToggle(c, searchState.nearby),
+            if (hasLocation) _buildModeToggle(c, l10n, searchState.nearby),
 
-            Expanded(child: _buildBody(c, searchState, notifier)),
+            Expanded(child: _buildBody(c, l10n, searchState, notifier)),
           ],
         ),
       ),
@@ -250,7 +255,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   // 「近くの店」モードのトグル。ON で候補を現在地からの距離昇順へ再ソートする。
-  Widget _buildModeToggle(ArukuColors c, bool nearby) {
+  Widget _buildModeToggle(ArukuColors c, AppLocalizations l10n, bool nearby) {
     return Align(
       alignment: Alignment.centerLeft,
       child: Padding(
@@ -272,7 +277,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 Ic.compass(size: 15, color: nearby ? c.paper : c.ink3),
                 const SizedBox(width: 6),
                 Text(
-                  '近くの店',
+                  l10n.searchNearbyToggle,
                   style: jpStyle(
                     size: 13,
                     weight: FontWeight.w700,
@@ -289,6 +294,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   Widget _buildBody(
     ArukuColors c,
+    AppLocalizations l10n,
     SearchState searchState,
     AppNotifier notifier,
   ) {
@@ -297,16 +303,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       return switch (searchState.status) {
         SearchStatus.idle => const SizedBox.shrink(),
         SearchStatus.loading => _buildLoading(c),
-        SearchStatus.error => _buildError(c, searchState.errorMessage),
+        SearchStatus.error => _buildError(c, l10n, searchState.errorStatus),
         SearchStatus.success =>
           searchState.suggestions.isEmpty
-              ? _buildEmpty(c)
-              : _buildSuggestions(c, searchState.suggestions),
+              ? _buildEmpty(c, l10n)
+              : _buildSuggestions(c, l10n, searchState.suggestions),
       };
     }
 
     // 空欄: 最近の検索（固定）
-    return _buildRecents(c, notifier);
+    return _buildRecents(c, l10n, notifier);
   }
 
   Widget _buildLoading(ArukuColors c) {
@@ -358,7 +364,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
-  Widget _buildError(ArukuColors c, String? message) {
+  Widget _buildError(ArukuColors c, AppLocalizations l10n, String? status) {
+    final message = status != null
+        ? l10n.searchErrorWithStatus(status)
+        : l10n.searchErrorGeneric;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -366,12 +375,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           Ic.search(size: 32, color: c.ink3),
           const SizedBox(height: 12),
           Text(
-            message ?? '検索できませんでした',
+            message,
             style: jpStyle(size: 14, weight: FontWeight.w600, color: c.ink3),
           ),
           const SizedBox(height: 6),
           Text(
-            '通信状況を確認してください',
+            l10n.searchNetworkHint,
             style: jpStyle(size: 12, weight: FontWeight.w500, color: c.ink3),
           ),
         ],
@@ -379,7 +388,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
-  Widget _buildEmpty(ArukuColors c) {
+  Widget _buildEmpty(ArukuColors c, AppLocalizations l10n) {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -387,12 +396,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           Ic.pin(size: 32, color: c.ink3),
           const SizedBox(height: 12),
           Text(
-            '候補が見つかりませんでした',
+            l10n.searchEmptyTitle,
             style: jpStyle(size: 14, weight: FontWeight.w600, color: c.ink3),
           ),
           const SizedBox(height: 6),
           Text(
-            '別のキーワードで試してください',
+            l10n.searchEmptyHint,
             style: jpStyle(size: 12, weight: FontWeight.w500, color: c.ink3),
           ),
         ],
@@ -400,10 +409,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
-  Widget _buildSuggestions(ArukuColors c, List<PlacePrediction> suggestions) {
+  Widget _buildSuggestions(
+    ArukuColors c,
+    AppLocalizations l10n,
+    List<PlacePrediction> suggestions,
+  ) {
     return Column(
       children: [
-        if (_pickFailed) _buildPickFailedBanner(c),
+        if (_pickFailed) _buildPickFailedBanner(c, l10n),
         Expanded(
           child: Stack(
             children: [
@@ -433,7 +446,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
-  Widget _buildPickFailedBanner(ArukuColors c) {
+  Widget _buildPickFailedBanner(ArukuColors c, AppLocalizations l10n) {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(22, 8, 22, 4),
@@ -444,14 +457,18 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       ),
       child: Text(
         widget.mode == SearchMode.origin
-            ? 'この出発地は位置情報を取得できませんでした。別の候補を選んでください'
-            : 'この目的地は位置情報を取得できませんでした。別の候補を選んでください',
+            ? l10n.searchPickFailedOrigin
+            : l10n.searchPickFailedDestination,
         style: jpStyle(size: 13, weight: FontWeight.w600, color: c.burnt),
       ),
     );
   }
 
-  Widget _buildRecents(ArukuColors c, AppNotifier notifier) {
+  Widget _buildRecents(
+    ArukuColors c,
+    AppLocalizations l10n,
+    AppNotifier notifier,
+  ) {
     final locationAvailable =
         ref.watch(appStateProvider.select((s) => s.locationState))
             is LocationAvailable;
@@ -501,7 +518,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   ),
                   const SizedBox(width: 14),
                   Text(
-                    '現在地を使う',
+                    l10n.searchUseCurrentLocation,
                     style: jpStyle(
                       size: 16,
                       weight: FontWeight.w600,
@@ -516,7 +533,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(22, 16, 22, 6),
             child: Text(
-              'お気に入り',
+              l10n.searchFavoritesSectionTitle,
               style: jpStyle(size: 12, weight: FontWeight.w700, color: c.ink3),
             ),
           ),
@@ -584,7 +601,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  widget.mode == SearchMode.origin ? '最近の出発地' : '最近の目的地',
+                  widget.mode == SearchMode.origin
+                      ? l10n.searchRecentOrigins
+                      : l10n.searchRecentDestinations,
                   style: jpStyle(
                     size: 12,
                     weight: FontWeight.w700,
@@ -594,7 +613,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 InkWell(
                   onTap: _clearRecents,
                   child: Text(
-                    '履歴を消去',
+                    l10n.searchClearHistory,
                     style: jpStyle(
                       size: 12,
                       weight: FontWeight.w600,

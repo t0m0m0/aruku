@@ -1,3 +1,5 @@
+import '../../l10n/app_localizations.dart';
+
 /// 認証処理で起こりうるエラーの種別。UI で日本語メッセージへ変換して表示する。
 enum AuthErrorKind {
   invalidEmail,
@@ -33,22 +35,25 @@ AuthErrorKind authErrorKindFromCode(String code) {
   }
 }
 
-/// 認証処理の失敗。UI 層は [message] をそのまま表示できる。
+/// 認証処理の失敗。UI 層は [authErrorMessage] でローカライズ済み文言を得る。
 class AuthException implements Exception {
   const AuthException(this.kind);
 
   final AuthErrorKind kind;
 
-  String get message => switch (kind) {
-    AuthErrorKind.invalidEmail => 'メールアドレスの形式が正しくありません。',
-    AuthErrorKind.emailInUse => 'このメールアドレスは既に登録されています。',
-    AuthErrorKind.weakPassword => 'パスワードは6文字以上で設定してください。',
-    AuthErrorKind.wrongCredentials => 'メールアドレスまたはパスワードが正しくありません。',
-    AuthErrorKind.network => 'ネットワークに接続できませんでした。通信環境をご確認ください。',
-    AuthErrorKind.tooManyRequests => '試行回数が多すぎます。しばらくしてからお試しください。',
-    AuthErrorKind.unknown => '認証に失敗しました。時間をおいて再度お試しください。',
-  };
-
   @override
   String toString() => 'AuthException($kind)';
 }
+
+/// [kind] に対応するローカライズ済みメッセージ。UI 層（BuildContext を持つ側）
+/// で [AppLocalizations] を解決してから呼び出す。
+String authErrorMessage(AppLocalizations l10n, AuthErrorKind kind) =>
+    switch (kind) {
+      AuthErrorKind.invalidEmail => l10n.authErrorInvalidEmail,
+      AuthErrorKind.emailInUse => l10n.authErrorEmailInUse,
+      AuthErrorKind.weakPassword => l10n.authErrorWeakPassword,
+      AuthErrorKind.wrongCredentials => l10n.authErrorWrongCredentials,
+      AuthErrorKind.network => l10n.authErrorNetwork,
+      AuthErrorKind.tooManyRequests => l10n.authErrorTooManyRequests,
+      AuthErrorKind.unknown => l10n.authErrorUnknown,
+    };
