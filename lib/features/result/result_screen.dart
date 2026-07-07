@@ -30,6 +30,14 @@ class ResultScreen extends ConsumerWidget {
     final favorites =
         ref.watch(favoritesProvider).value ?? const <FavoritePlace>[];
     final route = state.route;
+
+    // ヘッダーの FROM/TO や合計行など横幅固定の要素が無制限な文字拡大で
+    // あふれるため、nav 画面と同じく上限でクランプする。
+    final clampedTextScaler = MediaQuery.textScalerOf(
+      context,
+    ).clamp(maxScaleFactor: 1.3);
+    final mediaQuery = MediaQuery.of(context);
+
     if (route == null) {
       return Material(
         color: c.ivory,
@@ -76,106 +84,109 @@ class ResultScreen extends ConsumerWidget {
       );
     }
 
-    return Material(
-      color: c.ivory,
-      child: SafeArea(
-        child: Column(
-          children: [
-            // Mini header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
-              child: Row(
-                children: [
-                  _HeaderButton(
-                    semanticLabel: l10n.commonBack,
-                    child: Ic.chevron(
-                      size: 18,
-                      color: c.ink,
-                      dir: ChevronDir.left,
+    return MediaQuery(
+      data: mediaQuery.copyWith(textScaler: clampedTextScaler),
+      child: Material(
+        color: c.ivory,
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Mini header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+                child: Row(
+                  children: [
+                    _HeaderButton(
+                      semanticLabel: l10n.commonBack,
+                      child: Ic.chevron(
+                        size: 18,
+                        color: c.ink,
+                        dir: ChevronDir.left,
+                      ),
+                      onTap: () => notifier.go(Screen.home),
                     ),
-                    onTap: () => notifier.go(Screen.home),
-                  ),
-                  Expanded(
-                    child: Center(
-                      child: Text(
-                        l10n.resultDepartureLabel(
-                          state.departure.fullDateLabel(),
-                          state.departure.format(),
-                        ),
-                        style: jpStyle(
-                          size: 12,
-                          weight: FontWeight.w700,
-                          color: c.ink3,
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          l10n.resultDepartureLabel(
+                            state.departure.fullDateLabel(),
+                            state.departure.format(),
+                          ),
+                          style: jpStyle(
+                            size: 12,
+                            weight: FontWeight.w700,
+                            color: c.ink3,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  Builder(
-                    builder: (context) {
-                      final place = FavoritePlace(
-                        name: state.destination ?? route.to,
-                        latLng: state.destinationLatLng,
-                      );
-                      final isFav = favorites.any(
-                        (e) => e.dedupeKey == place.dedupeKey,
-                      );
-                      return _HeaderButton(
-                        key: const ValueKey('result-star-button'),
-                        semanticLabel: isFav
-                            ? l10n.resultRemoveFavorite
-                            : l10n.resultAddFavorite,
-                        child: Ic.star(
-                          size: 18,
-                          color: isFav ? c.moss600 : c.ink,
-                          filled: isFav,
-                        ),
-                        onTap: () => unawaited(
-                          ref.read(favoritesProvider.notifier).toggle(place),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-
-            if (route.totalMin > route.budgetMin)
-              _OverBudgetBanner(
-                overMin: route.totalMin - route.budgetMin,
-                onChange: () => notifier.go(Screen.home),
-              ),
-
-            // Journey card
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
-                child: ArukuCard(
-                  borderRadius: 24,
-                  shadow: const [
-                    BoxShadow(
-                      color: ArukuTokens.shadowCard,
-                      blurRadius: 28,
-                      offset: Offset(0, 12),
+                    Builder(
+                      builder: (context) {
+                        final place = FavoritePlace(
+                          name: state.destination ?? route.to,
+                          latLng: state.destinationLatLng,
+                        );
+                        final isFav = favorites.any(
+                          (e) => e.dedupeKey == place.dedupeKey,
+                        );
+                        return _HeaderButton(
+                          key: const ValueKey('result-star-button'),
+                          semanticLabel: isFav
+                              ? l10n.resultRemoveFavorite
+                              : l10n.resultAddFavorite,
+                          child: Ic.star(
+                            size: 18,
+                            color: isFav ? c.moss600 : c.ink,
+                            filled: isFav,
+                          ),
+                          onTap: () => unawaited(
+                            ref.read(favoritesProvider.notifier).toggle(place),
+                          ),
+                        );
+                      },
                     ),
                   ],
-                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
-                  child: Column(
-                    children: [
-                      _JourneyHeader(route: route),
-                      const SizedBox(height: 14),
-                      _TotalsStrip(route: route),
-                      const SizedBox(height: 12),
-                      _WalkRatioRow(route: route),
-                      const SizedBox(height: 14),
-                      Expanded(child: _Timeline(route: route)),
-                      const SizedBox(height: 8),
-                      _CtaRow(onNav: () => notifier.go(Screen.nav)),
+                ),
+              ),
+
+              if (route.totalMin > route.budgetMin)
+                _OverBudgetBanner(
+                  overMin: route.totalMin - route.budgetMin,
+                  onChange: () => notifier.go(Screen.home),
+                ),
+
+              // Journey card
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
+                  child: ArukuCard(
+                    borderRadius: 24,
+                    shadow: const [
+                      BoxShadow(
+                        color: ArukuTokens.shadowCard,
+                        blurRadius: 28,
+                        offset: Offset(0, 12),
+                      ),
                     ],
+                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+                    child: Column(
+                      children: [
+                        _JourneyHeader(route: route),
+                        const SizedBox(height: 14),
+                        _TotalsStrip(route: route),
+                        const SizedBox(height: 12),
+                        _WalkRatioRow(route: route),
+                        const SizedBox(height: 14),
+                        Expanded(child: _Timeline(route: route)),
+                        const SizedBox(height: 8),
+                        _CtaRow(onNav: () => notifier.go(Screen.nav)),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
