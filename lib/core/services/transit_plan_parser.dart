@@ -161,14 +161,14 @@ TransitOption? _parseOption(
         final arrSec = (leg['arrivalSecs'] as num?)?.toInt();
         final secs = (depSec != null && arrSec != null) ? arrSec - depSec : 0;
         final coords = _transferWalkCoords(mapSegs, leg);
-        segments.add(
-          _walkSeg(
-            _nameOf(leg['from']) ?? '',
-            _nameOf(leg['to']) ?? '',
-            secs,
-            coords,
-          ),
+        final seg = _walkSeg(
+          _nameOf(leg['from']) ?? '',
+          _nameOf(leg['to']) ?? '',
+          secs,
+          coords,
         );
+        // 同駅乗換など距離・所要ともに実質ゼロの徒歩レッグはノイズなので生成しない（#225）。
+        if (!seg.isZeroWalk) segments.add(seg);
     }
   }
 
