@@ -268,7 +268,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         child: MergeSemantics(
           child: Semantics(
             button: true,
-            selected: nearby,
+            // 近くの店フィルタは単独のON/OFFトグルのため、択一選択の
+            // goalChip(selected)ではなくSwitch同様のtoggledで状態を伝える。
+            toggled: nearby,
             child: InkWell(
               key: const ValueKey('nearby-toggle'),
               onTap: () => ref.read(placesProvider.notifier).setNearby(!nearby),

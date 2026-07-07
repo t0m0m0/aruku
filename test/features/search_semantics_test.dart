@@ -8,6 +8,7 @@ import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/places_service.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
+import 'package:aruku/features/search/places_provider.dart';
 import 'package:aruku/features/search/search_screen.dart';
 import 'package:aruku/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -91,6 +92,45 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.bySemanticsLabel('入力を消去'), findsOneWidget);
+    handle.dispose();
+  });
+
+  testWidgets('近くの店トグルはトグル状態（ON/OFF）をVoiceOverに公開する', (tester) async {
+    final handle = tester.ensureSemantics();
+    final container = await _container();
+    // 現在地があるときだけトグルが出るため、直接オーバーライドで供給する。
+    final located = ProviderContainer(
+      parent: container,
+      overrides: [
+        currentLocationProvider.overrideWithValue(
+          const GeoPoint(35.68, 139.76),
+        ),
+      ],
+    );
+    addTearDown(located.dispose);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_wrap(located, const SearchScreen()));
+    await tester.pumpAndSettle();
+
+    // 初期は OFF（未トグル）。
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('nearby-toggle'))),
+      containsSemantics(
+        isButton: true,
+        hasToggledState: true,
+        isToggled: false,
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('nearby-toggle')));
+    await tester.pumpAndSettle();
+
+    // タップ後は ON（トグル済み）。
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('nearby-toggle'))),
+      containsSemantics(isButton: true, hasToggledState: true, isToggled: true),
+    );
     handle.dispose();
   });
 }
