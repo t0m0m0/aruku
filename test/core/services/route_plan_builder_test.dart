@@ -163,6 +163,33 @@ void main() {
       expect(plan.timelineNodes[2].sub, '2号線');
     });
 
+    test('全区間が0値徒歩の退化入力でも出発・到着ノードは残す（#225）', () {
+      // from≈to の 0km・0分ルート等。フィルタ後 segments が空でも到着ノードを欠落
+      // させない。
+      final plan = buildRoutePlan(
+        from: 'A',
+        to: 'A',
+        segments: const [
+          RouteSegment(
+            type: SegmentType.walk,
+            fromName: 'A',
+            toName: 'A',
+            minutes: 0,
+            km: 0,
+            kcal: 0,
+          ),
+        ],
+        departure: const TimeValue(h: 9, m: 0),
+        budgetMin: 30,
+      );
+
+      expect(plan.segments, isEmpty);
+      expect(plan.timelineNodes.map((n) => n.place), ['A', 'A']);
+      expect(plan.timelineNodes.first.sub, '出発');
+      expect(plan.timelineNodes.last.sub, '到着 · 制限内 ✓');
+      expect(plan.totalMin, 0);
+    });
+
     test('待ち時間が無い電車ノードは路線名のみ表示する', () {
       final segments = [
         const RouteSegment(

@@ -186,6 +186,17 @@ RoutePlan buildRoutePlan({
   final nodes = <TimelineNode>[
     TimelineNode(time: formatClock(departure, 0), place: from, sub: '出発'),
   ];
+  // from≈to の 0値ルートが 0値徒歩の除外で全滅した退化ケースでは生成ループが
+  // 回らず到着ノードが欠落する。出発直後着として補い出発・到着の 2 ノードを残す。
+  if (segments.isEmpty) {
+    nodes.add(
+      TimelineNode(
+        time: formatClock(departure, 0),
+        place: to,
+        sub: 0 <= budgetMin ? '到着 · 制限内 ✓' : '到着',
+      ),
+    );
+  }
   // 出発からの経過分。電車区間では待ち時間を含めて進む（#65）。
   var cum = 0;
   for (var i = 0; i < segments.length; i++) {
