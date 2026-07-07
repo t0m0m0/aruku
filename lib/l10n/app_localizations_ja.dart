@@ -371,6 +371,14 @@ class AppLocalizationsJa extends AppLocalizations {
   String get navRemainingLabel => '残り';
 
   @override
+  String get navRemainingWalkLabel => '残り（徒歩）';
+
+  @override
+  String navRemainingTotalValue(String km) {
+    return '全行程 $km km';
+  }
+
+  @override
   String get navConsumedLabel => '消費';
 
   @override

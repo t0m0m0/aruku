@@ -294,6 +294,7 @@ class _StatsBar extends StatelessWidget {
     required this.totalKm,
     required this.progress,
     required this.remainingKm,
+    required this.remainingWalkKm,
     required this.arrivalTime,
     required this.consumedKcal,
     required this.onExit,
@@ -303,6 +304,9 @@ class _StatsBar extends StatelessWidget {
   final double totalKm;
   final double progress;
   final double remainingKm;
+
+  /// 残りの徒歩距離（km）。電車を含む経路では [remainingKm] より小さくなる。
+  final double remainingWalkKm;
   final String? arrivalTime;
   final int? consumedKcal;
   final VoidCallback onExit;
@@ -409,42 +413,9 @@ class _StatsBar extends StatelessWidget {
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.only(left: 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          l10n.navRemainingLabel,
-                          style: jpStyle(
-                            size: 10,
-                            weight: FontWeight.w700,
-                            color: c.ink3,
-                            letterSpacing: 0.06 * 10,
-                          ),
-                        ),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
-                          children: [
-                            Text(
-                              remainingKm.toStringAsFixed(1),
-                              style: numStyle(
-                                size: 28,
-                                weight: FontWeight.w500,
-                                color: c.ink,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'km',
-                              style: jpStyle(
-                                size: 12,
-                                weight: FontWeight.w700,
-                                color: c.ink2,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                    child: _RemainingColumn(
+                      remainingKm: remainingKm,
+                      remainingWalkKm: remainingWalkKm,
                     ),
                   ),
                 ),
@@ -514,6 +485,63 @@ class _StatsBar extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 下部バーの「残り」欄。電車区間を含むルートでは徒歩残りを主表示にし、
+/// 全行程残りを小さく併記する（歩行アプリの文脈で全行程距離が威圧的に
+/// 見える問題への対処）。徒歩のみ・電車消化後は従来どおり単一表示に戻す。
+class _RemainingColumn extends StatelessWidget {
+  const _RemainingColumn({
+    required this.remainingKm,
+    required this.remainingWalkKm,
+  });
+
+  final double remainingKm;
+  final double remainingWalkKm;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final l10n = AppLocalizations.of(context);
+    // 50m 以上の差があるときだけ「まだ歩き以外の残りがある」とみなし2段表示。
+    // 浮動小数の誤差や端数で不要に分割しないための閾値。
+    final showsSplit = remainingKm - remainingWalkKm > 0.05;
+    final primaryKm = showsSplit ? remainingWalkKm : remainingKm;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          showsSplit ? l10n.navRemainingWalkLabel : l10n.navRemainingLabel,
+          style: jpStyle(
+            size: 10,
+            weight: FontWeight.w700,
+            color: c.ink3,
+            letterSpacing: 0.06 * 10,
+          ),
+        ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(
+              primaryKm.toStringAsFixed(1),
+              style: numStyle(size: 28, weight: FontWeight.w500, color: c.ink),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'km',
+              style: jpStyle(size: 12, weight: FontWeight.w700, color: c.ink2),
+            ),
+          ],
+        ),
+        if (showsSplit)
+          Text(
+            l10n.navRemainingTotalValue(remainingKm.toStringAsFixed(1)),
+            style: jpStyle(size: 10, weight: FontWeight.w700, color: c.ink3),
+          ),
+      ],
     );
   }
 }
