@@ -6,6 +6,7 @@ import '../../features/auth/auth_screen.dart';
 import '../../features/error/error_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/loading/loading_screen.dart';
+import '../../features/navigation/complete_screen.dart';
 import '../../features/navigation/nav_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/result/result_screen.dart';
@@ -74,6 +75,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         state.uri.path,
       )) {
         Screen.result || Screen.nav => app.route == null,
+        Screen.complete => app.walkSummary == null,
         Screen.loading => app.routePhase == null,
         Screen.error => app.routeErrorKind == null,
         _ => false,
@@ -128,6 +130,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: 'nav',
             pageBuilder: (context, state) => _page(state, const NavScreen()),
+          ),
+          GoRoute(
+            path: 'complete',
+            pageBuilder: (context, state) =>
+                _page(state, const CompleteScreen()),
           ),
           GoRoute(
             path: 'error',

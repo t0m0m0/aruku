@@ -10,6 +10,7 @@ import '../models/location_state.dart';
 import '../models/route_error.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
+import '../models/walk_summary.dart';
 import '../navigation/nav_engine.dart';
 import '../services/activity_log_repository.dart';
 import '../services/activity_service.dart';
@@ -74,6 +75,7 @@ enum Screen {
   loading,
   result,
   nav,
+  complete,
   error,
 }
 
@@ -92,6 +94,7 @@ class AppState {
     this.currentPosition,
     this.routeErrorKind,
     this.routePhase,
+    this.walkSummary,
     this.streakDays = 0,
     this.weekKm = 0.0,
     this.todaySteps = 0,
@@ -115,6 +118,9 @@ class AppState {
   final LocationState locationState;
   final RouteErrorKind? routeErrorKind;
   final RoutePhase? routePhase;
+
+  /// 歩行完了時のシェア用サマリー。完了画面（[Screen.complete]）でのみ参照する。
+  final WalkSummary? walkSummary;
   final int streakDays;
   final double weekKm;
   final int todaySteps;
@@ -165,6 +171,7 @@ class AppState {
     LocationState? locationState,
     Object? routeErrorKind = _sentinel,
     Object? routePhase = _sentinel,
+    Object? walkSummary = _sentinel,
     int? streakDays,
     double? weekKm,
     int? todaySteps,
@@ -198,6 +205,9 @@ class AppState {
       routePhase: identical(routePhase, _sentinel)
           ? this.routePhase
           : routePhase as RoutePhase?,
+      walkSummary: identical(walkSummary, _sentinel)
+          ? this.walkSummary
+          : walkSummary as WalkSummary?,
       streakDays: streakDays ?? this.streakDays,
       weekKm: weekKm ?? this.weekKm,
       todaySteps: todaySteps ?? this.todaySteps,
@@ -412,6 +422,25 @@ class AppNotifier extends Notifier<AppState> {
   }
 
   void go(Screen s) => syncScreen(s);
+
+  /// 歩行完了サマリーを確定し、完了画面（[Screen.complete]）へ遷移する。
+  /// ナビ到着の自動検出、または「歩き終わった」の手動操作から呼ばれる。
+  void finishWalk({
+    required double distanceKm,
+    required int kcal,
+    required String from,
+    required String to,
+  }) {
+    state = state.copyWith(
+      walkSummary: WalkSummary(
+        distanceKm: distanceKm,
+        kcal: kcal,
+        from: from,
+        to: to,
+      ),
+    );
+    syncScreen(Screen.complete);
+  }
 
   /// screen を [s] に揃え、nav 出入りの GPS 追跡を開始/停止する。
   ///
