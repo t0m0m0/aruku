@@ -499,6 +499,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsOpenDeviceSettings => '端末設定を開く';
 
   @override
+  String get settingsHealthKitSection => 'ヘルスケア連携';
+
+  @override
+  String get settingsHealthKitEnable => 'ウォーキングを記録する';
+
+  @override
+  String get settingsHealthKitDescription =>
+      'オンにすると、歩行ナビの記録をヘルスケアにワークアウトとして保存します。';
+
+  @override
   String get errorRetry => '再試行';
 
   @override

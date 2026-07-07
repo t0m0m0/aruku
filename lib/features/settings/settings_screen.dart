@@ -74,10 +74,24 @@ class SettingsScreen extends ConsumerWidget {
                     title: l10n.settingsNotificationsSection,
                     children: [
                       _SwitchRow(
+                        switchKey: const Key('switch_notifications'),
                         label: l10n.settingsReceiveNotifications,
                         value: settings.notificationsEnabled,
                         onChanged: settingsNotifier.setNotifications,
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _SettingsSection(
+                    title: l10n.settingsHealthKitSection,
+                    children: [
+                      _SwitchRow(
+                        switchKey: const Key('switch_healthkit'),
+                        label: l10n.settingsHealthKitEnable,
+                        value: settings.healthKitEnabled,
+                        onChanged: settingsNotifier.setHealthKitEnabled,
+                      ),
+                      _SettingsNote(text: l10n.settingsHealthKitDescription),
                     ],
                   ),
                   const SizedBox(height: 16),

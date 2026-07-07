@@ -83,13 +83,41 @@ void main() {
     await tester.pumpWidget(_wrap(container, const SettingsScreen()));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(Switch));
+    await tester.tap(find.byKey(const Key('switch_notifications')));
     await tester.pumpAndSettle();
 
     expect(
       container.read(settingsProvider).value!.notificationsEnabled,
       isFalse,
     );
+  });
+
+  testWidgets('ヘルスケア連携セクションが表示される', (tester) async {
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('ヘルスケア連携'), findsOneWidget);
+    expect(find.text('ウォーキングを記録する'), findsOneWidget);
+    expect(find.byKey(const Key('switch_healthkit')), findsOneWidget);
+  });
+
+  testWidgets('ヘルスケア連携スイッチをオンにすると永続化される', (tester) async {
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('switch_healthkit')));
+    await tester.pumpAndSettle();
+
+    expect(container.read(settingsProvider).value!.healthKitEnabled, isTrue);
+
+    final repo = await container.read(settingsRepositoryProvider.future);
+    expect(repo.load().healthKitEnabled, isTrue);
   });
 
   testWidgets('週間目標セクションと既定選択が表示される', (tester) async {

@@ -1012,6 +1012,24 @@ abstract class AppLocalizations {
   /// **'端末設定を開く'**
   String get settingsOpenDeviceSettings;
 
+  /// No description provided for @settingsHealthKitSection.
+  ///
+  /// In ja, this message translates to:
+  /// **'ヘルスケア連携'**
+  String get settingsHealthKitSection;
+
+  /// No description provided for @settingsHealthKitEnable.
+  ///
+  /// In ja, this message translates to:
+  /// **'ウォーキングを記録する'**
+  String get settingsHealthKitEnable;
+
+  /// No description provided for @settingsHealthKitDescription.
+  ///
+  /// In ja, this message translates to:
+  /// **'オンにすると、歩行ナビの記録をヘルスケアにワークアウトとして保存します。'**
+  String get settingsHealthKitDescription;
+
   /// No description provided for @errorRetry.
   ///
   /// In ja, this message translates to:
