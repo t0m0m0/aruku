@@ -9,6 +9,7 @@ import '../../core/state/settings_provider.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
+import '../../shared/km_format.dart';
 import '../../shared/widgets/aruku_card.dart';
 
 part 'settings_widgets.dart';

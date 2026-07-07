@@ -357,7 +357,7 @@ class _WeeklyGoalCard extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  l10n.homeWeeklyGoal(_fmtKm(goal)),
+                  l10n.homeWeeklyGoal(formatDistanceKm(goal)),
                   style: jpStyle(
                     size: 13,
                     weight: FontWeight.w800,
@@ -548,7 +548,3 @@ String _fmtInt(int n) {
   }
   return buf.toString();
 }
-
-/// 週間目標距離を整形する（整数なら小数点を省く）。
-String _fmtKm(double km) =>
-    km == km.roundToDouble() ? km.toStringAsFixed(0) : km.toStringAsFixed(1);

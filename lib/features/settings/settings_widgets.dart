@@ -99,7 +99,7 @@ class _GoalPresetRow extends StatelessWidget {
               for (final km in AppConstants.weeklyGoalPresetsKm)
                 _GoalChip(
                   key: Key('goal_preset_${km.toStringAsFixed(0)}'),
-                  text: l10n.settingsWeeklyGoalValue(_fmtGoalKm(km)),
+                  text: l10n.settingsWeeklyGoalValue(formatDistanceKm(km)),
                   selected: km == selectedKm,
                   onTap: () => onSelected(km),
                 ),
@@ -148,10 +148,6 @@ class _GoalChip extends StatelessWidget {
     );
   }
 }
-
-/// 週間目標距離を整形する（整数なら小数点を省く）。
-String _fmtGoalKm(double km) =>
-    km == km.roundToDouble() ? km.toStringAsFixed(0) : km.toStringAsFixed(1);
 
 /// タップで外部（端末設定・将来のアカウント画面）へ誘導する行。
 /// [onTap] が null なら無効表示にする。
