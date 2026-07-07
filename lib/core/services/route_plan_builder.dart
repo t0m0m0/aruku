@@ -167,6 +167,11 @@ RoutePlan buildRoutePlan({
   required int budgetMin,
   DateTime? departureAt,
 }) {
+  // 距離・所要ともに実質ゼロの徒歩レッグ（同駅乗換など #225）はノイズなので除外する。
+  // segments と timelineNodes の 1:1 対応を保つため、ノード生成前にここで落とす。全データ源が
+  // 通る共有関数なので、parser 側で漏れても表示前に確実に取り除く保険になる。
+  segments = segments.where((s) => !s.isZeroWalk).toList();
+
   final totalKm = segments.fold<double>(0, (a, s) => a + (s.km ?? 0));
   final walkKm = segments
       .where((s) => s.type == SegmentType.walk)
@@ -181,6 +186,17 @@ RoutePlan buildRoutePlan({
   final nodes = <TimelineNode>[
     TimelineNode(time: formatClock(departure, 0), place: from, sub: '出発'),
   ];
+  // from≈to の 0値ルートが 0値徒歩の除外で全滅した退化ケースでは生成ループが
+  // 回らず到着ノードが欠落する。出発直後着として補い出発・到着の 2 ノードを残す。
+  if (segments.isEmpty) {
+    nodes.add(
+      TimelineNode(
+        time: formatClock(departure, 0),
+        place: to,
+        sub: 0 <= budgetMin ? '到着 · 制限内 ✓' : '到着',
+      ),
+    );
+  }
   // 出発からの経過分。電車区間では待ち時間を含めて進む（#65）。
   var cum = 0;
   for (var i = 0; i < segments.length; i++) {

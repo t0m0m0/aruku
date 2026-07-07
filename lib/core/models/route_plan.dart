@@ -39,6 +39,12 @@ class RouteSegment {
   /// この区間の到着（電車は降車）絶対時刻。設定条件は [depTime] と同じ。
   final DateTime? arrTime;
 
+  /// 表示上 0.0km・0分に丸まる徒歩区間か。同一駅乗換などで挿入される無意味な
+  /// レッグ（#225）の判定に使う。閾値 0.05km は `toStringAsFixed(1)` で "0.0km"
+  /// に丸まる上限。
+  bool get isZeroWalk =>
+      type == SegmentType.walk && minutes == 0 && (km ?? 0) < 0.05;
+
   RouteSegment copyWith({
     String? fromName,
     String? toName,

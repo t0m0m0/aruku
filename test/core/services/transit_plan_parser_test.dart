@@ -482,6 +482,86 @@ void main() {
       expect(o.corridors, isEmpty);
     });
 
+    test('同駅乗換の0km・0分の徒歩レッグは生成しない（#225）', () {
+      // 多摩川→多摩川の乗換：所要0秒・polyline は同一点で距離0。ノイズなので落とす。
+      final body = _guidance(
+        options: [
+          _option(
+            journey: _journey(
+              dep: 600,
+              arr: 2400,
+              dur: 1800,
+              legs: [
+                _railLeg(
+                  route: '東急東横線',
+                  fromId: 'ty:Shibuya',
+                  fromName: '渋谷',
+                  toId: 'ty:Tamagawa',
+                  toName: '多摩川',
+                  dep: 600,
+                  arr: 1200,
+                ),
+                _walkLeg(
+                  fromId: 'ty:Tamagawa',
+                  fromName: '多摩川',
+                  toId: 'tm:Tamagawa',
+                  toName: '多摩川',
+                  dep: 1200,
+                  arr: 1200,
+                ),
+                _railLeg(
+                  route: '東急多摩川線',
+                  fromId: 'tm:Tamagawa',
+                  fromName: '多摩川',
+                  toId: 'tm:Kamata',
+                  toName: '蒲田',
+                  dep: 1200,
+                  arr: 2400,
+                ),
+              ],
+            ),
+            segments: [
+              _mapTransit(
+                fromId: 'ty:Shibuya',
+                toId: 'ty:Tamagawa',
+                geom: 'stopOrder',
+                coords: [
+                  [35.6580, 139.7016],
+                  [35.5895, 139.6680],
+                ],
+              ),
+              _mapWalk(
+                fromId: 'ty:Tamagawa',
+                toId: 'tm:Tamagawa',
+                geom: 'osmWalk',
+                coords: [
+                  [35.5895, 139.6680],
+                ],
+              ),
+              _mapTransit(
+                fromId: 'tm:Tamagawa',
+                toId: 'tm:Kamata',
+                geom: 'stopOrder',
+                coords: [
+                  [35.5895, 139.6680],
+                  [35.5626, 139.7160],
+                ],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final o = parseGuidancePlan(body).single;
+      // 0km・0分の乗換徒歩は挟まず、電車2本のみ（直結乗換）。
+      expect(o.segments.map((s) => s.type), [
+        SegmentType.train,
+        SegmentType.train,
+      ]);
+      // コリドーは電車区間ぶん維持される。
+      expect(o.corridors, hasLength(2));
+    });
+
     test('options が無い・不正なら空リスト', () {
       expect(parseGuidancePlan(const {}), isEmpty);
       expect(parseGuidancePlan(const {'options': 'nope'}), isEmpty);
