@@ -113,4 +113,41 @@ void main() {
     expect(captured!.text, contains('#アルク'));
     expect(captured!.text, contains('5.1'));
   });
+
+  testWidgets('共有が失敗しても未捕捉例外にせず、エラーを通知する', (tester) async {
+    var called = false;
+    final throwingShare = ShareService(
+      invoker: (_) async {
+        called = true;
+        throw Exception('share failed');
+      },
+      tempDirProvider: () async =>
+          Directory.systemTemp.createTemp('complete_share_err'),
+    );
+
+    final container = ProviderContainer(
+      overrides: [
+        appStateProvider.overrideWith(() => _PresetNotifier(_completeState())),
+        shareServiceProvider.overrideWithValue(throwingShare),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.runAsync(() async {
+      await tester.pumpWidget(_wrap(container));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('complete-share-button')));
+      for (var i = 0; i < 20 && !called; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await tester.pump();
+      }
+    });
+    await tester.pump(); // SnackBar を描画
+
+    expect(called, isTrue);
+    // 共有失敗は catch され、未捕捉の非同期例外にならない。
+    expect(tester.takeException(), isNull);
+    expect(find.text('共有できませんでした。もう一度お試しください'), findsOneWidget);
+  });
 }

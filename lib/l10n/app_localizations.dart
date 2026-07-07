@@ -694,6 +694,12 @@ abstract class AppLocalizations {
   /// **'#アルク #ウォーキング'**
   String get shareCardHashtags;
 
+  /// No description provided for @shareErrorMessage.
+  ///
+  /// In ja, this message translates to:
+  /// **'共有できませんでした。もう一度お試しください'**
+  String get shareErrorMessage;
+
   /// No description provided for @navConfirmExitTitle.
   ///
   /// In ja, this message translates to:

@@ -330,6 +330,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get shareCardHashtags => '#アルク #ウォーキング';
 
   @override
+  String get shareErrorMessage => '共有できませんでした。もう一度お試しください';
+
+  @override
   String get navConfirmExitTitle => 'ナビを終了しますか？';
 
   @override

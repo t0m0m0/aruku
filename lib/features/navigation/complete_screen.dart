@@ -42,10 +42,15 @@ class _CompleteScreenState extends ConsumerState<CompleteScreen> {
     if (_sharing) return;
     setState(() => _sharing = true);
     final l10n = AppLocalizations.of(context);
+    final messenger = ScaffoldMessenger.of(context);
     final share = ref.read(shareServiceProvider);
     try {
       final bytes = await _captureCardPng();
-      if (bytes == null) return;
+      if (bytes == null) {
+        // RepaintBoundary 未取得などで画像化に失敗。無言で終わらせず通知する。
+        _showError(messenger, l10n);
+        return;
+      }
       await share.shareImagePng(
         bytes: bytes,
         text: l10n.completeShareText(
@@ -53,9 +58,17 @@ class _CompleteScreenState extends ConsumerState<CompleteScreen> {
           summary.kcal,
         ),
       );
+    } catch (_) {
+      // share_plus の PlatformException 等。unawaited 実行のため catch しないと
+      // 未捕捉の非同期例外になる。失敗はユーザーに軽く通知する。
+      _showError(messenger, l10n);
     } finally {
       if (mounted) setState(() => _sharing = false);
     }
+  }
+
+  void _showError(ScaffoldMessengerState messenger, AppLocalizations l10n) {
+    messenger.showSnackBar(SnackBar(content: Text(l10n.shareErrorMessage)));
   }
 
   @override
@@ -65,9 +78,10 @@ class _CompleteScreenState extends ConsumerState<CompleteScreen> {
     final summary = ref.watch(appStateProvider.select((s) => s.walkSummary));
     final notifier = ref.read(appStateProvider.notifier);
 
-    return Material(
-      color: c.ivory,
-      child: SafeArea(
+    // SnackBar（共有失敗通知）を表示できるよう Scaffold を土台にする。
+    return Scaffold(
+      backgroundColor: c.ivory,
+      body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
           child: Column(

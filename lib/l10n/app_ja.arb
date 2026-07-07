@@ -258,6 +258,8 @@
   },
   "shareCardHashtags": "#アルク #ウォーキング",
   "@shareCardHashtags": {},
+  "shareErrorMessage": "共有できませんでした。もう一度お試しください",
+  "@shareErrorMessage": {},
 
   "navConfirmExitTitle": "ナビを終了しますか？",
   "@navConfirmExitTitle": {},

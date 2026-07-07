@@ -94,4 +94,28 @@ void main() {
     expect(text, contains('150'));
     expect(text, contains('#アルク'));
   });
+
+  testWidgets('共有が失敗しても未捕捉例外にならない', (tester) async {
+    final throwingShare = ShareService(
+      invoker: (_) async => throw Exception('share failed'),
+    );
+
+    final container = ProviderContainer(
+      overrides: [
+        routeServiceProvider.overrideWithValue(_FixedRouteService(_plan)),
+        shareServiceProvider.overrideWithValue(throwingShare),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    container.read(appStateProvider.notifier).setDestination('渋谷駅');
+    await container.read(appStateProvider.notifier).startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('result-share-button')));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+  });
 }

@@ -19,6 +19,29 @@ import '../../shared/widgets/aruku_card.dart';
 part 'result_totals.dart';
 part 'result_timeline.dart';
 
+/// ルート概要テキストを共有する。share_plus が PlatformException 等を投げても
+/// `unawaited` 実行で未捕捉の非同期例外にならないよう握り、致命化させない。
+/// 結果画面には SnackBar 用の Scaffold が無く、OS の共有シートを主要な
+/// フィードバック面とするため、失敗は静かに無視する（クラッシュだけ防ぐ）。
+Future<void> _shareRoute(
+  ShareService share,
+  AppLocalizations l10n,
+  RoutePlan route,
+) async {
+  try {
+    await share.shareText(
+      text: l10n.resultShareText(
+        route.from,
+        route.to,
+        route.walkKm.toStringAsFixed(1),
+        route.kcal,
+      ),
+    );
+  } catch (_) {
+    // 共有失敗は非致命。詳細は上記コメント参照。
+  }
+}
+
 class ResultScreen extends ConsumerWidget {
   const ResultScreen({super.key});
 
@@ -126,16 +149,11 @@ class ResultScreen extends ConsumerWidget {
                       semanticLabel: l10n.resultShareButton,
                       child: Ic.share(size: 18, color: c.ink),
                       onTap: () => unawaited(
-                        ref
-                            .read(shareServiceProvider)
-                            .shareText(
-                              text: l10n.resultShareText(
-                                route.from,
-                                route.to,
-                                route.walkKm.toStringAsFixed(1),
-                                route.kcal,
-                              ),
-                            ),
+                        _shareRoute(
+                          ref.read(shareServiceProvider),
+                          l10n,
+                          route,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
