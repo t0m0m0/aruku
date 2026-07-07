@@ -119,28 +119,34 @@ class _ValueWithUnit extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.baseline,
-      textBaseline: TextBaseline.alphabetic,
-      children: [
-        Text(
-          value,
-          style: numStyle(
-            size: valueSize,
-            weight: FontWeight.w500,
-            color: valueColor ?? c.ink,
+    // 桁数の多い値（予算外ルートの kcal など）が Expanded 幅を超えると
+    // Row があふれるため、数字＋単位を一体で等比縮小して収める。
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Text(
+            value,
+            style: numStyle(
+              size: valueSize,
+              weight: FontWeight.w500,
+              color: valueColor ?? c.ink,
+            ),
           ),
-        ),
-        const SizedBox(width: 3),
-        Text(
-          unit,
-          style: jpStyle(
-            size: 11,
-            weight: FontWeight.w700,
-            color: unitColor ?? c.ink3,
+          const SizedBox(width: 3),
+          Text(
+            unit,
+            style: jpStyle(
+              size: 11,
+              weight: FontWeight.w700,
+              color: unitColor ?? c.ink3,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
