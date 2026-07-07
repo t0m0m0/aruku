@@ -7,9 +7,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/models/time_value.dart';
 import '../../core/state/app_state.dart';
+import '../../core/state/settings_provider.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
+import '../../shared/km_format.dart';
 import '../../shared/widgets/aruku_button.dart';
 import '../../shared/widgets/aruku_card.dart';
 import '../picker/date_time_picker_sheet.dart';
@@ -33,6 +35,9 @@ class HomeScreen extends ConsumerWidget {
     final l10n = AppLocalizations.of(context);
     final state = ref.watch(appStateProvider);
     final notifier = ref.read(appStateProvider.notifier);
+    final goalKm =
+        ref.watch(settingsProvider).value?.weeklyGoalKm ??
+        AppConstants.weeklyGoalKm;
     final destination = state.destination;
     final dep = state.departure;
     final arr = state.arrival;
@@ -205,6 +210,7 @@ class HomeScreen extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(_gutter, 0, _gutter, _sp6),
               child: _WeeklyGoalCard(
+                goalKm: goalKm,
                 weekKm: state.weekKm,
                 todayKm: state.todayKm,
                 todaySteps: state.todaySteps,

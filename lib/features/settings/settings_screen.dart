@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/models/app_settings.dart';
 import '../../core/state/app_state.dart';
 import '../../core/state/settings_provider.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
+import '../../shared/km_format.dart';
 import '../../shared/widgets/aruku_card.dart';
 
 part 'settings_widgets.dart';
@@ -74,6 +76,17 @@ class SettingsScreen extends ConsumerWidget {
                         label: l10n.settingsReceiveNotifications,
                         value: settings.notificationsEnabled,
                         onChanged: settingsNotifier.setNotifications,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _SettingsSection(
+                    title: l10n.settingsWeeklyGoalSection,
+                    children: [
+                      _GoalPresetRow(
+                        label: l10n.settingsWeeklyGoalLabel,
+                        selectedKm: settings.weeklyGoalKm,
+                        onSelected: settingsNotifier.setWeeklyGoalKm,
                       ),
                     ],
                   ),

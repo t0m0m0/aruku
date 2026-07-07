@@ -292,6 +292,7 @@ class _TimeField extends StatelessWidget {
 /// 旧「今日の統計バー」を置き換え、ストリークもここへ統合する。
 class _WeeklyGoalCard extends StatelessWidget {
   const _WeeklyGoalCard({
+    required this.goalKm,
     required this.weekKm,
     required this.todayKm,
     required this.todaySteps,
@@ -299,6 +300,8 @@ class _WeeklyGoalCard extends StatelessWidget {
     required this.streakDays,
   });
 
+  /// ユーザーが設定した週間目標距離（km）。
+  final double goalKm;
   final double weekKm;
   final double todayKm;
   final int todaySteps;
@@ -309,7 +312,7 @@ class _WeeklyGoalCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     final l10n = AppLocalizations.of(context);
-    const goal = AppConstants.weeklyGoalKm;
+    final goal = goalKm;
     final pct = goal <= 0 ? 0.0 : (weekKm / goal).clamp(0.0, 1.0);
 
     return ArukuCard(
@@ -354,7 +357,7 @@ class _WeeklyGoalCard extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  l10n.homeWeeklyGoal(_fmtKm(goal)),
+                  l10n.homeWeeklyGoal(formatDistanceKm(goal)),
                   style: jpStyle(
                     size: 13,
                     weight: FontWeight.w800,
@@ -545,7 +548,3 @@ String _fmtInt(int n) {
   }
   return buf.toString();
 }
-
-/// 週間目標距離を整形する（整数なら小数点を省く）。
-String _fmtKm(double km) =>
-    km == km.roundToDouble() ? km.toStringAsFixed(0) : km.toStringAsFixed(1);

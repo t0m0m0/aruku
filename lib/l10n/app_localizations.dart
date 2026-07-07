@@ -910,6 +910,24 @@ abstract class AppLocalizations {
   /// **'通知を受け取る'**
   String get settingsReceiveNotifications;
 
+  /// No description provided for @settingsWeeklyGoalSection.
+  ///
+  /// In ja, this message translates to:
+  /// **'週間目標'**
+  String get settingsWeeklyGoalSection;
+
+  /// No description provided for @settingsWeeklyGoalLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'1週間の目標距離'**
+  String get settingsWeeklyGoalLabel;
+
+  /// No description provided for @settingsWeeklyGoalValue.
+  ///
+  /// In ja, this message translates to:
+  /// **'{km}km'**
+  String settingsWeeklyGoalValue(String km);
+
   /// No description provided for @settingsPermissionsSection.
   ///
   /// In ja, this message translates to:

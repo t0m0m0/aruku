@@ -65,6 +65,90 @@ class _SwitchRow extends StatelessWidget {
   }
 }
 
+/// 週間目標をプリセットから選ぶ行。選択中のチップを強調し、
+/// タップで即座に [onSelected] を呼ぶ（永続化は呼び出し側で行う）。
+class _GoalPresetRow extends StatelessWidget {
+  const _GoalPresetRow({
+    required this.label,
+    required this.selectedKm,
+    required this.onSelected,
+  });
+
+  final String label;
+  final double selectedKm;
+  final ValueChanged<double> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final l10n = AppLocalizations.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: jpStyle(size: 15, weight: FontWeight.w600, color: c.ink),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final km in AppConstants.weeklyGoalPresetsKm)
+                _GoalChip(
+                  key: Key('goal_preset_${km.toStringAsFixed(0)}'),
+                  text: l10n.settingsWeeklyGoalValue(formatDistanceKm(km)),
+                  selected: km == selectedKm,
+                  onTap: () => onSelected(km),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// [_GoalPresetRow] 内の 1 つの選択肢チップ。
+class _GoalChip extends StatelessWidget {
+  const _GoalChip({
+    super.key,
+    required this.text,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String text;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Material(
+      color: selected ? c.moss500 : c.moss100,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          child: Text(
+            text,
+            style: numStyle(
+              size: 14,
+              weight: FontWeight.w700,
+              color: selected ? Colors.white : c.moss700,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// タップで外部（端末設定・将来のアカウント画面）へ誘導する行。
 /// [onTap] が null なら無効表示にする。
 class _LinkRow extends StatelessWidget {

@@ -5,8 +5,11 @@ class AppConstants {
 
   static const int weeklyKcalEstimate = 1840;
 
-  /// 週間ウォーキング目標距離（km）。
+  /// 週間ウォーキング目標距離（km）の既定値。
   static const double weeklyGoalKm = 10.0;
+
+  /// 設定画面で選べる週間目標のプリセット（km、昇順）。
+  static const List<double> weeklyGoalPresetsKm = [5.0, 10.0, 15.0, 20.0, 30.0];
 
   static String todayDateLabel(AppLocalizations l10n) {
     final now = DateTime.now();

@@ -333,6 +333,16 @@
   "@settingsNotificationsSection": {},
   "settingsReceiveNotifications": "通知を受け取る",
   "@settingsReceiveNotifications": {},
+  "settingsWeeklyGoalSection": "週間目標",
+  "@settingsWeeklyGoalSection": {},
+  "settingsWeeklyGoalLabel": "1週間の目標距離",
+  "@settingsWeeklyGoalLabel": {},
+  "settingsWeeklyGoalValue": "{km}km",
+  "@settingsWeeklyGoalValue": {
+    "placeholders": {
+      "km": { "type": "String" }
+    }
+  },
   "settingsPermissionsSection": "権限",
   "@settingsPermissionsSection": {},
   "settingsLocationNotificationPermission": "位置情報・通知の権限",

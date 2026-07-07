@@ -5,6 +5,7 @@ import 'package:aruku/core/services/activity_service.dart';
 import 'package:aruku/core/services/location_service.dart';
 import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/recents_repository.dart';
+import 'package:aruku/core/services/settings_repository.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/state/settings_provider.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
@@ -89,6 +90,64 @@ void main() {
       container.read(settingsProvider).value!.notificationsEnabled,
       isFalse,
     );
+  });
+
+  testWidgets('週間目標セクションと既定選択が表示される', (tester) async {
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('週間目標'), findsOneWidget);
+    // 既定 10km のプリセットが選択済み。
+    expect(find.byKey(const Key('goal_preset_10')), findsOneWidget);
+    expect(find.byKey(const Key('goal_preset_20')), findsOneWidget);
+  });
+
+  testWidgets('週間目標プリセットをタップすると保存される', (tester) async {
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('goal_preset_20')));
+    await tester.pumpAndSettle();
+
+    expect(container.read(settingsProvider).value!.weeklyGoalKm, 20);
+
+    final repo = await container.read(settingsRepositoryProvider.future);
+    expect(repo.load().weeklyGoalKm, 20);
+  });
+
+  testWidgets('選択中のプリセットだけが強調表示され、選択で切り替わる', (tester) async {
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    Color chipColor(String key) => tester
+        .widget<Material>(
+          find.descendant(
+            of: find.byKey(Key(key)),
+            matching: find.byType(Material),
+          ),
+        )
+        .color!;
+
+    // 既定 10km が選択色、20km は非選択色（両者は異なる）。
+    final selectedColor = chipColor('goal_preset_10');
+    final unselectedColor = chipColor('goal_preset_20');
+    expect(selectedColor, isNot(unselectedColor));
+
+    await tester.tap(find.byKey(const Key('goal_preset_20')));
+    await tester.pumpAndSettle();
+
+    // 選択が 20km へ移り、強調色が入れ替わる。
+    expect(chipColor('goal_preset_20'), selectedColor);
+    expect(chipColor('goal_preset_10'), unselectedColor);
   });
 
   testWidgets('ホームの設定ボタンで設定画面へ遷移する', (tester) async {
