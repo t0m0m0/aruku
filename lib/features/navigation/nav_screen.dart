@@ -313,6 +313,10 @@ class _NavScreenState extends ConsumerState<NavScreen> {
                             totalKm: totalKm,
                             progress: guidance?.progress ?? 0.0,
                             remainingKm: guidance?.remainingKm ?? totalKm,
+                            remainingWalkKm:
+                                guidance?.remainingWalkKm ??
+                                route?.walkKm ??
+                                totalKm,
                             arrivalTime: guidance != null
                                 ? _formatArrival(guidance.etaMinutesRemaining)
                                 : null,

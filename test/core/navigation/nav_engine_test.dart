@@ -406,6 +406,124 @@ void main() {
     });
   });
 
+  group('remainingWalkKm', () {
+    // 徒歩(東, A→S1)→電車(北, S1→S2)→徒歩(東, S2→B)。
+    final mixed = _route(
+      totalKm: 3.0,
+      walkKm: 2.0,
+      segments: const [
+        RouteSegment(
+          type: SegmentType.walk,
+          fromName: 'A',
+          toName: 'S1',
+          minutes: 10,
+          km: 1.0,
+          kcal: 50,
+          polyline: [GeoPoint(0, 0), GeoPoint(0, 0.01)],
+        ),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'S1',
+          toName: 'S2',
+          minutes: 5,
+          km: 1.0,
+          polyline: [GeoPoint(0, 0.01), GeoPoint(0.01, 0.01)],
+        ),
+        RouteSegment(
+          type: SegmentType.walk,
+          fromName: 'S2',
+          toName: 'B',
+          minutes: 10,
+          km: 1.0,
+          kcal: 50,
+          polyline: [GeoPoint(0.01, 0.01), GeoPoint(0.01, 0.02)],
+        ),
+      ],
+    );
+
+    test('徒歩のみ経路では徒歩残りと全行程残りが一致する', () {
+      final walkOnly = _route(
+        totalKm: 1.1,
+        walkKm: 1.1,
+        segments: const [
+          RouteSegment(
+            type: SegmentType.walk,
+            fromName: 'A',
+            toName: 'B',
+            minutes: 20,
+            km: 1.1,
+            kcal: 60,
+            polyline: [GeoPoint(0, 0), GeoPoint(0, 0.01)],
+          ),
+        ],
+      );
+      final g = computeGuidance(
+        route: walkOnly,
+        current: const GeoPoint(0, 0.003),
+      );
+      expect(g.remainingWalkKm, closeTo(g.remainingKm, 0.0001));
+    });
+
+    test('電車を含む経路では徒歩残りは全行程残りより小さい（電車分を含まない）', () {
+      final g = computeGuidance(route: mixed, current: const GeoPoint(0, 0));
+      expect(g.remainingWalkKm, greaterThan(0));
+      expect(g.remainingWalkKm, lessThan(g.remainingKm));
+    });
+
+    test('徒歩区間を前進すると徒歩残りが減る', () {
+      final near = computeGuidance(
+        route: mixed,
+        current: const GeoPoint(0, 0.001),
+      );
+      final far = computeGuidance(
+        route: mixed,
+        current: const GeoPoint(0, 0.009),
+      );
+      expect(far.remainingWalkKm, lessThan(near.remainingWalkKm));
+    });
+
+    test('電車乗車中は残り徒歩区間のみを計上する', () {
+      final atStart = computeGuidance(
+        route: mixed,
+        current: const GeoPoint(0, 0),
+      );
+      // 第1徒歩区間を歩き切り電車に乗った地点。徒歩残りは第2徒歩区間のみ。
+      final onTrain = computeGuidance(
+        route: mixed,
+        current: const GeoPoint(0.005, 0.01),
+      );
+      expect(onTrain.remainingWalkKm, lessThan(atStart.remainingWalkKm));
+      // 第2徒歩区間の実測距離（約1.1km）にほぼ等しい。
+      expect(onTrain.remainingWalkKm, closeTo(1.1, 0.2));
+    });
+
+    test('到着地点では徒歩残りがほぼ0になる', () {
+      final g = computeGuidance(
+        route: mixed,
+        current: const GeoPoint(0.01, 0.02),
+      );
+      expect(g.remainingWalkKm, closeTo(0, 0.01));
+    });
+
+    test('ポリラインが空でも徒歩残りはroute.walkKmにフォールバックする', () {
+      final empty = _route(
+        walkKm: 1.5,
+        segments: const [
+          RouteSegment(
+            type: SegmentType.walk,
+            fromName: 'A',
+            toName: 'B',
+            minutes: 20,
+            km: 1.0,
+            kcal: 50,
+          ),
+        ],
+      );
+      final g = computeGuidance(route: empty, current: const GeoPoint(0, 0));
+      expect(g.remainingWalkKm, 1.5);
+    });
+  });
+
   group('offRouteMeters', () {
     final straight = _route(
       segments: const [

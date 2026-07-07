@@ -772,6 +772,18 @@ abstract class AppLocalizations {
   /// **'残り'**
   String get navRemainingLabel;
 
+  /// No description provided for @navRemainingWalkLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'残り（徒歩）'**
+  String get navRemainingWalkLabel;
+
+  /// No description provided for @navRemainingTotalValue.
+  ///
+  /// In ja, this message translates to:
+  /// **'全行程 {km} km'**
+  String navRemainingTotalValue(String km);
+
   /// No description provided for @navConsumedLabel.
   ///
   /// In ja, this message translates to:

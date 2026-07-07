@@ -36,6 +36,7 @@ class NavGuidance {
     required this.totalKm,
     required this.traveledKm,
     required this.remainingKm,
+    required this.remainingWalkKm,
     required this.distanceToNextTurnM,
     required this.currentManeuver,
     required this.nextManeuver,
@@ -58,6 +59,11 @@ class NavGuidance {
   final double totalKm;
   final double traveledKm;
   final double remainingKm;
+
+  /// 残りの徒歩距離（km）。[remainingKm] は電車区間を含む全行程の残りだが、
+  /// 歩行アプリの文脈では「あと何km歩くか」が重要なため、未走破の徒歩区間
+  /// のみを合算した値を別に持つ。徒歩のみ経路では [remainingKm] と一致する。
+  final double remainingWalkKm;
 
   /// 次の曲がり地点までの距離（メートル）。
   final int distanceToNextTurnM;
@@ -149,6 +155,7 @@ NavGuidance computeGuidance({
       totalKm: route.totalKm,
       traveledKm: 0,
       remainingKm: route.totalKm,
+      remainingWalkKm: route.walkKm,
       distanceToNextTurnM: 0,
       currentManeuver: NavManeuver.arrive,
       nextManeuver: null,
@@ -199,6 +206,7 @@ NavGuidance computeGuidance({
   final consumedKcal = totalWalk == 0
       ? 0
       : (route.kcal * (traveledWalk / totalWalk)).round();
+  final remainingWalk = (totalWalk - traveledWalk).clamp(0.0, totalWalk);
 
   final elapsedMin = _elapsedMinutes(
     route: route,
@@ -231,6 +239,7 @@ NavGuidance computeGuidance({
     totalKm: totalLen / 1000,
     traveledKm: s / 1000,
     remainingKm: remaining / 1000,
+    remainingWalkKm: remainingWalk / 1000,
     distanceToNextTurnM: (currentEvent.distanceAlong - s)
         .clamp(0, totalLen)
         .round(),

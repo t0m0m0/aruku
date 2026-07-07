@@ -285,6 +285,14 @@
   "@navRerouteFailed": {},
   "navRemainingLabel": "残り",
   "@navRemainingLabel": {},
+  "navRemainingWalkLabel": "残り（徒歩）",
+  "@navRemainingWalkLabel": {},
+  "navRemainingTotalValue": "全行程 {km} km",
+  "@navRemainingTotalValue": {
+    "placeholders": {
+      "km": { "type": "String" }
+    }
+  },
   "navConsumedLabel": "消費",
   "@navConsumedLabel": {},
   "navPendingFix": "取得中",

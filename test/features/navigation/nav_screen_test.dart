@@ -303,6 +303,37 @@ void main() {
     expect(find.byKey(const Key('nav-maneuver-icon-straight')), findsNothing);
   });
 
+  group('残り距離の徒歩／全行程表示', () {
+    testWidgets('電車を含む経路では「残り（徒歩）」と「全行程」の2段を表示する', (tester) async {
+      await tester.pumpWidget(wrap(_NavNotifier(navState())));
+      await tester.pump();
+
+      expect(find.text('残り（徒歩）'), findsOneWidget);
+      expect(find.textContaining('全行程'), findsOneWidget);
+      // 全行程が併記される以上、単一の「残り」ラベルは出さない。
+      expect(find.text('残り'), findsNothing);
+    });
+
+    testWidgets('徒歩のみ経路では単一の「残り」表示にとどめ全行程を併記しない', (tester) async {
+      const beforeTurn = GeoPoint(35.0, 139.001);
+      await tester.pumpWidget(
+        wrap(
+          _NavNotifier(
+            navState().copyWith(
+              route: leftTurnRoutePlan,
+              currentPosition: beforeTurn,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('残り'), findsOneWidget);
+      expect(find.text('残り（徒歩）'), findsNothing);
+      expect(find.textContaining('全行程'), findsNothing);
+    });
+  });
+
   group('地図の自動追従', () {
     testWidgets('初期状態では「現在地に戻る」ボタンを表示しない', (tester) async {
       await tester.pumpWidget(wrap(_NavNotifier(navState())));
