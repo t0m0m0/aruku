@@ -51,5 +51,9 @@
 	<string>出発地として現在地を使用します。</string>
 	<key>NSMotionUsageDescription</key>
 	<string>歩数・距離・消費カロリーの計測に使用します。</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>歩行ナビの記録をヘルスケアにワークアウトとして保存します。</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>ヘルスケア連携の状態確認に使用します。</string>
 </dict>
 </plist>

@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
@@ -8,6 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/config/app_config.dart';
 import 'core/navigation/app_router.dart';
+import 'core/services/health_service.dart';
+import 'core/services/healthkit_service.dart';
 import 'core/services/onboarding_repository.dart';
 import 'core/services/recents_repository.dart';
 import 'core/theme/aruku_theme.dart';
@@ -35,6 +39,10 @@ Future<void> main() async {
         onboardingCompletedProvider.overrideWithValue(
           OnboardingRepository(prefs).isCompleted(),
         ),
+        // HealthKit は iOS 専用。iOS でのみ実体を注入し、他プラットフォームは
+        // 既定の NoopHealthService（無害な no-op）のままにする。
+        if (Platform.isIOS)
+          healthServiceProvider.overrideWithValue(HealthKitService()),
       ],
       child: const ArukuApp(),
     ),
