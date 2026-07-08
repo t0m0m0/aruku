@@ -273,6 +273,11 @@ class AppNotifier extends Notifier<AppState> {
   /// そのセッションで歩いた歩数になる。
   int _sessionStartSteps = 0;
 
+  /// セッション開始時点で履歴ロードが完了していたか。未完了だと基準歩数が
+  /// 未確定（0）で始まり、退場時の差分が当日全歩数に膨れて過大計上になる。
+  /// その場合はワークアウトを書き込まない（健康データへの過大書き込みを防ぐ）。
+  bool _sessionBaselineValid = false;
+
   /// 検索の世代番号。[startSearch] のたびに繰り上げ、[cancelSearch] でも繰り上げる。
   /// 進行中の `plan()` が完了・進捗通知した時点で開始時の世代と一致しなければ、
   /// その結果はキャンセル済み（または後続検索に上書きされた stale）として捨てる。
@@ -473,6 +478,7 @@ class AppNotifier extends Notifier<AppState> {
     // 当日累計歩数からの差分でワークアウトを組み立てる。
     _sessionStart = DateTime.now();
     _sessionStartSteps = state.todaySteps;
+    _sessionBaselineValid = _historyLoaded;
     _posSub = ref
         .read(locationServiceProvider)
         .positionStream()
@@ -508,8 +514,12 @@ class AppNotifier extends Notifier<AppState> {
   /// 失敗してもナビ体験を妨げない（デバッグ時のみ原因をログに残す）。
   void _maybeWriteWorkout() {
     final start = _sessionStart;
+    final baselineValid = _sessionBaselineValid;
     _sessionStart = null;
+    _sessionBaselineValid = false;
     if (start == null) return;
+    // 基準歩数が未確定のまま始まったセッションは差分が過大になるため書き込まない。
+    if (!baselineValid) return;
     final sessionSteps = state.todaySteps - _sessionStartSteps;
     if (sessionSteps <= 0) return;
     final enabled = ref.read(settingsProvider).value?.healthKitEnabled ?? false;

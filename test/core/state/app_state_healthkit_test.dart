@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:aruku/core/models/activity_snapshot.dart';
+import 'package:aruku/core/models/daily_activity.dart';
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/location_state.dart';
+import 'package:aruku/core/services/activity_log_repository.dart';
 import 'package:aruku/core/services/activity_service.dart';
 import 'package:aruku/core/services/health_service.dart';
 import 'package:aruku/core/services/location_service.dart';
@@ -141,6 +143,55 @@ void main() {
     notifier.go(Screen.home);
     await settle();
 
+    expect(health.writeCount, 0);
+  });
+
+  test('履歴ロード完了前にナビ入場したセッションは書き込まない（過大計上を防ぐ）', () async {
+    // 起動時に今日 1000 歩が記録済みだが、履歴ロードを遅延させ、ロード完了前に
+    // nav 入場する状況を作る。基準歩数が未確定（=0）のまま退場すると、当日累計
+    // からの差分が「当日全歩数」に膨れてしまうため、そのセッションは書き込まない。
+    SharedPreferences.setMockInitialValues({
+      'settings.v1': jsonEncode({
+        'notificationsEnabled': true,
+        'weeklyGoalKm': 10.0,
+        'healthKitEnabled': true,
+      }),
+    });
+    final prefs = await SharedPreferences.getInstance();
+    final repo = ActivityLogRepository(prefs);
+    await repo.upsert(DailyActivity(date: DateTime.now(), steps: 1000));
+
+    final container = ProviderContainer(
+      overrides: [
+        activityServiceProvider.overrideWithValue(
+          _FakeActivityService(controller),
+        ),
+        locationServiceProvider.overrideWithValue(_FakeLocationService()),
+        healthServiceProvider.overrideWithValue(health),
+        activityLogRepositoryProvider.overrideWith((ref) async {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          return repo;
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(settingsProvider.future);
+
+    final notifier = container.read(appStateProvider.notifier);
+    // 購読は確立済み、履歴ロードはまだ遅延中のうちに nav 入場する。
+    await settle();
+    notifier.go(Screen.nav);
+    await settle();
+
+    // セッション歩数 500 が届く（ロード前なので pending に保持される）。
+    controller.add(ActivitySnapshot.fromSteps(500));
+    // 履歴ロードが完了し、基準 1000 に 500 が加算され当日累計 1500 になる。
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+
+    notifier.go(Screen.home);
+    await settle();
+
+    // 基準未確定のまま始まったセッションなので書き込まない（1500 の過大計上を防ぐ）。
     expect(health.writeCount, 0);
   });
 }
