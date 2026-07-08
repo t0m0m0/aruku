@@ -18,6 +18,9 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
   Future<void> setWeeklyGoalKm(double km) =>
       _update((s) => s.copyWith(weeklyGoalKm: km));
 
+  Future<void> setHealthKitEnabled(bool enabled) =>
+      _update((s) => s.copyWith(healthKitEnabled: enabled));
+
   /// 現在値に [change] を適用し、保存してから state を更新する。
   Future<void> _update(AppSettings Function(AppSettings) change) async {
     final repo = await ref.read(settingsRepositoryProvider.future);

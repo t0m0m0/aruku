@@ -15,10 +15,12 @@ import '../navigation/nav_engine.dart';
 import '../services/activity_log_repository.dart';
 import '../services/activity_service.dart';
 import '../services/activity_stats.dart';
+import '../services/health_service.dart';
 import '../services/location_service.dart';
 import '../services/onboarding_repository.dart';
 import '../services/route_plan_builder.dart' as planner;
 import '../services/route_service.dart';
+import 'settings_provider.dart';
 
 /// 経路からこの距離（m）を超えて外れたらオフルートとみなす。GPS のブレは無視する。
 const double kRerouteThresholdMeters = 50;
@@ -263,6 +265,19 @@ class AppNotifier extends Notifier<AppState> {
   /// 直近で自動再検索を実行した時刻。クールダウン判定に使う。
   DateTime? _lastRerouteAt;
 
+  /// 現在のナビ（歩行）セッションの開始時刻。nav 入場で確定し退場で null に戻す。
+  /// null のときはセッション外。ワークアウト書き込みの開始時刻に使う。
+  DateTime? _sessionStart;
+
+  /// ナビセッション開始時点の当日累計歩数。退場時の当日累計との差が
+  /// そのセッションで歩いた歩数になる。
+  int _sessionStartSteps = 0;
+
+  /// セッション開始時点で履歴ロードが完了していたか。未完了だと基準歩数が
+  /// 未確定（0）で始まり、退場時の差分が当日全歩数に膨れて過大計上になる。
+  /// その場合はワークアウトを書き込まない（健康データへの過大書き込みを防ぐ）。
+  bool _sessionBaselineValid = false;
+
   /// 検索の世代番号。[startSearch] のたびに繰り上げ、[cancelSearch] でも繰り上げる。
   /// 進行中の `plan()` が完了・進捗通知した時点で開始時の世代と一致しなければ、
   /// その結果はキャンセル済み（または後続検索に上書きされた stale）として捨てる。
@@ -459,6 +474,11 @@ class AppNotifier extends Notifier<AppState> {
 
   void _startTracking() {
     if (_posSub != null) return;
+    // ナビ（歩行）セッションの開始を記録する。退場時にこの時刻と、開始時点の
+    // 当日累計歩数からの差分でワークアウトを組み立てる。
+    _sessionStart = DateTime.now();
+    _sessionStartSteps = state.todaySteps;
+    _sessionBaselineValid = _historyLoaded;
     _posSub = ref
         .read(locationServiceProvider)
         .positionStream()
@@ -475,6 +495,7 @@ class AppNotifier extends Notifier<AppState> {
   }
 
   void _stopTracking() {
+    _maybeWriteWorkout();
     _posSub?.cancel();
     _posSub = null;
     _offRouteFixes = 0;
@@ -486,6 +507,42 @@ class AppNotifier extends Notifier<AppState> {
     // 持ち越したくない。実際の現在地を取り直して locationState を最新化する。
     state = state.copyWith(rerouteFailed: false);
     unawaited(_fetchLocation());
+  }
+
+  /// HealthKit 連携がオンなら、今セッションの歩行をワークアウトとして書き込む。
+  /// 歩数が増えていないセッションは書き込まない。書き込みはベストエフォートで、
+  /// 失敗してもナビ体験を妨げない（デバッグ時のみ原因をログに残す）。
+  void _maybeWriteWorkout() {
+    final start = _sessionStart;
+    final baselineValid = _sessionBaselineValid;
+    _sessionStart = null;
+    _sessionBaselineValid = false;
+    if (start == null) return;
+    // 基準歩数が未確定のまま始まったセッションは差分が過大になるため書き込まない。
+    if (!baselineValid) return;
+    final sessionSteps = state.todaySteps - _sessionStartSteps;
+    if (sessionSteps <= 0) return;
+    final enabled = ref.read(settingsProvider).value?.healthKitEnabled ?? false;
+    if (!enabled) return;
+    final snap = ActivitySnapshot.fromSteps(sessionSteps);
+    final workout = WalkingWorkout(
+      start: start,
+      end: DateTime.now(),
+      steps: sessionSteps,
+      km: snap.km,
+      kcal: snap.kcal,
+    );
+    unawaited(
+      ref.read(healthServiceProvider).writeWalkingWorkout(workout).catchError((
+        Object e,
+      ) {
+        assert(() {
+          debugPrint('healthkit workout write error: $e');
+          return true;
+        }());
+        return false;
+      }),
+    );
   }
 
   /// 現在地の更新を反映し、オフルートが継続していれば自動再検索を起動する。

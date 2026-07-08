@@ -3,10 +3,11 @@ import 'package:aruku/core/models/app_settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('defaults は通知オン・週間目標 10km', () {
+  test('defaults は通知オン・週間目標 10km・HealthKit連携オフ', () {
     const s = AppSettings.defaults;
     expect(s.notificationsEnabled, isTrue);
     expect(s.weeklyGoalKm, AppConstants.weeklyGoalKm);
+    expect(s.healthKitEnabled, isFalse);
   });
 
   test('copyWith は指定項目のみ差し替える', () {
@@ -21,11 +22,32 @@ void main() {
     );
     expect(s.copyWith(weeklyGoalKm: 20).weeklyGoalKm, 20);
     expect(s.copyWith(weeklyGoalKm: 20).notificationsEnabled, isTrue);
+    expect(s.copyWith(healthKitEnabled: true).healthKitEnabled, isTrue);
+    expect(s.copyWith(healthKitEnabled: true).notificationsEnabled, isTrue);
   });
 
   test('toJson / fromJson でラウンドトリップする', () {
-    const s = AppSettings(notificationsEnabled: false, weeklyGoalKm: 15);
+    const s = AppSettings(
+      notificationsEnabled: false,
+      weeklyGoalKm: 15,
+      healthKitEnabled: true,
+    );
     expect(AppSettings.fromJson(s.toJson()), s);
+  });
+
+  test('healthKitEnabled 欠損・非boolは false にフォールバック', () {
+    expect(AppSettings.fromJson(const {}).healthKitEnabled, isFalse);
+    expect(
+      AppSettings.fromJson(const {'healthKitEnabled': 'x'}).healthKitEnabled,
+      isFalse,
+    );
+  });
+
+  test('healthKitEnabled が違えば == で非等価', () {
+    expect(
+      const AppSettings(healthKitEnabled: true),
+      isNot(const AppSettings()),
+    );
   });
 
   test('欠損フィールドは defaults を採用する', () {

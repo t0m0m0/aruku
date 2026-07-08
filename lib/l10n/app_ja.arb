@@ -387,6 +387,12 @@
   "@settingsLocationNotificationPermission": {},
   "settingsOpenDeviceSettings": "端末設定を開く",
   "@settingsOpenDeviceSettings": {},
+  "settingsHealthKitSection": "ヘルスケア連携",
+  "@settingsHealthKitSection": {},
+  "settingsHealthKitEnable": "ウォーキングを記録する",
+  "@settingsHealthKitEnable": {},
+  "settingsHealthKitDescription": "オンにすると、歩行ナビの記録をヘルスケアにワークアウトとして保存します。",
+  "@settingsHealthKitDescription": {},
 
   "errorRetry": "再試行",
   "@errorRetry": {},

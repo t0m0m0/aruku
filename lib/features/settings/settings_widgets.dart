@@ -29,17 +29,38 @@ class _SettingsSection extends StatelessWidget {
   }
 }
 
+/// 設定項目の下に添える補足説明の一文。
+class _SettingsNote extends StatelessWidget {
+  const _SettingsNote({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 2, 0, 8),
+      child: Text(
+        text,
+        style: jpStyle(size: 12, weight: FontWeight.w500, color: c.ink3),
+      ),
+    );
+  }
+}
+
 /// オン/オフを切り替える行。
 class _SwitchRow extends StatelessWidget {
   const _SwitchRow({
     required this.label,
     required this.value,
     required this.onChanged,
+    this.switchKey,
   });
 
   final String label;
   final bool value;
   final ValueChanged<bool> onChanged;
+  final Key? switchKey;
 
   @override
   Widget build(BuildContext context) {
@@ -58,6 +79,7 @@ class _SwitchRow extends StatelessWidget {
               ),
             ),
             Switch(
+              key: switchKey,
               value: value,
               onChanged: onChanged,
               activeTrackColor: c.moss500,
