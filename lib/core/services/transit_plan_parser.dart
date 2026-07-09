@@ -65,9 +65,25 @@ List<TransitOption> parseGuidancePlan(Map<String, dynamic> body) {
   return out;
 }
 
+/// 電車として扱わない交通モード。アプリは「徒歩＋電車」のみを表現するため、これらを
+/// 含む option は候補・駅名解決から除外する。地下鉄（`subway`）・私鉄・モノレール等は
+/// `mode` が `rail`/`subway` 等で返り電車として維持する。`mode` 欠落は電車扱い（後方互換）。
+const _nonTrainTransitModes = {'bus', 'ferry', 'air'};
+
+/// transit leg [leg] が電車（rail/subway 等）か。`mode` が [_nonTrainTransitModes]
+/// のときだけ非電車。欠落・未知の mode は電車として扱う。
+bool _isTrainTransit(Map leg) {
+  final mode = leg['mode'];
+  return mode is! String || !_nonTrainTransitModes.contains(mode.toLowerCase());
+}
+
 /// 1 option を解析する。`journey.legs`（時刻・路線）を本体に、`map.segments`
 /// （access/egress を含む全ジオメトリ）から polyline を充てる。transit leg と
 /// map の transit セグメントは同数・同順で対応する（実機検証済み）。
+///
+/// バス・フェリー等（[_nonTrainTransitModes]）を含む itinerary は電車として表現できず、
+/// 乗車停留所名が電車の乗車駅名へ紛れ込む（#245: バス停「山王三丁目」が京浜東北線の
+/// 乗車駅として表示される）ため option ごと除外して `null` を返す。
 TransitOption? _parseOption(
   Map<String, dynamic> opt,
   String? date,
@@ -78,6 +94,10 @@ TransitOption? _parseOption(
   if (journey is! Map) return null;
   final legs =
       (journey['legs'] as List?)?.whereType<Map>().toList() ?? const [];
+
+  if (legs.any((l) => l['kind'] == 'transit' && !_isTrainTransit(l))) {
+    return null;
+  }
 
   final map = opt['map'];
   final mapSegs =
