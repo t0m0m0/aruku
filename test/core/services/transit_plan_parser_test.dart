@@ -31,6 +31,24 @@ Map<String, dynamic> _railLeg({
   'arrivalSecs': arr,
 };
 
+Map<String, dynamic> _busLeg({
+  required String route,
+  required String fromId,
+  required String fromName,
+  required String toId,
+  required String toName,
+  required int dep,
+  required int arr,
+}) => {
+  'kind': 'transit',
+  'mode': 'bus',
+  'routeName': route,
+  'from': _station(fromId, fromName),
+  'to': _station(toId, toName),
+  'departureSecs': dep,
+  'arrivalSecs': arr,
+};
+
 Map<String, dynamic> _walkLeg({
   required String fromId,
   required String fromName,
@@ -565,6 +583,269 @@ void main() {
     test('options が無い・不正なら空リスト', () {
       expect(parseGuidancePlan(const {}), isEmpty);
       expect(parseGuidancePlan(const {'options': 'nope'}), isEmpty);
+    });
+
+    test('バス（mode=bus）を含む option は除外する（#245）', () {
+      // 実データの再現: 森０２ バスで山王三丁目(バス停)→大森駅(バス停)、徒歩で大森へ、
+      // そこから京浜東北線。バス区間まで電車扱いすると乗車駅名がバス停「山王三丁目」に
+      // 化ける。バス経由 option ごと除外され、鉄道 option のみ残ることを検証する。
+      final busViaRail = _option(
+        journey: _journey(
+          dep: 360,
+          arr: 1326,
+          dur: 966,
+          egress: 66,
+          legs: [
+            _busLeg(
+              route: '森０２',
+              fromId: 'bus:Sannousanchoume',
+              fromName: '山王三丁目',
+              toId: 'bus:Oomorieki',
+              toName: '大森駅',
+              dep: 360,
+              arr: 700,
+            ),
+            _walkLeg(
+              fromId: 'bus:Oomorieki',
+              fromName: '大森駅',
+              toId: 'jr:Omori',
+              toName: '大森',
+              dep: 700,
+              arr: 760,
+            ),
+            _railLeg(
+              route: '京浜東北線（北行（大宮方面））',
+              fromId: 'jr:Omori',
+              fromName: '大森',
+              toId: 'jr:Shimbashi',
+              toName: '新橋',
+              dep: 760,
+              arr: 1326,
+            ),
+          ],
+        ),
+        segments: const [],
+      );
+      final railOnly = _option(
+        journey: _journey(
+          dep: 360,
+          arr: 1260,
+          dur: 900,
+          access: 120,
+          egress: 60,
+          legs: [
+            _railLeg(
+              route: '京浜東北線（北行（大宮方面））',
+              fromId: 'jr:Omori',
+              fromName: '大森',
+              toId: 'jr:Shimbashi',
+              toName: '新橋',
+              dep: 480,
+              arr: 1200,
+            ),
+          ],
+        ),
+        segments: [
+          _mapWalk(
+            fromId: 'origin',
+            toId: 'jr:Omori',
+            geom: 'osmWalk',
+            coords: [
+              [35.5855, 139.7254],
+              [35.5885, 139.7279],
+            ],
+          ),
+          _mapTransit(
+            fromId: 'jr:Omori',
+            toId: 'jr:Shimbashi',
+            geom: 'stopOrder',
+            coords: [
+              [35.5885, 139.7279],
+              [35.6665, 139.7583],
+            ],
+          ),
+          _mapWalk(
+            fromId: 'jr:Shimbashi',
+            toId: 'destination',
+            geom: 'estimatedWalk',
+            coords: [
+              [35.6665, 139.7583],
+              [35.6666, 139.7584],
+            ],
+          ),
+        ],
+      );
+
+      final options = parseGuidancePlan(
+        _guidance(options: [busViaRail, railOnly]),
+      );
+
+      // バス経由 option は落ち、鉄道 option のみ残る。
+      expect(options, hasLength(1));
+      final trains = options.single.segments
+          .where((s) => s.type == SegmentType.train)
+          .toList();
+      expect(trains, hasLength(1));
+      // 乗車駅名はバス停「山王三丁目」ではなく鉄道駅「大森」。
+      expect(trains.single.fromName, '大森');
+      expect(trains.single.toName, '新橋');
+    });
+
+    test('バスのみの option は除外し空リストになる（#245）', () {
+      final busOnly = _option(
+        journey: _journey(
+          dep: 360,
+          arr: 700,
+          dur: 340,
+          legs: [
+            _busLeg(
+              route: '森０２',
+              fromId: 'bus:Sannousanchoume',
+              fromName: '山王三丁目',
+              toId: 'bus:Oomorieki',
+              toName: '大森駅',
+              dep: 360,
+              arr: 700,
+            ),
+          ],
+        ),
+        segments: const [],
+      );
+      expect(parseGuidancePlan(_guidance(options: [busOnly])), isEmpty);
+    });
+
+    test('地下鉄（mode=subway）を含む option は電車として維持する（#245）', () {
+      // 地下鉄・私鉄・モノレール等は mode が rail/subway 等で返る。バス等の非電車
+      // モード（_nonTrainTransitModes）と違い電車として扱い、区間・駅名解決に残す。
+      // denylist の意図を allowlist 化などのリファクタから守る回帰ガード。
+      final Map<String, dynamic> subwayLeg = {
+        'kind': 'transit',
+        'mode': 'subway',
+        'routeName': '都営浅草線',
+        'from': _station('toei:Nihombashi', '日本橋'),
+        'to': _station('toei:Shimbashi', '新橋'),
+        'departureSecs': 480,
+        'arrivalSecs': 900,
+      };
+      final options = parseGuidancePlan(
+        _guidance(
+          options: [
+            _option(
+              journey: _journey(
+                dep: 360,
+                arr: 960,
+                dur: 600,
+                access: 120,
+                egress: 60,
+                legs: [subwayLeg],
+              ),
+              segments: [
+                _mapWalk(
+                  fromId: 'origin',
+                  toId: 'toei:Nihombashi',
+                  geom: 'osmWalk',
+                  coords: [
+                    [35.6817, 139.7745],
+                    [35.6820, 139.7748],
+                  ],
+                ),
+                _mapTransit(
+                  fromId: 'toei:Nihombashi',
+                  toId: 'toei:Shimbashi',
+                  geom: 'stopOrder',
+                  coords: [
+                    [35.6820, 139.7748],
+                    [35.6665, 139.7583],
+                  ],
+                ),
+                _mapWalk(
+                  fromId: 'toei:Shimbashi',
+                  toId: 'destination',
+                  geom: 'estimatedWalk',
+                  coords: [
+                    [35.6665, 139.7583],
+                    [35.6666, 139.7584],
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+
+      expect(options, hasLength(1));
+      final trains = options.single.segments
+          .where((s) => s.type == SegmentType.train)
+          .toList();
+      expect(trains, hasLength(1));
+      expect(trains.single.fromName, '日本橋');
+      expect(trains.single.toName, '新橋');
+    });
+
+    test('mode 欠落の transit leg は電車として維持する（後方互換）', () {
+      // 実 API・既存フィクスチャで mode を欠く transit leg があり得る。_isTrainTransit は
+      // mode 欠落を電車扱いとするため、除外されず区間へ残ることを検証する。
+      final Map<String, dynamic> noModeLeg = {
+        'kind': 'transit',
+        'routeName': '京浜東北線（北行（大宮方面））',
+        'from': _station('jr:Omori', '大森'),
+        'to': _station('jr:Shimbashi', '新橋'),
+        'departureSecs': 480,
+        'arrivalSecs': 1200,
+      };
+      final options = parseGuidancePlan(
+        _guidance(
+          options: [
+            _option(
+              journey: _journey(
+                dep: 360,
+                arr: 1260,
+                dur: 900,
+                access: 120,
+                egress: 60,
+                legs: [noModeLeg],
+              ),
+              segments: [
+                _mapWalk(
+                  fromId: 'origin',
+                  toId: 'jr:Omori',
+                  geom: 'osmWalk',
+                  coords: [
+                    [35.5855, 139.7254],
+                    [35.5885, 139.7279],
+                  ],
+                ),
+                _mapTransit(
+                  fromId: 'jr:Omori',
+                  toId: 'jr:Shimbashi',
+                  geom: 'stopOrder',
+                  coords: [
+                    [35.5885, 139.7279],
+                    [35.6665, 139.7583],
+                  ],
+                ),
+                _mapWalk(
+                  fromId: 'jr:Shimbashi',
+                  toId: 'destination',
+                  geom: 'estimatedWalk',
+                  coords: [
+                    [35.6665, 139.7583],
+                    [35.6666, 139.7584],
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+
+      expect(options, hasLength(1));
+      final trains = options.single.segments
+          .where((s) => s.type == SegmentType.train)
+          .toList();
+      expect(trains, hasLength(1));
+      expect(trains.single.fromName, '大森');
+      expect(trains.single.toName, '新橋');
     });
   });
 }
