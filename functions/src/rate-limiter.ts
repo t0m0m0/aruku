@@ -8,6 +8,12 @@ export const RATE_LIMIT = 30;
 // 数回/分の検索を許容できるよう専用の高めの上限を設ける。
 export const WALK_RATE_LIMIT = 90;
 
+// recordSearchUsage（#238・検索回数カウンタ）は uid 単位。App Check + 認証済み
+// トークンさえあれば呼べてしまうため、標準上限（IP単位30/min）とは別に uid 単位の
+// 上限を設け、正規クライアントの通常利用（1検索1回）を大きく超える連打での
+// Firestore 書き込み課金の暴発（コストDoS）を防ぐ。
+export const SEARCH_USAGE_RATE_LIMIT = 20;
+
 const WINDOW_MS = 60_000;
 
 // ---------------------------------------------------------------------------
