@@ -17,6 +17,7 @@ import '../services/activity_service.dart';
 import '../services/activity_stats.dart';
 import '../services/health_service.dart';
 import '../services/location_service.dart';
+import '../services/notification_service.dart';
 import '../services/onboarding_repository.dart';
 import '../services/route_plan_builder.dart' as planner;
 import '../services/route_service.dart';
@@ -292,6 +293,12 @@ class AppNotifier extends Notifier<AppState> {
     });
     unawaited(_fetchLocation());
     unawaited(_startActivityTracking());
+    // 通知トグルの切替に追従してストリーク途切れ警告を予約/取消する。活動更新時は
+    // _applyActivityStats からも同期するため、トグル操作にも即応できる。
+    ref.listen(
+      settingsProvider.select((s) => s.value?.notificationsEnabled),
+      (_, _) => _syncStreakReminder(DateTime.now()),
+    );
     final now = DateTime.now();
     final depH = now.hour;
     final depM = now.minute;
@@ -424,6 +431,33 @@ class AppNotifier extends Notifier<AppState> {
       todaySteps: snap.steps,
       todayKm: snap.km,
       todayKcal: snap.kcal,
+    );
+    _syncStreakReminder(today);
+  }
+
+  /// 通知が有効なら、今日のストリーク状況に応じて途切れ警告を予約/取消する。
+  /// ベストエフォート（失敗してもアプリ体験を妨げない）。
+  void _syncStreakReminder(DateTime now) {
+    final enabled =
+        ref.read(settingsProvider).value?.notificationsEnabled ?? false;
+    final service = ref.read(notificationServiceProvider);
+    final Future<void> op;
+    if (!enabled) {
+      op = service.cancelStreakReminder();
+    } else {
+      op = switch (planStreakReminder(history: _history, now: now)) {
+        ScheduleStreakReminder(when: final at, :final streakDays) =>
+          service.scheduleStreakReminder(when: at, streakDays: streakDays),
+        CancelStreakReminder() => service.cancelStreakReminder(),
+      };
+    }
+    unawaited(
+      op.catchError((Object e) {
+        assert(() {
+          debugPrint('streak reminder sync error: $e');
+          return true;
+        }());
+      }),
     );
   }
 
