@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
+import 'package:aruku/core/services/analytics_service.dart';
 import 'package:aruku/core/services/hybrid_route_selector.dart'
     show haversineKm;
 import 'package:aruku/core/services/route_plan_builder.dart'
@@ -174,13 +175,66 @@ http.Client _mock({required Map<String, dynamic> transit, List<Uri>? log}) =>
       return _json(const {}, 404);
     });
 
-TransitRouteService _service(http.Client client) => TransitRouteService(
+TransitRouteService _service(
+  http.Client client, {
+  AnalyticsService? analytics,
+}) => TransitRouteService(
   transitClient: client,
   proxyClient: client,
   transitBaseUrl: _transitBase,
   proxyBaseUrl: _proxyBase,
   clock: () => DateTime(2026, 6, 27, 9, 0),
+  analytics: analytics,
 );
+
+/// テスト用に発火したイベントを記録する [AnalyticsService]（#238）。
+class _RecordingAnalyticsService implements AnalyticsService {
+  int searchRequestedCount = 0;
+  final fallbackCalls =
+      <({int navitimeCalls, int googleWalkCalls, int googleMatrixCalls})>[];
+  final apiCallsLog =
+      <
+        ({
+          int navitimeCalls,
+          int googleWalkCalls,
+          int googleMatrixCalls,
+          bool fallbackTriggered,
+        })
+      >[];
+
+  @override
+  void logSearchRequested() {
+    searchRequestedCount++;
+  }
+
+  @override
+  void logSearchFallbackTriggered({
+    required int navitimeCalls,
+    required int googleWalkCalls,
+    required int googleMatrixCalls,
+  }) {
+    fallbackCalls.add((
+      navitimeCalls: navitimeCalls,
+      googleWalkCalls: googleWalkCalls,
+      googleMatrixCalls: googleMatrixCalls,
+    ));
+  }
+
+  @override
+  void logSearchApiCalls({
+    required int navitimeCalls,
+    required int googleWalkCalls,
+    required int googleMatrixCalls,
+    required bool fallbackTriggered,
+  }) {
+    apiCallsLog.add((
+      navitimeCalls: navitimeCalls,
+      googleWalkCalls: googleWalkCalls,
+      googleMatrixCalls: googleMatrixCalls,
+      fallbackTriggered: fallbackTriggered,
+    ));
+  }
+}
 
 void main() {
   const origin = GeoPoint(35.6800, 139.7600);
@@ -307,6 +361,32 @@ void main() {
       expect(g.queryParameters['time'], '09:00');
       expect(g.queryParameters['type'], 'departure');
     });
+
+    test(
+      '崩壊しない検索はsearch_api_callsをfallbackTriggered=falseで記録する（#238）',
+      () async {
+        final analytics = _RecordingAnalyticsService();
+        final svc = _service(
+          _mock(transit: _guidance([_singleTrainOption()])),
+          analytics: analytics,
+        );
+        await svc.plan(
+          destination: '新宿駅',
+          destinationLatLng: goal,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 9, m: 50),
+          origin: origin,
+          originName: '東京駅',
+        );
+        expect(analytics.fallbackCalls, isEmpty);
+        expect(analytics.apiCallsLog, hasLength(1));
+        expect(analytics.apiCallsLog.single.fallbackTriggered, isFalse);
+        expect(
+          analytics.apiCallsLog.single.navitimeCalls,
+          greaterThanOrEqualTo(1),
+        );
+      },
+    );
   });
 
   group('plan: 徒歩最大化', () {
@@ -453,6 +533,30 @@ void main() {
       // 初回 guidance 1回だけで終わってしまう（指摘2の回帰）。
       expect(guidanceCalls.length, greaterThan(1));
     });
+
+    test(
+      '崩壊判定が成立するとsearch_fallback_triggeredとsearch_api_callsを記録する（#238）',
+      () async {
+        final analytics = _RecordingAnalyticsService();
+        final svc = _service(inflatedMock(<Uri>[]), analytics: analytics);
+        await svc.plan(
+          destination: '降車駅',
+          destinationLatLng: goal2,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 0),
+          origin: origin2,
+          originName: '出発',
+        );
+        expect(analytics.fallbackCalls, hasLength(1));
+        expect(
+          analytics.fallbackCalls.single.navitimeCalls,
+          greaterThanOrEqualTo(1),
+        );
+        expect(analytics.apiCallsLog, hasLength(1));
+        expect(analytics.apiCallsLog.single.fallbackTriggered, isTrue);
+        expect(analytics.apiCallsLog.single.navitimeCalls, greaterThan(1));
+      },
+    );
 
     test('コリドー由来の確定経路でも乗降駅名を復元しタイムラインに出す', () async {
       final svc = _service(inflatedMock(<Uri>[]));
