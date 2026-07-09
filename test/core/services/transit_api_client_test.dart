@@ -171,6 +171,61 @@ void main() {
     });
   });
 
+  group('callCounts', () {
+    test('初期値は全て0', () {
+      final client = _client(MockClient((_) async => _json(const {})));
+      expect(client.callCounts.navitimeCalls, 0);
+      expect(client.callCounts.googleWalkCalls, 0);
+      expect(client.callCounts.googleMatrixCalls, 0);
+    });
+
+    test('fetchGuidanceAt は navitimeCalls を増やす', () async {
+      final client = _client(MockClient((_) async => _json({'ok': true})));
+      await client.fetchGuidanceAt(
+        const GeoPoint(0, 0),
+        const GeoPoint(1, 1),
+        DateTime(2026),
+      );
+      await client.fetchGuidanceAt(
+        const GeoPoint(0, 0),
+        const GeoPoint(1, 1),
+        DateTime(2026),
+      );
+      expect(client.callCounts.navitimeCalls, 2);
+      expect(client.callCounts.googleWalkCalls, 0);
+      expect(client.callCounts.googleMatrixCalls, 0);
+    });
+
+    test('fetchWalkRoute は googleWalkCalls を増やす', () async {
+      final client = _client(
+        MockClient((_) async => _json({'routes': const []})),
+      );
+      await client.fetchWalkRoute(const GeoPoint(0, 0), const GeoPoint(1, 1));
+      expect(client.callCounts.googleWalkCalls, 1);
+      expect(client.callCounts.navitimeCalls, 0);
+    });
+
+    test('fetchWalkMatrix は googleMatrixCalls を増やす（失敗時も計上）', () async {
+      final client = _client(MockClient((_) async => _json(const [], 500)));
+      await client.fetchWalkMatrix(
+        const [GeoPoint(0, 0)],
+        const [GeoPoint(1, 1)],
+      );
+      expect(client.callCounts.googleMatrixCalls, 1);
+    });
+
+    test('resetCallCounts で0に戻る', () async {
+      final client = _client(MockClient((_) async => _json({'ok': true})));
+      await client.fetchGuidanceAt(
+        const GeoPoint(0, 0),
+        const GeoPoint(1, 1),
+        DateTime(2026),
+      );
+      client.resetCallCounts();
+      expect(client.callCounts.navitimeCalls, 0);
+    });
+  });
+
   group('baseUrl 正規化', () {
     test('transitBaseUrl 末尾スラッシュを除去する', () {
       final client = _client(

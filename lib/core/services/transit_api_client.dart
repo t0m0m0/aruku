@@ -7,6 +7,20 @@ import '../config/app_config.dart';
 import '../models/geo_point.dart';
 import 'route_service.dart';
 
+/// 1検索あたりの実際のAPI呼び出し回数（NAVITIME/Google Routes/Matrix、#238）。
+/// [TransitApiClient.callCounts] のスナップショット。
+class ApiCallCounts {
+  const ApiCallCounts({
+    required this.navitimeCalls,
+    required this.googleWalkCalls,
+    required this.googleMatrixCalls,
+  });
+
+  final int navitimeCalls;
+  final int googleWalkCalls;
+  final int googleMatrixCalls;
+}
+
 /// Transit API（`/guidance/plan` 直叩き）と Google Routes プロキシへの HTTP 通信を担う
 /// クライアント（#169）。[TransitRouteService] から通信の関心事を切り出し、選定ロジックを
 /// トランスポートから独立させる。
@@ -33,6 +47,25 @@ class TransitApiClient {
   final http.Client _proxy;
   final String _transitBaseUrl;
   final String _proxyBaseUrl;
+
+  int _navitimeCalls = 0;
+  int _googleWalkCalls = 0;
+  int _googleMatrixCalls = 0;
+
+  /// 直近の [resetCallCounts] 以降のAPI呼び出し回数（計測用・#238）。
+  ApiCallCounts get callCounts => ApiCallCounts(
+    navitimeCalls: _navitimeCalls,
+    googleWalkCalls: _googleWalkCalls,
+    googleMatrixCalls: _googleMatrixCalls,
+  );
+
+  /// [callCounts] を0に戻す。[TransitRouteService.plan] は1検索の開始時に呼び、
+  /// 検索単位のAPI呼び出し回数を計測する。
+  void resetCallCounts() {
+    _navitimeCalls = 0;
+    _googleWalkCalls = 0;
+    _googleMatrixCalls = 0;
+  }
 
   /// `/guidance/plan` で取得する候補数。
   static const int _numItineraries = 5;
@@ -63,6 +96,7 @@ class TransitApiClient {
         'numItineraries': '$_numItineraries',
       },
     );
+    _navitimeCalls++;
     final res = await _getOrTimeout(_transit, uri);
     if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
     return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
@@ -78,6 +112,7 @@ class TransitApiClient {
   ) async {
     String join(List<GeoPoint> ps) =>
         ps.map((p) => '${p.lat},${p.lng}').join(';');
+    _googleMatrixCalls++;
     try {
       return await _fetchProxyArray('googleWalkMatrixProxy', {
         'origins': join(origins),
@@ -90,11 +125,13 @@ class TransitApiClient {
 
   /// [origin]→[dest] の徒歩を Google Routes(WALK, プロキシ経由)で取得した生ボディを返す。
   /// 非200・無応答は `RouteException`（呼び出し側が routes をパース・失敗を吸収する）。
-  Future<Map<String, dynamic>> fetchWalkRoute(GeoPoint origin, GeoPoint dest) =>
-      _fetchProxy('googleWalkProxy', {
-        'start': '${origin.lat},${origin.lng}',
-        'goal': '${dest.lat},${dest.lng}',
-      });
+  Future<Map<String, dynamic>> fetchWalkRoute(GeoPoint origin, GeoPoint dest) {
+    _googleWalkCalls++;
+    return _fetchProxy('googleWalkProxy', {
+      'start': '${origin.lat},${origin.lng}',
+      'goal': '${dest.lat},${dest.lng}',
+    });
+  }
 
   Future<Map<String, dynamic>> _fetchProxy(
     String path,
