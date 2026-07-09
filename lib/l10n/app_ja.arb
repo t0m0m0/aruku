@@ -161,8 +161,6 @@
   "@searchPickFailedDestination": {},
   "searchUseCurrentLocation": "現在地を使う",
   "@searchUseCurrentLocation": {},
-  "searchFavoritesSectionTitle": "お気に入り",
-  "@searchFavoritesSectionTitle": {},
   "searchRecentOrigins": "最近の出発地",
   "@searchRecentOrigins": {},
   "searchRecentDestinations": "最近の目的地",
@@ -433,17 +431,5 @@
   "searchClearInput": "入力を消去",
   "@searchClearInput": {
     "description": "検索フィールドのクリアボタンのVoiceOverラベル"
-  },
-  "searchRemoveFavorite": "お気に入りから削除",
-  "@searchRemoveFavorite": {
-    "description": "検索候補のお気に入り解除ボタンのVoiceOverラベル"
-  },
-  "resultAddFavorite": "お気に入りに追加",
-  "@resultAddFavorite": {
-    "description": "結果画面のお気に入り追加ボタンのVoiceOverラベル"
-  },
-  "resultRemoveFavorite": "お気に入りから削除",
-  "@resultRemoveFavorite": {
-    "description": "結果画面のお気に入り解除ボタンのVoiceOverラベル"
   }
 }

@@ -6,7 +6,7 @@ import 'recents_repository.dart';
 /// 同期のためのローカルメタ情報を保存する。
 ///
 /// [localUpdatedAt] はローカルデータが最後に変更された時刻で、last-write-wins の
-/// 比較に使う。設定・お気に入り・履歴の変更時に [markLocalChanged] で更新する。
+/// 比較に使う。設定・履歴の変更時に [markLocalChanged] で更新する。
 /// これが無いと、まっさらな端末でログインした際にローカルの空データでリモートを
 /// 上書きしてしまう。
 class SyncMetaRepository {

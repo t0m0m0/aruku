@@ -3,13 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/sync_data.dart';
 import '../services/activity_log_repository.dart';
-import '../services/favorites_repository.dart';
 import '../services/recents_repository.dart';
 import '../services/settings_repository.dart';
 import '../services/sync_meta_repository.dart';
 import '../services/sync_service.dart';
 import 'auth_provider.dart';
-import 'favorites_provider.dart';
 import 'recents_provider.dart';
 import 'settings_provider.dart';
 
@@ -50,7 +48,6 @@ class SyncNotifier extends Notifier<SyncStatus> {
     try {
       final service = ref.read(syncServiceProvider);
       final meta = await ref.read(syncMetaRepositoryProvider.future);
-      final favoritesRepo = await ref.read(favoritesRepositoryProvider.future);
       final recentsRepo = await ref.read(recentsRepositoryProvider.future);
       final recentOriginsRepo = await ref.read(
         recentOriginsRepositoryProvider.future,
@@ -61,7 +58,6 @@ class SyncNotifier extends Notifier<SyncStatus> {
       final local = SyncData(
         updatedAt: meta.localUpdatedAt ?? _epoch,
         settings: settingsRepo.load(),
-        favorites: await favoritesRepo.load(),
         recents: await recentsRepo.load(),
         recentOrigins: await recentOriginsRepo.load(),
         activity: await activityRepo.load(),
@@ -74,13 +70,11 @@ class SyncNotifier extends Notifier<SyncStatus> {
       // リモートが勝った場合のみローカルへ適用する。
       if (!identical(merged, local)) {
         await settingsRepo.save(merged.settings);
-        await favoritesRepo.replaceAll(merged.favorites);
         await recentsRepo.replaceAll(merged.recents);
         await recentOriginsRepo.replaceAll(merged.recentOrigins);
         await activityRepo.replaceAll(merged.activity);
         // 反映内容で UI を最新化する（アクティビティはメモリ保持のため次回起動で反映）。
         ref.invalidate(settingsProvider);
-        ref.invalidate(favoritesProvider);
         ref.invalidate(recentsProvider);
         ref.invalidate(recentOriginsProvider);
       }

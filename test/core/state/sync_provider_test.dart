@@ -1,10 +1,8 @@
 import 'package:aruku/core/models/app_settings.dart';
 import 'package:aruku/core/models/auth_user.dart';
-import 'package:aruku/core/models/favorite_place.dart';
 import 'package:aruku/core/models/recent_place.dart';
 import 'package:aruku/core/models/sync_data.dart';
 import 'package:aruku/core/services/auth_service.dart';
-import 'package:aruku/core/services/favorites_repository.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:aruku/core/services/settings_repository.dart';
 import 'package:aruku/core/services/sync_meta_repository.dart';
@@ -20,14 +18,12 @@ import '../../support/fake_sync_service.dart';
 
 SyncData remoteSnapshot({
   required DateTime updatedAt,
-  List<FavoritePlace> favorites = const [],
   List<RecentPlace> recents = const [],
   List<RecentPlace> recentOrigins = const [],
   AppSettings settings = AppSettings.defaults,
 }) => SyncData(
   updatedAt: updatedAt,
   settings: settings,
-  favorites: favorites,
   recents: recents,
   recentOrigins: recentOrigins,
   activity: const [],
@@ -71,19 +67,19 @@ void main() {
     final container = await makeContainer(
       user: const AuthUser(uid: 'u1', email: 'a@example.com'),
     );
-    final favRepo = await container.read(favoritesRepositoryProvider.future);
-    await favRepo.toggle(const FavoritePlace(name: '東京駅', placeId: 'p1'));
+    final recentsRepo = await container.read(recentsRepositoryProvider.future);
+    await recentsRepo.add(const RecentPlace(name: '東京駅', placeId: 'p1'));
 
     await container.read(syncProvider.notifier).sync();
 
     expect(container.read(syncProvider).phase, SyncPhase.success);
-    expect(sync.store['u1']!.favorites.single.name, '東京駅');
+    expect(sync.store['u1']!.recents.single.name, '東京駅');
   });
 
   test('リモートが新しければローカルへ取り込む（別端末ログイン）', () async {
     sync.store['u1'] = remoteSnapshot(
       updatedAt: DateTime.utc(2030, 1, 1),
-      favorites: const [FavoritePlace(name: '京都駅', placeId: 'k1')],
+      recents: const [RecentPlace(name: '京都駅', placeId: 'k1')],
       settings: const AppSettings(notificationsEnabled: false),
     );
     final container = await makeContainer(
@@ -92,11 +88,11 @@ void main() {
 
     await container.read(syncProvider.notifier).sync();
 
-    final favRepo = await container.read(favoritesRepositoryProvider.future);
+    final recentsRepo = await container.read(recentsRepositoryProvider.future);
     final settingsRepo = await container.read(
       settingsRepositoryProvider.future,
     );
-    expect((await favRepo.load()).single.name, '京都駅');
+    expect((await recentsRepo.load()).single.name, '京都駅');
     expect(settingsRepo.load().notificationsEnabled, isFalse);
   });
 
@@ -137,26 +133,26 @@ void main() {
   test('ローカルが新しければリモートを上書きする', () async {
     sync.store['u1'] = remoteSnapshot(
       updatedAt: DateTime.utc(2000, 1, 1),
-      favorites: const [FavoritePlace(name: '古い', placeId: 'old')],
+      recents: const [RecentPlace(name: '古い', placeId: 'old')],
     );
     final container = await makeContainer(
       user: const AuthUser(uid: 'u1', email: 'a@example.com'),
     );
     final meta = await container.read(syncMetaRepositoryProvider.future);
     await meta.markLocalChanged(DateTime.utc(2030, 1, 1));
-    final favRepo = await container.read(favoritesRepositoryProvider.future);
-    await favRepo.toggle(const FavoritePlace(name: '新しい', placeId: 'new'));
+    final recentsRepo = await container.read(recentsRepositoryProvider.future);
+    await recentsRepo.add(const RecentPlace(name: '新しい', placeId: 'new'));
 
     await container.read(syncProvider.notifier).sync();
 
-    expect(sync.store['u1']!.favorites.single.name, '新しい');
+    expect(sync.store['u1']!.recents.single.name, '新しい');
     expect(sync.pushCount, 1);
   });
 
   test('リモートが勝った場合は取り込んだ内容を押し戻さない', () async {
     sync.store['u1'] = remoteSnapshot(
       updatedAt: DateTime.utc(2030, 1, 1),
-      favorites: const [FavoritePlace(name: '京都駅', placeId: 'k1')],
+      recents: const [RecentPlace(name: '京都駅', placeId: 'k1')],
     );
     final container = await makeContainer(
       user: const AuthUser(uid: 'u1', email: 'a@example.com'),
@@ -190,8 +186,8 @@ void main() {
     final container = await makeContainer(
       user: const AuthUser(uid: 'u1', email: 'a@example.com'),
     );
-    final favRepo = await container.read(favoritesRepositoryProvider.future);
-    await favRepo.toggle(const FavoritePlace(name: '東京駅', placeId: 'p1'));
+    final recentsRepo = await container.read(recentsRepositoryProvider.future);
+    await recentsRepo.add(const RecentPlace(name: '東京駅', placeId: 'p1'));
 
     // 初回はリモートが空なのでアップロードする。
     await container.read(syncProvider.notifier).sync();
@@ -205,7 +201,7 @@ void main() {
   test('リモート取り込み後の再同期も往復して no-op', () async {
     sync.store['u1'] = remoteSnapshot(
       updatedAt: DateTime.utc(2030, 1, 1),
-      favorites: const [FavoritePlace(name: '京都駅', placeId: 'k1')],
+      recents: const [RecentPlace(name: '京都駅', placeId: 'k1')],
     );
     final container = await makeContainer(
       user: const AuthUser(uid: 'u1', email: 'a@example.com'),

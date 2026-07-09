@@ -58,14 +58,6 @@ class Ic extends StatelessWidget {
       Ic._(size: size, painter: _IconPainter(_leaf, color));
   static Widget sparkle({double size = 20, required Color color}) =>
       Ic._(size: size, painter: _IconPainter(_sparkle, color, filled: true));
-  static Widget star({
-    double size = 20,
-    required Color color,
-    bool filled = false,
-  }) => Ic._(
-    size: size,
-    painter: _IconPainter(_star, color, filled: filled),
-  );
   static Widget arrowUp({double size = 20, required Color color}) =>
       Ic._(size: size, painter: _IconPainter(_arrowUp, color));
   static Widget layers({double size = 20, required Color color}) =>
@@ -343,22 +335,6 @@ void _sparkle(Canvas c, Paint p, double s) {
     ..lineTo(10 * s, 14 * s)
     ..lineTo(3 * s, 12 * s)
     ..lineTo(10 * s, 10 * s)
-    ..close();
-  c.drawPath(star, p);
-}
-
-void _star(Canvas c, Paint p, double s) {
-  final star = Path()
-    ..moveTo(12 * s, 3 * s)
-    ..lineTo(14.4 * s, 9.2 * s)
-    ..lineTo(21 * s, 9.6 * s)
-    ..lineTo(15.8 * s, 13.8 * s)
-    ..lineTo(17.6 * s, 20.4 * s)
-    ..lineTo(12 * s, 16.8 * s)
-    ..lineTo(6.4 * s, 20.4 * s)
-    ..lineTo(8.2 * s, 13.8 * s)
-    ..lineTo(3 * s, 9.6 * s)
-    ..lineTo(9.6 * s, 9.2 * s)
     ..close();
   c.drawPath(star, p);
 }

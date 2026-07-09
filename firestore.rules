@@ -5,7 +5,7 @@ rules_version = '2';
 // の読み書きは既定で全面拒否する。Admin SDK はセキュリティルールをバイパスするため、
 // レートリミッタの動作には影響しない。
 //
-// 例外として、アカウント同期（履歴・設定・お気に入り・ストリーク）のために
+// 例外として、アカウント同期（履歴・設定・ストリーク）のために
 // userSync/{uid} ドキュメントのみ、認証済みの本人による読み書きを許可する。
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -16,17 +16,16 @@ service cloud.firestore {
     //
     // 制約: Firestore ルールは配列要素を反復できないため、リスト内の各要素の
     // 文字列長までは検証できない。リスト長の上限（ローカル保持上限に余裕を
-    // 持たせた値: favorites=50/recents=10/activity=400日）でバイトサイズの
+    // 持たせた値: recents=10/activity=400日）でバイトサイズの
     // 濫用を抑える。
     function isValidSyncData(d) {
       return d.keys().hasOnly(
-               ['updatedAt', 'settings', 'favorites', 'recents',
+               ['updatedAt', 'settings', 'recents',
                 'recentOrigins', 'activity'])
              && d.updatedAt is string && d.updatedAt.size() <= 40
              && d.settings is map
              && d.settings.keys().hasOnly(['notificationsEnabled'])
              && d.settings.notificationsEnabled is bool
-             && d.favorites is list && d.favorites.size() <= 100
              && d.recents is list && d.recents.size() <= 50
              && d.recentOrigins is list && d.recentOrigins.size() <= 50
              && d.activity is list && d.activity.size() <= 800;

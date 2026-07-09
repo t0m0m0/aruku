@@ -1,6 +1,5 @@
 import 'package:aruku/core/models/app_settings.dart';
 import 'package:aruku/core/models/daily_activity.dart';
-import 'package:aruku/core/models/favorite_place.dart';
 import 'package:aruku/core/models/recent_place.dart';
 import 'package:aruku/core/models/sync_data.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,7 +9,6 @@ void main() {
       SyncData(
         updatedAt: updatedAt,
         settings: settings ?? AppSettings.defaults,
-        favorites: const [FavoritePlace(name: '東京駅', placeId: 'p1')],
         recents: const [RecentPlace(name: '渋谷駅', placeId: 'p2')],
         recentOrigins: const [RecentPlace(name: '自宅', placeId: 'o1')],
         activity: [DailyActivity(date: DateTime(2026, 6, 1), steps: 1200)],
@@ -25,7 +23,6 @@ void main() {
 
     expect(restored.updatedAt, data.updatedAt);
     expect(restored.settings.notificationsEnabled, isFalse);
-    expect(restored.favorites.single.name, '東京駅');
     expect(restored.recents.single.name, '渋谷駅');
     expect(restored.recentOrigins.single.name, '自宅');
     expect(restored.activity.single.steps, 1200);
@@ -34,10 +31,23 @@ void main() {
   test('壊れた/欠損フィールドは既定へフォールバックする', () {
     final restored = SyncData.fromJson(const {});
     expect(restored.settings, AppSettings.defaults);
-    expect(restored.favorites, isEmpty);
     expect(restored.recents, isEmpty);
     expect(restored.recentOrigins, isEmpty);
     expect(restored.activity, isEmpty);
+  });
+
+  test('未知のフィールド（旧favoritesなど）が残っていてもクラッシュしない', () {
+    final restored = SyncData.fromJson({
+      'updatedAt': '2026-06-08T00:00:00.000Z',
+      'settings': {'notificationsEnabled': true},
+      'favorites': [
+        {'name': '旧お気に入り'},
+      ],
+      'recents': <Map<String, dynamic>>[],
+      'recentOrigins': <Map<String, dynamic>>[],
+      'activity': <Map<String, dynamic>>[],
+    });
+    expect(restored.recents, isEmpty);
   });
 
   group('mergeLww（last-write-wins）', () {
@@ -104,16 +114,14 @@ void main() {
       final a = SyncData(
         updatedAt: at,
         settings: AppSettings.defaults,
-        favorites: const [FavoritePlace(name: '東京駅', placeId: 'p1')],
-        recents: const [],
+        recents: const [RecentPlace(name: '東京駅', placeId: 'p1')],
         recentOrigins: const [],
         activity: const [],
       );
       final b = SyncData(
         updatedAt: at,
         settings: AppSettings.defaults,
-        favorites: const [FavoritePlace(name: '京都駅', placeId: 'k1')],
-        recents: const [],
+        recents: const [RecentPlace(name: '京都駅', placeId: 'k1')],
         recentOrigins: const [],
         activity: const [],
       );
@@ -122,16 +130,15 @@ void main() {
 
     test('オプショナルフィールドの有無で false（条件付きキーの欠落を検出）', () {
       final at = DateTime.utc(2026, 6, 8);
-      SyncData withFavorite(FavoritePlace fav) => SyncData(
+      SyncData withRecent(RecentPlace place) => SyncData(
         updatedAt: at,
         settings: AppSettings.defaults,
-        favorites: [fav],
-        recents: const [],
+        recents: [place],
         recentOrigins: const [],
         activity: const [],
       );
-      final a = withFavorite(const FavoritePlace(name: '東京駅', placeId: 'p1'));
-      final b = withFavorite(const FavoritePlace(name: '東京駅'));
+      final a = withRecent(const RecentPlace(name: '東京駅', placeId: 'p1'));
+      final b = withRecent(const RecentPlace(name: '東京駅'));
       expect(a.hasSameSnapshot(b), isFalse);
     });
   });
