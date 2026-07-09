@@ -15,6 +15,7 @@ import '../navigation/nav_engine.dart';
 import '../services/activity_log_repository.dart';
 import '../services/activity_service.dart';
 import '../services/activity_stats.dart';
+import '../services/analytics_service.dart';
 import '../services/health_service.dart';
 import '../services/location_service.dart';
 import '../services/notification_service.dart';
@@ -702,6 +703,7 @@ class AppNotifier extends Notifier<AppState> {
     // 破棄済みなので結果を state へ書かない（キャンセル後に古い応答がホームから
     // result へ引き戻すのを防ぐ・#221）。
     final generation = ++_searchGeneration;
+    ref.read(analyticsServiceProvider).logSearchRequested();
     state = state.copyWith(
       screen: Screen.loading,
       routeErrorKind: null,
