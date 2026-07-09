@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/app_settings.dart';
+import '../services/notification_service.dart';
 import '../services/settings_repository.dart';
 import '../services/sync_meta_repository.dart';
 
@@ -12,8 +14,21 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
     return repo.load();
   }
 
-  Future<void> setNotifications(bool enabled) =>
-      _update((s) => s.copyWith(notificationsEnabled: enabled));
+  Future<void> setNotifications(bool enabled) async {
+    await _update((s) => s.copyWith(notificationsEnabled: enabled));
+    if (!enabled) return;
+    // オプトイン時に通知権限を要求する（実機のみ効果あり）。実際のスケジュール
+    // 判断は appStateProvider がストリーク状況に応じて行う。拒否されても予約は
+    // 無害なため、失敗はデバッグ時のみログに残す。
+    try {
+      await ref.read(notificationServiceProvider).requestPermission();
+    } catch (e) {
+      assert(() {
+        debugPrint('notification permission request error: $e');
+        return true;
+      }());
+    }
+  }
 
   Future<void> setWeeklyGoalKm(double km) =>
       _update((s) => s.copyWith(weeklyGoalKm: km));

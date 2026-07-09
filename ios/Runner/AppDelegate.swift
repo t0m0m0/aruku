@@ -18,6 +18,11 @@ import GoogleMaps
       GMSServices.provideAPIKey(mapsApiKey)
     }
     GeneratedPluginRegistrant.register(with: self)
+    // flutter_local_notifications: アプリ前面でも通知を表示できるよう、
+    // 通知センターのデリゲートを設定する。
+    if #available(iOS 10.0, *) {
+      UNUserNotificationCenter.current().delegate = self as? UNUserNotificationCenterDelegate
+    }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 }

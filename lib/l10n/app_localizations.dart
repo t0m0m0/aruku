@@ -976,6 +976,18 @@ abstract class AppLocalizations {
   /// **'通知を受け取る'**
   String get settingsReceiveNotifications;
 
+  /// No description provided for @notificationStreakReminderTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'連続記録が途切れそうです'**
+  String get notificationStreakReminderTitle;
+
+  /// No description provided for @notificationStreakReminderBody.
+  ///
+  /// In ja, this message translates to:
+  /// **'{days}日つづいた連続記録が今日で途切れそうです。少し歩きませんか？'**
+  String notificationStreakReminderBody(int days);
+
   /// No description provided for @settingsWeeklyGoalSection.
   ///
   /// In ja, this message translates to:

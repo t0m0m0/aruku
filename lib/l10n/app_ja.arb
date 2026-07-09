@@ -371,6 +371,14 @@
   "@settingsNotificationsSection": {},
   "settingsReceiveNotifications": "通知を受け取る",
   "@settingsReceiveNotifications": {},
+  "notificationStreakReminderTitle": "連続記録が途切れそうです",
+  "@notificationStreakReminderTitle": {},
+  "notificationStreakReminderBody": "{days}日つづいた連続記録が今日で途切れそうです。少し歩きませんか？",
+  "@notificationStreakReminderBody": {
+    "placeholders": {
+      "days": { "type": "int" }
+    }
+  },
   "settingsWeeklyGoalSection": "週間目標",
   "@settingsWeeklyGoalSection": {},
   "settingsWeeklyGoalLabel": "1週間の目標距離",

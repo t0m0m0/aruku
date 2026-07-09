@@ -479,6 +479,14 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsReceiveNotifications => '通知を受け取る';
 
   @override
+  String get notificationStreakReminderTitle => '連続記録が途切れそうです';
+
+  @override
+  String notificationStreakReminderBody(int days) {
+    return '$days日つづいた連続記録が今日で途切れそうです。少し歩きませんか？';
+  }
+
+  @override
   String get settingsWeeklyGoalSection => '週間目標';
 
   @override

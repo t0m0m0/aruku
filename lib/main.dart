@@ -7,11 +7,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:timezone/data/latest.dart' as tz_data;
+import 'package:timezone/timezone.dart' as tz;
 
 import 'core/config/app_config.dart';
 import 'core/navigation/app_router.dart';
 import 'core/services/health_service.dart';
 import 'core/services/healthkit_service.dart';
+import 'core/services/local_notification_service.dart';
+import 'core/services/notification_service.dart';
 import 'core/services/onboarding_repository.dart';
 import 'core/services/recents_repository.dart';
 import 'core/theme/aruku_theme.dart';
@@ -32,6 +36,12 @@ Future<void> main() async {
   // オンボーディングのチラつきを避けるため、初期画面の判定に使う完了フラグを
   // 起動前に同期的に読めるよう SharedPreferences を先読みして注入する。
   final prefs = await SharedPreferences.getInstance();
+  // ローカル通知の zonedSchedule はタイムゾーン DB を必要とする。DB を初期化し、
+  // 予約時刻の表現に使うローカルゾーンを設定する。本アプリは日本向けのため
+  // Asia/Tokyo を用いる。実際の発火時刻は端末ローカルの壁時計時刻に従う
+  // （予約は絶対時刻として解釈されるため、このゾーン設定は発火時刻を変えない）。
+  tz_data.initializeTimeZones();
+  tz.setLocalLocation(tz.getLocation('Asia/Tokyo'));
   runApp(
     ProviderScope(
       overrides: [
@@ -43,6 +53,12 @@ Future<void> main() async {
         // 既定の NoopHealthService（無害な no-op）のままにする。
         if (Platform.isIOS)
           healthServiceProvider.overrideWithValue(HealthKitService()),
+        // ローカル通知は iOS / Android の実機のみ。他は既定の
+        // NoopNotificationService（無害な no-op）のままにする。
+        if (Platform.isIOS || Platform.isAndroid)
+          notificationServiceProvider.overrideWithValue(
+            LocalNotificationService(),
+          ),
       ],
       child: const ArukuApp(),
     ),
