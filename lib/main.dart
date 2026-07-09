@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -21,6 +22,7 @@ import 'core/services/local_notification_service.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/onboarding_repository.dart';
 import 'core/services/recents_repository.dart';
+import 'core/services/usage_tracking_service.dart';
 import 'core/theme/aruku_theme.dart';
 import 'firebase_options.dart';
 import 'l10n/app_localizations.dart';
@@ -65,6 +67,14 @@ Future<void> main() async {
           ),
         analyticsServiceProvider.overrideWithValue(
           FirebaseAnalyticsService(FirebaseAnalytics.instance),
+        ),
+        // Cloud Functions は asia-northeast1 へデプロイ済み（functions/src/index.ts
+        // の setGlobalOptions）。既定の us-central1 インスタンスを叩くと
+        // NOT_FOUND になるため、必ず region を明示する。
+        usageTrackingServiceProvider.overrideWithValue(
+          CloudFunctionsUsageTrackingService(
+            FirebaseFunctions.instanceFor(region: 'asia-northeast1'),
+          ),
         ),
       ],
       child: const ArukuApp(),
