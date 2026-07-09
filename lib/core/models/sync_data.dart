@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 
 import 'app_settings.dart';
 import 'daily_activity.dart';
-import 'favorite_place.dart';
 import 'recent_place.dart';
 
 /// アカウントに紐付けてクラウド同期する、端末ローカルデータのスナップショット。
@@ -15,7 +14,6 @@ class SyncData {
   const SyncData({
     required this.updatedAt,
     required this.settings,
-    required this.favorites,
     required this.recents,
     required this.recentOrigins,
     required this.activity,
@@ -24,7 +22,6 @@ class SyncData {
   /// このスナップショットがローカルで最後に更新された時刻（UTC 推奨）。
   final DateTime updatedAt;
   final AppSettings settings;
-  final List<FavoritePlace> favorites;
   final List<RecentPlace> recents;
   final List<RecentPlace> recentOrigins;
   final List<DailyActivity> activity;
@@ -70,7 +67,6 @@ class SyncData {
   Map<String, dynamic> toJson() => {
     'updatedAt': updatedAt.toUtc().toIso8601String(),
     'settings': settings.toJson(),
-    'favorites': favorites.map((e) => e.toJson()).toList(),
     'recents': recents.map((e) => e.toJson()).toList(),
     'recentOrigins': recentOrigins.map((e) => e.toJson()).toList(),
     'activity': activity.map((e) => e.toJson()).toList(),
@@ -86,7 +82,6 @@ class SyncData {
       settings: settings is Map<String, dynamic>
           ? AppSettings.fromJson(settings)
           : AppSettings.defaults,
-      favorites: _list(json['favorites'], FavoritePlace.fromJson),
       recents: _list(json['recents'], RecentPlace.fromJson),
       recentOrigins: _list(json['recentOrigins'], RecentPlace.fromJson),
       activity: _list(json['activity'], DailyActivity.fromJson),
