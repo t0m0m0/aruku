@@ -25,7 +25,6 @@ function validSyncData(): Record<string, unknown> {
   return {
     updatedAt: "2026-07-03T00:00:00.000Z",
     settings: { notificationsEnabled: true },
-    favorites: [{ name: "home" }],
     recents: [{ name: "cafe" }],
     recentOrigins: [{ name: "office" }],
     activity: [{ date: "2026-07-03", steps: 1000 }],
@@ -106,10 +105,19 @@ describe("firestore.rules userSync", () => {
       );
     });
 
-    it("必須フィールド欠落（favorites なし）を拒否する", async () => {
+    it("必須フィールド欠落（recents なし）を拒否する", async () => {
       const data = validSyncData();
-      delete data.favorites;
+      delete data.recents;
       await assertFails(setDoc(ownerDoc(testEnv, OWNER), data));
+    });
+
+    it("旧フィールド（favorites）が残っていると未知フィールドとして拒否する", async () => {
+      await assertFails(
+        setDoc(ownerDoc(testEnv, OWNER), {
+          ...validSyncData(),
+          favorites: [{ name: "home" }],
+        }),
+      );
     });
 
     it("settings に未知のキーがあると拒否する", async () => {
@@ -141,15 +149,6 @@ describe("firestore.rules userSync", () => {
   });
 
   describe("サイズ上限", () => {
-    it("favorites が上限(100)超で拒否する", async () => {
-      const favorites = Array.from({ length: 101 }, (_, i) => ({
-        name: `p${i}`,
-      }));
-      await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), { ...validSyncData(), favorites }),
-      );
-    });
-
     it("recents が上限(50)超で拒否する", async () => {
       const recents = Array.from({ length: 51 }, (_, i) => ({ name: `p${i}` }));
       await assertFails(
@@ -167,12 +166,12 @@ describe("firestore.rules userSync", () => {
       );
     });
 
-    it("上限内（favorites=100）は許可する", async () => {
-      const favorites = Array.from({ length: 100 }, (_, i) => ({
+    it("上限内（recents=50）は許可する", async () => {
+      const recents = Array.from({ length: 50 }, (_, i) => ({
         name: `p${i}`,
       }));
       await assertSucceeds(
-        setDoc(ownerDoc(testEnv, OWNER), { ...validSyncData(), favorites }),
+        setDoc(ownerDoc(testEnv, OWNER), { ...validSyncData(), recents }),
       );
     });
   });
