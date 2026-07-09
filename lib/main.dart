@@ -1,7 +1,9 @@
 import 'dart:io' show Platform;
 
+import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,6 +14,7 @@ import 'package:timezone/timezone.dart' as tz;
 
 import 'core/config/app_config.dart';
 import 'core/navigation/app_router.dart';
+import 'core/services/analytics_service.dart';
 import 'core/services/health_service.dart';
 import 'core/services/healthkit_service.dart';
 import 'core/services/local_notification_service.dart';
@@ -27,6 +30,7 @@ Future<void> main() async {
   _assertFirebaseKeyPresent();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await _activateAppCheck();
+  _activateCrashlytics();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -59,6 +63,9 @@ Future<void> main() async {
           notificationServiceProvider.overrideWithValue(
             LocalNotificationService(),
           ),
+        analyticsServiceProvider.overrideWithValue(
+          FirebaseAnalyticsService(FirebaseAnalytics.instance),
+        ),
       ],
       child: const ArukuApp(),
     ),
@@ -101,6 +108,18 @@ Future<void> _activateAppCheck() {
     providerAndroid: const AndroidPlayIntegrityProvider(),
     providerApple: const AppleAppAttestProvider(),
   );
+}
+
+// Flutter フレームワークの致命的エラーと、フレームワーク外（非同期タイマー等）の
+// 未捕捉エラーをどちらも Crashlytics へ送る。debug ビルドでは実データを汚さない
+// よう収集を無効化する（Firebase Console 側の「デバッグビュー」相当は使わない）。
+void _activateCrashlytics() {
+  FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(!kDebugMode);
+  FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+  PlatformDispatcher.instance.onError = (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    return true;
+  };
 }
 
 class ArukuApp extends ConsumerWidget {
