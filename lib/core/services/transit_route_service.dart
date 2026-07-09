@@ -97,10 +97,12 @@ class TransitRouteService implements RouteService {
     if (destinationLatLng == null) throw const RouteException('NO_DESTINATION');
     final budgetMin = budgetMinutes(departure, arrival);
 
-    // 1検索単位でAPI呼び出し回数を計測する（#238）。plan() は search_requested の
-    // 単位（AppNotifier.startSearch 1回）と1:1で呼ばれるため、ここでリセットして
-    // finally で必ず送信すれば成功・失敗を問わず取りこぼさない。
-    _api.resetCallCounts();
+    // 1検索単位でAPI呼び出し回数を計測する（#238）。_api は routeServiceProvider
+    // が持つ単一インスタンスで、並行検索（#221・cancelSearch 後も進行中のHTTPは
+    // 中断せず走り続ける）では複数の plan() が同じカウンタを共有する。reset は
+    // 相手の集計中カウントを消してしまうため使わず、開始時点のスナップショットとの
+    // 差分（-）だけを1検索分として送る。
+    final baseline = _api.callCounts;
     var fallbackTriggered = false;
     try {
       onProgress?.call(RoutePhase.routing);
@@ -125,10 +127,11 @@ class TransitRouteService implements RouteService {
         onProgress: onProgress,
         fromName: originName,
         toName: destination,
+        callBaseline: baseline,
         onFallback: () => fallbackTriggered = true,
       );
     } finally {
-      final counts = _api.callCounts;
+      final counts = _api.callCounts - baseline;
       _analytics.logSearchApiCalls(
         navitimeCalls: counts.navitimeCalls,
         googleWalkCalls: counts.googleWalkCalls,
@@ -150,6 +153,7 @@ class TransitRouteService implements RouteService {
     void Function(RoutePhase)? onProgress,
     String? fromName,
     String? toName,
+    required ApiCallCounts callBaseline,
     void Function()? onFallback,
   }) async {
     final departureAt = _departureDateTime(departure);
@@ -256,7 +260,7 @@ class TransitRouteService implements RouteService {
         _isCollapse(selected.chosen, options, budgetMin, departureAt)) {
       _diag.log(() => 'collapse=true → board-search フォールバック起動');
       onFallback?.call();
-      final counts = _api.callCounts;
+      final counts = _api.callCounts - callBaseline;
       _analytics.logSearchFallbackTriggered(
         navitimeCalls: counts.navitimeCalls,
         googleWalkCalls: counts.googleWalkCalls,

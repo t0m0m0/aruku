@@ -19,6 +19,16 @@ class ApiCallCounts {
   final int navitimeCalls;
   final int googleWalkCalls;
   final int googleMatrixCalls;
+
+  /// スナップショット間の差分。[TransitApiClient] は複数の検索で共有される
+  /// （並行検索・#221 は進行中のHTTPを中断せず走り続ける）ため、検索開始時と
+  /// 終了時の [callCounts] の差分を取ることで、他の検索の呼び出しに巻き込まれず
+  /// 1検索分の回数を求められる（#238）。
+  ApiCallCounts operator -(ApiCallCounts other) => ApiCallCounts(
+    navitimeCalls: navitimeCalls - other.navitimeCalls,
+    googleWalkCalls: googleWalkCalls - other.googleWalkCalls,
+    googleMatrixCalls: googleMatrixCalls - other.googleMatrixCalls,
+  );
 }
 
 /// Transit API（`/guidance/plan` 直叩き）と Google Routes プロキシへの HTTP 通信を担う

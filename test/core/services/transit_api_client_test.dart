@@ -224,6 +224,26 @@ void main() {
       client.resetCallCounts();
       expect(client.callCounts.navitimeCalls, 0);
     });
+
+    // 並行検索（#221・cancelSearch後もHTTPは中断せず走り続ける）で同一クライアントを
+    // 共有すると reset は他方の集計中カウントを消してしまう。差分（-）で1検索分だけを
+    // 取り出せることを固定する（#238 レビュー指摘対応）。
+    test('- はスナップショット間の差分を返す（並行検索での計測用）', () {
+      const before = ApiCallCounts(
+        navitimeCalls: 1,
+        googleWalkCalls: 2,
+        googleMatrixCalls: 3,
+      );
+      const after = ApiCallCounts(
+        navitimeCalls: 4,
+        googleWalkCalls: 5,
+        googleMatrixCalls: 7,
+      );
+      final delta = after - before;
+      expect(delta.navitimeCalls, 3);
+      expect(delta.googleWalkCalls, 3);
+      expect(delta.googleMatrixCalls, 4);
+    });
   });
 
   group('baseUrl 正規化', () {

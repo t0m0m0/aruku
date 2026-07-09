@@ -387,6 +387,38 @@ void main() {
         );
       },
     );
+
+    test(
+      '同一サービスで検索を繰り返しても各回のsearch_api_callsは前回分を含まない（#238 レビュー指摘対応）',
+      () async {
+        // routeServiceProvider は TransitRouteService（と内部の TransitApiClient）を
+        // 使い回すシングルトンで、検索のたびにリセットされない。過去の reset ベース実装は
+        // 並行検索でカウントを壊しうるだけでなく、この単純な逐次再利用でも2回目以降の
+        // カウントが正しく前回分と分離されることが前提だった。差分方式でも成り立つことを
+        // 固定する。
+        final analytics = _RecordingAnalyticsService();
+        final svc = _service(
+          _mock(transit: _guidance([_singleTrainOption()])),
+          analytics: analytics,
+        );
+        Future<void> search() => svc.plan(
+          destination: '新宿駅',
+          destinationLatLng: goal,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 9, m: 50),
+          origin: origin,
+          originName: '東京駅',
+        );
+        await search();
+        await search();
+
+        expect(analytics.apiCallsLog, hasLength(2));
+        expect(
+          analytics.apiCallsLog[0].navitimeCalls,
+          analytics.apiCallsLog[1].navitimeCalls,
+        );
+      },
+    );
   });
 
   group('plan: 徒歩最大化', () {
