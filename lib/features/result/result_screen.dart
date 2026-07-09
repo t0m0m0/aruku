@@ -4,12 +4,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/models/favorite_place.dart';
 import '../../core/models/route_plan.dart';
 import '../../core/models/time_value.dart';
 import '../../core/services/share_service.dart';
 import '../../core/state/app_state.dart';
-import '../../core/state/favorites_provider.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
@@ -51,8 +49,6 @@ class ResultScreen extends ConsumerWidget {
     final l10n = AppLocalizations.of(context);
     final notifier = ref.read(appStateProvider.notifier);
     final state = ref.watch(appStateProvider);
-    final favorites =
-        ref.watch(favoritesProvider).value ?? const <FavoritePlace>[];
     final route = state.route;
 
     // ヘッダーの FROM/TO や合計行など横幅固定の要素が無制限な文字拡大で
@@ -155,32 +151,6 @@ class ResultScreen extends ConsumerWidget {
                           route,
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Builder(
-                      builder: (context) {
-                        final place = FavoritePlace(
-                          name: state.destination ?? route.to,
-                          latLng: state.destinationLatLng,
-                        );
-                        final isFav = favorites.any(
-                          (e) => e.dedupeKey == place.dedupeKey,
-                        );
-                        return _HeaderButton(
-                          key: const ValueKey('result-star-button'),
-                          semanticLabel: isFav
-                              ? l10n.resultRemoveFavorite
-                              : l10n.resultAddFavorite,
-                          child: Ic.star(
-                            size: 18,
-                            color: isFav ? c.moss600 : c.ink,
-                            filled: isFav,
-                          ),
-                          onTap: () => unawaited(
-                            ref.read(favoritesProvider.notifier).toggle(place),
-                          ),
-                        );
-                      },
                     ),
                   ],
                 ),

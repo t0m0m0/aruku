@@ -3,14 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/models/favorite_place.dart';
 import '../../core/models/geo_point.dart';
 import '../../core/models/location_state.dart';
 import '../../core/models/place_prediction.dart';
 import '../../core/models/recent_place.dart';
 import '../../core/services/places_service.dart';
 import '../../core/state/app_state.dart';
-import '../../core/state/favorites_provider.dart';
 import '../../core/state/recents_provider.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../l10n/app_localizations.dart';
@@ -112,19 +110,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   void _selectRecent(RecentPlace r) {
     _rememberRecent(r);
     _applySelection(r.name, latLng: r.latLng);
-  }
-
-  // お気に入りタイルからの選択。履歴にも残しつつ目的地に設定する。
-  void _selectFavorite(FavoritePlace f) {
-    _rememberRecent(
-      RecentPlace(name: f.name, placeId: f.placeId, latLng: f.latLng),
-    );
-    _applySelection(f.name, latLng: f.latLng);
-  }
-
-  // お気に入りタイル末尾のスターからの解除。失敗しても再表示されるだけなので待たない。
-  void _removeFavorite(FavoritePlace f) {
-    unawaited(ref.read(favoritesProvider.notifier).remove(f));
   }
 
   void _applySelection(String name, {GeoPoint? latLng}) {
@@ -493,7 +478,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         widget.mode == SearchMode.origin || locationAvailable;
 
     // 履歴はモードごとに別系統。目的地モードは目的地履歴、出発地モードは
-    // 出発地履歴を表示する。お気に入りは目的地のみ（出発地は対象外）。
+    // 出発地履歴を表示する。
     final recents =
         ref
             .watch(
@@ -503,11 +488,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             )
             .value ??
         const <RecentPlace>[];
-    final favorites = widget.mode == SearchMode.destination
-        ? ref.watch(favoritesProvider).value ?? const <FavoritePlace>[]
-        : const <FavoritePlace>[];
 
-    if (!showCurrentLocation && recents.isEmpty && favorites.isEmpty) {
+    if (!showCurrentLocation && recents.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -545,75 +527,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               ),
             ),
           ),
-        if (favorites.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(22, 16, 22, 6),
-            child: Text(
-              l10n.searchFavoritesSectionTitle,
-              style: jpStyle(size: 12, weight: FontWeight.w700, color: c.ink3),
-            ),
-          ),
-          for (final f in favorites)
-            InkWell(
-              onTap: () => _selectFavorite(f),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 22,
-                  vertical: 12,
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: c.moss50,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Center(
-                        child: Ic.star(
-                          size: 18,
-                          color: c.moss600,
-                          filled: true,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Text(
-                        f.name,
-                        overflow: TextOverflow.ellipsis,
-                        style: jpStyle(
-                          size: 16,
-                          weight: FontWeight.w700,
-                          color: c.ink,
-                        ),
-                      ),
-                    ),
-                    // 末尾のスターで解除。タイル本体のタップ（選択）とは
-                    // 別ジェスチャとして扱われ、こちらが優先される。
-                    Semantics(
-                      button: true,
-                      label: l10n.searchRemoveFavorite,
-                      child: InkWell(
-                        key: ValueKey('favorite-remove-${f.dedupeKey}'),
-                        onTap: () => _removeFavorite(f),
-                        borderRadius: BorderRadius.circular(12),
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: Ic.star(
-                            size: 18,
-                            color: c.moss600,
-                            filled: true,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
         if (recents.isNotEmpty) ...[
           Padding(
             padding: const EdgeInsets.fromLTRB(22, 16, 22, 6),

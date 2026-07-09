@@ -502,12 +502,6 @@ abstract class AppLocalizations {
   /// **'現在地を使う'**
   String get searchUseCurrentLocation;
 
-  /// No description provided for @searchFavoritesSectionTitle.
-  ///
-  /// In ja, this message translates to:
-  /// **'お気に入り'**
-  String get searchFavoritesSectionTitle;
-
   /// No description provided for @searchRecentOrigins.
   ///
   /// In ja, this message translates to:
@@ -1089,24 +1083,6 @@ abstract class AppLocalizations {
   /// In ja, this message translates to:
   /// **'入力を消去'**
   String get searchClearInput;
-
-  /// 検索候補のお気に入り解除ボタンのVoiceOverラベル
-  ///
-  /// In ja, this message translates to:
-  /// **'お気に入りから削除'**
-  String get searchRemoveFavorite;
-
-  /// 結果画面のお気に入り追加ボタンのVoiceOverラベル
-  ///
-  /// In ja, this message translates to:
-  /// **'お気に入りに追加'**
-  String get resultAddFavorite;
-
-  /// 結果画面のお気に入り解除ボタンのVoiceOverラベル
-  ///
-  /// In ja, this message translates to:
-  /// **'お気に入りから削除'**
-  String get resultRemoveFavorite;
 }
 
 class _AppLocalizationsDelegate

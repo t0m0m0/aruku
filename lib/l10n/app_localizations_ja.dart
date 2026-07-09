@@ -222,9 +222,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get searchUseCurrentLocation => '現在地を使う';
 
   @override
-  String get searchFavoritesSectionTitle => 'お気に入り';
-
-  @override
   String get searchRecentOrigins => '最近の出発地';
 
   @override
@@ -543,13 +540,4 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get searchClearInput => '入力を消去';
-
-  @override
-  String get searchRemoveFavorite => 'お気に入りから削除';
-
-  @override
-  String get resultAddFavorite => 'お気に入りに追加';
-
-  @override
-  String get resultRemoveFavorite => 'お気に入りから削除';
 }
