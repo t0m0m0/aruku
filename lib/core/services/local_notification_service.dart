@@ -80,6 +80,11 @@ class LocalNotificationService implements NotificationService {
     required int streakDays,
   }) async {
     await _ensureInitialized();
+    // 権限が無いまま予約しても通知は表示されない（iOS / Android 13+）。既定で
+    // 通知オンのため、トグル操作を経ずに最初の予約が走る経路もある。ここで権限を
+    // 要求し、拒否されていれば予約しない（HealthKit の書き込みと同じ方針）。
+    // requestPermission は OS 側で一度しかダイアログを出さないため冪等。
+    if (!await requestPermission()) return;
     final l10n = lookupAppLocalizations(const Locale('ja'));
     await _plugin.zonedSchedule(
       id: _streakReminderId,

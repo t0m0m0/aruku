@@ -36,8 +36,10 @@ Future<void> main() async {
   // オンボーディングのチラつきを避けるため、初期画面の判定に使う完了フラグを
   // 起動前に同期的に読めるよう SharedPreferences を先読みして注入する。
   final prefs = await SharedPreferences.getInstance();
-  // ローカル通知の zonedSchedule 用にタイムゾーン DB を初期化する。本アプリは
-  // 日本向けのため、ローカルロケーションは Asia/Tokyo に固定する。
+  // ローカル通知の zonedSchedule はタイムゾーン DB を必要とする。DB を初期化し、
+  // 予約時刻の表現に使うローカルゾーンを設定する。本アプリは日本向けのため
+  // Asia/Tokyo を用いる。実際の発火時刻は端末ローカルの壁時計時刻に従う
+  // （予約は絶対時刻として解釈されるため、このゾーン設定は発火時刻を変えない）。
   tz_data.initializeTimeZones();
   tz.setLocalLocation(tz.getLocation('Asia/Tokyo'));
   runApp(
