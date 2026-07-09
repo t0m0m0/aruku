@@ -1,6 +1,11 @@
 import * as https from "https";
 import { setGlobalOptions } from "firebase-functions/v2";
-import { onRequest, Request } from "firebase-functions/v2/https";
+import {
+  HttpsError,
+  onCall,
+  onRequest,
+  Request,
+} from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import { Response } from "express";
 import { initializeApp } from "firebase-admin/app";
@@ -8,6 +13,7 @@ import { getAppCheck } from "firebase-admin/app-check";
 
 import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
 import { checkRateLimit, WALK_RATE_LIMIT } from "./rate-limiter";
+import { incrementSearchUsage } from "./usage-tracker";
 
 // レート制限ユーティリティはテスト互換のため再エクスポートする。
 export {
@@ -702,5 +708,22 @@ export const googleWalkMatrixProxy = onRequest(
     }
 
     res.json(data);
+  }
+);
+
+// 検索回数カウンタ（#238）。onRequest+App Check の他プロキシと異なり、ユーザー単位の
+// 集計には Firebase Auth の本人性が要る。onCall は Authorization ヘッダの ID トークンを
+// 自動検証して request.auth.uid を渡すため、この用途にのみ callable を使う。
+// 加算はクライアントから直接 Firestore を書かせず、この関数（Admin SDK）内の
+// トランザクション（incrementSearchUsage）でのみ行う。
+export const recordSearchUsage = onCall(
+  { enforceAppCheck: true },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "サインインが必要です。");
+    }
+    await incrementSearchUsage(uid);
+    return { ok: true };
   }
 );
