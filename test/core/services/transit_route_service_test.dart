@@ -149,30 +149,39 @@ http.Response _matrixFor(Uri url) {
 }
 
 /// computeRoutes(WALK) プロキシ応答を直線距離で近似（enrich が選定と整合するように）。
-http.Response _walkFor(Uri url) {
+/// [factor] を上げると「Google 実街路は直線見積りより長い」現実の条件を再現できる
+/// （enrich で徒歩が伸び、選定時は予算内だった候補が超過・乗り遅れへ転じる）。
+http.Response _walkFor(Uri url, {double factor = 1.0}) {
   final s = _pt(url.queryParameters['start'] ?? '0,0');
   final g = _pt(url.queryParameters['goal'] ?? '0,0');
   final km = haversineKm(s, g);
   return _json({
     'routes': [
       {
-        'distanceMeters': (km * 1000).round(),
-        'duration': '${_walkMin(s, g) * 60}s',
+        'distanceMeters': (km * 1000 * factor).round(),
+        'duration': '${(_walkMin(s, g) * factor).round() * 60}s',
       },
     ],
   });
 }
 
 /// transit（guidance/plan）と proxy（google walk）をパスで振り分けるモック。
-http.Client _mock({required Map<String, dynamic> transit, List<Uri>? log}) =>
-    MockClient((req) async {
-      log?.add(req.url);
-      final path = req.url.path;
-      if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
-      if (path.contains('googleWalkProxy')) return _walkFor(req.url);
-      if (path.contains('guidance/plan')) return _json(transit);
-      return _json(const {}, 404);
-    });
+/// [walkFactor] は enrich（computeRoutes WALK）にのみ効き、候補構築の見積り
+/// （matrix / guidance）は据え置く。
+http.Client _mock({
+  required Map<String, dynamic> transit,
+  List<Uri>? log,
+  double walkFactor = 1.0,
+}) => MockClient((req) async {
+  log?.add(req.url);
+  final path = req.url.path;
+  if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+  if (path.contains('googleWalkProxy')) {
+    return _walkFor(req.url, factor: walkFactor);
+  }
+  if (path.contains('guidance/plan')) return _json(transit);
+  return _json(const {}, 404);
+});
 
 TransitRouteService _service(http.Client client) => TransitRouteService(
   transitClient: client,
@@ -267,7 +276,12 @@ void main() {
   group('plan: 標準乗換', () {
     test('予算が小さいと電車を含む経路を返し、表示名はアプリ指定で上書き', () async {
       // 全徒歩は origin→goal 直線 ≒70分で予算超過。電車を含む候補が選ばれる。
-      final svc = _service(_mock(transit: _guidance([_singleTrainOption()])));
+      // 09:15 発にして「実測徒歩8分で駅着 → 7分待って乗車」と実際に乗れる電車にする。既定の
+      // 09:06 発では実測徒歩が見積り5分から8分へ伸びて発車後に駅着＝乗り遅れとなり、確定境界の
+      // 再判定（#254）で全徒歩へ縮退する＝「電車を含む経路を返す」前提が崩れる。
+      final svc = _service(
+        _mock(transit: _guidance([_singleTrainOption(dep: 33300, arr: 35100)])),
+      );
       final plan = await svc.plan(
         destination: '新宿駅',
         destinationLatLng: goal,
@@ -342,17 +356,20 @@ void main() {
     const origin2 = GeoPoint(35.0, 139.0);
     const goal2 = GeoPoint(35.0, 139.5);
 
+    // 乗車駅は origin から直線3分（実街路3倍で9分）。09:10 発なので実測徒歩でも間に合う。
+    // 乗車駅を遠く（直線11分＝実測33分）に置くと、09:10 発には物理的に乗れない経路になり、
+    // 確定境界の乗り遅れ再判定（#254）で全徒歩へ縮退して崩壊判定まで到達しない。
     Map<String, dynamic> collapseGuidance() {
       const stops = [
-        [35.0, 139.01],
+        [35.0, 139.003],
         [35.0, 139.25],
         [35.0, 139.49],
       ];
       return _guidance([
         {
           'journey': {
-            'departureSecs': 32760, // 09:06
-            'arrivalSecs': 33660, // 09:21（乗車15分）
+            'departureSecs': 33000, // 09:10
+            'arrivalSecs': 33900, // 09:25（乗車15分）
             'durationSecs': 1500,
             'accessWalkSecs': 300, // guidance 見積り 5分
             'egressWalkSecs': 300, // guidance 見積り 5分
@@ -363,8 +380,8 @@ void main() {
                 fromName: '乗車駅',
                 toId: 'jr:alight',
                 toName: '降車駅',
-                dep: 32760,
-                arr: 33660,
+                dep: 33000,
+                arr: 33900,
               ),
             ],
           },
@@ -373,7 +390,7 @@ void main() {
             'segments': [
               _mapSeg('walk', 'origin', 'jr:board', 'osmWalk', const [
                 [35.0, 139.0],
-                [35.0, 139.01],
+                [35.0, 139.003],
               ]),
               _mapSeg('transit', 'jr:board', 'jr:alight', 'stopOrder', stops),
               _mapSeg(
@@ -1947,6 +1964,98 @@ void main() {
             !(u.queryParameters['avoidModes'] ?? '').contains('bus'),
       );
       expect(busAware, isEmpty, reason: '電車 corridor の引き直しはバスを除外したまま');
+    });
+  });
+
+  // 確定境界（best-effort 縮退・enrich ループの確定パス）で、実測徒歩による乗り遅れを
+  // 再判定する（#254）。選定時の乗り遅れ判定は guidance 見積り徒歩に対して走るが、確定直前の
+  // enrich が徒歩を Google 実街路へ伸ばすため、そこで初めて発車後に駅着＝乗れない便になり得る。
+  group('plan: 確定境界の乗り遅れ再判定 (#254)', () {
+    final departureAt = DateTime(2026, 6, 27, 9, 0);
+
+    test('best-effort 縮退は実測徒歩で乗り遅れる経路を確定しない', () async {
+      // 既定の _singleTrainOption() は 09:06 発・見積りアクセス徒歩5分だが、map の walk polyline
+      // を実測すると8分（09:08 着）＝発車済み。予算50分では全徒歩(69分)も電車も予算内に入らず
+      // best-effort へ縮退する。_bestEffort は enrich 前の segments で firstMissedTransit を
+      // 見るため見積り5分では乗り遅れず、そのまま enrich して「乗れない電車」を確定していた。
+      final svc = _service(_mock(transit: _guidance([_singleTrainOption()])));
+      final plan = await svc.plan(
+        destination: '新宿',
+        destinationLatLng: goal,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 9, m: 50), // 予算50分（何も予算内に入らない）
+        origin: origin,
+      );
+      expect(
+        firstMissedTransit(plan.segments, departureAt),
+        isNull,
+        reason: '実測徒歩で発車後に駅着する便を best-effort で確定してはならない',
+      );
+    });
+
+    /// 停車駅2点だけの単一電車 option。コリドーが痩せてハイブリッド候補が作られないため、
+    /// enrich ループのプールは「標準乗換 ＋ 全徒歩」の2件になる。
+    Map<String, dynamic> twoStopOption() {
+      const stops = [
+        [35.6812, 139.7671], // 東京（origin から直線徒歩8分）
+        [35.6909, 139.7003], // 新宿（goal のほぼ隣）
+      ];
+      return {
+        'journey': {
+          'departureSecs': 32760, // 09:06
+          'arrivalSecs': 34560, // 09:36
+          'durationSecs': 2400,
+          'accessWalkSecs': 300, // 見積り徒歩5分（実測は8分×factor）
+          'egressWalkSecs': 60,
+          'legs': [
+            _railLeg(
+              route: '中央線快速',
+              fromId: 'jr:Tokyo',
+              fromName: '東京',
+              toId: 'jr:Shinjuku',
+              toName: '新宿',
+              dep: 32760,
+              arr: 34560,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('walk', 'origin', 'jr:Tokyo', 'osmWalk', [
+              [35.6800, 139.7600],
+              stops.first,
+            ]),
+            _mapSeg('transit', 'jr:Tokyo', 'jr:Shinjuku', 'stopOrder', stops),
+            _mapSeg('walk', 'jr:Shinjuku', 'destination', 'estimatedWalk', [
+              stops.last,
+              [35.6900, 139.7000],
+            ]),
+          ],
+        },
+      };
+    }
+
+    test('プールが1件に痩せても enrich 実測の乗り遅れを素通りさせない', () async {
+      // 予算75分。全徒歩は見積り69分で予算内＝徒歩最大として真っ先に選ばれるが、実測（×1.3）で
+      // 90分へ伸び予算超過して落ちる。残る標準乗換1件は見積り徒歩5分で 09:06 発に間に合うのに、
+      // 実測徒歩10分では発車後に駅着する。enrich ループは `pool.length > 1` のときしか除外できず、
+      // 1件に痩せたこの候補を missedAfterEnrich のまま確定していた。
+      final svc = _service(
+        _mock(transit: _guidance([twoStopOption()]), walkFactor: 1.3),
+      );
+      final plan = await svc.plan(
+        destination: '新宿',
+        destinationLatLng: goal,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 15), // 予算75分
+        origin: origin,
+      );
+      expect(
+        firstMissedTransit(plan.segments, departureAt),
+        isNull,
+        reason: 'プールが1件でも乗り遅れる便を確定してはならない',
+      );
     });
   });
 }
