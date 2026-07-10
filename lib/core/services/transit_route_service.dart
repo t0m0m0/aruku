@@ -149,49 +149,16 @@ class TransitRouteService implements RouteService {
 
     final base = _baseForHybrid(options);
     if (base != null) {
-      final stops = _corridorStops(base);
-      final frontier = frontierStations(
-        [for (final s in stops) s.coord],
-        origin,
-        goal,
-        budgetMin,
-        maxPerSide: _maxMatrixSideStations,
+      candidates.addAll(
+        await _buildCorridorHybrids(
+          base,
+          origin,
+          goal,
+          budgetMin,
+          departureAt,
+          measured,
+        ),
       );
-      final baseMin = base.segments.fold(0, (a, s) => a + s.minutes);
-      _diag.log(
-        () =>
-            'base route: totalMin=${baseMin}m corridorStops=${stops.length} '
-            'frontier.boarding=${frontier.boarding} '
-            'alighting=${frontier.alighting}',
-      );
-      await _measureAccessWalks(
-        origin,
-        goal,
-        [for (final i in frontier.boarding) stops[i].coord],
-        [for (final i in frontier.alighting) stops[i].coord],
-        measured,
-      );
-      _diag.log(
-        () =>
-            'measured ${measured.length} legs; '
-            'allWalk(origin->goal)=${measured[_walkCacheKey(origin, goal)]}m '
-            '(null=matrix失敗→直線推定へ)',
-      );
-      final hybrids = _buildMeasuredHybrids(
-        base,
-        stops,
-        frontier,
-        measured,
-        origin,
-        goal,
-      );
-      candidates.addAll(hybrids);
-      _diag.log(() => 'built ${hybrids.length} hybrids:');
-      for (final c in hybrids) {
-        _diag.log(
-          () => '  hybrid: ${_diag.candLine(c, budgetMin, departureAt)}',
-        );
-      }
     } else {
       _diag.log(() => 'no base route (corridor<2); all-walk only');
       await _measureAccessWalks(origin, goal, const [], const [], measured);
@@ -212,9 +179,16 @@ class TransitRouteService implements RouteService {
 
     // last-resort のバス再照会は高々1回。予算内候補が出ないときにだけ発火するので、
     // 電車で間に合う通常時は Transit API への追加コールが増えない（#250）。
+    List<TransitOption>? busOptions;
     List<RouteCandidate>? busCandidates;
-    Future<List<RouteCandidate>> lastResortBus() async =>
-        busCandidates ??= await _fetchBusCandidates(origin, goal, departureAt);
+    Future<List<RouteCandidate>> lastResortBus() async {
+      if (busCandidates != null) return busCandidates!;
+      busOptions = await _fetchBusOptions(origin, goal, departureAt);
+      return busCandidates = [
+        for (final o in busOptions!)
+          RouteCandidate(from: o.from, to: o.to, segments: o.segments),
+      ];
+    }
 
     var selected = await _selectAndEnrich(
       candidates,
@@ -233,28 +207,75 @@ class TransitRouteService implements RouteService {
           'enriched(実測)=${_diag.candLine(selected.enriched, budgetMin, departureAt)}',
     );
 
+    // last-resort のバスが勝ったら、そのバス corridor も徒歩最大化の基準に据える（#251）。
+    // 電車が勝った通常時は [busBase] が null のままで、#249 の train-only ガードが効き続ける。
+    final busBase = _busBaseFor(selected.chosen, busCandidates, busOptions);
+
     // 崩壊判定は enrich 前の選定候補（[selected.chosen]）で行う。enrich 後の徒歩は
     // Google 実街路で膨らみ、標準乗換の guidance 見積り徒歩と測定基準がずれるため、
     // 両者を同じ見積り基準で比較しないと崩壊が誤って不成立になる（徒歩最大化の不達）。
-    if (base != null &&
-        _isCollapse(selected.chosen, options, budgetMin, departureAt)) {
+    //
+    // 比較集合には last-resort のバス option も含める（#251）。バスが勝つのは電車が予算内に
+    // 収まらないときなので、電車 option だけを見ると `bestStandardWalk=0` になり
+    // `margin=勝者の徒歩` が閾値を超えて崩壊が不成立になる。勝者自身を含む door-to-door
+    // 候補群と比べてこそ「乗り通しの標準候補と同じだけしか歩いていない」を検出できる。
+    final collapseOptions = busOptions == null
+        ? options
+        : [...options, ...busOptions!];
+    if ((base != null || busBase != null) &&
+        _isCollapse(selected.chosen, collapseOptions, budgetMin, departureAt)) {
       _diag.log(() => 'collapse=true → board-search フォールバック起動');
-      final boardSearch = await _buildBoardSearchCandidate(
-        base,
-        origin,
-        goal,
-        budgetMin,
-        departureAt,
-        walkCache,
-      );
-      if (boardSearch.isNotEmpty) {
-        _diag.log(() => 'board-search候補: ${boardSearch.length}件をプールへ追加');
+      final extra = <RouteCandidate>[];
+      if (base != null) {
+        // バスが勝ったときも電車 base の board-search は走らせる。last-resort の発火条件は
+        // 「予算外**または乗り遅れ**」（#250）なので、door-to-door では乗り遅れた電車も、
+        // より手前の駅から引き直せば後続便で予算内に入ることがある。電車が全滅する状況なら
+        // 予算内候補は0件で [extra] に何も足さない＝プールも選定結果も変わらない。
+        extra.addAll(
+          await _buildBoardSearchCandidate(
+            base,
+            origin,
+            goal,
+            budgetMin,
+            departureAt,
+            walkCache,
+          ),
+        );
+      }
+      if (busBase != null) {
+        // バス corridor は基準になったのがここが初めてなので、途中乗降ハイブリッドも
+        // ここで作る（通常照会の base と違い、事前に作る機会がなかった）。
+        _diag.log(() => 'バス corridor を基準に徒歩最大化（#251）');
+        extra
+          ..addAll(
+            await _buildCorridorHybrids(
+              busBase,
+              origin,
+              goal,
+              budgetMin,
+              departureAt,
+              measured,
+            ),
+          )
+          ..addAll(
+            await _buildBoardSearchCandidate(
+              busBase,
+              origin,
+              goal,
+              budgetMin,
+              departureAt,
+              walkCache,
+            ),
+          );
+      }
+      if (extra.isNotEmpty) {
+        _diag.log(() => '徒歩最大化候補: ${extra.length}件をプールへ追加');
         // 既に引いたバス候補（あれば）も再選定のプールへ引き継ぐ。board-search 候補が
         // 逆戻り・乗り遅れ・幽霊便で全滅したとき、last-resort で見つけた予算内のバスへ
         // 戻れるようにするため（引き継がないと予算外の best-effort へ落ちる）。徒歩最大化
-        // の観点ではバスは徒歩0分なので、生き残る board-search 候補があればそちらが勝つ。
+        // の観点では乗り通しのバスは徒歩が短いので、生き残る候補があればそちらが勝つ。
         selected = await _selectAndEnrich(
-          [...candidates, ...?busCandidates, ...boardSearch],
+          [...candidates, ...?busCandidates, ...extra],
           budgetMin,
           departureAt,
           origin: origin,
@@ -268,9 +289,9 @@ class TransitRouteService implements RouteService {
               '${_diag.candLine(selected.enriched, budgetMin, departureAt)}',
         );
       } else {
-        _diag.log(() => 'board-search候補: なし');
+        _diag.log(() => '徒歩最大化候補: なし');
       }
-    } else if (base != null) {
+    } else if (base != null || busBase != null) {
       _diag.log(() => 'collapse=false → フォールバック起動せず');
     }
 
@@ -289,13 +310,13 @@ class TransitRouteService implements RouteService {
     );
   }
 
-  /// last-resort のバス候補（#250）。`avoidModes` からバスを外して door-to-door を1回だけ
-  /// 引き直し、**バス区間を含む option だけ**を候補化する（バスを含まない option は電車のみの
+  /// last-resort のバス option（#250）。`avoidModes` からバスを外して door-to-door を1回だけ
+  /// 引き直し、**バス区間を含む option だけ**を返す（バスを含まない option は電車のみの
   /// 主照会と重複するため捨てる）。取得失敗は空リスト＝従来どおり best-effort 縮退へ。
   ///
-  /// バス候補は素の door-to-door 候補としてのみ扱う。ハイブリッド化・乗車駅探索の起点には
-  /// しない（[_baseForHybrid] は train-only のまま・#249 のガードを維持）。
-  Future<List<RouteCandidate>> _fetchBusCandidates(
+  /// [RouteCandidate] ではなく [TransitOption] を返すのは、コリドー座標を残して徒歩最大化の
+  /// 基準（[_baseForHybrid]）に据えられるようにするため（#251）。
+  Future<List<TransitOption>> _fetchBusOptions(
     GeoPoint origin,
     GeoPoint goal,
     DateTime departureAt,
@@ -315,15 +336,17 @@ class TransitRouteService implements RouteService {
     }
     return [
       for (final o in parseGuidancePlan(body))
-        if (o.segments.any((s) => s.type == SegmentType.bus))
-          RouteCandidate(from: o.from, to: o.to, segments: o.segments),
+        if (o.segments.any((s) => s.type == SegmentType.bus)) o,
     ];
   }
 
-  /// 確定経路の電車区間に乗降駅名が無い（コリドー座標由来の候補）ときだけ、その乗車座標
-  /// →降車座標で `/guidance/plan` を1回引き直して leg の実駅名を復元する（確定候補のみ・
-  /// 追加コール最小）。続けて隣接徒歩区間の端点へ駅名を伝播し、タイムラインの乗車駅ノード
-  /// （直前徒歩の toName を place に使う）と電車カードに駅名を出す。
+  /// 確定経路の transit 区間に乗降地名が無い（コリドー座標由来の候補）ときだけ、その乗車座標
+  /// →降車座標で `/guidance/plan` を1回引き直して leg の実駅名・バス停名を復元する（確定候補
+  /// のみ・追加コール最小）。続けて隣接徒歩区間の端点へ地名を伝播し、タイムラインの乗車ノード
+  /// （直前徒歩の toName を place に使う）と電車・バスカードに地名を出す。
+  ///
+  /// バス区間も対象にする（#251）。バス corridor 由来のハイブリッドは電車と同様に地名を
+  /// 持たないため、train 限定のままだとバス停名が空のまま確定してしまう。
   Future<RouteCandidate> _finalizeStationNames(
     RouteCandidate chosen,
     DateTime departureAt,
@@ -331,13 +354,14 @@ class TransitRouteService implements RouteService {
     final segs = [...chosen.segments];
     for (var i = 0; i < segs.length; i++) {
       final seg = segs[i];
-      if (seg.type != SegmentType.train) continue;
+      if (seg.type == SegmentType.walk) continue;
       if (seg.fromName.isNotEmpty && seg.toName.isNotEmpty) continue;
       if (seg.polyline.length < 2) continue;
       final names = await _fetchTransitEndpoints(
         seg.polyline.first,
         seg.polyline.last,
         departureAt,
+        type: seg.type,
       );
       if (names == null) continue;
       segs[i] = seg.copyWith(
@@ -440,12 +464,12 @@ class TransitRouteService implements RouteService {
     return RouteCandidate(from: cand.from, to: cand.to, segments: segs);
   }
 
-  /// 電車区間の乗降駅名を、直前（乗車駅）・直後（降車駅）の徒歩区間の端点が空のときだけ
-  /// 写す。タイムラインの乗車駅ノードは直前徒歩の toName、降車後の徒歩は fromName を
+  /// transit 区間（電車・バス）の乗降地名を、直前（乗車側）・直後（降車側）の徒歩区間の端点が
+  /// 空のときだけ写す。タイムラインの乗車ノードは直前徒歩の toName、降車後の徒歩は fromName を
   /// place に使うため。出発地・目的地の端（非空）は上書きしない。
   void _propagateStationNames(List<RouteSegment> segs) {
     for (var i = 0; i < segs.length; i++) {
-      if (segs[i].type != SegmentType.train) continue;
+      if (segs[i].type == SegmentType.walk) continue;
       final board = segs[i].fromName;
       final alight = segs[i].toName;
       if (i > 0 &&
@@ -668,6 +692,11 @@ class TransitRouteService implements RouteService {
   /// [_collapseWalkMarginMin] 以下しか上回らない、(2) 予算を相対（[_collapseSlackRatio]）
   /// または絶対（[_collapseSlackMinutes]）のいずれかの閾値以上余らせている、の両方を満たす
   /// とき true。best-effort（予算外）は対象外。
+  ///
+  /// [options] は「[winner] が属する door-to-door 候補群」を渡す（#251）。last-resort の
+  /// バスが勝ったときは電車 option に加えバス option も含める。含めないと予算内の電車が
+  /// 無い状況で `bestStandardWalk=0` となり、バスのアクセス徒歩がそのまま margin になって
+  /// 崩壊が不成立になる＝バスに乗り通したまま予算を余らせる。閾値は変えない。
   bool _isCollapse(
     RouteCandidate winner,
     List<TransitOption> options,
@@ -745,6 +774,8 @@ class TransitRouteService implements RouteService {
   ) async {
     final stops = _corridorStops(base);
     if (stops.length < 2) return const [];
+    // 引き直しの照会モードは基準コリドーの種別に揃える（#251）。
+    final allowBus = base.segments.any((s) => s.type == SegmentType.bus);
 
     // 探索が同じ index を再評価しても引き直さないようメモ化する。同一ラウンド内の
     // 評価点は重複除去済み（[maxWalkBoardingIndexParallel]）なので同時実行は衝突しない。
@@ -763,7 +794,12 @@ class TransitRouteService implements RouteService {
           ) ??
           _estimateWalk(origin, x.coord, fromName: base.from, toName: '');
       final boardAt = departureAt.add(Duration(minutes: walk1.totalMin));
-      final xToGoal = await _fetchTransitFrom(x.coord, goal, boardAt);
+      final xToGoal = await _fetchTransitFrom(
+        x.coord,
+        goal,
+        boardAt,
+        allowBus: allowBus,
+      );
       if (xToGoal == null) {
         _diag.log(
           () => 'board-search i=$i walk1=${walk1.totalMin}m guidance失敗',
@@ -858,6 +894,60 @@ class TransitRouteService implements RouteService {
     }
   }
 
+  /// [base] のコリドーからフロンティアを絞り、アクセス徒歩を一括実測してハイブリッド候補を
+  /// 作る（途中乗降＝徒歩最大化の主経路）。[measured] は呼び出し間で共有し、全徒歩
+  /// (origin→goal) のレッグもここで測る。
+  Future<List<RouteCandidate>> _buildCorridorHybrids(
+    TransitOption base,
+    GeoPoint origin,
+    GeoPoint goal,
+    int budgetMin,
+    DateTime departureAt,
+    Map<String, int> measured,
+  ) async {
+    final stops = _corridorStops(base);
+    final frontier = frontierStations(
+      [for (final s in stops) s.coord],
+      origin,
+      goal,
+      budgetMin,
+      maxPerSide: _maxMatrixSideStations,
+    );
+    final baseMin = base.segments.fold(0, (a, s) => a + s.minutes);
+    _diag.log(
+      () =>
+          'base route: totalMin=${baseMin}m corridorStops=${stops.length} '
+          'frontier.boarding=${frontier.boarding} '
+          'alighting=${frontier.alighting}',
+    );
+    await _measureAccessWalks(
+      origin,
+      goal,
+      [for (final i in frontier.boarding) stops[i].coord],
+      [for (final i in frontier.alighting) stops[i].coord],
+      measured,
+    );
+    _diag.log(
+      () =>
+          'measured ${measured.length} legs; '
+          'allWalk(origin->goal)=${measured[_walkCacheKey(origin, goal)]}m '
+          '(null=matrix失敗→直線推定へ)',
+    );
+    final hybrids = _buildMeasuredHybrids(
+      base,
+      stops,
+      frontier,
+      measured,
+      origin,
+      goal,
+    );
+    _diag.log(() => 'built ${hybrids.length} hybrids:');
+    for (final c in hybrids) {
+      _diag.log(() => '  hybrid: ${_diag.candLine(c, budgetMin, departureAt)}');
+    }
+    return hybrids;
+  }
+
   /// フロンティアの乗車駅 b → 降車駅 a（同一コリドー・b より後方）の分割を、実測アクセス
   /// 徒歩で候補化する。コリドー座標は時刻を持たないため乗車時間は折れ線長から距離概算
   /// （#67 と同じ untimed 経路）、運賃は取得不可のため null（§5）。
@@ -883,6 +973,11 @@ class TransitRouteService implements RouteService {
         // 乗換をまたぐ b→a は単一乗車として表現できないため同一コリドーのみ。
         if (stops[a].section != stops[b].section) continue;
         final rideKm = _railKm(stops, b, a);
+        // バス corridor でも [trainMetersPerMinute] のまま概算する（#251）。実効速度は
+        // バスの方が遅いが、見積りは楽観側に倒すのが選定の不変条件（§6・[walkMetersPerMinute]
+        // の docstring）。enrich／実時刻検証は「見積りで予算内の候補」を落とす方向にしか
+        // 働かないため、実速度で厳しく見積もると実ダイヤなら間に合うバスを選定段階で捨てて
+        // しまい回収できない。乗車時間は採用前に [_resolveBoardingTimes] が実時刻で上書きする。
         final ride = (rideKm * 1000 / trainMetersPerMinute).round();
         if (ride < 0) continue;
         final walk2 = _measuredWalkSeg(
@@ -1006,14 +1101,49 @@ class TransitRouteService implements RouteService {
     return (name != null && name.isNotEmpty) ? name : fallback;
   }
 
-  /// コリドー（停車駅／線路点）を持つ最短の標準経路をハイブリッド・乗車駅探索の基準にする。
-  /// バス混在 option は基準にしない（#249。乗車駅探索のバスへのフル適用は別issue）。
-  TransitOption? _baseForHybrid(List<TransitOption> options) {
+  /// 徒歩最大化の基準に据えるバス corridor（#251）。**勝者自身が乗っているバス便**の
+  /// option を返す。バスが勝っていない（＝last-resort を引いていない・電車が勝った）
+  /// ときは null で、#249 の train-only ガードが効き続ける。
+  ///
+  /// 最短のバス option を選んではいけない。last-resort が複数のバス便を返すとき、選定の
+  /// 目的関数は「徒歩最大」なのに [_baseForHybrid] の基準は「総所要最小」なので両者は
+  /// 食い違う。勝者と別の corridor を基準にすると、乗車バス停探索が勝者と無関係な停留所を
+  /// 引き直して空振りし、勝ったバスは乗り通しのまま予算を余らせる。
+  ///
+  /// [selectBestRoute] はプールの要素をそのまま返すので、勝者は参照で [busCandidates] に
+  /// 対応付けられる。対応付かないのは best-effort 縮退（[_resolveBoardingTimes] が実時刻を
+  /// 当てたコピーを作る）経由で勝ったときだけ。そのときは予算外＝[_isCollapse] が対象外に
+  /// するため基準は使われないが、従来どおり最短 option へフォールバックしておく。
+  TransitOption? _busBaseFor(
+    RouteCandidate winner,
+    List<RouteCandidate>? busCandidates,
+    List<TransitOption>? busOptions,
+  ) {
+    if (busOptions == null) return null;
+    if (!winner.segments.any((s) => s.type == SegmentType.bus)) return null;
+    final i = busCandidates?.indexWhere((c) => identical(c, winner)) ?? -1;
+    final scope = i >= 0 ? [busOptions[i]] : busOptions;
+    return _baseForHybrid(scope, allowBus: true);
+  }
+
+  /// コリドー（停車駅／線路点・バス停）を持つ最短の標準経路をハイブリッド・乗車駅探索の
+  /// 基準にする。
+  ///
+  /// 既定ではバス混在 option を基準にしない（#249）。電車で予算内に収まる通常照会では
+  /// バス corridor を基準に据える理由がなく、避けたバスが徒歩最大化の裏口から戻ってくる
+  /// のを防ぐため。[allowBus] を立てるのは last-resort 再照会で得たバス option を基準に
+  /// するときだけ（#251・[_busBaseFor] 経由）。
+  TransitOption? _baseForHybrid(
+    List<TransitOption> options, {
+    bool allowBus = false,
+  }) {
     TransitOption? best;
     int? bestMin;
     for (final o in options) {
       if (o.corridors.every((c) => c.coords.length < 2)) continue;
-      if (o.segments.any((s) => s.type == SegmentType.bus)) continue;
+      if (!allowBus && o.segments.any((s) => s.type == SegmentType.bus)) {
+        continue;
+      }
       final min = o.segments.fold(0, (a, s) => a + s.minutes);
       if (best == null || min < bestMin!) {
         best = o;
@@ -1064,21 +1194,25 @@ class TransitRouteService implements RouteService {
 
   // ---- Transit API（[TransitApiClient] 経由の引き直し） ----
 
-  /// 乗車駅候補 X から goal への経路を引き直し、最初に電車を含む option を
-  /// [RouteCandidate] で返す（乗車駅探索の評価関数）。電車を含む option が無ければ null。
+  /// 乗車駅候補 X から goal への経路を引き直し、最初に transit 区間を含む option を
+  /// [RouteCandidate] で返す（乗車駅探索の評価関数）。全徒歩しか返らなければ null。
+  ///
+  /// [allowBus] は基準コリドーの種別に揃える（#251）。バス corridor の乗車駅探索でバスを
+  /// 除外して引くと、バス停 X からの経路が全徒歩に落ちて探索が空振りする。
   Future<RouteCandidate?> _fetchTransitFrom(
     GeoPoint x,
     GeoPoint goal,
-    DateTime at,
-  ) async {
+    DateTime at, {
+    bool allowBus = false,
+  }) async {
     final Map<String, dynamic> body;
     try {
-      body = await _api.fetchGuidanceAt(x, goal, at);
+      body = await _api.fetchGuidanceAt(x, goal, at, allowBus: allowBus);
     } on RouteException {
       return null;
     }
     for (final o in parseGuidancePlan(body)) {
-      if (o.segments.any((s) => s.type == SegmentType.train)) {
+      if (o.segments.any((s) => s.type != SegmentType.walk)) {
         return RouteCandidate(from: o.from, to: o.to, segments: o.segments);
       }
     }
@@ -1218,8 +1352,8 @@ class _CorridorStop {
   final int section;
   final String? line;
 
-  /// この点が属する区間種別（電車 or バス）。#249: バス corridor は
-  /// [_baseForHybrid] で基準から除外しているため、現状は常に train。
+  /// この点が属する区間種別（電車 or バス）。通常照会では train のみ。last-resort の
+  /// バス候補を基準に据えたときだけ bus になる（#251）。
   final SegmentType type;
 
   /// ハイブリッド駅名は不明（コリドー座標に駅名は付かない）。空表示。

@@ -7,7 +7,7 @@ import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/hybrid_route_selector.dart'
     show haversineKm;
 import 'package:aruku/core/services/route_plan_builder.dart'
-    show walkMetersPerMinute, firstMissedTransit;
+    show walkMetersPerMinute, trainMetersPerMinute, firstMissedTransit;
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/services/transit_route_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1578,6 +1578,375 @@ void main() {
         isNull,
         reason: '乗り遅れる便を確定してはならない',
       );
+    });
+  });
+
+  // last-resort でバスが勝ったら、そのバス corridor にも徒歩最大化（途中下車・乗車駅探索）を
+  // フル適用する（#251）。通常照会（電車が予算内）では #249 の train-only ガードを維持する。
+  group('plan: バス corridor の徒歩最大化 (#251)', () {
+    const busOrigin = GeoPoint(35.0, 139.0);
+    const busGoal = GeoPoint(35.0, 139.127); // 直線 11.6km（全徒歩 145分）
+    // バス停 A は origin から徒歩14分。バス corridor はそこから goal まで。
+    const bs0 = 139.012;
+    const corridor = [bs0, 139.05, 139.09, 139.11, 139.127];
+    const busDep = 33300; // 09:15
+
+    /// 迂回バスの corridor が通る緯度。勝者 corridor（lat 35.0）と区別するために使う。
+    const detourLat = 35.02;
+
+    /// バスの実ダイヤ速度（モック）。既定は見積り（[trainMetersPerMinute]）と同じにして、
+    /// 「見積りが通った候補は実時刻でも通る」フィクスチャにする。[metersPerMinute] を
+    /// 下げると「実ダイヤは見積りより遅い」実世界の条件を再現できる。
+    int rideMin(GeoPoint a, GeoPoint b, [double? metersPerMinute]) =>
+        (haversineKm(a, b) * 1000 / (metersPerMinute ?? trainMetersPerMinute))
+            .round();
+
+    /// 電車のみの主照会が返す option。09:50 発 10:20 着で予算65分（10:05 着）に届かない。
+    /// コリドーは2点だけにして電車ハイブリッドを1本に抑える。
+    Map<String, dynamic> slowTrainOption() => {
+      'journey': {
+        'departureSecs': 35400, // 09:50
+        'arrivalSecs': 37200, // 10:20
+        'durationSecs': 1920,
+        'accessWalkSecs': 0,
+        'egressWalkSecs': 60,
+        'legs': [
+          _railLeg(
+            route: '各停線',
+            fromId: 's0',
+            fromName: '始発駅',
+            toId: 's1',
+            toName: '終着駅',
+            dep: 35400,
+            arr: 37200,
+          ),
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('transit', 's0', 's1', 'stopOrder', const [
+            [35.0, 139.0],
+            [35.0, 139.10],
+          ]),
+          _mapSeg('walk', 's1', 'destination', 'estimatedWalk', const [
+            [35.0, 139.10],
+            [35.0, 139.127],
+          ]),
+        ],
+      },
+    };
+
+    /// バス許容照会（origin 起点）が返す door-to-door option。徒歩14分でバス停 A へ出て
+    /// 09:15 発のバスに乗り goal まで乗り通す（徒歩14分・到着36分）。
+    Map<String, dynamic> busDoorToDoor() => {
+      'journey': {
+        'departureSecs': busDep,
+        'arrivalSecs':
+            busDep + rideMin(const GeoPoint(35.0, bs0), busGoal) * 60,
+        'durationSecs': 2160,
+        'accessWalkSecs': 840, // 徒歩14分
+        'egressWalkSecs': 0,
+        'legs': [
+          {
+            'kind': 'transit',
+            'mode': 'bus',
+            'routeName': 'バス01',
+            'from': _station('bs:0', 'A停留所'),
+            'to': _station('bs:1', 'B停留所'),
+            'departureSecs': busDep,
+            'arrivalSecs':
+                busDep + rideMin(const GeoPoint(35.0, bs0), busGoal) * 60,
+          },
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('walk', 'origin', 'bs:0', 'osmWalk', const [
+            [35.0, 139.0],
+            [35.0, bs0],
+          ]),
+          _mapSeg('transit', 'bs:0', 'bs:1', 'gtfsShape', [
+            for (final lng in corridor) [35.0, lng],
+          ]),
+        ],
+      },
+    };
+
+    /// last-resort が door-to-door と同時に返す「もう1本のバス」。徒歩0分で乗れて所要も
+    /// 短い（16分）ため [_baseForHybrid] の「最短 option」基準ではこちらが選ばれてしまうが、
+    /// 徒歩最大化の勝者は徒歩14分の [busDoorToDoor] の方。corridor は北へ迂回させて
+    /// （lat [detourLat]）、どちらの corridor を基準にしたかを照会ログで判別できるようにする。
+    Map<String, dynamic> detourBus() => {
+      'journey': {
+        'departureSecs': busDep,
+        'arrivalSecs': busDep + 960, // 16分乗車
+        'durationSecs': 960,
+        'accessWalkSecs': 0,
+        'egressWalkSecs': 0,
+        'legs': [
+          {
+            'kind': 'transit',
+            'mode': 'bus',
+            'routeName': 'バス02',
+            'from': _station('bs:n0', 'N停留所'),
+            'to': _station('bs:n1', 'M停留所'),
+            'departureSecs': busDep,
+            'arrivalSecs': busDep + 960,
+          },
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('transit', 'bs:n0', 'bs:n1', 'gtfsShape', const [
+            [35.0, 139.0],
+            [detourLat, 139.06],
+            [35.0, 139.127],
+          ]),
+        ],
+      },
+    };
+
+    /// バス許容照会（コリドー点起点）が返す単一バス便。[at] 以降で最も早い便として
+    /// 09:15、それを過ぎていれば [at]+5分に発車する。乗車駅探索・実時刻検証の引き直し用。
+    /// [busSpeed] を渡すと実ダイヤだけを遅くできる（見積りは [trainMetersPerMinute] のまま）。
+    Map<String, dynamic> busLegFrom(
+      GeoPoint from,
+      GeoPoint to,
+      DateTime at, {
+      double? busSpeed,
+    }) {
+      final atSecs = at.hour * 3600 + at.minute * 60;
+      final dep = atSecs <= busDep ? busDep : atSecs + 300;
+      final arr = dep + rideMin(from, to, busSpeed) * 60;
+      return {
+        'journey': {
+          'departureSecs': dep,
+          'arrivalSecs': arr,
+          'durationSecs': arr - dep,
+          'accessWalkSecs': 0,
+          'egressWalkSecs': 0,
+          'legs': [
+            {
+              'kind': 'transit',
+              'mode': 'bus',
+              'routeName': 'バス01',
+              'from': _station('bs:x', 'X停留所'),
+              'to': _station('bs:y', 'Y停留所'),
+              'departureSecs': dep,
+              'arrivalSecs': arr,
+            },
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('transit', 'bs:x', 'bs:y', 'gtfsShape', [
+              [from.lat, from.lng],
+              [to.lat, to.lng],
+            ]),
+          ],
+        },
+      };
+    }
+
+    /// all-walk のみ（電車のみ照会をコリドー点から引いたとき＝引き直し失敗の表現）。
+    Map<String, dynamic> walkOnlyOption() => {
+      'journey': {
+        'departureSecs': 0,
+        'arrivalSecs': 600,
+        'durationSecs': 600,
+        'legs': const [
+          {'kind': 'walk', 'departureSecs': 0, 'arrivalSecs': 600},
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('walk', 'a', 'b', 'osmWalk', const [
+            [35.0, 139.1],
+            [35.0, 139.2],
+          ]),
+        ],
+      },
+    };
+
+    /// [withDetourBus] を立てると last-resort が [detourBus] も返す（勝者でない最短 option）。
+    /// [busSpeed] は引き直し便の実ダイヤ速度（既定は見積りと同速）。
+    http.Client corridorMock({
+      List<Uri>? log,
+      bool withDetourBus = false,
+      double? busSpeed,
+    }) => MockClient((req) async {
+      log?.add(req.url);
+      final path = req.url.path;
+      if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+      if (path.contains('googleWalkProxy')) return _walkFor(req.url);
+      if (path.contains('guidance/plan')) {
+        final q = req.url.queryParameters;
+        final allowsBus = !(q['avoidModes'] ?? '').contains('bus');
+        final from = _pt(q['from']!.replaceFirst('geo:', ''));
+        final to = _pt(q['to']!.replaceFirst('geo:', ''));
+        final hm = (q['time'] ?? '09:00').split(':');
+        final at = DateTime(2026, 6, 27, int.parse(hm[0]), int.parse(hm[1]));
+        // 迂回 corridor は lat が違うので、緯度も含めて origin 起点かを判定する。
+        final fromOrigin =
+            (from.lat - busOrigin.lat).abs() < 1e-9 &&
+            (from.lng - busOrigin.lng).abs() < 1e-9;
+        final body = _guidance([
+          if (allowsBus)
+            if (fromOrigin) ...[
+              busDoorToDoor(),
+              if (withDetourBus) detourBus(),
+            ] else
+              busLegFrom(from, to, at, busSpeed: busSpeed)
+          else if (fromOrigin)
+            slowTrainOption()
+          else
+            walkOnlyOption(),
+        ]);
+        body['date'] = q['date'];
+        return _json(body);
+      }
+      return _json(const {}, 404);
+    });
+
+    /// guidance/plan のうち、コリドー点（origin 以外）を起点にしたバス許容照会。
+    Iterable<Uri> corridorBusQueries(List<Uri> log) => log.where(
+      (u) =>
+          u.path.contains('guidance/plan') &&
+          !(u.queryParameters['avoidModes'] ?? '').contains('bus') &&
+          u.queryParameters['from'] != 'geo:${busOrigin.lat},${busOrigin.lng}',
+    );
+
+    Future<RoutePlan> runPlan(http.Client client) => _service(client).plan(
+      destination: '目的地',
+      destinationLatLng: busGoal,
+      departure: const TimeValue(h: 9, m: 0),
+      arrival: const TimeValue(h: 10, m: 5), // 予算65分
+      origin: busOrigin,
+    );
+
+    test('バスが last-resort で勝つとき、手前のバス停で降りて歩く候補を選ぶ', () async {
+      // door-to-door のバス（徒歩14分・到着36分）は予算65分に対し29分も余らせる。
+      // バス corridor をハイブリッド化できれば、139.11 のバス停で降りて19分歩く候補
+      // （徒歩33分・到着52分）が作れる。train-only ガードのままだとこれが生成されず、
+      // 徒歩14分の乗り通しが確定してしまう。
+      final plan = await runPlan(corridorMock());
+      final walkMin = plan.segments
+          .where((s) => s.type == SegmentType.walk)
+          .fold(0, (a, s) => a + s.minutes);
+
+      expect(
+        plan.segments.where((s) => s.type == SegmentType.bus),
+        isNotEmpty,
+        reason: 'last-resort のバスは残る',
+      );
+      expect(
+        plan.segments.last.type,
+        SegmentType.walk,
+        reason: '手前のバス停で降りて goal まで歩く',
+      );
+      expect(
+        plan.segments.last.minutes,
+        greaterThan(0),
+        reason: '降車後の徒歩が0分ならバスに乗り通している',
+      );
+      expect(
+        walkMin,
+        greaterThan(14),
+        reason: 'door-to-door バス（徒歩14分）より歩く候補を選ぶべき',
+      );
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+    });
+
+    test('バス corridor 起点の引き直しはバスを許容する', () async {
+      final log = <Uri>[];
+      await runPlan(corridorMock(log: log));
+      // origin 起点のバス許容照会は last-resort（#250）そのものなので除く。コリドー点
+      // （バス停）を起点にした照会が出て初めて、バス corridor が徒歩最大化の基準になっている。
+      expect(
+        corridorBusQueries(log),
+        isNotEmpty,
+        reason: 'origin 以外（バス停）を起点にバス許容で引き直しているはず',
+      );
+    });
+
+    test('基準にするのは最短のバス option ではなく徒歩最大化で勝ったバス option', () async {
+      // last-resort が2本返す: 徒歩0分・16分乗車の迂回バス（総所要が最短）と、徒歩14分・
+      // 21分乗車の door-to-door バス（総所要35分）。徒歩最大化が選ぶのは後者だが、
+      // base を「最短の option」で決めると前者の corridor（北へ迂回・lat 35.02）を
+      // 引き直してしまい、乗車バス停探索が勝者と無関係な停留所を評価して空振りする。
+      final log = <Uri>[];
+      final plan = await runPlan(corridorMock(log: log, withDetourBus: true));
+
+      final fromDetour = corridorBusQueries(
+        log,
+      ).where((u) => u.queryParameters['from']!.startsWith('geo:$detourLat,'));
+      expect(fromDetour, isEmpty, reason: '勝者でない迂回バスの corridor を基準にしてはならない');
+      final fromWinner = corridorBusQueries(
+        log,
+      ).where((u) => u.queryParameters['from']!.startsWith('geo:35.0,'));
+      expect(
+        fromWinner,
+        isNotEmpty,
+        reason: '勝ったバス option の corridor 上のバス停から引き直すはず',
+      );
+      expect(
+        plan.segments.last.type,
+        SegmentType.walk,
+        reason: '勝者 corridor で徒歩最大化できているので手前で降りて歩く',
+      );
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+    });
+
+    test('バスの実ダイヤが見積りより遅ければ ハイブリッドは実時刻検証で落ち乗り通しへ戻る', () async {
+      // 見積りは楽観側（[trainMetersPerMinute]）に倒し、実速度の遅さは採用前の
+      // [_resolveBoardingTimes] が実時刻で上書きして弾く、という #251 の設計の裏取り。
+      // 実ダイヤを半速にすると 139.11 で降りる候補は到着70分（予算65分）で除外され、
+      // 予算内で確実に乗れる door-to-door の乗り通しへ安全に戻る。
+      final plan = await runPlan(
+        corridorMock(busSpeed: trainMetersPerMinute / 2),
+      );
+      final walkMin = plan.segments
+          .where((s) => s.type == SegmentType.walk)
+          .fold(0, (a, s) => a + s.minutes);
+
+      expect(plan.segments.last.type, SegmentType.bus, reason: '乗り通しへ戻る');
+      expect(walkMin, 14, reason: 'door-to-door バスのアクセス徒歩そのもの');
+      expect(
+        plan.totalMin,
+        lessThanOrEqualTo(plan.budgetMin),
+        reason: '遅いハイブリッドを掴んで予算超過してはならない',
+      );
+    });
+
+    test('電車が予算内なら バス corridor 化は起きずバス許容照会も出ない', () async {
+      // #249 の train-only ガード維持。09:15 発の電車で予算内に収まるので last-resort は
+      // 発火せず、コリドー引き直しは常に avoidModes=bus のまま。
+      final log = <Uri>[];
+      final svc = _service(
+        _mock(
+          transit: _guidance([_singleTrainOption(dep: 33300, arr: 35100)]),
+          log: log,
+        ),
+      );
+      final plan = await svc.plan(
+        destination: '新宿',
+        destinationLatLng: goal,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 9, m: 50),
+        origin: origin,
+      );
+      expect(plan.segments.where((s) => s.type == SegmentType.bus), isEmpty);
+      final busAware = log.where(
+        (u) =>
+            u.path.contains('guidance/plan') &&
+            !(u.queryParameters['avoidModes'] ?? '').contains('bus'),
+      );
+      expect(busAware, isEmpty, reason: '電車 corridor の引き直しはバスを除外したまま');
     });
   });
 }
