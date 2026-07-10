@@ -31,6 +31,7 @@ class _GatedRouteService implements RouteService {
   /// Notifier で検証するために 2 回目だけゲートを外す）。
   bool gated = true;
   void Function(RoutePhase)? lastOnProgress;
+  CancellationToken? lastCancellation;
 
   @override
   Future<RoutePlan> plan({
@@ -44,6 +45,7 @@ class _GatedRouteService implements RouteService {
     CancellationToken? cancellation,
   }) async {
     lastOnProgress = onProgress;
+    lastCancellation = cancellation;
     onProgress?.call(RoutePhase.routing);
     if (gated) await completer.future;
     return _plan;
@@ -128,6 +130,73 @@ void main() {
       await notifier.startSearch();
       expect(container.read(appStateProvider).screen, Screen.result);
       expect(container.read(appStateProvider).route, same(_plan));
+    });
+
+    test('startSearch は plan にキャンセルトークンを渡す', () async {
+      final service = _GatedRouteService();
+      final container = _containerWith(service);
+      final notifier = container.read(appStateProvider.notifier);
+
+      final future = notifier.startSearch();
+      expect(service.lastCancellation, isNotNull);
+      expect(service.lastCancellation!.isCanceled, isFalse);
+
+      service.completer.complete();
+      await future;
+    });
+
+    test('cancelSearch は進行中の plan に渡したトークンをキャンセルする', () async {
+      final service = _GatedRouteService();
+      final container = _containerWith(service);
+      final notifier = container.read(appStateProvider.notifier);
+
+      final future = notifier.startSearch();
+      final token = service.lastCancellation!;
+      expect(token.isCanceled, isFalse);
+
+      notifier.cancelSearch();
+      expect(token.isCanceled, isTrue);
+
+      service.completer.complete();
+      await future;
+    });
+
+    test('再検索ごとに新しいトークンを渡し前回をキャンセルする', () async {
+      final service = _GatedRouteService();
+      final container = _containerWith(service);
+      final notifier = container.read(appStateProvider.notifier);
+
+      final first = notifier.startSearch();
+      final firstToken = service.lastCancellation!;
+
+      // キャンセルを挟まず即座に再検索しても、前回の通信は放置されず切られる。
+      service.gated = false;
+      await notifier.startSearch();
+      final secondToken = service.lastCancellation!;
+
+      expect(secondToken, isNot(same(firstToken)));
+      expect(firstToken.isCanceled, isTrue);
+      expect(secondToken.isCanceled, isFalse);
+
+      service.completer.complete();
+      await first;
+    });
+
+    test('provider dispose で進行中の plan のトークンをキャンセルする', () async {
+      final service = _GatedRouteService();
+      final container = ProviderContainer(
+        overrides: [routeServiceProvider.overrideWithValue(service)],
+      );
+      final notifier = container.read(appStateProvider.notifier);
+
+      final future = notifier.startSearch();
+      final token = service.lastCancellation!;
+
+      container.dispose();
+      expect(token.isCanceled, isTrue);
+
+      service.completer.complete();
+      await expectLater(future, completes);
     });
 
     test('provider dispose 後に plan が完了しても例外を投げず state を書かない', () async {
