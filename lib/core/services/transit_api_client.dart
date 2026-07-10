@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 import '../models/geo_point.dart';
 import 'route_service.dart';
+import 'transit_plan_parser.dart' show nonTrainTransitModes;
 
 /// Transit API（`/guidance/plan` 直叩き）と Google Routes プロキシへの HTTP 通信を担う
 /// クライアント（#169）。[TransitRouteService] から通信の関心事を切り出し、選定ロジックを
@@ -61,6 +62,7 @@ class TransitApiClient {
         'time': _formatTime(at),
         'type': 'departure',
         'numItineraries': '$_numItineraries',
+        'avoidModes': nonTrainTransitModes.join(','),
       },
     );
     final res = await _getOrTimeout(_transit, uri);
