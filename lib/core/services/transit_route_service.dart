@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import '../models/geo_point.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
+import 'analytics_service.dart';
 import 'hybrid_route_selector.dart';
 import 'route_diagnostics.dart';
 import 'route_plan_builder.dart';
@@ -31,17 +32,22 @@ class TransitRouteService implements RouteService {
     String? transitBaseUrl,
     String? proxyBaseUrl,
     DateTime Function()? clock,
+    AnalyticsService? analytics,
   }) : _api = TransitApiClient(
          transitClient: transitClient,
          proxyClient: proxyClient,
          transitBaseUrl: transitBaseUrl,
          proxyBaseUrl: proxyBaseUrl,
        ),
-       _clock = clock ?? DateTime.now;
+       _clock = clock ?? DateTime.now,
+       _analytics = analytics ?? const NoopAnalyticsService();
 
   /// Transit API / Google プロキシへの HTTP 通信（#169）。
   final TransitApiClient _api;
   final DateTime Function() _clock;
+
+  /// 1検索あたりのAPI呼び出し回数・フォールバック発動の計測（#238）。
+  final AnalyticsService _analytics;
 
   /// 選定の診断ログ整形（#169）。`verbose` は既定で [kDebugMode]。
   final RouteDiagnostics _diag = const RouteDiagnostics();
@@ -91,29 +97,48 @@ class TransitRouteService implements RouteService {
     if (destinationLatLng == null) throw const RouteException('NO_DESTINATION');
     final budgetMin = budgetMinutes(departure, arrival);
 
-    onProgress?.call(RoutePhase.routing);
+    // 1検索単位でAPI呼び出し回数を計測する（#238）。_api は routeServiceProvider
+    // が持つ単一インスタンスで、並行検索（#221・cancelSearch 後も進行中のHTTPは
+    // 中断せず走り続ける）では複数の plan() が同じカウンタを共有する。reset は
+    // 相手の集計中カウントを消してしまうため使わず、開始時点のスナップショットとの
+    // 差分（-）だけを1検索分として送る。
+    final baseline = _api.callCounts;
+    var fallbackTriggered = false;
+    try {
+      onProgress?.call(RoutePhase.routing);
 
-    final departureAt = _departureDateTime(departure);
-    final body = await _api.fetchGuidanceAt(
-      origin,
-      destinationLatLng,
-      departureAt,
-    );
-    final options = parseGuidancePlan(body);
-    if (options.isEmpty) throw const RouteException('ZERO_RESULTS');
+      final departureAt = _departureDateTime(departure);
+      final body = await _api.fetchGuidanceAt(
+        origin,
+        destinationLatLng,
+        departureAt,
+      );
+      final options = parseGuidancePlan(body);
+      if (options.isEmpty) throw const RouteException('ZERO_RESULTS');
 
-    onProgress?.call(RoutePhase.walkability);
+      onProgress?.call(RoutePhase.walkability);
 
-    return _selectMeasured(
-      options,
-      budgetMin,
-      departure,
-      origin: origin,
-      goal: destinationLatLng,
-      onProgress: onProgress,
-      fromName: originName,
-      toName: destination,
-    );
+      return await _selectMeasured(
+        options,
+        budgetMin,
+        departure,
+        origin: origin,
+        goal: destinationLatLng,
+        onProgress: onProgress,
+        fromName: originName,
+        toName: destination,
+        callBaseline: baseline,
+        onFallback: () => fallbackTriggered = true,
+      );
+    } finally {
+      final counts = _api.callCounts - baseline;
+      _analytics.logSearchApiCalls(
+        navitimeCalls: counts.navitimeCalls,
+        googleWalkCalls: counts.googleWalkCalls,
+        googleMatrixCalls: counts.googleMatrixCalls,
+        fallbackTriggered: fallbackTriggered,
+      );
+    }
   }
 
   /// measure-first 選定。標準乗換・実測ハイブリッド・全徒歩を同一土俵で比較し、
@@ -128,6 +153,8 @@ class TransitRouteService implements RouteService {
     void Function(RoutePhase)? onProgress,
     String? fromName,
     String? toName,
+    required ApiCallCounts callBaseline,
+    void Function()? onFallback,
   }) async {
     final departureAt = _departureDateTime(departure);
     _diag.log(
@@ -232,6 +259,13 @@ class TransitRouteService implements RouteService {
     if (base != null &&
         _isCollapse(selected.chosen, options, budgetMin, departureAt)) {
       _diag.log(() => 'collapse=true → board-search フォールバック起動');
+      onFallback?.call();
+      final counts = _api.callCounts - callBaseline;
+      _analytics.logSearchFallbackTriggered(
+        navitimeCalls: counts.navitimeCalls,
+        googleWalkCalls: counts.googleWalkCalls,
+        googleMatrixCalls: counts.googleMatrixCalls,
+      );
       final boardSearch = await _buildBoardSearchCandidate(
         base,
         origin,

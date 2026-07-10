@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import '../models/geo_point.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
+import 'analytics_service.dart';
 import 'app_check_http_client.dart';
 import 'timeout_http_client.dart';
 import 'transit_route_service.dart';
@@ -41,5 +42,6 @@ final routeServiceProvider = Provider<RouteService>((ref) {
   return TransitRouteService(
     transitClient: transitClient,
     proxyClient: proxyClient,
+    analytics: ref.read(analyticsServiceProvider),
   );
 });

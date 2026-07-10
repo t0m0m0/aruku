@@ -189,6 +189,66 @@ describe("firestore.rules userSync", () => {
   });
 });
 
+describe("firestore.rules users/{uid}/usage/{month}", () => {
+  const MONTH = "202607";
+
+  function usageDoc(env: RulesTestEnvironment, uid: string) {
+    const db = env.authenticatedContext(uid).firestore();
+    return doc(db, "users", uid, "usage", MONTH);
+  }
+
+  it("本人は自分の使用量を読める", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "users", OWNER, "usage", MONTH), {
+        searchCount: 1,
+        accountType: "free",
+      });
+    });
+    await assertSucceeds(getDoc(usageDoc(testEnv, OWNER)));
+  });
+
+  it("他人の使用量は読めない", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "users", OWNER, "usage", MONTH), {
+        searchCount: 1,
+        accountType: "free",
+      });
+    });
+    const db = testEnv.authenticatedContext(OTHER).firestore();
+    await assertFails(getDoc(doc(db, "users", OWNER, "usage", MONTH)));
+  });
+
+  it("未認証では読めない", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "users", OWNER, "usage", MONTH), {
+        searchCount: 1,
+        accountType: "free",
+      });
+    });
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(getDoc(doc(db, "users", OWNER, "usage", MONTH)));
+  });
+
+  it("本人でも直接書き込めない（加算はCloud Functions経由に限定）", async () => {
+    await assertFails(
+      setDoc(usageDoc(testEnv, OWNER), {
+        searchCount: 999999,
+        accountType: "free",
+      }),
+    );
+  });
+
+  it("本人でも直接削除できない", async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), "users", OWNER, "usage", MONTH), {
+        searchCount: 1,
+        accountType: "free",
+      });
+    });
+    await assertFails(deleteDoc(usageDoc(testEnv, OWNER)));
+  });
+});
+
 // このテストはエミュレータ前提。ホスト未設定なら明示的に気付けるようにする。
 it("エミュレータが起動していること", () => {
   expect(EMULATOR_HOST, "FIRESTORE_EMULATOR_HOST 未設定: npm run test:rules で実行してください").toBeTruthy();

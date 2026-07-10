@@ -40,6 +40,15 @@ service cloud.firestore {
                             && isValidSyncData(request.resource.data);
     }
 
+    // 検索回数カウンタ（#238）。本人は自分の使用量を読める（アプリ内表示用）が、
+    // 書き込みは常に拒否する。加算は Cloud Functions（recordSearchUsage）内の
+    // Admin SDK トランザクションでのみ行い、ここでルールをバイパスする。クライアント
+    // からの直接書き込み（改ざん）経路自体を無くすのがこのフィールドの設計要件。
+    match /users/{uid}/usage/{month} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+
     // 上記以外は全面拒否（サーバ専用）。
     match /{document=**} {
       allow read, write: if false;

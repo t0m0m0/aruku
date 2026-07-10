@@ -172,6 +172,81 @@ void main() {
     });
   });
 
+  group('callCounts', () {
+    test('初期値は全て0', () {
+      final client = _client(MockClient((_) async => _json(const {})));
+      expect(client.callCounts.navitimeCalls, 0);
+      expect(client.callCounts.googleWalkCalls, 0);
+      expect(client.callCounts.googleMatrixCalls, 0);
+    });
+
+    test('fetchGuidanceAt は navitimeCalls を増やす', () async {
+      final client = _client(MockClient((_) async => _json({'ok': true})));
+      await client.fetchGuidanceAt(
+        const GeoPoint(0, 0),
+        const GeoPoint(1, 1),
+        DateTime(2026),
+      );
+      await client.fetchGuidanceAt(
+        const GeoPoint(0, 0),
+        const GeoPoint(1, 1),
+        DateTime(2026),
+      );
+      expect(client.callCounts.navitimeCalls, 2);
+      expect(client.callCounts.googleWalkCalls, 0);
+      expect(client.callCounts.googleMatrixCalls, 0);
+    });
+
+    test('fetchWalkRoute は googleWalkCalls を増やす', () async {
+      final client = _client(
+        MockClient((_) async => _json({'routes': const []})),
+      );
+      await client.fetchWalkRoute(const GeoPoint(0, 0), const GeoPoint(1, 1));
+      expect(client.callCounts.googleWalkCalls, 1);
+      expect(client.callCounts.navitimeCalls, 0);
+    });
+
+    test('fetchWalkMatrix は googleMatrixCalls を増やす（失敗時も計上）', () async {
+      final client = _client(MockClient((_) async => _json(const [], 500)));
+      await client.fetchWalkMatrix(
+        const [GeoPoint(0, 0)],
+        const [GeoPoint(1, 1)],
+      );
+      expect(client.callCounts.googleMatrixCalls, 1);
+    });
+
+    test('resetCallCounts で0に戻る', () async {
+      final client = _client(MockClient((_) async => _json({'ok': true})));
+      await client.fetchGuidanceAt(
+        const GeoPoint(0, 0),
+        const GeoPoint(1, 1),
+        DateTime(2026),
+      );
+      client.resetCallCounts();
+      expect(client.callCounts.navitimeCalls, 0);
+    });
+
+    // 並行検索（#221・cancelSearch後もHTTPは中断せず走り続ける）で同一クライアントを
+    // 共有すると reset は他方の集計中カウントを消してしまう。差分（-）で1検索分だけを
+    // 取り出せることを固定する（#238 レビュー指摘対応）。
+    test('- はスナップショット間の差分を返す（並行検索での計測用）', () {
+      const before = ApiCallCounts(
+        navitimeCalls: 1,
+        googleWalkCalls: 2,
+        googleMatrixCalls: 3,
+      );
+      const after = ApiCallCounts(
+        navitimeCalls: 4,
+        googleWalkCalls: 5,
+        googleMatrixCalls: 7,
+      );
+      final delta = after - before;
+      expect(delta.navitimeCalls, 3);
+      expect(delta.googleWalkCalls, 3);
+      expect(delta.googleMatrixCalls, 4);
+    });
+  });
+
   group('baseUrl 正規化', () {
     test('transitBaseUrl 末尾スラッシュを除去する', () {
       final client = _client(

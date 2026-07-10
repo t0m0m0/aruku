@@ -15,12 +15,14 @@ import '../navigation/nav_engine.dart';
 import '../services/activity_log_repository.dart';
 import '../services/activity_service.dart';
 import '../services/activity_stats.dart';
+import '../services/analytics_service.dart';
 import '../services/health_service.dart';
 import '../services/location_service.dart';
 import '../services/notification_service.dart';
 import '../services/onboarding_repository.dart';
 import '../services/route_plan_builder.dart' as planner;
 import '../services/route_service.dart';
+import '../services/usage_tracking_service.dart';
 import 'settings_provider.dart';
 
 /// 経路からこの距離（m）を超えて外れたらオフルートとみなす。GPS のブレは無視する。
@@ -702,6 +704,7 @@ class AppNotifier extends Notifier<AppState> {
     // 破棄済みなので結果を state へ書かない（キャンセル後に古い応答がホームから
     // result へ引き戻すのを防ぐ・#221）。
     final generation = ++_searchGeneration;
+    ref.read(analyticsServiceProvider).logSearchRequested();
     state = state.copyWith(
       screen: Screen.loading,
       routeErrorKind: null,
@@ -735,6 +738,9 @@ class AppNotifier extends Notifier<AppState> {
         routeErrorKind: null,
         routePhase: null,
       );
+      // 検索回数カウンタ（#238）は成功（結果画面へ遷移）した検索だけを計上する。
+      // 失敗は無料枠を消費させない。結果表示をブロックしないよう await しない。
+      unawaited(ref.read(usageTrackingServiceProvider).recordSearch());
     } catch (e) {
       if (generation != _searchGeneration || _disposed) return;
       state = state.copyWith(
