@@ -299,6 +299,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get resultTrainDefaultLabel => '電車';
 
   @override
+  String get resultBusDefaultLabel => 'バス';
+
+  @override
   String get resultShareButton => 'ルートを共有';
 
   @override

@@ -228,6 +228,8 @@
   "@resultWalkLabel": {},
   "resultTrainDefaultLabel": "電車",
   "@resultTrainDefaultLabel": {},
+  "resultBusDefaultLabel": "バス",
+  "@resultBusDefaultLabel": {},
   "resultShareButton": "ルートを共有",
   "@resultShareButton": {},
   "resultShareText": "{from} → {to} を歩くルート🚶\n徒歩{walkKm}km・{kcal}kcal\n#アルク #ウォーキング",

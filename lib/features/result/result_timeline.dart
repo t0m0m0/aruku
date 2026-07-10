@@ -152,7 +152,14 @@ class _TimelineSegmentRow extends StatelessWidget {
     final c = context.c;
     final l10n = AppLocalizations.of(context);
     final isWalk = seg.type == SegmentType.walk;
+    // バス専用のアイコン・色は未デザインのため、当面は電車と同じ見た目を流用する
+    // （#249。avoidModesがバスを除外し続けるため実際には描画されない）。
     final color = isWalk ? c.moss600 : c.train;
+    final defaultLabel = switch (seg.type) {
+      SegmentType.walk => l10n.resultWalkLabel,
+      SegmentType.train => l10n.resultTrainDefaultLabel,
+      SegmentType.bus => l10n.resultBusDefaultLabel,
+    };
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: IntrinsicHeight(
@@ -191,9 +198,7 @@ class _TimelineSegmentRow extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            isWalk
-                                ? l10n.resultWalkLabel
-                                : (seg.line ?? l10n.resultTrainDefaultLabel),
+                            isWalk ? defaultLabel : (seg.line ?? defaultLabel),
                             style: jpStyle(
                               size: 13,
                               weight: FontWeight.w700,
