@@ -54,6 +54,23 @@ void main() {
       },
     );
 
+    test('allowBus: true では avoidModes からバスを外す (#250)', () async {
+      late Uri captured;
+      final client = _client(
+        MockClient((req) async {
+          captured = req.url;
+          return _json({'ok': true});
+        }),
+      );
+      await client.fetchGuidanceAt(
+        const GeoPoint(35.1, 139.2),
+        const GeoPoint(35.3, 139.4),
+        DateTime(2026, 6, 27, 9, 5),
+        allowBus: true,
+      );
+      expect(captured.queryParameters['avoidModes'], 'ferry,air');
+    });
+
     test('非200は RouteException(HTTP <code>)', () async {
       final client = _client(MockClient((req) async => _json(const {}, 503)));
       expect(

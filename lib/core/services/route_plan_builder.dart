@@ -60,7 +60,7 @@ String formatClock(TimeValue dep, int addMinutes) {
     // 降車が発車より前の不整合データ（ride < 0）は所要分にフォールバックする。
     if (ride >= 0) {
       // boardRel <= cum は発車後に駅着＝乗り遅れ。ここでは待ち0で乗車時間を足す近似で
-      // 進める（乗り遅れは firstMissedTrain が検知し #115 で次便の実時刻へ差し替える）。
+      // 進める（乗り遅れは firstMissedTransit が検知し #115 で次便の実時刻へ差し替える）。
       final wait = boardRel > cum ? boardRel - cum : 0;
       return (cum: cum + wait + ride, wait: wait);
     }
@@ -80,16 +80,18 @@ int arrivalMinutes(List<RouteSegment> segments, DateTime? departureAt) {
   return cum;
 }
 
-/// 徒歩実測を反映した [segments] を出発絶対時刻 [departureAt] で進め、NAVITIME の
-/// 発車時刻を持つ電車区間のうち「予定列車に乗り遅れる」最初の区間を返す（無ければ null）。
+/// 徒歩実測を反映した [segments] を出発絶対時刻 [departureAt] で進め、発車時刻を持つ
+/// transit 区間（電車・バス）のうち「予定の便に乗り遅れる」最初の区間を返す（無ければ null）。
 /// 乗り遅れの基準は [_advance] と同一で、区間到着時点の累積分が発車相対分を超える
 /// （`cum > boardRel`）こと。発車相対分ちょうどに着く場合は乗車できる扱いで対象外。
 /// 返り値の [cumBefore] はその区間に着くまでの実累積分で、乗車駅からの時刻表再照会の
 /// start_time（出発 + cumBefore）を組むのに使う（#115）。
 /// 判定は発車時刻のみで行う：NAVITIME は降車駅の時刻を欠くことがあるが、発車時刻が
-/// あれば「徒歩を延ばしてその列車に乗り遅れたか」は確定できる（着時刻があれば発車前着
+/// あれば「徒歩を延ばしてその便に乗り遅れたか」は確定できる（着時刻があれば発車前着
 /// =不整合データを併せて除外する）。発車時刻が欠落した区間は判定できないため対象外。
-({int index, int cumBefore})? firstMissedTrain(
+/// バスも電車と同じ基準で判定する（#250。バス限定の緩和は入れない——時刻表を信じる
+/// 決定と「その便が実在するか」の検証は別物）。
+({int index, int cumBefore})? firstMissedTransit(
   List<RouteSegment> segments,
   DateTime departureAt,
 ) {
@@ -98,7 +100,7 @@ int arrivalMinutes(List<RouteSegment> segments, DateTime? departureAt) {
     final seg = segments[i];
     final dep = seg.depTime;
     final arr = seg.arrTime;
-    if (seg.type == SegmentType.train && dep != null) {
+    if (_isTransit(seg.type) && dep != null) {
       final boardRel = dep.difference(departureAt).inMinutes;
       // 着時刻があれば発車前着（ride < 0）の不整合データは対象外。乗り遅れは駅着が
       // 発車相対分を超える場合のみ（同時刻は待ち0で乗車できるため除外）。
@@ -112,17 +114,19 @@ int arrivalMinutes(List<RouteSegment> segments, DateTime? departureAt) {
   return null;
 }
 
-/// 出発から各時刻表付き電車に乗車するまでの待ち時間の最大値（分, #121 原因②）。駅着から
-/// 発車までの待機分で、終電後は翌朝始発までの長い待ちがここに表れる。複数電車を含む経路
-/// では「最初の電車には乗れても後続が翌朝始発」のケースを取りこぼさないよう、全電車区間の
-/// 乗車待ちの最大を返す。時刻表の無い電車・電車を含まない経路（全徒歩）は 0。best-effort
-/// 選定で「乗車待ちが予算を超える＝今夜乗れない電車」を全徒歩より後回しにする判定に使う。
+/// 出発から各時刻表付き transit 区間（電車・バス）に乗車するまでの待ち時間の最大値
+/// （分, #121 原因②）。駅着・停留所着から発車までの待機分で、終電・終バス後は翌朝始発
+/// までの長い待ちがここに表れる。複数便を含む経路では「最初の便には乗れても後続が翌朝
+/// 始発」のケースを取りこぼさないよう、全 transit 区間の乗車待ちの最大を返す。時刻表の
+/// 無い区間・transit を含まない経路（全徒歩）は 0。best-effort 選定で「乗車待ちが予算を
+/// 超える＝今夜乗れない便」を全徒歩より後回しにする判定に使う。バスも同じ基準で数える
+/// （#250。運行終了後の翌朝始発バスが待ち0に見えて全徒歩を押しのけるのを防ぐ）。
 int maxBoardingWait(List<RouteSegment> segments, DateTime departureAt) {
   var cum = 0;
   var maxWait = 0;
   for (final seg in segments) {
     final advanced = _advance(cum, seg, departureAt);
-    if (seg.type == SegmentType.train &&
+    if (_isTransit(seg.type) &&
         seg.depTime != null &&
         advanced.wait > maxWait) {
       maxWait = advanced.wait;

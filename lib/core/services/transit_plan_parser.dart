@@ -70,10 +70,10 @@ List<TransitOption> parseGuidancePlan(Map<String, dynamic> body) {
 /// [SegmentType] が未対応のため引き続き option ごと除外する（`null` を返す）。
 /// `mode` 欠落・`rail`/`subway` 等の未知値は後方互換として電車 (train) 扱い。
 ///
-/// 注意: この写像は「経路として表現できるか」だけを扱う。Transit API への問い合わせ
-/// 自体は引き続き `avoidModes=bus,ferry,air`（`TransitApiClient` 側の独立した定数、
-/// #247）でバスを含む経路を要求しないため、実運用で bus leg がここへ渡ることは無い
-/// （このリファクタは将来 bus 解禁時の基盤整備）。
+/// 注意: この写像は「経路として表現できるか」だけを扱う。問い合わせ条件は
+/// `TransitApiClient` 側の独立した定数で決まり、主照会は `avoidModes=bus,ferry,air`
+/// のままバスを含む経路を要求しない（#247）。bus leg がここへ渡るのは、電車＋徒歩が
+/// 予算内に収まらないときの last-resort 再照会（`allowBus: true`・#250）の応答だけ。
 SegmentType? _segmentTypeForMode(Object? mode) {
   if (mode is! String) return SegmentType.train;
   switch (mode.toLowerCase()) {
