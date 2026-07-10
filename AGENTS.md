@@ -80,6 +80,6 @@ NEVER modify:
 
 ## Additional Rules
 
-@.Codex/docs/workflow.md
-@.Codex/docs/flutter-conventions.md
-@.Codex/docs/testing.md
+@.codex/docs/workflow.md
+@.codex/docs/flutter-conventions.md
+@.codex/docs/testing.md
