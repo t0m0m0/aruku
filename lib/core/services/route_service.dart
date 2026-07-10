@@ -104,7 +104,6 @@ class SearchScopedRouteService implements RouteService {
         originName: originName,
         onProgress: onProgress,
       );
-      // 完了自体が成功でも、その裏でキャンセル済みなら結果を返さない。
       token.throwIfCanceled();
       return result;
     } catch (_) {
