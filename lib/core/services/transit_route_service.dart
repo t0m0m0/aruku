@@ -658,6 +658,11 @@ class TransitRouteService implements RouteService {
   /// 実測で乗り遅れが判明した候補は除外して選び直す。全徒歩は transit を含まず決して乗り遅れ
   /// ないので、候補に含まれる限りこのループは必ず「乗れる」候補へ収束する。
   ///
+  /// ここに [_maxEnrichAttempts] のような試行上限は**置かない**。プールは毎反復 `identical` で
+  /// 厳密に1件減るため停止性は `pool.length` が保証しており、上限は「全徒歩へ到達する前に
+  /// 打ち切って乗り遅れ経路を返す」＝この修正が拠って立つ不変条件を壊す方向にしか働かない。
+  /// enrich の IO も [walkCache] が同一レッグを1回に畳むため候補数に対して線形以下に収まる。
+  ///
   /// 見積りの足切り（[reachableWithinBudget]）はそのまま残す：enrich は候補ごとに Google を
   /// 引く IO なので、安価な見積りで落とせる候補を先に落とすほど実測の回数が減る。
   Future<({RouteCandidate chosen, RouteCandidate enriched})>
@@ -680,17 +685,17 @@ class TransitRouteService implements RouteService {
           c,
     ];
     var pool = verified.isNotEmpty ? verified : resolved;
-    for (var attempt = 0; ; attempt++) {
+    while (true) {
       final fallback = _bestEffort(pool, budgetMin, departureAt);
       final enriched = await _enrichWalkGeometry(fallback, walkCache);
       final missed = firstMissedTransit(enriched.segments, departureAt) != null;
       // 予算超過では除外しない：best-effort は「予算内が無いとき」の縮退先なので、超過は
       // 想定内で最早到着こそが選定基準。乗り遅れ（＝そもそも乗れない）だけを除外する。
-      if (!missed || pool.length == 1 || attempt >= _maxEnrichAttempts) {
+      if (!missed || pool.length == 1) {
         if (missed) {
           _diag.log(
             () =>
-                '  → best-effort: 乗り遅れない候補が尽きた（残り${pool.length}件）→ '
+                '  → best-effort: 乗り遅れない候補が尽きた（最後の1件）→ '
                 'そのまま縮退: ${_diag.candLine(enriched, budgetMin, departureAt)}',
           );
         }

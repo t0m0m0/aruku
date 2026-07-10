@@ -2057,5 +2057,38 @@ void main() {
         reason: 'プールが1件でも乗り遅れる便を確定してはならない',
       );
     });
+
+    test('乗り遅れ候補が試行上限より多くても全徒歩まで縮退しきる', () async {
+      // best-effort の除外ループに試行上限（_maxEnrichAttempts=8）を置くと、乗り遅れ候補が
+      // それより多いとき全徒歩へ到達する前に打ち切られ、乗り遅れる便を確定してしまう。
+      // 「全徒歩は決して乗り遅れないので縮退先は必ず存在する」という #254 の不変条件は、
+      // 上限を置かない（プールが1件に痩せるまで回す）ことでしか成立しない。
+      // 09:06 発・実測徒歩8分で乗り遅れる電車を9本並べ、上限を確実に踏み抜かせる。
+      final svc = _service(
+        _mock(
+          transit: _guidance([
+            for (var i = 0; i < 9; i++)
+              _singleTrainOption(arr: 34560 + i * 60), // 到着だけずらし全便が乗り遅れ
+          ]),
+        ),
+      );
+      final plan = await svc.plan(
+        destination: '新宿',
+        destinationLatLng: goal,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 9, m: 50), // 予算50分（何も予算内に入らない）
+        origin: origin,
+      );
+      expect(
+        firstMissedTransit(plan.segments, departureAt),
+        isNull,
+        reason: '乗り遅れ候補を数で押しても乗れない便を確定してはならない',
+      );
+      expect(
+        plan.segments.every((s) => s.type == SegmentType.walk),
+        isTrue,
+        reason: '乗れる電車が1本も無いのだから全徒歩へ縮退するはず',
+      );
+    });
   });
 }

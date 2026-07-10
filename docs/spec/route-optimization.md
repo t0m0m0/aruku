@@ -191,6 +191,7 @@ NAVITIME route_transit 照会（1回）
 - **不変条件:** **実測徒歩で乗り遅れる経路を確定・提示しない。** 全徒歩は transit を含まず決して乗り遅れないため、縮退先は必ず存在する。
 - **機構（2つの確定境界を塞ぐ）:**
   - `_bestEffortResolved`: 選んだ候補を enrich してから `firstMissedTransit` を測り直し、乗り遅れが判明したら除外して選び直す。**予算超過では除外しない**（best-effort は予算内候補が無いときの縮退先なので、超過は想定内で最早到着こそが選定基準）。見積りの足切り（`reachableWithinBudget`）は enrich の IO 回数を減らす安価な前段として残す。
+    - **この除外ループに試行上限（`_maxEnrichAttempts`）を置いてはならない。** プールは毎反復で厳密に1件減るため停止性は候補数が保証しており、上限は「全徒歩へ到達する前に打ち切って乗り遅れ経路を返す」＝上記の不変条件を壊す方向にしか働かない。enrich の IO も `walkCache`（#116）が同一レッグを1回に畳む。
   - `_selectAndEnrich` の確定パス: enrich ループは `pool.length > 1` かつ試行上限内のときしか候補を除外して選び直せない。除外しきれなかったときも `overBudget` / `missedAfterEnrich` / `unverifiedTransit` を素通りさせず、検証済みの best-effort へ縮退する。
 - **`arrivalMinutes` の楽観近似は変更しない。** 「選定（予算判定）と表示（タイムライン）が同じ到着時刻を用いる」（`route_plan_builder.dart` の設計方針）を壊さないため。上記2境界で乗り遅れ経路を確定させなければ、この近似がユーザーに観測されることはない。
 
