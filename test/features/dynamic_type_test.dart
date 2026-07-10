@@ -7,6 +7,7 @@ import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/activity_log_repository.dart';
 import 'package:aruku/core/services/activity_service.dart';
+import 'package:aruku/core/services/cancellation.dart';
 import 'package:aruku/core/services/location_service.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
@@ -49,6 +50,7 @@ class _FixedRouteService implements RouteService {
     GeoPoint? origin,
     String? originName,
     void Function(RoutePhase)? onProgress,
+    CancellationToken? cancellation,
   }) async => result;
 }
 

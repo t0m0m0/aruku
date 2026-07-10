@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
 import '../models/geo_point.dart';
+import 'cancellation.dart';
 import 'route_service.dart';
 
 /// `/guidance/plan` の既定の除外モード。バス優勢な区間では `numItineraries` の枠が
@@ -22,12 +23,16 @@ const _avoidModesAllowBus = {'ferry', 'air'};
 /// 経路取得は Transit API を直叩き（認証不要・CORS）、アクセス徒歩の実測は Google Routes
 /// プロキシ（App Check）を介す。タイムアウト（[TimeoutHttpClient]・#156）は注入された
 /// クライアント側で適用され、無応答は `RouteException('TIMEOUT')` へ変換する。
+///
+/// [cancellation] を渡すと検索単位で中断できる（#259）。クライアントは検索1回分の
+/// 寿命で所有され、[close] で in-flight のソケットごと落とす。
 class TransitApiClient {
   TransitApiClient({
     http.Client? transitClient,
     http.Client? proxyClient,
     String? transitBaseUrl,
     String? proxyBaseUrl,
+    this.cancellation,
   }) : _transit = transitClient ?? http.Client(),
        _proxy = proxyClient ?? http.Client(),
        _transitBaseUrl = (transitBaseUrl ?? AppConfig.transitApiBaseUrl)
@@ -41,6 +46,9 @@ class TransitApiClient {
   final http.Client _proxy;
   final String _transitBaseUrl;
   final String _proxyBaseUrl;
+
+  /// 検索1回分のキャンセル境界（#259）。null なら中断不能（既定）。
+  final CancellationToken? cancellation;
 
   /// `/guidance/plan` で取得する候補数。
   static const int _numItineraries = 5;
@@ -139,12 +147,26 @@ class TransitApiClient {
   /// [client] で [uri] を GET し、タイムアウト（[TimeoutHttpClient]・#156）を
   /// `RouteException('TIMEOUT')` へ変換する。これで無応答は既存の UI エラー処理と
   /// 縮退（失敗レッグは `on RouteException` で直線推定・候補スキップ）にそのまま乗る。
+  ///
+  /// キャンセル判定を全 fetch の共通経路であるここへ置くのは、[fetchWalkMatrix] の
+  /// ような縮退の口（`on RouteException` → null）の内側で投げても、
+  /// [SearchCanceledException] が `RouteException` でない以上そこで握り潰されずに
+  /// 抜けるため（#259）。
   Future<http.Response> _getOrTimeout(http.Client client, Uri uri) async {
+    cancellation?.throwIfCanceled();
     try {
       return await client.get(uri);
     } on TimeoutException {
       throw const RouteException('TIMEOUT');
     }
+  }
+
+  /// 保持するクライアントを閉じ、in-flight のリクエストを中断する（#259）。
+  /// package:http にリクエスト単位の abort は無く、`IOClient.close()` が
+  /// `HttpClient.close(force: true)` へ委譲することだけが実際の中断手段。
+  void close() {
+    _transit.close();
+    _proxy.close();
   }
 
   String _formatDate(DateTime dt) =>

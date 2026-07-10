@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:aruku/core/models/geo_point.dart';
+import 'package:aruku/core/services/cancellation.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/services/transit_api_client.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -225,4 +226,128 @@ void main() {
       expect(captured.path, '/googleWalkProxy');
     });
   });
+
+  group('キャンセル (#259)', () {
+    test('キャンセル済みなら fetchGuidanceAt は HTTP を発行せず投げる', () async {
+      var calls = 0;
+      final client = TransitApiClient(
+        transitClient: MockClient((_) async {
+          calls++;
+          return _json({'ok': true});
+        }),
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        cancellation: CancellationToken()..cancel(),
+      );
+
+      await expectLater(
+        client.fetchGuidanceAt(
+          const GeoPoint(35.0, 139.0),
+          const GeoPoint(35.5, 139.5),
+          DateTime(2026, 6, 27, 9, 5),
+        ),
+        throwsA(isA<SearchCanceledException>()),
+      );
+      expect(calls, 0);
+    });
+
+    test('キャンセル済みなら fetchWalkRoute は HTTP を発行せず投げる', () async {
+      var calls = 0;
+      final client = TransitApiClient(
+        proxyClient: MockClient((_) async {
+          calls++;
+          return _json({'routes': const []});
+        }),
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        cancellation: CancellationToken()..cancel(),
+      );
+
+      await expectLater(
+        client.fetchWalkRoute(
+          const GeoPoint(35.0, 139.0),
+          const GeoPoint(35.5, 139.5),
+        ),
+        throwsA(isA<SearchCanceledException>()),
+      );
+      expect(calls, 0);
+    });
+
+    // fetchWalkMatrix は取得失敗を null（直線推定へ縮退）に握り潰す唯一の口。
+    // ここでキャンセルまで null に化けると、呼び出し側は探索を続行してしまう。
+    test('fetchWalkMatrix はキャンセルを null へ握り潰さない', () async {
+      var calls = 0;
+      final client = TransitApiClient(
+        proxyClient: MockClient((_) async {
+          calls++;
+          return _json(const []);
+        }),
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        cancellation: CancellationToken()..cancel(),
+      );
+
+      await expectLater(
+        client.fetchWalkMatrix(
+          const [GeoPoint(35.0, 139.0)],
+          const [GeoPoint(35.5, 139.5)],
+        ),
+        throwsA(isA<SearchCanceledException>()),
+      );
+      expect(calls, 0);
+    });
+
+    test('探索の途中でキャンセルすると以降の HTTP を発行しない', () async {
+      final cancellation = CancellationToken();
+      var calls = 0;
+      final client = TransitApiClient(
+        transitClient: MockClient((_) async {
+          calls++;
+          return _json({'ok': true});
+        }),
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        cancellation: cancellation,
+      );
+
+      Future<Map<String, dynamic>> fetch() => client.fetchGuidanceAt(
+        const GeoPoint(35.0, 139.0),
+        const GeoPoint(35.5, 139.5),
+        DateTime(2026, 6, 27, 9, 5),
+      );
+
+      await fetch();
+      expect(calls, 1);
+
+      cancellation.cancel();
+      await expectLater(fetch(), throwsA(isA<SearchCanceledException>()));
+      expect(calls, 1);
+    });
+
+    test('close は transit / proxy 双方のクライアントを閉じる', () {
+      final transit = _CountingClient();
+      final proxy = _CountingClient();
+      TransitApiClient(
+        transitClient: transit,
+        proxyClient: proxy,
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+      ).close();
+
+      expect(transit.closed, 1);
+      expect(proxy.closed, 1);
+    });
+  });
+}
+
+/// close 回数だけを数えるクライアント。MockClient の close は no-op で観測できない。
+class _CountingClient extends http.BaseClient {
+  int closed = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async =>
+      throw UnimplementedError();
+
+  @override
+  void close() => closed++;
 }

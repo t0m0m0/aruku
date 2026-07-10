@@ -15,6 +15,7 @@ import '../navigation/nav_engine.dart';
 import '../services/activity_log_repository.dart';
 import '../services/activity_service.dart';
 import '../services/activity_stats.dart';
+import '../services/cancellation.dart';
 import '../services/health_service.dart';
 import '../services/location_service.dart';
 import '../services/notification_service.dart';
@@ -284,10 +285,16 @@ class AppNotifier extends Notifier<AppState> {
   /// その結果はキャンセル済み（または後続検索に上書きされた stale）として捨てる。
   int _searchGeneration = 0;
 
+  /// 進行中の検索のキャンセル境界（#259）。世代番号は「古い応答を state へ書かない」
+  /// を担うが、それだけでは進行中の HTTP が完了まで走り切る。これを倒すと通信自体を
+  /// 切り、以降の外部呼び出しを止める。
+  CancellationToken? _activeCancellation;
+
   @override
   AppState build() {
     ref.onDispose(() {
       _disposed = true;
+      _activeCancellation?.cancel();
       _posSub?.cancel();
       _activitySub?.cancel();
     });
@@ -702,6 +709,10 @@ class AppNotifier extends Notifier<AppState> {
     // 破棄済みなので結果を state へ書かない（キャンセル後に古い応答がホームから
     // result へ引き戻すのを防ぐ・#221）。
     final generation = ++_searchGeneration;
+    // 前回の検索が in-flight のまま再検索へ入る（キャンセルを挟まない連打）場合も、
+    // 古い通信を放置せず切る。新しいトークンを採番して plan へ通す（#259）。
+    _activeCancellation?.cancel();
+    final cancellation = _activeCancellation = CancellationToken();
     state = state.copyWith(
       screen: Screen.loading,
       routeErrorKind: null,
@@ -723,6 +734,7 @@ class AppNotifier extends Notifier<AppState> {
             arrival: state.arrival,
             origin: origin,
             originName: state.departureNameForRoute,
+            cancellation: cancellation,
             onProgress: (phase) {
               if (generation != _searchGeneration || _disposed) return;
               state = state.copyWith(routePhase: phase);
@@ -751,11 +763,13 @@ class AppNotifier extends Notifier<AppState> {
   /// 同一 copyWith で一括更新し、redirect ガードの不変条件を保つ。screen 変更は
   /// [startSearch] と同様に ref.listen 経由で router へ伝搬する。
   ///
-  /// 進行中の HTTP リクエスト自体は中断しない（`RouteService.plan` に中断手段は
-  /// 無い）。応答は世代不一致で捨てるだけなので、体感は即ホームへ戻る一方、通信は
-  /// 完了まで走り切る。
+  /// 進行中のキャンセルトークンを倒し、進行中の HTTP を切る（#259）。世代番号だけの
+  /// 頃は応答を捨てるだけで通信は完了まで走り切っていたが、トークンの close で
+  /// ソケットごと落とし、以降の外部呼び出し（課金 API・App Check トークン）を止める。
   void cancelSearch() {
     _searchGeneration++;
+    _activeCancellation?.cancel();
+    _activeCancellation = null;
     state = state.copyWith(
       screen: Screen.home,
       routePhase: null,
