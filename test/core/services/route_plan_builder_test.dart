@@ -468,6 +468,33 @@ void main() {
       expect(missed.cumBefore, 20); // 駅着までの実累積分（再照会の start_time 算出に使う）
     });
 
+    test('バス区間も発車後に停留所着なら乗り遅れ扱い (#250)', () {
+      // 徒歩20分でバス停着(累積20分)。予定便は 9:12 発（発車相対12分）→ 20 > 12 で乗り遅れ。
+      final segments = [
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '出発地',
+          toName: 'A停留所',
+          minutes: 20,
+        ),
+        RouteSegment(
+          type: SegmentType.bus,
+          fromName: 'A停留所',
+          toName: 'B停留所',
+          minutes: 18,
+          line: '渋谷01',
+          depTime: DateTime(2026, 5, 22, 9, 12),
+          arrTime: DateTime(2026, 5, 22, 9, 30),
+        ),
+      ];
+
+      final missed = firstMissedTrain(segments, DateTime(2026, 5, 22, 9, 0));
+
+      expect(missed, isNotNull);
+      expect(missed!.index, 1);
+      expect(missed.cumBefore, 20);
+    });
+
     test('発車前に駅着なら乗り遅れなし（null）', () {
       // 徒歩5分で駅着(累積5分) < 発車相対12分 → 間に合う。
       final segments = [
@@ -611,6 +638,57 @@ void main() {
       expect(missed, isNotNull);
       expect(missed!.index, 1);
       expect(missed.cumBefore, 25); // S2 着までの累積（9:25）
+    });
+  });
+
+  group('maxBoardingWait', () {
+    test('電車の乗車待ちを返す', () {
+      final segments = [
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'A駅',
+          toName: 'B駅',
+          minutes: 10,
+          depTime: DateTime(2026, 5, 22, 9, 30),
+          arrTime: DateTime(2026, 5, 22, 9, 40),
+        ),
+      ];
+      expect(maxBoardingWait(segments, DateTime(2026, 5, 22, 9, 0)), 30);
+    });
+
+    test('バスの乗車待ちも数える（深夜の翌朝始発バス対策・#250）', () {
+      // 23:30 出発、次のバスは翌朝 6:00 発＝待ち390分。train 限定のままだと 0 に
+      // 見え、「今夜乗れる」と誤判定して全徒歩より優先されてしまう（#121 と同型）。
+      final segments = [
+        RouteSegment(
+          type: SegmentType.bus,
+          fromName: 'A停留所',
+          toName: 'B停留所',
+          minutes: 20,
+          line: '渋谷01',
+          depTime: DateTime(2026, 5, 23, 6, 0),
+          arrTime: DateTime(2026, 5, 23, 6, 20),
+        ),
+      ];
+      expect(maxBoardingWait(segments, DateTime(2026, 5, 22, 23, 30)), 390);
+    });
+
+    test('時刻を持たない区間・全徒歩は 0', () {
+      const segments = [
+        RouteSegment(
+          type: SegmentType.walk,
+          fromName: '出発地',
+          toName: '目的地',
+          minutes: 40,
+        ),
+        RouteSegment(
+          type: SegmentType.bus,
+          fromName: 'A停留所',
+          toName: 'B停留所',
+          minutes: 20,
+        ),
+      ];
+      expect(maxBoardingWait(segments, DateTime(2026, 5, 22, 9, 0)), 0);
     });
   });
 
