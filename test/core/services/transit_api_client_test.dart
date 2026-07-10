@@ -50,6 +50,7 @@ void main() {
         expect(captured.queryParameters['time'], '09:05');
         expect(captured.queryParameters['type'], 'departure');
         expect(captured.queryParameters['numItineraries'], '5');
+        expect(captured.queryParameters['avoidModes'], 'bus,ferry,air');
       },
     );
 
