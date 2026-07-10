@@ -132,9 +132,31 @@ int maxBoardingWait(List<RouteSegment> segments, DateTime departureAt) {
   return maxWait;
 }
 
-/// 電車区間ノードの補足文。路線名のみを表示する（乗車前待ちは前置きしない）。
-String _trainSub(String? line) {
-  return line ?? '電車';
+/// transit（電車・バス）区間ノードの補足文。路線名があればそれを、無ければ区間種別に
+/// 応じたフォールバックを表示する（乗車前待ちは前置きしない）。walk は
+/// [_boardingNode] からしか呼ばれず transit 区間のみが渡るため到達しない。
+String _transitSub(RouteSegment seg) {
+  if (seg.line != null) return seg.line!;
+  switch (seg.type) {
+    case SegmentType.train:
+      return '電車';
+    case SegmentType.bus:
+      return 'バス';
+    case SegmentType.walk:
+      return '';
+  }
+}
+
+/// 区間種別が transit（電車・バス）か。walk との二値網羅なので、[SegmentType] に
+/// ケースが追加されてもここがコンパイルエラーで検出漏れを教えてくれる。
+bool _isTransit(SegmentType type) {
+  switch (type) {
+    case SegmentType.walk:
+      return false;
+    case SegmentType.train:
+    case SegmentType.bus:
+      return true;
+  }
 }
 
 /// 乗車駅（発）ノードを作る。表示時刻は乗車駅着の累積分 [arrivalCum] に乗車前待ちを
@@ -143,15 +165,15 @@ String _trainSub(String? line) {
 TimelineNode _boardingNode(
   TimeValue departure,
   String place,
-  RouteSegment train,
+  RouteSegment seg,
   int arrivalCum,
   DateTime? departureAt,
 ) {
-  final wait = _advance(arrivalCum, train, departureAt).wait;
+  final wait = _advance(arrivalCum, seg, departureAt).wait;
   return TimelineNode(
     time: formatClock(departure, arrivalCum + wait),
     place: place,
-    sub: _trainSub(train.line),
+    sub: _transitSub(seg),
   );
 }
 
@@ -214,10 +236,10 @@ RoutePlan buildRoutePlan({
     } else {
       final next = segments[i + 1];
       final place = seg.toName;
-      final incomingTrain = seg.type == SegmentType.train;
-      final outgoingTrain = next.type == SegmentType.train;
-      if (incomingTrain && outgoingTrain) {
-        // 直結乗換：着行（無表示・カード無し）＋ 次電車の発行。
+      final incomingTransit = _isTransit(seg.type);
+      final outgoingTransit = _isTransit(next.type);
+      if (incomingTransit && outgoingTransit) {
+        // 直結乗換：着行（無表示・カード無し）＋ 次のtransit区間の発行。
         nodes.add(
           TimelineNode(
             time: formatClock(departure, cumAfter),
@@ -227,11 +249,11 @@ RoutePlan buildRoutePlan({
           ),
         );
         nodes.add(_boardingNode(departure, place, next, cumAfter, departureAt));
-      } else if (outgoingTrain) {
-        // 徒歩で着いて次が電車＝乗車駅。発車時刻＋路線名（待ちがあれば前置き）。
+      } else if (outgoingTransit) {
+        // 徒歩で着いて次がtransit＝乗車駅。発車時刻＋路線名（待ちがあれば前置き）。
         nodes.add(_boardingNode(departure, place, next, cumAfter, departureAt));
       } else {
-        // 電車で着いて次が徒歩（降車駅）、または徒歩→徒歩。到着時刻に「徒歩へ」。
+        // transitで着いて次が徒歩（降車駅）、または徒歩→徒歩。到着時刻に「徒歩へ」。
         nodes.add(
           TimelineNode(
             time: formatClock(departure, cumAfter),

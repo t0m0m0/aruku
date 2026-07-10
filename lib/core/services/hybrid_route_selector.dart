@@ -198,7 +198,7 @@ Future<int?> maxWalkBoardingIndexParallel({
   return best;
 }
 
-/// 候補の電車区間に、出発地より進行方向(origin→goal)の後方へ
+/// 候補の transit 区間（電車・バス）に、出発地より進行方向(origin→goal)の後方へ
 /// [maxBacktrackRatio] × 直線距離(origin→goal) を超えて戻る駅を含むか。
 /// 徒歩区間は判定しない（目的地へ近づくための短い徒歩を弾かないため）。
 ///
@@ -218,9 +218,14 @@ bool _isBacktrackDetour(
   if (dog == 0) return false;
   final limit = -maxBacktrackRatio * dog;
   for (final seg in c.segments) {
-    if (seg.type != SegmentType.train) continue;
-    for (final p in evenSample(seg.polyline, _maxBacktrackSamplesPerLeg)) {
-      if (_advanceKm(origin, goal, dog, p) < limit) return true;
+    switch (seg.type) {
+      case SegmentType.walk:
+        continue;
+      case SegmentType.train:
+      case SegmentType.bus:
+        for (final p in evenSample(seg.polyline, _maxBacktrackSamplesPerLeg)) {
+          if (_advanceKm(origin, goal, dog, p) < limit) return true;
+        }
     }
   }
   return false;

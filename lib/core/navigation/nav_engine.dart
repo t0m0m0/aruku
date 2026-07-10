@@ -345,7 +345,7 @@ List<_Maneuver> _maneuvers(
   return out;
 }
 
-/// 電車区間の開始・終了地点に乗車/下車イベントを生成する。
+/// transit（電車・バス）区間の開始・終了地点に乗車/下車イベントを生成する。
 List<_Maneuver> _trainEvents(
   RoutePlan route,
   List<GeoPoint> pts,
@@ -360,7 +360,13 @@ List<_Maneuver> _trainEvents(
   final out = <_Maneuver>[];
   for (var i = 0; i < route.segments.length; i++) {
     final seg = route.segments[i];
-    if (seg.type != SegmentType.train) continue;
+    switch (seg.type) {
+      case SegmentType.walk:
+        continue;
+      case SegmentType.train:
+      case SegmentType.bus:
+        break;
+    }
     final vertices = [
       for (var j = 0; j < segIndex.length; j++)
         if (segIndex[j] == i) j,
