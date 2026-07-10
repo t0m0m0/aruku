@@ -91,7 +91,7 @@ RouteCandidate selectBestRoute({
 /// （全徒歩は電車を含まず常に残る）：
 /// - 各時刻表電車の乗車待ち（[maxBoardingWait]）がいずれも [budgetMin] 内
 ///   （終電後の翌朝始発など「待てば乗れるが今夜は無理」な電車を除く・#121 原因②）。
-/// - 乗り遅れる電車が無い（[firstMissedTrain] == null）。徒歩を延ばして発車後に駅着する
+/// - 乗り遅れる電車が無い（[firstMissedTransit] == null）。徒歩を延ばして発車後に駅着する
 ///   電車は実際には乗れず、[maxBoardingWait] では待ち0に見えて素通りするため明示的に除く。
 ///   発車時刻のみで判定するため、降車駅の時刻を欠く NAVITIME データでも乗り遅れを拾える。
 ///
@@ -107,7 +107,7 @@ List<RouteCandidate>? reachableWithinBudget(
       .where(
         (c) =>
             maxBoardingWait(c.segments, departureAt) <= budgetMin &&
-            firstMissedTrain(c.segments, departureAt) == null,
+            firstMissedTransit(c.segments, departureAt) == null,
       )
       .toList();
   return reachable.isEmpty ? null : reachable;

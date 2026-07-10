@@ -9,7 +9,7 @@ import 'route_plan_builder.dart';
 ///
 /// `verbose` が偽（リリースビルド）のとき [log] は一切評価しない。ログ本文は遅延
 /// ビルダ（`String Function()`）で受け取り、`candLine` 等の高コストな文字列構築・
-/// 再計算（`arrivalMinutes`/`firstMissedTrain`/`maxBoardingWait`）をクロージャ本体に
+/// 再計算（`arrivalMinutes`/`firstMissedTransit`/`maxBoardingWait`）をクロージャ本体に
 /// 閉じ込めることで、リリースビルドではコストを一切払わない（#164）。
 ///
 /// 整形メソッド（[segSummary]/[candLine]/[boardingStationOf]）は純粋関数なので
@@ -48,7 +48,7 @@ class RouteDiagnostics {
   /// 残る」過程（#137）を候補単位で追える。
   String candLine(RouteCandidate c, int budgetMin, DateTime departureAt) {
     final arr = arrivalMinutes(c.segments, departureAt);
-    final missed = firstMissedTrain(c.segments, departureAt);
+    final missed = firstMissedTransit(c.segments, departureAt);
     final wait = maxBoardingWait(c.segments, departureAt);
     return 'walk=${c.walkMinutes}m arr=${arr}m slack=${budgetMin - arr}m '
         'within=${arr <= budgetMin} maxWait=${wait}m '

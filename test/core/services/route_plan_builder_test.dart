@@ -440,7 +440,7 @@ void main() {
     });
   });
 
-  group('firstMissedTrain', () {
+  group('firstMissedTransit', () {
     test('予定列車の発車後に駅着なら乗り遅れ区間を返す', () {
       // 徒歩20分で駅着(累積20分)。予定列車は 9:12 発（発車相対12分）→ 20 > 12 で乗り遅れ。
       final segments = [
@@ -461,7 +461,7 @@ void main() {
         ),
       ];
 
-      final missed = firstMissedTrain(segments, DateTime(2026, 5, 22, 9, 0));
+      final missed = firstMissedTransit(segments, DateTime(2026, 5, 22, 9, 0));
 
       expect(missed, isNotNull);
       expect(missed!.index, 1);
@@ -488,7 +488,7 @@ void main() {
         ),
       ];
 
-      final missed = firstMissedTrain(segments, DateTime(2026, 5, 22, 9, 0));
+      final missed = firstMissedTransit(segments, DateTime(2026, 5, 22, 9, 0));
 
       expect(missed, isNotNull);
       expect(missed!.index, 1);
@@ -515,7 +515,7 @@ void main() {
         ),
       ];
 
-      expect(firstMissedTrain(segments, DateTime(2026, 5, 22, 9, 0)), isNull);
+      expect(firstMissedTransit(segments, DateTime(2026, 5, 22, 9, 0)), isNull);
     });
 
     test('駅着と発車が同時刻（累積==発車相対）は乗り遅れにしない', () {
@@ -538,7 +538,7 @@ void main() {
         ),
       ];
 
-      expect(firstMissedTrain(segments, DateTime(2026, 5, 22, 9, 0)), isNull);
+      expect(firstMissedTransit(segments, DateTime(2026, 5, 22, 9, 0)), isNull);
     });
 
     test('発着時刻が無い電車区間は乗り遅れ判定の対象外（null）', () {
@@ -558,7 +558,7 @@ void main() {
         ),
       ];
 
-      expect(firstMissedTrain(segments, DateTime(2026, 5, 22, 9, 0)), isNull);
+      expect(firstMissedTransit(segments, DateTime(2026, 5, 22, 9, 0)), isNull);
     });
 
     test('降車駅の時刻が欠落(arr=null)でも発車時刻を過ぎて駅着なら乗り遅れ（実データ）', () {
@@ -582,7 +582,7 @@ void main() {
         ),
       ];
 
-      final missed = firstMissedTrain(segments, DateTime(2026, 6, 15, 3, 58));
+      final missed = firstMissedTransit(segments, DateTime(2026, 6, 15, 3, 58));
       expect(missed, isNotNull);
       expect(missed!.index, 1);
       expect(missed.cumBefore, 33);
@@ -607,7 +607,10 @@ void main() {
         ),
       ];
 
-      expect(firstMissedTrain(segments, DateTime(2026, 6, 15, 3, 58)), isNull);
+      expect(
+        firstMissedTransit(segments, DateTime(2026, 6, 15, 3, 58)),
+        isNull,
+      );
     });
 
     test('departureAt 起点で先行区間の待ちを吸収した累積で判定する', () {
@@ -633,7 +636,7 @@ void main() {
         ),
       ];
 
-      final missed = firstMissedTrain(segments, DateTime(2026, 5, 22, 9, 0));
+      final missed = firstMissedTransit(segments, DateTime(2026, 5, 22, 9, 0));
 
       expect(missed, isNotNull);
       expect(missed!.index, 1);

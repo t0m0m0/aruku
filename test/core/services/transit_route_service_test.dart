@@ -7,7 +7,7 @@ import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/hybrid_route_selector.dart'
     show haversineKm;
 import 'package:aruku/core/services/route_plan_builder.dart'
-    show walkMetersPerMinute, firstMissedTrain;
+    show walkMetersPerMinute, firstMissedTransit;
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/services/transit_route_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -828,7 +828,7 @@ void main() {
       );
       // 確定経路は実街路徒歩でも乗り遅れない。A を返すと駅着が発車後で実際には乗れない。
       final departureAt = DateTime(2026, 6, 27, 9, 0);
-      expect(firstMissedTrain(plan.segments, departureAt), isNull);
+      expect(firstMissedTransit(plan.segments, departureAt), isNull);
       // 電車を含む（全徒歩は予算外なので縮退していない）＝乗れる B 系へ切り替わっている。
       expect(plan.segments.any((s) => s.type == SegmentType.train), isTrue);
       expect(plan.totalMin, lessThanOrEqualTo(35));
@@ -1317,6 +1317,78 @@ void main() {
       },
     };
 
+    /// コリドー点 [lng] → goal を返す電車 option（board-search の引き直し用）。
+    /// 09:10 発なので、前半徒歩31分（09:31 に乗車駅着）では乗り遅れる。到着だけ見れば
+    /// 予算内（31+10=41分）なので board-search は候補として返し、enrich の乗り遅れ除外で
+    /// 落ちる——「board-search が候補を返したのに全滅する」状況を作る。
+    Map<String, dynamic> corridorTrainOption(double lng) => {
+      'journey': {
+        'departureSecs': 33000, // 09:10
+        'arrivalSecs': 33600, // 09:20
+        'durationSecs': 600,
+        'accessWalkSecs': 0,
+        'egressWalkSecs': 0,
+        'legs': [
+          _railLeg(
+            route: '各停線',
+            fromId: 'c0',
+            fromName: '途中駅',
+            toId: 'c1',
+            toName: '終着駅',
+            dep: 33000,
+            arr: 33600,
+          ),
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('transit', 'c0', 'c1', 'stopOrder', [
+            [35.0, lng],
+            [35.0, 139.127],
+          ]),
+        ],
+      },
+    };
+
+    /// 見積り徒歩1分・実測徒歩31分の標準乗換（`accessWalkSecs` が所要分を決め、polyline が
+    /// enrich 後の実測を決める parser の性質を使う）。09:20 発なので見積り（09:01 駅着）では
+    /// 乗れるが、実測（09:31 駅着）では乗り遅れる。それでも到着は 31+10=41分で予算内に
+    /// 収まるため、`giveUp` が到着だけで判定すると「乗れない経路」を予算内と誤認する。
+    Map<String, dynamic> missedTrainOption() => {
+      'journey': {
+        'departureSecs': 33600, // 09:20
+        'arrivalSecs': 34200, // 09:30
+        'durationSecs': 660,
+        'accessWalkSecs': 60, // 見積りでは徒歩1分（実 polyline は 2.5km ≒ 31分）
+        'egressWalkSecs': 0,
+        'legs': [
+          _railLeg(
+            route: '各停線',
+            fromId: 's0',
+            fromName: '始発駅',
+            toId: 's1',
+            toName: '終着駅',
+            dep: 33600,
+            arr: 34200,
+          ),
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('walk', 'origin', 's0', 'osmWalk', const [
+            [35.0, 139.0],
+            [35.0, 139.027],
+          ]),
+          _mapSeg('transit', 's0', 's1', 'stopOrder', const [
+            [35.0, 139.027],
+            [35.0, 139.127],
+          ]),
+        ],
+      },
+    };
+
     /// all-walk のみを返す option（コリドー点からの引き直し用）。
     Map<String, dynamic> walkOnlyOption() => {
       'journey': {
@@ -1338,10 +1410,13 @@ void main() {
       },
     };
 
-    /// avoidModes でバス許容照会を判別するモック。バス許容なら [busOption] を、
-    /// 電車のみなら origin 起点は低速電車・コリドー点起点は all-walk を返す。
+    /// avoidModes でバス許容照会を判別するモック。バス許容なら [busOption] を、電車のみなら
+    /// origin 起点は [originOption]（既定＝低速電車）・コリドー点起点は [corridorOption]
+    /// （既定＝all-walk＝引き直し失敗）を返す。
     http.Client busMock({
       required Map<String, dynamic> busOption,
+      Map<String, dynamic>? originOption,
+      Map<String, dynamic> Function(double lng)? corridorOption,
       List<Uri>? log,
     }) => MockClient((req) async {
       log?.add(req.url);
@@ -1356,7 +1431,12 @@ void main() {
         final fromOrigin = (lng - 139.0).abs() < 1e-6;
         final body = allowsBus
             ? _guidance([busOption])
-            : _guidance([fromOrigin ? slowTrainOption() : walkOnlyOption()]);
+            : _guidance([
+                if (fromOrigin)
+                  originOption ?? slowTrainOption()
+                else
+                  corridorOption?.call(lng) ?? walkOnlyOption(),
+              ]);
         body['date'] = req.url.queryParameters['date'];
         return _json(body);
       }
@@ -1364,9 +1444,16 @@ void main() {
     });
 
     test('電車が予算内なら バス許容照会は一度も発行しない（速度不変）', () async {
+      // 09:15 発にして「実測徒歩8分で駅着 → 7分待って乗車」と実際に乗れる電車にする。
+      // 既定の 09:06 発だと実測徒歩が見積り5分から8分へ伸びて発車後に駅着＝乗り遅れとなり、
+      // 到着(arrivalMinutes)だけ予算内に見える「乗れない電車」になってしまい、
+      // 「電車で間に合うケース」を表現できない（乗り遅れは last-resort の発火条件）。
       final log = <Uri>[];
       final svc = _service(
-        _mock(transit: _guidance([_singleTrainOption()]), log: log),
+        _mock(
+          transit: _guidance([_singleTrainOption(dep: 33300, arr: 35100)]),
+          log: log,
+        ),
       );
       final plan = await svc.plan(
         destination: '新宿',
@@ -1376,6 +1463,11 @@ void main() {
         origin: origin,
       );
       expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+      expect(
+        firstMissedTransit(plan.segments, DateTime(2026, 6, 27, 9, 0)),
+        isNull,
+        reason: '前提: 実際に乗れる電車で予算内に収まっている',
+      );
       final busQueries = log.where(
         (u) =>
             u.path.contains('guidance/plan') &&
@@ -1436,6 +1528,55 @@ void main() {
         plan.segments.where((s) => s.type == SegmentType.bus),
         isEmpty,
         reason: '今夜（今日）乗れないバスを提示してはならない',
+      );
+    });
+
+    test('collapse→board-search が全滅してもバス候補を取り下げない', () async {
+      // バスが予算内で勝つ → collapse 判定が立ち board-search が起動する。board-search は
+      // 到着だけ見て候補を返すが、その電車は乗り遅れ（09:10 発／乗車駅着 09:31）なので
+      // enrich で全滅する。再選定のプールにバスを引き継がないと、せっかく見つけた予算内の
+      // バスを捨てて予算外の best-effort へ落ちてしまう。
+      final svc = _service(
+        busMock(busOption: busOption(), corridorOption: corridorTrainOption),
+      );
+      final plan = await svc.plan(
+        destination: '目的地',
+        destinationLatLng: busGoal,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0),
+        origin: busOrigin,
+      );
+      expect(
+        plan.segments.where((s) => s.type == SegmentType.bus),
+        isNotEmpty,
+        reason: 'board-search が全滅したら last-resort のバスへ戻るべき',
+      );
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+    });
+
+    test('best-effort が予算内でも乗り遅れならバスを引く', () async {
+      // 標準乗換は見積り徒歩1分で 09:20 発に間に合うが、実測徒歩31分では乗り遅れる。
+      // 乗り遅れたまま到着だけ数えると41分＝予算内に見えるため、到着だけで発火判定すると
+      // 「実際には乗れない電車」を提示してバス再照会を撃ち漏らす。
+      final svc = _service(
+        busMock(busOption: busOption(), originOption: missedTrainOption()),
+      );
+      final plan = await svc.plan(
+        destination: '目的地',
+        destinationLatLng: busGoal,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0),
+        origin: busOrigin,
+      );
+      expect(
+        plan.segments.where((s) => s.type == SegmentType.bus),
+        isNotEmpty,
+        reason: '乗り遅れる電車しか無いならバスを引くべき',
+      );
+      expect(
+        firstMissedTransit(plan.segments, DateTime(2026, 6, 27, 9, 0)),
+        isNull,
+        reason: '乗り遅れる便を確定してはならない',
       );
     });
   });

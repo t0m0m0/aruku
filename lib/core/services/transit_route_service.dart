@@ -23,7 +23,7 @@ import 'transit_plan_parser.dart';
 /// - 途中停車駅は `/guidance/plan` の transit polyline（コリドー座標）で代替し、
 ///   乗車駅探索はコリドーを間引きサンプリングして `plan(X→goal)` を引き直す（§2.5）。
 /// - 運賃は取得不可のため廃止（§5）。乗り遅れ再照会（#115）は乗車駅探索へ一本化し
-///   廃止（§4）。引き直し便は自己整合なので `firstMissedTrain` が立たない。
+///   廃止（§4）。引き直し便は自己整合なので `firstMissedTransit` が立たない。
 class TransitRouteService implements RouteService {
   TransitRouteService({
     http.Client? transitClient,
@@ -249,13 +249,18 @@ class TransitRouteService implements RouteService {
       );
       if (boardSearch.isNotEmpty) {
         _diag.log(() => 'board-search候補: ${boardSearch.length}件をプールへ追加');
+        // 既に引いたバス候補（あれば）も再選定のプールへ引き継ぐ。board-search 候補が
+        // 逆戻り・乗り遅れ・幽霊便で全滅したとき、last-resort で見つけた予算内のバスへ
+        // 戻れるようにするため（引き継がないと予算外の best-effort へ落ちる）。徒歩最大化
+        // の観点ではバスは徒歩0分なので、生き残る board-search 候補があればそちらが勝つ。
         selected = await _selectAndEnrich(
-          [...candidates, ...boardSearch],
+          [...candidates, ...?busCandidates, ...boardSearch],
           budgetMin,
           departureAt,
           origin: origin,
           goal: goal,
           walkCache: walkCache,
+          lastResortBus: lastResortBus,
         );
         _diag.log(
           () =>
@@ -462,16 +467,17 @@ class TransitRouteService implements RouteService {
   /// NAVITIME 版と違い**乗り遅れ再照会（#115）は行わない**：実在便への差し替えはせず、
   /// enrich で (a) 予算超過、または (b) 先頭電車に乗り遅れ（標準乗換のアクセス徒歩が実街路で
   /// 伸び駅着が発車後になる・#137 副次）が判明した候補は除外して乗れる次善へ選び直す。
-  /// ハイブリッド／乗車駅探索は引き直しまたは時刻なし距離概算のため `firstMissedTrain` は
+  /// ハイブリッド／乗車駅探索は引き直しまたは時刻なし距離概算のため `firstMissedTransit` は
   /// 構成上立たず、(b) は主に標準乗換に効く。
   /// 戻り値の [chosen] は enrich 前の選定候補（guidance 見積り徒歩のまま）、
   /// [enriched] は採用経路を Google 実測で確定したもの。崩壊判定（[_isCollapse]）が
   /// 標準乗換と同じ見積り基準で比較できるよう、両方を返す。
   ///
-  /// [lastResortBus] を渡すと、縮退した best-effort が**なお予算外**のときに限り一度だけ
+  /// [lastResortBus] を渡すと、縮退した best-effort が**なお予算外か乗り遅れる**ときに限り
   /// 呼び、得られた候補をプールへ足して選定をやり直す（#250）。バス候補は素の door-to-door
   /// 候補としてプールへ混ざるだけで、逆戻りフィルタ・乗り遅れ除外・幽霊便拒否といった
   /// 既存の検証はそのまま効く。省略時はバスを引かず従来どおり縮退する（再入時がこれ）。
+  /// [lastResortBus] はメモ化前提で、既にプールにあるバス候補は積み増さない。
   Future<({RouteCandidate chosen, RouteCandidate enriched})> _selectAndEnrich(
     List<RouteCandidate> candidates,
     int budgetMin,
@@ -487,7 +493,12 @@ class TransitRouteService implements RouteService {
     /// 「予算内候補なし」で即バスを引かないのは、enrich でプールの見積り予算内候補が
     /// すべて落ちた後にもこの分岐へ来るため。そこには実測で予算内に収まる標準乗換が
     /// 残っていることがあり（best-effort が拾う）、先にバスを引くと電車で間に合うケースで
-    /// 追加コールが走ってしまう。判定は「best-effort の実測到着が予算外か」で行う。
+    /// 追加コールが走ってしまう。判定は「best-effort が実測で使い物になるか」で行う。
+    ///
+    /// 「使い物になる」は到着が予算内であることに加え、乗り遅れが無いこと。[arrivalMinutes]
+    /// は乗り遅れた便を「待ち0で予定どおり乗車」と楽観近似して進めるため、実測徒歩で発車後に
+    /// 駅着する経路が予算内に見えてしまう。それを予算内と誤認するとバスを引かず、実際には
+    /// 乗れない電車を確定してしまう（#250 レビュー指摘）。
     Future<({RouteCandidate chosen, RouteCandidate enriched})> giveUp() async {
       final fallback = await _bestEffortResolved(
         candidates,
@@ -496,19 +507,31 @@ class TransitRouteService implements RouteService {
         walkCache,
       );
       if (lastResortBus == null) return fallback;
-      final arrival = arrivalMinutes(fallback.enriched.segments, departureAt);
-      if (arrival <= budgetMin) {
+      final segs = fallback.enriched.segments;
+      final arrival = arrivalMinutes(segs, departureAt);
+      final missed = firstMissedTransit(segs, departureAt) != null;
+      if (arrival <= budgetMin && !missed) {
         _diag.log(() => '  → best-effort が予算内(arr=${arrival}m) → バス再照会せず');
         return fallback;
       }
       final bus = await lastResortBus();
-      if (bus.isEmpty) {
-        _diag.log(() => '  → バス候補なし → best-effort のまま');
+      // 再入時（バス追加後の選び直しから再び縮退したとき）に同じ候補を積み増さない。
+      final fresh = [
+        for (final b in bus)
+          if (!candidates.any((c) => identical(c, b))) b,
+      ];
+      if (fresh.isEmpty) {
+        _diag.log(() => '  → 追加できるバス候補なし → best-effort のまま');
         return fallback;
       }
-      _diag.log(() => '  → バス候補 ${bus.length}件をプールへ追加して選び直し（last-resort）');
+      _diag.log(
+        () =>
+            '  → best-effort が'
+            '${missed ? '乗り遅れ' : '予算外(arr=${arrival}m)'}'
+            ' → バス候補 ${fresh.length}件をプールへ追加して選び直し（last-resort）',
+      );
       return _selectAndEnrich(
-        [...candidates, ...bus],
+        [...candidates, ...fresh],
         budgetMin,
         departureAt,
         origin: origin,
@@ -552,7 +575,7 @@ class TransitRouteService implements RouteService {
       final overBudget =
           arrivalMinutes(enriched.segments, departureAt) > budgetMin;
       final missedAfterEnrich =
-          firstMissedTrain(enriched.segments, departureAt) != null;
+          firstMissedTransit(enriched.segments, departureAt) != null;
       // (c) 引き直しでも実発車時刻を確認できなかった時刻なし transit 区間を含む＝その時間に
       // 便が無い疑い。予算内に見えても走っている確証が無いため確定させない（#137 深夜の幻便）。
       // バスも同じ基準で弾く（#250 幽霊バス）。
@@ -697,7 +720,7 @@ class TransitRouteService implements RouteService {
   /// 最大」を [maxWalkBoardingIndexParallel]（k分割並列探索・#163）で探索する。各ラウンド
   /// [_boardSearchFanout] 点を同時評価して Transit API レイテンシの直列積み上げを避ける。
   /// 評価点の集合は直列二分探索と異なるため、戻り値の候補群も直列版と変わり得る。
-  /// 引き直し便は X 発で自己整合なので `firstMissedTrain` が立たない。コリドー候補は
+  /// 引き直し便は X 発で自己整合なので `firstMissedTransit` が立たない。コリドー候補は
   /// 2未満／予算内が無いとき null。
   ///
   /// **前半徒歩は Google 実街路で実測して二分探索を駆動する（#137 主因の修正）。** 直線推定

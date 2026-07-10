@@ -60,7 +60,7 @@ String formatClock(TimeValue dep, int addMinutes) {
     // 降車が発車より前の不整合データ（ride < 0）は所要分にフォールバックする。
     if (ride >= 0) {
       // boardRel <= cum は発車後に駅着＝乗り遅れ。ここでは待ち0で乗車時間を足す近似で
-      // 進める（乗り遅れは firstMissedTrain が検知し #115 で次便の実時刻へ差し替える）。
+      // 進める（乗り遅れは firstMissedTransit が検知し #115 で次便の実時刻へ差し替える）。
       final wait = boardRel > cum ? boardRel - cum : 0;
       return (cum: cum + wait + ride, wait: wait);
     }
@@ -91,7 +91,7 @@ int arrivalMinutes(List<RouteSegment> segments, DateTime? departureAt) {
 /// =不整合データを併せて除外する）。発車時刻が欠落した区間は判定できないため対象外。
 /// バスも電車と同じ基準で判定する（#250。バス限定の緩和は入れない——時刻表を信じる
 /// 決定と「その便が実在するか」の検証は別物）。
-({int index, int cumBefore})? firstMissedTrain(
+({int index, int cumBefore})? firstMissedTransit(
   List<RouteSegment> segments,
   DateTime departureAt,
 ) {

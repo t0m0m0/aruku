@@ -23,7 +23,7 @@ RouteSegment _train(
   toName: to,
   minutes: minutes,
   line: line,
-  // depTime を持たせないことで maxBoardingWait/firstMissedTrain の対象外にし、
+  // depTime を持たせないことで maxBoardingWait/firstMissedTransit の対象外にし、
   // 整形テストを時刻計算に依存させない（時刻付き電車の挙動は選定側テストが担保）。
   polyline: const [GeoPoint(35.0, 139.0), GeoPoint(35.1, 139.1)],
 );
