@@ -6,7 +6,12 @@ import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 import '../models/geo_point.dart';
 import 'route_service.dart';
-import 'transit_plan_parser.dart' show nonTrainTransitModes;
+
+/// `/guidance/plan` へ問い合わせる際に除外する交通モード。バスは last-resort 候補と
+/// してまだ実装していないため、電車のみの経路を要求する（#247）。パーサ側の
+/// mode→SegmentType 写像（`_segmentTypeForMode`、bus→SegmentType.bus）とは独立の
+/// 定数——パーサが bus を型として許容しても、この問い合わせ条件自体は変えない（#249）。
+const _avoidModes = {'bus', 'ferry', 'air'};
 
 /// Transit API（`/guidance/plan` 直叩き）と Google Routes プロキシへの HTTP 通信を担う
 /// クライアント（#169）。[TransitRouteService] から通信の関心事を切り出し、選定ロジックを
@@ -62,7 +67,7 @@ class TransitApiClient {
         'time': _formatTime(at),
         'type': 'departure',
         'numItineraries': '$_numItineraries',
-        'avoidModes': nonTrainTransitModes.join(','),
+        'avoidModes': _avoidModes.join(','),
       },
     );
     final res = await _getOrTimeout(_transit, uri);

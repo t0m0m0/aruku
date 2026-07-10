@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'geo_point.dart';
 
-enum SegmentType { walk, train }
+enum SegmentType { walk, train, bus }
 
 @immutable
 class RouteSegment {
