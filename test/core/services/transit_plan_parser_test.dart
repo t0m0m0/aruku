@@ -682,6 +682,8 @@ void main() {
       final bus = segs[0];
       expect(bus.fromName, '山王三丁目');
       expect(bus.toName, '大森駅');
+      // バス系統名は railLineLabel（電車の路線名整形）を経由せずそのまま出す。
+      expect(bus.line, '森０２');
 
       // 電車区間の乗車駅名はバス停「山王三丁目」ではなく鉄道駅「大森」。
       final train = segs[2];
