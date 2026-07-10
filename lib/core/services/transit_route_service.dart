@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import '../models/geo_point.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
+import 'cancellation.dart';
 import 'hybrid_route_selector.dart';
 import 'route_diagnostics.dart';
 import 'route_plan_builder.dart';
@@ -24,18 +25,20 @@ import 'transit_plan_parser.dart';
 ///   乗車駅探索はコリドーを間引きサンプリングして `plan(X→goal)` を引き直す（§2.5）。
 /// - 運賃は取得不可のため廃止（§5）。乗り遅れ再照会（#115）は乗車駅探索へ一本化し
 ///   廃止（§4）。引き直し便は自己整合なので `firstMissedTransit` が立たない。
-class TransitRouteService implements RouteService {
+class TransitRouteService implements SearchEngine {
   TransitRouteService({
     http.Client? transitClient,
     http.Client? proxyClient,
     String? transitBaseUrl,
     String? proxyBaseUrl,
     DateTime Function()? clock,
+    CancellationToken? cancellation,
   }) : _api = TransitApiClient(
          transitClient: transitClient,
          proxyClient: proxyClient,
          transitBaseUrl: transitBaseUrl,
          proxyBaseUrl: proxyBaseUrl,
+         cancellation: cancellation,
        ),
        _clock = clock ?? DateTime.now;
 
@@ -115,6 +118,9 @@ class TransitRouteService implements RouteService {
       toName: destination,
     );
   }
+
+  @override
+  void close() => _api.close();
 
   /// measure-first 選定。標準乗換・実測ハイブリッド・全徒歩を同一土俵で比較し、
   /// 採用候補を Google 実測（enrich）で検証して確定する。徒歩最大化が崩壊したときだけ

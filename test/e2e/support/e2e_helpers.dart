@@ -7,6 +7,7 @@ import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/navigation/app_router.dart';
 import 'package:aruku/core/services/activity_service.dart';
+import 'package:aruku/core/services/cancellation.dart';
 import 'package:aruku/core/services/location_service.dart';
 import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/recents_repository.dart';
@@ -42,6 +43,7 @@ class HoldingRouteService implements RouteService {
     GeoPoint? origin,
     String? originName,
     void Function(RoutePhase)? onProgress,
+    CancellationToken? cancellation,
   }) async {
     await gate.future;
     return testRoutePlan;
@@ -78,6 +80,7 @@ class FixedRouteService implements RouteService {
     GeoPoint? origin,
     String? originName,
     void Function(RoutePhase)? onProgress,
+    CancellationToken? cancellation,
   }) async => _plan;
 }
 
@@ -95,6 +98,7 @@ class FailingRouteService implements RouteService {
     GeoPoint? origin,
     String? originName,
     void Function(RoutePhase)? onProgress,
+    CancellationToken? cancellation,
   }) async {
     // Duration.zero にすることでタイマー経由の非同期になり、
     // pump()（タイマーを進めない）中に loading 状態を観測できる。

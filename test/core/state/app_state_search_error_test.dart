@@ -2,6 +2,7 @@ import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_error.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
+import 'package:aruku/core/services/cancellation.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -35,6 +36,7 @@ class _FlakyRouteService implements RouteService {
     GeoPoint? origin,
     String? originName,
     void Function(RoutePhase)? onProgress,
+    CancellationToken? cancellation,
   }) async {
     calls++;
     if (calls == 1) throw RouteException(status);
