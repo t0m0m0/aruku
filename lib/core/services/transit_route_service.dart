@@ -210,6 +210,12 @@ class TransitRouteService implements RouteService {
     );
     _diag.log(() => 'total candidates: ${candidates.length}');
 
+    // last-resort のバス再照会は高々1回。予算内候補が出ないときにだけ発火するので、
+    // 電車で間に合う通常時は Transit API への追加コールが増えない（#250）。
+    List<RouteCandidate>? busCandidates;
+    Future<List<RouteCandidate>> lastResortBus() async =>
+        busCandidates ??= await _fetchBusCandidates(origin, goal, departureAt);
+
     var selected = await _selectAndEnrich(
       candidates,
       budgetMin,
@@ -217,6 +223,7 @@ class TransitRouteService implements RouteService {
       origin: origin,
       goal: goal,
       walkCache: walkCache,
+      lastResortBus: lastResortBus,
     );
 
     _diag.log(
@@ -277,6 +284,37 @@ class TransitRouteService implements RouteService {
     );
   }
 
+  /// last-resort のバス候補（#250）。`avoidModes` からバスを外して door-to-door を1回だけ
+  /// 引き直し、**バス区間を含む option だけ**を候補化する（バスを含まない option は電車のみの
+  /// 主照会と重複するため捨てる）。取得失敗は空リスト＝従来どおり best-effort 縮退へ。
+  ///
+  /// バス候補は素の door-to-door 候補としてのみ扱う。ハイブリッド化・乗車駅探索の起点には
+  /// しない（[_baseForHybrid] は train-only のまま・#249 のガードを維持）。
+  Future<List<RouteCandidate>> _fetchBusCandidates(
+    GeoPoint origin,
+    GeoPoint goal,
+    DateTime departureAt,
+  ) async {
+    _diag.log(() => 'バス last-resort: avoidModes からバスを外して再照会');
+    final Map<String, dynamic> body;
+    try {
+      body = await _api.fetchGuidanceAt(
+        origin,
+        goal,
+        departureAt,
+        allowBus: true,
+      );
+    } on RouteException catch (e) {
+      _diag.log(() => 'バス last-resort: 再照会失敗 (${e.status})');
+      return const [];
+    }
+    return [
+      for (final o in parseGuidancePlan(body))
+        if (o.segments.any((s) => s.type == SegmentType.bus))
+          RouteCandidate(from: o.from, to: o.to, segments: o.segments),
+    ];
+  }
+
   /// 確定経路の電車区間に乗降駅名が無い（コリドー座標由来の候補）ときだけ、その乗車座標
   /// →降車座標で `/guidance/plan` を1回引き直して leg の実駅名を復元する（確定候補のみ・
   /// 追加コール最小）。続けて隣接徒歩区間の端点へ駅名を伝播し、タイムラインの乗車駅ノード
@@ -291,7 +329,7 @@ class TransitRouteService implements RouteService {
       if (seg.type != SegmentType.train) continue;
       if (seg.fromName.isNotEmpty && seg.toName.isNotEmpty) continue;
       if (seg.polyline.length < 2) continue;
-      final names = await _fetchTrainEndpoints(
+      final names = await _fetchTransitEndpoints(
         seg.polyline.first,
         seg.polyline.last,
         departureAt,
@@ -306,28 +344,40 @@ class TransitRouteService implements RouteService {
     return RouteCandidate(from: chosen.from, to: chosen.to, segments: segs);
   }
 
-  /// 乗車座標 [board]→降車座標 [alight] を [at] 発で引き直し、最初に電車を含む option の
-  /// 先頭電車の乗車駅名・実発車時刻、末尾電車の降車駅名・実到着時刻を返す。電車を含む
-  /// option が無い・取得失敗なら null。コリドー由来候補の駅名復元（[_finalizeStationNames]）
-  /// と実時刻検証（[_resolveBoardingTimes]・approach A）で共有する。
+  /// 乗車座標 [board]→降車座標 [alight] を [at] 発で引き直し、最初に [type] の区間を含む
+  /// option の、先頭 [type] 区間の乗車地名・実発車時刻と、末尾 [type] 区間の降車地名・実到着
+  /// 時刻を返す。該当 option が無い・取得失敗なら null。コリドー由来候補の駅名復元
+  /// （[_finalizeStationNames]）と実時刻検証（[_resolveBoardingTimes]・approach A）で共有する。
+  ///
+  /// 照会モードと拾う leg の型は必ず [type] で揃える（#250）。バス区間の検証に電車のみの
+  /// 照会（既定の `avoidModes=bus,...`）を使うと、返ってきた電車の駅名・時刻をバス区間へ
+  /// 貼り付けてしまう。
   Future<({String from, String to, DateTime? dep, DateTime? arr})?>
-  _fetchTrainEndpoints(GeoPoint board, GeoPoint alight, DateTime at) async {
+  _fetchTransitEndpoints(
+    GeoPoint board,
+    GeoPoint alight,
+    DateTime at, {
+    SegmentType type = SegmentType.train,
+  }) async {
     final Map<String, dynamic> body;
     try {
-      body = await _api.fetchGuidanceAt(board, alight, at);
+      body = await _api.fetchGuidanceAt(
+        board,
+        alight,
+        at,
+        allowBus: type == SegmentType.bus,
+      );
     } on RouteException {
       return null;
     }
     for (final o in parseGuidancePlan(body)) {
-      final trains = o.segments
-          .where((s) => s.type == SegmentType.train)
-          .toList();
-      if (trains.isNotEmpty) {
+      final legs = o.segments.where((s) => s.type == type).toList();
+      if (legs.isNotEmpty) {
         return (
-          from: trains.first.fromName,
-          to: trains.last.toName,
-          dep: trains.first.depTime,
-          arr: trains.last.arrTime,
+          from: legs.first.fromName,
+          to: legs.last.toName,
+          dep: legs.first.depTime,
+          arr: legs.last.arrTime,
         );
       }
     }
@@ -337,12 +387,16 @@ class TransitRouteService implements RouteService {
   /// approach A（時刻なしハイブリッドの実時刻検証）。コリドー由来の電車区間は距離概算の
   /// minutes だけを持ち depTime を欠くため、乗車待ち（終電後・運行時間外の翌朝始発待ちを
   /// 含む）が [arrivalMinutes] に反映されず、走っていない電車が予算内へ化ける（#137 実機の
-  /// 深夜02:41／全ハイブリッド maxWait=0m）。採用候補の時刻なし電車区間について、乗車座標
+  /// 深夜02:41／全ハイブリッド maxWait=0m）。採用候補の時刻なし transit 区間について、乗車座標
   /// →降車座標を実 boardAt（出発＋その区間までの実累積分）で `/guidance/plan` 引き直しし、
-  /// 最初の電車 leg の実発着時刻を当てる。引き直し便は boardAt 以降発の実ダイヤなので、
+  /// 最初の同種 leg の実発着時刻を当てる。引き直し便は boardAt 以降発の実ダイヤなので、
   /// 乗車待ち・乗車時間が実時刻で入り、深夜は始発待ちで予算外へ正しく落ちる。
-  /// boardAt より前発（実ダイヤと不整合・乗れない便）・取得失敗・電車便なしの区間は当てない。
+  /// boardAt より前発（実ダイヤと不整合・乗れない便）・取得失敗・同種の便なしの区間は当てない。
   /// 駅名も同時に復元する（[_finalizeStationNames] の再照会を省ける）。
+  ///
+  /// バス区間も同じ検証に掛ける（#250）。実運用ではバス候補は door-to-door の標準乗換
+  /// （実時刻付き）としてのみ入るため通常は no-op だが、時刻を欠くバス便が紛れ込んだときに
+  /// 電車と同じ基準で幽霊便として弾けるようにする。
   Future<RouteCandidate> _resolveBoardingTimes(
     RouteCandidate cand,
     DateTime departureAt,
@@ -351,17 +405,18 @@ class TransitRouteService implements RouteService {
     var changed = false;
     for (var i = 0; i < segs.length; i++) {
       final seg = segs[i];
-      if (seg.type != SegmentType.train) continue;
+      if (seg.type == SegmentType.walk) continue;
       if (seg.depTime != null) continue; // 既に実時刻あり（標準乗換・board-search）
       if (seg.polyline.length < 2) continue;
       final cumBefore = arrivalMinutes(segs.sublist(0, i), departureAt);
       final boardAt = departureAt.add(Duration(minutes: cumBefore));
       // 区間間は並列化しない（#163 対象外）: 後続区間の boardAt（cumBefore）が前区間で
       // 解決した実乗車時間・乗車待ちに依存するため、直列でないと照会時刻がずれる。
-      final ep = await _fetchTrainEndpoints(
+      final ep = await _fetchTransitEndpoints(
         seg.polyline.first,
         seg.polyline.last,
         boardAt,
+        type: seg.type,
       );
       if (ep == null || ep.dep == null || ep.dep!.isBefore(boardAt)) continue;
       final ride = (ep.arr != null && !ep.arr!.isBefore(ep.dep!))
@@ -412,6 +467,10 @@ class TransitRouteService implements RouteService {
   /// 戻り値の [chosen] は enrich 前の選定候補（guidance 見積り徒歩のまま）、
   /// [enriched] は採用経路を Google 実測で確定したもの。崩壊判定（[_isCollapse]）が
   /// 標準乗換と同じ見積り基準で比較できるよう、両方を返す。
+  ///
+  /// [lastResortBus] を渡すと、best-effort 縮退へ落ちる直前に一度だけ呼び、得られた候補を
+  /// プールへ足して選定をやり直す（#250）。バス候補は素の door-to-door 候補としてプールへ
+  /// 混ざるだけで、逆戻りフィルタ・乗り遅れ除外・幽霊便拒否といった既存の検証はそのまま効く。
   Future<({RouteCandidate chosen, RouteCandidate enriched})> _selectAndEnrich(
     List<RouteCandidate> candidates,
     int budgetMin,
@@ -419,7 +478,44 @@ class TransitRouteService implements RouteService {
     required GeoPoint origin,
     required GeoPoint goal,
     required Map<String, RouteCandidate> walkCache,
+    Future<List<RouteCandidate>> Function()? lastResortBus,
   }) async {
+    /// 縮退。まず従来どおり best-effort を求め、それでも予算外ならバス許容の再照会を
+    /// 一度だけ試して候補を足し、選定をやり直す（#250）。
+    ///
+    /// 「予算内候補なし」で即バスを引かないのは、enrich でプールの見積り予算内候補が
+    /// すべて落ちた後にもこの分岐へ来るため。そこには実測で予算内に収まる標準乗換が
+    /// 残っていることがあり（best-effort が拾う）、先にバスを引くと電車で間に合うケースで
+    /// 追加コールが走ってしまう。判定は「best-effort の実測到着が予算外か」で行う。
+    Future<({RouteCandidate chosen, RouteCandidate enriched})> giveUp() async {
+      final fallback = await _bestEffortResolved(
+        candidates,
+        budgetMin,
+        departureAt,
+        walkCache,
+      );
+      if (lastResortBus == null) return fallback;
+      final arrival = arrivalMinutes(fallback.enriched.segments, departureAt);
+      if (arrival <= budgetMin) {
+        _diag.log(() => '  → best-effort が予算内(arr=${arrival}m) → バス再照会せず');
+        return fallback;
+      }
+      final bus = await lastResortBus();
+      if (bus.isEmpty) {
+        _diag.log(() => '  → バス候補なし → best-effort のまま');
+        return fallback;
+      }
+      _diag.log(() => '  → バス候補 ${bus.length}件をプールへ追加して選び直し（last-resort）');
+      return _selectAndEnrich(
+        [...candidates, ...bus],
+        budgetMin,
+        departureAt,
+        origin: origin,
+        goal: goal,
+        walkCache: walkCache,
+      );
+    }
+
     var pool = candidates;
     for (var attempt = 0; ; attempt++) {
       final chosen = selectBestRoute(
@@ -437,13 +533,8 @@ class TransitRouteService implements RouteService {
             'chosen: ${_diag.candLine(chosen, budgetMin, departureAt)}',
       );
       if (!withinByEstimate) {
-        _diag.log(() => '  → 予算内候補なし → best-effort 縮退');
-        return await _bestEffortResolved(
-          candidates,
-          budgetMin,
-          departureAt,
-          walkCache,
-        );
+        _diag.log(() => '  → 予算内候補なし → best-effort 縮退（予算外ならバス last-resort）');
+        return await giveUp();
       }
 
       // enrich（実測徒歩）に加え、時刻なしハイブリッドの電車区間へ実発車時刻を当てる
@@ -461,14 +552,15 @@ class TransitRouteService implements RouteService {
           arrivalMinutes(enriched.segments, departureAt) > budgetMin;
       final missedAfterEnrich =
           firstMissedTrain(enriched.segments, departureAt) != null;
-      // (c) 引き直しでも実発車時刻を確認できなかった時刻なし電車を含む＝その時間に便が
-      // 無い疑い。予算内に見えても走っている確証が無いため確定させない（#137 深夜の幻便）。
-      final unverifiedTrain = enriched.segments.any(
-        (s) => s.type == SegmentType.train && s.depTime == null,
+      // (c) 引き直しでも実発車時刻を確認できなかった時刻なし transit 区間を含む＝その時間に
+      // 便が無い疑い。予算内に見えても走っている確証が無いため確定させない（#137 深夜の幻便）。
+      // バスも同じ基準で弾く（#250 幽霊バス）。
+      final unverifiedTransit = enriched.segments.any(
+        (s) => s.type != SegmentType.walk && s.depTime == null,
       );
       if (attempt < _maxEnrichAttempts &&
           pool.length > 1 &&
-          (overBudget || missedAfterEnrich || unverifiedTrain)) {
+          (overBudget || missedAfterEnrich || unverifiedTransit)) {
         _diag.log(
           () =>
               '  → enrich実測で'
@@ -482,15 +574,13 @@ class TransitRouteService implements RouteService {
         pool = pool.where((c) => !identical(c, chosen)).toList();
         continue;
       }
-      // 除外しきれず未確認電車が残るときは確定させず best-effort（検証済み）へ縮退する。
-      if (unverifiedTrain) {
-        _diag.log(() => '  → 未確認電車のまま確定不可 → best-effort 縮退');
-        return await _bestEffortResolved(
-          candidates,
-          budgetMin,
-          departureAt,
-          walkCache,
+      // 除外しきれず未確認の便が残るときは確定させず best-effort（検証済み）へ縮退する。
+      // ここも [giveUp] を通す＝best-effort が予算外のときだけバスを引く（#250）。
+      if (unverifiedTransit) {
+        _diag.log(
+          () => '  → 未確認の便のまま確定不可 → best-effort 縮退（予算外ならバス last-resort）',
         );
+        return await giveUp();
       }
       _diag.log(
         () => '  → 確定: ${_diag.candLine(enriched, budgetMin, departureAt)}',
@@ -500,9 +590,9 @@ class TransitRouteService implements RouteService {
   }
 
   /// best-effort 縮退（#121／#137 深夜）。候補へ実発車時刻を当て（approach A）、引き直しでも
-  /// 実時刻を確認できなかった時刻なし電車を含む候補（その時間に便が無い疑い＝幻便）を除いた
-  /// うえで「今夜乗れる範囲の実到着最早」を選ぶ。検証済みが皆無なら元の解決済み候補へ戻す
-  /// （全徒歩は電車を含まず常に残るため通常は空にならない）。
+  /// 実時刻を確認できなかった時刻なし transit 区間を含む候補（その時間に便が無い疑い＝幻便・
+  /// 幽霊バス）を除いたうえで「今夜乗れる範囲の実到着最早」を選ぶ。検証済みが皆無なら元の
+  /// 解決済み候補へ戻す（全徒歩は transit を含まず常に残るため通常は空にならない）。
   Future<({RouteCandidate chosen, RouteCandidate enriched})>
   _bestEffortResolved(
     List<RouteCandidate> candidates,
@@ -518,7 +608,7 @@ class TransitRouteService implements RouteService {
     final verified = [
       for (final c in resolved)
         if (c.segments.every(
-          (s) => s.type != SegmentType.train || s.depTime != null,
+          (s) => s.type == SegmentType.walk || s.depTime != null,
         ))
           c,
     ];

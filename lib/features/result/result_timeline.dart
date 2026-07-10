@@ -153,7 +153,7 @@ class _TimelineSegmentRow extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final isWalk = seg.type == SegmentType.walk;
     // バス専用のアイコン・色は未デザインのため、当面は電車と同じ見た目を流用する
-    // （#249。avoidModesがバスを除外し続けるため実際には描画されない）。
+    // （#249）。#250 の last-resort 候補で実際に描画されるようになった。
     final color = isWalk ? c.moss600 : c.train;
     final defaultLabel = switch (seg.type) {
       SegmentType.walk => l10n.resultWalkLabel,

@@ -1231,4 +1231,209 @@ void main() {
       expect(ghostTrains, isEmpty, reason: '予算内でも未確認の時刻なし電車を確定してはならない');
     });
   });
+
+  // バスは last-resort（#250）。電車＋徒歩が予算内に収まるあいだはバスを照会しない。
+  // 収まらないときだけ avoidModes からバスを外して再照会し、候補プールへ足して選び直す。
+  group('plan: バス last-resort 再照会 (#250)', () {
+    // origin→goal は直線 ~11.6km（全徒歩 ~145分）。乗車点は origin・降車点は goal に
+    // 重ね、アクセス徒歩ゼロのバス便にする（enrich で徒歩が伸びて乗り遅れる余地を消す）。
+    const busOrigin = GeoPoint(35.0, 139.0);
+    const busGoal = GeoPoint(35.0, 139.127);
+
+    /// 電車のみの主照会が返す option。列車は 09:50 発 10:20 着で、予算60分（10:00 着）に
+    /// 間に合わない。コリドー点からの引き直しは all-walk のみ＝ハイブリッドも確定しない。
+    Map<String, dynamic> slowTrainOption() {
+      const stops = [
+        [35.0, 139.027],
+        [35.0, 139.05],
+        [35.0, 139.075],
+        [35.0, 139.10],
+      ];
+      return {
+        'journey': {
+          'departureSecs': 35400, // 09:50
+          'arrivalSecs': 37200, // 10:20
+          'durationSecs': 1920,
+          'accessWalkSecs': 60,
+          'egressWalkSecs': 60,
+          'legs': [
+            _railLeg(
+              route: '各停線',
+              fromId: 's0',
+              fromName: '始発駅',
+              toId: 's1',
+              toName: '終着駅',
+              dep: 35400,
+              arr: 37200,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('walk', 'origin', 's0', 'osmWalk', const [
+              [35.0, 139.0],
+              [35.0, 139.027],
+            ]),
+            _mapSeg('transit', 's0', 's1', 'stopOrder', stops),
+            _mapSeg('walk', 's1', 'destination', 'estimatedWalk', const [
+              [35.0, 139.10],
+              [35.0, 139.127],
+            ]),
+          ],
+        },
+      };
+    }
+
+    /// バス許容照会が返す door-to-door option。[dep]/[arr] を null にすると
+    /// `departureSecs`/`arrivalSecs` を欠く「時刻の無いバス便」＝幽霊バスになる。
+    Map<String, dynamic> busOption({int? dep = 32700, int? arr = 34500}) => {
+      'journey': {
+        'departureSecs': dep ?? 0,
+        'arrivalSecs': arr ?? 0,
+        'durationSecs': 1800,
+        'accessWalkSecs': 0,
+        'egressWalkSecs': 0,
+        'legs': [
+          {
+            'kind': 'transit',
+            'mode': 'bus',
+            'routeName': '渋谷01',
+            'from': _station('bs:0', 'A停留所'),
+            'to': _station('bs:1', 'B停留所'),
+            'departureSecs': ?dep,
+            'arrivalSecs': ?arr,
+          },
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('transit', 'bs:0', 'bs:1', 'gtfsShape', const [
+            [35.0, 139.0],
+            [35.0, 139.127],
+          ]),
+        ],
+      },
+    };
+
+    /// all-walk のみを返す option（コリドー点からの引き直し用）。
+    Map<String, dynamic> walkOnlyOption() => {
+      'journey': {
+        'departureSecs': 0,
+        'arrivalSecs': 600,
+        'durationSecs': 600,
+        'legs': const [
+          {'kind': 'walk', 'departureSecs': 0, 'arrivalSecs': 600},
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('walk', 'a', 'b', 'osmWalk', const [
+            [35.0, 139.1],
+            [35.0, 139.2],
+          ]),
+        ],
+      },
+    };
+
+    /// avoidModes でバス許容照会を判別するモック。バス許容なら [busOption] を、
+    /// 電車のみなら origin 起点は低速電車・コリドー点起点は all-walk を返す。
+    http.Client busMock({
+      required Map<String, dynamic> busOption,
+      List<Uri>? log,
+    }) => MockClient((req) async {
+      log?.add(req.url);
+      final path = req.url.path;
+      if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+      if (path.contains('googleWalkProxy')) return _walkFor(req.url);
+      if (path.contains('guidance/plan')) {
+        final allowsBus = !(req.url.queryParameters['avoidModes'] ?? '')
+            .contains('bus');
+        final from = req.url.queryParameters['from'] ?? '';
+        final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
+        final fromOrigin = (lng - 139.0).abs() < 1e-6;
+        final body = allowsBus
+            ? _guidance([busOption])
+            : _guidance([fromOrigin ? slowTrainOption() : walkOnlyOption()]);
+        body['date'] = req.url.queryParameters['date'];
+        return _json(body);
+      }
+      return _json(const {}, 404);
+    });
+
+    test('電車が予算内なら バス許容照会は一度も発行しない（速度不変）', () async {
+      final log = <Uri>[];
+      final svc = _service(
+        _mock(transit: _guidance([_singleTrainOption()]), log: log),
+      );
+      final plan = await svc.plan(
+        destination: '新宿',
+        destinationLatLng: goal,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 9, m: 50),
+        origin: origin,
+      );
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+      final busQueries = log.where(
+        (u) =>
+            u.path.contains('guidance/plan') &&
+            !(u.queryParameters['avoidModes'] ?? '').contains('bus'),
+      );
+      expect(busQueries, isEmpty, reason: '予算内なら再照会してはならない');
+    });
+
+    test('電車が予算外でもバスなら間に合うとき、バス候補を提示する', () async {
+      final svc = _service(busMock(busOption: busOption()));
+      final plan = await svc.plan(
+        destination: '目的地',
+        destinationLatLng: busGoal,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0), // 予算60分（電車も全徒歩も届かない）
+        origin: busOrigin,
+      );
+      final bus = plan.segments.firstWhere((s) => s.type == SegmentType.bus);
+      expect(bus.line, '渋谷01');
+      expect(bus.depTime, DateTime(2026, 6, 27, 9, 5));
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+    });
+
+    test('時刻を持たないバス便は幽霊バスとして提示しない', () async {
+      // 時刻なしバスは所要0分＝予算内に見えるが、引き直しでも実発車時刻を確認できない。
+      // 電車と同じ基準（unverified transit）で確定させず、全徒歩へ縮退する。
+      final svc = _service(busMock(busOption: busOption(dep: null, arr: null)));
+      final plan = await svc.plan(
+        destination: '目的地',
+        destinationLatLng: busGoal,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0),
+        origin: busOrigin,
+      );
+      final ghostBuses = plan.segments.where(
+        (s) => s.type == SegmentType.bus && s.depTime == null,
+      );
+      expect(ghostBuses, isEmpty, reason: '時刻なしの幽霊バスを提示してはならない');
+    });
+
+    test('運行終了後（翌朝始発まで待つ）バスは予算外として選ばれない', () async {
+      // 09:00 出発に対しバスは翌朝 06:00 発＝乗車待ち1260分。maxBoardingWait が
+      // バスを数えないと待ち0に見え、best-effort が全徒歩を押しのけて拾ってしまう。
+      final svc = _service(
+        busMock(busOption: busOption(dep: 108000, arr: 109800)),
+      );
+      final plan = await svc.plan(
+        destination: '目的地',
+        destinationLatLng: busGoal,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0),
+        origin: busOrigin,
+      );
+      expect(
+        plan.segments.where((s) => s.type == SegmentType.bus),
+        isEmpty,
+        reason: '今夜（今日）乗れないバスを提示してはならない',
+      );
+    });
+  });
 }
