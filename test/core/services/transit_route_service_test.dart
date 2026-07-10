@@ -1591,10 +1591,15 @@ void main() {
     const corridor = [bs0, 139.05, 139.09, 139.11, 139.127];
     const busDep = 33300; // 09:15
 
-    /// バスの実ダイヤ速度（モック）。見積り（[trainMetersPerMinute]）と同じにして、
-    /// 「見積りが通った候補は実時刻でも通る」フィクスチャにする。
-    int rideMin(GeoPoint a, GeoPoint b) =>
-        (haversineKm(a, b) * 1000 / trainMetersPerMinute).round();
+    /// 迂回バスの corridor が通る緯度。勝者 corridor（lat 35.0）と区別するために使う。
+    const detourLat = 35.02;
+
+    /// バスの実ダイヤ速度（モック）。既定は見積り（[trainMetersPerMinute]）と同じにして、
+    /// 「見積りが通った候補は実時刻でも通る」フィクスチャにする。[metersPerMinute] を
+    /// 下げると「実ダイヤは見積りより遅い」実世界の条件を再現できる。
+    int rideMin(GeoPoint a, GeoPoint b, [double? metersPerMinute]) =>
+        (haversineKm(a, b) * 1000 / (metersPerMinute ?? trainMetersPerMinute))
+            .round();
 
     /// 電車のみの主照会が返す option。09:50 発 10:20 着で予算65分（10:05 着）に届かない。
     /// コリドーは2点だけにして電車ハイブリッドを1本に抑える。
@@ -1669,12 +1674,53 @@ void main() {
       },
     };
 
+    /// last-resort が door-to-door と同時に返す「もう1本のバス」。徒歩0分で乗れて所要も
+    /// 短い（16分）ため [_baseForHybrid] の「最短 option」基準ではこちらが選ばれてしまうが、
+    /// 徒歩最大化の勝者は徒歩14分の [busDoorToDoor] の方。corridor は北へ迂回させて
+    /// （lat [detourLat]）、どちらの corridor を基準にしたかを照会ログで判別できるようにする。
+    Map<String, dynamic> detourBus() => {
+      'journey': {
+        'departureSecs': busDep,
+        'arrivalSecs': busDep + 960, // 16分乗車
+        'durationSecs': 960,
+        'accessWalkSecs': 0,
+        'egressWalkSecs': 0,
+        'legs': [
+          {
+            'kind': 'transit',
+            'mode': 'bus',
+            'routeName': 'バス02',
+            'from': _station('bs:n0', 'N停留所'),
+            'to': _station('bs:n1', 'M停留所'),
+            'departureSecs': busDep,
+            'arrivalSecs': busDep + 960,
+          },
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('transit', 'bs:n0', 'bs:n1', 'gtfsShape', const [
+            [35.0, 139.0],
+            [detourLat, 139.06],
+            [35.0, 139.127],
+          ]),
+        ],
+      },
+    };
+
     /// バス許容照会（コリドー点起点）が返す単一バス便。[at] 以降で最も早い便として
     /// 09:15、それを過ぎていれば [at]+5分に発車する。乗車駅探索・実時刻検証の引き直し用。
-    Map<String, dynamic> busLegFrom(GeoPoint from, GeoPoint to, DateTime at) {
+    /// [busSpeed] を渡すと実ダイヤだけを遅くできる（見積りは [trainMetersPerMinute] のまま）。
+    Map<String, dynamic> busLegFrom(
+      GeoPoint from,
+      GeoPoint to,
+      DateTime at, {
+      double? busSpeed,
+    }) {
       final atSecs = at.hour * 3600 + at.minute * 60;
       final dep = atSecs <= busDep ? busDep : atSecs + 300;
-      final arr = dep + rideMin(from, to) * 60;
+      final arr = dep + rideMin(from, to, busSpeed) * 60;
       return {
         'journey': {
           'departureSecs': dep,
@@ -1727,7 +1773,13 @@ void main() {
       },
     };
 
-    http.Client corridorMock({List<Uri>? log}) => MockClient((req) async {
+    /// [withDetourBus] を立てると last-resort が [detourBus] も返す（勝者でない最短 option）。
+    /// [busSpeed] は引き直し便の実ダイヤ速度（既定は見積りと同速）。
+    http.Client corridorMock({
+      List<Uri>? log,
+      bool withDetourBus = false,
+      double? busSpeed,
+    }) => MockClient((req) async {
       log?.add(req.url);
       final path = req.url.path;
       if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
@@ -1739,10 +1791,17 @@ void main() {
         final to = _pt(q['to']!.replaceFirst('geo:', ''));
         final hm = (q['time'] ?? '09:00').split(':');
         final at = DateTime(2026, 6, 27, int.parse(hm[0]), int.parse(hm[1]));
-        final fromOrigin = (from.lng - busOrigin.lng).abs() < 1e-9;
+        // 迂回 corridor は lat が違うので、緯度も含めて origin 起点かを判定する。
+        final fromOrigin =
+            (from.lat - busOrigin.lat).abs() < 1e-9 &&
+            (from.lng - busOrigin.lng).abs() < 1e-9;
         final body = _guidance([
           if (allowsBus)
-            if (fromOrigin) busDoorToDoor() else busLegFrom(from, to, at)
+            if (fromOrigin) ...[
+              busDoorToDoor(),
+              if (withDetourBus) detourBus(),
+            ] else
+              busLegFrom(from, to, at, busSpeed: busSpeed)
           else if (fromOrigin)
             slowTrainOption()
           else
@@ -1753,6 +1812,14 @@ void main() {
       }
       return _json(const {}, 404);
     });
+
+    /// guidance/plan のうち、コリドー点（origin 以外）を起点にしたバス許容照会。
+    Iterable<Uri> corridorBusQueries(List<Uri> log) => log.where(
+      (u) =>
+          u.path.contains('guidance/plan') &&
+          !(u.queryParameters['avoidModes'] ?? '').contains('bus') &&
+          u.queryParameters['from'] != 'geo:${busOrigin.lat},${busOrigin.lng}',
+    );
 
     Future<RoutePlan> runPlan(http.Client client) => _service(client).plan(
       destination: '目的地',
@@ -1800,17 +1867,59 @@ void main() {
       await runPlan(corridorMock(log: log));
       // origin 起点のバス許容照会は last-resort（#250）そのものなので除く。コリドー点
       // （バス停）を起点にした照会が出て初めて、バス corridor が徒歩最大化の基準になっている。
-      final busAwareFromCorridor = log.where(
-        (u) =>
-            u.path.contains('guidance/plan') &&
-            !(u.queryParameters['avoidModes'] ?? '').contains('bus') &&
-            u.queryParameters['from'] !=
-                'geo:${busOrigin.lat},${busOrigin.lng}',
-      );
       expect(
-        busAwareFromCorridor,
+        corridorBusQueries(log),
         isNotEmpty,
         reason: 'origin 以外（バス停）を起点にバス許容で引き直しているはず',
+      );
+    });
+
+    test('基準にするのは最短のバス option ではなく徒歩最大化で勝ったバス option', () async {
+      // last-resort が2本返す: 徒歩0分・16分乗車の迂回バス（総所要が最短）と、徒歩14分・
+      // 21分乗車の door-to-door バス（総所要35分）。徒歩最大化が選ぶのは後者だが、
+      // base を「最短の option」で決めると前者の corridor（北へ迂回・lat 35.02）を
+      // 引き直してしまい、乗車バス停探索が勝者と無関係な停留所を評価して空振りする。
+      final log = <Uri>[];
+      final plan = await runPlan(corridorMock(log: log, withDetourBus: true));
+
+      final fromDetour = corridorBusQueries(
+        log,
+      ).where((u) => u.queryParameters['from']!.startsWith('geo:$detourLat,'));
+      expect(fromDetour, isEmpty, reason: '勝者でない迂回バスの corridor を基準にしてはならない');
+      final fromWinner = corridorBusQueries(
+        log,
+      ).where((u) => u.queryParameters['from']!.startsWith('geo:35.0,'));
+      expect(
+        fromWinner,
+        isNotEmpty,
+        reason: '勝ったバス option の corridor 上のバス停から引き直すはず',
+      );
+      expect(
+        plan.segments.last.type,
+        SegmentType.walk,
+        reason: '勝者 corridor で徒歩最大化できているので手前で降りて歩く',
+      );
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+    });
+
+    test('バスの実ダイヤが見積りより遅ければ ハイブリッドは実時刻検証で落ち乗り通しへ戻る', () async {
+      // 見積りは楽観側（[trainMetersPerMinute]）に倒し、実速度の遅さは採用前の
+      // [_resolveBoardingTimes] が実時刻で上書きして弾く、という #251 の設計の裏取り。
+      // 実ダイヤを半速にすると 139.11 で降りる候補は到着70分（予算65分）で除外され、
+      // 予算内で確実に乗れる door-to-door の乗り通しへ安全に戻る。
+      final plan = await runPlan(
+        corridorMock(busSpeed: trainMetersPerMinute / 2),
+      );
+      final walkMin = plan.segments
+          .where((s) => s.type == SegmentType.walk)
+          .fold(0, (a, s) => a + s.minutes);
+
+      expect(plan.segments.last.type, SegmentType.bus, reason: '乗り通しへ戻る');
+      expect(walkMin, 14, reason: 'door-to-door バスのアクセス徒歩そのもの');
+      expect(
+        plan.totalMin,
+        lessThanOrEqualTo(plan.budgetMin),
+        reason: '遅いハイブリッドを掴んで予算超過してはならない',
       );
     });
 

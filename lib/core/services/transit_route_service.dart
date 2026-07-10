@@ -209,12 +209,7 @@ class TransitRouteService implements RouteService {
 
     // last-resort のバスが勝ったら、そのバス corridor も徒歩最大化の基準に据える（#251）。
     // 電車が勝った通常時は [busBase] が null のままで、#249 の train-only ガードが効き続ける。
-    final winnerHasBus = selected.chosen.segments.any(
-      (s) => s.type == SegmentType.bus,
-    );
-    final busBase = (winnerHasBus && busOptions != null)
-        ? _baseForHybrid(busOptions!, allowBus: true)
-        : null;
+    final busBase = _busBaseFor(selected.chosen, busCandidates, busOptions);
 
     // 崩壊判定は enrich 前の選定候補（[selected.chosen]）で行う。enrich 後の徒歩は
     // Google 実街路で膨らみ、標準乗換の guidance 見積り徒歩と測定基準がずれるため、
@@ -232,6 +227,10 @@ class TransitRouteService implements RouteService {
       _diag.log(() => 'collapse=true → board-search フォールバック起動');
       final extra = <RouteCandidate>[];
       if (base != null) {
+        // バスが勝ったときも電車 base の board-search は走らせる。last-resort の発火条件は
+        // 「予算外**または乗り遅れ**」（#250）なので、door-to-door では乗り遅れた電車も、
+        // より手前の駅から引き直せば後続便で予算内に入ることがある。電車が全滅する状況なら
+        // 予算内候補は0件で [extra] に何も足さない＝プールも選定結果も変わらない。
         extra.addAll(
           await _buildBoardSearchCandidate(
             base,
@@ -1102,13 +1101,38 @@ class TransitRouteService implements RouteService {
     return (name != null && name.isNotEmpty) ? name : fallback;
   }
 
+  /// 徒歩最大化の基準に据えるバス corridor（#251）。**勝者自身が乗っているバス便**の
+  /// option を返す。バスが勝っていない（＝last-resort を引いていない・電車が勝った）
+  /// ときは null で、#249 の train-only ガードが効き続ける。
+  ///
+  /// 最短のバス option を選んではいけない。last-resort が複数のバス便を返すとき、選定の
+  /// 目的関数は「徒歩最大」なのに [_baseForHybrid] の基準は「総所要最小」なので両者は
+  /// 食い違う。勝者と別の corridor を基準にすると、乗車バス停探索が勝者と無関係な停留所を
+  /// 引き直して空振りし、勝ったバスは乗り通しのまま予算を余らせる。
+  ///
+  /// [selectBestRoute] はプールの要素をそのまま返すので、勝者は参照で [busCandidates] に
+  /// 対応付けられる。対応付かないのは best-effort 縮退（[_resolveBoardingTimes] が実時刻を
+  /// 当てたコピーを作る）経由で勝ったときだけ。そのときは予算外＝[_isCollapse] が対象外に
+  /// するため基準は使われないが、従来どおり最短 option へフォールバックしておく。
+  TransitOption? _busBaseFor(
+    RouteCandidate winner,
+    List<RouteCandidate>? busCandidates,
+    List<TransitOption>? busOptions,
+  ) {
+    if (busOptions == null) return null;
+    if (!winner.segments.any((s) => s.type == SegmentType.bus)) return null;
+    final i = busCandidates?.indexWhere((c) => identical(c, winner)) ?? -1;
+    final scope = i >= 0 ? [busOptions[i]] : busOptions;
+    return _baseForHybrid(scope, allowBus: true);
+  }
+
   /// コリドー（停車駅／線路点・バス停）を持つ最短の標準経路をハイブリッド・乗車駅探索の
   /// 基準にする。
   ///
   /// 既定ではバス混在 option を基準にしない（#249）。電車で予算内に収まる通常照会では
   /// バス corridor を基準に据える理由がなく、避けたバスが徒歩最大化の裏口から戻ってくる
   /// のを防ぐため。[allowBus] を立てるのは last-resort 再照会で得たバス option を基準に
-  /// するときだけ（#251）。
+  /// するときだけ（#251・[_busBaseFor] 経由）。
   TransitOption? _baseForHybrid(
     List<TransitOption> options, {
     bool allowBus = false,
