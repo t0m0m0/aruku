@@ -585,10 +585,13 @@ void main() {
       expect(parseGuidancePlan(const {'options': 'nope'}), isEmpty);
     });
 
-    test('バス（mode=bus）を含む option は除外する（#245）', () {
+    test('バス（mode=bus）区間は SegmentType.bus として扱い、電車の乗車駅名と混同しない'
+        '（#245/#249）', () {
       // 実データの再現: 森０２ バスで山王三丁目(バス停)→大森駅(バス停)、徒歩で大森へ、
-      // そこから京浜東北線。バス区間まで電車扱いすると乗車駅名がバス停「山王三丁目」に
-      // 化ける。バス経由 option ごと除外され、鉄道 option のみ残ることを検証する。
+      // そこから京浜東北線。以前はバス区間まで電車扱いし、乗車駅名がバス停
+      // 「山王三丁目」に化けていた（#245）。#249 でバスは SegmentType.bus という
+      // 別型になったため、option は除外されず、バス区間・電車区間それぞれ正しい
+      // 駅名で残ることを検証する。
       final busViaRail = _option(
         journey: _journey(
           dep: 360,
@@ -624,30 +627,18 @@ void main() {
             ),
           ],
         ),
-        segments: const [],
-      );
-      final railOnly = _option(
-        journey: _journey(
-          dep: 360,
-          arr: 1260,
-          dur: 900,
-          access: 120,
-          egress: 60,
-          legs: [
-            _railLeg(
-              route: '京浜東北線（北行（大宮方面））',
-              fromId: 'jr:Omori',
-              fromName: '大森',
-              toId: 'jr:Shimbashi',
-              toName: '新橋',
-              dep: 480,
-              arr: 1200,
-            ),
-          ],
-        ),
         segments: [
+          _mapTransit(
+            fromId: 'bus:Sannousanchoume',
+            toId: 'bus:Oomorieki',
+            geom: 'stopOrder',
+            coords: [
+              [35.5822, 139.7231],
+              [35.5855, 139.7254],
+            ],
+          ),
           _mapWalk(
-            fromId: 'origin',
+            fromId: 'bus:Oomorieki',
             toId: 'jr:Omori',
             geom: 'osmWalk',
             coords: [
@@ -676,22 +667,31 @@ void main() {
         ],
       );
 
-      final options = parseGuidancePlan(
-        _guidance(options: [busViaRail, railOnly]),
-      );
+      final options = parseGuidancePlan(_guidance(options: [busViaRail]));
 
-      // バス経由 option は落ち、鉄道 option のみ残る。
       expect(options, hasLength(1));
-      final trains = options.single.segments
-          .where((s) => s.type == SegmentType.train)
-          .toList();
-      expect(trains, hasLength(1));
-      // 乗車駅名はバス停「山王三丁目」ではなく鉄道駅「大森」。
-      expect(trains.single.fromName, '大森');
-      expect(trains.single.toName, '新橋');
+      final segs = options.single.segments;
+      expect(segs.map((s) => s.type), [
+        SegmentType.bus,
+        SegmentType.walk,
+        SegmentType.train,
+        SegmentType.walk,
+      ]);
+
+      // バス区間の乗車停留所名はバス停のまま。
+      final bus = segs[0];
+      expect(bus.fromName, '山王三丁目');
+      expect(bus.toName, '大森駅');
+      // バス系統名は railLineLabel（電車の路線名整形）を経由せずそのまま出す。
+      expect(bus.line, '森０２');
+
+      // 電車区間の乗車駅名はバス停「山王三丁目」ではなく鉄道駅「大森」。
+      final train = segs[2];
+      expect(train.fromName, '大森');
+      expect(train.toName, '新橋');
     });
 
-    test('バスのみの option は除外し空リストになる（#245）', () {
+    test('バスのみの option は SegmentType.bus の単一区間になる（#249）', () {
       final busOnly = _option(
         journey: _journey(
           dep: 360,
@@ -709,15 +709,32 @@ void main() {
             ),
           ],
         ),
-        segments: const [],
+        segments: [
+          _mapTransit(
+            fromId: 'bus:Sannousanchoume',
+            toId: 'bus:Oomorieki',
+            geom: 'stopOrder',
+            coords: [
+              [35.5822, 139.7231],
+              [35.5855, 139.7254],
+            ],
+          ),
+        ],
       );
-      expect(parseGuidancePlan(_guidance(options: [busOnly])), isEmpty);
+
+      final options = parseGuidancePlan(_guidance(options: [busOnly]));
+      expect(options, hasLength(1));
+      final segs = options.single.segments;
+      expect(segs, hasLength(1));
+      expect(segs.single.type, SegmentType.bus);
+      expect(segs.single.fromName, '山王三丁目');
+      expect(segs.single.toName, '大森駅');
     });
 
     test('地下鉄（mode=subway）を含む option は電車として維持する（#245）', () {
-      // 地下鉄・私鉄・モノレール等は mode が rail/subway 等で返る。バス等の非電車
-      // モード（_nonTrainTransitModes）と違い電車として扱い、区間・駅名解決に残す。
-      // denylist の意図を allowlist 化などのリファクタから守る回帰ガード。
+      // 地下鉄・私鉄・モノレール等は mode が rail/subway 等で返る。バスと違い
+      // 電車として扱い、区間・駅名解決に残す。_segmentTypeForMode の写像を
+      // 崩すリファクタから守る回帰ガード。
       final Map<String, dynamic> subwayLeg = {
         'kind': 'transit',
         'mode': 'subway',

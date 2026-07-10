@@ -24,14 +24,14 @@ class TransitOption {
   final String to;
   final List<RouteSegment> segments;
 
-  /// 電車区間ごとのコリドー座標（origin→goal 方向に順序付き）。
+  /// transit 区間（電車・バス問わず）ごとのコリドー座標（origin→goal 方向に順序付き）。
   final List<TransitCorridor> corridors;
 }
 
-/// 電車区間（transit leg）の経路コリドー。`geometrySource` により意味が異なる：
-/// `stopOrder` は停車駅座標、`gtfsShape` は線路追従の頂点（停車駅とは無関係）。
-/// いずれも乗車駅探索ではコリドー上の候補座標として間引きサンプリングして使う
-/// （docs/notes/transit-api-migration.md §2.5）。
+/// transit 区間（電車・バス問わず。ferry/air は除外済み）の経路コリドー。
+/// `geometrySource` により意味が異なる：`stopOrder` は停車駅座標、`gtfsShape` は
+/// 線路追従の頂点（停車駅とは無関係）。いずれも乗車駅探索ではコリドー上の候補座標
+/// として間引きサンプリングして使う（docs/notes/transit-api-migration.md §2.5）。
 @immutable
 class TransitCorridor {
   const TransitCorridor({
@@ -40,7 +40,7 @@ class TransitCorridor {
     required this.coords,
   });
 
-  /// この区間が経路中で何本目の電車区間か（0 始まり）。
+  /// この区間が経路中で何本目の transit leg か（0 始まり、電車・バス問わずの通し番号）。
   final int legIndex;
   final String geometrySource;
   final List<GeoPoint> coords;
@@ -65,26 +65,37 @@ List<TransitOption> parseGuidancePlan(Map<String, dynamic> body) {
   return out;
 }
 
-/// 電車として扱わない交通モード。アプリは「徒歩＋電車」のみを表現するため、これらを
-/// 含む option は候補・駅名解決から除外する。地下鉄（`subway`）・私鉄・モノレール等は
-/// `mode` が `rail`/`subway` 等で返り電車として維持する。`mode` 欠落は電車扱い（後方互換）。
-/// `TransitApiClient.fetchGuidanceAt` の `avoidModes` にも同一集合を渡す（#247）。
-const nonTrainTransitModes = {'bus', 'ferry', 'air'};
-
-/// transit leg [leg] が電車（rail/subway 等）か。`mode` が [nonTrainTransitModes]
-/// のときだけ非電車。欠落・未知の mode は電車として扱う。
-bool _isTrainTransit(Map leg) {
-  final mode = leg['mode'];
-  return mode is! String || !nonTrainTransitModes.contains(mode.toLowerCase());
+/// transit leg の `mode` を [SegmentType] へ写像する。`bus` は一級の [SegmentType.bus]
+/// として扱う（#249、以前は option ごと除外していた＝#245）。`ferry`/`air` は
+/// [SegmentType] が未対応のため引き続き option ごと除外する（`null` を返す）。
+/// `mode` 欠落・`rail`/`subway` 等の未知値は後方互換として電車 (train) 扱い。
+///
+/// 注意: この写像は「経路として表現できるか」だけを扱う。Transit API への問い合わせ
+/// 自体は引き続き `avoidModes=bus,ferry,air`（`TransitApiClient` 側の独立した定数、
+/// #247）でバスを含む経路を要求しないため、実運用で bus leg がここへ渡ることは無い
+/// （このリファクタは将来 bus 解禁時の基盤整備）。
+SegmentType? _segmentTypeForMode(Object? mode) {
+  if (mode is! String) return SegmentType.train;
+  switch (mode.toLowerCase()) {
+    case 'bus':
+      return SegmentType.bus;
+    case 'ferry':
+    case 'air':
+      return null;
+    default:
+      return SegmentType.train;
+  }
 }
 
 /// 1 option を解析する。`journey.legs`（時刻・路線）を本体に、`map.segments`
 /// （access/egress を含む全ジオメトリ）から polyline を充てる。transit leg と
 /// map の transit セグメントは同数・同順で対応する（実機検証済み）。
 ///
-/// バス・フェリー等（[nonTrainTransitModes]）を含む itinerary は電車として表現できず、
-/// 乗車停留所名が電車の乗車駅名へ紛れ込む（#245: バス停「山王三丁目」が京浜東北線の
-/// 乗車駅として表示される）ため option ごと除外して `null` を返す。
+/// フェリー・航空等（[_segmentTypeForMode] が `null` を返す mode）を含む itinerary は
+/// [SegmentType] で表現できないため option ごと除外して `null` を返す。バスは
+/// [SegmentType.bus] として表現できるため除外しない（#249。以前はバスも除外し、
+/// バス停名が電車の乗車駅名へ紛れ込んでいた＝#245: バス停「山王三丁目」が
+/// 京浜東北線の乗車駅として表示される）。
 TransitOption? _parseOption(
   Map<String, dynamic> opt,
   String? date,
@@ -96,7 +107,9 @@ TransitOption? _parseOption(
   final legs =
       (journey['legs'] as List?)?.whereType<Map>().toList() ?? const [];
 
-  if (legs.any((l) => l['kind'] == 'transit' && !_isTrainTransit(l))) {
+  if (legs.any(
+    (l) => l['kind'] == 'transit' && _segmentTypeForMode(l['mode']) == null,
+  )) {
     return null;
   }
 
@@ -158,14 +171,19 @@ TransitOption? _parseOption(
         final geom = (seg?['geometrySource'] as String?) ?? '';
         final depSec = (leg['departureSecs'] as num?)?.toInt();
         final arrSec = (leg['arrivalSecs'] as num?)?.toInt();
+        // ferry/air は _parseOption 冒頭で option ごと除外済みのため null は来ない。
+        final segType = _segmentTypeForMode(leg['mode']) ?? SegmentType.train;
         segments.add(
           RouteSegment(
-            type: SegmentType.train,
+            type: segType,
             fromName: _nameOf(leg['from']) ?? '',
             toName: _nameOf(leg['to']) ?? '',
             minutes: _diffMin(depSec, arrSec),
             km: _polylineKm(coords),
-            line: railLineLabel(leg['routeName'] as String?),
+            // バス系統名は電車の路線名整形（railLineLabel）の対象外。
+            line: segType == SegmentType.bus
+                ? leg['routeName'] as String?
+                : railLineLabel(leg['routeName'] as String?),
             depTime: transitSecsToJst(date, depSec),
             arrTime: transitSecsToJst(date, arrSec),
             polyline: coords,

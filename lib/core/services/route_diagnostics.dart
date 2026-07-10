@@ -33,11 +33,14 @@ class RouteDiagnostics {
 
   /// 候補の区間構成を `walk12m+蒲12_train33m+walk3m` 形式の短い文字列にする（ログ用）。
   String segSummary(RouteCandidate c) => c.segments
-      .map(
-        (s) =>
-            '${s.type == SegmentType.walk ? 'walk' : '${s.line ?? 'train'}_train'}'
-            '${s.minutes}m',
-      )
+      .map((s) {
+        final prefix = switch (s.type) {
+          SegmentType.walk => 'walk',
+          SegmentType.train => '${s.line ?? 'train'}_train',
+          SegmentType.bus => '${s.line ?? 'bus'}_bus',
+        };
+        return '$prefix${s.minutes}m';
+      })
       .join('+');
 
   /// 候補1件の診断行（ログ用）。徒歩分・実到着・余り・予算内可否・最大乗車待ち・
@@ -52,13 +55,17 @@ class RouteDiagnostics {
         'missed=${missed != null} [${segSummary(c)}]';
   }
 
-  /// 候補の最初の電車区間の乗車駅名（ログ用）。乗車駅探索でコリドー上のどの点が
-  /// 実際にどの駅から乗ることになるかを見て、間引きで乗れる駅を飛ばしていないかを
-  /// 切り分ける（#137 診断）。電車が無い・駅名空なら '?'。
+  /// 候補の最初のtransit（電車・バス）区間の乗車駅名（ログ用）。乗車駅探索でコリドー上の
+  /// どの点が実際にどの駅から乗ることになるかを見て、間引きで乗れる駅を飛ばしていないかを
+  /// 切り分ける（#137 診断）。transit区間が無い・駅名空なら '?'。
   String boardingStationOf(RouteCandidate c) {
     for (final s in c.segments) {
-      if (s.type == SegmentType.train) {
-        return s.fromName.isEmpty ? '?' : s.fromName;
+      switch (s.type) {
+        case SegmentType.walk:
+          continue;
+        case SegmentType.train:
+        case SegmentType.bus:
+          return s.fromName.isEmpty ? '?' : s.fromName;
       }
     }
     return '?';

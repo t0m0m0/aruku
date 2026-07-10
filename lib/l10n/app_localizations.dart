@@ -640,6 +640,12 @@ abstract class AppLocalizations {
   /// **'電車'**
   String get resultTrainDefaultLabel;
 
+  /// No description provided for @resultBusDefaultLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'バス'**
+  String get resultBusDefaultLabel;
+
   /// No description provided for @resultShareButton.
   ///
   /// In ja, this message translates to:
