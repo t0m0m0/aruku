@@ -785,7 +785,7 @@ class TransitRouteService implements RouteService {
             segments: <RouteSegment>[
               if (walk1.minutes > 0) walk1,
               RouteSegment(
-                type: SegmentType.train,
+                type: stops[b].type,
                 fromName: stops[b].name,
                 toName: stops[a].name,
                 minutes: ride,
@@ -893,11 +893,13 @@ class TransitRouteService implements RouteService {
   }
 
   /// コリドー（停車駅／線路点）を持つ最短の標準経路をハイブリッド・乗車駅探索の基準にする。
+  /// バス混在 option は基準にしない（#249。乗車駅探索のバスへのフル適用は別issue）。
   TransitOption? _baseForHybrid(List<TransitOption> options) {
     TransitOption? best;
     int? bestMin;
     for (final o in options) {
       if (o.corridors.every((c) => c.coords.length < 2)) continue;
+      if (o.segments.any((s) => s.type == SegmentType.bus)) continue;
       final min = o.segments.fold(0, (a, s) => a + s.minutes);
       if (best == null || min < bestMin!) {
         best = o;
@@ -909,19 +911,29 @@ class TransitRouteService implements RouteService {
 
   /// [base] の全コリドー座標を origin→goal 方向に連結し、乗車駅候補（[_CorridorStop]）へ
   /// 変換する。gtfsShape は頂点が密なため均等間引きで [_maxCorridorStops] 以下へ絞る（§2.5）。
-  /// section は電車区間（leg）番号、line は対応する train セグメントの路線名。
+  /// section は transit leg（電車・バス問わず）番号、line/type は対応するセグメントの
+  /// 路線名・種別。`TransitCorridor.legIndex` は全 transit leg の通し番号のため、対応する
+  /// セグメント列も train に絞らず transit 全体（電車・バス）で揃える（#249: train のみに
+  /// 絞ると bus leg を挟んだ後続の legIndex がズレて誤った路線名を拾っていた）。
   List<_CorridorStop> _corridorStops(TransitOption base) {
-    final trainLines = [
+    final transitSegs = [
       for (final s in base.segments)
-        if (s.type == SegmentType.train) s.line,
+        if (s.type == SegmentType.train || s.type == SegmentType.bus) s,
     ];
     final out = <_CorridorStop>[];
     for (final c in base.corridors) {
-      final line = c.legIndex < trainLines.length
-          ? trainLines[c.legIndex]
+      final seg = c.legIndex < transitSegs.length
+          ? transitSegs[c.legIndex]
           : null;
       for (final p in evenSample(c.coords, _maxCorridorStops)) {
-        out.add(_CorridorStop(coord: p, section: c.legIndex, line: line));
+        out.add(
+          _CorridorStop(
+            coord: p,
+            section: c.legIndex,
+            line: seg?.line,
+            type: seg?.type ?? SegmentType.train,
+          ),
+        );
       }
     }
     return out;
@@ -1083,13 +1095,18 @@ class _CorridorStop {
     required this.coord,
     required this.section,
     required this.line,
+    required this.type,
   });
 
   final GeoPoint coord;
 
-  /// 属する電車区間（leg）番号。乗換をまたぐ点は番号が異なる。
+  /// 属する transit leg（電車・バス問わず）番号。乗換をまたぐ点は番号が異なる。
   final int section;
   final String? line;
+
+  /// この点が属する区間種別（電車 or バス）。#249: バス corridor は
+  /// [_baseForHybrid] で基準から除外しているため、現状は常に train。
+  final SegmentType type;
 
   /// ハイブリッド駅名は不明（コリドー座標に駅名は付かない）。空表示。
   String get name => '';
