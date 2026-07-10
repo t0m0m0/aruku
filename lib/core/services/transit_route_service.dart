@@ -468,9 +468,10 @@ class TransitRouteService implements RouteService {
   /// [enriched] は採用経路を Google 実測で確定したもの。崩壊判定（[_isCollapse]）が
   /// 標準乗換と同じ見積り基準で比較できるよう、両方を返す。
   ///
-  /// [lastResortBus] を渡すと、best-effort 縮退へ落ちる直前に一度だけ呼び、得られた候補を
-  /// プールへ足して選定をやり直す（#250）。バス候補は素の door-to-door 候補としてプールへ
-  /// 混ざるだけで、逆戻りフィルタ・乗り遅れ除外・幽霊便拒否といった既存の検証はそのまま効く。
+  /// [lastResortBus] を渡すと、縮退した best-effort が**なお予算外**のときに限り一度だけ
+  /// 呼び、得られた候補をプールへ足して選定をやり直す（#250）。バス候補は素の door-to-door
+  /// 候補としてプールへ混ざるだけで、逆戻りフィルタ・乗り遅れ除外・幽霊便拒否といった
+  /// 既存の検証はそのまま効く。省略時はバスを引かず従来どおり縮退する（再入時がこれ）。
   Future<({RouteCandidate chosen, RouteCandidate enriched})> _selectAndEnrich(
     List<RouteCandidate> candidates,
     int budgetMin,

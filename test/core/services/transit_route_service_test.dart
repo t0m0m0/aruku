@@ -1416,11 +1416,14 @@ void main() {
       expect(ghostBuses, isEmpty, reason: '時刻なしの幽霊バスを提示してはならない');
     });
 
-    test('運行終了後（翌朝始発まで待つ）バスは予算外として選ばれない', () async {
-      // 09:00 出発に対しバスは翌朝 06:00 発＝乗車待ち1260分。maxBoardingWait が
-      // バスを数えないと待ち0に見え、best-effort が全徒歩を押しのけて拾ってしまう。
+    test('乗車待ちが予算を超えるバスは best-effort でも選ばれない', () async {
+      // 09:00 出発・予算60分に対しバスは 10:05 発 10:15 着＝乗車待ち65分（>予算）・到着75分。
+      // best-effort は「今夜乗れる候補の最早到着」を選ぶため、検証済みの標準乗換（到着81分）
+      // より早いこのバスが勝ってしまう。maxBoardingWait がバスの待ちを数えて初めて
+      // 「今は乗れない便」として reachableWithinBudget から外れ、電車へ縮退する
+      // （#250。数えないと待ち0に見えてこのバスが提示される＝#121 と同型の退行）。
       final svc = _service(
-        busMock(busOption: busOption(dep: 108000, arr: 109800)),
+        busMock(busOption: busOption(dep: 36300, arr: 36900)),
       );
       final plan = await svc.plan(
         destination: '目的地',
