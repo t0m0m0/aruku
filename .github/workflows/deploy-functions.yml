@@ -1,4 +1,4 @@
-name: Deploy Firebase Functions
+name: Deploy Firebase Functions and Firestore Rules
 
 on:
   push:
@@ -6,12 +6,21 @@ on:
     paths:
       - 'functions/**'
       - 'firebase.json'
+      - 'firestore.rules'
+      - 'firestore.indexes.json'
       - '.github/workflows/deploy-functions.yml'
   pull_request:
     paths:
       - 'functions/**'
       - 'firebase.json'
+      - 'firestore.rules'
+      - 'firestore.indexes.json'
       - '.github/workflows/deploy-functions.yml'
+
+env:
+  # ルールテストとデプロイで CLI を揃える。バージョン差でルール評価が変わると
+  # CI が緑のまま本番だけ壊れるため。
+  FIREBASE_TOOLS_VERSION: 15.17.0
 
 permissions:
   contents: read
@@ -42,11 +51,43 @@ jobs:
         run: npm test
         working-directory: functions
 
+  rules:
+    name: Firestore rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      # Firestore エミュレータは JVM 上で動く。
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: functions
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }}
+
+      - name: Run Firestore rules tests
+        run: npm run test:rules
+        working-directory: functions
+
   deploy:
     name: Deploy
-    needs: build
+    needs: [build, rules]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # firestore.rules の変更は本番のアクセス制御を直接書き換えるため、
+    # GitHub Environment の承認ゲートを通す。
+    environment: production
     steps:
       - uses: actions/checkout@v6
 
@@ -67,5 +108,7 @@ jobs:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
 
-      - name: Deploy Firebase Functions
-        run: npx --yes firebase-tools@15.17.0 deploy --only functions --non-interactive
+      - name: Deploy Firebase Functions and Firestore rules
+        run: >-
+          npx --yes firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }}
+          deploy --only functions,firestore:rules --non-interactive
