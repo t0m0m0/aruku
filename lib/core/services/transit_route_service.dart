@@ -492,7 +492,8 @@ class TransitRouteService implements RouteService {
   /// enrich で (a) 予算超過、または (b) 先頭電車に乗り遅れ（標準乗換のアクセス徒歩が実街路で
   /// 伸び駅着が発車後になる・#137 副次）が判明した候補は除外して乗れる次善へ選び直す。
   /// ハイブリッド／乗車駅探索は引き直しまたは時刻なし距離概算のため `firstMissedTransit` は
-  /// 構成上立たず、(b) は主に標準乗換に効く。
+  /// 構成上立たず、(b) は主に標準乗換に効く。除外しきれない（プールが1件に痩せた・試行上限）
+  /// ときは確定させず best-effort へ縮退する（#254。失格した候補を素通ししない）。
   /// 戻り値の [chosen] は enrich 前の選定候補（guidance 見積り徒歩のまま）、
   /// [enriched] は採用経路を Google 実測で確定したもの。崩壊判定（[_isCollapse]）が
   /// 標準乗換と同じ見積り基準で比較できるよう、両方を返す。
@@ -622,11 +623,20 @@ class TransitRouteService implements RouteService {
         pool = pool.where((c) => !identical(c, chosen)).toList();
         continue;
       }
-      // 除外しきれず未確認の便が残るときは確定させず best-effort（検証済み）へ縮退する。
+      // 候補を除外しきれなかった（プールが1件に痩せた・attempt 上限）ときは、実測で失格した
+      // 候補をそのまま確定させず best-effort（検証済み）へ縮退する（#254）。乗り遅れる便・
+      // 予算を超える便・実在の確証が無い便のいずれも「そのまま提示してよい」ものではない。
       // ここも [giveUp] を通す＝best-effort が予算外のときだけバスを引く（#250）。
-      if (unverifiedTransit) {
+      if (overBudget || missedAfterEnrich || unverifiedTransit) {
         _diag.log(
-          () => '  → 未確認の便のまま確定不可 → best-effort 縮退（予算外ならバス last-resort）',
+          () =>
+              '  → 除外しきれず'
+              '${overBudget
+                  ? '予算超過'
+                  : missedAfterEnrich
+                  ? '乗り遅れ'
+                  : '未確認の便'}'
+              'のまま確定不可 → best-effort 縮退（予算外ならバス last-resort）',
         );
         return await giveUp();
       }
@@ -641,6 +651,20 @@ class TransitRouteService implements RouteService {
   /// 実時刻を確認できなかった時刻なし transit 区間を含む候補（その時間に便が無い疑い＝幻便・
   /// 幽霊バス）を除いたうえで「今夜乗れる範囲の実到着最早」を選ぶ。検証済みが皆無なら元の
   /// 解決済み候補へ戻す（全徒歩は transit を含まず常に残るため通常は空にならない）。
+  ///
+  /// 選んだ候補は enrich（Google 実街路の徒歩）してから**乗り遅れを測り直す**（#254）。
+  /// [_bestEffort] 内の [reachableWithinBudget] は guidance 見積り徒歩に対して
+  /// [firstMissedTransit] を見るため、実街路で徒歩が伸びて発車後に駅着する経路を通してしまう。
+  /// 実測で乗り遅れが判明した候補は除外して選び直す。全徒歩は transit を含まず決して乗り遅れ
+  /// ないので、候補に含まれる限りこのループは必ず「乗れる」候補へ収束する。
+  ///
+  /// ここに [_maxEnrichAttempts] のような試行上限は**置かない**。プールは毎反復 `identical` で
+  /// 厳密に1件減るため停止性は `pool.length` が保証しており、上限は「全徒歩へ到達する前に
+  /// 打ち切って乗り遅れ経路を返す」＝この修正が拠って立つ不変条件を壊す方向にしか働かない。
+  /// enrich の IO も [walkCache] が同一レッグを1回に畳むため候補数に対して線形以下に収まる。
+  ///
+  /// 見積りの足切り（[reachableWithinBudget]）はそのまま残す：enrich は候補ごとに Google を
+  /// 引く IO なので、安価な見積りで落とせる候補を先に落とすほど実測の回数が減る。
   Future<({RouteCandidate chosen, RouteCandidate enriched})>
   _bestEffortResolved(
     List<RouteCandidate> candidates,
@@ -660,15 +684,30 @@ class TransitRouteService implements RouteService {
         ))
           c,
     ];
-    final fallback = _bestEffort(
-      verified.isNotEmpty ? verified : resolved,
-      budgetMin,
-      departureAt,
-    );
-    return (
-      chosen: fallback,
-      enriched: await _enrichWalkGeometry(fallback, walkCache),
-    );
+    var pool = verified.isNotEmpty ? verified : resolved;
+    while (true) {
+      final fallback = _bestEffort(pool, budgetMin, departureAt);
+      final enriched = await _enrichWalkGeometry(fallback, walkCache);
+      final missed = firstMissedTransit(enriched.segments, departureAt) != null;
+      // 予算超過では除外しない：best-effort は「予算内が無いとき」の縮退先なので、超過は
+      // 想定内で最早到着こそが選定基準。乗り遅れ（＝そもそも乗れない）だけを除外する。
+      if (!missed || pool.length == 1) {
+        if (missed) {
+          _diag.log(
+            () =>
+                '  → best-effort: 乗り遅れない候補が尽きた（最後の1件）→ '
+                'そのまま縮退: ${_diag.candLine(enriched, budgetMin, departureAt)}',
+          );
+        }
+        return (chosen: fallback, enriched: enriched);
+      }
+      _diag.log(
+        () =>
+            '  → best-effort: enrich実測で乗り遅れ→除外して選び直し: '
+            '${_diag.candLine(enriched, budgetMin, departureAt)}',
+      );
+      pool = pool.where((c) => !identical(c, fallback)).toList();
+    }
   }
 
   /// 予算内候補が無いときの縮退先（#121）。「今夜乗れる」範囲の実到着最早を返す。
