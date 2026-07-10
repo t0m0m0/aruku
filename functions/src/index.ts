@@ -35,6 +35,9 @@ setGlobalOptions({ region: "asia-northeast1", maxInstances: 10 });
 
 const mapsKeySecret = defineSecret("GOOGLE_MAPS_API_KEY");
 const navitimeKeySecret = defineSecret("NAVITIME_RAPIDAPI_KEY");
+// レート制限のドキュメント ID を不可逆化する HMAC 鍵（#263）。rate-limiter が
+// process.env 経由で読むため、各エンドポイントの secrets 配列へバインドして注入する。
+const rateLimitHmacKeySecret = defineSecret("RATE_LIMIT_HMAC_KEY");
 
 // ローカル（エミュレーター）は Keychain から export した process.env を使用。
 // 本番は Secret Manager から取得。
@@ -411,7 +414,7 @@ function buildLocationBias(
 }
 
 /** Places Autocomplete / Details プロキシ */
-export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, res) => {
+export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKeySecret] }, async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Methods", "GET");
@@ -507,7 +510,7 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, r
 });
 
 /** NAVITIME route_transit プロキシ（RapidAPI 経由、レスポンスは無加工で返す） */
-export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret] }, async (req, res) => {
+export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret, rateLimitHmacKeySecret] }, async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Methods", "GET");
@@ -567,7 +570,7 @@ export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret] }, async (
  * travelMode=WALK で叩き、街路追従の encodedPolyline・距離・所要時間を返す。
  * レスポンスは無加工で返す（変換はクライアント側）。
  */
-export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret] }, async (req, res) => {
+export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKeySecret] }, async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Methods", "GET");
@@ -631,7 +634,7 @@ export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret] }, async (re
  * レスポンスは無加工で返す（変換はクライアント側）。
  */
 export const googleWalkMatrixProxy = onRequest(
-  { secrets: [mapsKeySecret] },
+  { secrets: [mapsKeySecret, rateLimitHmacKeySecret] },
   async (req, res) => {
     res.set("Access-Control-Allow-Origin", "*");
     if (req.method === "OPTIONS") {

@@ -102,4 +102,27 @@ describe("checkRateLimitFirestore", () => {
     expect(await checkRateLimitFirestore("6.6.6.6")).toBe(true);
     expect(errSpy).toHaveBeenCalled();
   });
+
+  it("生 IP は文書 ID に現れず、HMAC-SHA256 ダイジェストで不可逆化される", async () => {
+    await checkRateLimitFirestore("203.0.113.7");
+    const ids = [...store.keys()];
+    expect(ids).toHaveLength(1);
+    expect(ids[0]).not.toContain("203.0.113.7");
+    expect(ids[0]).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("同一 IP は同日中は同一の文書 ID へ写像される", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(0);
+    for (let i = 0; i < 3; i++) await checkRateLimitFirestore("9.9.9.9");
+    expect(store.size).toBe(1);
+    expect([...store.values()][0].count).toBe(3);
+  });
+
+  it("日付(UTC)が変わると同一 IP でも別の文書 ID になる（日次ローテーション）", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(0); // 1970-01-01
+    await checkRateLimitFirestore("8.8.8.8");
+    nowSpy.mockReturnValue(86_400_000); // 1970-01-02
+    await checkRateLimitFirestore("8.8.8.8");
+    expect(store.size).toBe(2);
+  });
 });

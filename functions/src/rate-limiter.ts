@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 
 // 標準上限（IP あたり 30 req/min）。
@@ -66,11 +67,30 @@ export function rateLimitMapSize(): number {
 // ---------------------------------------------------------------------------
 const COLLECTION = "rateLimits";
 
-// IPv6 のコロン等を含む IP を安全なドキュメント ID に変換する。
-// Firestore のドキュメント ID は "/" を含められないが encodeURIComponent で除去され、
-// 同一 IP は常に同一 ID へ写像される。
-function docIdForIp(ip: string): string {
-  return encodeURIComponent(ip);
+// レート制限のドキュメント ID を導出する鍵。バインドされた Secret が
+// process.env 経由で渡る（本番は firebase functions:secrets:set で登録）。
+// 未設定でも起動を止めず開発用フォールバックへ丸める：鍵欠落で課金 API 全体を
+// 落とすより、一次防御を App Check に委ねてフェイルオープンする方が可用性が高い。
+function getRateLimitHmacKey(): string {
+  const key = process.env.RATE_LIMIT_HMAC_KEY;
+  if (!key) {
+    console.warn("[rateLimiter] RATE_LIMIT_HMAC_KEY unset; using dev fallback");
+    return "aruku-dev-fallback";
+  }
+  return key;
+}
+
+// 生 IP を Firestore に残さないための不可逆なドキュメント ID を導出する（#263）。
+// encodeURIComponent は可逆で、ダンプ流出時に生 IP を復元できてしまう。SHA256 単体も
+// IPv4 は全空間 43 億通りで総当たり逆引きされるため、鍵付き HMAC を採る。鍵は UTC 日付で
+// 日次ローテーションし、鍵漏洩・日跨ぎの相関攻撃の被害を 1 日に限局する（カウンタ文書は
+// TTL で 60 秒以内に消えるため回転による機能影響は無い）。同一 IP は同日中は同一 ID へ、
+// 異なる IP は異なる ID へ写像されるという写像の性質は維持される。
+function docIdForIp(ip: string, now: number): string {
+  const day = new Date(now).toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+  return createHmac("sha256", `${getRateLimitHmacKey()}:${day}`)
+    .update(ip)
+    .digest("hex");
 }
 
 export async function checkRateLimitFirestore(
@@ -79,9 +99,12 @@ export async function checkRateLimitFirestore(
 ): Promise<boolean> {
   try {
     const db = getFirestore();
-    const ref = db.collection(COLLECTION).doc(docIdForIp(ip));
+    // ドキュメント ID は日次ローテーション鍵に依存するため now を先に確定し、
+    // トランザクション内のウィンドウ判定にも同一の now を用いる（真夜中 UTC を
+    // 跨ぐ稀な再試行でも ID と判定の日付がずれない）。
+    const now = Date.now();
+    const ref = db.collection(COLLECTION).doc(docIdForIp(ip, now));
     return await db.runTransaction(async (tx) => {
-      const now = Date.now();
       const snap = await tx.get(ref);
       const data = snap.data() as
         | { count: number; resetAt: number }
