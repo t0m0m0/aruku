@@ -7,11 +7,13 @@ import '../config/app_config.dart';
 import '../models/geo_point.dart';
 import 'route_service.dart';
 
-/// `/guidance/plan` へ問い合わせる際に除外する交通モード。バスは last-resort 候補と
-/// してまだ実装していないため、電車のみの経路を要求する（#247）。パーサ側の
-/// mode→SegmentType 写像（`_segmentTypeForMode`、bus→SegmentType.bus）とは独立の
-/// 定数——パーサが bus を型として許容しても、この問い合わせ条件自体は変えない（#249）。
-const _avoidModes = {'bus', 'ferry', 'air'};
+/// `/guidance/plan` の既定の除外モード。バス優勢な区間では `numItineraries` の枠が
+/// バス経路で埋まり電車候補が消えるため、主照会は電車のみを要求する（#247）。
+const _avoidModesTrainOnly = {'bus', 'ferry', 'air'};
+
+/// バスを許容する照会（last-resort 再照会・#250）の除外モード。`ferry`/`air` は
+/// [SegmentType] で表現できずパーサが option ごと落とすため、除外したままにする。
+const _avoidModesAllowBus = {'ferry', 'air'};
 
 /// Transit API（`/guidance/plan` 直叩き）と Google Routes プロキシへの HTTP 通信を担う
 /// クライアント（#169）。[TransitRouteService] から通信の関心事を切り出し、選定ロジックを
@@ -54,11 +56,15 @@ class TransitApiClient {
 
   /// [start]→[goal] を [at] 発で `/guidance/plan` に問い合わせ、生 JSON を返す。
   /// 非200は `RouteException('HTTP <code>')`、無応答は `RouteException('TIMEOUT')`。
+  ///
+  /// [allowBus] を立てるとバスを含む経路も要求する（#250 の last-resort 再照会）。
+  /// 既定（false）はバスを除外し電車のみを要求する（#247）。
   Future<Map<String, dynamic>> fetchGuidanceAt(
     GeoPoint start,
     GeoPoint goal,
-    DateTime at,
-  ) async {
+    DateTime at, {
+    bool allowBus = false,
+  }) async {
     final uri = Uri.parse('$_transitBaseUrl/api/v1/guidance/plan').replace(
       queryParameters: {
         'from': 'geo:${start.lat},${start.lng}',
@@ -67,7 +73,8 @@ class TransitApiClient {
         'time': _formatTime(at),
         'type': 'departure',
         'numItineraries': '$_numItineraries',
-        'avoidModes': _avoidModes.join(','),
+        'avoidModes': (allowBus ? _avoidModesAllowBus : _avoidModesTrainOnly)
+            .join(','),
       },
     );
     final res = await _getOrTimeout(_transit, uri);
