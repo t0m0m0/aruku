@@ -159,7 +159,7 @@ describe("firestore.rules userSync", () => {
 
     it("未知のキーがあると拒否する", async () => {
       await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), withSettings({ evil: "x".repeat(1000) })),
+        setDoc(ownerDoc(testEnv, OWNER), withSettings({ evil: "x" })),
       );
     });
 
@@ -198,6 +198,33 @@ describe("firestore.rules userSync", () => {
     it("weeklyGoalKm が上限(1000)超だと拒否する", async () => {
       await assertFails(
         setDoc(ownerDoc(testEnv, OWNER), withSettings({ weeklyGoalKm: 1000.1 })),
+      );
+    });
+
+    // Firestore は NaN / ±Infinity を double として格納できる。範囲チェックが
+    // 「NaN との比較は常に false」に暗黙依存して弾いているため、ド・モルガン的な
+    // 書き換え（!(km <= 0) 等）で静かに通るようになりうる。ここで固定する。
+    it("weeklyGoalKm が NaN だと拒否する", async () => {
+      await assertFails(
+        setDoc(ownerDoc(testEnv, OWNER), withSettings({ weeklyGoalKm: NaN })),
+      );
+    });
+
+    it("weeklyGoalKm が Infinity だと拒否する", async () => {
+      await assertFails(
+        setDoc(
+          ownerDoc(testEnv, OWNER),
+          withSettings({ weeklyGoalKm: Number.POSITIVE_INFINITY }),
+        ),
+      );
+    });
+
+    it("weeklyGoalKm が -Infinity だと拒否する", async () => {
+      await assertFails(
+        setDoc(
+          ownerDoc(testEnv, OWNER),
+          withSettings({ weeklyGoalKm: Number.NEGATIVE_INFINITY }),
+        ),
       );
     });
 

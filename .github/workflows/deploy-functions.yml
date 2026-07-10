@@ -18,8 +18,8 @@ on:
       - '.github/workflows/deploy-functions.yml'
 
 env:
-  # ルールテストとデプロイで CLI を揃える。バージョン差でルール評価が変わると
-  # CI が緑のまま本番だけ壊れるため。
+  # latest を使わないのは、ルールテストとデプロイで CLI が食い違うと
+  # ルール評価の差で CI が緑のまま本番だけ壊れうるため。
   FIREBASE_TOOLS_VERSION: 15.17.0
 
 permissions:
@@ -63,7 +63,6 @@ jobs:
           cache: npm
           cache-dependency-path: functions/package-lock.json
 
-      # Firestore エミュレータは JVM 上で動く。
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -85,8 +84,9 @@ jobs:
     needs: [build, rules]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    # firestore.rules の変更は本番のアクセス制御を直接書き換えるため、
-    # GitHub Environment の承認ゲートを通す。
+    # main への push だけを条件にしないのは、firestore.rules が本番の
+    # アクセス制御そのもので、退行が即座に全ユーザーへ届くため。
+    # 注意: 承認は Environment 側で required reviewers を設定して初めて発動する。
     environment: production
     steps:
       - uses: actions/checkout@v6
@@ -108,7 +108,10 @@ jobs:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
 
-      - name: Deploy Firebase Functions and Firestore rules
+      # firestore:rules だけに絞らないのは、firestore.indexes.json を path
+      # トリガーに含めた以上、インデックスも同じ経路で反映しないと
+      # 「CI は緑・本番だけ未反映」を indexes 側で再生産するため。
+      - name: Deploy Firebase Functions and Firestore rules/indexes
         run: >-
           npx --yes firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }}
-          deploy --only functions,firestore:rules --non-interactive
+          deploy --only functions,firestore --non-interactive
