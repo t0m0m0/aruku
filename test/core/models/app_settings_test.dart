@@ -87,4 +87,34 @@ void main() {
       isNot(const AppSettings(weeklyGoalKm: 20)),
     );
   });
+
+  group('firestore.rules との同期スキーマ契約', () {
+    // firestore.rules の isValidSettings が許可するキー集合。これが崩れると
+    // 同期書き込みが PERMISSION_DENIED になる（#257）。フィールドを足すときは
+    // firestore.rules と functions/test/firestore-rules.test.ts も同時に直す。
+    test('toJson のキー集合はルールの許可キーと厳密に一致する', () {
+      expect(AppSettings.defaults.toJson().keys.toSet(), {
+        'notificationsEnabled',
+        'weeklyGoalKm',
+        'healthKitEnabled',
+      });
+    });
+
+    test('toJson は常に全キーを出力する（ルールが hasAll を課すため）', () {
+      const s = AppSettings(
+        notificationsEnabled: false,
+        weeklyGoalKm: 30,
+        healthKitEnabled: true,
+      );
+      expect(s.toJson().values, isNot(contains(null)));
+      expect(s.toJson().length, 3);
+    });
+
+    test('週間目標プリセットはすべてルールの許可範囲(0 < km <= 1000)に収まる', () {
+      for (final km in AppConstants.weeklyGoalPresetsKm) {
+        expect(km, greaterThan(0));
+        expect(km, lessThanOrEqualTo(1000));
+      }
+    });
+  });
 }

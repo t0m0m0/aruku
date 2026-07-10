@@ -20,11 +20,23 @@ const OTHER = "other-uid";
 
 let testEnv: RulesTestEnvironment;
 
+/**
+ * 実クライアント `AppSettings.toJson()`（lib/core/models/app_settings.dart）が
+ * 送出する settings の形。ルールの許可キーはこれと一致していなければならない。
+ */
+function validSettings(): Record<string, unknown> {
+  return {
+    notificationsEnabled: true,
+    weeklyGoalKm: 10.0,
+    healthKitEnabled: false,
+  };
+}
+
 /** ルールを満たす正常な同期ドキュメント。各テストはここから逸脱を作る。 */
 function validSyncData(): Record<string, unknown> {
   return {
     updatedAt: "2026-07-03T00:00:00.000Z",
-    settings: { notificationsEnabled: true },
+    settings: validSettings(),
     recents: [{ name: "cafe" }],
     recentOrigins: [{ name: "office" }],
     activity: [{ date: "2026-07-03", steps: 1000 }],
@@ -120,15 +132,6 @@ describe("firestore.rules userSync", () => {
       );
     });
 
-    it("settings に未知のキーがあると拒否する", async () => {
-      await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), {
-          ...validSyncData(),
-          settings: { notificationsEnabled: true, evil: "x".repeat(1000) },
-        }),
-      );
-    });
-
     it("updatedAt が文字列でないと拒否する", async () => {
       await assertFails(
         setDoc(ownerDoc(testEnv, OWNER), {
@@ -137,14 +140,95 @@ describe("firestore.rules userSync", () => {
         }),
       );
     });
+  });
 
-    it("settings.notificationsEnabled が bool でないと拒否する", async () => {
+  describe("settings スキーマ（実クライアント AppSettings.toJson() 形式）", () => {
+    /** validSettings() の 1 キーだけを差し替えた同期ドキュメントを作る。 */
+    function withSettings(
+      overrides: Record<string, unknown>,
+    ): Record<string, unknown> {
+      return {
+        ...validSyncData(),
+        settings: { ...validSettings(), ...overrides },
+      };
+    }
+
+    it("実クライアントが送る 3 キーすべてを許可する", async () => {
+      await assertSucceeds(setDoc(ownerDoc(testEnv, OWNER), validSyncData()));
+    });
+
+    it("未知のキーがあると拒否する", async () => {
       await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), {
-          ...validSyncData(),
-          settings: { notificationsEnabled: "x".repeat(900000) },
-        }),
+        setDoc(ownerDoc(testEnv, OWNER), withSettings({ evil: "x".repeat(1000) })),
       );
+    });
+
+    it("notificationsEnabled が bool でないと拒否する", async () => {
+      await assertFails(
+        setDoc(ownerDoc(testEnv, OWNER), withSettings({ notificationsEnabled: 1 })),
+      );
+    });
+
+    it("healthKitEnabled が bool でないと拒否する", async () => {
+      await assertFails(
+        setDoc(ownerDoc(testEnv, OWNER), withSettings({ healthKitEnabled: "yes" })),
+      );
+    });
+
+    it("weeklyGoalKm が数値でないと拒否する", async () => {
+      await assertFails(
+        setDoc(ownerDoc(testEnv, OWNER), withSettings({ weeklyGoalKm: "10" })),
+      );
+    });
+
+    // AppSettings.fromJson は 0 以下を既定値へフォールバックする。ルールも同じ
+    // 契約（正の値のみ）を守り、壊れた値がそもそも書き込まれないようにする。
+    it("weeklyGoalKm が 0 だと拒否する", async () => {
+      await assertFails(
+        setDoc(ownerDoc(testEnv, OWNER), withSettings({ weeklyGoalKm: 0 })),
+      );
+    });
+
+    it("weeklyGoalKm が負だと拒否する", async () => {
+      await assertFails(
+        setDoc(ownerDoc(testEnv, OWNER), withSettings({ weeklyGoalKm: -1 })),
+      );
+    });
+
+    it("weeklyGoalKm が上限(1000)超だと拒否する", async () => {
+      await assertFails(
+        setDoc(ownerDoc(testEnv, OWNER), withSettings({ weeklyGoalKm: 1000.1 })),
+      );
+    });
+
+    it("weeklyGoalKm が上限(1000)ちょうどは許可する", async () => {
+      await assertSucceeds(
+        setDoc(ownerDoc(testEnv, OWNER), withSettings({ weeklyGoalKm: 1000 })),
+      );
+    });
+
+    it("プリセット値(5/10/15/20/30km)をすべて許可する", async () => {
+      for (const km of [5, 10, 15, 20, 30]) {
+        await assertSucceeds(
+          setDoc(ownerDoc(testEnv, OWNER), withSettings({ weeklyGoalKm: km })),
+        );
+      }
+    });
+
+    it("weeklyGoalKm が欠落していると拒否する", async () => {
+      const data = validSyncData();
+      const settings = validSettings();
+      delete settings.weeklyGoalKm;
+      data.settings = settings;
+      await assertFails(setDoc(ownerDoc(testEnv, OWNER), data));
+    });
+
+    it("healthKitEnabled が欠落していると拒否する", async () => {
+      const data = validSyncData();
+      const settings = validSettings();
+      delete settings.healthKitEnabled;
+      data.settings = settings;
+      await assertFails(setDoc(ownerDoc(testEnv, OWNER), data));
     });
   });
 
