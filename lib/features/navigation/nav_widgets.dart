@@ -74,7 +74,7 @@ String _maneuverText(
 };
 
 class _InstructionCard extends StatelessWidget {
-  const _InstructionCard({this.guidance, this.destination});
+  const _InstructionCard({super.key, this.guidance, this.destination});
   final NavGuidance? guidance;
   final String? destination;
 
@@ -123,21 +123,29 @@ class _InstructionCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.baseline,
                       textBaseline: TextBaseline.alphabetic,
                       children: [
-                        Text(
-                          g != null ? '${g.distanceToNextTurnM}' : '--',
-                          style: numStyle(
-                            size: 32,
-                            weight: FontWeight.w500,
-                            color: c.ivory,
+                        Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              g != null ? '${g.distanceToNextTurnM}' : '--',
+                              style: numStyle(
+                                size: 32,
+                                weight: FontWeight.w500,
+                                color: c.ivory,
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 6),
-                        Text(
-                          'm ${_maneuverText(l10n, g?.currentManeuver, line: g?.currentLine, stationName: g?.currentStationName)}',
-                          style: jpStyle(
-                            size: 14,
-                            weight: FontWeight.w700,
-                            color: c.ivory,
+                        Expanded(
+                          child: Text(
+                            'm ${_maneuverText(l10n, g?.currentManeuver, line: g?.currentLine, stationName: g?.currentStationName)}',
+                            style: jpStyle(
+                              size: 14,
+                              weight: FontWeight.w700,
+                              color: c.ivory,
+                            ),
                           ),
                         ),
                       ],
@@ -184,19 +192,21 @@ class _InstructionCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 4),
-              Text(
-                hasNext
-                    ? _maneuverText(
-                        l10n,
-                        g?.nextManeuver,
-                        line: g?.nextLine,
-                        stationName: g?.nextStationName,
-                      )
-                    : '--',
-                style: jpStyle(
-                  size: 12,
-                  weight: FontWeight.w600,
-                  color: ArukuTokens.onMossStrong,
+              Expanded(
+                child: Text(
+                  hasNext
+                      ? _maneuverText(
+                          l10n,
+                          g?.nextManeuver,
+                          line: g?.nextLine,
+                          stationName: g?.nextStationName,
+                        )
+                      : '--',
+                  style: jpStyle(
+                    size: 12,
+                    weight: FontWeight.w600,
+                    color: ArukuTokens.onMossStrong,
+                  ),
                 ),
               ),
             ],
@@ -330,13 +340,19 @@ class _StatsBar extends StatelessWidget {
           // Progress
           Row(
             children: [
-              Text(
-                '${traveledKm.toStringAsFixed(1)} / '
-                '${totalKm.toStringAsFixed(1)} km',
-                style: numStyle(
-                  size: 11,
-                  weight: FontWeight.w700,
-                  color: c.moss700,
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '${traveledKm.toStringAsFixed(1)} / '
+                    '${totalKm.toStringAsFixed(1)} km',
+                    style: numStyle(
+                      size: 11,
+                      weight: FontWeight.w700,
+                      color: c.moss700,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
@@ -369,12 +385,18 @@ class _StatsBar extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              Text(
-                '${(progress * 100).round()}%',
-                style: numStyle(
-                  size: 11,
-                  weight: FontWeight.w700,
-                  color: c.ink3,
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    '${(progress * 100).round()}%',
+                    style: numStyle(
+                      size: 11,
+                      weight: FontWeight.w700,
+                      color: c.ink3,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -397,12 +419,16 @@ class _StatsBar extends StatelessWidget {
                         ),
                       ),
                       arrivalTime != null
-                          ? Text(
-                              arrivalTime!,
-                              style: numStyle(
-                                size: 28,
-                                weight: FontWeight.w500,
-                                color: c.ink,
+                          ? FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                arrivalTime!,
+                                style: numStyle(
+                                  size: 28,
+                                  weight: FontWeight.w500,
+                                  color: c.ink,
+                                ),
                               ),
                             )
                           : _PendingFixLabel(color: c.ink3),
@@ -436,28 +462,33 @@ class _StatsBar extends StatelessWidget {
                           ),
                         ),
                         consumedKcal != null
-                            ? Row(
-                                crossAxisAlignment: CrossAxisAlignment.baseline,
-                                textBaseline: TextBaseline.alphabetic,
-                                children: [
-                                  Text(
-                                    '$consumedKcal',
-                                    style: numStyle(
-                                      size: 28,
-                                      weight: FontWeight.w500,
-                                      color: c.burnt,
+                            ? FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.baseline,
+                                  textBaseline: TextBaseline.alphabetic,
+                                  children: [
+                                    Text(
+                                      '$consumedKcal',
+                                      style: numStyle(
+                                        size: 28,
+                                        weight: FontWeight.w500,
+                                        color: c.burnt,
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    'kcal',
-                                    style: jpStyle(
-                                      size: 12,
-                                      weight: FontWeight.w700,
-                                      color: c.burnt,
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'kcal',
+                                      style: jpStyle(
+                                        size: 12,
+                                        weight: FontWeight.w700,
+                                        color: c.burnt,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               )
                             : _PendingFixLabel(color: c.ink3),
                       ],
@@ -521,20 +552,32 @@ class _RemainingColumn extends StatelessWidget {
             letterSpacing: 0.06 * 10,
           ),
         ),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            Text(
-              primaryKm.toStringAsFixed(1),
-              style: numStyle(size: 28, weight: FontWeight.w500, color: c.ink),
-            ),
-            const SizedBox(width: 4),
-            Text(
-              'km',
-              style: jpStyle(size: 12, weight: FontWeight.w700, color: c.ink2),
-            ),
-          ],
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                primaryKm.toStringAsFixed(1),
+                style: numStyle(
+                  size: 28,
+                  weight: FontWeight.w500,
+                  color: c.ink,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'km',
+                style: jpStyle(
+                  size: 12,
+                  weight: FontWeight.w700,
+                  color: c.ink2,
+                ),
+              ),
+            ],
+          ),
         ),
         if (showsSplit)
           Text(

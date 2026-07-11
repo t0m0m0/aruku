@@ -82,132 +82,124 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final c = context.c;
     final l10n = AppLocalizations.of(context);
     final isLast = _page == _pageCount - 1;
-    // 固定配置の CTA・ドットやカード内の横並びが無制限な文字拡大であふれる
-    // ため、nav 画面と同じく上限でクランプする。
-    final clampedTextScaler = MediaQuery.textScalerOf(
-      context,
-    ).clamp(maxScaleFactor: 1.3);
-    return MediaQuery(
-      data: MediaQuery.of(context).copyWith(textScaler: clampedTextScaler),
-      child: Material(
-        color: c.ivory,
-        child: SafeArea(
-          child: Stack(
-            children: [
-              // Organic shapes
-              Positioned(
-                top: -60,
-                right: -100,
-                child: SizedBox(
-                  width: 460,
-                  height: 460,
-                  child: CustomPaint(
-                    painter: _BlobPainter(
-                      c.moss100.withValues(alpha: 0.55),
-                      large: true,
-                    ),
+    return Material(
+      color: c.ivory,
+      child: SafeArea(
+        child: Stack(
+          children: [
+            // Organic shapes
+            Positioned(
+              top: -60,
+              right: -100,
+              child: SizedBox(
+                width: 460,
+                height: 460,
+                child: CustomPaint(
+                  painter: _BlobPainter(
+                    c.moss100.withValues(alpha: 0.55),
+                    large: true,
                   ),
                 ),
               ),
-              Positioned(
-                top: 100,
-                left: -90,
-                child: SizedBox(
-                  width: 320,
-                  height: 320,
-                  child: CustomPaint(
-                    painter: _BlobPainter(
-                      c.moss50.withValues(alpha: 0.6),
-                      large: false,
-                    ),
+            ),
+            Positioned(
+              top: 100,
+              left: -90,
+              child: SizedBox(
+                width: 320,
+                height: 320,
+                child: CustomPaint(
+                  painter: _BlobPainter(
+                    c.moss50.withValues(alpha: 0.6),
+                    large: false,
                   ),
                 ),
               ),
+            ),
 
-              // Logo header (全ページ共通で固定)
-              Positioned(
-                top: 12,
-                left: 28,
-                child: Row(
-                  children: [
-                    const ArukuLogo(size: 36),
-                    const SizedBox(width: 10),
-                    Text(
-                      l10n.appTitle,
-                      style: jpStyle(
-                        size: 22,
-                        weight: FontWeight.w800,
-                        color: c.moss700,
-                        letterSpacing: 0.04 * 22,
-                      ),
+            // Logo header (全ページ共通で固定)
+            Positioned(
+              top: 12,
+              left: 28,
+              child: Row(
+                children: [
+                  const ArukuLogo(size: 36),
+                  const SizedBox(width: 10),
+                  Text(
+                    l10n.appTitle,
+                    style: jpStyle(
+                      size: 22,
+                      weight: FontWeight.w800,
+                      color: c.moss700,
+                      letterSpacing: 0.04 * 22,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
+            ),
 
-              // Swipeable pages
-              Positioned.fill(
-                child: PageView(
-                  controller: _controller,
-                  onPageChanged: (i) => setState(() => _page = i),
-                  children: const [
-                    _CorePage(key: Key('onboard-page-0')),
-                    _HowToPage(key: Key('onboard-page-1')),
-                    _RecordPage(key: Key('onboard-page-2')),
-                  ],
-                ),
+            // Swipeable pages
+            Positioned.fill(
+              child: PageView(
+                controller: _controller,
+                onPageChanged: (i) => setState(() => _page = i),
+                children: const [
+                  _CorePage(key: Key('onboard-page-0')),
+                  _HowToPage(key: Key('onboard-page-1')),
+                  _RecordPage(key: Key('onboard-page-2')),
+                ],
               ),
+            ),
 
-              // Pager dots (現在ページと連動)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: _dotsBottom,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(_pageCount, (i) {
-                    final active = i == _page;
-                    return AnimatedContainer(
-                      key: Key('onboard-dot-$i'),
-                      duration: const Duration(milliseconds: 240),
-                      curve: Curves.easeOut,
-                      margin: const EdgeInsets.symmetric(horizontal: 3.5),
-                      width: active ? 26 : 7,
-                      height: 7,
-                      decoration: BoxDecoration(
-                        color: active ? c.moss500 : c.moss200,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    );
-                  }),
-                ),
-              ),
-
-              // CTA
-              Positioned(
-                left: 24,
-                right: 24,
-                bottom: _ctaBottom,
-                child: Column(
-                  children: [
-                    _CTAButton(
-                      label: isLast ? l10n.onboardStart : l10n.onboardNext,
-                      onPressed: _onCta,
+            // Pager dots (現在ページと連動)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: _dotsBottom,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(_pageCount, (i) {
+                  final active = i == _page;
+                  return AnimatedContainer(
+                    key: Key('onboard-dot-$i'),
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeOut,
+                    margin: const EdgeInsets.symmetric(horizontal: 3.5),
+                    width: active ? 26 : 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: active ? c.moss500 : c.moss200,
+                      borderRadius: BorderRadius.circular(999),
                     ),
-                    const SizedBox(height: 14),
-                    Text(
-                      l10n.onboardTermsNotice,
-                      style: jpStyle(
-                        size: 12,
-                        weight: FontWeight.w500,
-                        color: c.ink3,
-                      ),
-                    ),
-                  ],
-                ),
+                  );
+                }),
               ),
-            ],
-          ),
+            ),
+
+            // CTA
+            Positioned(
+              left: 24,
+              right: 24,
+              bottom: _ctaBottom,
+              child: Column(
+                children: [
+                  _CTAButton(
+                    label: isLast ? l10n.onboardStart : l10n.onboardNext,
+                    onPressed: _onCta,
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    l10n.onboardTermsNotice,
+                    style: jpStyle(
+                      size: 12,
+                      weight: FontWeight.w500,
+                      color: c.ink3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

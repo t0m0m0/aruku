@@ -51,13 +51,6 @@ class ResultScreen extends ConsumerWidget {
     final state = ref.watch(appStateProvider);
     final route = state.route;
 
-    // ヘッダーの FROM/TO や合計行など横幅固定の要素が無制限な文字拡大で
-    // あふれるため、nav 画面と同じく上限でクランプする。
-    final clampedTextScaler = MediaQuery.textScalerOf(
-      context,
-    ).clamp(maxScaleFactor: 1.3);
-    final mediaQuery = MediaQuery.of(context);
-
     if (route == null) {
       return Material(
         color: c.ivory,
@@ -104,96 +97,100 @@ class ResultScreen extends ConsumerWidget {
       );
     }
 
-    return MediaQuery(
-      data: mediaQuery.copyWith(textScaler: clampedTextScaler),
-      child: Material(
-        color: c.ivory,
-        child: SafeArea(
-          child: Column(
-            children: [
-              // Mini header
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
-                child: Row(
-                  children: [
-                    _HeaderButton(
-                      semanticLabel: l10n.commonBack,
-                      child: Ic.chevron(
-                        size: 18,
-                        color: c.ink,
-                        dir: ChevronDir.left,
-                      ),
-                      onTap: () => notifier.go(Screen.home),
+    return Material(
+      color: c.ivory,
+      child: SafeArea(
+        child: Column(
+          children: [
+            // Mini header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+              child: Row(
+                children: [
+                  _HeaderButton(
+                    semanticLabel: l10n.commonBack,
+                    child: Ic.chevron(
+                      size: 18,
+                      color: c.ink,
+                      dir: ChevronDir.left,
                     ),
-                    Expanded(
-                      child: Center(
-                        child: Text(
-                          l10n.resultDepartureLabel(
-                            state.departure.fullDateLabel(),
-                            state.departure.format(),
-                          ),
-                          style: jpStyle(
-                            size: 12,
-                            weight: FontWeight.w700,
-                            color: c.ink3,
-                          ),
+                    onTap: () => notifier.go(Screen.home),
+                  ),
+                  Expanded(
+                    child: Center(
+                      child: Text(
+                        l10n.resultDepartureLabel(
+                          state.departure.fullDateLabel(),
+                          state.departure.format(),
+                        ),
+                        style: jpStyle(
+                          size: 12,
+                          weight: FontWeight.w700,
+                          color: c.ink3,
                         ),
                       ),
                     ),
-                    _HeaderButton(
-                      key: const ValueKey('result-share-button'),
-                      semanticLabel: l10n.resultShareButton,
-                      child: Ic.share(size: 18, color: c.ink),
-                      onTap: () => unawaited(
-                        _shareRoute(
-                          ref.read(shareServiceProvider),
-                          l10n,
-                          route,
-                        ),
-                      ),
+                  ),
+                  _HeaderButton(
+                    key: const ValueKey('result-share-button'),
+                    semanticLabel: l10n.resultShareButton,
+                    child: Ic.share(size: 18, color: c.ink),
+                    onTap: () => unawaited(
+                      _shareRoute(ref.read(shareServiceProvider), l10n, route),
                     ),
-                  ],
-                ),
+                  ),
+                ],
+              ),
+            ),
+
+            if (route.totalMin > route.budgetMin)
+              _OverBudgetBanner(
+                overMin: route.totalMin - route.budgetMin,
+                onChange: () => notifier.go(Screen.home),
               ),
 
-              if (route.totalMin > route.budgetMin)
-                _OverBudgetBanner(
-                  overMin: route.totalMin - route.budgetMin,
-                  onChange: () => notifier.go(Screen.home),
-                ),
-
-              // Journey card
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
-                  child: ArukuCard(
-                    borderRadius: 24,
-                    shadow: const [
-                      BoxShadow(
-                        color: ArukuTokens.shadowCard,
-                        blurRadius: 28,
-                        offset: Offset(0, 12),
-                      ),
-                    ],
-                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
-                    child: Column(
-                      children: [
-                        _JourneyHeader(route: route),
-                        const SizedBox(height: 14),
-                        _TotalsStrip(route: route),
-                        const SizedBox(height: 12),
-                        _WalkRatioRow(route: route),
-                        const SizedBox(height: 14),
-                        Expanded(child: _Timeline(route: route)),
-                        const SizedBox(height: 8),
-                        _CtaRow(onNav: () => notifier.go(Screen.nav)),
-                      ],
+            // Journey card
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
+                child: ArukuCard(
+                  borderRadius: 24,
+                  shadow: const [
+                    BoxShadow(
+                      color: ArukuTokens.shadowCard,
+                      blurRadius: 28,
+                      offset: Offset(0, 12),
                     ),
+                  ],
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+                  // ヘッダ／集計／タイムラインは 1 つの内側スクロールにまとめ、
+                  // 主要導線の「歩く」CTA だけは常に底に固定して画面内に残す。
+                  // 大きな文字倍率で上部が伸びても CTA が押し出されない。
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          child: Column(
+                            children: [
+                              _JourneyHeader(route: route),
+                              const SizedBox(height: 14),
+                              _TotalsStrip(route: route),
+                              const SizedBox(height: 12),
+                              _WalkRatioRow(route: route),
+                              const SizedBox(height: 14),
+                              _Timeline(route: route),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _CtaRow(onNav: () => notifier.go(Screen.nav)),
+                    ],
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

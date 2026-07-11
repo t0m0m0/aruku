@@ -272,12 +272,17 @@ class _TimeField extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 1),
-              Text(
-                time,
-                style: numStyle(
-                  size: 21,
-                  weight: FontWeight.w600,
-                  color: c.ink,
+              // 大きな文字倍率で時刻が Expanded 幅を超えないよう等比縮小する。
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  time,
+                  style: numStyle(
+                    size: 21,
+                    weight: FontWeight.w600,
+                    color: c.ink,
+                  ),
                 ),
               ),
             ],
@@ -366,28 +371,32 @@ class _WeeklyGoalCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    Text(
-                      weekKm.toStringAsFixed(1),
-                      style: numStyle(
-                        size: 24,
-                        weight: FontWeight.w600,
-                        color: c.ink,
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        weekKm.toStringAsFixed(1),
+                        style: numStyle(
+                          size: 24,
+                          weight: FontWeight.w600,
+                          color: c.ink,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'km',
-                      style: jpStyle(
-                        size: 12,
-                        weight: FontWeight.w700,
-                        color: c.ink2,
+                      const SizedBox(width: 4),
+                      Text(
+                        'km',
+                        style: jpStyle(
+                          size: 12,
+                          weight: FontWeight.w700,
+                          color: c.ink2,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 3),
                 _TodayLine(

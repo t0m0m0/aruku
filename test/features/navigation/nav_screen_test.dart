@@ -415,6 +415,26 @@ void main() {
 
       expect(chipTop, greaterThanOrEqualTo(300));
     });
+
+    testWidgets('文字拡大3.0で案内カードが伸びても右側チップが重ならない', (tester) async {
+      // 狭い実機幅 × 端末最大級の文字倍率。案内カードは 96px を優に超える。
+      tester.view.physicalSize = const Size(1170, 2532);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.reset);
+      tester.platformDispatcher.textScaleFactorTestValue = 3.0;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+      await tester.pumpWidget(wrap(_NavNotifier(navState())));
+      await tester.pump();
+
+      final cardRect = tester.getRect(
+        find.byKey(const Key('nav-instruction-card')),
+      );
+      final chipRect = tester.getRect(find.byKey(const Key('nav-layer-chip')));
+
+      // チップは案内カードの下端より下にあり、縦方向で交差しない。
+      expect(chipRect.top, greaterThanOrEqualTo(cardRect.bottom));
+    });
   });
 
   group('チップのアクセシビリティラベル', () {
@@ -432,6 +452,10 @@ void main() {
 
   group('文字拡大設定への対応', () {
     testWidgets('文字拡大を最大にしても案内カード・下部バーがオーバーフローしない', (tester) async {
+      // 狭い実機幅で検証する。既定のテスト面（幅800）は横方向のあふれを覆い隠す。
+      tester.view.physicalSize = const Size(1170, 2532);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.reset);
       tester.platformDispatcher.textScaleFactorTestValue = 3.0;
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
 
