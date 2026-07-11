@@ -100,26 +100,10 @@ PR本文には次を明記する（`.claude/docs/workflow.md`）:
 
 作成された**PR番号を控える**（以降のレビューで使う）。
 
-## 7. 別コンテキストでレビュー（＝セッション切り替えの代替）
+## 7. 指摘対応
 
-`reviewer` サブエージェントを **Task ツールで起動**する。実装の文脈を持ち込まず、
-フラットな目でPR diffをレビューさせる:
-
-- `subagent_type: reviewer`
-- 依頼内容:「PR #<番号> の diff をレビューし、`gh pr review` で指摘をコメントすること」
-
-Firestoreルール / auth / App Check を変更している場合は、
-追加で `firebase-security-reviewer` サブエージェントも起動する。
-
-reviewerの指摘（PRコメント）を取得して要約する:
-
-```
-gh pr view <番号> --comments
-```
-
-## 8. 指摘対応
-
-- reviewerの指摘に対応する。TDDで直し、5章の検証を再度通す。
+- PRが作成されるとCodexがreviewをしてくれるのでそれを待つ
+- reviewを確認し、コメントがあれば指摘に対応する。TDDで直し、5章の検証を再度通す。
 - `.claude/docs/workflow.md` に従い、**review指摘対応後は確認を取らずに commit & push** する。
 
 ```
@@ -129,7 +113,7 @@ git push
 
 - 対応不要と判断した指摘は、理由を添えてユーザーに報告する（黙って無視しない）。
 
-## 9. 仕上げ（マージは手動）
+## 8. 仕上げ（マージは手動）
 
 - 最終状態を要約して報告する:
   - 対象issue / ブランチ / PR URL
