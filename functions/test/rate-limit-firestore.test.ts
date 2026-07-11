@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // vi.mock はホイストされるため、参照する mock 関数は vi.hoisted で先に生成する。
@@ -51,10 +53,14 @@ describe("checkRateLimitFirestore", () => {
     store = new Map();
     runTransactionMock.mockReset();
     installTransaction();
+    // 本番相当では十分な長さの HMAC 鍵が必須。テストは有効な鍵を注入する。
+    vi.stubEnv("RATE_LIMIT_HMAC_KEY", "x".repeat(32));
+    vi.stubEnv("FUNCTIONS_EMULATOR", "");
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("既定上限(30)までは true、31回目で false", async () => {
@@ -101,5 +107,68 @@ describe("checkRateLimitFirestore", () => {
     runTransactionMock.mockRejectedValueOnce(new Error("unavailable"));
     expect(await checkRateLimitFirestore("6.6.6.6")).toBe(true);
     expect(errSpy).toHaveBeenCalled();
+  });
+
+  it("生 IP は文書 ID に現れず、HMAC-SHA256 ダイジェストで不可逆化される", async () => {
+    await checkRateLimitFirestore("203.0.113.7");
+    const ids = [...store.keys()];
+    expect(ids).toHaveLength(1);
+    expect(ids[0]).not.toContain("203.0.113.7");
+    expect(ids[0]).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("文書 ID は鍵付き HMAC-SHA256 の既知ベクトルと一致する（鍵なし SHA-256 への退行を反証）", async () => {
+    // 鍵とUTC日付を含めた既知ベクトルと突き合わせ、「鍵付き」であることを直接保証する。
+    // 鍵なし SHA-256(day+ip) や鍵の合成違いはこの一致で確実に赤くなる。
+    vi.stubEnv("RATE_LIMIT_HMAC_KEY", "k".repeat(32));
+    vi.spyOn(Date, "now").mockReturnValue(0); // 1970-01-01 (UTC)
+    await checkRateLimitFirestore("198.51.100.9");
+    const expected = createHmac("sha256", `${"k".repeat(32)}:1970-01-01`)
+      .update("198.51.100.9")
+      .digest("hex");
+    expect([...store.keys()][0]).toBe(expected);
+  });
+
+  it("同一 IP は同日中は同一の文書 ID へ写像される", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(0);
+    for (let i = 0; i < 3; i++) await checkRateLimitFirestore("9.9.9.9");
+    expect(store.size).toBe(1);
+    expect([...store.values()][0].count).toBe(3);
+  });
+
+  it("日付(UTC)が変わると同一 IP でも別の文書 ID になる（日次ローテーション）", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(0); // 1970-01-01
+    await checkRateLimitFirestore("8.8.8.8");
+    nowSpy.mockReturnValue(86_400_000); // 1970-01-02
+    await checkRateLimitFirestore("8.8.8.8");
+    expect(store.size).toBe(2);
+  });
+
+  it("UTC 日付境界では前日 resetAt が未来でも新文書でカウンタが再開する（許容トレードオフ）", async () => {
+    const dayMs = 86_400_000;
+    // 1970-01-01 23:59:30 に上限まで消費（resetAt = 翌日 00:00:30）。
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(dayMs - 30_000);
+    for (let i = 0; i < 30; i++) await checkRateLimitFirestore("10.0.0.1");
+    expect(await checkRateLimitFirestore("10.0.0.1")).toBe(false);
+    // 1970-01-02 00:00:00。前日 resetAt(00:00:30) より前だが day が変わり新文書＝再び通過。
+    nowSpy.mockReturnValue(dayMs);
+    expect(await checkRateLimitFirestore("10.0.0.1")).toBe(true);
+    expect(store.size).toBe(2); // 前日文書と新文書が併存し、境界期間は許容量が最大2倍
+  });
+
+  it("本番相当で鍵が未設定なら、逆引き可能な文書を書かずフェイルオープンする", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("RATE_LIMIT_HMAC_KEY", "");
+    // フェイルオープン（通過）しつつ、生 IP 相関可能なドキュメントは一切書かない。
+    expect(await checkRateLimitFirestore("7.7.7.7")).toBe(true);
+    expect(store.size).toBe(0);
+    expect(errSpy).toHaveBeenCalled();
+  });
+
+  it("本番相当で鍵が短すぎる（弱鍵）なら受理せずフェイルオープンする", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("RATE_LIMIT_HMAC_KEY", "short");
+    expect(await checkRateLimitFirestore("7.7.7.8")).toBe(true);
+    expect(store.size).toBe(0);
   });
 });
