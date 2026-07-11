@@ -303,6 +303,7 @@ class _NavScreenState extends ConsumerState<NavScreen> {
                         Padding(
                           padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
                           child: _InstructionCard(
+                            key: const Key('nav-instruction-card'),
                             guidance: guidance,
                             destination: route?.to,
                           ),
@@ -322,6 +323,32 @@ class _NavScreenState extends ConsumerState<NavScreen> {
                             padding: EdgeInsets.fromLTRB(12, 8, 12, 0),
                             child: _RerouteFailedBanner(),
                           ),
+                        // Right controls: 案内カード（可変長）の直下に右寄せで流し込み、
+                        // 大きな文字倍率でカードが伸びても重ならないようにする。
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8, right: 12),
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _NavChip(
+                                  key: const Key('nav-layer-chip'),
+                                  icon: Ic.layers(size: 20, color: c.ink2),
+                                  onTap: _toggleLayer,
+                                  semanticLabel: l10n.navToggleMapType,
+                                ),
+                                const SizedBox(height: 8),
+                                _NavChip(
+                                  key: const Key('nav-compass-chip'),
+                                  icon: Ic.compass(size: 20, color: c.ink2),
+                                  onTap: _resetNorth,
+                                  semanticLabel: l10n.navResetNorth,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -393,29 +420,6 @@ class _NavScreenState extends ConsumerState<NavScreen> {
                             consumedKcal: guidance?.consumedKcal,
                             onExit: _handleExitRequested,
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Right controls: 案内カード（可変長）の下に固定オフセットで配置。
-                  Positioned(
-                    right: 12,
-                    top: 96,
-                    child: Column(
-                      children: [
-                        _NavChip(
-                          key: const Key('nav-layer-chip'),
-                          icon: Ic.layers(size: 20, color: c.ink2),
-                          onTap: _toggleLayer,
-                          semanticLabel: l10n.navToggleMapType,
-                        ),
-                        const SizedBox(height: 8),
-                        _NavChip(
-                          key: const Key('nav-compass-chip'),
-                          icon: Ic.compass(size: 20, color: c.ink2),
-                          onTap: _resetNorth,
-                          semanticLabel: l10n.navResetNorth,
                         ),
                       ],
                     ),

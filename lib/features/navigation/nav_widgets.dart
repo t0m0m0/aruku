@@ -74,7 +74,7 @@ String _maneuverText(
 };
 
 class _InstructionCard extends StatelessWidget {
-  const _InstructionCard({this.guidance, this.destination});
+  const _InstructionCard({super.key, this.guidance, this.destination});
   final NavGuidance? guidance;
   final String? destination;
 
