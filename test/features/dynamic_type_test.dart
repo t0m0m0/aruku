@@ -16,6 +16,7 @@ import 'package:aruku/features/home/home_screen.dart';
 import 'package:aruku/features/onboarding/onboarding_screen.dart';
 import 'package:aruku/features/result/result_screen.dart';
 import 'package:aruku/l10n/app_localizations.dart';
+import 'package:aruku/shared/widgets/aruku_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -68,6 +69,27 @@ const _plan = RoutePlan(
     TimelineNode(time: '9:00', place: '現在地', sub: '出発'),
     TimelineNode(time: '9:52', place: '渋谷駅', sub: '到着'),
   ],
+);
+
+/// 乗換の多い長いタイムラインを持つプラン（カード高を超える想定）。
+RoutePlan _longPlan() => RoutePlan(
+  from: '現在地',
+  to: '渋谷駅',
+  totalKm: 4.2,
+  totalMin: 52,
+  budgetMin: 60,
+  kcal: 187,
+  walkKm: 3.8,
+  walkRatio: 0.9,
+  segments: const [],
+  timelineNodes: List.generate(
+    24,
+    (i) => TimelineNode(
+      time: '9:${i.toString().padLeft(2, '0')}',
+      place: '地点$i',
+      sub: '経由',
+    ),
+  ),
 );
 
 /// 端末の最大文字拡大に近い倍率で画面をラップする。
@@ -154,5 +176,28 @@ void main() {
     await tester.pump();
 
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('結果画面は長いタイムラインでも歩くCTAが画面内に残る', (tester) async {
+    tester.view.physicalSize = const Size(1170, 2532);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final container = ProviderContainer(
+      overrides: [
+        routeServiceProvider.overrideWithValue(_FixedRouteService(_longPlan())),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(appStateProvider.notifier).startSearch();
+
+    // 通常サイズでも長い経路ではカードを溢れるが、主要導線の「歩く」CTA は
+    // タイムラインの内側スクロールに退避させ、常に画面内に留める。
+    await tester.pumpWidget(_scaled(container, const ResultScreen(), 1.0));
+    await tester.pump();
+
+    final ctaTop = tester.getTopLeft(find.byType(ArukuButton)).dy;
+    final screenHeight = tester.view.physicalSize.height / 3.0;
+    expect(ctaTop, lessThan(screenHeight));
   });
 }

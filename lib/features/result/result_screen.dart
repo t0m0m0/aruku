@@ -163,17 +163,13 @@ class ResultScreen extends ConsumerWidget {
                     ),
                   ],
                   padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
-                  // 大きな文字倍率では固定行（ヘッダ／集計／徒歩比）が伸び、
-                  // Expanded のタイムラインが負の高さになってあふれる。カード全体を
-                  // 「ビューポートを満たすが収まらなければスクロール」する器で包み、
-                  // 通常サイズでは Expanded で CTA を底に固定した見た目を保つ。
-                  child: LayoutBuilder(
-                    builder: (context, constraints) => SingleChildScrollView(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minHeight: constraints.maxHeight,
-                        ),
-                        child: IntrinsicHeight(
+                  // ヘッダ／集計／タイムラインは 1 つの内側スクロールにまとめ、
+                  // 主要導線の「歩く」CTA だけは常に底に固定して画面内に残す。
+                  // 大きな文字倍率で上部が伸びても CTA が押し出されない。
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
                           child: Column(
                             children: [
                               _JourneyHeader(route: route),
@@ -182,14 +178,14 @@ class ResultScreen extends ConsumerWidget {
                               const SizedBox(height: 12),
                               _WalkRatioRow(route: route),
                               const SizedBox(height: 14),
-                              Expanded(child: _Timeline(route: route)),
-                              const SizedBox(height: 8),
-                              _CtaRow(onNav: () => notifier.go(Screen.nav)),
+                              _Timeline(route: route),
                             ],
                           ),
                         ),
                       ),
-                    ),
+                      const SizedBox(height: 8),
+                      _CtaRow(onNav: () => notifier.go(Screen.nav)),
+                    ],
                   ),
                 ),
               ),
