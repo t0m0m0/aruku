@@ -95,8 +95,9 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  // iPhone 相当の狭い画面 × 大きな文字倍率でオーバーフローしないこと。
-  const scale = 2.0;
+  // iPhone 相当の狭い画面 × 端末最大級の文字倍率（iOS AX 最大相当）で
+  // オーバーフローしないこと。
+  const scale = 3.0;
 
   testWidgets('ホームは最大文字拡大でレイアウトが崩れない', (tester) async {
     tester.view.physicalSize = const Size(1170, 2532);

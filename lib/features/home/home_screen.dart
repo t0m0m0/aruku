@@ -146,37 +146,46 @@ class HomeScreen extends ConsumerWidget {
                         children: [
                           Padding(
                             padding: const EdgeInsets.fromLTRB(4, 0, 4, _sp2),
+                            // 大きな文字倍率ではラベルと予算注記が 1 行に収まらない
+                            // ため、両者を Flexible で折返し可能にし spaceBetween で
+                            // 左右に寄せる（Spacer だと文字が縮まずあふれる）。
                             child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Ic.clock(size: 12, color: c.ink2),
                                 const SizedBox(width: 5),
-                                Text(
-                                  l10n.homeTimeSectionLabel,
-                                  style: jpStyle(
-                                    size: 11,
-                                    weight: FontWeight.w800,
-                                    color: c.ink2,
-                                    letterSpacing: 0.08 * 11,
-                                  ),
-                                ),
-                                const Spacer(),
-                                RichText(
-                                  text: TextSpan(
+                                Flexible(
+                                  child: Text(
+                                    l10n.homeTimeSectionLabel,
                                     style: jpStyle(
                                       size: 11,
-                                      weight: FontWeight.w600,
+                                      weight: FontWeight.w800,
                                       color: c.ink2,
+                                      letterSpacing: 0.08 * 11,
                                     ),
-                                    children: [
-                                      TextSpan(
-                                        text: TimeValue.formatBudget(budget),
-                                        style: TextStyle(
-                                          color: c.moss600,
-                                          fontWeight: FontWeight.w800,
-                                        ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  child: RichText(
+                                    textAlign: TextAlign.end,
+                                    text: TextSpan(
+                                      style: jpStyle(
+                                        size: 11,
+                                        weight: FontWeight.w600,
+                                        color: c.ink2,
                                       ),
-                                      TextSpan(text: l10n.homeWalkableSuffix),
-                                    ],
+                                      children: [
+                                        TextSpan(
+                                          text: TimeValue.formatBudget(budget),
+                                          style: TextStyle(
+                                            color: c.moss600,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        TextSpan(text: l10n.homeWalkableSuffix),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ],

@@ -22,7 +22,9 @@ class _Timeline extends StatelessWidget {
         children.add(const _TimelineConnectorRow());
       }
     }
-    return SingleChildScrollView(child: Column(children: children));
+    // カード全体が 1 つのスクロールに包まれるため、ここでは素の Column を返す
+    // （内側にもう 1 つ縦スクロールを入れ子にしない）。
+    return Column(children: children);
   }
 }
 
