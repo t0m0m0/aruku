@@ -138,8 +138,8 @@ gcloud firestore fields ttls update expireAt \
 gcloud firestore fields ttls list --collection-group=rateLimits --project aruku-app
 ```
 
-手順 3 はコンソール操作でも設定可能なため、コードからは実施済みかどうか判別できません。
-定期的に手順 4 で `state: ACTIVE` を確認してください（Issue #161）。
+手順 4 はコンソール操作でも設定可能なため、コードからは実施済みかどうか判別できません。
+定期的に手順 5 で `state: ACTIVE` を確認してください（Issue #161）。
 
 ドキュメントは `{ count, resetAt, expireAt }` を持ち、`expireAt`（Timestamp）が TTL の対象です。
 Firestore 呼び出しが失敗した場合はフェイルオープン（リクエスト通過）し、`console.error` に記録します。
