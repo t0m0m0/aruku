@@ -173,21 +173,27 @@ class _DurationValue extends StatelessWidget {
 
     final h = minutes ~/ 60;
     final m = minutes % 60;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.baseline,
-      textBaseline: TextBaseline.alphabetic,
-      children: [
-        if (h > 0) ...[
-          Text('$h', style: num),
-          Text(l10n.resultHourUnit, style: unit),
-          const SizedBox(width: 2),
-          Text(m.toString().padLeft(2, '0'), style: num),
-          Text(l10n.resultMinuteUnit, style: unit),
-        ] else ...[
-          Text('$m', style: num),
-          Text(l10n.resultMinuteUnit, style: unit),
+    // 大きな文字倍率で数字＋単位が Expanded 幅を超えると Row があふれるため、
+    // _ValueWithUnit と同じく一体で等比縮小して収める。
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          if (h > 0) ...[
+            Text('$h', style: num),
+            Text(l10n.resultHourUnit, style: unit),
+            const SizedBox(width: 2),
+            Text(m.toString().padLeft(2, '0'), style: num),
+            Text(l10n.resultMinuteUnit, style: unit),
+          ] else ...[
+            Text('$m', style: num),
+            Text(l10n.resultMinuteUnit, style: unit),
+          ],
         ],
-      ],
+      ),
     );
   }
 }

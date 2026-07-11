@@ -119,7 +119,14 @@ class ArukuButton extends StatelessWidget {
                     : Border.all(color: borderColor ?? c.hairline),
                 boxShadow: shadow,
               ),
-              child: Center(child: content),
+              // 大きな文字倍率でラベル（＋アイコン）が固定高のボタン幅を超えると
+              // 横にあふれる。中身を等比縮小して収める。
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: FittedBox(fit: BoxFit.scaleDown, child: content),
+                ),
+              ),
             ),
           ),
         ),
