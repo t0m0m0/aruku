@@ -27,9 +27,24 @@ class SettingsScreen extends ConsumerWidget {
     final settings = settingsAsync.value ?? AppSettings.defaults;
     final settingsNotifier = ref.read(settingsProvider.notifier);
 
-    return Material(
-      color: c.ivory,
-      child: SafeArea(
+    // 保存失敗時はトグルが直前値へ自動的に戻る（state を更新しない方針）。
+    // それだけでは変化が無かったように見えるため、SnackBar で失敗を知らせる。
+    Future<void> guardSave(Future<void> Function() save) async {
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        await save();
+      } catch (_) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(l10n.settingsSaveFailed)),
+        );
+      }
+    }
+
+    // Scaffold にするのは SnackBar（ScaffoldMessenger）を提示できる祖先が
+    // 必要なため。従来の Material 直下では showSnackBar が assert で落ちる。
+    return Scaffold(
+      backgroundColor: c.ivory,
+      body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -77,7 +92,9 @@ class SettingsScreen extends ConsumerWidget {
                         switchKey: const Key('switch_notifications'),
                         label: l10n.settingsReceiveNotifications,
                         value: settings.notificationsEnabled,
-                        onChanged: settingsNotifier.setNotifications,
+                        onChanged: (v) => guardSave(
+                          () => settingsNotifier.setNotifications(v),
+                        ),
                       ),
                     ],
                   ),
@@ -89,7 +106,9 @@ class SettingsScreen extends ConsumerWidget {
                         switchKey: const Key('switch_healthkit'),
                         label: l10n.settingsHealthKitEnable,
                         value: settings.healthKitEnabled,
-                        onChanged: settingsNotifier.setHealthKitEnabled,
+                        onChanged: (v) => guardSave(
+                          () => settingsNotifier.setHealthKitEnabled(v),
+                        ),
                       ),
                       _SettingsNote(text: l10n.settingsHealthKitDescription),
                     ],
@@ -101,7 +120,9 @@ class SettingsScreen extends ConsumerWidget {
                       _GoalPresetRow(
                         label: l10n.settingsWeeklyGoalLabel,
                         selectedKm: settings.weeklyGoalKm,
-                        onSelected: settingsNotifier.setWeeklyGoalKm,
+                        onSelected: (km) => guardSave(
+                          () => settingsNotifier.setWeeklyGoalKm(km),
+                        ),
                       ),
                     ],
                   ),

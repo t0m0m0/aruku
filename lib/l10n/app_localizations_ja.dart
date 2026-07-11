@@ -517,6 +517,9 @@ class AppLocalizationsJa extends AppLocalizations {
       'オンにすると、歩行ナビの記録をヘルスケアにワークアウトとして保存します。';
 
   @override
+  String get settingsSaveFailed => '設定を保存できませんでした';
+
+  @override
   String get errorRetry => '再試行';
 
   @override

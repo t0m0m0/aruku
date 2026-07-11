@@ -36,8 +36,24 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
   Future<void> setHealthKitEnabled(bool enabled) =>
       _update((s) => s.copyWith(healthKitEnabled: enabled));
 
+  /// 直前の更新が state をコミットするまで次の read-modify-write を待たせる
+  /// FIFO キュー。これが無いと並行 setter が同じ古い state を基に丸ごと書き戻し、
+  /// 一方の変更が失われる（lost update）。
+  Future<void> _queue = Future<void>.value();
+
   /// 現在値に [change] を適用し、保存してから state を更新する。
-  Future<void> _update(AppSettings Function(AppSettings) change) async {
+  /// 複数の呼び出しは [_queue] で直列化され、各 [change] は直前の更新が反映済みの
+  /// state を読む。
+  Future<void> _update(AppSettings Function(AppSettings) change) {
+    final result = _queue.then((_) => _applyChange(change));
+    // 失敗しても後続の設定変更まで止めないよう、キューにはエラーを伝播させない。
+    // 呼び出し元へは result 経由で失敗が伝わる。state を AsyncError にはしない
+    // ―― 表示中の他の設定値まで巻き込んで消してしまうため。
+    _queue = result.catchError((_) {});
+    return result;
+  }
+
+  Future<void> _applyChange(AppSettings Function(AppSettings) change) async {
     final repo = await ref.read(settingsRepositoryProvider.future);
     final next = change(state.value ?? AppSettings.defaults);
     await repo.save(next);
