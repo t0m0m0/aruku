@@ -1,4 +1,5 @@
 import 'package:aruku/core/models/activity_snapshot.dart';
+import 'package:aruku/core/models/app_settings.dart';
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/location_state.dart';
 import 'package:aruku/core/services/activity_service.dart';
@@ -16,6 +17,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+class _ThrowingRepository extends SettingsRepository {
+  _ThrowingRepository(super.prefs);
+
+  @override
+  Future<void> save(AppSettings settings) async =>
+      throw StateError('save failed');
+}
 
 class _FakeLocationService implements LocationService {
   @override
@@ -176,6 +185,32 @@ void main() {
     // 選択が 20km へ移り、強調色が入れ替わる。
     expect(chipColor('goal_preset_20'), selectedColor);
     expect(chipColor('goal_preset_10'), unselectedColor);
+  });
+
+  testWidgets('保存に失敗するとSnackBarで通知する', (tester) async {
+    final prefs = await SharedPreferences.getInstance();
+    final container = ProviderContainer(
+      overrides: [
+        sharedPreferencesProvider.overrideWith((ref) => prefs),
+        onboardingCompletedProvider.overrideWithValue(true),
+        locationServiceProvider.overrideWithValue(_FakeLocationService()),
+        activityServiceProvider.overrideWithValue(_FakeActivityService()),
+        settingsRepositoryProvider.overrideWith(
+          (ref) async => _ThrowingRepository(prefs),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('switch_healthkit')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('設定を保存できませんでした'), findsOneWidget);
+    // 失敗した変更は state に反映されない。
+    expect(container.read(settingsProvider).value!.healthKitEnabled, isFalse);
   });
 
   testWidgets('ホームの設定ボタンで設定画面へ遷移する', (tester) async {

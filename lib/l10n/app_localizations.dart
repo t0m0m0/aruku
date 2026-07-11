@@ -1042,6 +1042,12 @@ abstract class AppLocalizations {
   /// **'オンにすると、歩行ナビの記録をヘルスケアにワークアウトとして保存します。'**
   String get settingsHealthKitDescription;
 
+  /// No description provided for @settingsSaveFailed.
+  ///
+  /// In ja, this message translates to:
+  /// **'設定を保存できませんでした'**
+  String get settingsSaveFailed;
+
   /// No description provided for @errorRetry.
   ///
   /// In ja, this message translates to:

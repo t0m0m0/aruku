@@ -401,6 +401,8 @@
   "@settingsHealthKitEnable": {},
   "settingsHealthKitDescription": "オンにすると、歩行ナビの記録をヘルスケアにワークアウトとして保存します。",
   "@settingsHealthKitDescription": {},
+  "settingsSaveFailed": "設定を保存できませんでした",
+  "@settingsSaveFailed": {},
 
   "errorRetry": "再試行",
   "@errorRetry": {},
