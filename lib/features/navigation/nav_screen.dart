@@ -261,43 +261,43 @@ class _NavScreenState extends ConsumerState<NavScreen> {
         ),
     };
 
-    // 案内カード・下部バーは固定サイズの地図オーバーレイのため、無制限な文字
-    // 拡大だとオーバーフローする。読みやすさは確保しつつ上限でクランプする。
-    final clampedTextScaler = MediaQuery.textScalerOf(
-      context,
-    ).clamp(maxScaleFactor: 1.3);
-
-    return MediaQuery(
-      data: MediaQuery.of(context).copyWith(textScaler: clampedTextScaler),
-      child: PopScope(
-        canPop: false,
-        onPopInvokedWithResult: (didPop, result) async {
-          if (didPop) return;
-          await _handleExitRequested();
-        },
-        child: Material(
-          color: c.mapBg,
-          child: Stack(
-            children: [
-              // Full-bleed map
-              Positioned.fill(
-                child: ArukuMap(
-                  variant: ArukuMapVariant.nav,
-                  polylines: route?.toPolylines() ?? const {},
-                  markers: markers,
-                  routeBounds: route?.toBounds(),
-                  mapType: _mapType,
-                  onMapReady: (controller) => _mapController = controller,
-                  onFitBoundsComplete: _snapToNavCamera,
-                  onCameraMoveStarted: _onCameraMoveStarted,
-                  onCameraIdle: _onCameraIdle,
-                ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _handleExitRequested();
+      },
+      child: Material(
+        color: c.mapBg,
+        child: Stack(
+          children: [
+            // Full-bleed map
+            Positioned.fill(
+              child: ArukuMap(
+                variant: ArukuMapVariant.nav,
+                polylines: route?.toPolylines() ?? const {},
+                markers: markers,
+                routeBounds: route?.toBounds(),
+                mapType: _mapType,
+                onMapReady: (controller) => _mapController = controller,
+                onFitBoundsComplete: _snapToNavCamera,
+                onCameraMoveStarted: _onCameraMoveStarted,
+                onCameraIdle: _onCameraIdle,
               ),
+            ),
 
-              SafeArea(
-                child: Stack(
-                  children: [
-                    Column(
+            SafeArea(
+              child: Stack(
+                children: [
+                  // 案内カードと下部バーは地図オーバーレイのため、Spacer を挟んだ
+                  // 単一 Column だと大きな文字倍率で両者の合計高が画面を超えて縦に
+                  // あふれる。上下を別々の Align に固定し、各グループを内容ぴったりに
+                  // 収めることで合計高の制約をなくす（極端な倍率では中央で重なりうるが
+                  // 破綻＝オーバーフローはしない）。
+                  Align(
+                    alignment: Alignment.topCenter,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         // Top instruction card
                         Padding(
@@ -322,7 +322,15 @@ class _NavScreenState extends ConsumerState<NavScreen> {
                             padding: EdgeInsets.fromLTRB(12, 8, 12, 0),
                             child: _RerouteFailedBanner(),
                           ),
-                        const Spacer(),
+                      ],
+                    ),
+                  ),
+
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
                         if (!_autoFollow)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 12),
@@ -388,34 +396,34 @@ class _NavScreenState extends ConsumerState<NavScreen> {
                         ),
                       ],
                     ),
+                  ),
 
-                    // Right controls: 案内カード（可変長）の下に固定オフセットで配置。
-                    Positioned(
-                      right: 12,
-                      top: 96,
-                      child: Column(
-                        children: [
-                          _NavChip(
-                            key: const Key('nav-layer-chip'),
-                            icon: Ic.layers(size: 20, color: c.ink2),
-                            onTap: _toggleLayer,
-                            semanticLabel: l10n.navToggleMapType,
-                          ),
-                          const SizedBox(height: 8),
-                          _NavChip(
-                            key: const Key('nav-compass-chip'),
-                            icon: Ic.compass(size: 20, color: c.ink2),
-                            onTap: _resetNorth,
-                            semanticLabel: l10n.navResetNorth,
-                          ),
-                        ],
-                      ),
+                  // Right controls: 案内カード（可変長）の下に固定オフセットで配置。
+                  Positioned(
+                    right: 12,
+                    top: 96,
+                    child: Column(
+                      children: [
+                        _NavChip(
+                          key: const Key('nav-layer-chip'),
+                          icon: Ic.layers(size: 20, color: c.ink2),
+                          onTap: _toggleLayer,
+                          semanticLabel: l10n.navToggleMapType,
+                        ),
+                        const SizedBox(height: 8),
+                        _NavChip(
+                          key: const Key('nav-compass-chip'),
+                          icon: Ic.compass(size: 20, color: c.ink2),
+                          onTap: _resetNorth,
+                          semanticLabel: l10n.navResetNorth,
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
