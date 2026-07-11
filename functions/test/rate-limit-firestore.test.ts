@@ -51,10 +51,14 @@ describe("checkRateLimitFirestore", () => {
     store = new Map();
     runTransactionMock.mockReset();
     installTransaction();
+    // 本番相当では十分な長さの HMAC 鍵が必須。テストは有効な鍵を注入する。
+    vi.stubEnv("RATE_LIMIT_HMAC_KEY", "x".repeat(32));
+    vi.stubEnv("FUNCTIONS_EMULATOR", "");
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("既定上限(30)までは true、31回目で false", async () => {
@@ -124,5 +128,21 @@ describe("checkRateLimitFirestore", () => {
     nowSpy.mockReturnValue(86_400_000); // 1970-01-02
     await checkRateLimitFirestore("8.8.8.8");
     expect(store.size).toBe(2);
+  });
+
+  it("本番相当で鍵が未設定なら、逆引き可能な文書を書かずフェイルオープンする", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("RATE_LIMIT_HMAC_KEY", "");
+    // フェイルオープン（通過）しつつ、生 IP 相関可能なドキュメントは一切書かない。
+    expect(await checkRateLimitFirestore("7.7.7.7")).toBe(true);
+    expect(store.size).toBe(0);
+    expect(errSpy).toHaveBeenCalled();
+  });
+
+  it("本番相当で鍵が短すぎる（弱鍵）なら受理せずフェイルオープンする", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("RATE_LIMIT_HMAC_KEY", "short");
+    expect(await checkRateLimitFirestore("7.7.7.8")).toBe(true);
+    expect(store.size).toBe(0);
   });
 });

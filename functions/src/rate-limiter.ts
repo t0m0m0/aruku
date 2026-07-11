@@ -67,25 +67,38 @@ export function rateLimitMapSize(): number {
 // ---------------------------------------------------------------------------
 const COLLECTION = "rateLimits";
 
+// ドキュメント ID を導出する HMAC 鍵の最小長（文字数）。弱鍵は鍵自体の総当たりを
+// 許し、逆引きを再び現実的にするため下限を設ける。README は openssl rand -hex 32
+// （64 文字）を推奨する。
+const MIN_HMAC_KEY_LENGTH = 32;
+
 // レート制限のドキュメント ID を導出する鍵。バインドされた Secret が
 // process.env 経由で渡る（本番は firebase functions:secrets:set で登録）。
-// 未設定でも起動を止めず開発用フォールバックへ丸める：鍵欠落で課金 API 全体を
-// 落とすより、一次防御を App Check に委ねてフェイルオープンする方が可用性が高い。
+//
+// なぜ本番で固定フォールバック鍵に丸めないか：
+//   公開された既知鍵でも「同一 IP → 同一 ID」の写像は保たれるためレート制限は動き、
+//   観測上は何も壊れない。しかし攻撃者は既知鍵で IPv4 全空間を総当たりして全 ID を
+//   生 IP へ逆引きでき、#263 の不可逆化だけが静かに無効化される。「動くのに保護が
+//   無い」を避けるため、本番相当で鍵が無い/弱いときは例外にする。例外は呼び出し側の
+//   try で捕捉されフェイルオープン（通過）するため、可用性は保ちつつ「逆引き可能な
+//   ドキュメントは一切書かない」。フォールバックはエミュレータ専用に限定する。
 function getRateLimitHmacKey(): string {
   const key = process.env.RATE_LIMIT_HMAC_KEY;
-  if (!key) {
-    console.warn("[rateLimiter] RATE_LIMIT_HMAC_KEY unset; using dev fallback");
-    return "aruku-dev-fallback";
-  }
-  return key;
+  if (key && key.length >= MIN_HMAC_KEY_LENGTH) return key;
+  if (process.env.FUNCTIONS_EMULATOR === "true") return "aruku-emulator-fallback";
+  throw new Error(
+    "RATE_LIMIT_HMAC_KEY unset or too short (>=32 chars required)"
+  );
 }
 
 // 生 IP を Firestore に残さないための不可逆なドキュメント ID を導出する（#263）。
 // encodeURIComponent は可逆で、ダンプ流出時に生 IP を復元できてしまう。SHA256 単体も
 // IPv4 は全空間 43 億通りで総当たり逆引きされるため、鍵付き HMAC を採る。鍵は UTC 日付で
-// 日次ローテーションし、鍵漏洩・日跨ぎの相関攻撃の被害を 1 日に限局する（カウンタ文書は
-// TTL で 60 秒以内に消えるため回転による機能影響は無い）。同一 IP は同日中は同一 ID へ、
-// 異なる IP は異なる ID へ写像されるという写像の性質は維持される。
+// 日次ローテーションし、鍵を持たない（ダンプのみの）攻撃者による日跨ぎの IP 相関を防ぐ
+// （カウンタ文書は TTL で 60 秒以内に消えるため回転による機能影響は無い）。base secret
+// 自体が漏洩した場合は日付が公開のため全日逆引きできるので、その限局には base secret の
+// 定期更新（運用手順）が必要。同一 IP は同日中は同一 ID へ、異なる IP は異なる ID へ
+// 写像されるという写像の性質は維持される。
 function docIdForIp(ip: string, now: number): string {
   const day = new Date(now).toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
   return createHmac("sha256", `${getRateLimitHmacKey()}:${day}`)
