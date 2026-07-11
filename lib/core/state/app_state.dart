@@ -290,11 +290,21 @@ class AppNotifier extends Notifier<AppState> {
   /// 切り、以降の外部呼び出しを止める。
   CancellationToken? _activeCancellation;
 
+  /// 自動リルートの世代番号（#261）。リルート開始のたびに繰り上げる。ナビ離脱・
+  /// 新規検索・目的地変更でも繰り上げ、進行中リルートの応答が後着しても
+  /// 開始時の世代と一致しなければ捨てる。検索用の [_searchGeneration] とは
+  /// 別軸で回す（ナビ中のリルートは検索フローを経由しないため）。
+  int _rerouteGeneration = 0;
+
+  /// 進行中リルートのキャンセル境界（#261）。無効化時に倒して通信を切る。
+  CancellationToken? _activeRerouteCancellation;
+
   @override
   AppState build() {
     ref.onDispose(() {
       _disposed = true;
       _activeCancellation?.cancel();
+      _activeRerouteCancellation?.cancel();
       _posSub?.cancel();
       _activitySub?.cancel();
     });
@@ -537,6 +547,9 @@ class AppNotifier extends Notifier<AppState> {
 
   void _stopTracking() {
     _maybeWriteWorkout();
+    // 離脱時点で in-flight のリルートを無効化する。後着応答が退場後の
+    // 検索/別目的地の state を上書きしないように（#261）。
+    _invalidateReroute();
     _posSub?.cancel();
     _posSub = null;
     _offRouteFixes = 0;
@@ -631,9 +644,27 @@ class AppNotifier extends Notifier<AppState> {
     unawaited(_reroute(p));
   }
 
+  /// 進行中リルートを無効化し、[isRerouting] を解除する（#261）。世代を繰り上げて
+  /// 後着応答を捨てさせ、キャンセルトークンを倒して通信自体を切る。ナビ離脱・
+  /// 新規検索・目的地変更で呼び、旧目的地のリルートが現行 state を上書きするのを防ぐ。
+  void _invalidateReroute() {
+    _rerouteGeneration++;
+    _activeRerouteCancellation?.cancel();
+    _activeRerouteCancellation = null;
+    if (state.isRerouting) {
+      state = state.copyWith(isRerouting: false);
+    }
+  }
+
   /// 現在地 [from] を起点に同じ目的地へルートを再計算し、成功時に差し替える。
   /// 失敗時は旧ルートを保持する（圏外などで案内が消えないように）。
+  ///
+  /// plan() は非同期で、完了前にナビ離脱・新規検索・目的地変更が起こり得る。
+  /// 反映前に世代一致・Screen.nav を確認し、後着した旧リルートが別目的地の
+  /// 経路を上書きしないようにする（#261）。
   Future<void> _reroute(GeoPoint from) async {
+    final generation = ++_rerouteGeneration;
+    final cancellation = _activeRerouteCancellation = CancellationToken();
     state = state.copyWith(isRerouting: true, rerouteFailed: false);
     final now = DateTime.now();
     try {
@@ -646,25 +677,41 @@ class AppNotifier extends Notifier<AppState> {
             arrival: state.arrival,
             origin: from,
             originName: state.departureNameForRoute,
+            cancellation: cancellation,
           );
-      if (_disposed) return;
+      if (_isRerouteStale(generation)) return;
       state = state.copyWith(route: plan, isRerouting: false);
       // 新しい経路のポリラインは旧経路と別物なので、直前の累積距離は無効。
       _lastDistanceAlongMeters = null;
     } catch (_) {
-      if (_disposed) return;
+      if (_isRerouteStale(generation)) return;
       // 旧ルートは保持したまま、ナビ画面にバナー表示できるよう失敗を残す。
       state = state.copyWith(isRerouting: false, rerouteFailed: true);
     } finally {
-      _offRouteFixes = 0;
-      // クールダウンは再検索「開始時刻」を起点にする。完了時刻だと
-      // ネットワーク遅延ぶんだけ窓が伸び、実効クールダウンがブレるため。
-      _lastRerouteAt = now;
+      // stale なリルートは新セッションのカウンタ・クールダウンを乱さないよう
+      // 触らない（無効化側で isRerouting は既に解除済み）。
+      if (generation == _rerouteGeneration) {
+        _offRouteFixes = 0;
+        // クールダウンは再検索「開始時刻」を起点にする。完了時刻だと
+        // ネットワーク遅延ぶんだけ窓が伸び、実効クールダウンがブレるため。
+        _lastRerouteAt = now;
+      }
     }
   }
 
-  void setDestination(String? name, {GeoPoint? latLng}) =>
-      state = state.copyWith(destination: name, destinationLatLng: latLng);
+  /// リルート応答を state へ反映してよいか。破棄済み・世代不一致（離脱/新規検索/
+  /// 目的地変更で無効化された）・nav 画面外のいずれかなら stale として捨てる。
+  bool _isRerouteStale(int generation) =>
+      _disposed ||
+      generation != _rerouteGeneration ||
+      state.screen != Screen.nav;
+
+  void setDestination(String? name, {GeoPoint? latLng}) {
+    // 目的地が変わると in-flight リルートは旧目的地の経路になる。無効化して
+    // 後着応答が新目的地の state を上書きしないようにする（#261）。
+    _invalidateReroute();
+    state = state.copyWith(destination: name, destinationLatLng: latLng);
+  }
 
   void setOrigin(String? name, {GeoPoint? latLng}) =>
       state = state.copyWith(origin: name, originLatLng: latLng);
@@ -709,6 +756,9 @@ class AppNotifier extends Notifier<AppState> {
     // 破棄済みなので結果を state へ書かない（キャンセル後に古い応答がホームから
     // result へ引き戻すのを防ぐ・#221）。
     final generation = ++_searchGeneration;
+    // 前回のナビで in-flight のリルートが残っていれば無効化する。新規検索の
+    // 結果が出る前後に後着しても、この検索の経路を上書きしないように（#261）。
+    _invalidateReroute();
     // 前回の検索が in-flight のまま再検索へ入る（キャンセルを挟まない連打）場合も、
     // 古い通信を放置せず切る。新しいトークンを採番して plan へ通す（#259）。
     _activeCancellation?.cancel();

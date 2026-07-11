@@ -26,16 +26,20 @@ class _StreamLocationService implements LocationService {
 
 /// 1 回目の plan() は [first] を、2 回目以降は [reroute] を返す。
 /// [failReroute] が true なら 2 回目で例外を投げる。
+/// [rerouteGate] を渡すと 2 回目以降の plan() はそれが complete するまで待つ。
+/// これで「リルート応答の後着」を任意のタイミングで再現できる。
 class _FakeRouteService implements RouteService {
   _FakeRouteService({
     required this.first,
     required this.reroute,
     this.failReroute = false,
+    this.rerouteGate,
   });
 
   final RoutePlan first;
   final RoutePlan reroute;
   final bool failReroute;
+  final Completer<void>? rerouteGate;
   int calls = 0;
   final List<GeoPoint?> origins = [];
 
@@ -53,6 +57,7 @@ class _FakeRouteService implements RouteService {
     calls++;
     origins.add(origin);
     if (calls == 1) return first;
+    if (rerouteGate != null) await rerouteGate!.future;
     if (failReroute) throw const RouteException('fail');
     return reroute;
   }
@@ -255,6 +260,52 @@ void main() {
       }
 
       expect(s.route.calls, 1);
+    });
+
+    test('ナビ離脱後に後着した旧リルートは現行経路を上書きしない', () async {
+      final controller = StreamController<GeoPoint>.broadcast();
+      final gate = Completer<void>();
+      final route = _FakeRouteService(
+        first: sampleRoutePlan,
+        reroute: _reroutePlan,
+        rerouteGate: gate,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          locationServiceProvider.overrideWithValue(
+            _StreamLocationService(controller),
+          ),
+          routeServiceProvider.overrideWithValue(route),
+        ],
+      );
+      addTearDown(controller.close);
+      addTearDown(container.dispose);
+
+      final notifier = container.read(appStateProvider.notifier);
+      notifier.setDestination('渋谷', latLng: const GeoPoint(35.658, 139.701));
+      await notifier.startSearch();
+      notifier.go(Screen.nav);
+
+      // リルートを発火させる。plan() は gate 待ちで未完了のまま。
+      for (var i = 0; i < 3; i++) {
+        controller.add(offRoute);
+        await tick();
+      }
+      await tick();
+      expect(route.calls, 2);
+      expect(container.read(appStateProvider).isRerouting, isTrue);
+
+      // ナビを離脱すると in-flight リルートは無効化され isRerouting も解除される。
+      notifier.go(Screen.home);
+      expect(container.read(appStateProvider).isRerouting, isFalse);
+
+      // 離脱後に旧リルートが後着しても、現行経路（初期ルート）を上書きしない。
+      gate.complete();
+      await tick();
+      await tick();
+
+      expect(container.read(appStateProvider).route, sampleRoutePlan);
+      expect(container.read(appStateProvider).isRerouting, isFalse);
     });
 
     test('クールダウン中は連続して再検索しない', () async {
