@@ -70,7 +70,9 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    expect(find.textContaining('超過'), findsOneWidget);
+    // 超過バナーに加え、余裕行も「N分 超過」を出すため textContaining('超過') は
+    // 複数一致する。バナーの存在はその固有文言で判定する（#266）。
+    expect(find.textContaining('制限時間を'), findsOneWidget);
     // ①の修正後、バナーが出る＝予算内に間に合う経路が無く best-effort（最短）を
     // 表示している状態。「見つかりませんでした」と検索失敗のように示さず、最短の
     // 経路を表示中であることを誠実に伝える（不具合C）。

@@ -216,12 +216,13 @@
       "percent": { "type": "int" }
     }
   },
-  "resultBudgetSummary": "制限 {budget}のうち {total} で到着 · {slack}分 余裕",
+  "resultBudgetSummary": "制限 {budget}のうち {total} で到着 · {slackMinutes}分 {slackKind, select, over{超過} other{余裕}}",
   "@resultBudgetSummary": {
     "placeholders": {
       "budget": { "type": "String" },
       "total": { "type": "String" },
-      "slack": { "type": "int" }
+      "slackMinutes": { "type": "int" },
+      "slackKind": { "type": "String" }
     }
   },
   "resultWalkLabel": "徒歩",
