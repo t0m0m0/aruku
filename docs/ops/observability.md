@@ -21,7 +21,7 @@ Places / NAVITIME / Google Routes への薄いプロキシ（`placesProxy`, `nav
 
 | event | 発火箇所 | 主フィールド | severity |
 |---|---|---|---|
-| `search_request` | `fetchUpstream`（全プロキシ共通） | `endpoint`（例: `placesProxy.autocomplete`, `navitimeProxy`）, `upstream`（`places`\|`navitime`\|`routes-walk`\|`routes-matrix`）, `status`（`success`\|`failure`）, `latencyMs`, `httpStatus`（任意・タイムアウトは504）, `rateLimited`（上流429のときのみ`true`） | success→info, failure→error |
+| `search_request` | `fetchUpstream`（全プロキシ共通） | `endpoint`（例: `placesProxy.autocomplete`, `navitimeProxy`）, `upstream`（`places`\|`navitime`\|`routes-walk`\|`routes-matrix`）, `status`（`success`\|`failure`）, `latencyMs`, `httpStatus`（任意・タイムアウトは504）, `rateLimited`（上流429のときのみ`true`）, `semanticFailure`（上流が2xxでもボディがエラー形状＝クライアントへ502変換される失敗のときのみ`true`。このとき`status="failure"`・`httpStatus`は上流値のまま、通常200） | success→info, failure→error |
 | `app_check_denied` | `verifyAppCheck` | `endpoint`, `reason`（`missing`\|`invalid`\|`replayed`） | warn |
 | `rate_limit` | `checkRateLimit` 呼び出し元 | `decision`（`blocked`\|`fail-open`。`allowed`は型上のみ存在し実際には出力されない） | blocked→warn, fail-open→error |
 
@@ -85,25 +85,43 @@ Flutter アプリ側（Firebase Crashlytics、PII フリーのクラッシュ・
 
 **リソースタイプに関する注意:** 本プロジェクトの関数は `firebase-functions/v2`（`onRequest`）＝ 2nd gen Cloud Functions で、内部的に Cloud Run 上で稼働する。Cloud Logging 上のリソースタイプは `cloud_function` ではなく **`resource.type="cloud_run_revision"`**（`resource.labels.service_name` に関数名が入る）になる点に注意（1st gen との違い）。
 
+**作成方式に関する注意:** `gcloud logging metrics create` のフラグは `--description`／`--log-filter`（＋任意の `--bucket-name`）のみで、ラベル抽出・値抽出・分布バケットを指定するフラグは存在しない。カスタムラベル付き・分布型のメトリクスは **LogMetric 定義ファイル（YAML）＋ `--config-from-file`** で作成するのが公式手順。以下、ラベル付きメトリクスはすべてこの方式で定義する（YAML は作業ディレクトリに一時作成して使う。リポジトリ管理対象にはしない — §7 の IaC 未整備を参照）。
+
 ### 5.1 検索リクエスト件数（成功/失敗、upstream・status 別ラベル付きカウンタ）
+
+```yaml
+# search_request_count.yaml
+description: "search_request イベントの件数（upstream/status/rate_limited 別ラベル付き）"
+filter: >-
+  resource.type="cloud_run_revision"
+  jsonPayload.event="search_request"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  labels:
+    - key: upstream
+      valueType: STRING
+    - key: status
+      valueType: STRING
+    - key: rate_limited
+      valueType: STRING
+labelExtractors:
+  upstream: EXTRACT(jsonPayload.upstream)
+  status: EXTRACT(jsonPayload.status)
+  rate_limited: EXTRACT(jsonPayload.rateLimited)
+```
 
 ```bash
 gcloud logging metrics create search_request_count \
-  --description="search_request イベントの件数（upstream/status/rate_limited 別ラベル付き）" \
-  --log-filter='resource.type="cloud_run_revision"
-jsonPayload.event="search_request"' \
-  --label-extractors='upstream=EXTRACT(jsonPayload.upstream),status=EXTRACT(jsonPayload.status),rate_limited=EXTRACT(jsonPayload.rateLimited)'
+  --config-from-file=search_request_count.yaml
 ```
 
 成功率は Monitoring 側で `rate_limited != "true"` を除外して `status="success"` / (`status="success"` + `status="failure"`) を計算する（MQLもしくはアラートポリシーの比率条件）。
 
 ### 5.2 検索レイテンシ分布（upstream 別、成功リクエストのみ）
 
-分布メトリクス＋ラベルは `gcloud logging metrics create --config-from-file` が必要。
-
 ```yaml
-# /tmp/search_request_latency.yaml
-name: search_request_latency
+# search_request_latency.yaml
 description: "search_request（status=success）の latencyMs 分布（upstream別）"
 filter: >-
   resource.type="cloud_run_revision"
@@ -115,6 +133,7 @@ metricDescriptor:
   unit: "ms"
   labels:
     - key: upstream
+      valueType: STRING
 labelExtractors:
   upstream: EXTRACT(jsonPayload.upstream)
 valueExtractor: EXTRACT(jsonPayload.latencyMs)
@@ -124,37 +143,65 @@ bucketOptions:
 ```
 
 ```bash
-gcloud logging metrics create search_request_latency --config-from-file=/tmp/search_request_latency.yaml
+gcloud logging metrics create search_request_latency \
+  --config-from-file=search_request_latency.yaml
 ```
 
 ### 5.3 App Check 拒否件数（endpoint・reason 別ラベル）
 
+```yaml
+# app_check_denied_count.yaml
+description: "app_check_denied イベントの件数（endpoint/reason 別ラベル）"
+filter: >-
+  resource.type="cloud_run_revision"
+  jsonPayload.event="app_check_denied"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  labels:
+    - key: endpoint
+      valueType: STRING
+    - key: reason
+      valueType: STRING
+labelExtractors:
+  endpoint: EXTRACT(jsonPayload.endpoint)
+  reason: EXTRACT(jsonPayload.reason)
+```
+
 ```bash
 gcloud logging metrics create app_check_denied_count \
-  --description="app_check_denied イベントの件数（endpoint/reason 別ラベル）" \
-  --log-filter='resource.type="cloud_run_revision"
-jsonPayload.event="app_check_denied"' \
-  --label-extractors='endpoint=EXTRACT(jsonPayload.endpoint),reason=EXTRACT(jsonPayload.reason)'
+  --config-from-file=app_check_denied_count.yaml
 ```
 
 ### 5.4 レート制限判定件数（decision 別ラベル）
 
-```bash
-gcloud logging metrics create rate_limit_decision_count \
-  --description="rate_limit イベントの件数（decision別ラベル。blocked/fail-openのみ、allowedは出力されない）" \
-  --log-filter='resource.type="cloud_run_revision"
-jsonPayload.event="rate_limit"' \
-  --label-extractors='decision=EXTRACT(jsonPayload.decision)'
+```yaml
+# rate_limit_decision_count.yaml
+description: "rate_limit イベントの件数（decision別ラベル。blocked/fail-openのみ、allowedは出力されない）"
+filter: >-
+  resource.type="cloud_run_revision"
+  jsonPayload.event="rate_limit"
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  labels:
+    - key: decision
+      valueType: STRING
+labelExtractors:
+  decision: EXTRACT(jsonPayload.decision)
 ```
 
-フェイルオープン専用の即時アラート用に、フィルタを絞った単独カウンタも作る（§6.1 のアラート条件をシンプルに保つため）。
+```bash
+gcloud logging metrics create rate_limit_decision_count \
+  --config-from-file=rate_limit_decision_count.yaml
+```
+
+フェイルオープン専用の即時アラート用に、フィルタを絞った単独カウンタも作る（§6.1 のアラート条件をシンプルに保つため）。こちらはラベルなしの単純カウンタなので、フラグ指定のみで作成できる。
 
 ```bash
 gcloud logging metrics create rate_limit_fail_open_count \
   --description="rate_limit decision=fail-open の件数（保護が機能していない状態）" \
-  --log-filter='resource.type="cloud_run_revision"
-jsonPayload.event="rate_limit"
-jsonPayload.decision="fail-open"'
+  --log-filter='resource.type="cloud_run_revision" AND jsonPayload.event="rate_limit" AND jsonPayload.decision="fail-open"'
 ```
 
 ---
@@ -170,23 +217,37 @@ gcloud alpha monitoring channels create \
   --channel-labels=email_address=YOUR_ONCALL_EMAIL@example.com
 ```
 
-作成した `NOTIFICATION_CHANNEL_ID` を以下のポリシーに紐付ける。
+作成した通知チャンネル名（`projects/PROJECT_ID/notificationChannels/CHANNEL_ID` 形式。`gcloud alpha monitoring channels list` で確認）を以下のポリシーに紐付ける。
+
+**作成方式に関する注意:** `gcloud alpha monitoring policies create` に `--condition-threshold-value` のようなフラグは存在しない。条件は (a) `--condition-filter` + `--if "> 閾値"` + `--duration` + `--aggregation` のフラグ組み合わせ、または (b) **AlertPolicy 定義ファイル（YAML/JSON）＋ `--policy-from-file`** で指定する。閾値・集計・通知先を1ファイルで宣言でき将来の Terraform 移植（§7）とも整合するため、本書は (b) に統一する。
 
 ### 6.1 レート制限フェイルオープン（最優先・即時）
 
 - **条件:** `rate_limit_fail_open_count` が 5分間で 1件以上
 - **理由:** 保護機構が機能していない状態。発生自体がインシデント
 
+```yaml
+# policy_fail_open.yaml
+displayName: "[P1] Rate limiter fail-open detected"
+combiner: OR
+conditions:
+  - displayName: "fail-open >= 1 in 5m"
+    conditionThreshold:
+      filter: >-
+        resource.type="cloud_run_revision" AND
+        metric.type="logging.googleapis.com/user/rate_limit_fail_open_count"
+      comparison: COMPARISON_GT
+      thresholdValue: 0
+      duration: 0s
+      aggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_SUM
+notificationChannels:
+  - projects/PROJECT_ID/notificationChannels/CHANNEL_ID
+```
+
 ```bash
-gcloud alpha monitoring policies create \
-  --display-name="[P1] Rate limiter fail-open detected" \
-  --condition-display-name="fail-open >= 1 in 5m" \
-  --condition-filter='resource.type="cloud_run_revision" AND metric.type="logging.googleapis.com/user/rate_limit_fail_open_count"' \
-  --condition-threshold-value=1 \
-  --condition-threshold-comparison=COMPARISON_GT \
-  --condition-threshold-duration=0s \
-  --aggregation='{"alignmentPeriod":"300s","perSeriesAligner":"ALIGN_SUM"}' \
-  --notification-channels=NOTIFICATION_CHANNEL_ID
+gcloud alpha monitoring policies create --policy-from-file=policy_fail_open.yaml
 ```
 
 ### 6.2 App Check 拒否スパイク
@@ -194,16 +255,28 @@ gcloud alpha monitoring policies create \
 - **条件:** `app_check_denied_count` の合計が 5分間で通常時より急増（初期値: 5分間で50件超）
 - **理由:** クライアント不具合（トークン更新不良等）または攻撃の兆候
 
+```yaml
+# policy_app_check_spike.yaml
+displayName: "[P2] App Check denial spike"
+combiner: OR
+conditions:
+  - displayName: "denied count > 50 in 5m"
+    conditionThreshold:
+      filter: >-
+        resource.type="cloud_run_revision" AND
+        metric.type="logging.googleapis.com/user/app_check_denied_count"
+      comparison: COMPARISON_GT
+      thresholdValue: 50
+      duration: 0s
+      aggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_SUM
+notificationChannels:
+  - projects/PROJECT_ID/notificationChannels/CHANNEL_ID
+```
+
 ```bash
-gcloud alpha monitoring policies create \
-  --display-name="[P2] App Check denial spike" \
-  --condition-display-name="denied count > 50 in 5m" \
-  --condition-filter='resource.type="cloud_run_revision" AND metric.type="logging.googleapis.com/user/app_check_denied_count"' \
-  --condition-threshold-value=50 \
-  --condition-threshold-comparison=COMPARISON_GT \
-  --condition-threshold-duration=0s \
-  --aggregation='{"alignmentPeriod":"300s","perSeriesAligner":"ALIGN_SUM"}' \
-  --notification-channels=NOTIFICATION_CHANNEL_ID
+gcloud alpha monitoring policies create --policy-from-file=policy_app_check_spike.yaml
 ```
 
 ### 6.3 検索成功率バーンレート（upstream 別）
@@ -221,19 +294,32 @@ Cloud Monitoring のコンソールで比率アラート（SLO ベースの burn
 - **条件:** `search_request_latency` の p95（`upstream` ラベルでフィルタ）が §4 の閾値を 15分間超過
 - 例（navitime, 4000ms）:
 
-```bash
-gcloud alpha monitoring policies create \
-  --display-name="[P3] navitime p95 latency > 4000ms" \
-  --condition-display-name="p95 latencyMs > 4000 for 15m (upstream=navitime)" \
-  --condition-filter='resource.type="cloud_run_revision" AND metric.type="logging.googleapis.com/user/search_request_latency" AND metric.labels.upstream="navitime"' \
-  --condition-threshold-value=4000 \
-  --condition-threshold-comparison=COMPARISON_GT \
-  --condition-threshold-duration=900s \
-  --aggregation='{"alignmentPeriod":"300s","perSeriesAligner":"ALIGN_PERCENTILE_95"}' \
-  --notification-channels=NOTIFICATION_CHANNEL_ID
+```yaml
+# policy_latency_navitime.yaml
+displayName: "[P3] navitime p95 latency > 4000ms"
+combiner: OR
+conditions:
+  - displayName: "p95 latencyMs > 4000 for 15m (upstream=navitime)"
+    conditionThreshold:
+      filter: >-
+        resource.type="cloud_run_revision" AND
+        metric.type="logging.googleapis.com/user/search_request_latency" AND
+        metric.labels.upstream="navitime"
+      comparison: COMPARISON_GT
+      thresholdValue: 4000
+      duration: 900s
+      aggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_PERCENTILE_95
+notificationChannels:
+  - projects/PROJECT_ID/notificationChannels/CHANNEL_ID
 ```
 
-同様に `places`（800ms）、`routes-walk`（1500ms）、`routes-matrix`（2500ms）用にラベルと閾値だけ差し替えて複製する。
+```bash
+gcloud alpha monitoring policies create --policy-from-file=policy_latency_navitime.yaml
+```
+
+同様に `places`（800ms）、`routes-walk`（1500ms）、`routes-matrix`（2500ms）用に `metric.labels.upstream` と `thresholdValue` だけ差し替えたファイルを複製する。
 
 ---
 
