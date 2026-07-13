@@ -625,8 +625,13 @@ abstract class AppLocalizations {
   /// No description provided for @resultBudgetSummary.
   ///
   /// In ja, this message translates to:
-  /// **'制限 {budget}のうち {total} で到着 · {slack}分 余裕'**
-  String resultBudgetSummary(String budget, String total, int slack);
+  /// **'制限 {budget}のうち {total} で到着 · {slackMinutes}分 {slackKind, select, over{超過} other{余裕}}'**
+  String resultBudgetSummary(
+    String budget,
+    String total,
+    int slackMinutes,
+    String slackKind,
+  );
 
   /// No description provided for @resultWalkLabel.
   ///

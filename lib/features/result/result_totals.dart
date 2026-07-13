@@ -232,11 +232,15 @@ class _WalkRatioRow extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                l10n.resultBudgetSummary(
-                  TimeValue.formatBudget(route.budgetMin),
-                  TimeValue.formatBudget(route.totalMin),
-                  route.budgetMin - route.totalMin,
-                ),
+                () {
+                  final slack = route.budgetMin - route.totalMin;
+                  return l10n.resultBudgetSummary(
+                    TimeValue.formatBudget(route.budgetMin),
+                    TimeValue.formatBudget(route.totalMin),
+                    slack.abs(),
+                    slack < 0 ? 'over' : 'spare',
+                  );
+                }(),
                 style: jpStyle(
                   size: 11,
                   weight: FontWeight.w500,

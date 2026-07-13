@@ -288,8 +288,17 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String resultBudgetSummary(String budget, String total, int slack) {
-    return '制限 $budgetのうち $total で到着 · $slack分 余裕';
+  String resultBudgetSummary(
+    String budget,
+    String total,
+    int slackMinutes,
+    String slackKind,
+  ) {
+    String _temp0 = intl.Intl.selectLogic(slackKind, {
+      'over': '超過',
+      'other': '余裕',
+    });
+    return '制限 $budgetのうち $total で到着 · $slackMinutes分 $_temp0';
   }
 
   @override
