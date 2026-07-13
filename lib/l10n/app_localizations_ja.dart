@@ -538,6 +538,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsPrivacyPolicy => 'プライバシーポリシー';
 
   @override
+  String get settingsLinkOpenFailed => 'リンクを開けませんでした';
+
+  @override
   String get errorRetry => '再試行';
 
   @override

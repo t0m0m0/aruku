@@ -410,6 +410,8 @@
   "@settingsTermsOfService": {},
   "settingsPrivacyPolicy": "プライバシーポリシー",
   "@settingsPrivacyPolicy": {},
+  "settingsLinkOpenFailed": "リンクを開けませんでした",
+  "@settingsLinkOpenFailed": {},
 
   "errorRetry": "再試行",
   "@errorRetry": {},

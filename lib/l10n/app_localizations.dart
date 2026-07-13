@@ -1071,6 +1071,12 @@ abstract class AppLocalizations {
   /// **'プライバシーポリシー'**
   String get settingsPrivacyPolicy;
 
+  /// No description provided for @settingsLinkOpenFailed.
+  ///
+  /// In ja, this message translates to:
+  /// **'リンクを開けませんでした'**
+  String get settingsLinkOpenFailed;
+
   /// No description provided for @errorRetry.
   ///
   /// In ja, this message translates to:

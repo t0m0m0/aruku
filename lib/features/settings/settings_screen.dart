@@ -42,6 +42,24 @@ class SettingsScreen extends ConsumerWidget {
       }
     }
 
+    // 端末にブラウザが無い等で起動が false／例外になっても無音で失敗しないよう、
+    // 到達できなかったことを SnackBar で知らせる。
+    Future<void> openExternal(Uri url) async {
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        final opened = await launcher(url);
+        if (!opened) {
+          messenger.showSnackBar(
+            SnackBar(content: Text(l10n.settingsLinkOpenFailed)),
+          );
+        }
+      } catch (_) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(l10n.settingsLinkOpenFailed)),
+        );
+      }
+    }
+
     // Scaffold にするのは SnackBar（ScaffoldMessenger）を提示できる祖先が
     // 必要なため。従来の Material 直下では showSnackBar が assert で落ちる。
     return Scaffold(
@@ -146,14 +164,16 @@ class SettingsScreen extends ConsumerWidget {
                       _LinkRow(
                         key: const Key('link_terms'),
                         label: l10n.settingsTermsOfService,
-                        onTap: () =>
-                            launcher(Uri.parse(AppConstants.termsOfServiceUrl)),
+                        onTap: () => openExternal(
+                          Uri.parse(AppConstants.termsOfServiceUrl),
+                        ),
                       ),
                       _LinkRow(
                         key: const Key('link_privacy'),
                         label: l10n.settingsPrivacyPolicy,
-                        onTap: () =>
-                            launcher(Uri.parse(AppConstants.privacyPolicyUrl)),
+                        onTap: () => openExternal(
+                          Uri.parse(AppConstants.privacyPolicyUrl),
+                        ),
                       ),
                     ],
                   ),

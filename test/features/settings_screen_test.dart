@@ -285,6 +285,56 @@ void main() {
     expect(launched, [Uri.parse(AppConstants.privacyPolicyUrl)]);
   });
 
+  testWidgets('リンク起動が false を返すとSnackBarで失敗を知らせる', (tester) async {
+    final prefs = await SharedPreferences.getInstance();
+    final container = ProviderContainer(
+      overrides: [
+        sharedPreferencesProvider.overrideWith((ref) => prefs),
+        onboardingCompletedProvider.overrideWithValue(true),
+        locationServiceProvider.overrideWithValue(_FakeLocationService()),
+        activityServiceProvider.overrideWithValue(_FakeActivityService()),
+        urlLauncherProvider.overrideWithValue((url) async => false),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.binding.setSurfaceSize(const Size(800, 1600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('link_terms')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('リンクを開けませんでした'), findsOneWidget);
+  });
+
+  testWidgets('リンク起動が例外を投げてもSnackBarで失敗を知らせる', (tester) async {
+    final prefs = await SharedPreferences.getInstance();
+    final container = ProviderContainer(
+      overrides: [
+        sharedPreferencesProvider.overrideWith((ref) => prefs),
+        onboardingCompletedProvider.overrideWithValue(true),
+        locationServiceProvider.overrideWithValue(_FakeLocationService()),
+        activityServiceProvider.overrideWithValue(_FakeActivityService()),
+        urlLauncherProvider.overrideWithValue(
+          (url) async => throw Exception('launch failed'),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.binding.setSurfaceSize(const Size(800, 1600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('link_privacy')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('リンクを開けませんでした'), findsOneWidget);
+  });
+
   testWidgets('法的情報の各行はボタンとして公開される（VoiceOver）', (tester) async {
     final handle = tester.ensureSemantics();
     final container = await _container();
