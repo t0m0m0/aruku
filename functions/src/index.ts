@@ -8,6 +8,7 @@ import { getAppCheck } from "firebase-admin/app-check";
 
 import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
 import { checkRateLimit, WALK_RATE_LIMIT } from "./rate-limiter";
+import { logAppCheckDenied, logRequestOutcome } from "./metrics";
 
 // レート制限ユーティリティはテスト互換のため再エクスポートする。
 export {
@@ -241,12 +242,14 @@ export function clientIp(req: Request): string {
 export async function verifyAppCheck(
   req: Request,
   res: Response,
-  opts: { consume?: boolean } = {}
+  opts: { consume?: boolean; endpoint?: string } = {}
 ): Promise<boolean> {
   if (process.env.FUNCTIONS_EMULATOR === "true") return true;
+  const endpoint = opts.endpoint ?? "unknown";
   const token = req.header("X-Firebase-AppCheck");
   if (!token) {
     console.warn("AppCheck: token missing");
+    logAppCheckDenied({ endpoint, reason: "missing" });
     res.status(401).json({ error: "App Check token missing" });
     return false;
   }
@@ -256,12 +259,14 @@ export async function verifyAppCheck(
       : await getAppCheck().verifyToken(token);
     if (opts.consume && result.alreadyConsumed) {
       console.warn("AppCheck: token already consumed (replay)");
+      logAppCheckDenied({ endpoint, reason: "replayed" });
       res.status(401).json({ error: "App Check token already consumed" });
       return false;
     }
     return true;
   } catch (e) {
     console.warn("AppCheck: token invalid", e);
+    logAppCheckDenied({ endpoint, reason: "invalid" });
     res.status(401).json({ error: "App Check token invalid" });
     return false;
   }
@@ -347,28 +352,55 @@ function requestJsonNew(
 
 // requestJsonNew を呼び、タイムアウト/上流障害を 504/502 に変換して res へ書く。
 // 成功時はパース済みボディを返し、失敗時は res 応答済みで UPSTREAM_FAILED を返す。
+// 併せて成否・レイテンシ・上流ステータスを構造化ログへ記録する（issue #268）。
+// 上流が 200 でも意味的に失敗（items/routes 欠落等）なケースは呼び出し側の後続
+// チェックで 502 化されるが、その分の再ログはしない。HTTP 層の成否とレイテンシを
+// 一箇所で記録する契約にとどめ、意味的失敗との二重計上でメトリクスをぼかさない。
 async function fetchUpstream(
   res: Response,
-  label: string,
+  endpoint: string,
+  upstream: string,
   url: string,
   method: "GET" | "POST",
   headers: Record<string, string>,
   body?: string
 ): Promise<unknown> {
+  const start = Date.now();
   try {
     const { statusCode, data } = await requestJsonNew(url, method, headers, body);
     // 一次判定はステータスコード。上流が 4xx/5xx を返したら成否をボディ形状から
     // 推測せず 502（Bad Gateway）へ寄せ、上流ボディをそのまま返す（呼び出し側の
     // ボディ判定は 200 でエラーボディを返す稀ケースの保険として残す）。
     if (statusCode < 200 || statusCode >= 300) {
-      console.error(`[${label}] upstream status ${statusCode}:`, JSON.stringify(data));
+      console.error(`[${endpoint}] upstream status ${statusCode}:`, JSON.stringify(data));
+      logRequestOutcome({
+        endpoint,
+        upstream,
+        status: "failure",
+        latencyMs: Date.now() - start,
+        httpStatus: statusCode,
+      });
       res.status(502).json(data);
       return UPSTREAM_FAILED;
     }
+    logRequestOutcome({
+      endpoint,
+      upstream,
+      status: "success",
+      latencyMs: Date.now() - start,
+      httpStatus: statusCode,
+    });
     return data;
   } catch (e) {
     const timedOut = e instanceof UpstreamError && e.kind === "timeout";
-    console.error(`[${label}] upstream ${timedOut ? "timeout" : "error"}:`, e);
+    console.error(`[${endpoint}] upstream ${timedOut ? "timeout" : "error"}:`, e);
+    logRequestOutcome({
+      endpoint,
+      upstream,
+      status: "failure",
+      latencyMs: Date.now() - start,
+      httpStatus: timedOut ? 504 : undefined,
+    });
     res
       .status(timedOut ? 504 : 502)
       .json({ error: timedOut ? "upstream timeout" : "upstream error" });
@@ -423,7 +455,7 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKey
     return;
   }
 
-  if (!(await verifyAppCheck(req, res))) return;
+  if (!(await verifyAppCheck(req, res, { endpoint: "placesProxy" }))) return;
 
   if (!(await checkRateLimit(clientIp(req)))) {
     res.status(429).json({ error: "Too many requests" });
@@ -464,6 +496,7 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKey
     const data = await fetchUpstream(
       res,
       "placesProxy.autocomplete",
+      "places",
       PLACES_AUTOCOMPLETE_NEW_URL,
       "POST",
       {
@@ -494,6 +527,7 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKey
     const data = await fetchUpstream(
       res,
       "placesProxy.details",
+      "places",
       `${PLACES_DETAILS_NEW_BASE}/${encodeURIComponent(placeId)}`,
       "GET",
       {
@@ -519,7 +553,7 @@ export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret, rateLimitH
     return;
   }
 
-  if (!(await verifyAppCheck(req, res))) return;
+  if (!(await verifyAppCheck(req, res, { endpoint: "navitimeProxy" }))) return;
 
   if (!(await checkRateLimit(clientIp(req)))) {
     res.status(429).json({ error: "Too many requests" });
@@ -540,6 +574,7 @@ export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret, rateLimitH
   const data = await fetchUpstream(
     res,
     "navitimeProxy",
+    "navitime",
     buildNavitimeUrl(req.query as Record<string, string | undefined>),
     "GET",
     {
@@ -579,7 +614,7 @@ export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHma
     return;
   }
 
-  if (!(await verifyAppCheck(req, res))) return;
+  if (!(await verifyAppCheck(req, res, { endpoint: "googleWalkProxy" }))) return;
 
   if (!(await checkRateLimit(clientIp(req), WALK_RATE_LIMIT))) {
     res.status(429).json({ error: "Too many requests" });
@@ -599,6 +634,7 @@ export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHma
   const data = await fetchUpstream(
     res,
     "googleWalkProxy",
+    "routes-walk",
     ROUTES_COMPUTE_URL,
     "POST",
     {
@@ -646,7 +682,13 @@ export const googleWalkMatrixProxy = onRequest(
 
     // 要素数課金で最も高単価なため、リプレイ保護（limited-use token 消費）を
     // このエンドポイントに限定して有効化する（issue #155）。
-    if (!(await verifyAppCheck(req, res, { consume: true }))) return;
+    if (
+      !(await verifyAppCheck(req, res, {
+        consume: true,
+        endpoint: "googleWalkMatrixProxy",
+      }))
+    )
+      return;
 
     if (!(await checkRateLimit(clientIp(req), WALK_RATE_LIMIT))) {
       res.status(429).json({ error: "Too many requests" });
@@ -678,6 +720,7 @@ export const googleWalkMatrixProxy = onRequest(
     const data = await fetchUpstream(
       res,
       "googleWalkMatrixProxy",
+      "routes-matrix",
       ROUTES_MATRIX_URL,
       "POST",
       {

@@ -1,6 +1,8 @@
 import { createHmac } from "node:crypto";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 
+import { logRateLimit } from "./metrics";
+
 // 標準上限（IP あたり 30 req/min）。
 export const RATE_LIMIT = 30;
 
@@ -36,7 +38,10 @@ export function checkRateLimitInMemory(
     _rateLimitMap.set(ip, { count: 1, resetAt: now + WINDOW_MS });
     return true;
   }
-  if (entry.count >= limit) return false;
+  if (entry.count >= limit) {
+    logRateLimit({ decision: "blocked" });
+    return false;
+  }
   entry.count++;
   return true;
 }
@@ -140,7 +145,10 @@ export async function checkRateLimitFirestore(
         });
         return true;
       }
-      if (data.count >= limit) return false;
+      if (data.count >= limit) {
+        logRateLimit({ decision: "blocked" });
+        return false;
+      }
       tx.update(ref, { count: data.count + 1 });
       return true;
     });
@@ -148,6 +156,7 @@ export async function checkRateLimitFirestore(
     // フェイルオープン: レート制限の障害で課金 API 全体を落とさない。
     // 一次の濫用防止は App Check が担う。検知のためログは残す。
     console.error("[rateLimiter] Firestore error, failing open:", e);
+    logRateLimit({ decision: "fail-open" });
     return true;
   }
 }
