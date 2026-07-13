@@ -529,6 +529,18 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsSaveFailed => '設定を保存できませんでした';
 
   @override
+  String get settingsLegalSection => '法的情報';
+
+  @override
+  String get settingsTermsOfService => '利用規約';
+
+  @override
+  String get settingsPrivacyPolicy => 'プライバシーポリシー';
+
+  @override
+  String get settingsLinkOpenFailed => 'リンクを開けませんでした';
+
+  @override
   String get errorRetry => '再試行';
 
   @override

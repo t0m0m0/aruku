@@ -182,17 +182,18 @@ class _GoalChip extends StatelessWidget {
   }
 }
 
-/// タップで外部（端末設定・将来のアカウント画面）へ誘導する行。
-/// [onTap] が null なら無効表示にする。
+/// タップで外部（端末設定・利用規約などのWebページ）へ誘導する行。
+/// [onTap] が null なら無効表示にする。[trailing] が null なら補足文を省く。
 class _LinkRow extends StatelessWidget {
   const _LinkRow({
+    super.key,
     required this.label,
-    required this.trailing,
+    this.trailing,
     required this.onTap,
   });
 
   final String label;
-  final String trailing;
+  final String? trailing;
   final VoidCallback? onTap;
 
   @override
@@ -220,15 +221,17 @@ class _LinkRow extends StatelessWidget {
                     ),
                   ),
                 ),
-                Text(
-                  trailing,
-                  style: jpStyle(
-                    size: 13,
-                    weight: FontWeight.w600,
-                    color: c.ink3,
+                if (trailing != null) ...[
+                  Text(
+                    trailing!,
+                    style: jpStyle(
+                      size: 13,
+                      weight: FontWeight.w600,
+                      color: c.ink3,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 4),
+                  const SizedBox(width: 4),
+                ],
                 Ic.chevron(size: 16, color: c.ink3, dir: ChevronDir.right),
               ],
             ),
