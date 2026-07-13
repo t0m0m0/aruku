@@ -20,11 +20,14 @@ export interface RequestOutcomeParams {
   latencyMs: number;
   /** 上流の HTTP ステータスコード（取得できた場合のみ）。 */
   httpStatus?: number;
+  /** 上流が 2xx でもボディがエラー形状だった失敗（クォータ/認証/スキーマ異常）。 */
+  semanticFailure?: boolean;
 }
 
 /** 検索リクエストの成否・レイテンシ・上流ステータスを記録する。 */
 export function logRequestOutcome(params: RequestOutcomeParams): void {
-  const { endpoint, upstream, status, latencyMs, httpStatus } = params;
+  const { endpoint, upstream, status, latencyMs, httpStatus, semanticFailure } =
+    params;
   const payload = {
     event: "search_request",
     endpoint,
@@ -36,6 +39,8 @@ export function logRequestOutcome(params: RequestOutcomeParams): void {
     // 集計できるよう明示フラグを立てる（httpStatus だけでも絞り込めるが、
     // 「429 特定可能」というログ契約を型として残すため専用フィールドにする）。
     ...(httpStatus === 429 ? { rateLimited: true } : {}),
+    // httpStatus=200 の failure を「HTTP は成功・意味的に失敗」と判別可能に保つ。
+    ...(semanticFailure ? { semanticFailure: true } : {}),
   };
   if (status === "success") {
     logger.info("search_request", payload);

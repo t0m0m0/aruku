@@ -83,6 +83,34 @@ describe("logRequestOutcome", () => {
     expect(payload).not.toHaveProperty("httpStatus");
     expect(payload).not.toHaveProperty("rateLimited");
   });
+
+  it("semanticFailure=true（200+エラーボディ）は failure ペイロードに含める", () => {
+    logRequestOutcome({
+      endpoint: "navitimeProxy",
+      upstream: "navitime",
+      status: "failure",
+      latencyMs: 10,
+      httpStatus: 200,
+      semanticFailure: true,
+    });
+    expect(errorMock).toHaveBeenCalledWith("search_request", expect.objectContaining({
+      status: "failure",
+      httpStatus: 200,
+      semanticFailure: true,
+    }));
+  });
+
+  it("semanticFailure 未指定なら payload に semanticFailure を含めない", () => {
+    logRequestOutcome({
+      endpoint: "navitimeProxy",
+      upstream: "navitime",
+      status: "success",
+      latencyMs: 10,
+      httpStatus: 200,
+    });
+    const payload = infoMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("semanticFailure");
+  });
 });
 
 describe("logAppCheckDenied", () => {

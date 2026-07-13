@@ -52,6 +52,7 @@ import {
   resetRateLimit,
 } from "../src/rate-limiter";
 import {
+  googleWalkMatrixProxy,
   googleWalkProxy,
   navitimeProxy,
   resetRateLimit as resetRateLimitFromIndex,
@@ -242,6 +243,92 @@ describe("search_request イベント配線（fetchUpstream 経由）", () => {
         httpStatus: 403,
       })
     );
+  });
+
+  // 以下3ケースは上流が HTTP 200 でエラー形状のボディを返し、呼び出し側で 502 に
+  // 変換されるパス。SLO 上も failure として1回だけ計上されることを固定する
+  // （成功として記録される退行は、まさに検出したいクォータ/認証/スキーマ失敗を隠す）。
+  it("navitimeProxy: 200+エラーボディ（message かつ items 無し）は failure(semanticFailure) として記録する", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockUpstream({ message: "You have exceeded the rate limit" });
+    const res = makeRes();
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      res
+    );
+    expect(res.statusCode).toBe(502);
+    expect(logRequestOutcomeMock).toHaveBeenCalledTimes(1);
+    expect(logRequestOutcomeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoint: "navitimeProxy",
+        upstream: "navitime",
+        status: "failure",
+        httpStatus: 200,
+        semanticFailure: true,
+      })
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("googleWalkProxy: 200+エラーボディ（error かつ routes 無し）は failure(semanticFailure) として記録する", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockUpstream({ error: { code: 403, status: "PERMISSION_DENIED" } });
+    const res = makeRes();
+    await invokeHandler(
+      googleWalkProxy,
+      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }),
+      res
+    );
+    expect(res.statusCode).toBe(502);
+    expect(logRequestOutcomeMock).toHaveBeenCalledTimes(1);
+    expect(logRequestOutcomeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoint: "googleWalkProxy",
+        upstream: "routes-walk",
+        status: "failure",
+        httpStatus: 200,
+        semanticFailure: true,
+      })
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("googleWalkMatrixProxy: 200+非配列応答は failure(semanticFailure) として記録する", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockUpstream({ unexpected: true });
+    const res = makeRes();
+    await invokeHandler(
+      googleWalkMatrixProxy,
+      makeReq({ query: { origins: "35.7,139.7", destinations: "35.6,139.7" } }),
+      res
+    );
+    expect(res.statusCode).toBe(502);
+    expect(logRequestOutcomeMock).toHaveBeenCalledTimes(1);
+    expect(logRequestOutcomeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoint: "googleWalkMatrixProxy",
+        upstream: "routes-matrix",
+        status: "failure",
+        httpStatus: 200,
+        semanticFailure: true,
+      })
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("意味的にも有効な成功ボディは semanticFailure を含めず success として1回だけ記録する", async () => {
+    mockUpstream({ routes: [{ distanceMeters: 100 }] });
+    const res = makeRes();
+    await invokeHandler(
+      googleWalkProxy,
+      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }),
+      res
+    );
+    expect(logRequestOutcomeMock).toHaveBeenCalledTimes(1);
+    const call = logRequestOutcomeMock.mock.calls[0][0];
+    expect(call.status).toBe("success");
+    expect(call).not.toHaveProperty("semanticFailure");
   });
 });
 
