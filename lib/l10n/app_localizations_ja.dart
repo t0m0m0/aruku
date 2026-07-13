@@ -12,27 +12,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get appTitle => 'あるく';
 
   @override
-  String get authErrorInvalidEmail => 'メールアドレスの形式が正しくありません。';
-
-  @override
-  String get authErrorEmailInUse => 'このメールアドレスは既に登録されています。';
-
-  @override
-  String get authErrorWeakPassword => 'パスワードは6文字以上で設定してください。';
-
-  @override
-  String get authErrorWrongCredentials => 'メールアドレスまたはパスワードが正しくありません。';
-
-  @override
-  String get authErrorNetwork => 'ネットワークに接続できませんでした。通信環境をご確認ください。';
-
-  @override
-  String get authErrorTooManyRequests => '試行回数が多すぎます。しばらくしてからお試しください。';
-
-  @override
-  String get authErrorUnknown => '認証に失敗しました。時間をおいて再度お試しください。';
-
-  @override
   String get routeErrorNetworkTitle => '通信に失敗しました';
 
   @override
@@ -61,42 +40,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get routeErrorUnknownDescription => '時間をおいてもう一度お試しください';
-
-  @override
-  String get authLoginTitle => 'ログイン';
-
-  @override
-  String get authSignUpTitle => 'アカウント作成';
-
-  @override
-  String get authLoginSubtitle => 'メールアドレスでログインします。';
-
-  @override
-  String get authSignUpSubtitle => 'メールアドレスで新しいアカウントを作成します。';
-
-  @override
-  String get authEmailHint => 'メールアドレス';
-
-  @override
-  String get authPasswordHint => 'パスワード';
-
-  @override
-  String get authSignUpButton => '登録する';
-
-  @override
-  String get authToggleToSignUp => 'アカウントをお持ちでない方はこちら';
-
-  @override
-  String get authToggleToLogin => '既にアカウントをお持ちの方はこちら';
-
-  @override
-  String get authOrDivider => 'または';
-
-  @override
-  String get authContinueAsGuest => 'ゲストとして続ける';
-
-  @override
-  String get authValidationEmptyFields => 'メールアドレスとパスワードを入力してください。';
 
   @override
   String get weekdayMon => '月';

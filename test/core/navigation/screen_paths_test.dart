@@ -13,8 +13,7 @@ void main() {
     });
 
     test('ネスト構造が現行の戻る挙動と一致する', () {
-      // back: auth→settings→home を実 pop で再現するためのネスト。
-      expect(Screen.auth.path, '/home/settings/auth');
+      // back: settings→home を実 pop で再現するためのネスト。
       expect(Screen.settings.path, '/home/settings');
       expect(Screen.home.path, '/home');
       // onboarding だけは home の外（back 無効の独立ルート）。

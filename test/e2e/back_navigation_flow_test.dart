@@ -14,7 +14,7 @@ import 'support/e2e_helpers.dart';
 /// 旧 main.dart の PopScope 手動分岐と同じ back 挙動を、実 Navigator の
 /// pop で再現できていることを検証する（go_router 移行の parity テスト）。
 ///
-/// 旧分岐: auth→settings / settings・search・searchOrigin・result・nav・
+/// 旧分岐: settings・search・searchOrigin・result・nav・
 /// error→home / home・onboarding・loading→無反応。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -50,18 +50,6 @@ void main() {
     final container = await pumpApp(tester);
     container.read(appStateProvider.notifier).go(Screen.settings);
     await pumpTransition(tester);
-
-    await back(tester);
-    expect(screenOf(container), Screen.home);
-  });
-
-  testWidgets('auth からの back は settings へ戻る（home まで飛ばない）', (tester) async {
-    final container = await pumpApp(tester);
-    container.read(appStateProvider.notifier).go(Screen.auth);
-    await pumpTransition(tester);
-
-    await back(tester);
-    expect(screenOf(container), Screen.settings);
 
     await back(tester);
     expect(screenOf(container), Screen.home);

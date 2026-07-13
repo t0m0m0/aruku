@@ -100,48 +100,6 @@ abstract class AppLocalizations {
   /// **'あるく'**
   String get appTitle;
 
-  /// No description provided for @authErrorInvalidEmail.
-  ///
-  /// In ja, this message translates to:
-  /// **'メールアドレスの形式が正しくありません。'**
-  String get authErrorInvalidEmail;
-
-  /// No description provided for @authErrorEmailInUse.
-  ///
-  /// In ja, this message translates to:
-  /// **'このメールアドレスは既に登録されています。'**
-  String get authErrorEmailInUse;
-
-  /// No description provided for @authErrorWeakPassword.
-  ///
-  /// In ja, this message translates to:
-  /// **'パスワードは6文字以上で設定してください。'**
-  String get authErrorWeakPassword;
-
-  /// No description provided for @authErrorWrongCredentials.
-  ///
-  /// In ja, this message translates to:
-  /// **'メールアドレスまたはパスワードが正しくありません。'**
-  String get authErrorWrongCredentials;
-
-  /// No description provided for @authErrorNetwork.
-  ///
-  /// In ja, this message translates to:
-  /// **'ネットワークに接続できませんでした。通信環境をご確認ください。'**
-  String get authErrorNetwork;
-
-  /// No description provided for @authErrorTooManyRequests.
-  ///
-  /// In ja, this message translates to:
-  /// **'試行回数が多すぎます。しばらくしてからお試しください。'**
-  String get authErrorTooManyRequests;
-
-  /// No description provided for @authErrorUnknown.
-  ///
-  /// In ja, this message translates to:
-  /// **'認証に失敗しました。時間をおいて再度お試しください。'**
-  String get authErrorUnknown;
-
   /// No description provided for @routeErrorNetworkTitle.
   ///
   /// In ja, this message translates to:
@@ -201,78 +159,6 @@ abstract class AppLocalizations {
   /// In ja, this message translates to:
   /// **'時間をおいてもう一度お試しください'**
   String get routeErrorUnknownDescription;
-
-  /// No description provided for @authLoginTitle.
-  ///
-  /// In ja, this message translates to:
-  /// **'ログイン'**
-  String get authLoginTitle;
-
-  /// No description provided for @authSignUpTitle.
-  ///
-  /// In ja, this message translates to:
-  /// **'アカウント作成'**
-  String get authSignUpTitle;
-
-  /// No description provided for @authLoginSubtitle.
-  ///
-  /// In ja, this message translates to:
-  /// **'メールアドレスでログインします。'**
-  String get authLoginSubtitle;
-
-  /// No description provided for @authSignUpSubtitle.
-  ///
-  /// In ja, this message translates to:
-  /// **'メールアドレスで新しいアカウントを作成します。'**
-  String get authSignUpSubtitle;
-
-  /// No description provided for @authEmailHint.
-  ///
-  /// In ja, this message translates to:
-  /// **'メールアドレス'**
-  String get authEmailHint;
-
-  /// No description provided for @authPasswordHint.
-  ///
-  /// In ja, this message translates to:
-  /// **'パスワード'**
-  String get authPasswordHint;
-
-  /// No description provided for @authSignUpButton.
-  ///
-  /// In ja, this message translates to:
-  /// **'登録する'**
-  String get authSignUpButton;
-
-  /// No description provided for @authToggleToSignUp.
-  ///
-  /// In ja, this message translates to:
-  /// **'アカウントをお持ちでない方はこちら'**
-  String get authToggleToSignUp;
-
-  /// No description provided for @authToggleToLogin.
-  ///
-  /// In ja, this message translates to:
-  /// **'既にアカウントをお持ちの方はこちら'**
-  String get authToggleToLogin;
-
-  /// No description provided for @authOrDivider.
-  ///
-  /// In ja, this message translates to:
-  /// **'または'**
-  String get authOrDivider;
-
-  /// No description provided for @authContinueAsGuest.
-  ///
-  /// In ja, this message translates to:
-  /// **'ゲストとして続ける'**
-  String get authContinueAsGuest;
-
-  /// No description provided for @authValidationEmptyFields.
-  ///
-  /// In ja, this message translates to:
-  /// **'メールアドレスとパスワードを入力してください。'**
-  String get authValidationEmptyFields;
 
   /// No description provided for @weekdayMon.
   ///

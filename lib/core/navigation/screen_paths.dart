@@ -2,7 +2,7 @@ import '../state/app_state.dart';
 
 /// [Screen] と go_router の location を相互変換する。
 ///
-/// ネスト構造は現行の戻る挙動（auth→settings、それ以外→home）を
+/// ネスト構造は現行の戻る挙動（settings→home、それ以外→home）を
 /// 実 Navigator の pop で再現するためのもの。onboarding だけは
 /// home の外に置き、back 無効の独立ルートとする。
 extension ScreenPath on Screen {
@@ -14,7 +14,6 @@ extension ScreenPath on Screen {
     Screen.onboarding => '/onboarding',
     Screen.home => '/home',
     Screen.settings => '/home/settings',
-    Screen.auth => '/home/settings/auth',
     Screen.search => '/home/search',
     Screen.searchOrigin => '/home/search-origin',
     Screen.loading => '/home/loading',
