@@ -16,6 +16,7 @@ import '../services/activity_log_repository.dart';
 import '../services/activity_service.dart';
 import '../services/activity_stats.dart';
 import '../services/cancellation.dart';
+import '../services/crash_reporter.dart';
 import '../services/health_service.dart';
 import '../services/location_service.dart';
 import '../services/notification_service.dart';
@@ -359,17 +360,16 @@ class AppNotifier extends Notifier<AppState> {
   Future<void> _startActivityTracking() async {
     unawaited(_loadActivityHistory());
     try {
+      final crashReporter = ref.read(crashReporterProvider);
       final service = ref.read(activityServiceProvider);
       if (!await service.requestPermission() || _disposed) return;
       _activitySub = service.sessionActivityStream().listen(
         _onActivity,
         // センサー欠如や一時的なエラーで未捕捉例外を出さない。
-        // デバッグ時のみ原因切り分けのためログに残す。
-        onError: (Object e) {
-          assert(() {
-            debugPrint('activity stream error: $e');
-            return true;
-          }());
+        onError: (Object e, StackTrace stack) {
+          crashReporter
+              .recordError(e, stack, context: 'activity.stream')
+              .ignore();
         },
       );
     } catch (_) {
@@ -424,14 +424,14 @@ class AppNotifier extends Notifier<AppState> {
     ];
     final log = _activityLog;
     if (log != null) {
+      final crashReporter = ref.read(crashReporterProvider);
       // 永続化はベストエフォート。集計はメモリ上の履歴を真実とするため、
-      // 保存失敗で未捕捉例外を投げない（デバッグ時のみ原因をログに残す）。
+      // 保存失敗で未捕捉例外を投げない。
       unawaited(
-        log.upsert(entry, now: now).catchError((Object e) {
-          assert(() {
-            debugPrint('activity persist error: $e');
-            return true;
-          }());
+        log.upsert(entry, now: now).catchError((Object e, StackTrace stack) {
+          crashReporter
+              .recordError(e, stack, context: 'activity.persist')
+              .ignore();
         }),
       );
     }
@@ -455,6 +455,7 @@ class AppNotifier extends Notifier<AppState> {
   /// 通知が有効なら、今日のストリーク状況に応じて途切れ警告を予約/取消する。
   /// ベストエフォート（失敗してもアプリ体験を妨げない）。
   void _syncStreakReminder(DateTime now) {
+    final crashReporter = ref.read(crashReporterProvider);
     final enabled =
         ref.read(settingsProvider).value?.notificationsEnabled ?? false;
     final service = ref.read(notificationServiceProvider);
@@ -469,11 +470,10 @@ class AppNotifier extends Notifier<AppState> {
       };
     }
     unawaited(
-      op.catchError((Object e) {
-        assert(() {
-          debugPrint('streak reminder sync error: $e');
-          return true;
-        }());
+      op.catchError((Object e, StackTrace stack) {
+        crashReporter
+            .recordError(e, stack, context: 'notification.streak_reminder')
+            .ignore();
       }),
     );
   }
@@ -565,7 +565,7 @@ class AppNotifier extends Notifier<AppState> {
 
   /// HealthKit 連携がオンなら、今セッションの歩行をワークアウトとして書き込む。
   /// 歩数が増えていないセッションは書き込まない。書き込みはベストエフォートで、
-  /// 失敗してもナビ体験を妨げない（デバッグ時のみ原因をログに残す）。
+  /// 失敗してもナビ体験を妨げない。
   void _maybeWriteWorkout() {
     final start = _sessionStart;
     final baselineValid = _sessionBaselineValid;
@@ -586,14 +586,15 @@ class AppNotifier extends Notifier<AppState> {
       km: snap.km,
       kcal: snap.kcal,
     );
+    final crashReporter = ref.read(crashReporterProvider);
     unawaited(
       ref.read(healthServiceProvider).writeWalkingWorkout(workout).catchError((
         Object e,
+        StackTrace stack,
       ) {
-        assert(() {
-          debugPrint('healthkit workout write error: $e');
-          return true;
-        }());
+        crashReporter
+            .recordError(e, stack, context: 'healthkit.workout_write')
+            .ignore();
         return false;
       }),
     );

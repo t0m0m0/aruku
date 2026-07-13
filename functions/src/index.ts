@@ -8,6 +8,7 @@ import { getAppCheck } from "firebase-admin/app-check";
 
 import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
 import { checkRateLimit, WALK_RATE_LIMIT } from "./rate-limiter";
+import { logAppCheckDenied, logRequestOutcome } from "./metrics";
 
 // レート制限ユーティリティはテスト互換のため再エクスポートする。
 export {
@@ -241,12 +242,14 @@ export function clientIp(req: Request): string {
 export async function verifyAppCheck(
   req: Request,
   res: Response,
-  opts: { consume?: boolean } = {}
+  opts: { consume?: boolean; endpoint?: string } = {}
 ): Promise<boolean> {
   if (process.env.FUNCTIONS_EMULATOR === "true") return true;
+  const endpoint = opts.endpoint ?? "unknown";
   const token = req.header("X-Firebase-AppCheck");
   if (!token) {
     console.warn("AppCheck: token missing");
+    logAppCheckDenied({ endpoint, reason: "missing" });
     res.status(401).json({ error: "App Check token missing" });
     return false;
   }
@@ -256,12 +259,14 @@ export async function verifyAppCheck(
       : await getAppCheck().verifyToken(token);
     if (opts.consume && result.alreadyConsumed) {
       console.warn("AppCheck: token already consumed (replay)");
+      logAppCheckDenied({ endpoint, reason: "replayed" });
       res.status(401).json({ error: "App Check token already consumed" });
       return false;
     }
     return true;
   } catch (e) {
     console.warn("AppCheck: token invalid", e);
+    logAppCheckDenied({ endpoint, reason: "invalid" });
     res.status(401).json({ error: "App Check token invalid" });
     return false;
   }
@@ -347,33 +352,87 @@ function requestJsonNew(
 
 // requestJsonNew を呼び、タイムアウト/上流障害を 504/502 に変換して res へ書く。
 // 成功時はパース済みボディを返し、失敗時は res 応答済みで UPSTREAM_FAILED を返す。
+// 併せて成否・レイテンシ・上流ステータスを構造化ログへ記録する（issue #268）。
+// 上流が 2xx でも意味的に失敗（items/routes 欠落・非配列等）なケースがあるため、
+// 成功ログは validate（呼び出し側と同じボディ述語）を通した後に出す。HTTP 成功で
+// 記録してしまうと、まさに検出したいクォータ/認証/スキーマ失敗が SLO 上の成功に
+// 化ける。validate NG は httpStatus をそのまま（通常 200）に semanticFailure=true で
+// failure として記録し、502 化は従来どおり呼び出し側に任せる（1リクエスト1ログ）。
 async function fetchUpstream(
   res: Response,
-  label: string,
+  endpoint: string,
+  upstream: string,
   url: string,
   method: "GET" | "POST",
   headers: Record<string, string>,
-  body?: string
+  body?: string,
+  validate?: (data: unknown) => boolean
 ): Promise<unknown> {
+  const start = Date.now();
   try {
     const { statusCode, data } = await requestJsonNew(url, method, headers, body);
     // 一次判定はステータスコード。上流が 4xx/5xx を返したら成否をボディ形状から
     // 推測せず 502（Bad Gateway）へ寄せ、上流ボディをそのまま返す（呼び出し側の
     // ボディ判定は 200 でエラーボディを返す稀ケースの保険として残す）。
     if (statusCode < 200 || statusCode >= 300) {
-      console.error(`[${label}] upstream status ${statusCode}:`, JSON.stringify(data));
+      console.error(`[${endpoint}] upstream status ${statusCode}:`, JSON.stringify(data));
+      logRequestOutcome({
+        endpoint,
+        upstream,
+        status: "failure",
+        latencyMs: Date.now() - start,
+        httpStatus: statusCode,
+      });
       res.status(502).json(data);
       return UPSTREAM_FAILED;
     }
+    const semanticallyValid = validate ? validate(data) : true;
+    logRequestOutcome({
+      endpoint,
+      upstream,
+      status: semanticallyValid ? "success" : "failure",
+      latencyMs: Date.now() - start,
+      httpStatus: statusCode,
+      ...(semanticallyValid ? {} : { semanticFailure: true }),
+    });
     return data;
   } catch (e) {
     const timedOut = e instanceof UpstreamError && e.kind === "timeout";
-    console.error(`[${label}] upstream ${timedOut ? "timeout" : "error"}:`, e);
+    console.error(`[${endpoint}] upstream ${timedOut ? "timeout" : "error"}:`, e);
+    logRequestOutcome({
+      endpoint,
+      upstream,
+      status: "failure",
+      latencyMs: Date.now() - start,
+      httpStatus: timedOut ? 504 : undefined,
+    });
     res
       .status(timedOut ? 504 : 502)
       .json({ error: timedOut ? "upstream timeout" : "upstream error" });
     return UPSTREAM_FAILED;
   }
+}
+
+// 上流 2xx 応答のボディが「意味的な成功」かを判定する述語群。fetchUpstream の
+// 成否ログ（validate）と呼び出し側の 502 変換の両方で同じ関数を使う。別々に
+// 書くと判定が乖離し「ログは成功・クライアントには 502」が再発し得るため、
+// 述語を1箇所に共有して構造的に防ぐ。
+
+// RapidAPI/NAVITIME はエラー時に items を含まず {message:...} 等を返す。
+function isNavitimeSuccessBody(data: unknown): boolean {
+  const record = data as Record<string, unknown> | null;
+  return !(record && record["message"] && !record["items"]);
+}
+
+// Routes API はエラー時 {error:{...}} を返し routes を含まない。
+function isRoutesWalkSuccessBody(data: unknown): boolean {
+  const record = data as Record<string, unknown> | null;
+  return !(record && record["error"] && !record["routes"]);
+}
+
+// computeRouteMatrix は成功時に要素オブジェクトの配列を返す。
+function isRoutesMatrixSuccessBody(data: unknown): boolean {
+  return Array.isArray(data);
 }
 
 // CORS is set to * because clients are Flutter mobile apps which are not subject
@@ -423,7 +482,7 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKey
     return;
   }
 
-  if (!(await verifyAppCheck(req, res))) return;
+  if (!(await verifyAppCheck(req, res, { endpoint: "placesProxy" }))) return;
 
   if (!(await checkRateLimit(clientIp(req)))) {
     res.status(429).json({ error: "Too many requests" });
@@ -464,6 +523,7 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKey
     const data = await fetchUpstream(
       res,
       "placesProxy.autocomplete",
+      "places",
       PLACES_AUTOCOMPLETE_NEW_URL,
       "POST",
       {
@@ -494,6 +554,7 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKey
     const data = await fetchUpstream(
       res,
       "placesProxy.details",
+      "places",
       `${PLACES_DETAILS_NEW_BASE}/${encodeURIComponent(placeId)}`,
       "GET",
       {
@@ -519,7 +580,7 @@ export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret, rateLimitH
     return;
   }
 
-  if (!(await verifyAppCheck(req, res))) return;
+  if (!(await verifyAppCheck(req, res, { endpoint: "navitimeProxy" }))) return;
 
   if (!(await checkRateLimit(clientIp(req)))) {
     res.status(429).json({ error: "Too many requests" });
@@ -540,22 +601,23 @@ export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret, rateLimitH
   const data = await fetchUpstream(
     res,
     "navitimeProxy",
+    "navitime",
     buildNavitimeUrl(req.query as Record<string, string | undefined>),
     "GET",
     {
       "X-RapidAPI-Key": getNavitimeApiKey(),
       "X-RapidAPI-Host": NAVITIME_HOST,
-    }
+    },
+    undefined,
+    isNavitimeSuccessBody
   );
   if (data === UPSTREAM_FAILED) return;
 
-  // RapidAPI/NAVITIME はエラー時に items を含まず {message:...} 等を返す。
   // 認証エラー・クォータ超過と「ルートなし」を区別するため 502 で返す。
-  const record = data as Record<string, unknown> | null;
-  if (record && record["message"] && !record["items"]) {
+  if (!isNavitimeSuccessBody(data)) {
     console.error(
       "[navitimeProxy] NAVITIME API error:",
-      JSON.stringify(record["message"])
+      JSON.stringify((data as Record<string, unknown>)["message"])
     );
     res.status(502).json(data);
     return;
@@ -579,7 +641,7 @@ export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHma
     return;
   }
 
-  if (!(await verifyAppCheck(req, res))) return;
+  if (!(await verifyAppCheck(req, res, { endpoint: "googleWalkProxy" }))) return;
 
   if (!(await checkRateLimit(clientIp(req), WALK_RATE_LIMIT))) {
     res.status(429).json({ error: "Too many requests" });
@@ -599,6 +661,7 @@ export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHma
   const data = await fetchUpstream(
     res,
     "googleWalkProxy",
+    "routes-walk",
     ROUTES_COMPUTE_URL,
     "POST",
     {
@@ -606,17 +669,16 @@ export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHma
       "X-Goog-Api-Key": getMapsApiKey(),
       "X-Goog-FieldMask": ROUTES_FIELD_MASK,
     },
-    buildRoutesWalkBody(start, goal)
+    buildRoutesWalkBody(start, goal),
+    isRoutesWalkSuccessBody
   );
   if (data === UPSTREAM_FAILED) return;
 
-  // Routes API はエラー時 {error:{...}} を返し routes を含まない。
   // 認証・クォータ等の失敗を「ルートなし」と区別するため 502 で返す。
-  const record = data as Record<string, unknown> | null;
-  if (record && record["error"] && !record["routes"]) {
+  if (!isRoutesWalkSuccessBody(data)) {
     console.error(
       "[googleWalkProxy] Routes API error:",
-      JSON.stringify(record["error"])
+      JSON.stringify((data as Record<string, unknown>)["error"])
     );
     res.status(502).json(data);
     return;
@@ -646,7 +708,13 @@ export const googleWalkMatrixProxy = onRequest(
 
     // 要素数課金で最も高単価なため、リプレイ保護（limited-use token 消費）を
     // このエンドポイントに限定して有効化する（issue #155）。
-    if (!(await verifyAppCheck(req, res, { consume: true }))) return;
+    if (
+      !(await verifyAppCheck(req, res, {
+        consume: true,
+        endpoint: "googleWalkMatrixProxy",
+      }))
+    )
+      return;
 
     if (!(await checkRateLimit(clientIp(req), WALK_RATE_LIMIT))) {
       res.status(429).json({ error: "Too many requests" });
@@ -678,6 +746,7 @@ export const googleWalkMatrixProxy = onRequest(
     const data = await fetchUpstream(
       res,
       "googleWalkMatrixProxy",
+      "routes-matrix",
       ROUTES_MATRIX_URL,
       "POST",
       {
@@ -685,16 +754,16 @@ export const googleWalkMatrixProxy = onRequest(
         "X-Goog-Api-Key": getMapsApiKey(),
         "X-Goog-FieldMask": ROUTES_MATRIX_FIELD_MASK,
       },
-      buildRoutesMatrixBody(origins, destinations)
+      buildRoutesMatrixBody(origins, destinations),
+      isRoutesMatrixSuccessBody
     );
     if (data === UPSTREAM_FAILED) return;
 
-    // computeRouteMatrix は成功時に要素オブジェクトの配列を返す。配列でなければ
-    // 正常な結果ではない（エラー時は {error:{...}}、それ以外も想定外応答）。認証・
-    // クォータ等の失敗を「結果なし」と区別し、想定外応答もまとめて 502 で返す
-    // （「成功＝配列」の不変条件をプロキシ側でも担保し、クライアントへ非配列の 200 を
-    // 漏らさない）。
-    if (!Array.isArray(data)) {
+    // 配列でなければ正常な結果ではない（エラー時は {error:{...}}、それ以外も想定外
+    // 応答）。認証・クォータ等の失敗を「結果なし」と区別し、想定外応答もまとめて
+    // 502 で返す（「成功＝配列」の不変条件をプロキシ側でも担保し、クライアントへ
+    // 非配列の 200 を漏らさない）。
+    if (!isRoutesMatrixSuccessBody(data)) {
       const record = data as Record<string, unknown> | null;
       console.error(
         "[googleWalkMatrixProxy] Routes API non-array response:",

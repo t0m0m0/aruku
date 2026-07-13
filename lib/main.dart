@@ -12,6 +12,7 @@ import 'package:timezone/timezone.dart' as tz;
 
 import 'core/config/app_config.dart';
 import 'core/navigation/app_router.dart';
+import 'core/services/crash_reporter.dart';
 import 'core/services/health_service.dart';
 import 'core/services/healthkit_service.dart';
 import 'core/services/local_notification_service.dart';
@@ -27,6 +28,10 @@ Future<void> main() async {
   _assertFirebaseKeyPresent();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await _activateAppCheck();
+  const crashReporter = FirebaseCrashReporter();
+  if (kReleaseMode) {
+    _installCrashHandlers(crashReporter);
+  }
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -46,6 +51,7 @@ Future<void> main() async {
     ProviderScope(
       overrides: [
         sharedPreferencesProvider.overrideWith((ref) => prefs),
+        crashReporterProvider.overrideWithValue(crashReporter),
         onboardingCompletedProvider.overrideWithValue(
           OnboardingRepository(prefs).isCompleted(),
         ),
@@ -63,6 +69,26 @@ Future<void> main() async {
       child: const ArukuApp(),
     ),
   );
+}
+
+void _installCrashHandlers(CrashReporter crashReporter) {
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    crashReporter
+        .recordError(
+          details.exception,
+          details.stack,
+          context: 'flutter.framework',
+          fatal: true,
+        )
+        .ignore();
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    crashReporter
+        .recordError(error, stack, context: 'platform.unhandled', fatal: true)
+        .ignore();
+    return true;
+  };
 }
 
 // API キーは --dart-define-from-file=dart_defines.json で注入する。渡し忘れると

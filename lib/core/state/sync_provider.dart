@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/sync_data.dart';
 import '../services/activity_log_repository.dart';
+import '../services/crash_reporter.dart';
 import '../services/recents_repository.dart';
 import '../services/settings_repository.dart';
 import '../services/sync_meta_repository.dart';
@@ -43,6 +44,7 @@ class SyncNotifier extends Notifier<SyncStatus> {
   Future<void> sync() async {
     final user = ref.read(authProvider).value;
     if (user == null || state.phase == SyncPhase.syncing) return;
+    final crashReporter = ref.read(crashReporterProvider);
 
     state = state.copyWith(phase: SyncPhase.syncing);
     try {
@@ -89,13 +91,8 @@ class SyncNotifier extends Notifier<SyncStatus> {
       final syncedAt = DateTime.now().toUtc();
       await meta.setSyncedAt(syncedAt);
       state = SyncStatus(phase: SyncPhase.success, lastSyncedAt: syncedAt);
-    } catch (e) {
-      // 同期失敗は UI（失敗・再試行）で表面化する。原因切り分けのため
-      // デバッグ時のみログに残す。
-      assert(() {
-        debugPrint('sync error: $e');
-        return true;
-      }());
+    } catch (e, stack) {
+      crashReporter.recordError(e, stack, context: 'sync.run').ignore();
       state = state.copyWith(phase: SyncPhase.error);
     }
   }

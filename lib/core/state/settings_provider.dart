@@ -1,7 +1,7 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/app_settings.dart';
+import '../services/crash_reporter.dart';
 import '../services/notification_service.dart';
 import '../services/settings_repository.dart';
 import '../services/sync_meta_repository.dart';
@@ -17,16 +17,16 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
   Future<void> setNotifications(bool enabled) async {
     await _update((s) => s.copyWith(notificationsEnabled: enabled));
     if (!enabled) return;
+    final crashReporter = ref.read(crashReporterProvider);
     // オプトイン時に通知権限を要求する（実機のみ効果あり）。実際のスケジュール
     // 判断は appStateProvider がストリーク状況に応じて行う。拒否されても予約は
-    // 無害なため、失敗はデバッグ時のみログに残す。
+    // 無害なため、失敗しても設定変更自体は維持する。
     try {
       await ref.read(notificationServiceProvider).requestPermission();
-    } catch (e) {
-      assert(() {
-        debugPrint('notification permission request error: $e');
-        return true;
-      }());
+    } catch (e, stack) {
+      crashReporter
+          .recordError(e, stack, context: 'notification.permission_request')
+          .ignore();
     }
   }
 
