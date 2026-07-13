@@ -45,7 +45,12 @@ export function logRequestOutcome(params: RequestOutcomeParams): void {
   if (status === "success") {
     logger.info("search_request", payload);
   } else {
-    logger.error("search_request", payload);
+    // logger.error(...) は payload だけを渡すと Error スタックを合成し
+    // Cloud Error Reporting が例外として拾う（実エラーではない指標イベント
+    // で発火し、本当の関数例外を埋もれさせる）。write で LogEntry を直接
+    // 組み立て、severity だけ ERROR にして jsonPayload.event でのフィルタは
+    // 維持しつつ Error Reporting への計上を避ける。
+    logger.write({ severity: "ERROR", message: "search_request", ...payload });
   }
 }
 
@@ -79,7 +84,9 @@ export interface RateLimitParams {
 export function logRateLimit(params: RateLimitParams): void {
   const payload = { event: "rate_limit", decision: params.decision };
   if (params.decision === "fail-open") {
-    logger.error("rate_limit", payload);
+    // search_request の failure 経路と同じ理由で write を使う（logger.error は
+    // Error Reporting に synthetic stack 付きで計上される）。
+    logger.write({ severity: "ERROR", message: "rate_limit", ...payload });
   } else if (params.decision === "blocked") {
     logger.warn("rate_limit", payload);
   } else {
