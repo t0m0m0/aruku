@@ -360,14 +360,14 @@ class AppNotifier extends Notifier<AppState> {
   Future<void> _startActivityTracking() async {
     unawaited(_loadActivityHistory());
     try {
+      final crashReporter = ref.read(crashReporterProvider);
       final service = ref.read(activityServiceProvider);
       if (!await service.requestPermission() || _disposed) return;
       _activitySub = service.sessionActivityStream().listen(
         _onActivity,
         // センサー欠如や一時的なエラーで未捕捉例外を出さない。
         onError: (Object e, StackTrace stack) {
-          ref
-              .read(crashReporterProvider)
+          crashReporter
               .recordError(e, stack, context: 'activity.stream')
               .ignore();
         },
@@ -424,12 +424,12 @@ class AppNotifier extends Notifier<AppState> {
     ];
     final log = _activityLog;
     if (log != null) {
+      final crashReporter = ref.read(crashReporterProvider);
       // 永続化はベストエフォート。集計はメモリ上の履歴を真実とするため、
       // 保存失敗で未捕捉例外を投げない。
       unawaited(
         log.upsert(entry, now: now).catchError((Object e, StackTrace stack) {
-          ref
-              .read(crashReporterProvider)
+          crashReporter
               .recordError(e, stack, context: 'activity.persist')
               .ignore();
         }),
@@ -455,6 +455,7 @@ class AppNotifier extends Notifier<AppState> {
   /// 通知が有効なら、今日のストリーク状況に応じて途切れ警告を予約/取消する。
   /// ベストエフォート（失敗してもアプリ体験を妨げない）。
   void _syncStreakReminder(DateTime now) {
+    final crashReporter = ref.read(crashReporterProvider);
     final enabled =
         ref.read(settingsProvider).value?.notificationsEnabled ?? false;
     final service = ref.read(notificationServiceProvider);
@@ -470,8 +471,7 @@ class AppNotifier extends Notifier<AppState> {
     }
     unawaited(
       op.catchError((Object e, StackTrace stack) {
-        ref
-            .read(crashReporterProvider)
+        crashReporter
             .recordError(e, stack, context: 'notification.streak_reminder')
             .ignore();
       }),
@@ -586,13 +586,13 @@ class AppNotifier extends Notifier<AppState> {
       km: snap.km,
       kcal: snap.kcal,
     );
+    final crashReporter = ref.read(crashReporterProvider);
     unawaited(
       ref.read(healthServiceProvider).writeWalkingWorkout(workout).catchError((
         Object e,
         StackTrace stack,
       ) {
-        ref
-            .read(crashReporterProvider)
+        crashReporter
             .recordError(e, stack, context: 'healthkit.workout_write')
             .ignore();
         return false;

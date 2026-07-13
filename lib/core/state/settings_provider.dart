@@ -17,14 +17,14 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
   Future<void> setNotifications(bool enabled) async {
     await _update((s) => s.copyWith(notificationsEnabled: enabled));
     if (!enabled) return;
+    final crashReporter = ref.read(crashReporterProvider);
     // オプトイン時に通知権限を要求する（実機のみ効果あり）。実際のスケジュール
     // 判断は appStateProvider がストリーク状況に応じて行う。拒否されても予約は
     // 無害なため、失敗しても設定変更自体は維持する。
     try {
       await ref.read(notificationServiceProvider).requestPermission();
     } catch (e, stack) {
-      ref
-          .read(crashReporterProvider)
+      crashReporter
           .recordError(e, stack, context: 'notification.permission_request')
           .ignore();
     }

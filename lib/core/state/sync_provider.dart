@@ -44,6 +44,7 @@ class SyncNotifier extends Notifier<SyncStatus> {
   Future<void> sync() async {
     final user = ref.read(authProvider).value;
     if (user == null || state.phase == SyncPhase.syncing) return;
+    final crashReporter = ref.read(crashReporterProvider);
 
     state = state.copyWith(phase: SyncPhase.syncing);
     try {
@@ -91,10 +92,7 @@ class SyncNotifier extends Notifier<SyncStatus> {
       await meta.setSyncedAt(syncedAt);
       state = SyncStatus(phase: SyncPhase.success, lastSyncedAt: syncedAt);
     } catch (e, stack) {
-      ref
-          .read(crashReporterProvider)
-          .recordError(e, stack, context: 'sync.run')
-          .ignore();
+      crashReporter.recordError(e, stack, context: 'sync.run').ignore();
       state = state.copyWith(phase: SyncPhase.error);
     }
   }
