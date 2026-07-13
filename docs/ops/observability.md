@@ -225,6 +225,7 @@ gcloud alpha monitoring channels create \
 
 - **条件:** `rate_limit_fail_open_count` が 5分間で 1件以上
 - **理由:** 保護機構が機能していない状態。発生自体がインシデント
+- **系列横断リデューサ不要:** これは「1件でも出たら発火」の存在検知（`thresholdValue: 0`）で、いずれかの系列が非0なら発火すれば目的を満たす。合計値を閾値と比較するわけではないため系列単位評価でよく、`crossSeriesReducer` は付けない（`rate_limit_fail_open_count` は元々ラベルなしの単一系列でもある）。
 
 ```yaml
 # policy_fail_open.yaml
@@ -255,12 +256,14 @@ gcloud alpha monitoring policies create --policy-from-file=policy_fail_open.yaml
 - **条件:** `app_check_denied_count` の合計が 5分間で通常時より急増（初期値: 5分間で50件超）
 - **理由:** クライアント不具合（トークン更新不良等）または攻撃の兆候
 
+`app_check_denied_count` は endpoint／reason ラベルで複数時系列に分かれる。per-series aligner だけでは各系列を個別に閾値評価するため、拒否が複数ラベルに分散すると（例: 4エンドポイントに各20件＝計80件）系列単位では閾値未満となり「合計」スパイクを取りこぼす。`crossSeriesReducer: REDUCE_SUM` を `groupByFields` 空（＝全系列合算）で加え、閾値比較の前に全ラベルを跨いだ総数へ畳み込む。
+
 ```yaml
 # policy_app_check_spike.yaml
 displayName: "[P2] App Check denial spike"
 combiner: OR
 conditions:
-  - displayName: "denied count > 50 in 5m"
+  - displayName: "total denied count > 50 in 5m (all labels)"
     conditionThreshold:
       filter: >-
         resource.type="cloud_run_revision" AND
@@ -271,6 +274,8 @@ conditions:
       aggregations:
         - alignmentPeriod: 300s
           perSeriesAligner: ALIGN_SUM
+          crossSeriesReducer: REDUCE_SUM
+          groupByFields: []
 notificationChannels:
   - projects/PROJECT_ID/notificationChannels/CHANNEL_ID
 ```
