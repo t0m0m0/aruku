@@ -5,7 +5,6 @@ import 'package:aruku/core/navigation/app_router.dart';
 import 'package:aruku/core/navigation/screen_paths.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
-import 'package:aruku/features/auth/auth_screen.dart';
 import 'package:aruku/features/home/home_screen.dart';
 import 'package:aruku/features/loading/loading_screen.dart';
 import 'package:aruku/features/onboarding/onboarding_screen.dart';
@@ -59,7 +58,7 @@ void main() {
   });
 
   group('実 Navigator スタックの back', () {
-    testWidgets('auth からの back は settings → home の順に pop する', (tester) async {
+    testWidgets('settings からの back は home へ pop する', (tester) async {
       final container = await makeContainer();
       addTearDown(container.dispose);
       final router = container.read(goRouterProvider);
@@ -67,11 +66,7 @@ void main() {
       await tester.pumpWidget(routerApp(container));
       await pumpTransition(tester);
 
-      router.go('/home/settings/auth');
-      await pumpTransition(tester);
-      expect(find.byType(AuthScreen), findsOneWidget);
-
-      await tester.binding.handlePopRoute();
+      router.go('/home/settings');
       await pumpTransition(tester);
       expect(find.byType(SettingsScreen), findsOneWidget);
 

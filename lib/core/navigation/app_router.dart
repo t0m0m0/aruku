@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../features/auth/auth_screen.dart';
 import '../../features/error/error_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/loading/loading_screen.dart';
@@ -61,7 +60,7 @@ CustomTransitionPage<void> _page(GoRouterState state, Widget child) {
 /// path 比較、go_router 自身の同一 location no-op。
 ///
 /// ネスト構造は旧 _Root の PopScope 手動分岐を実 pop で再現する:
-/// auth→settings、settings/search/result/nav/error→home。
+/// settings/search/result/nav/error→home。
 /// home・onboarding・loading は PopScope(canPop: false) で back を無効化し、
 /// 「back でアプリが終了しない」現行仕様を維持する。
 final goRouterProvider = Provider<GoRouter>((ref) {
@@ -99,13 +98,6 @@ final goRouterProvider = Provider<GoRouter>((ref) {
             path: 'settings',
             pageBuilder: (context, state) =>
                 _page(state, const SettingsScreen()),
-            routes: [
-              GoRoute(
-                path: 'auth',
-                pageBuilder: (context, state) =>
-                    _page(state, const AuthScreen()),
-              ),
-            ],
           ),
           GoRoute(
             path: 'search',
