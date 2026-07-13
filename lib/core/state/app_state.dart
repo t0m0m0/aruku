@@ -550,6 +550,13 @@ class AppNotifier extends Notifier<AppState> {
   /// 同値なら何もしない（router との相互同期がエコーで往復しないための冪等性）。
   void syncScreen(Screen s) {
     if (state.screen == s) return;
+    // 失効した isNow 経路のままナビへ入ろうとしたら、進めず経路を無効化して再検索を
+    // 促す（#264）。CTA だけでなく deep link / router 書き戻しの nav 入場もここを
+    // 通るため、失効判定をこの一点に集約すると全経路で一貫する。
+    if (s == Screen.nav && _isNowRouteExpired(_now())) {
+      _expireRoute(_now());
+      return;
+    }
     state = state.copyWith(screen: s);
     if (s == Screen.nav) {
       _startTracking();
@@ -833,6 +840,14 @@ class AppNotifier extends Notifier<AppState> {
             },
           );
       if (generation != _searchGeneration || _disposed) return;
+      // 照会中にバックグラウンド滞在で失効した（isNow で猶予超過）場合は、古い前提の
+      // 結果を表示せず home へ戻して再検索を促す。復帰時は Screen.loading のため
+      // onAppResumed では無効化できず、完了時のここが最後の砦になる（#264）。
+      if (refreshed.departure.isNow &&
+          _now().difference(now) >= kRouteFreshness) {
+        _expireRoute(_now());
+        return;
+      }
       // isNow 経路のみ失効判定の基準時刻を持つ。固定出発は時間経過で腐らない（#264）。
       _routeAsOf = refreshed.departure.isNow ? now : null;
       state = state.copyWith(
@@ -852,43 +867,46 @@ class AppNotifier extends Notifier<AppState> {
     }
   }
 
-  /// 結果画面から歩行（ナビ）を開始する（#264）。isNow 経路が失効していれば、ナビへは
-  /// 進まず経路を無効化して現在時刻での再検索を促す。失効していなければ isNow 出発を
-  /// 現在時刻へ更新してからナビへ入る。
-  void startNavigation() {
-    if (_revalidateNowRoute()) return;
-    go(Screen.nav);
+  /// 結果画面から歩行（ナビ）を開始する（#264）。失効判定は [syncScreen] の nav 入場
+  /// ガードに一元化してある（CTA・deep link・router 書き戻しのどの経路でも一貫させる
+  /// ため）。失効していれば nav へは入らず、経路を無効化して再検索を促す。
+  void startNavigation() => go(Screen.nav);
+
+  /// アプリがフォアグラウンド復帰したときに isNow の時刻を再検証する（#264）。
+  /// 結果画面の失効経路は無効化して再検索を促す。経路を表示中は、その経路の前提時刻と
+  /// ズレるため出発を書き換えない（[_refreshNowDeparture] 参照）。ナビ中は歩行を
+  /// 中断させないため無効化しない。
+  void onAppResumed() {
+    if (!state.departure.isNow) return;
+    if (state.screen == Screen.result && _isNowRouteExpired(_now())) {
+      _expireRoute(_now());
+      return;
+    }
+    _refreshNowDeparture();
   }
 
-  /// アプリがフォアグラウンド復帰したときに isNow 経路の時刻を再検証する（#264）。
-  void onAppResumed() => _revalidateNowRoute();
-
-  /// isNow 経路を現在時刻で再検証する。結果画面で失効していれば経路を無効化して home へ
-  /// 戻し（再検索を促す）true を返す。失効していなければ isNow 出発を現在時刻へ更新
-  /// （予算維持）して false を返す。ナビ中（[Screen.nav]）は歩行を中断させないため
-  /// 無効化の対象外とし、出発時刻の追従のみ行う。
-  bool _revalidateNowRoute() {
-    if (!state.departure.isNow) return false;
-    final now = _now();
-    if (state.screen == Screen.result &&
-        state.route != null &&
-        _isRouteTimeStale(now)) {
-      _expireRoute(now);
-      return true;
-    }
-    final refreshed = _refreshedNowTimes(state, now);
+  /// 表示中の経路が無い（home・loading 等）ときのみ isNow 出発を現在時刻へ追従させ、
+  /// 予算幅を保って到着も更新する（#264）。経路を表示中に書き換えると、その経路の
+  /// タイムラインが前提とする出発時刻とヘッダー表示がズレるため触らない。次の検索は
+  /// [startSearch] 冒頭で必ず現在時刻へ更新するので、表示の追従を省いても正しさは保てる。
+  void _refreshNowDeparture() {
+    if (!state.departure.isNow || state.route != null) return;
+    final refreshed = _refreshedNowTimes(state, _now());
     state = state.copyWith(
       departure: refreshed.departure,
       arrival: refreshed.arrival,
     );
-    return false;
   }
 
   /// isNow 経路が失効しているか（#264）。確定時刻 [_routeAsOf] から [kRouteFreshness]
   /// を超えて実時間が進むと、結果の到着時刻と実 ETA が乖離するため失効とみなす。
-  bool _isRouteTimeStale(DateTime now) {
+  /// isNow でない固定出発や経路が無い間は失効しない。
+  bool _isNowRouteExpired(DateTime now) {
     final asOf = _routeAsOf;
-    return asOf != null && now.difference(asOf) >= kRouteFreshness;
+    return state.departure.isNow &&
+        state.route != null &&
+        asOf != null &&
+        now.difference(asOf) >= kRouteFreshness;
   }
 
   /// 失効した isNow 経路を破棄し、現在時刻へ更新した条件で home へ戻して再検索を促す

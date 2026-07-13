@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/cancellation.dart';
+import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,10 +12,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/route_plan_fixtures.dart';
 
-/// 常に [plan] を返し、`plan()` に渡された出発時刻を記録するだけの RouteService。
+/// 常に [result] を返し、`plan()` に渡された出発時刻を記録する RouteService。
+/// [gate] を渡すと `plan()` はそれが complete するまで待つ（照会中の時間経過を再現）。
 class _RecordingRouteService implements RouteService {
-  _RecordingRouteService(this.result);
+  _RecordingRouteService(this.result, {this.gate});
   final RoutePlan result;
+  final Completer<void>? gate;
   int calls = 0;
   final List<TimeValue> departures = [];
 
@@ -29,6 +34,7 @@ class _RecordingRouteService implements RouteService {
   }) async {
     calls++;
     departures.add(departure);
+    if (gate != null) await gate!.future;
     return result;
   }
 }
@@ -37,14 +43,17 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   /// [start] を初期時刻とし、`clock.value` を書き換えて時間を進められるコンテナ。
+  /// [gate] を渡すと `plan()` はそれが complete するまで待つ。
   ({ProviderContainer container, _RecordingRouteService route, _Clock clock})
-  setup(DateTime start) {
+  setup(DateTime start, {Completer<void>? gate}) {
     final clock = _Clock(start);
-    final route = _RecordingRouteService(sampleRoutePlan);
+    final route = _RecordingRouteService(sampleRoutePlan, gate: gate);
     final container = ProviderContainer(
       overrides: [
         nowProvider.overrideWithValue(clock.now),
         routeServiceProvider.overrideWithValue(route),
+        // オンボーディング済みとして home から開始する（実運用の復帰シナリオ）。
+        onboardingCompletedProvider.overrideWithValue(true),
       ],
     );
     addTearDown(container.dispose);
@@ -121,7 +130,7 @@ void main() {
       expect(state.departure.m, 40);
     });
 
-    test('復帰時、猶予内なら経路を保持し出発だけ更新する', () async {
+    test('復帰時、猶予内なら経路も表示中の出発時刻もそのまま保持する', () async {
       final s = setup(DateTime(2026, 7, 13, 9, 25));
       final notifier = s.container.read(appStateProvider.notifier);
       await notifier.startSearch();
@@ -129,12 +138,67 @@ void main() {
       s.clock.value = DateTime(2026, 7, 13, 9, 27);
       notifier.onAppResumed();
 
+      // 経路を表示中は、そのタイムラインが前提とする出発時刻とヘッダーがズレないよう
+      // 出発を書き換えない。次の検索が現在時刻へ更新するので正しさは保てる。
       final state = s.container.read(appStateProvider);
       expect(state.screen, Screen.result);
       expect(state.route, sampleRoutePlan);
       expect(state.departure.h, 9);
-      expect(state.departure.m, 27);
+      expect(state.departure.m, 25);
+    });
+
+    test('経路が無いホームで復帰すると isNow 出発を現在時刻へ追従させる', () async {
+      final s = setup(DateTime(2026, 7, 13, 9, 25));
+      final notifier = s.container.read(appStateProvider.notifier);
+      // 初期状態はホーム・経路なし。
+      expect(s.container.read(appStateProvider).route, isNull);
+
+      s.clock.value = DateTime(2026, 7, 13, 14, 40);
+      notifier.onAppResumed();
+
+      final state = s.container.read(appStateProvider);
+      expect(state.screen, Screen.home);
+      expect(state.departure.h, 14);
+      expect(state.departure.m, 40);
+      expect(state.arrival.h, 15);
+      expect(state.arrival.m, 40);
       expect(state.budgetMinutes, 60);
+    });
+
+    test('CTA を経由しない nav 入場（deep link 等）でも失効経路を無効化する', () async {
+      final s = setup(DateTime(2026, 7, 13, 9, 25));
+      final notifier = s.container.read(appStateProvider.notifier);
+      await notifier.startSearch();
+
+      s.clock.value = DateTime(2026, 7, 13, 14, 40);
+      // startNavigation ではなく go(Screen.nav)（router 書き戻し相当）で直接入場。
+      notifier.go(Screen.nav);
+
+      final state = s.container.read(appStateProvider);
+      expect(state.screen, isNot(Screen.nav));
+      expect(state.screen, Screen.home);
+      expect(state.route, isNull);
+    });
+
+    test('照会中にバックグラウンド滞在で失効すると、完了しても結果を表示しない', () async {
+      final gate = Completer<void>();
+      final s = setup(DateTime(2026, 7, 13, 9, 25), gate: gate);
+      final notifier = s.container.read(appStateProvider.notifier);
+
+      final search = notifier.startSearch();
+      // 照会は gate 待ちで未完了。ローディング中に長時間経過して復帰する。
+      await Future<void>.delayed(Duration.zero);
+      expect(s.container.read(appStateProvider).screen, Screen.loading);
+      s.clock.value = DateTime(2026, 7, 13, 14, 40);
+      notifier.onAppResumed();
+
+      // 応答が後着しても、古い前提の結果は publish されず home へ戻る。
+      gate.complete();
+      await search;
+
+      final state = s.container.read(appStateProvider);
+      expect(state.screen, Screen.home);
+      expect(state.route, isNull);
     });
 
     test('ナビ中のアプリ復帰では経路を無効化しない（歩行を継続する）', () async {
