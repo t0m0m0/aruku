@@ -12,7 +12,7 @@ class AppConstants {
   static const List<double> weeklyGoalPresetsKm = [5.0, 10.0, 15.0, 20.0, 30.0];
 
   // 正式な利用規約・プライバシーポリシーの公開URLが未確定のためプレースホルダ。
-  // 公開先が決まり次第、実URLへ差し替える。#102
+  // 公開先が決まり次第、実URLへ差し替える。#281
   static const String termsOfServiceUrl = 'https://example.com/aruku/terms';
   static const String privacyPolicyUrl = 'https://example.com/aruku/privacy';
 
