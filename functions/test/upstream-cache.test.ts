@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { dedupeUpstream, resetUpstreamCache } from "../src/upstream-cache";
+import {
+  dedupeUpstream,
+  MAX_CACHE_ENTRIES,
+  resetUpstreamCache,
+  upstreamCacheSize,
+} from "../src/upstream-cache";
 
 // テスト用の遅延つき producer。呼び出し回数を数え、resolve/reject を外から制御する。
 function deferredProducer<T>(): {
@@ -116,6 +121,35 @@ describe("dedupeUpstream", () => {
     expect(d.calls()).toBe(2);
     d.resolveAll("R");
     expect(await p3).toBe("R");
+  });
+
+  it("TTL 内で上限超過の成功が続いてもキャッシュは上限を超えない（最古を退避）", async () => {
+    // すべて成功・キャッシュ対象で、TTL を進めない（期限切れ掃除が効かない状況）。
+    // 掃除だけでは QPS×TTL まで膨らむため、最古退避でハード上限が保たれることを固定する。
+    const extra = 50;
+    const single = <T>(v: T) => async () => v;
+    for (let i = 0; i < MAX_CACHE_ENTRIES + extra; i++) {
+      await dedupeUpstream(`k-${i}`, single(`v${i}`), cacheable, 10000);
+    }
+    expect(upstreamCacheSize()).toBe(MAX_CACHE_ENTRIES);
+
+    // 最古（k-0）は退避済み → 再取得で producer が呼ばれる。
+    const oldest = deferredProducer<string>();
+    const pOld = dedupeUpstream("k-0", oldest.producer, cacheable, 10000);
+    expect(oldest.calls()).toBe(1);
+    oldest.resolveAll("re");
+    await pOld;
+
+    // 直近キーは保持されている → producer を呼ばずヒットする。
+    const recent = deferredProducer<string>();
+    const pRecent = dedupeUpstream(
+      `k-${MAX_CACHE_ENTRIES + extra - 1}`,
+      recent.producer,
+      cacheable,
+      10000
+    );
+    expect(recent.calls()).toBe(0);
+    expect(await pRecent).toBe(`v${MAX_CACHE_ENTRIES + extra - 1}`);
   });
 
   it("resetUpstreamCache は保持済みキャッシュを消す", async () => {

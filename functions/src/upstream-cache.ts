@@ -23,9 +23,8 @@
 // キャンセル→即再検索バーストの吸収窓として決める。数十秒レンジの保守的な初期値。
 export const UPSTREAM_CACHE_TTL_MS = 30_000;
 
-// 保持キャッシュの上限。超過時に期限切れエントリを掃除する（レートリミッタと同パターン）。
-// 短時間窓で異なる経路キーは高々数十のため十分な余裕を持たせた値。
-const MAX_CACHE_ENTRIES = 500;
+// 保持キャッシュの上限。短時間窓で異なる経路キーは高々数十のため十分な余裕を持たせた値。
+export const MAX_CACHE_ENTRIES = 500;
 
 interface ResolvedEntry<T> {
   value: T;
@@ -43,9 +42,29 @@ export function resetUpstreamCache(): void {
   _resolved.clear();
 }
 
+/** テスト用: 保持キャッシュの現在のエントリ数を返す。 */
+export function upstreamCacheSize(): number {
+  return _resolved.size;
+}
+
 function pruneExpired(now: number): void {
   for (const [k, entry] of _resolved) {
     if (now >= entry.expiresAt) _resolved.delete(k);
+  }
+}
+
+// 保持前に上限を強制する。まず期限切れを掃除し、なお満杯なら最古を退避する。
+// TTL 内で高カーディナリティ（多数の異なる経路/秒）が続くと期限切れが無く掃除が
+// 効かないため、掃除だけでは QPS×TTL まで膨らむ。ハード上限を保つには退避が要る。
+// Map は挿入順を保つため最古の挿入キー＝一様 TTL では最も早く期限切れになるキーで、
+// FIFO 退避は「もうすぐ消える分を先に落とす」ことに一致する。
+function evictForInsert(now: number): void {
+  if (_resolved.size < MAX_CACHE_ENTRIES) return;
+  pruneExpired(now);
+  while (_resolved.size >= MAX_CACHE_ENTRIES) {
+    const oldest = _resolved.keys().next().value;
+    if (oldest === undefined) break;
+    _resolved.delete(oldest);
   }
 }
 
@@ -76,7 +95,7 @@ export function dedupeUpstream<T>(
   const promise = producer()
     .then((value) => {
       if (isCacheable(value)) {
-        if (_resolved.size >= MAX_CACHE_ENTRIES) pruneExpired(Date.now());
+        evictForInsert(Date.now());
         _resolved.set(key, { value, expiresAt: Date.now() + ttlMs });
       }
       return value;
