@@ -1,3 +1,4 @@
+import 'package:aruku/core/constants/app_constants.dart';
 import 'package:aruku/core/models/activity_snapshot.dart';
 import 'package:aruku/core/models/app_settings.dart';
 import 'package:aruku/core/models/geo_point.dart';
@@ -7,6 +8,7 @@ import 'package:aruku/core/services/location_service.dart';
 import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:aruku/core/services/settings_repository.dart';
+import 'package:aruku/core/services/url_launcher.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/state/settings_provider.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
@@ -211,6 +213,95 @@ void main() {
     expect(find.text('設定を保存できませんでした'), findsOneWidget);
     // 失敗した変更は state に反映されない。
     expect(container.read(settingsProvider).value!.healthKitEnabled, isFalse);
+  });
+
+  testWidgets('法的情報セクションと利用規約・プライバシーポリシー行が表示される', (tester) async {
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('法的情報'), findsOneWidget);
+    expect(find.text('利用規約'), findsOneWidget);
+    expect(find.text('プライバシーポリシー'), findsOneWidget);
+  });
+
+  testWidgets('利用規約行をタップすると利用規約URLで launcher が呼ばれる', (tester) async {
+    final launched = <Uri>[];
+    final prefs = await SharedPreferences.getInstance();
+    final container = ProviderContainer(
+      overrides: [
+        sharedPreferencesProvider.overrideWith((ref) => prefs),
+        onboardingCompletedProvider.overrideWithValue(true),
+        locationServiceProvider.overrideWithValue(_FakeLocationService()),
+        activityServiceProvider.overrideWithValue(_FakeActivityService()),
+        urlLauncherProvider.overrideWithValue((url) async {
+          launched.add(url);
+          return true;
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+    // 全セクションが 1 画面に収まる高さにし、末尾の法的情報行を確実にタップする。
+    await tester.binding.setSurfaceSize(const Size(800, 1600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('link_terms')));
+    await tester.pumpAndSettle();
+
+    expect(launched, [Uri.parse(AppConstants.termsOfServiceUrl)]);
+  });
+
+  testWidgets('プライバシーポリシー行をタップするとプライバシーURLで launcher が呼ばれる', (tester) async {
+    final launched = <Uri>[];
+    final prefs = await SharedPreferences.getInstance();
+    final container = ProviderContainer(
+      overrides: [
+        sharedPreferencesProvider.overrideWith((ref) => prefs),
+        onboardingCompletedProvider.overrideWithValue(true),
+        locationServiceProvider.overrideWithValue(_FakeLocationService()),
+        activityServiceProvider.overrideWithValue(_FakeActivityService()),
+        urlLauncherProvider.overrideWithValue((url) async {
+          launched.add(url);
+          return true;
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+    // 全セクションが 1 画面に収まる高さにし、末尾の法的情報行を確実にタップする。
+    await tester.binding.setSurfaceSize(const Size(800, 1600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('link_privacy')));
+    await tester.pumpAndSettle();
+
+    expect(launched, [Uri.parse(AppConstants.privacyPolicyUrl)]);
+  });
+
+  testWidgets('法的情報の各行はボタンとして公開される（VoiceOver）', (tester) async {
+    final handle = tester.ensureSemantics();
+    final container = await _container();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_wrap(container, const SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSemantics(find.text('利用規約')),
+      containsSemantics(isButton: true),
+    );
+    expect(
+      tester.getSemantics(find.text('プライバシーポリシー')),
+      containsSemantics(isButton: true),
+    );
+    handle.dispose();
   });
 
   testWidgets('ホームの設定ボタンで設定画面へ遷移する', (tester) async {

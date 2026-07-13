@@ -1053,6 +1053,24 @@ abstract class AppLocalizations {
   /// **'設定を保存できませんでした'**
   String get settingsSaveFailed;
 
+  /// No description provided for @settingsLegalSection.
+  ///
+  /// In ja, this message translates to:
+  /// **'法的情報'**
+  String get settingsLegalSection;
+
+  /// No description provided for @settingsTermsOfService.
+  ///
+  /// In ja, this message translates to:
+  /// **'利用規約'**
+  String get settingsTermsOfService;
+
+  /// No description provided for @settingsPrivacyPolicy.
+  ///
+  /// In ja, this message translates to:
+  /// **'プライバシーポリシー'**
+  String get settingsPrivacyPolicy;
+
   /// No description provided for @errorRetry.
   ///
   /// In ja, this message translates to:

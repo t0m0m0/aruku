@@ -4,6 +4,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/models/app_settings.dart';
+import '../../core/services/url_launcher.dart';
 import '../../core/state/app_state.dart';
 import '../../core/state/settings_provider.dart';
 import '../../core/theme/aruku_theme.dart';
@@ -26,6 +27,7 @@ class SettingsScreen extends ConsumerWidget {
     final settingsAsync = ref.watch(settingsProvider);
     final settings = settingsAsync.value ?? AppSettings.defaults;
     final settingsNotifier = ref.read(settingsProvider.notifier);
+    final launcher = ref.read(urlLauncherProvider);
 
     // 保存失敗時はトグルが直前値へ自動的に戻る（state を更新しない方針）。
     // それだけでは変化が無かったように見えるため、SnackBar で失敗を知らせる。
@@ -134,6 +136,24 @@ class SettingsScreen extends ConsumerWidget {
                         label: l10n.settingsLocationNotificationPermission,
                         trailing: l10n.settingsOpenDeviceSettings,
                         onTap: openAppSettings,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _SettingsSection(
+                    title: l10n.settingsLegalSection,
+                    children: [
+                      _LinkRow(
+                        key: const Key('link_terms'),
+                        label: l10n.settingsTermsOfService,
+                        onTap: () =>
+                            launcher(Uri.parse(AppConstants.termsOfServiceUrl)),
+                      ),
+                      _LinkRow(
+                        key: const Key('link_privacy'),
+                        label: l10n.settingsPrivacyPolicy,
+                        onTap: () =>
+                            launcher(Uri.parse(AppConstants.privacyPolicyUrl)),
                       ),
                     ],
                   ),
