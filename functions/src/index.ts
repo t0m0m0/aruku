@@ -9,6 +9,7 @@ import { getAppCheck } from "firebase-admin/app-check";
 import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
 import { checkRateLimit, WALK_RATE_LIMIT } from "./rate-limiter";
 import { logAppCheckDenied, logRequestOutcome } from "./metrics";
+import { dedupeUpstream } from "./upstream-cache";
 
 // レート制限ユーティリティはテスト互換のため再エクスポートする。
 export {
@@ -185,6 +186,43 @@ export function buildRoutesMatrixBody(
     })),
     travelMode: "WALK",
   });
+}
+
+// 重複排除キーの座標丸め桁数（issue #274）。5 桁 ≈ 1.1m。キャンセル→即再検索は
+// 同一候補由来でビット一致するため丸め無しでも集約できるが、GPS ジッタ程度の
+// 差も同一キーへ寄せて集約率を上げる。1m 差の徒歩ルートは実質同一で、丸めにより
+// キャッシュヒットが返す経路の差も歩行距離 ≤1m と無視できる（精度と削減の
+// トレードオフはこの粒度で取る）。過度に粗くすると別経路を誤って束ねるため 5 桁に留める。
+const COORD_KEY_DECIMALS = 5;
+
+function roundCoordKey(n: number): number {
+  const factor = 10 ** COORD_KEY_DECIMALS;
+  return Math.round(n * factor) / factor;
+}
+
+function coordKey(p: { latitude: number; longitude: number }): string {
+  return `${roundCoordKey(p.latitude)},${roundCoordKey(p.longitude)}`;
+}
+
+/** googleWalkProxy の重複排除キー。start→goal の向きは経路が異なるため順序を保持する。 */
+function walkCacheKey(
+  start: { latitude: number; longitude: number },
+  goal: { latitude: number; longitude: number }
+): string {
+  return `routes-walk:${coordKey(start)};${coordKey(goal)}`;
+}
+
+/**
+ * googleWalkMatrixProxy の重複排除キー。応答の originIndex/destinationIndex 対応は
+ * 入力順に依存するため、origins/destinations とも順序を保持したままキー化する。
+ */
+function matrixCacheKey(
+  origins: { latitude: number; longitude: number }[],
+  destinations: { latitude: number; longitude: number }[]
+): string {
+  return `routes-matrix:${origins.map(coordKey).join(";")}|${destinations
+    .map(coordKey)
+    .join(";")}`;
 }
 
 // レート制限のキーに使うクライアント IP を返す（issue #151）。
@@ -366,51 +404,84 @@ async function fetchUpstream(
   method: "GET" | "POST",
   headers: Record<string, string>,
   body?: string,
-  validate?: (data: unknown) => boolean
+  validate?: (data: unknown) => boolean,
+  cacheKey?: string
 ): Promise<unknown> {
-  const start = Date.now();
-  try {
-    const { statusCode, data } = await requestJsonNew(url, method, headers, body);
-    // 一次判定はステータスコード。上流が 4xx/5xx を返したら成否をボディ形状から
-    // 推測せず 502（Bad Gateway）へ寄せ、上流ボディをそのまま返す（呼び出し側の
-    // ボディ判定は 200 でエラーボディを返す稀ケースの保険として残す）。
-    if (statusCode < 200 || statusCode >= 300) {
-      console.error(`[${endpoint}] upstream status ${statusCode}:`, JSON.stringify(data));
+  // 実際に上流を叩いたときだけ計測ログを出すため、requestJsonNew と計測を producer に
+  // 閉じ込める。cacheKey 指定時は dedupeUpstream が producer を single-flight の
+  // 相乗り・TTL キャッシュヒットでは呼ばないので、上流を呼んでいない要求を
+  // search_request に混ぜない（#268 の SLO を汚さない）。console.error も同様に
+  // 実呼び出し 1 回につき 1 度だけ出す。
+  const call = async (): Promise<{ statusCode: number; data: unknown }> => {
+    const start = Date.now();
+    try {
+      const { statusCode, data } = await requestJsonNew(url, method, headers, body);
+      if (statusCode < 200 || statusCode >= 300) {
+        console.error(`[${endpoint}] upstream status ${statusCode}:`, JSON.stringify(data));
+        logRequestOutcome({
+          endpoint,
+          upstream,
+          status: "failure",
+          latencyMs: Date.now() - start,
+          httpStatus: statusCode,
+        });
+      } else {
+        const semanticallyValid = validate ? validate(data) : true;
+        logRequestOutcome({
+          endpoint,
+          upstream,
+          status: semanticallyValid ? "success" : "failure",
+          latencyMs: Date.now() - start,
+          httpStatus: statusCode,
+          ...(semanticallyValid ? {} : { semanticFailure: true }),
+        });
+      }
+      return { statusCode, data };
+    } catch (e) {
+      const timedOut = e instanceof UpstreamError && e.kind === "timeout";
+      console.error(`[${endpoint}] upstream ${timedOut ? "timeout" : "error"}:`, e);
       logRequestOutcome({
         endpoint,
         upstream,
         status: "failure",
         latencyMs: Date.now() - start,
-        httpStatus: statusCode,
+        httpStatus: timedOut ? 504 : undefined,
       });
+      throw e;
+    }
+  };
+
+  try {
+    // 一次判定はステータスコード。上流が 4xx/5xx を返したら成否をボディ形状から
+    // 推測せず 502（Bad Gateway）へ寄せ、上流ボディをそのまま返す（呼び出し側の
+    // ボディ判定は 200 でエラーボディを返す稀ケースの保険として残す）。TTL 保持は
+    // 2xx かつ意味的に有効な成功のみ（失敗を数十秒固定して回復を遅らせない）。
+    const { statusCode, data } = cacheKey
+      ? await dedupeUpstream(cacheKey, call, isUpstreamCacheable(validate))
+      : await call();
+    if (statusCode < 200 || statusCode >= 300) {
       res.status(502).json(data);
       return UPSTREAM_FAILED;
     }
-    const semanticallyValid = validate ? validate(data) : true;
-    logRequestOutcome({
-      endpoint,
-      upstream,
-      status: semanticallyValid ? "success" : "failure",
-      latencyMs: Date.now() - start,
-      httpStatus: statusCode,
-      ...(semanticallyValid ? {} : { semanticFailure: true }),
-    });
     return data;
   } catch (e) {
     const timedOut = e instanceof UpstreamError && e.kind === "timeout";
-    console.error(`[${endpoint}] upstream ${timedOut ? "timeout" : "error"}:`, e);
-    logRequestOutcome({
-      endpoint,
-      upstream,
-      status: "failure",
-      latencyMs: Date.now() - start,
-      httpStatus: timedOut ? 504 : undefined,
-    });
     res
       .status(timedOut ? 504 : 502)
       .json({ error: timedOut ? "upstream timeout" : "upstream error" });
     return UPSTREAM_FAILED;
   }
+}
+
+// dedupeUpstream の TTL 保持可否。2xx かつ（validate があれば）意味的に有効な
+// 成功のみ保持し、非 2xx・意味的失敗は保持しない。
+function isUpstreamCacheable(
+  validate: ((data: unknown) => boolean) | undefined
+): (result: { statusCode: number; data: unknown }) => boolean {
+  return ({ statusCode, data }) =>
+    statusCode >= 200 &&
+    statusCode < 300 &&
+    (validate ? validate(data) : true);
 }
 
 // 上流 2xx 応答のボディが「意味的な成功」かを判定する述語群。fetchUpstream の
@@ -670,7 +741,8 @@ export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHma
       "X-Goog-FieldMask": ROUTES_FIELD_MASK,
     },
     buildRoutesWalkBody(start, goal),
-    isRoutesWalkSuccessBody
+    isRoutesWalkSuccessBody,
+    walkCacheKey(start, goal)
   );
   if (data === UPSTREAM_FAILED) return;
 
@@ -755,7 +827,8 @@ export const googleWalkMatrixProxy = onRequest(
         "X-Goog-FieldMask": ROUTES_MATRIX_FIELD_MASK,
       },
       buildRoutesMatrixBody(origins, destinations),
-      isRoutesMatrixSuccessBody
+      isRoutesMatrixSuccessBody,
+      matrixCacheKey(origins, destinations)
     );
     if (data === UPSTREAM_FAILED) return;
 

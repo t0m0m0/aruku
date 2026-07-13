@@ -58,6 +58,7 @@ import {
   resetRateLimit as resetRateLimitFromIndex,
   verifyAppCheck,
 } from "../src/index";
+import { resetUpstreamCache } from "../src/upstream-cache";
 
 interface CapturedRes {
   statusCode?: number;
@@ -162,6 +163,7 @@ describe("search_request イベント配線（fetchUpstream 経由）", () => {
 
   beforeEach(() => {
     resetRateLimitFromIndex();
+    resetUpstreamCache();
     httpsRequestMock.mockReset();
     logRequestOutcomeMock.mockReset();
     process.env.FUNCTIONS_EMULATOR = "true";
