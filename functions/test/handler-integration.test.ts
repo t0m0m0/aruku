@@ -34,6 +34,7 @@ import {
   placesProxy,
   resetRateLimit,
 } from "../src/index";
+import { resetUpstreamCache } from "../src/upstream-cache";
 
 // https.request をモックし、指定 JSON ボディ・ステータスで応答を擬似する。
 function mockUpstream(body: unknown, statusCode = 200): void {
@@ -189,6 +190,7 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
 
   beforeEach(() => {
     resetRateLimit();
+    resetUpstreamCache();
     httpsRequestMock.mockReset();
     // エミュレータ扱いで App Check 検証をスキップし、上流応答の分岐に集中する。
     process.env.FUNCTIONS_EMULATOR = "true";
@@ -485,6 +487,7 @@ describe("ハンドラ統合（タイムアウト・信頼性ガード / issue #
 
   beforeEach(() => {
     resetRateLimit();
+    resetUpstreamCache();
     httpsRequestMock.mockReset();
     process.env.FUNCTIONS_EMULATOR = "true";
   });
@@ -602,6 +605,7 @@ describe("ハンドラ統合（App Check 401）", () => {
 
   beforeEach(() => {
     resetRateLimit();
+    resetUpstreamCache();
     httpsRequestMock.mockReset();
     verifyTokenMock.mockReset();
     // 非エミュレータで App Check 検証を有効にする。
@@ -667,4 +671,161 @@ describe("CORS プリフライト（OPTIONS）", () => {
       expect(httpsRequestMock).not.toHaveBeenCalled();
     }
   );
+});
+
+// 上流応答を手動で解決させる擬似。cb は同期で呼び（requestJsonNew が data/end
+// リスナを張る）、finish() を呼ぶまで応答を保留する。single-flight の相乗り
+// （複数 caller が in-flight 中に到達したか）を決定的に検証するために使う。
+function mockUpstreamManual(): { finish: (body: unknown, status?: number) => void } {
+  let emitter: (EventEmitter & { statusCode: number }) | null = null;
+  httpsRequestMock.mockImplementation(
+    (_url: string, _opts: unknown, cb: (r: EventEmitter) => void) => {
+      const res = new EventEmitter() as EventEmitter & { statusCode: number };
+      res.statusCode = 200;
+      emitter = res;
+      cb(res);
+      return { on: vi.fn(), write: vi.fn(), end: vi.fn() };
+    }
+  );
+  return {
+    finish: (body, status = 200) => {
+      if (!emitter) throw new Error("upstream not started");
+      emitter.statusCode = status;
+      emitter.emit("data", Buffer.from(JSON.stringify(body)));
+      emitter.emit("end");
+    },
+  };
+}
+
+// 保留中の全マイクロタスク/nextTick を流し切る（macrotask 境界まで待つ）。
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+describe("ハンドラ統合（重複排除 / issue #274）", () => {
+  const original = process.env.FUNCTIONS_EMULATOR;
+
+  beforeEach(() => {
+    resetRateLimit();
+    resetUpstreamCache();
+    httpsRequestMock.mockReset();
+    process.env.FUNCTIONS_EMULATOR = "true";
+  });
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.FUNCTIONS_EMULATOR;
+    else process.env.FUNCTIONS_EMULATOR = original;
+  });
+
+  it("googleWalkProxy: 同一パラメータの並行リクエストは上流を1回に集約する（single-flight）", async () => {
+    const upstream = mockUpstreamManual();
+    const q = { start: "35.7,139.7", goal: "35.6,139.7" };
+    const res1 = makeRes();
+    const res2 = makeRes();
+
+    const p1 = invokeHandler(googleWalkProxy, makeReq({ query: q }), res1);
+    const p2 = invokeHandler(googleWalkProxy, makeReq({ query: q }), res2);
+
+    // 両ハンドラが in-flight に到達するまで待つ。上流はまだ解決していない。
+    await flush();
+    expect(httpsRequestMock).toHaveBeenCalledTimes(1);
+
+    upstream.finish({ routes: [{ distanceMeters: 100 }] });
+    await Promise.all([p1, p2]);
+
+    expect(httpsRequestMock).toHaveBeenCalledTimes(1);
+    expect(res1.body).toEqual({ routes: [{ distanceMeters: 100 }] });
+    expect(res2.body).toEqual({ routes: [{ distanceMeters: 100 }] });
+  });
+
+  it("googleWalkProxy: 同一パラメータの逐次リクエストは TTL 内で上流を1回に集約する", async () => {
+    mockUpstream({ routes: [{ distanceMeters: 100 }] });
+    const q = { start: "35.7,139.7", goal: "35.6,139.7" };
+
+    const res1 = makeRes();
+    await invokeHandler(googleWalkProxy, makeReq({ query: q }), res1);
+    const res2 = makeRes();
+    await invokeHandler(googleWalkProxy, makeReq({ query: q }), res2);
+
+    expect(httpsRequestMock).toHaveBeenCalledTimes(1);
+    expect(res2.body).toEqual({ routes: [{ distanceMeters: 100 }] });
+  });
+
+  it("googleWalkProxy: 丸め桁以下の座標差は同一キーに集約する", async () => {
+    mockUpstream({ routes: [{ distanceMeters: 100 }] });
+    // 6桁目のみ異なる（丸め粒度 5 桁 ≈ 1m 以下）。
+    const res1 = makeRes();
+    await invokeHandler(
+      googleWalkProxy,
+      makeReq({ query: { start: "35.700001,139.7", goal: "35.6,139.7" } }),
+      res1
+    );
+    const res2 = makeRes();
+    await invokeHandler(
+      googleWalkProxy,
+      makeReq({ query: { start: "35.700002,139.7", goal: "35.6,139.7" } }),
+      res2
+    );
+    expect(httpsRequestMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("googleWalkProxy: 異なる座標は別々に上流を呼ぶ", async () => {
+    mockUpstream({ routes: [{ distanceMeters: 100 }] });
+    const res1 = makeRes();
+    await invokeHandler(
+      googleWalkProxy,
+      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }),
+      res1
+    );
+    const res2 = makeRes();
+    await invokeHandler(
+      googleWalkProxy,
+      makeReq({ query: { start: "35.8,139.7", goal: "35.6,139.7" } }),
+      res2
+    );
+    expect(httpsRequestMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("googleWalkProxy: 上流失敗は集約せず、次の同一リクエストで再度呼ぶ", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockUpstream({ error: { code: 403 } }, 403);
+    const q = { start: "35.7,139.7", goal: "35.6,139.7" };
+
+    const res1 = makeRes();
+    await invokeHandler(googleWalkProxy, makeReq({ query: q }), res1);
+    expect(res1.statusCode).toBe(502);
+
+    const res2 = makeRes();
+    await invokeHandler(googleWalkProxy, makeReq({ query: q }), res2);
+    expect(res2.statusCode).toBe(502);
+
+    expect(httpsRequestMock).toHaveBeenCalledTimes(2);
+    vi.restoreAllMocks();
+  });
+
+  it("googleWalkMatrixProxy: 同一パラメータの逐次リクエストは上流を1回に集約する", async () => {
+    const payload = [
+      { originIndex: 0, destinationIndex: 0, duration: "600s", distanceMeters: 800 },
+    ];
+    mockUpstream(payload);
+    const q = { origins: "35.7,139.7", destinations: "35.6,139.7;35.65,139.72" };
+
+    const res1 = makeRes();
+    await invokeHandler(googleWalkMatrixProxy, makeReq({ query: q }), res1);
+    const res2 = makeRes();
+    await invokeHandler(googleWalkMatrixProxy, makeReq({ query: q }), res2);
+
+    expect(httpsRequestMock).toHaveBeenCalledTimes(1);
+    expect(res2.body).toEqual(payload);
+  });
+
+  it("navitimeProxy: 重複排除の対象外（同一パラメータでも毎回上流を呼ぶ）", async () => {
+    mockUpstream({ items: [{ summary: {} }] });
+    const q = { start: "1,1", goal: "2,2", start_time: "t" };
+
+    const res1 = makeRes();
+    await invokeHandler(navitimeProxy, makeReq({ query: q }), res1);
+    const res2 = makeRes();
+    await invokeHandler(navitimeProxy, makeReq({ query: q }), res2);
+
+    expect(httpsRequestMock).toHaveBeenCalledTimes(2);
+  });
 });
