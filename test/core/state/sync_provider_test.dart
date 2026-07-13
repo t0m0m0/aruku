@@ -3,6 +3,7 @@ import 'package:aruku/core/models/auth_user.dart';
 import 'package:aruku/core/models/recent_place.dart';
 import 'package:aruku/core/models/sync_data.dart';
 import 'package:aruku/core/services/auth_service.dart';
+import 'package:aruku/core/services/crash_reporter.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:aruku/core/services/settings_repository.dart';
 import 'package:aruku/core/services/sync_meta_repository.dart';
@@ -34,15 +35,21 @@ void main() {
 
   late FakeSyncService sync;
 
-  Future<ProviderContainer> makeContainer({AuthUser? user}) async {
+  Future<ProviderContainer> makeContainer({
+    AuthUser? user,
+    CrashReporter? crashReporter,
+    SyncService? syncService,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     final container = ProviderContainer(
       overrides: [
         sharedPreferencesProvider.overrideWith((ref) => prefs),
-        syncServiceProvider.overrideWithValue(sync),
+        syncServiceProvider.overrideWithValue(syncService ?? sync),
         authServiceProvider.overrideWithValue(
           FakeAuthService(initialUser: user),
         ),
+        if (crashReporter != null)
+          crashReporterProvider.overrideWithValue(crashReporter),
       ],
     );
     addTearDown(container.dispose);
@@ -61,6 +68,36 @@ void main() {
 
     expect(sync.pushCount, 0);
     expect(container.read(syncProvider).phase, SyncPhase.idle);
+  });
+
+  test('crashReporterProvider を fake で上書きできる', () async {
+    final reporter = _FakeCrashReporter();
+    final container = await makeContainer(crashReporter: reporter);
+
+    expect(container.read(crashReporterProvider), same(reporter));
+  });
+
+  test('同期失敗を PII を含まない静的 context で non-fatal 記録する', () async {
+    const uid = 'private-user-id';
+    const email = 'private@example.com';
+    final reporter = _FakeCrashReporter();
+    final container = await makeContainer(
+      user: const AuthUser(uid: uid, email: email),
+      crashReporter: reporter,
+      syncService: _ThrowingSyncService(),
+    );
+
+    await container.read(syncProvider.notifier).sync();
+
+    expect(container.read(syncProvider).phase, SyncPhase.error);
+    expect(reporter.records, hasLength(1));
+    final record = reporter.records.single;
+    expect(record.error, isA<StateError>());
+    expect(record.stack, isNotNull);
+    expect(record.context, 'sync.run');
+    expect(record.fatal, isFalse);
+    expect(record.context, isNot(contains(uid)));
+    expect(record.context, isNot(contains(email)));
   });
 
   test('初回（リモート無し）はローカルをアップロードする', () async {
@@ -215,4 +252,47 @@ void main() {
     await container.read(syncProvider.notifier).sync();
     expect(sync.pushCount, 0);
   });
+}
+
+class _ThrowingSyncService implements SyncService {
+  @override
+  Future<SyncData?> fetch(String uid) => throw StateError('sync unavailable');
+
+  @override
+  Future<void> push(String uid, SyncData data) async {}
+}
+
+class _FakeCrashReporter implements CrashReporter {
+  final List<_RecordedError> records = [];
+
+  @override
+  Future<void> recordError(
+    Object error,
+    StackTrace? stack, {
+    String? context,
+    bool fatal = false,
+  }) async {
+    records.add(
+      _RecordedError(
+        error: error,
+        stack: stack,
+        context: context,
+        fatal: fatal,
+      ),
+    );
+  }
+}
+
+class _RecordedError {
+  const _RecordedError({
+    required this.error,
+    required this.stack,
+    required this.context,
+    required this.fatal,
+  });
+
+  final Object error;
+  final StackTrace? stack;
+  final String? context;
+  final bool fatal;
 }
