@@ -1,12 +1,67 @@
 rules_version = '2';
 
-// このプロジェクトの Firestore はサーバ専用（Cloud Functions の Admin SDK のみが
+// このプロジェクトの Firestore は原則サーバ専用（Cloud Functions の Admin SDK のみが
 // 利用する）。レートリミッタの rateLimits コレクションを含め、クライアント SDK から
-// の読み書きは全面拒否する。Admin SDK はセキュリティルールをバイパスするため、
+// の読み書きは既定で全面拒否する。Admin SDK はセキュリティルールをバイパスするため、
 // レートリミッタの動作には影響しない。
+//
+// 例外として、アカウント同期（履歴・設定・ストリーク）のために
+// userSync/{uid} ドキュメントのみ、認証済みの本人による読み書きを許可する。
 service cloud.firestore {
   match /databases/{database}/documents {
-    // クライアント SDK からのアクセスは全面拒否（サーバ専用）。
+    // 同期スナップショット（SyncData.toJson 相当）のスキーマ・サイズ検証。
+    // 匿名サインインを許可しているため、本人一致だけでは巨大ドキュメントの
+    // 濫用（ストレージ課金・不正データ流入）を防げない。トップレベルの
+    // キー集合・型・リスト長を制限する。
+    //
+    // 制約: Firestore ルールは配列要素を反復できないため、リスト内の各要素の
+    // 文字列長までは検証できない。リスト長の上限（ローカル保持上限に余裕を
+    // 持たせた値: recents=10/activity=400日）でバイトサイズの
+    // 濫用を抑える。
+    function isValidSyncData(d) {
+      return d.keys().hasOnly(
+               ['updatedAt', 'settings', 'recents',
+                'recentOrigins', 'activity'])
+             && d.updatedAt is string && d.updatedAt.size() <= 40
+             && d.settings is map && isValidSettings(d.settings)
+             && d.recents is list && d.recents.size() <= 50
+             && d.recentOrigins is list && d.recentOrigins.size() <= 50
+             && d.activity is list && d.activity.size() <= 800;
+    }
+
+    // AppSettings.toJson()（lib/core/models/app_settings.dart）が送出するキー集合と
+    // 厳密に一致させる。
+    //
+    // hasAll と `is number` は振る舞い上は冗長（欠落キーへのアクセスも型違いの
+    // 比較もエラーになり deny へ落ちるため、hasOnly と範囲チェックだけで同じ
+    // 結果になる）。それでも書いているのは、ルールの拒否理由を暗黙のエラー伝播に
+    // 依存させたくないから。許可条件はこの関数を読むだけで復元できる必要がある。
+    //
+    // weeklyGoalKm をプリセット値([5,10,15,20,30])の完全一致で縛っていないのは、
+    // プリセット追加のたびにルール変更とデプロイが必要になり、クライアントの
+    // リリースとルールのデプロイの順序に依存してしまうため。AppSettings.fromJson
+    // が保証する契約（正の数）と同じ範囲だけを守る。
+    function isValidSettings(s) {
+      return s.keys().hasOnly(
+               ['notificationsEnabled', 'weeklyGoalKm', 'healthKitEnabled'])
+             && s.keys().hasAll(
+                  ['notificationsEnabled', 'weeklyGoalKm', 'healthKitEnabled'])
+             && s.notificationsEnabled is bool
+             && s.healthKitEnabled is bool
+             && s.weeklyGoalKm is number
+             && s.weeklyGoalKm > 0 && s.weeklyGoalKm <= 1000;
+    }
+
+    // ユーザーごとのクラウド同期ドキュメント。本人だけが読み書きできる。
+    // 書き込み（create/update）は上記スキーマ検証を満たす場合のみ許可する。
+    match /userSync/{uid} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null
+                            && request.auth.uid == uid
+                            && isValidSyncData(request.resource.data);
+    }
+
+    // 上記以外は全面拒否（サーバ専用）。
     match /{document=**} {
       allow read, write: if false;
     }
