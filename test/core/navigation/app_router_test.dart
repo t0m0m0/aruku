@@ -153,5 +153,65 @@ void main() {
 
       expect(find.byType(ResultScreen), findsOneWidget);
     });
+
+    testWidgets('失効した isNow 経路への /home/result deep link は home へ跳ね返す', (
+      tester,
+    ) async {
+      var clock = DateTime(2026, 7, 13, 9, 25);
+      final container = await makeContainer(
+        routeService: const FixedRouteService(testRoutePlan),
+        now: () => clock,
+      );
+      addTearDown(container.dispose);
+      final router = container.read(goRouterProvider);
+
+      await tester.pumpWidget(routerApp(container));
+      await pumpTransition(tester);
+
+      container
+          .read(appStateProvider.notifier)
+          .setDestination('渋谷駅', latLng: const GeoPoint(35.658, 139.702));
+      await container.read(appStateProvider.notifier).startSearch();
+      await tester.pump();
+
+      // 経路確定から猶予（5分）超過。以後 result/nav は失効扱いで弾かれる。
+      clock = DateTime(2026, 7, 13, 9, 31);
+      router.go('/home/result');
+      await pumpTransition(tester);
+
+      expect(find.byType(ResultScreen), findsNothing);
+      expect(find.byType(HomeScreen), findsOneWidget);
+    });
+
+    testWidgets('失効した isNow 経路への /home/nav deep link は home へ跳ね返す', (
+      tester,
+    ) async {
+      var clock = DateTime(2026, 7, 13, 9, 25);
+      final container = await makeContainer(
+        routeService: const FixedRouteService(testRoutePlan),
+        now: () => clock,
+      );
+      addTearDown(container.dispose);
+      final router = container.read(goRouterProvider);
+
+      await tester.pumpWidget(routerApp(container));
+      await pumpTransition(tester);
+
+      container
+          .read(appStateProvider.notifier)
+          .setDestination('渋谷駅', latLng: const GeoPoint(35.658, 139.702));
+      await container.read(appStateProvider.notifier).startSearch();
+      await tester.pump();
+
+      clock = DateTime(2026, 7, 13, 9, 31);
+      router.go('/home/nav');
+      await pumpTransition(tester);
+
+      expect(
+        router.routerDelegate.currentConfiguration.uri.path,
+        Screen.home.path,
+      );
+      expect(find.byType(HomeScreen), findsOneWidget);
+    });
   });
 }

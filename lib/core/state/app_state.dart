@@ -25,8 +25,17 @@ import '../services/route_plan_builder.dart' as planner;
 import '../services/route_service.dart';
 import 'settings_provider.dart';
 
+/// 現在時刻の供給元。テストで時間経過を制御できるよう注入可能にする。既定は実時計。
+typedef Now = DateTime Function();
+final nowProvider = Provider<Now>((ref) => DateTime.now);
+
 /// 経路からこの距離（m）を超えて外れたらオフルートとみなす。GPS のブレは無視する。
 const double kRerouteThresholdMeters = 50;
+
+/// isNow（今すぐ出発）経路が失効するまでの猶予。確定時刻からこれを超えて実時間が
+/// 進むと、結果の到着時刻と実際の ETA が乖離する（乗るはずだった便に乗り遅れる）。
+/// この場合は経路を無効化して現在時刻での再検索を促す（#264）。
+const Duration kRouteFreshness = Duration(minutes: 5);
 
 /// 起動時の初期到着時刻を「出発 + この分数」で算出する。ユーザーはホーム画面で
 /// いつでも調整できるため、設定では持たず固定のシード値とする。
@@ -64,6 +73,24 @@ TimeValue _clampArrivalAfterDeparture(TimeValue departure, TimeValue arrival) {
       : _timeValueFromAbs(minAbs);
 }
 
+/// isNow 出発を [now] へ更新し、予算幅を保つよう到着も同じだけ後ろへずらす（#264）。
+/// isNow でない固定出発（将来の予約）は時間経過で意味が変わらないため据え置く。
+({TimeValue departure, TimeValue arrival}) _refreshedNowTimes(
+  AppState state,
+  DateTime now,
+) {
+  final departure = state.departure;
+  if (!departure.isNow) {
+    return (departure: departure, arrival: state.arrival);
+  }
+  final budget = planner.budgetMinutes(departure, state.arrival);
+  final newDeparture = TimeValue(h: now.hour, m: now.minute, isNow: true);
+  final newArrival = _timeValueFromAbs(
+    planner.absoluteMinutes(newDeparture) + budget,
+  );
+  return (departure: newDeparture, arrival: newArrival);
+}
+
 /// 自動再検索を発火するまでに必要な連続オフルート回数。瞬間的なノイズを除外する。
 const int kRerouteSustainFixes = 3;
 
@@ -96,6 +123,7 @@ class AppState {
     this.origin,
     this.originLatLng,
     this.currentPosition,
+    this.routeAsOf,
     this.routeErrorKind,
     this.routePhase,
     this.walkSummary,
@@ -120,8 +148,25 @@ class AppState {
   final TimeValue arrival;
   final RoutePlan? route;
   final LocationState locationState;
+
+  /// isNow（今すぐ出発）経路が前提とする「現在時刻」。確定時に設定し、この時刻から
+  /// [kRouteFreshness] を超えて実時間が進むと失効する（#264）。固定出発（isNow=false）
+  /// や経路が無い間は null（時間経過で失効しない）。[route] と寿命を揃える。
+  final DateTime? routeAsOf;
   final RouteErrorKind? routeErrorKind;
   final RoutePhase? routePhase;
+
+  /// isNow 経路が失効しているか。結果の到着時刻と実 ETA が乖離する境界を [now] で判定
+  /// する。router の redirect と notifier の両方が同じ判定を共有するため純粋関数にする。
+  ///
+  /// 判定は [routeAsOf]（＝経路そのもののメタデータ）だけに依存し、現在の入力フォーム
+  /// ([departure]) は見ない。routeAsOf は「now 基準で確定した経路」にのみ設定する不変条件
+  /// を保つ（固定出発の検索・リルートでは null）。フォームを見ると、now 経路を残したまま
+  /// 出発を固定へ変えた後などに、保持中の now 経路が失効判定から外れてしまう。
+  bool isNowRouteExpired(DateTime now) =>
+      route != null &&
+      routeAsOf != null &&
+      now.difference(routeAsOf!) >= kRouteFreshness;
 
   /// 歩行完了時のシェア用サマリー。完了画面（[Screen.complete]）でのみ参照する。
   final WalkSummary? walkSummary;
@@ -173,6 +218,7 @@ class AppState {
     TimeValue? arrival,
     Object? route = _sentinel,
     LocationState? locationState,
+    Object? routeAsOf = _sentinel,
     Object? routeErrorKind = _sentinel,
     Object? routePhase = _sentinel,
     Object? walkSummary = _sentinel,
@@ -203,6 +249,9 @@ class AppState {
       arrival: arrival ?? this.arrival,
       route: identical(route, _sentinel) ? this.route : route as RoutePlan?,
       locationState: locationState ?? this.locationState,
+      routeAsOf: identical(routeAsOf, _sentinel)
+          ? this.routeAsOf
+          : routeAsOf as DateTime?,
       routeErrorKind: identical(routeErrorKind, _sentinel)
           ? this.routeErrorKind
           : routeErrorKind as RouteErrorKind?,
@@ -299,6 +348,9 @@ class AppNotifier extends Notifier<AppState> {
   /// 進行中リルートのキャンセル境界（#261）。無効化時に倒して通信を切る。
   CancellationToken? _activeRerouteCancellation;
 
+  /// 現在時刻。テストで時間経過を制御できるよう [nowProvider] 経由で取得する。
+  DateTime _now() => ref.read(nowProvider)();
+
   @override
   AppState build() {
     ref.onDispose(() {
@@ -316,7 +368,7 @@ class AppNotifier extends Notifier<AppState> {
       settingsProvider.select((s) => s.value?.notificationsEnabled),
       (_, _) => _syncStreakReminder(DateTime.now()),
     );
-    final now = DateTime.now();
+    final now = _now();
     final depH = now.hour;
     final depM = now.minute;
     // 完了済みならオンボーディングを飛ばして home から開始する。
@@ -680,7 +732,10 @@ class AppNotifier extends Notifier<AppState> {
             cancellation: cancellation,
           );
       if (_isRerouteStale(generation)) return;
-      state = state.copyWith(route: plan, isRerouting: false);
+      // リルートは常に isNow:true で引き直す（歩行中＝今出発）。差し替えた経路は元の
+      // フォームが固定出発でも now 基準なので、失効基準 routeAsOf を必ず更新する。
+      // これを付けないと、ナビ離脱後に古い now リルートが失効せず再入場できてしまう（#264）。
+      state = state.copyWith(route: plan, routeAsOf: now, isRerouting: false);
       // 新しい経路のポリラインは旧経路と別物なので、直前の累積距離は無効。
       _lastDistanceAlongMeters = null;
     } catch (_) {
@@ -763,6 +818,12 @@ class AppNotifier extends Notifier<AppState> {
     // 古い通信を放置せず切る。新しいトークンを採番して plan へ通す（#259）。
     _activeCancellation?.cancel();
     final cancellation = _activeCancellation = CancellationToken();
+    // isNow 出発は起動時刻のまま腐るため、照会直前に現在時刻へ更新する（#264）。到着も
+    // 予算幅を保って追従させ、plan() には更新後の時刻を渡す。ただし state への確定は
+    // 成功時まで遅らせる。失敗して旧経路を残す場合に、ヘッダー（出発）だけ新時刻へ動いて
+    // 旧経路のタイムラインとズレるのを防ぐため。
+    final now = _now();
+    final refreshed = _refreshedNowTimes(state, now);
     state = state.copyWith(
       screen: Screen.loading,
       routeErrorKind: null,
@@ -780,8 +841,8 @@ class AppNotifier extends Notifier<AppState> {
           .plan(
             destination: state.destination,
             destinationLatLng: state.destinationLatLng,
-            departure: state.departure,
-            arrival: state.arrival,
+            departure: refreshed.departure,
+            arrival: refreshed.arrival,
             origin: origin,
             originName: state.departureNameForRoute,
             cancellation: cancellation,
@@ -791,20 +852,105 @@ class AppNotifier extends Notifier<AppState> {
             },
           );
       if (generation != _searchGeneration || _disposed) return;
+      // 照会中にバックグラウンド滞在で失効した（isNow で猶予超過）場合は、古い前提の
+      // 結果を表示せず home へ戻して再検索を促す。復帰時は Screen.loading のため
+      // onAppResumed では無効化できず、完了時のここが最後の砦になる（#264）。
+      if (refreshed.departure.isNow &&
+          _now().difference(now) >= kRouteFreshness) {
+        _expireRoute(_now());
+        return;
+      }
+      // 成功時に出発/到着/経路/失効基準をまとめて確定する。isNow 経路のみ routeAsOf を
+      // 持つ（固定出発は時間経過で腐らないため null）。
       state = state.copyWith(
         screen: Screen.result,
         route: plan,
+        routeAsOf: refreshed.departure.isNow ? now : null,
+        departure: refreshed.departure,
+        arrival: refreshed.arrival,
         routeErrorKind: null,
         routePhase: null,
       );
     } catch (e) {
       if (generation != _searchGeneration || _disposed) return;
+      // 失敗時は出発/到着も旧経路も routeAsOf も触らない。出発を確定していないので、
+      // 旧経路を残してもヘッダーとタイムラインの前提時刻は一致したまま。routeAsOf を
+      // 消すと旧経路が失効判定から外れ redirect が admit し続けるため残す（#264）。
       state = state.copyWith(
         screen: Screen.error,
         routeErrorKind: classifyRouteError(e),
         routePhase: null,
       );
     }
+  }
+
+  /// 結果画面から歩行（ナビ）を開始する（#264）。失効経路のままナビへ進むと ETA が
+  /// 乖離するため、失効していれば nav へは入らず経路を無効化して再検索を促す（GPS 追跡を
+  /// 起動させないため CTA でも明示的に判定する）。deep link / 履歴経由の入場は router の
+  /// redirect が同じ判定で弾く。
+  void startNavigation() {
+    final now = _now();
+    if (state.isNowRouteExpired(now)) {
+      _expireRoute(now);
+      return;
+    }
+    go(Screen.nav);
+  }
+
+  /// アプリがフォアグラウンド復帰したときに now 経路の時刻を再検証する（#264）。
+  /// 結果表示中・ホーム退避中の失効経路は無効化して再検索を促す（メモリに残った失効
+  /// 経路を掃除し、ホームの出発時刻の追従も回復させる）。ナビ中は歩行を中断させない
+  /// ため無効化しない。経路を表示中は前提時刻とズレるため出発を書き換えない。
+  ///
+  /// 失効判定は routeAsOf（経路メタデータ）に依存する [isNowRouteExpired] に委ね、現在の
+  /// 出発フォームでは分岐しない。固定出発から始めたナビのリルート経路（now 基準）も、
+  /// フォームが isNow=false のまま失効させられるようにするため。
+  void onAppResumed() {
+    final now = _now();
+    final onExpirableScreen =
+        state.screen == Screen.result || state.screen == Screen.home;
+    if (onExpirableScreen && state.isNowRouteExpired(now)) {
+      _expireRoute(now);
+      return;
+    }
+    _refreshNowDeparture();
+  }
+
+  /// 表示中の経路が無く、かつ検索も走っていないときだけ isNow 出発を現在時刻へ追従
+  /// させ、予算幅を保って到着も更新する（#264）。経路を表示中に書き換えるとタイムラインの
+  /// 前提時刻とヘッダーがズレる。検索中（[Screen.loading]）は in-flight の plan() が検索
+  /// 開始時刻で進行しており、ここで書き換えると完了時に同じズレが起きる（route はまだ
+  /// null なので上の条件では防げない）。次の検索は [startSearch] 冒頭で必ず現在時刻へ
+  /// 更新するので、表示の追従を省いても正しさは保てる。
+  void _refreshNowDeparture() {
+    if (!state.departure.isNow ||
+        state.route != null ||
+        state.screen == Screen.loading) {
+      return;
+    }
+    final refreshed = _refreshedNowTimes(state, _now());
+    state = state.copyWith(
+      departure: refreshed.departure,
+      arrival: refreshed.arrival,
+    );
+  }
+
+  /// 失効した isNow 経路を破棄し、現在時刻へ更新した条件で home へ戻して再検索を促す
+  /// （#264）。自動で再検索はしない（意図しない課金 API 呼び出しを避ける）。
+  /// route と routeAsOf を同時に落とし、routePhase・routeErrorKind も掃除して
+  /// redirect ガードの前提（画面と表示前提データの整合）を保つ。
+  void _expireRoute(DateTime now) {
+    _invalidateReroute();
+    final refreshed = _refreshedNowTimes(state, now);
+    state = state.copyWith(
+      screen: Screen.home,
+      route: null,
+      routeAsOf: null,
+      routePhase: null,
+      routeErrorKind: null,
+      departure: refreshed.departure,
+      arrival: refreshed.arrival,
+    );
   }
 
   /// ローディング中の探索をキャンセルしてホームへ戻す（#221）。世代番号を進めて

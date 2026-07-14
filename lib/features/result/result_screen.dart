@@ -184,7 +184,7 @@ class ResultScreen extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      _CtaRow(onNav: () => notifier.go(Screen.nav)),
+                      _CtaRow(onNav: notifier.startNavigation),
                     ],
                   ),
                 ),

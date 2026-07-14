@@ -19,6 +19,7 @@ import 'core/services/local_notification_service.dart';
 import 'core/services/notification_service.dart';
 import 'core/services/onboarding_repository.dart';
 import 'core/services/recents_repository.dart';
+import 'core/state/app_state.dart';
 import 'core/theme/aruku_theme.dart';
 import 'firebase_options.dart';
 import 'l10n/app_localizations.dart';
@@ -129,11 +130,34 @@ Future<void> _activateAppCheck() {
   );
 }
 
-class ArukuApp extends ConsumerWidget {
+class ArukuApp extends ConsumerStatefulWidget {
   const ArukuApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ArukuApp> createState() => _ArukuAppState();
+}
+
+class _ArukuAppState extends ConsumerState<ArukuApp> {
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    // フォアグラウンド復帰で「今すぐ出発」の時刻を再検証する。長時間バックグラウンド
+    // 後に古い出発時刻のまま経路を開始できる問題を防ぐ（#264）。
+    _lifecycle = AppLifecycleListener(
+      onResume: () => ref.read(appStateProvider.notifier).onAppResumed(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     // 画面遷移は go_router が権威。ルートツリー・戻る挙動・遷移アニメは
     // すべて goRouterProvider（lib/core/navigation/app_router.dart）に集約。
     return MaterialApp.router(

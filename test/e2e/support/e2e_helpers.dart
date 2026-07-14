@@ -12,6 +12,7 @@ import 'package:aruku/core/services/location_service.dart';
 import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:aruku/core/services/route_service.dart';
+import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -128,6 +129,7 @@ Future<ProviderContainer> makeContainer({
   bool onboardingDone = true,
   RouteService? routeService,
   LocationService? locationService,
+  Now? now,
 }) async {
   final prefs = await SharedPreferences.getInstance();
   return ProviderContainer(
@@ -140,6 +142,7 @@ Future<ProviderContainer> makeContainer({
       activityServiceProvider.overrideWithValue(FakeActivityService()),
       if (routeService != null)
         routeServiceProvider.overrideWithValue(routeService),
+      if (now != null) nowProvider.overrideWithValue(now),
     ],
   );
 }
