@@ -481,6 +481,73 @@ void main() {
           .length;
       expect(guidanceCalls, lessThanOrEqualTo(2));
     });
+
+    test('路線名を欠く別コリドーも別ファミリとして徒歩多め候補を生む', () async {
+      // routeName を持たない leg 2種（急行=2点コリドー / 各停=3点コリドー、端点は共有）。
+      // 空文字で畳むと同一ファミリ扱いで最速1本へ退行するが、コリドー形状で区別すれば
+      // 各停コリドー由来の徒歩多め候補（徒歩82分）が生成される（Codex 指摘の反証）。
+      Map<String, dynamic> unnamed(List<List<double>> stops, int arr) => {
+        'journey': {
+          'departureSecs': 32580, // 09:03
+          'arrivalSecs': arr,
+          'durationSecs': arr - 32580 + 240,
+          'accessWalkSecs': 120,
+          'egressWalkSecs': 120,
+          'legs': [
+            {
+              'kind': 'transit',
+              'mode': 'rail', // routeName なし＝RouteSegment.line は null
+              'from': _station('u:board', '乗車'),
+              'to': _station('u:alight', '降車'),
+              'departureSecs': 32580,
+              'arrivalSecs': arr,
+            },
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('walk', 'origin', 'u:board', 'osmWalk', [
+              [35.0, 139.000],
+              stops.first,
+            ]),
+            _mapSeg('transit', 'u:board', 'u:alight', 'stopOrder', stops),
+            _mapSeg('walk', 'u:alight', 'destination', 'estimatedWalk', [
+              stops.last,
+              [35.0, 139.100],
+            ]),
+          ],
+        },
+      };
+      final svc = _service(
+        _mock(
+          transit: _guidance([
+            unnamed(const [
+              [35.0, 139.002],
+              [35.0, 139.098],
+            ], 32880), // 急行 09:08
+            unnamed(const [
+              [35.0, 139.002],
+              [35.0, 139.030],
+              [35.0, 139.098],
+            ], 33480), // 各停 09:18
+          ]),
+        ),
+      );
+      final plan = await svc.plan(
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 40),
+        origin: o,
+        originName: '出発',
+      );
+      final walkMin = plan.segments
+          .where((s) => s.type == SegmentType.walk)
+          .fold<int>(0, (a, s) => a + s.minutes);
+      expect(walkMin, greaterThan(40));
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+    });
   });
 
   group('plan: 崩壊判定の測定基準（#137 指摘2）', () {
