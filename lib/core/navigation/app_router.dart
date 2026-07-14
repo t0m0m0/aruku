@@ -71,10 +71,14 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     // では可能になる。表示前提データを欠く場合は home へ跳ね返す。
     redirect: (context, state) {
       final app = ref.read(appStateProvider);
+      // 失効した isNow 経路（#264）は「表示前提データ欠落」と同じく home へ跳ね返す。
+      // deep link・ブラウザ履歴・home 退避後の再入場など router 由来の遷移はすべて
+      // ここを通るため、失効判定をここへ集約すると全経路で一貫する（go_router が権威）。
+      final expired = app.isNowRouteExpired(ref.read(nowProvider)());
       final missingPrerequisite = switch (ScreenPath.fromLocation(
         state.uri.path,
       )) {
-        Screen.result || Screen.nav => app.route == null,
+        Screen.result || Screen.nav => app.route == null || expired,
         Screen.complete => app.walkSummary == null,
         Screen.loading => app.routePhase == null,
         Screen.error => app.routeErrorKind == null,

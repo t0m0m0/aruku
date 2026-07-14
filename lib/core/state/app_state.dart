@@ -124,6 +124,7 @@ class AppState {
     this.origin,
     this.originLatLng,
     this.currentPosition,
+    this.routeAsOf,
     this.routeErrorKind,
     this.routePhase,
     this.walkSummary,
@@ -148,8 +149,20 @@ class AppState {
   final TimeValue arrival;
   final RoutePlan? route;
   final LocationState locationState;
+
+  /// isNow（今すぐ出発）経路が前提とする「現在時刻」。確定時に設定し、この時刻から
+  /// [kRouteFreshness] を超えて実時間が進むと失効する（#264）。固定出発（isNow=false）
+  /// や経路が無い間は null（時間経過で失効しない）。[route] と寿命を揃える。
+  final DateTime? routeAsOf;
   final RouteErrorKind? routeErrorKind;
   final RoutePhase? routePhase;
+
+  /// isNow 経路が失効しているか。結果の到着時刻と実 ETA が乖離する境界を [now] で判定
+  /// する。router の redirect と notifier の両方が同じ判定を共有するため純粋関数にする。
+  bool isNowRouteExpired(DateTime now) =>
+      route != null &&
+      routeAsOf != null &&
+      now.difference(routeAsOf!) >= kRouteFreshness;
 
   /// 歩行完了時のシェア用サマリー。完了画面（[Screen.complete]）でのみ参照する。
   final WalkSummary? walkSummary;
@@ -201,6 +214,7 @@ class AppState {
     TimeValue? arrival,
     Object? route = _sentinel,
     LocationState? locationState,
+    Object? routeAsOf = _sentinel,
     Object? routeErrorKind = _sentinel,
     Object? routePhase = _sentinel,
     Object? walkSummary = _sentinel,
@@ -231,6 +245,9 @@ class AppState {
       arrival: arrival ?? this.arrival,
       route: identical(route, _sentinel) ? this.route : route as RoutePlan?,
       locationState: locationState ?? this.locationState,
+      routeAsOf: identical(routeAsOf, _sentinel)
+          ? this.routeAsOf
+          : routeAsOf as DateTime?,
       routeErrorKind: identical(routeErrorKind, _sentinel)
           ? this.routeErrorKind
           : routeErrorKind as RouteErrorKind?,
@@ -326,11 +343,6 @@ class AppNotifier extends Notifier<AppState> {
 
   /// 進行中リルートのキャンセル境界（#261）。無効化時に倒して通信を切る。
   CancellationToken? _activeRerouteCancellation;
-
-  /// isNow 検索で確定した経路の「現在時刻」基準（#264）。isNow 経路は「今出発」を
-  /// 前提とするため、この時刻から [kRouteFreshness] を超えて実時間が進むと失効する。
-  /// 非 isNow（将来の固定出発）や経路が無い間は null（時間経過で失効しない）。
-  DateTime? _routeAsOf;
 
   /// 現在時刻。テストで時間経過を制御できるよう [nowProvider] 経由で取得する。
   DateTime _now() => ref.read(nowProvider)();
@@ -550,13 +562,6 @@ class AppNotifier extends Notifier<AppState> {
   /// 同値なら何もしない（router との相互同期がエコーで往復しないための冪等性）。
   void syncScreen(Screen s) {
     if (state.screen == s) return;
-    // 失効した isNow 経路のままナビへ入ろうとしたら、進めず経路を無効化して再検索を
-    // 促す（#264）。CTA だけでなく deep link / router 書き戻しの nav 入場もここを
-    // 通るため、失効判定をこの一点に集約すると全経路で一貫する。
-    if (s == Screen.nav && _isNowRouteExpired(_now())) {
-      _expireRoute(_now());
-      return;
-    }
     state = state.copyWith(screen: s);
     if (s == Screen.nav) {
       _startTracking();
@@ -723,7 +728,8 @@ class AppNotifier extends Notifier<AppState> {
             cancellation: cancellation,
           );
       if (_isRerouteStale(generation)) return;
-      state = state.copyWith(route: plan, isRerouting: false);
+      // 差し替えた経路は「今」を前提に引き直したものなので、失効基準も更新する（#264）。
+      state = state.copyWith(route: plan, routeAsOf: now, isRerouting: false);
       // 新しい経路のポリラインは旧経路と別物なので、直前の累積距離は無効。
       _lastDistanceAlongMeters = null;
     } catch (_) {
@@ -849,16 +855,17 @@ class AppNotifier extends Notifier<AppState> {
         return;
       }
       // isNow 経路のみ失効判定の基準時刻を持つ。固定出発は時間経過で腐らない（#264）。
-      _routeAsOf = refreshed.departure.isNow ? now : null;
       state = state.copyWith(
         screen: Screen.result,
         route: plan,
+        routeAsOf: refreshed.departure.isNow ? now : null,
         routeErrorKind: null,
         routePhase: null,
       );
     } catch (e) {
       if (generation != _searchGeneration || _disposed) return;
-      _routeAsOf = null;
+      // 失敗時は旧経路と routeAsOf をそのまま残す。routeAsOf を消すと旧経路が失効判定
+      // 対象から外れ、redirect が /home/result・/home/nav を admit し続けてしまう（#264）。
       state = state.copyWith(
         screen: Screen.error,
         routeErrorKind: classifyRouteError(e),
@@ -867,19 +874,30 @@ class AppNotifier extends Notifier<AppState> {
     }
   }
 
-  /// 結果画面から歩行（ナビ）を開始する（#264）。失効判定は [syncScreen] の nav 入場
-  /// ガードに一元化してある（CTA・deep link・router 書き戻しのどの経路でも一貫させる
-  /// ため）。失効していれば nav へは入らず、経路を無効化して再検索を促す。
-  void startNavigation() => go(Screen.nav);
+  /// 結果画面から歩行（ナビ）を開始する（#264）。失効経路のままナビへ進むと ETA が
+  /// 乖離するため、失効していれば nav へは入らず経路を無効化して再検索を促す（GPS 追跡を
+  /// 起動させないため CTA でも明示的に判定する）。deep link / 履歴経由の入場は router の
+  /// redirect が同じ判定で弾く。
+  void startNavigation() {
+    final now = _now();
+    if (state.isNowRouteExpired(now)) {
+      _expireRoute(now);
+      return;
+    }
+    go(Screen.nav);
+  }
 
   /// アプリがフォアグラウンド復帰したときに isNow の時刻を再検証する（#264）。
-  /// 結果画面の失効経路は無効化して再検索を促す。経路を表示中は、その経路の前提時刻と
-  /// ズレるため出発を書き換えない（[_refreshNowDeparture] 参照）。ナビ中は歩行を
-  /// 中断させないため無効化しない。
+  /// 結果表示中・ホーム退避中の失効経路は無効化して再検索を促す（メモリに残った失効
+  /// 経路を掃除し、ホームの出発時刻の追従も回復させる）。ナビ中は歩行を中断させない
+  /// ため無効化しない。経路を表示中は前提時刻とズレるため出発を書き換えない。
   void onAppResumed() {
     if (!state.departure.isNow) return;
-    if (state.screen == Screen.result && _isNowRouteExpired(_now())) {
-      _expireRoute(_now());
+    final now = _now();
+    final onExpirableScreen =
+        state.screen == Screen.result || state.screen == Screen.home;
+    if (onExpirableScreen && state.isNowRouteExpired(now)) {
+      _expireRoute(now);
       return;
     }
     _refreshNowDeparture();
@@ -898,26 +916,19 @@ class AppNotifier extends Notifier<AppState> {
     );
   }
 
-  /// isNow 経路が失効しているか（#264）。確定時刻 [_routeAsOf] から [kRouteFreshness]
-  /// を超えて実時間が進むと、結果の到着時刻と実 ETA が乖離するため失効とみなす。
-  /// isNow でない固定出発や経路が無い間は失効しない。
-  bool _isNowRouteExpired(DateTime now) {
-    final asOf = _routeAsOf;
-    return state.departure.isNow &&
-        state.route != null &&
-        asOf != null &&
-        now.difference(asOf) >= kRouteFreshness;
-  }
-
   /// 失効した isNow 経路を破棄し、現在時刻へ更新した条件で home へ戻して再検索を促す
   /// （#264）。自動で再検索はしない（意図しない課金 API 呼び出しを避ける）。
+  /// route と routeAsOf を同時に落とし、routePhase・routeErrorKind も掃除して
+  /// redirect ガードの前提（画面と表示前提データの整合）を保つ。
   void _expireRoute(DateTime now) {
     _invalidateReroute();
-    _routeAsOf = null;
     final refreshed = _refreshedNowTimes(state, now);
     state = state.copyWith(
       screen: Screen.home,
       route: null,
+      routeAsOf: null,
+      routePhase: null,
+      routeErrorKind: null,
       departure: refreshed.departure,
       arrival: refreshed.arrival,
     );

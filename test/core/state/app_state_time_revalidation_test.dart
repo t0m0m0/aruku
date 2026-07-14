@@ -165,19 +165,53 @@ void main() {
       expect(state.budgetMinutes, 60);
     });
 
-    test('CTA を経由しない nav 入場（deep link 等）でも失効経路を無効化する', () async {
+    test('結果からホームへ退避後に復帰すると、残った失効経路を掃除する', () async {
       final s = setup(DateTime(2026, 7, 13, 9, 25));
       final notifier = s.container.read(appStateProvider.notifier);
       await notifier.startSearch();
+      // 結果からホームへ戻る（経路は再入場に備えメモリに残る）。
+      notifier.go(Screen.home);
+      expect(s.container.read(appStateProvider).route, sampleRoutePlan);
 
+      // 猶予超過後に復帰すると、残った失効経路を落として出発も現在時刻へ追従させる。
       s.clock.value = DateTime(2026, 7, 13, 14, 40);
-      // startNavigation ではなく go(Screen.nav)（router 書き戻し相当）で直接入場。
-      notifier.go(Screen.nav);
+      notifier.onAppResumed();
 
       final state = s.container.read(appStateProvider);
-      expect(state.screen, isNot(Screen.nav));
       expect(state.screen, Screen.home);
       expect(state.route, isNull);
+      expect(state.departure.h, 14);
+      expect(state.departure.m, 40);
+    });
+
+    test('再検索が失敗しても、残る旧経路は routeAsOf を保持し失効判定の対象であり続ける', () async {
+      final clock = _Clock(DateTime(2026, 7, 13, 9, 25));
+      final route = _FlakyRouteService(sampleRoutePlan);
+      final container = ProviderContainer(
+        overrides: [
+          nowProvider.overrideWithValue(clock.now),
+          routeServiceProvider.overrideWithValue(route),
+          onboardingCompletedProvider.overrideWithValue(true),
+        ],
+      );
+      addTearDown(container.dispose);
+      final notifier = container.read(appStateProvider.notifier);
+
+      // 1 回目は成功して経路と routeAsOf を確定。
+      await notifier.startSearch();
+      expect(container.read(appStateProvider).routeAsOf, isNotNull);
+
+      // 2 回目は失敗。旧経路も routeAsOf も残す（掃除すると失効判定から外れてしまう）。
+      route.failNext = true;
+      await notifier.startSearch();
+      final state = container.read(appStateProvider);
+      expect(state.screen, Screen.error);
+      expect(state.route, sampleRoutePlan);
+      expect(state.routeAsOf, isNotNull);
+
+      // 猶予超過後は、経路が残っていても失効と判定される。
+      clock.value = DateTime(2026, 7, 13, 9, 31);
+      expect(state.isNowRouteExpired(clock.value), isTrue);
     });
 
     test('照会中にバックグラウンド滞在で失効すると、完了しても結果を表示しない', () async {
@@ -243,6 +277,28 @@ void main() {
       expect(state.departure.dateOffset, 1);
     });
   });
+}
+
+/// `failNext` が true の呼び出しだけ例外を投げる RouteService（再検索失敗の再現）。
+class _FlakyRouteService implements RouteService {
+  _FlakyRouteService(this.result);
+  final RoutePlan result;
+  bool failNext = false;
+
+  @override
+  Future<RoutePlan> plan({
+    required String? destination,
+    required GeoPoint? destinationLatLng,
+    required TimeValue departure,
+    required TimeValue arrival,
+    GeoPoint? origin,
+    String? originName,
+    void Function(RoutePhase)? onProgress,
+    CancellationToken? cancellation,
+  }) async {
+    if (failNext) throw const RouteException('fail');
+    return result;
+  }
 }
 
 /// 可変の現在時刻。`now` を [nowProvider] へ渡し、`value` を書き換えて時間を進める。
