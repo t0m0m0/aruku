@@ -459,6 +459,28 @@ void main() {
         isTrue,
       );
     });
+
+    test('複数 base に広げても guidance/plan 照会は増えない（増分APIコストゼロ）', () async {
+      // base 拡張とハイブリッド生成は取得済み options と Google マトリクスだけで完結し、
+      // 新規 transit 照会を発行しない。ファミリ2種でも guidance/plan は「本命1回＋採用候補の
+      // 実発車時刻検証1回」＝2回に収まる。base 数に比例して照会が増える素朴実装なら3回以上。
+      final log = <Uri>[];
+      final svc = _service(
+        _mock(transit: _guidance([familyA(), familyB()]), log: log),
+      );
+      await svc.plan(
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 40),
+        origin: o,
+        originName: '出発',
+      );
+      final guidanceCalls = log
+          .where((u) => u.path.contains('guidance/plan'))
+          .length;
+      expect(guidanceCalls, lessThanOrEqualTo(2));
+    });
   });
 
   group('plan: 崩壊判定の測定基準（#137 指摘2）', () {
