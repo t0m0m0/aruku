@@ -325,6 +325,31 @@ void main() {
       expect(state.departure.m, 25);
     });
 
+    test('出発を固定へ変えても、残った now 経路は復帰時に経路メタデータ基準で失効させる', () async {
+      final s = setup(DateTime(2026, 7, 13, 9, 25));
+      final notifier = s.container.read(appStateProvider.notifier);
+      await notifier.startSearch();
+      // now 経路を表示したまま、フォームだけ固定出発へ変える（リルート後に起こり得る
+      // 「now 経路 + isNow=false フォーム」の乖離を再現）。
+      notifier.applyPickedTime(
+        mode: PickerMode.depart,
+        h: 9,
+        m: 0,
+        dateOffset: 1,
+      );
+      final mid = s.container.read(appStateProvider);
+      expect(mid.departure.isNow, isFalse);
+      expect(mid.routeAsOf, isNotNull);
+
+      // 猶予超過後の復帰。フォームは固定でも、経路メタデータ基準で失効させる。
+      s.clock.value = DateTime(2026, 7, 13, 9, 31);
+      notifier.onAppResumed();
+
+      final state = s.container.read(appStateProvider);
+      expect(state.screen, Screen.home);
+      expect(state.route, isNull);
+    });
+
     test('照会中にバックグラウンド滞在で失効すると、完了しても結果を表示しない', () async {
       final gate = Completer<void>();
       final s = setup(DateTime(2026, 7, 13, 9, 25), gate: gate);

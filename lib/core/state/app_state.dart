@@ -898,12 +898,15 @@ class AppNotifier extends Notifier<AppState> {
     go(Screen.nav);
   }
 
-  /// アプリがフォアグラウンド復帰したときに isNow の時刻を再検証する（#264）。
+  /// アプリがフォアグラウンド復帰したときに now 経路の時刻を再検証する（#264）。
   /// 結果表示中・ホーム退避中の失効経路は無効化して再検索を促す（メモリに残った失効
   /// 経路を掃除し、ホームの出発時刻の追従も回復させる）。ナビ中は歩行を中断させない
   /// ため無効化しない。経路を表示中は前提時刻とズレるため出発を書き換えない。
+  ///
+  /// 失効判定は routeAsOf（経路メタデータ）に依存する [isNowRouteExpired] に委ね、現在の
+  /// 出発フォームでは分岐しない。固定出発から始めたナビのリルート経路（now 基準）も、
+  /// フォームが isNow=false のまま失効させられるようにするため。
   void onAppResumed() {
-    if (!state.departure.isNow) return;
     final now = _now();
     final onExpirableScreen =
         state.screen == Screen.result || state.screen == Screen.home;
