@@ -79,6 +79,12 @@ class TransitRouteService implements SearchEngine {
   /// 余りが残っていたため引き上げた。
   static const int _maxCorridorStops = 60;
 
+  /// ハイブリッドの土台に据える路線ファミリ base の本数上限（#292）。単一最速1本では
+  /// 別路線コリドー由来の徒歩多め候補が原理的に生成されない（限界2）ため、routeName 集合の
+  /// 異なる代表を最大この本数だけ土台にする。増やすほど候補が多様化するが、`_maxEnrichAttempts`
+  /// の実測試行を食い合い収束前に最短へ縮退する退行（限界3）が起きやすくなるため小さく抑える。
+  static const int _maxHybridBases = 3;
+
   @override
   Future<RoutePlan> plan({
     required String? destination,
@@ -153,18 +159,30 @@ class TransitRouteService implements SearchEngine {
       _diag.log(() => 'standard: ${_diag.candLine(c, budgetMin, departureAt)}');
     }
 
-    final base = _baseForHybrid(options);
-    if (base != null) {
-      candidates.addAll(
-        await _buildCorridorHybrids(
-          base,
+    // 単一最速ではなく路線ファミリの異なる複数 base を土台にする（#292・限界2）。増分 API
+    // コストはゼロ（取得済み options を追加で使うだけ）。base ごとのハイブリッドは構造
+    // フィンガープリント（[_hybridKey]）でマージ重複除去し、多様化が実測試行を食い合って
+    // 最短へ縮退する退行（限界3）を抑える。`measured` は base 間で共有し同一レッグの再計測を畳む。
+    final bases = _basesForHybrid(options);
+    // 崩壊時の board-search は単一 base を土台にする（#137）。先頭は総所要最小＝従来の
+    // [_baseForHybrid] と一致するため、崩壊フォールバックの挙動は #292 前と変わらない。
+    final base = bases.isEmpty ? null : bases.first;
+    if (bases.isNotEmpty) {
+      _diag.log(() => 'hybrid bases: ${bases.length}家系');
+      final seen = <String>{};
+      for (final b in bases) {
+        final hybrids = await _buildCorridorHybrids(
+          b,
           origin,
           goal,
           budgetMin,
           departureAt,
           measured,
-        ),
-      );
+        );
+        for (final h in hybrids) {
+          if (seen.add(_hybridKey(h))) candidates.add(h);
+        }
+      }
     } else {
       _diag.log(() => 'no base route (corridor<2); all-walk only');
       await _measureAccessWalks(origin, goal, const [], const [], measured);
@@ -1197,6 +1215,63 @@ class TransitRouteService implements SearchEngine {
     }
     return best;
   }
+
+  /// ハイブリッドの土台に据える「路線ファミリの異なる代表 base」群（#292）。単一最速1本
+  /// （[_baseForHybrid]）では別路線コリドー由来の徒歩多め候補が原理的に生成されない（限界2）。
+  /// baseline の option 群を routeName 集合（[_routeFamilyKey]）でフィンガープリントして
+  /// ファミリごとにまとめ、各ファミリの代表を最大 [_maxHybridBases] 本返す。**増分 API コストは
+  /// ゼロ**——既に取得済みの単一 `/guidance/plan` レスポンスの option を追加で土台にするだけで、
+  /// 新規照会は発行しない（#288 §4：素材は1回の照会に既に入っている）。
+  ///
+  /// ファミリ内の代表は現行の総所要 `minutes` 最小を踏襲する（限界1＝目的関数が徒歩 km か min かは
+  /// 本 issue のスコープ外・#288）。ファミリ間の順序も総所要昇順にするため、**先頭は
+  /// [_baseForHybrid] の単一最速 base に一致し、単一ファミリのときは挙動が変わらない**。
+  /// バス除外・コリドー2点未満除外のガードは [_baseForHybrid] と同一（main path は電車のみ）。
+  List<TransitOption> _basesForHybrid(List<TransitOption> options) {
+    final repByFamily = <String, TransitOption>{};
+    final minByFamily = <String, int>{};
+    for (final o in options) {
+      if (o.corridors.every((c) => c.coords.length < 2)) continue;
+      if (o.segments.any((s) => s.type == SegmentType.bus)) continue;
+      final key = _routeFamilyKey(o);
+      final min = o.segments.fold(0, (a, s) => a + s.minutes);
+      if (!minByFamily.containsKey(key) || min < minByFamily[key]!) {
+        repByFamily[key] = o;
+        minByFamily[key] = min;
+      }
+    }
+    final families = repByFamily.keys.toList()
+      ..sort((a, b) => minByFamily[a]!.compareTo(minByFamily[b]!));
+    return [for (final k in families.take(_maxHybridBases)) repByFamily[k]!];
+  }
+
+  /// option を路線ファミリへ要約するフィンガープリント（#292）。transit 区間（電車・バス）の
+  /// 路線名の集合（順不同・重複除去・ソート）で表す。同じ路線集合を通る option（捕まえる便
+  /// だけが違う等）は同一ファミリとして1本に畳み、別路線を経由する option だけを別 base に
+  /// する。素朴な「時間で上位N本」だと同一ファミリの重複を掴むだけで多様性が増えない（#288）。
+  String _routeFamilyKey(TransitOption o) {
+    final lines = <String>{
+      for (final s in o.segments)
+        if (s.type == SegmentType.train || s.type == SegmentType.bus)
+          s.line ?? '',
+    }.toList()..sort();
+    return lines.join('|');
+  }
+
+  /// ハイブリッド候補を構造フィンガープリントへ要約し、複数 base 由来の同一候補を
+  /// マージ時に重複除去する（#292）。乗降駅名は生成時点では空のことがあるため、区間の
+  /// 種別・路線名と polyline 端点（5桁丸め）で表す——同じコリドー区間を同じ乗降座標で
+  /// 通る候補は同一とみなす。座標丸めは徒歩レッグキャッシュ（[_walkCacheKey]）と同じ精度。
+  String _hybridKey(RouteCandidate c) => [
+    for (final s in c.segments)
+      '${s.type.name}:${s.line ?? ''}:'
+          '${_coordKey(s.polyline.isNotEmpty ? s.polyline.first : null)}>'
+          '${_coordKey(s.polyline.isNotEmpty ? s.polyline.last : null)}',
+  ].join('|');
+
+  String _coordKey(GeoPoint? p) => p == null
+      ? '-'
+      : '${p.lat.toStringAsFixed(5)},${p.lng.toStringAsFixed(5)}';
 
   /// [base] の全コリドー座標を origin→goal 方向に連結し、乗車駅候補（[_CorridorStop]）へ
   /// 変換する。gtfsShape は頂点が密なため均等間引きで [_maxCorridorStops] 以下へ絞る（§2.5）。
