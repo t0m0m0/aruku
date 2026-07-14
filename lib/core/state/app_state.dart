@@ -733,13 +733,10 @@ class AppNotifier extends Notifier<AppState> {
             cancellation: cancellation,
           );
       if (_isRerouteStale(generation)) return;
-      // 差し替えた経路の失効基準を更新する（#264）。固定出発（isNow=false）は時間経過で
-      // 失効しないため routeAsOf は付けない（付けると router が固定経路を弾き始める）。
-      state = state.copyWith(
-        route: plan,
-        routeAsOf: state.departure.isNow ? now : null,
-        isRerouting: false,
-      );
+      // リルートは常に isNow:true で引き直す（歩行中＝今出発）。差し替えた経路は元の
+      // フォームが固定出発でも now 基準なので、失効基準 routeAsOf を必ず更新する。
+      // これを付けないと、ナビ離脱後に古い now リルートが失効せず再入場できてしまう（#264）。
+      state = state.copyWith(route: plan, routeAsOf: now, isRerouting: false);
       // 新しい経路のポリラインは旧経路と別物なので、直前の累積距離は無効。
       _lastDistanceAlongMeters = null;
     } catch (_) {

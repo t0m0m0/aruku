@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:aruku/core/models/geo_point.dart';
+import 'package:aruku/core/models/location_state.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/cancellation.dart';
+import 'package:aruku/core/services/location_service.dart';
 import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
@@ -360,6 +362,46 @@ void main() {
       expect(state.route, sampleRoutePlan);
     });
 
+    test('固定出発から始めても、リルート後の経路は now 基準として routeAsOf を持つ', () async {
+      final controller = StreamController<GeoPoint>.broadcast();
+      final clock = _Clock(DateTime(2026, 7, 13, 9, 25));
+      final route = _RecordingRouteService(sampleRoutePlan);
+      final container = ProviderContainer(
+        overrides: [
+          nowProvider.overrideWithValue(clock.now),
+          routeServiceProvider.overrideWithValue(route),
+          onboardingCompletedProvider.overrideWithValue(true),
+          locationServiceProvider.overrideWithValue(
+            _StreamLocationService(controller),
+          ),
+        ],
+      );
+      addTearDown(controller.close);
+      addTearDown(container.dispose);
+      final notifier = container.read(appStateProvider.notifier);
+
+      // 固定出発で検索 → 初期経路は now 基準でないため routeAsOf は付かない。
+      notifier.applyPickedTime(
+        mode: PickerMode.depart,
+        h: 9,
+        m: 0,
+        dateOffset: 1,
+      );
+      await notifier.startSearch();
+      expect(container.read(appStateProvider).routeAsOf, isNull);
+
+      notifier.go(Screen.nav);
+      // 経路から外れ続けてリルート（isNow:true で引き直し）を発火させる。
+      for (var i = 0; i < 3; i++) {
+        controller.add(const GeoPoint(35.69, 139.85));
+        await Future<void>.delayed(Duration.zero);
+      }
+      await Future<void>.delayed(Duration.zero);
+
+      // 差し替え後の経路は now 基準なので、失効判定の対象として routeAsOf を持つ。
+      expect(container.read(appStateProvider).routeAsOf, isNotNull);
+    });
+
     test('将来の固定出発（isNow=false）は時間が経過しても失効しない', () async {
       final s = setup(DateTime(2026, 7, 13, 9, 25));
       final notifier = s.container.read(appStateProvider.notifier);
@@ -408,6 +450,18 @@ class _FlakyRouteService implements RouteService {
     if (failNext) throw const RouteException('fail');
     return result;
   }
+}
+
+/// 位置ストリームを外部制御できる LocationService（リルート発火の再現用）。
+class _StreamLocationService implements LocationService {
+  _StreamLocationService(this._controller);
+  final StreamController<GeoPoint> _controller;
+
+  @override
+  Future<LocationState> request() async => const LocationDenied();
+
+  @override
+  Stream<GeoPoint> positionStream() => _controller.stream;
 }
 
 /// 可変の現在時刻。`now` を [nowProvider] へ渡し、`value` を書き換えて時間を進める。
