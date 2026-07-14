@@ -159,10 +159,12 @@ class AppState {
 
   /// isNow 経路が失効しているか。結果の到着時刻と実 ETA が乖離する境界を [now] で判定
   /// する。router の redirect と notifier の両方が同じ判定を共有するため純粋関数にする。
-  /// 固定出発（isNow=false）は時間経過で意味が変わらないため、routeAsOf の有無に関わらず
-  /// 失効しない（判定をここで閉じ、routeAsOf の設定漏れ・誤設定に耐える）。
+  ///
+  /// 判定は [routeAsOf]（＝経路そのもののメタデータ）だけに依存し、現在の入力フォーム
+  /// ([departure]) は見ない。routeAsOf は「now 基準で確定した経路」にのみ設定する不変条件
+  /// を保つ（固定出発の検索・リルートでは null）。フォームを見ると、now 経路を残したまま
+  /// 出発を固定へ変えた後などに、保持中の now 経路が失効判定から外れてしまう。
   bool isNowRouteExpired(DateTime now) =>
-      departure.isNow &&
       route != null &&
       routeAsOf != null &&
       now.difference(routeAsOf!) >= kRouteFreshness;

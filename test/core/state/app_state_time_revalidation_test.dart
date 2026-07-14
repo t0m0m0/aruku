@@ -238,15 +238,58 @@ void main() {
       expect(state.departure.m, 25);
     });
 
-    test('固定出発（isNow=false）の経路は routeAsOf があっても失効しない', () {
-      final state = AppState.initial.copyWith(
-        departure: const TimeValue(h: 9, m: 0, dateOffset: 1),
-        arrival: const TimeValue(h: 10, m: 0, dateOffset: 1),
-        route: sampleRoutePlan,
-        routeAsOf: DateTime(2026, 7, 13, 9, 0),
+    test('固定出発の検索は routeAsOf を持たず、時間が経過しても失効しない', () async {
+      final s = setup(DateTime(2026, 7, 13, 9, 25));
+      final notifier = s.container.read(appStateProvider.notifier);
+      notifier.applyPickedTime(
+        mode: PickerMode.depart,
+        h: 9,
+        m: 0,
+        dateOffset: 1,
       );
-      // 5分どころか終日経過しても、固定出発は時間経過で失効しない。
+      await notifier.startSearch();
+
+      final state = s.container.read(appStateProvider);
+      expect(state.routeAsOf, isNull);
+      // 終日経過しても固定出発は失効しない（routeAsOf が無い）。
       expect(state.isNowRouteExpired(DateTime(2026, 7, 13, 23, 59)), isFalse);
+    });
+
+    test('now 経路を残したまま出発を固定へ変え、再検索が失敗しても now 経路は失効判定され続ける', () async {
+      final clock = _Clock(DateTime(2026, 7, 13, 9, 25));
+      final route = _FlakyRouteService(sampleRoutePlan);
+      final container = ProviderContainer(
+        overrides: [
+          nowProvider.overrideWithValue(clock.now),
+          routeServiceProvider.overrideWithValue(route),
+          onboardingCompletedProvider.overrideWithValue(true),
+        ],
+      );
+      addTearDown(container.dispose);
+      final notifier = container.read(appStateProvider.notifier);
+
+      // isNow で検索して now 経路を確定（routeAsOf 付き）。
+      await notifier.startSearch();
+      expect(container.read(appStateProvider).routeAsOf, isNotNull);
+
+      // ホームへ退避し、出発を固定時刻へ変更（フォームは isNow=false になる）。
+      notifier.go(Screen.home);
+      notifier.applyPickedTime(
+        mode: PickerMode.depart,
+        h: 9,
+        m: 0,
+        dateOffset: 1,
+      );
+      // 再検索は失敗。旧 now 経路と routeAsOf はそのまま残る。
+      route.failNext = true;
+      await notifier.startSearch();
+      final state = container.read(appStateProvider);
+      expect(state.route, sampleRoutePlan);
+      expect(state.departure.isNow, isFalse);
+
+      // フォームが固定に変わっても、残った now 経路は経路メタデータ基準で失効する。
+      clock.value = DateTime(2026, 7, 13, 9, 31);
+      expect(state.isNowRouteExpired(clock.value), isTrue);
     });
 
     test('照会中にバックグラウンド滞在で失効すると、完了しても結果を表示しない', () async {
