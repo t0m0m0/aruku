@@ -344,6 +344,123 @@ void main() {
     });
   });
 
+  group('plan: 複数ファミリ base のハイブリッド生成 (#292)', () {
+    // 1回の guidance/plan レスポンスに路線ファミリを2種入れる。
+    // ・ファミリA「特急線」= 総所要最小の単一 base。コリドー2点[近origin, 近goal]で
+    //   途中乗車の余地がなく、生成できるハイブリッドの徒歩は access+egress の ~4分止まり。
+    // ・ファミリB「各停線」= やや遅い。コリドー3点[近origin, 中間, 近goal]。中間で降りて
+    //   goal まで歩くと徒歩82分・実到着 ~88分（予算100分内）。
+    // 単一最速 base（=A）だけを土台にすると B のコリドー由来ハイブリッドは原理的に
+    // 生成されず、徒歩は A の ~4分へ縮退する。複数 base に拡張して初めて B の徒歩82分
+    // 候補がプールに入り選定対象になる。全徒歩(114分)は予算外なので勝てない。
+    const o = GeoPoint(35.0, 139.000);
+    const g = GeoPoint(35.0, 139.100);
+
+    // 09:03発。勝者(B0→B1)の乗車座標到達は 09:02（前半徒歩2分）なので、実発車時刻検証
+    // （approach A）で dep >= boardAt を満たし、時刻なし電車の幽霊便除外に掛からない。
+    Map<String, dynamic> familyA() => {
+      'journey': {
+        'departureSecs': 32580, // 09:03
+        'arrivalSecs': 32880, // 09:08
+        'durationSecs': 32880 - 32580 + 240,
+        'accessWalkSecs': 120, // origin->139.002 ≒ 2分
+        'egressWalkSecs': 120, // 139.098->goal ≒ 2分
+        'legs': [
+          _railLeg(
+            route: '特急線',
+            fromId: 'a:board',
+            fromName: 'A乗車',
+            toId: 'a:alight',
+            toName: 'A降車',
+            dep: 32580,
+            arr: 32880,
+          ),
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('walk', 'origin', 'a:board', 'osmWalk', const [
+            [35.0, 139.000],
+            [35.0, 139.002],
+          ]),
+          _mapSeg('transit', 'a:board', 'a:alight', 'stopOrder', const [
+            [35.0, 139.002],
+            [35.0, 139.098],
+          ]),
+          _mapSeg('walk', 'a:alight', 'destination', 'estimatedWalk', const [
+            [35.0, 139.098],
+            [35.0, 139.100],
+          ]),
+        ],
+      },
+    };
+
+    Map<String, dynamic> familyB() => {
+      'journey': {
+        'departureSecs': 32580, // 09:03
+        'arrivalSecs': 33480, // 09:18（Aより遅い＝base 順は A→B）
+        'durationSecs': 33480 - 32580 + 240,
+        'accessWalkSecs': 120,
+        'egressWalkSecs': 120,
+        'legs': [
+          _railLeg(
+            route: '各停線',
+            fromId: 'b:board',
+            fromName: 'B乗車',
+            toId: 'b:alight',
+            toName: 'B降車',
+            dep: 32580,
+            arr: 33480,
+          ),
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('walk', 'origin', 'b:board', 'osmWalk', const [
+            [35.0, 139.000],
+            [35.0, 139.002],
+          ]),
+          _mapSeg('transit', 'b:board', 'b:alight', 'stopOrder', const [
+            [35.0, 139.002],
+            [35.0, 139.030],
+            [35.0, 139.098],
+          ]),
+          _mapSeg('walk', 'b:alight', 'destination', 'estimatedWalk', const [
+            [35.0, 139.098],
+            [35.0, 139.100],
+          ]),
+        ],
+      },
+    };
+
+    test('別路線ファミリのコリドー由来の徒歩多め候補が選ばれる', () async {
+      final svc = _service(_mock(transit: _guidance([familyA(), familyB()])));
+      final plan = await svc.plan(
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 40), // 予算100分
+        origin: o,
+        originName: '出発',
+      );
+      final walkMin = plan.segments
+          .where((s) => s.type == SegmentType.walk)
+          .fold<int>(0, (a, s) => a + s.minutes);
+      // ファミリA単独では ~4分が上限。B のコリドーを土台にして初めて到達できる徒歩量。
+      expect(walkMin, greaterThan(40));
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+      // 勝者の電車区間がファミリB由来（各停線）であること＝B のコリドーから生成された証拠。
+      expect(
+        plan.segments.any(
+          (s) => s.type == SegmentType.train && s.line == '各停線',
+        ),
+        isTrue,
+      );
+    });
+  });
+
   group('plan: 崩壊判定の測定基準（#137 指摘2）', () {
     // 標準乗換の徒歩(access+egress)を guidance は小さく見積もるが、Google 実街路は
     // 大きく出る（街路は直線の下限を上回る）。崩壊判定（_isCollapse）が enrich 後の
