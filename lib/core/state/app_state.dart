@@ -822,14 +822,14 @@ class AppNotifier extends Notifier<AppState> {
     // 古い通信を放置せず切る。新しいトークンを採番して plan へ通す（#259）。
     _activeCancellation?.cancel();
     final cancellation = _activeCancellation = CancellationToken();
-    // isNow 出発は起動時刻のまま腐るため、照会直前に現在時刻へ更新する（#264）。
-    // 到着も予算幅を保って追従させ、plan() には更新後の時刻を渡す。
+    // isNow 出発は起動時刻のまま腐るため、照会直前に現在時刻へ更新する（#264）。到着も
+    // 予算幅を保って追従させ、plan() には更新後の時刻を渡す。ただし state への確定は
+    // 成功時まで遅らせる。失敗して旧経路を残す場合に、ヘッダー（出発）だけ新時刻へ動いて
+    // 旧経路のタイムラインとズレるのを防ぐため。
     final now = _now();
     final refreshed = _refreshedNowTimes(state, now);
     state = state.copyWith(
       screen: Screen.loading,
-      departure: refreshed.departure,
-      arrival: refreshed.arrival,
       routeErrorKind: null,
       routePhase: RoutePhase.routing,
     );
@@ -845,8 +845,8 @@ class AppNotifier extends Notifier<AppState> {
           .plan(
             destination: state.destination,
             destinationLatLng: state.destinationLatLng,
-            departure: state.departure,
-            arrival: state.arrival,
+            departure: refreshed.departure,
+            arrival: refreshed.arrival,
             origin: origin,
             originName: state.departureNameForRoute,
             cancellation: cancellation,
@@ -864,18 +864,22 @@ class AppNotifier extends Notifier<AppState> {
         _expireRoute(_now());
         return;
       }
-      // isNow 経路のみ失効判定の基準時刻を持つ。固定出発は時間経過で腐らない（#264）。
+      // 成功時に出発/到着/経路/失効基準をまとめて確定する。isNow 経路のみ routeAsOf を
+      // 持つ（固定出発は時間経過で腐らないため null）。
       state = state.copyWith(
         screen: Screen.result,
         route: plan,
         routeAsOf: refreshed.departure.isNow ? now : null,
+        departure: refreshed.departure,
+        arrival: refreshed.arrival,
         routeErrorKind: null,
         routePhase: null,
       );
     } catch (e) {
       if (generation != _searchGeneration || _disposed) return;
-      // 失敗時は旧経路と routeAsOf をそのまま残す。routeAsOf を消すと旧経路が失効判定
-      // 対象から外れ、redirect が /home/result・/home/nav を admit し続けてしまう（#264）。
+      // 失敗時は出発/到着も旧経路も routeAsOf も触らない。出発を確定していないので、
+      // 旧経路を残してもヘッダーとタイムラインの前提時刻は一致したまま。routeAsOf を
+      // 消すと旧経路が失効判定から外れ redirect が admit し続けるため残す（#264）。
       state = state.copyWith(
         screen: Screen.error,
         routeErrorKind: classifyRouteError(e),

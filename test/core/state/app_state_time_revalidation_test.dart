@@ -292,6 +292,37 @@ void main() {
       expect(state.isNowRouteExpired(clock.value), isTrue);
     });
 
+    test('猶予内の再検索が失敗しても、出発ヘッダーは旧経路の前提時刻に一致し続ける', () async {
+      final clock = _Clock(DateTime(2026, 7, 13, 9, 25));
+      final route = _FlakyRouteService(sampleRoutePlan);
+      final container = ProviderContainer(
+        overrides: [
+          nowProvider.overrideWithValue(clock.now),
+          routeServiceProvider.overrideWithValue(route),
+          onboardingCompletedProvider.overrideWithValue(true),
+        ],
+      );
+      addTearDown(container.dispose);
+      final notifier = container.read(appStateProvider.notifier);
+
+      // 9:25 の isNow 検索が成功。出発 9:25 で経路確定。
+      await notifier.startSearch();
+      expect(container.read(appStateProvider).departure.m, 25);
+      notifier.go(Screen.home);
+
+      // 9:27 に再検索するが失敗。旧経路（9:25 前提）を残す。
+      clock.value = DateTime(2026, 7, 13, 9, 27);
+      route.failNext = true;
+      await notifier.startSearch();
+
+      final state = container.read(appStateProvider);
+      expect(state.screen, Screen.error);
+      expect(state.route, sampleRoutePlan);
+      // 出発は確定していないので 9:25 のまま。旧経路のタイムラインとズレない。
+      expect(state.departure.h, 9);
+      expect(state.departure.m, 25);
+    });
+
     test('照会中にバックグラウンド滞在で失効すると、完了しても結果を表示しない', () async {
       final gate = Completer<void>();
       final s = setup(DateTime(2026, 7, 13, 9, 25), gate: gate);
