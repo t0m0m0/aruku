@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
 import 'package:http/http.dart' as http;
 
@@ -170,7 +171,7 @@ class TransitRouteService implements SearchEngine {
     // コストはゼロ（取得済み options を追加で使うだけ）。base ごとのハイブリッドは構造
     // フィンガープリント（[_hybridKey]）でマージ重複除去し、多様化が実測試行を食い合って
     // 最短へ縮退する退行（限界3）を抑える。`measured` は base 間で共有し同一レッグの再計測を畳む。
-    final bases = _basesForHybrid(options);
+    final bases = basesForHybrid(options);
     // 崩壊時の board-search は単一 base を土台にする（#137）。先頭は総所要最小＝従来の
     // [_baseForHybrid] と一致するため、崩壊フォールバックの挙動は #292 前と変わらない。
     final base = bases.isEmpty ? null : bases.first;
@@ -1252,26 +1253,29 @@ class TransitRouteService implements SearchEngine {
   /// 新規照会は発行しない（#288 §4：素材は1回の照会に既に入っている）。
   ///
   /// ファミリ内の代表は現行の総所要 `minutes` 最小を踏襲する（限界1＝目的関数が徒歩 km か min かは
-  /// 本 issue のスコープ外・#288）。ファミリ間の順序は総所要昇順、**同所要は options の出現順**を
+  /// 本 issue のスコープ外・#288）。ファミリ間の順序は総所要昇順、**同所要は代表 option の出現順**を
   /// タイブレークにする——[List.sort] は等価な相異要素の順序を保証しないため、これを入れないと
   /// 同所要のファミリで [bases].first が [_baseForHybrid]（出現順で最初の最短を採る）と食い違い、
-  /// 崩壊時 board-search の基準コリドーが #292 前と変わってしまう（Codex 指摘）。この順序保証で
+  /// 崩壊時 board-search の基準コリドーが #292 前と変わってしまう（Codex 指摘）。タイブレークは
+  /// ファミリの初出位置ではなく**代表（最短）option の位置**で行う——初出位置だと `A(20m),B(10m),
+  /// A(10m)` で `_baseForHybrid` が B を採るのに A が先に来てしまう（Codex 指摘）。この順序保証で
   /// **先頭は [_baseForHybrid] の単一最速 base に一致し、単一ファミリのときは挙動が変わらない**。
   /// バス除外・コリドー2点未満除外のガードは [_baseForHybrid] と同一（main path は電車のみ）。
-  List<TransitOption> _basesForHybrid(List<TransitOption> options) {
+  @visibleForTesting
+  List<TransitOption> basesForHybrid(List<TransitOption> options) {
     final repByFamily = <String, TransitOption>{};
     final minByFamily = <String, int>{};
-    final orderByFamily = <String, int>{};
+    final repIndexByFamily = <String, int>{};
     for (var i = 0; i < options.length; i++) {
       final o = options[i];
       if (o.corridors.every((c) => c.coords.length < 2)) continue;
       if (o.segments.any((s) => s.type == SegmentType.bus)) continue;
       final key = _routeFamilyKey(o);
       final min = o.segments.fold(0, (a, s) => a + s.minutes);
-      orderByFamily.putIfAbsent(key, () => i);
       if (!minByFamily.containsKey(key) || min < minByFamily[key]!) {
         repByFamily[key] = o;
         minByFamily[key] = min;
+        repIndexByFamily[key] = i;
       }
     }
     final families = repByFamily.keys.toList()
@@ -1279,7 +1283,7 @@ class TransitRouteService implements SearchEngine {
         final byMin = minByFamily[a]!.compareTo(minByFamily[b]!);
         return byMin != 0
             ? byMin
-            : orderByFamily[a]!.compareTo(orderByFamily[b]!);
+            : repIndexByFamily[a]!.compareTo(repIndexByFamily[b]!);
       });
     return [for (final k in families.take(_maxHybridBases)) repByFamily[k]!];
   }

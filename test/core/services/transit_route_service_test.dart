@@ -9,6 +9,7 @@ import 'package:aruku/core/services/hybrid_route_selector.dart'
 import 'package:aruku/core/services/route_plan_builder.dart'
     show walkMetersPerMinute, trainMetersPerMinute, firstMissedTransit;
 import 'package:aruku/core/services/route_service.dart';
+import 'package:aruku/core/services/transit_plan_parser.dart';
 import 'package:aruku/core/services/transit_route_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -547,6 +548,73 @@ void main() {
           .fold<int>(0, (a, s) => a + s.minutes);
       expect(walkMin, greaterThan(40));
       expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+    });
+  });
+
+  group('basesForHybrid: 路線ファミリ別 base 選定 (#292)', () {
+    // 電車1本＋2点コリドーの最小 option。line がファミリ、minutes が総所要を決める。
+    TransitOption opt(String line, int minutes) {
+      const coords = [GeoPoint(35.0, 139.0), GeoPoint(35.0, 139.01)];
+      return TransitOption(
+        from: '出発',
+        to: '目的',
+        segments: [
+          RouteSegment(
+            type: SegmentType.train,
+            fromName: '',
+            toName: '',
+            minutes: minutes,
+            line: line,
+            polyline: coords,
+          ),
+        ],
+        corridors: const [
+          TransitCorridor(
+            legIndex: 0,
+            geometrySource: 'stopOrder',
+            coords: coords,
+          ),
+        ],
+      );
+    }
+
+    List<String?> lines(List<TransitOption> os) =>
+        os.map((o) => o.segments.first.line).toList();
+
+    test('同所要のタイブレークは代表(最短)option の出現順に従う', () {
+      final svc = _service(_mock(transit: _guidance(const [])));
+      // A(20分), B(10分), A(10分)。_baseForHybrid は最短10分の初出=B を採る。
+      // 素朴に「ファミリ初出位置」でタイブレークすると A(初出index0) が先に来てしまう。
+      // 代表(最短)option の位置で比べれば B(index1) < A の代表(index2) で B が先。
+      final bases = svc.basesForHybrid([
+        opt('A', 20),
+        opt('B', 10),
+        opt('A', 10),
+      ]);
+      expect(lines(bases), ['B', 'A']);
+      // ファミリ A の代表は 20分の初出ではなく 10分の option。
+      expect(bases[1].segments.first.minutes, 10);
+    });
+
+    test('先頭は総所要最小のファミリ（単一ファミリ時は1本）', () {
+      final svc = _service(_mock(transit: _guidance(const [])));
+      expect(lines(svc.basesForHybrid([opt('A', 30), opt('B', 12)])), [
+        'B',
+        'A',
+      ]);
+      expect(lines(svc.basesForHybrid([opt('A', 30), opt('A', 12)])), ['A']);
+    });
+
+    test('ファミリ数が上限を超えたら総所要の小さい代表から選ぶ', () {
+      final svc = _service(_mock(transit: _guidance(const [])));
+      final bases = svc.basesForHybrid([
+        opt('A', 40),
+        opt('B', 10),
+        opt('C', 20),
+        opt('D', 30),
+      ]);
+      // 上限3本。総所要昇順で B(10),C(20),D(30) を採り A(40) は落とす。
+      expect(lines(bases), ['B', 'C', 'D']);
     });
   });
 
