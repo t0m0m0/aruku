@@ -214,6 +214,41 @@ void main() {
       expect(state.isNowRouteExpired(clock.value), isTrue);
     });
 
+    test('照会中の復帰では出発を書き換えず、猶予内完了で表示と経路の前提時刻が一致する', () async {
+      final gate = Completer<void>();
+      final s = setup(DateTime(2026, 7, 13, 9, 25), gate: gate);
+      final notifier = s.container.read(appStateProvider.notifier);
+
+      final search = notifier.startSearch();
+      await Future<void>.delayed(Duration.zero);
+      expect(s.container.read(appStateProvider).screen, Screen.loading);
+
+      // 猶予内（2分後）に復帰。in-flight の plan は 9:25 の前提で進行中なので、
+      // ここで出発を 9:27 へ書き換えるとタイムラインとヘッダーがズレる。
+      s.clock.value = DateTime(2026, 7, 13, 9, 27);
+      notifier.onAppResumed();
+
+      gate.complete();
+      await search;
+
+      final state = s.container.read(appStateProvider);
+      expect(state.screen, Screen.result);
+      // 出発は検索開始時刻（9:25）のまま。復帰時刻では書き換えない。
+      expect(state.departure.h, 9);
+      expect(state.departure.m, 25);
+    });
+
+    test('固定出発（isNow=false）の経路は routeAsOf があっても失効しない', () {
+      final state = AppState.initial.copyWith(
+        departure: const TimeValue(h: 9, m: 0, dateOffset: 1),
+        arrival: const TimeValue(h: 10, m: 0, dateOffset: 1),
+        route: sampleRoutePlan,
+        routeAsOf: DateTime(2026, 7, 13, 9, 0),
+      );
+      // 5分どころか終日経過しても、固定出発は時間経過で失効しない。
+      expect(state.isNowRouteExpired(DateTime(2026, 7, 13, 23, 59)), isFalse);
+    });
+
     test('照会中にバックグラウンド滞在で失効すると、完了しても結果を表示しない', () async {
       final gate = Completer<void>();
       final s = setup(DateTime(2026, 7, 13, 9, 25), gate: gate);

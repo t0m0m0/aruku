@@ -159,7 +159,10 @@ class AppState {
 
   /// isNow 経路が失効しているか。結果の到着時刻と実 ETA が乖離する境界を [now] で判定
   /// する。router の redirect と notifier の両方が同じ判定を共有するため純粋関数にする。
+  /// 固定出発（isNow=false）は時間経過で意味が変わらないため、routeAsOf の有無に関わらず
+  /// 失効しない（判定をここで閉じ、routeAsOf の設定漏れ・誤設定に耐える）。
   bool isNowRouteExpired(DateTime now) =>
+      departure.isNow &&
       route != null &&
       routeAsOf != null &&
       now.difference(routeAsOf!) >= kRouteFreshness;
@@ -728,8 +731,13 @@ class AppNotifier extends Notifier<AppState> {
             cancellation: cancellation,
           );
       if (_isRerouteStale(generation)) return;
-      // 差し替えた経路は「今」を前提に引き直したものなので、失効基準も更新する（#264）。
-      state = state.copyWith(route: plan, routeAsOf: now, isRerouting: false);
+      // 差し替えた経路の失効基準を更新する（#264）。固定出発（isNow=false）は時間経過で
+      // 失効しないため routeAsOf は付けない（付けると router が固定経路を弾き始める）。
+      state = state.copyWith(
+        route: plan,
+        routeAsOf: state.departure.isNow ? now : null,
+        isRerouting: false,
+      );
       // 新しい経路のポリラインは旧経路と別物なので、直前の累積距離は無効。
       _lastDistanceAlongMeters = null;
     } catch (_) {
@@ -903,12 +911,18 @@ class AppNotifier extends Notifier<AppState> {
     _refreshNowDeparture();
   }
 
-  /// 表示中の経路が無い（home・loading 等）ときのみ isNow 出発を現在時刻へ追従させ、
-  /// 予算幅を保って到着も更新する（#264）。経路を表示中に書き換えると、その経路の
-  /// タイムラインが前提とする出発時刻とヘッダー表示がズレるため触らない。次の検索は
-  /// [startSearch] 冒頭で必ず現在時刻へ更新するので、表示の追従を省いても正しさは保てる。
+  /// 表示中の経路が無く、かつ検索も走っていないときだけ isNow 出発を現在時刻へ追従
+  /// させ、予算幅を保って到着も更新する（#264）。経路を表示中に書き換えるとタイムラインの
+  /// 前提時刻とヘッダーがズレる。検索中（[Screen.loading]）は in-flight の plan() が検索
+  /// 開始時刻で進行しており、ここで書き換えると完了時に同じズレが起きる（route はまだ
+  /// null なので上の条件では防げない）。次の検索は [startSearch] 冒頭で必ず現在時刻へ
+  /// 更新するので、表示の追従を省いても正しさは保てる。
   void _refreshNowDeparture() {
-    if (!state.departure.isNow || state.route != null) return;
+    if (!state.departure.isNow ||
+        state.route != null ||
+        state.screen == Screen.loading) {
+      return;
+    }
     final refreshed = _refreshedNowTimes(state, _now());
     state = state.copyWith(
       departure: refreshed.departure,
