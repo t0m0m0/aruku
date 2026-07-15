@@ -13,7 +13,7 @@
 「指定した制限時間（予算）内で最大限歩く」ルートを提示するアプリ。**運動量の最大化が主眼**で、電車は「歩きでは間に合わない区間を補う手段」。
 
 - **目的関数:** 到着時刻 ≤ 締切（予算）を**制約**に、**徒歩時間 `walkMinutes`（分）を最大化**する。
-  - タイブレーク: `walkMinutes` が同じなら**実到着が早い**候補を選ぶ。
+  - 選定順: `walkMinutes` 最大 → **実到着が早い** → **乗換回数が少ない**候補を選ぶ。
   - kcal は徒歩距離から算出（`kcal = walkKm × kcalPerKm`、`kcalPerKm = 57`）。表示用で選定には使わない。
 - **km か min か（限界1・確定済み）:** 選定は **`walkMinutes`（時間）を正**とする。[ADR-001](../adr/ADR-001-route-optimization-architecture.md) は `walkKm` と記すが、これは実装（`walkMinutes`）に合わせて修正する。
   - 理由: measure-first ではアクセス徒歩を**実測**するため、`walkMinutes` は街路追従の実所要時間になる。旧方式で `walkMinutes` を歪めていた迂回率割増（`_inflateWalk`）は撤廃されるので「クネクネして時間がかかるだけの経路」が不当に勝つ問題は起きない。
@@ -207,7 +207,7 @@ NAVITIME route_transit 照会（1回）
 
 | 関数 | 置き場所 | 契約 |
 |---|---|---|
-| `selectBestRoute(candidates, budgetMin, {origin, goal, departureAt, maxBacktrackRatio})` | hybrid_route_selector.dart | 逆戻り除外 → 予算内（実到着 ≤ budget）で `walkMinutes` 最大（同点は実到着最早）→ 予算内皆無なら今夜乗れる範囲の実到着最早。 |
+| `selectBestRoute(candidates, budgetMin, {origin, goal, departureAt, maxBacktrackRatio})` | hybrid_route_selector.dart | 逆戻り除外 → 予算内（実到着 ≤ budget）で `walkMinutes` 最大 → 実到着最早 → 乗換最少。予算内皆無なら今夜乗れる範囲の実到着最早（同点は乗換最少）。 |
 | `reachableWithinBudget(candidates, budgetMin, departureAt)` | hybrid_route_selector.dart | 乗車待ちが予算内 かつ 乗り遅れ無しの候補のみ。該当無しは null。 |
 | `maxWalkBoardingIndex({count, budgetMin, evaluate})` | hybrid_route_selector.dart | 乗車駅探索（[walk-max-board-search](../notes/walk-max-board-search.md)）。到着が index 単調増の前提で `evaluate(i) ≤ budget` の最大 index（＝総徒歩最大）を二分探索。evaluate を O(log count) 回に抑える。予算内皆無・count 0 は null。 |
 | `buildRoutePlan({from, to, segments, departure, budgetMin, departureAt})` | route_plan_builder.dart | segments → RoutePlan（totalKm/walkKm/kcal/walkRatio/totalMin/timelineNodes）。待ち時間込みの到着を計算。 |
