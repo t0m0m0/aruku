@@ -22,6 +22,13 @@ class RouteCandidate {
       .where((s) => s.type == SegmentType.walk)
       .fold(0, (a, s) => a + s.minutes);
 
+  int get transferCount {
+    final transitSegmentCount = segments
+        .where((s) => s.type != SegmentType.walk)
+        .length;
+    return transitSegmentCount == 0 ? 0 : transitSegmentCount - 1;
+  }
+
   double get totalKm => segments.fold<double>(0, (a, s) => a + (s.km ?? 0));
 
   double get walkKm => segments
@@ -32,7 +39,7 @@ class RouteCandidate {
 /// 予算内で「徒歩時間最大」の候補を選ぶ。予算内が無ければ最短（ベストエフォート）。
 ///
 /// 全徒歩・ハイブリッド・標準乗換を同一の土俵で比較するため、全徒歩が予算内なら
-/// 自然に徒歩最大として選ばれる。同徒歩なら合計の短い方を優先する。
+/// 自然に徒歩最大として選ばれる。
 ///
 /// [origin] と [goal] を渡すと、電車区間が出発地より進行方向の後方（目的地と逆）へ
 /// [maxBacktrackRatio] × 直線距離(origin→goal) を超えて戻る「逆戻り迂回」候補を
@@ -74,7 +81,10 @@ RouteCandidate selectBestRoute({
       if (a.walkMinutes != b.walkMinutes) {
         return a.walkMinutes > b.walkMinutes ? a : b;
       }
-      return arrival(a) <= arrival(b) ? a : b;
+      final arrivalA = arrival(a);
+      final arrivalB = arrival(b);
+      if (arrivalA != arrivalB) return arrivalA < arrivalB ? a : b;
+      return a.transferCount <= b.transferCount ? a : b;
     });
   }
   // 予算内が無いとき（best-effort）。departureAt 指定時は、乗車待ちが予算を超える
@@ -84,7 +94,12 @@ RouteCandidate selectBestRoute({
   final fallback = departureAt == null
       ? pool
       : reachableWithinBudget(pool, budgetMin, departureAt) ?? pool;
-  return fallback.reduce((a, b) => arrival(a) <= arrival(b) ? a : b);
+  return fallback.reduce((a, b) {
+    final arrivalA = arrival(a);
+    final arrivalB = arrival(b);
+    if (arrivalA != arrivalB) return arrivalA < arrivalB ? a : b;
+    return a.transferCount <= b.transferCount ? a : b;
+  });
 }
 
 /// best-effort 選定で「今夜乗れる」候補に絞る。次の両方を満たす候補だけを残す
