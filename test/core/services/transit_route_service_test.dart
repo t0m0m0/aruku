@@ -5,7 +5,7 @@ import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/hybrid_route_selector.dart'
-    show haversineKm;
+    show RouteCandidate, haversineKm;
 import 'package:aruku/core/services/route_plan_builder.dart'
     show walkMetersPerMinute, trainMetersPerMinute, firstMissedTransit;
 import 'package:aruku/core/services/route_service.dart';
@@ -615,6 +615,92 @@ void main() {
       ]);
       // 上限3本。総所要昇順で B(10),C(20),D(30) を採り A(40) は落とす。
       expect(lines(bases), ['B', 'C', 'D']);
+    });
+
+    // 電車1本 option（コリドー座標を指定）。空/欠落 routeName の区別検証用。
+    TransitOption optAt(String? line, int minutes, List<GeoPoint> coords) =>
+        TransitOption(
+          from: '出発',
+          to: '目的',
+          segments: [
+            RouteSegment(
+              type: SegmentType.train,
+              fromName: '',
+              toName: '',
+              minutes: minutes,
+              line: line,
+              polyline: coords,
+            ),
+          ],
+          corridors: [
+            TransitCorridor(
+              legIndex: 0,
+              geometrySource: 'stopOrder',
+              coords: coords,
+            ),
+          ],
+        );
+
+    test('空文字/欠落の routeName もコリドー形状で別ファミリに分ける', () {
+      final svc = _service(_mock(transit: _guidance(const [])));
+      const corridorA = [GeoPoint(35.0, 139.0), GeoPoint(35.0, 139.02)];
+      const corridorB = [
+        GeoPoint(35.0, 139.0),
+        GeoPoint(35.0, 139.01),
+        GeoPoint(35.0, 139.02),
+      ];
+      // 空文字を素朴に畳むと同一ファミリ化して1本へ退行する（Codex 指摘）。null も空文字も
+      // 「無名」としてコリドー形状で区別すれば、別コリドーは別 base として残る。
+      expect(
+        svc.basesForHybrid([
+          optAt('', 10, corridorA),
+          optAt('', 20, corridorB),
+        ]),
+        hasLength(2),
+      );
+      expect(
+        svc.basesForHybrid([
+          optAt(null, 10, corridorA),
+          optAt(null, 20, corridorB),
+        ]),
+        hasLength(2),
+      );
+    });
+  });
+
+  group('mergeHybrids: 予算内優先の上限マージ (#292)', () {
+    // 徒歩 [walkMin] 分の単一区間候補（polyline を [tag] で一意化し dedup キーを分ける）。
+    RouteCandidate cand(int walkMin, double tag) => RouteCandidate(
+      from: '出発',
+      to: '目的',
+      segments: [
+        RouteSegment(
+          type: SegmentType.walk,
+          fromName: '',
+          toName: '',
+          minutes: walkMin,
+          polyline: [GeoPoint(35.0, tag), GeoPoint(35.0, tag + 0.001)],
+        ),
+      ],
+    );
+
+    test('予算外の徒歩多め候補は予算内候補を締め出さない（予算内が先）', () {
+      final svc = _service(_mock(transit: _guidance(const [])));
+      // base0: 予算外(徒歩80) と 予算内(徒歩50)。base1: 予算内(徒歩40)。
+      final over = cand(80, 139.1);
+      final within1 = cand(50, 139.2);
+      final within2 = cand(40, 139.3);
+      final merged = svc.mergeHybrids(
+        [
+          [over, within1],
+          [within2],
+        ],
+        (h) => h != over, // over のみ予算外
+      );
+      // 3件すべて残るが、予算内(within1/within2)が予算外(over)より前に並ぶ。
+      expect(merged, hasLength(3));
+      expect(merged.indexOf(over), greaterThan(merged.indexOf(within1)));
+      expect(merged.indexOf(over), greaterThan(merged.indexOf(within2)));
     });
   });
 

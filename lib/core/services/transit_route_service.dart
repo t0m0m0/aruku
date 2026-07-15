@@ -191,27 +191,14 @@ class TransitRouteService implements SearchEngine {
             measured,
           ),
       ]);
-      // 各 base 内を徒歩多い順に並べ、base 間ラウンドロビンで [_maxHybridCandidates] まで拾う。
-      // 1ファミリの候補群が上限を食い尽くして他ファミリの徒歩多め候補を締め出すのを防ぐ（限界3）。
-      for (final list in built) {
-        list.sort((a, b) => b.walkMinutes.compareTo(a.walkMinutes));
-      }
-      final seen = <String>{};
-      var added = 0;
-      for (var rank = 0; added < _maxHybridCandidates; rank++) {
-        var progressed = false;
-        for (final list in built) {
-          if (rank >= list.length) continue;
-          progressed = true;
-          final h = list[rank];
-          if (seen.add(_hybridKey(h))) {
-            candidates.add(h);
-            if (++added >= _maxHybridCandidates) break;
-          }
-        }
-        if (!progressed) break;
-      }
-      _diag.log(() => 'merged hybrids: $added件（上限$_maxHybridCandidates）');
+      final merged = mergeHybrids(
+        built,
+        (h) => arrivalMinutes(h.segments, departureAt) <= budgetMin,
+      );
+      candidates.addAll(merged);
+      _diag.log(
+        () => 'merged hybrids: ${merged.length}件（上限$_maxHybridCandidates）',
+      );
     } else {
       _diag.log(() => 'no base route (corridor<2); all-walk only');
       await _measureAccessWalks(origin, goal, const [], const [], measured);
@@ -1293,16 +1280,20 @@ class TransitRouteService implements SearchEngine {
   /// だけが違う等）は同一ファミリとして1本に畳み、別路線を経由する option だけを別 base に
   /// する。素朴な「時間で上位N本」だと同一ファミリの重複を掴むだけで多様性が増えない（#288）。
   ///
-  /// 路線名を欠く leg（`routeName` 無し＝[RouteSegment.line] が null）はコリドー形状で代替する。
-  /// 空文字で畳むと、路線名の無い別コリドーが同一ファミリ扱いになって最速1本しか残らず、
-  /// 多様化が静かに単一 base へ退行してしまう（Codex 指摘）。端点だけだと同一 OD の急行・各停の
-  /// ように端点を共有し途中だけ違うコリドーを区別できないため、polyline を均等サンプルした
-  /// 座標列で表す（[_corridorFingerprintSamples] 点）。
+  /// 路線名を欠く leg はコリドー形状で代替する。路線名が空（`routeName` 無し＝
+  /// [RouteSegment.line] が null、または Transit API が `routeName: ""` を返す空文字）だと、
+  /// 全部が同じキーへ畳まれて別コリドーが同一ファミリ扱いになり最速1本しか残らず、多様化が
+  /// 静かに単一 base へ退行してしまう（Codex 指摘）。null も空文字も等しく「無名」とみなし、
+  /// コリドー形状へフォールバックする。端点だけだと同一 OD の急行・各停のように端点を共有し
+  /// 途中だけ違うコリドーを区別できないため、polyline を均等サンプルした座標列で表す
+  /// （[_corridorFingerprintSamples] 点）。
   String _routeFamilyKey(TransitOption o) {
     final keys = <String>{
       for (final s in o.segments)
         if (s.type == SegmentType.train || s.type == SegmentType.bus)
-          s.line ?? '@${_corridorFingerprint(s.polyline)}',
+          (s.line == null || s.line!.isEmpty)
+              ? '@${_corridorFingerprint(s.polyline)}'
+              : s.line!,
     }.toList()..sort();
     return keys.join('|');
   }
@@ -1330,6 +1321,46 @@ class TransitRouteService implements SearchEngine {
   String _coordKey(GeoPoint? p) => p == null
       ? '-'
       : '${p.lat.toStringAsFixed(5)},${p.lng.toStringAsFixed(5)}';
+
+  /// base ごとのハイブリッド群（[perBase]）を [_maxHybridCandidates] 本までマージ重複除去する
+  /// （#292）。[within]（見積り到着が予算内か）が true の候補を**先に**上限まで詰め、余枠にのみ
+  /// 予算外を足す。予算外の徒歩多め候補が上限を食い潰し、単一 base 時代なら選定へ渡っていた
+  /// 予算内の短めハイブリッドを締め出して標準乗換/全徒歩へ縮退させる退行を防ぐ（Codex 指摘）。
+  /// 各フェーズ内は base 間ラウンドロビン（各 base は徒歩多い順）で、1ファミリの候補群が他
+  /// ファミリを締め出さないようにする（限界3）。[_hybridKey] で同一候補を除去する。
+  @visibleForTesting
+  List<RouteCandidate> mergeHybrids(
+    List<List<RouteCandidate>> perBase,
+    bool Function(RouteCandidate) within,
+  ) {
+    final sorted = [
+      for (final list in perBase)
+        [...list]..sort((a, b) => b.walkMinutes.compareTo(a.walkMinutes)),
+    ];
+    final seen = <String>{};
+    final out = <RouteCandidate>[];
+    for (final keepWithin in const [true, false]) {
+      final phase = [
+        for (final list in sorted)
+          [
+            for (final h in list)
+              if (within(h) == keepWithin) h,
+          ],
+      ];
+      for (var rank = 0; out.length < _maxHybridCandidates; rank++) {
+        var progressed = false;
+        for (final list in phase) {
+          if (rank >= list.length) continue;
+          progressed = true;
+          if (seen.add(_hybridKey(list[rank]))) out.add(list[rank]);
+          if (out.length >= _maxHybridCandidates) break;
+        }
+        if (!progressed) break;
+      }
+      if (out.length >= _maxHybridCandidates) break;
+    }
+    return out;
+  }
 
   /// [base] の全コリドー座標を origin→goal 方向に連結し、乗車駅候補（[_CorridorStop]）へ
   /// 変換する。gtfsShape は頂点が密なため均等間引きで [_maxCorridorStops] 以下へ絞る（§2.5）。
