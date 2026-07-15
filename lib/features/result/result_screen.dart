@@ -10,10 +10,13 @@ import '../../core/services/share_service.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../l10n/app_localizations.dart';
+import '../../shared/extensions/route_map_overlays.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
 import '../../shared/widgets/aruku_card.dart';
+import '../../shared/widgets/aruku_map.dart';
 
+part 'result_alternatives.dart';
 part 'result_totals.dart';
 part 'result_timeline.dart';
 
@@ -172,6 +175,8 @@ class ResultScreen extends ConsumerWidget {
                         child: SingleChildScrollView(
                           child: Column(
                             children: [
+                              _RouteMapPreview(route: route),
+                              const SizedBox(height: 14),
                               _JourneyHeader(route: route),
                               const SizedBox(height: 14),
                               _TotalsStrip(route: route),
@@ -179,6 +184,10 @@ class ResultScreen extends ConsumerWidget {
                               _WalkRatioRow(route: route),
                               const SizedBox(height: 14),
                               _Timeline(route: route),
+                              _AlternativesSection(
+                                alternatives: state.routeAlternatives,
+                                onSelect: notifier.selectAlternative,
+                              ),
                             ],
                           ),
                         ),
@@ -307,6 +316,28 @@ class _HeaderButton extends StatelessWidget {
             ),
             child: Center(child: child),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 経路全体を俯瞰する固定高の地図プレビュー。代替案切替で route が差し替わると
+/// routeBounds も変わり、[ArukuMap] 側の自動フィット（full variant）で追従する。
+class _RouteMapPreview extends StatelessWidget {
+  const _RouteMapPreview({required this.route});
+  final RoutePlan route;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: SizedBox(
+        height: 180,
+        child: ArukuMap(
+          polylines: route.toPolylines(),
+          markers: route.toMarkers(),
+          routeBounds: route.toBounds(),
         ),
       ),
     );

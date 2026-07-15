@@ -193,6 +193,22 @@
   "@resultBusDefaultLabel": {},
   "resultShareButton": "ルートを共有",
   "@resultShareButton": {},
+  "resultAlternativesTitle": "他の候補",
+  "@resultAlternativesTitle": {},
+  "resultAlternativeSummary": "徒歩{walkMin}分 · 到着 {arrival} · 乗換{transferCount}回",
+  "@resultAlternativeSummary": {
+    "placeholders": {
+      "walkMin": { "type": "int" },
+      "arrival": { "type": "String" },
+      "transferCount": { "type": "int" }
+    }
+  },
+  "resultAlternativeArrivalFallback": "+{minutes}分",
+  "@resultAlternativeArrivalFallback": {
+    "placeholders": {
+      "minutes": { "type": "int" }
+    }
+  },
   "resultShareText": "{from} → {to} を歩くルート🚶\n徒歩{walkKm}km・{kcal}kcal\n#アルク #ウォーキング",
   "@resultShareText": {
     "placeholders": {

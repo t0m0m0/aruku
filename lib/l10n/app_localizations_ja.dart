@@ -257,6 +257,23 @@ class AppLocalizationsJa extends AppLocalizations {
   String get resultShareButton => 'ルートを共有';
 
   @override
+  String get resultAlternativesTitle => '他の候補';
+
+  @override
+  String resultAlternativeSummary(
+    int walkMin,
+    String arrival,
+    int transferCount,
+  ) {
+    return '徒歩$walkMin分 · 到着 $arrival · 乗換$transferCount回';
+  }
+
+  @override
+  String resultAlternativeArrivalFallback(int minutes) {
+    return '+$minutes分';
+  }
+
+  @override
   String resultShareText(String from, String to, String walkKm, int kcal) {
     return '$from → $to を歩くルート🚶\n徒歩${walkKm}km・${kcal}kcal\n#アルク #ウォーキング';
   }
