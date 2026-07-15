@@ -38,6 +38,21 @@ RouteSegment _timedTrain(DateTime dep, DateTime arr, {double km = 5.0}) =>
 RouteCandidate _candidate(List<RouteSegment> segments) =>
     RouteCandidate(from: '出発地', to: '目的地', segments: segments);
 
+({RouteCandidate fewerTransfers, RouteCandidate moreTransfers})
+_equalWalkAndArrivalCandidates() {
+  final fewerTransfers = _candidate([
+    _walk(10),
+    _timedTrain(DateTime(2026, 7, 15, 9, 15), DateTime(2026, 7, 15, 9, 30)),
+  ]);
+  final moreTransfers = _candidate([
+    _walk(5),
+    _timedTrain(DateTime(2026, 7, 15, 9, 10), DateTime(2026, 7, 15, 9, 15)),
+    _walk(5),
+    _timedTrain(DateTime(2026, 7, 15, 9, 25), DateTime(2026, 7, 15, 9, 30)),
+  ]);
+  return (fewerTransfers: fewerTransfers, moreTransfers: moreTransfers);
+}
+
 void main() {
   group('selectBestRoute', () {
     test('全徒歩が予算内なら全徒歩（徒歩最大）を選ぶ', () {
@@ -195,6 +210,82 @@ void main() {
       final best = selectBestRoute(candidates: [a, b], budgetMin: 30);
 
       expect(best, same(b));
+    });
+
+    test('徒歩時間と実到着が同じなら候補順に依存せず乗換回数が少ない方を選ぶ', () {
+      final candidates = _equalWalkAndArrivalCandidates();
+      final departureAt = DateTime(2026, 7, 15, 9);
+
+      final fewerFirst = selectBestRoute(
+        candidates: [candidates.fewerTransfers, candidates.moreTransfers],
+        budgetMin: 30,
+        departureAt: departureAt,
+      );
+      final fewerLast = selectBestRoute(
+        candidates: [candidates.moreTransfers, candidates.fewerTransfers],
+        budgetMin: 30,
+        departureAt: departureAt,
+      );
+
+      expect(fewerFirst, same(candidates.fewerTransfers));
+      expect(fewerLast, same(candidates.fewerTransfers));
+    });
+
+    test('徒歩時間に差があれば乗換回数が多くても徒歩時間最大を優先する', () {
+      final moreWalkAndTransfers = _candidate([
+        _walk(10),
+        _train(5),
+        _walk(10),
+        _train(5),
+      ]);
+      final fewerWalkAndTransfers = _candidate([_walk(15), _train(5)]);
+
+      final best = selectBestRoute(
+        candidates: [fewerWalkAndTransfers, moreWalkAndTransfers],
+        budgetMin: 30,
+      );
+
+      expect(best, same(moreWalkAndTransfers));
+    });
+
+    test('徒歩時間が同じで実到着に差があれば乗換回数が多くても早着を優先する', () {
+      final earlierWithMoreTransfers = _candidate([
+        _walk(5),
+        _timedTrain(DateTime(2026, 7, 15, 9, 10), DateTime(2026, 7, 15, 9, 15)),
+        _walk(5),
+        _timedTrain(DateTime(2026, 7, 15, 9, 20), DateTime(2026, 7, 15, 9, 25)),
+      ]);
+      final laterWithFewerTransfers = _candidate([
+        _walk(10),
+        _timedTrain(DateTime(2026, 7, 15, 9, 15), DateTime(2026, 7, 15, 9, 30)),
+      ]);
+
+      final best = selectBestRoute(
+        candidates: [laterWithFewerTransfers, earlierWithMoreTransfers],
+        budgetMin: 30,
+        departureAt: DateTime(2026, 7, 15, 9),
+      );
+
+      expect(best, same(earlierWithMoreTransfers));
+    });
+
+    test('best-effortで実到着が同じなら候補順に依存せず乗換回数が少ない方を選ぶ', () {
+      final candidates = _equalWalkAndArrivalCandidates();
+      final departureAt = DateTime(2026, 7, 15, 9);
+
+      final fewerFirst = selectBestRoute(
+        candidates: [candidates.fewerTransfers, candidates.moreTransfers],
+        budgetMin: 20,
+        departureAt: departureAt,
+      );
+      final fewerLast = selectBestRoute(
+        candidates: [candidates.moreTransfers, candidates.fewerTransfers],
+        budgetMin: 20,
+        departureAt: departureAt,
+      );
+
+      expect(fewerFirst, same(candidates.fewerTransfers));
+      expect(fewerLast, same(candidates.fewerTransfers));
     });
 
     test('予算ちょうど（境界）は予算内として扱う', () {
@@ -468,6 +559,18 @@ void main() {
       );
 
       expect(best, same(backtrack));
+    });
+  });
+
+  group('RouteCandidate.transferCount', () {
+    test('時刻なし区間でもtransit区間数から乗換回数を下限0で導出する', () {
+      final allWalk = _candidate([_walk(10), _walk(5)]);
+      final singleTransit = _candidate([_walk(5), _train(10), _walk(5)]);
+      final twoTransitsWithWalk = _candidate([_train(5), _walk(10), _train(5)]);
+
+      expect(allWalk.transferCount, 0);
+      expect(singleTransit.transferCount, 0);
+      expect(twoTransitsWithWalk.transferCount, 1);
     });
   });
 
