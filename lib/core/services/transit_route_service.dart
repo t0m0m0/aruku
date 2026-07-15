@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
 import 'package:http/http.dart' as http;
 
@@ -79,6 +80,19 @@ class TransitRouteService implements SearchEngine {
   /// 余りが残っていたため引き上げた。
   static const int _maxCorridorStops = 60;
 
+  /// ハイブリッドの土台に据える路線ファミリ base の本数上限（#292）。単一最速1本では
+  /// 別路線コリドー由来の徒歩多め候補が原理的に生成されない（限界2）ため、routeName 集合の
+  /// 異なる代表を最大この本数だけ土台にする。増やすほど候補が多様化するが、`_maxEnrichAttempts`
+  /// の実測試行を食い合い収束前に最短へ縮退する退行（限界3）が起きやすくなるため小さく抑える。
+  static const int _maxHybridBases = 3;
+
+  /// 複数 base をマージしたハイブリッド候補の総数上限（#292）。base を増やすと候補が増え、
+  /// あるファミリの「見積り予算内・実測予算外」候補が [_maxEnrichAttempts] の試行を食い潰して
+  /// 別ファミリの正当な候補を検証前に打ち切り、最短（best-effort＝最早到着）へ縮退させる退行
+  /// （限界3）が起きうる。総数をここで抑え、超過時は base 間ラウンドロビンで各ファミリの
+  /// 徒歩多め候補を優先的に残す（1ファミリの候補群が他ファミリを締め出さないため・#292 §3）。
+  static const int _maxHybridCandidates = 40;
+
   @override
   Future<RoutePlan> plan({
     required String? destination,
@@ -153,17 +167,37 @@ class TransitRouteService implements SearchEngine {
       _diag.log(() => 'standard: ${_diag.candLine(c, budgetMin, departureAt)}');
     }
 
-    final base = _baseForHybrid(options);
-    if (base != null) {
-      candidates.addAll(
-        await _buildCorridorHybrids(
-          base,
-          origin,
-          goal,
-          budgetMin,
-          departureAt,
-          measured,
-        ),
+    // 単一最速ではなく路線ファミリの異なる複数 base を土台にする（#292・限界2）。増分 API
+    // コストはゼロ（取得済み options を追加で使うだけ）。base ごとのハイブリッドは構造
+    // フィンガープリント（[_hybridKey]）でマージ重複除去し、多様化が実測試行を食い合って
+    // 最短へ縮退する退行（限界3）を抑える。`measured` は base 間で共有し同一レッグの再計測を畳む。
+    final bases = basesForHybrid(options);
+    // 崩壊時の board-search は単一 base を土台にする（#137）。先頭は総所要最小＝従来の
+    // [_baseForHybrid] と一致するため、崩壊フォールバックの挙動は #292 前と変わらない。
+    final base = bases.isEmpty ? null : bases.first;
+    if (bases.isNotEmpty) {
+      _diag.log(() => 'hybrid bases: ${bases.length}家系');
+      // base ごとの実測（マトリクス IO）は互いに独立なので並列に投げる（#163・Codex 指摘）。
+      // 逐次だと base 数だけマトリクス往復が数珠つなぎになりユーザー体感が伸びる。`measured` は
+      // 共有するが、書き込みは各 await 後に同一値で冪等なので競合しない。
+      final built = await Future.wait([
+        for (final b in bases)
+          _buildCorridorHybrids(
+            b,
+            origin,
+            goal,
+            budgetMin,
+            departureAt,
+            measured,
+          ),
+      ]);
+      final merged = mergeHybrids(
+        built,
+        (h) => arrivalMinutes(h.segments, departureAt) <= budgetMin,
+      );
+      candidates.addAll(merged);
+      _diag.log(
+        () => 'merged hybrids: ${merged.length}件（上限$_maxHybridCandidates）',
       );
     } else {
       _diag.log(() => 'no base route (corridor<2); all-walk only');
@@ -1196,6 +1230,136 @@ class TransitRouteService implements SearchEngine {
       }
     }
     return best;
+  }
+
+  /// ハイブリッドの土台に据える「路線ファミリの異なる代表 base」群（#292）。単一最速1本
+  /// （[_baseForHybrid]）では別路線コリドー由来の徒歩多め候補が原理的に生成されない（限界2）。
+  /// baseline の option 群を routeName 集合（[_routeFamilyKey]）でフィンガープリントして
+  /// ファミリごとにまとめ、各ファミリの代表を最大 [_maxHybridBases] 本返す。**増分 API コストは
+  /// ゼロ**——既に取得済みの単一 `/guidance/plan` レスポンスの option を追加で土台にするだけで、
+  /// 新規照会は発行しない（#288 §4：素材は1回の照会に既に入っている）。
+  ///
+  /// ファミリ内の代表は現行の総所要 `minutes` 最小を踏襲する（限界1＝目的関数が徒歩 km か min かは
+  /// 本 issue のスコープ外・#288）。ファミリ間の順序は総所要昇順、**同所要は代表 option の出現順**を
+  /// タイブレークにする——[List.sort] は等価な相異要素の順序を保証しないため、これを入れないと
+  /// 同所要のファミリで [bases].first が [_baseForHybrid]（出現順で最初の最短を採る）と食い違い、
+  /// 崩壊時 board-search の基準コリドーが #292 前と変わってしまう（Codex 指摘）。タイブレークは
+  /// ファミリの初出位置ではなく**代表（最短）option の位置**で行う——初出位置だと `A(20m),B(10m),
+  /// A(10m)` で `_baseForHybrid` が B を採るのに A が先に来てしまう（Codex 指摘）。この順序保証で
+  /// **先頭は [_baseForHybrid] の単一最速 base に一致し、単一ファミリのときは挙動が変わらない**。
+  /// バス除外・コリドー2点未満除外のガードは [_baseForHybrid] と同一（main path は電車のみ）。
+  @visibleForTesting
+  List<TransitOption> basesForHybrid(List<TransitOption> options) {
+    final repByFamily = <String, TransitOption>{};
+    final minByFamily = <String, int>{};
+    final repIndexByFamily = <String, int>{};
+    for (var i = 0; i < options.length; i++) {
+      final o = options[i];
+      if (o.corridors.every((c) => c.coords.length < 2)) continue;
+      if (o.segments.any((s) => s.type == SegmentType.bus)) continue;
+      final key = _routeFamilyKey(o);
+      final min = o.segments.fold(0, (a, s) => a + s.minutes);
+      if (!minByFamily.containsKey(key) || min < minByFamily[key]!) {
+        repByFamily[key] = o;
+        minByFamily[key] = min;
+        repIndexByFamily[key] = i;
+      }
+    }
+    final families = repByFamily.keys.toList()
+      ..sort((a, b) {
+        final byMin = minByFamily[a]!.compareTo(minByFamily[b]!);
+        return byMin != 0
+            ? byMin
+            : repIndexByFamily[a]!.compareTo(repIndexByFamily[b]!);
+      });
+    return [for (final k in families.take(_maxHybridBases)) repByFamily[k]!];
+  }
+
+  /// option を路線ファミリへ要約するフィンガープリント（#292）。transit 区間（電車・バス）の
+  /// 路線名の集合（順不同・重複除去・ソート）で表す。同じ路線集合を通る option（捕まえる便
+  /// だけが違う等）は同一ファミリとして1本に畳み、別路線を経由する option だけを別 base に
+  /// する。素朴な「時間で上位N本」だと同一ファミリの重複を掴むだけで多様性が増えない（#288）。
+  ///
+  /// 路線名を欠く leg はコリドー形状で代替する。路線名が空（`routeName` 無し＝
+  /// [RouteSegment.line] が null、または Transit API が `routeName: ""` を返す空文字）だと、
+  /// 全部が同じキーへ畳まれて別コリドーが同一ファミリ扱いになり最速1本しか残らず、多様化が
+  /// 静かに単一 base へ退行してしまう（Codex 指摘）。null も空文字も等しく「無名」とみなし、
+  /// コリドー形状へフォールバックする。端点だけだと同一 OD の急行・各停のように端点を共有し
+  /// 途中だけ違うコリドーを区別できないため、polyline を均等サンプルした座標列で表す
+  /// （[_corridorFingerprintSamples] 点）。
+  String _routeFamilyKey(TransitOption o) {
+    final keys = <String>{
+      for (final s in o.segments)
+        if (s.type == SegmentType.train || s.type == SegmentType.bus)
+          (s.line == null || s.line!.isEmpty)
+              ? '@${_corridorFingerprint(s.polyline)}'
+              : s.line!,
+    }.toList()..sort();
+    return keys.join('|');
+  }
+
+  /// 路線名を欠くコリドーのフィンガープリント。polyline を均等サンプルした座標列で、
+  /// 端点を共有し途中だけ違うコリドー（同一 OD の急行/各停等）も区別する（[_routeFamilyKey]）。
+  String _corridorFingerprint(List<GeoPoint> polyline) => [
+    for (final p in evenSample(polyline, _corridorFingerprintSamples))
+      _coordKey(p),
+  ].join(',');
+
+  static const int _corridorFingerprintSamples = 8;
+
+  /// ハイブリッド候補を構造フィンガープリントへ要約し、複数 base 由来の同一候補を
+  /// マージ時に重複除去する（#292）。乗降駅名は生成時点では空のことがあるため、区間の
+  /// 種別・路線名と polyline 端点（5桁丸め）で表す——同じコリドー区間を同じ乗降座標で
+  /// 通る候補は同一とみなす。座標丸めは徒歩レッグキャッシュ（[_walkCacheKey]）と同じ精度。
+  String _hybridKey(RouteCandidate c) => [
+    for (final s in c.segments)
+      '${s.type.name}:${s.line ?? ''}:'
+          '${_coordKey(s.polyline.isNotEmpty ? s.polyline.first : null)}>'
+          '${_coordKey(s.polyline.isNotEmpty ? s.polyline.last : null)}',
+  ].join('|');
+
+  String _coordKey(GeoPoint? p) => p == null
+      ? '-'
+      : '${p.lat.toStringAsFixed(5)},${p.lng.toStringAsFixed(5)}';
+
+  /// base ごとのハイブリッド群（[perBase]）を [_maxHybridCandidates] 本までマージ重複除去する
+  /// （#292）。[within]（見積り到着が予算内か）が true の候補を**先に**上限まで詰め、余枠にのみ
+  /// 予算外を足す。予算外の徒歩多め候補が上限を食い潰し、単一 base 時代なら選定へ渡っていた
+  /// 予算内の短めハイブリッドを締め出して標準乗換/全徒歩へ縮退させる退行を防ぐ（Codex 指摘）。
+  /// 各フェーズ内は base 間ラウンドロビン（各 base は徒歩多い順）で、1ファミリの候補群が他
+  /// ファミリを締め出さないようにする（限界3）。[_hybridKey] で同一候補を除去する。
+  @visibleForTesting
+  List<RouteCandidate> mergeHybrids(
+    List<List<RouteCandidate>> perBase,
+    bool Function(RouteCandidate) within,
+  ) {
+    final sorted = [
+      for (final list in perBase)
+        [...list]..sort((a, b) => b.walkMinutes.compareTo(a.walkMinutes)),
+    ];
+    final seen = <String>{};
+    final out = <RouteCandidate>[];
+    for (final keepWithin in const [true, false]) {
+      final phase = [
+        for (final list in sorted)
+          [
+            for (final h in list)
+              if (within(h) == keepWithin) h,
+          ],
+      ];
+      for (var rank = 0; out.length < _maxHybridCandidates; rank++) {
+        var progressed = false;
+        for (final list in phase) {
+          if (rank >= list.length) continue;
+          progressed = true;
+          if (seen.add(_hybridKey(list[rank]))) out.add(list[rank]);
+          if (out.length >= _maxHybridCandidates) break;
+        }
+        if (!progressed) break;
+      }
+      if (out.length >= _maxHybridCandidates) break;
+    }
+    return out;
   }
 
   /// [base] の全コリドー座標を origin→goal 方向に連結し、乗車駅候補（[_CorridorStop]）へ

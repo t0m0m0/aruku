@@ -5,10 +5,11 @@ import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/hybrid_route_selector.dart'
-    show haversineKm;
+    show RouteCandidate, haversineKm;
 import 'package:aruku/core/services/route_plan_builder.dart'
     show walkMetersPerMinute, trainMetersPerMinute, firstMissedTransit;
 import 'package:aruku/core/services/route_service.dart';
+import 'package:aruku/core/services/transit_plan_parser.dart';
 import 'package:aruku/core/services/transit_route_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -341,6 +342,365 @@ void main() {
           .fold<int>(0, (a, s) => a + s.minutes);
       expect(walkMin, greaterThan(10));
       expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+    });
+  });
+
+  group('plan: 複数ファミリ base のハイブリッド生成 (#292)', () {
+    // 1回の guidance/plan レスポンスに路線ファミリを2種入れる。
+    // ・ファミリA「特急線」= 総所要最小の単一 base。コリドー2点[近origin, 近goal]で
+    //   途中乗車の余地がなく、生成できるハイブリッドの徒歩は access+egress の ~4分止まり。
+    // ・ファミリB「各停線」= やや遅い。コリドー3点[近origin, 中間, 近goal]。中間で降りて
+    //   goal まで歩くと徒歩82分・実到着 ~88分（予算100分内）。
+    // 単一最速 base（=A）だけを土台にすると B のコリドー由来ハイブリッドは原理的に
+    // 生成されず、徒歩は A の ~4分へ縮退する。複数 base に拡張して初めて B の徒歩82分
+    // 候補がプールに入り選定対象になる。全徒歩(114分)は予算外なので勝てない。
+    const o = GeoPoint(35.0, 139.000);
+    const g = GeoPoint(35.0, 139.100);
+
+    // 09:03発。勝者(B0→B1)の乗車座標到達は 09:02（前半徒歩2分）なので、実発車時刻検証
+    // （approach A）で dep >= boardAt を満たし、時刻なし電車の幽霊便除外に掛からない。
+    Map<String, dynamic> familyA() => {
+      'journey': {
+        'departureSecs': 32580, // 09:03
+        'arrivalSecs': 32880, // 09:08
+        'durationSecs': 32880 - 32580 + 240,
+        'accessWalkSecs': 120, // origin->139.002 ≒ 2分
+        'egressWalkSecs': 120, // 139.098->goal ≒ 2分
+        'legs': [
+          _railLeg(
+            route: '特急線',
+            fromId: 'a:board',
+            fromName: 'A乗車',
+            toId: 'a:alight',
+            toName: 'A降車',
+            dep: 32580,
+            arr: 32880,
+          ),
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('walk', 'origin', 'a:board', 'osmWalk', const [
+            [35.0, 139.000],
+            [35.0, 139.002],
+          ]),
+          _mapSeg('transit', 'a:board', 'a:alight', 'stopOrder', const [
+            [35.0, 139.002],
+            [35.0, 139.098],
+          ]),
+          _mapSeg('walk', 'a:alight', 'destination', 'estimatedWalk', const [
+            [35.0, 139.098],
+            [35.0, 139.100],
+          ]),
+        ],
+      },
+    };
+
+    Map<String, dynamic> familyB() => {
+      'journey': {
+        'departureSecs': 32580, // 09:03
+        'arrivalSecs': 33480, // 09:18（Aより遅い＝base 順は A→B）
+        'durationSecs': 33480 - 32580 + 240,
+        'accessWalkSecs': 120,
+        'egressWalkSecs': 120,
+        'legs': [
+          _railLeg(
+            route: '各停線',
+            fromId: 'b:board',
+            fromName: 'B乗車',
+            toId: 'b:alight',
+            toName: 'B降車',
+            dep: 32580,
+            arr: 33480,
+          ),
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('walk', 'origin', 'b:board', 'osmWalk', const [
+            [35.0, 139.000],
+            [35.0, 139.002],
+          ]),
+          _mapSeg('transit', 'b:board', 'b:alight', 'stopOrder', const [
+            [35.0, 139.002],
+            [35.0, 139.030],
+            [35.0, 139.098],
+          ]),
+          _mapSeg('walk', 'b:alight', 'destination', 'estimatedWalk', const [
+            [35.0, 139.098],
+            [35.0, 139.100],
+          ]),
+        ],
+      },
+    };
+
+    test('別路線ファミリのコリドー由来の徒歩多め候補が選ばれる', () async {
+      final svc = _service(_mock(transit: _guidance([familyA(), familyB()])));
+      final plan = await svc.plan(
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 40), // 予算100分
+        origin: o,
+        originName: '出発',
+      );
+      final walkMin = plan.segments
+          .where((s) => s.type == SegmentType.walk)
+          .fold<int>(0, (a, s) => a + s.minutes);
+      // ファミリA単独では ~4分が上限。B のコリドーを土台にして初めて到達できる徒歩量。
+      expect(walkMin, greaterThan(40));
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+      // 勝者の電車区間がファミリB由来（各停線）であること＝B のコリドーから生成された証拠。
+      expect(
+        plan.segments.any(
+          (s) => s.type == SegmentType.train && s.line == '各停線',
+        ),
+        isTrue,
+      );
+    });
+
+    test('複数 base に広げても guidance/plan 照会は増えない（増分APIコストゼロ）', () async {
+      // base 拡張とハイブリッド生成は取得済み options と Google マトリクスだけで完結し、
+      // 新規 transit 照会を発行しない。ファミリ2種でも guidance/plan は「本命1回＋採用候補の
+      // 実発車時刻検証1回」＝2回に収まる。base 数に比例して照会が増える素朴実装なら3回以上。
+      final log = <Uri>[];
+      final svc = _service(
+        _mock(transit: _guidance([familyA(), familyB()]), log: log),
+      );
+      await svc.plan(
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 40),
+        origin: o,
+        originName: '出発',
+      );
+      final guidanceCalls = log
+          .where((u) => u.path.contains('guidance/plan'))
+          .length;
+      expect(guidanceCalls, lessThanOrEqualTo(2));
+    });
+
+    test('路線名を欠く別コリドーも別ファミリとして徒歩多め候補を生む', () async {
+      // routeName を持たない leg 2種（急行=2点コリドー / 各停=3点コリドー、端点は共有）。
+      // 空文字で畳むと同一ファミリ扱いで最速1本へ退行するが、コリドー形状で区別すれば
+      // 各停コリドー由来の徒歩多め候補（徒歩82分）が生成される（Codex 指摘の反証）。
+      Map<String, dynamic> unnamed(List<List<double>> stops, int arr) => {
+        'journey': {
+          'departureSecs': 32580, // 09:03
+          'arrivalSecs': arr,
+          'durationSecs': arr - 32580 + 240,
+          'accessWalkSecs': 120,
+          'egressWalkSecs': 120,
+          'legs': [
+            {
+              'kind': 'transit',
+              'mode': 'rail', // routeName なし＝RouteSegment.line は null
+              'from': _station('u:board', '乗車'),
+              'to': _station('u:alight', '降車'),
+              'departureSecs': 32580,
+              'arrivalSecs': arr,
+            },
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('walk', 'origin', 'u:board', 'osmWalk', [
+              [35.0, 139.000],
+              stops.first,
+            ]),
+            _mapSeg('transit', 'u:board', 'u:alight', 'stopOrder', stops),
+            _mapSeg('walk', 'u:alight', 'destination', 'estimatedWalk', [
+              stops.last,
+              [35.0, 139.100],
+            ]),
+          ],
+        },
+      };
+      final svc = _service(
+        _mock(
+          transit: _guidance([
+            unnamed(const [
+              [35.0, 139.002],
+              [35.0, 139.098],
+            ], 32880), // 急行 09:08
+            unnamed(const [
+              [35.0, 139.002],
+              [35.0, 139.030],
+              [35.0, 139.098],
+            ], 33480), // 各停 09:18
+          ]),
+        ),
+      );
+      final plan = await svc.plan(
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 40),
+        origin: o,
+        originName: '出発',
+      );
+      final walkMin = plan.segments
+          .where((s) => s.type == SegmentType.walk)
+          .fold<int>(0, (a, s) => a + s.minutes);
+      expect(walkMin, greaterThan(40));
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+    });
+  });
+
+  group('basesForHybrid: 路線ファミリ別 base 選定 (#292)', () {
+    // 電車1本＋2点コリドーの最小 option。line がファミリ、minutes が総所要を決める。
+    TransitOption opt(String line, int minutes) {
+      const coords = [GeoPoint(35.0, 139.0), GeoPoint(35.0, 139.01)];
+      return TransitOption(
+        from: '出発',
+        to: '目的',
+        segments: [
+          RouteSegment(
+            type: SegmentType.train,
+            fromName: '',
+            toName: '',
+            minutes: minutes,
+            line: line,
+            polyline: coords,
+          ),
+        ],
+        corridors: const [
+          TransitCorridor(
+            legIndex: 0,
+            geometrySource: 'stopOrder',
+            coords: coords,
+          ),
+        ],
+      );
+    }
+
+    List<String?> lines(List<TransitOption> os) =>
+        os.map((o) => o.segments.first.line).toList();
+
+    test('同所要のタイブレークは代表(最短)option の出現順に従う', () {
+      final svc = _service(_mock(transit: _guidance(const [])));
+      // A(20分), B(10分), A(10分)。_baseForHybrid は最短10分の初出=B を採る。
+      // 素朴に「ファミリ初出位置」でタイブレークすると A(初出index0) が先に来てしまう。
+      // 代表(最短)option の位置で比べれば B(index1) < A の代表(index2) で B が先。
+      final bases = svc.basesForHybrid([
+        opt('A', 20),
+        opt('B', 10),
+        opt('A', 10),
+      ]);
+      expect(lines(bases), ['B', 'A']);
+      // ファミリ A の代表は 20分の初出ではなく 10分の option。
+      expect(bases[1].segments.first.minutes, 10);
+    });
+
+    test('先頭は総所要最小のファミリ（単一ファミリ時は1本）', () {
+      final svc = _service(_mock(transit: _guidance(const [])));
+      expect(lines(svc.basesForHybrid([opt('A', 30), opt('B', 12)])), [
+        'B',
+        'A',
+      ]);
+      expect(lines(svc.basesForHybrid([opt('A', 30), opt('A', 12)])), ['A']);
+    });
+
+    test('ファミリ数が上限を超えたら総所要の小さい代表から選ぶ', () {
+      final svc = _service(_mock(transit: _guidance(const [])));
+      final bases = svc.basesForHybrid([
+        opt('A', 40),
+        opt('B', 10),
+        opt('C', 20),
+        opt('D', 30),
+      ]);
+      // 上限3本。総所要昇順で B(10),C(20),D(30) を採り A(40) は落とす。
+      expect(lines(bases), ['B', 'C', 'D']);
+    });
+
+    // 電車1本 option（コリドー座標を指定）。空/欠落 routeName の区別検証用。
+    TransitOption optAt(String? line, int minutes, List<GeoPoint> coords) =>
+        TransitOption(
+          from: '出発',
+          to: '目的',
+          segments: [
+            RouteSegment(
+              type: SegmentType.train,
+              fromName: '',
+              toName: '',
+              minutes: minutes,
+              line: line,
+              polyline: coords,
+            ),
+          ],
+          corridors: [
+            TransitCorridor(
+              legIndex: 0,
+              geometrySource: 'stopOrder',
+              coords: coords,
+            ),
+          ],
+        );
+
+    test('空文字/欠落の routeName もコリドー形状で別ファミリに分ける', () {
+      final svc = _service(_mock(transit: _guidance(const [])));
+      const corridorA = [GeoPoint(35.0, 139.0), GeoPoint(35.0, 139.02)];
+      const corridorB = [
+        GeoPoint(35.0, 139.0),
+        GeoPoint(35.0, 139.01),
+        GeoPoint(35.0, 139.02),
+      ];
+      // 空文字を素朴に畳むと同一ファミリ化して1本へ退行する（Codex 指摘）。null も空文字も
+      // 「無名」としてコリドー形状で区別すれば、別コリドーは別 base として残る。
+      expect(
+        svc.basesForHybrid([
+          optAt('', 10, corridorA),
+          optAt('', 20, corridorB),
+        ]),
+        hasLength(2),
+      );
+      expect(
+        svc.basesForHybrid([
+          optAt(null, 10, corridorA),
+          optAt(null, 20, corridorB),
+        ]),
+        hasLength(2),
+      );
+    });
+  });
+
+  group('mergeHybrids: 予算内優先の上限マージ (#292)', () {
+    // 徒歩 [walkMin] 分の単一区間候補（polyline を [tag] で一意化し dedup キーを分ける）。
+    RouteCandidate cand(int walkMin, double tag) => RouteCandidate(
+      from: '出発',
+      to: '目的',
+      segments: [
+        RouteSegment(
+          type: SegmentType.walk,
+          fromName: '',
+          toName: '',
+          minutes: walkMin,
+          polyline: [GeoPoint(35.0, tag), GeoPoint(35.0, tag + 0.001)],
+        ),
+      ],
+    );
+
+    test('予算外の徒歩多め候補は予算内候補を締め出さない（予算内が先）', () {
+      final svc = _service(_mock(transit: _guidance(const [])));
+      // base0: 予算外(徒歩80) と 予算内(徒歩50)。base1: 予算内(徒歩40)。
+      final over = cand(80, 139.1);
+      final within1 = cand(50, 139.2);
+      final within2 = cand(40, 139.3);
+      final merged = svc.mergeHybrids(
+        [
+          [over, within1],
+          [within2],
+        ],
+        (h) => h != over, // over のみ予算外
+      );
+      // 3件すべて残るが、予算内(within1/within2)が予算外(over)より前に並ぶ。
+      expect(merged, hasLength(3));
+      expect(merged.indexOf(over), greaterThan(merged.indexOf(within1)));
+      expect(merged.indexOf(over), greaterThan(merged.indexOf(within2)));
     });
   });
 
