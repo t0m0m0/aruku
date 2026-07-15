@@ -695,6 +695,61 @@ void main() {
     });
   });
 
+  group('hasUnverifiedTransit', () {
+    test('depTime を欠く transit 区間（電車・バス）を検出する', () {
+      const untimedTrain = [
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'A駅',
+          toName: 'B駅',
+          minutes: 10,
+        ),
+      ];
+      const untimedBus = [
+        RouteSegment(
+          type: SegmentType.bus,
+          fromName: 'A停留所',
+          toName: 'B停留所',
+          minutes: 20,
+        ),
+      ];
+      expect(hasUnverifiedTransit(untimedTrain), isTrue);
+      expect(hasUnverifiedTransit(untimedBus), isTrue);
+    });
+
+    test('全 transit 区間に depTime が揃えば false（徒歩は時刻不要）', () {
+      final segments = [
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '出発地',
+          toName: 'A駅',
+          minutes: 5,
+        ),
+        RouteSegment(
+          type: SegmentType.train,
+          fromName: 'A駅',
+          toName: 'B駅',
+          minutes: 10,
+          depTime: DateTime(2026, 5, 22, 9, 10),
+          arrTime: DateTime(2026, 5, 22, 9, 20),
+        ),
+      ];
+      expect(hasUnverifiedTransit(segments), isFalse);
+    });
+
+    test('全徒歩は false', () {
+      const segments = [
+        RouteSegment(
+          type: SegmentType.walk,
+          fromName: '出発地',
+          toName: '目的地',
+          minutes: 40,
+        ),
+      ];
+      expect(hasUnverifiedTransit(segments), isFalse);
+    });
+  });
+
   group('budgetMinutes', () {
     test('同日内は到着−出発の差をそのまま返す', () {
       expect(

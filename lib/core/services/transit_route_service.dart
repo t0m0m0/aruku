@@ -637,16 +637,14 @@ class TransitRouteService implements SearchEngine {
       // アクセス徒歩が guidance 見積りより実街路で伸び、駅着が発車後になる）候補は除外して
       // 選び直す。除外は実測の確認時だけ。乗り遅れは「予算内に見えても実際には乗れない」
       // 経路なので、予算超過と同様に確定させない（#137 副次）。
-      final overBudget =
-          arrivalMinutes(enriched.segments, departureAt) > budgetMin;
-      final missedAfterEnrich =
-          firstMissedTransit(enriched.segments, departureAt) != null;
-      // (c) 引き直しでも実発車時刻を確認できなかった時刻なし transit 区間を含む＝その時間に
-      // 便が無い疑い。予算内に見えても走っている確証が無いため確定させない（#137 深夜の幻便）。
-      // バスも同じ基準で弾く（#250 幽霊バス）。
-      final unverifiedTransit = enriched.segments.any(
-        (s) => s.type != SegmentType.walk && s.depTime == null,
+      final violation = _invariantViolation(
+        enriched.segments,
+        budgetMin,
+        departureAt,
       );
+      final overBudget = violation.overBudget;
+      final missedAfterEnrich = violation.missed;
+      final unverifiedTransit = violation.unverified;
       if (attempt < _maxEnrichAttempts &&
           pool.length > 1 &&
           (overBudget || missedAfterEnrich || unverifiedTransit)) {
@@ -687,6 +685,21 @@ class TransitRouteService implements SearchEngine {
     }
   }
 
+  /// enrich／実時刻検証を経た区間列が確定不変条件（#254）に反しているかの3条件判定。
+  /// (a) 予算超過（[arrivalMinutes] ベース）、(b) 乗り遅れ（[firstMissedTransit]）、
+  /// (c) 実発車時刻を確認できない transit 区間を含む（[hasUnverifiedTransit]・#137 幻便／
+  /// #250 幽霊バス）。確定経路（[_selectAndEnrich]）と代替案（#290）が同じ基準で検証する
+  /// ための単一実装。
+  ({bool overBudget, bool missed, bool unverified}) _invariantViolation(
+    List<RouteSegment> segments,
+    int budgetMin,
+    DateTime departureAt,
+  ) => (
+    overBudget: arrivalMinutes(segments, departureAt) > budgetMin,
+    missed: firstMissedTransit(segments, departureAt) != null,
+    unverified: hasUnverifiedTransit(segments),
+  );
+
   /// best-effort 縮退（#121／#137 深夜）。候補へ実発車時刻を当て（approach A）、引き直しでも
   /// 実時刻を確認できなかった時刻なし transit 区間を含む候補（その時間に便が無い疑い＝幻便・
   /// 幽霊バス）を除いたうえで「今夜乗れる範囲の実到着最早」を選ぶ。検証済みが皆無なら元の
@@ -719,10 +732,7 @@ class TransitRouteService implements SearchEngine {
     ]);
     final verified = [
       for (final c in resolved)
-        if (c.segments.every(
-          (s) => s.type == SegmentType.walk || s.depTime != null,
-        ))
-          c,
+        if (!hasUnverifiedTransit(c.segments)) c,
     ];
     var pool = verified.isNotEmpty ? verified : resolved;
     while (true) {
