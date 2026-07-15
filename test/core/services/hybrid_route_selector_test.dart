@@ -562,6 +562,132 @@ void main() {
     });
   });
 
+  group('paretoAlternatives', () {
+    test('支配される候補（到着も徒歩も劣る）は除去される', () {
+      final chosen = _candidate([_walk(20), _train(10)]); // 到着30 徒歩20
+      final tradeoff = _candidate([_walk(15), _train(5)]); // 到着20 徒歩15
+      final dominated = _candidate([_walk(10), _train(15)]); // 到着25 徒歩10
+
+      final alts = paretoAlternatives(
+        candidates: [chosen, tradeoff, dominated],
+        chosen: chosen,
+      );
+
+      // tradeoff は dominated を支配（早着かつ徒歩多い）ので dominated は落ちる。
+      expect(alts, [same(tradeoff)]);
+    });
+
+    test('非劣解は保持し、勝者は結果に含めない（到着昇順）', () {
+      final chosen = _candidate([_walk(30)]); // 到着30 徒歩30（徒歩最大）
+      final more = _candidate([_walk(20), _train(5)]); // 到着25 徒歩20
+      final less = _candidate([_walk(10), _train(5)]); // 到着15 徒歩10
+
+      final alts = paretoAlternatives(
+        candidates: [chosen, more, less],
+        chosen: chosen,
+      );
+
+      // more と less は互いに非劣解（徒歩↔到着のトレードオフ）。到着昇順で less→more。
+      expect(alts, [same(less), same(more)]);
+      expect(alts, isNot(contains(same(chosen))));
+    });
+
+    test('勝者と到着・徒歩が完全同値の候補は含めない（差分が見えない）', () {
+      final chosen = _candidate([_walk(20), _train(10)]); // 到着30 徒歩20
+      final twin = _candidate([_walk(20), _train(10)]); // 別オブジェクトだが同値
+      final tradeoff = _candidate([_walk(10), _train(5)]); // 到着15 徒歩10
+
+      final alts = paretoAlternatives(
+        candidates: [chosen, twin, tradeoff],
+        chosen: chosen,
+      );
+
+      expect(alts, isNot(contains(same(twin))));
+      expect(alts, [same(tradeoff)]);
+    });
+
+    test('返却は最大 maxCount 件（到着の早い順）', () {
+      final chosen = _candidate([_walk(30)]); // 到着30 徒歩30
+      final alt1 = _candidate([_walk(5), _train(5)]); // 到着10 徒歩5
+      final alt2 = _candidate([_walk(10), _train(10)]); // 到着20 徒歩10
+      final alt3 = _candidate([_walk(15), _train(10)]); // 到着25 徒歩15
+
+      final alts = paretoAlternatives(
+        candidates: [chosen, alt3, alt2, alt1],
+        chosen: chosen,
+        maxCount: 2,
+      );
+
+      expect(alts, [same(alt1), same(alt2)]);
+    });
+
+    test('入力順に依存せず同じ結果（到着昇順で決定的）', () {
+      final chosen = _candidate([_walk(30)]);
+      final more = _candidate([_walk(20), _train(5)]); // 到着25 徒歩20
+      final less = _candidate([_walk(10), _train(5)]); // 到着15 徒歩10
+
+      final forward = paretoAlternatives(
+        candidates: [chosen, more, less],
+        chosen: chosen,
+      );
+      final reversed = paretoAlternatives(
+        candidates: [less, more, chosen],
+        chosen: chosen,
+      );
+
+      expect(
+        forward.map((c) => c.totalMin).toList(),
+        reversed.map((c) => c.totalMin).toList(),
+      );
+      expect(forward, [same(less), same(more)]);
+      expect(reversed, [same(less), same(more)]);
+    });
+
+    ({RouteCandidate chosen, RouteCandidate longWait, RouteCandidate shortWait})
+    waitSensitiveCandidates() {
+      // longWait: 待ち抜き合計25分だが待ち時間で実到着45分・徒歩10。
+      final longWait = _candidate([
+        _walk(10),
+        _timedTrain(DateTime(2026, 7, 15, 9, 30), DateTime(2026, 7, 15, 9, 45)),
+      ]);
+      // shortWait: 待ち抜き合計30分・実到着32分・徒歩20。
+      final shortWait = _candidate([
+        _walk(20),
+        _timedTrain(DateTime(2026, 7, 15, 9, 22), DateTime(2026, 7, 15, 9, 32)),
+      ]);
+      final chosen = _candidate([
+        _walk(40),
+        _timedTrain(DateTime(2026, 7, 15, 9, 50), DateTime(2026, 7, 15, 10, 0)),
+      ]);
+      return (chosen: chosen, longWait: longWait, shortWait: shortWait);
+    }
+
+    test('departureAt ありでは待ち時間込みの実到着で支配を判定する', () {
+      final c = waitSensitiveCandidates();
+
+      final alts = paretoAlternatives(
+        candidates: [c.chosen, c.longWait, c.shortWait],
+        chosen: c.chosen,
+        departureAt: DateTime(2026, 7, 15, 9),
+      );
+
+      // 実到着 shortWait(32,徒歩20) が longWait(45,徒歩10) を支配（早着かつ徒歩多い）。
+      expect(alts, [same(c.shortWait)]);
+    });
+
+    test('departureAt 省略時は totalMin で判定するため両者が非劣解として残る', () {
+      final c = waitSensitiveCandidates();
+
+      final alts = paretoAlternatives(
+        candidates: [c.chosen, c.longWait, c.shortWait],
+        chosen: c.chosen,
+      );
+
+      // 待ち抜き合計は longWait(25,徒歩10) と shortWait(30,徒歩20) でトレードオフ。
+      expect(alts, [same(c.longWait), same(c.shortWait)]);
+    });
+  });
+
   group('RouteCandidate.transferCount', () {
     test('時刻なし区間でもtransit区間数から乗換回数を下限0で導出する', () {
       final allWalk = _candidate([_walk(10), _walk(5)]);
