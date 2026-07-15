@@ -128,6 +128,59 @@ List<RouteCandidate>? reachableWithinBudget(
   return reachable.isEmpty ? null : reachable;
 }
 
+/// 確定した [chosen] とは別の「非劣解（実到着 vs 徒歩のパレート最適）」を代替案として
+/// 最大 [maxCount] 件返す（#290）。評価軸は実到着分（[departureAt] 指定時は待ち込みの
+/// [arrivalMinutes]、省略時は [RouteCandidate.totalMin]）と徒歩分 [RouteCandidate.walkMinutes]。
+///
+/// 候補 a が b を支配する＝ a の到着が b 以下**かつ** a の徒歩が b 以上で、少なくとも一方が
+/// 厳密（早着 or 徒歩多）。支配される候補は「あらゆる軸で劣る＝提示価値なし」なので除く。
+/// [chosen] は identical で除き、到着・徒歩が [chosen] と完全同値の候補も除く（ユーザーに
+/// 差分が見えないため）。返却は到着昇順・同着は徒歩多い順・それも同なら乗換少ない順で
+/// 決定的に並べ、同一（到着,徒歩）は1件へ畳む。候補リストの入力順には依存しない。
+List<RouteCandidate> paretoAlternatives({
+  required List<RouteCandidate> candidates,
+  required RouteCandidate chosen,
+  DateTime? departureAt,
+  int maxCount = 3,
+}) {
+  int arrival(RouteCandidate c) => departureAt == null
+      ? c.totalMin
+      : arrivalMinutes(c.segments, departureAt);
+
+  bool dominates(RouteCandidate a, RouteCandidate b) {
+    final betterOrEqual =
+        arrival(a) <= arrival(b) && a.walkMinutes >= b.walkMinutes;
+    final strictly = arrival(a) < arrival(b) || a.walkMinutes > b.walkMinutes;
+    return betterOrEqual && strictly;
+  }
+
+  final chosenArrival = arrival(chosen);
+  final front = <RouteCandidate>[
+    for (final c in candidates)
+      if (!identical(c, chosen) &&
+          !(arrival(c) == chosenArrival &&
+              c.walkMinutes == chosen.walkMinutes) &&
+          !candidates.any((d) => !identical(d, c) && dominates(d, c)))
+        c,
+  ];
+
+  front.sort((a, b) {
+    final byArrival = arrival(a).compareTo(arrival(b));
+    if (byArrival != 0) return byArrival;
+    final byWalk = b.walkMinutes.compareTo(a.walkMinutes);
+    if (byWalk != 0) return byWalk;
+    return a.transferCount.compareTo(b.transferCount);
+  });
+
+  final seen = <String>{};
+  final result = <RouteCandidate>[];
+  for (final c in front) {
+    if (result.length >= maxCount) break;
+    if (seen.add('${arrival(c)}:${c.walkMinutes}')) result.add(c);
+  }
+  return result;
+}
+
 /// 乗車駅探索（docs/notes/walk-max-board-search.md）：乗車駅候補（前半徒歩 t1 の
 /// 昇順）について「到着が予算内の最遠 index ＝ 総徒歩最大」を二分探索で返す。
 ///
