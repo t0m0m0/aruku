@@ -695,6 +695,36 @@ void main() {
     });
   });
 
+  group('buildRoutePlan alternatives', () {
+    test('渡した代替案を RoutePlan.alternatives へ載せる（省略時は空）', () {
+      const walk = RouteSegment(
+        type: SegmentType.walk,
+        fromName: '出発地',
+        toName: '目的地',
+        minutes: 10,
+        km: 0.8,
+      );
+      final alt = buildRoutePlan(
+        from: '出発地',
+        to: '目的地',
+        segments: const [walk],
+        departure: const TimeValue(h: 9, m: 0),
+        budgetMin: 60,
+      );
+      expect(alt.alternatives, isEmpty);
+
+      final plan = buildRoutePlan(
+        from: '出発地',
+        to: '目的地',
+        segments: const [walk],
+        departure: const TimeValue(h: 9, m: 0),
+        budgetMin: 60,
+        alternatives: [alt],
+      );
+      expect(plan.alternatives, [alt]);
+    });
+  });
+
   group('hasUnverifiedTransit', () {
     test('depTime を欠く transit 区間（電車・バス）を検出する', () {
       const untimedTrain = [

@@ -99,6 +99,7 @@ class RoutePlan {
     required this.walkRatio,
     required this.segments,
     required this.timelineNodes,
+    this.alternatives = const [],
   });
 
   final String from;
@@ -111,4 +112,17 @@ class RoutePlan {
   final double walkRatio;
   final List<RouteSegment> segments;
   final List<TimelineNode> timelineNodes;
+
+  /// 確定経路と別のトレードオフ（早着⇔徒歩多）を提示するパレート非劣解の代替案
+  /// （#290）。代替案自身の alternatives は常に空（入れ子にしない）。
+  final List<RoutePlan> alternatives;
+
+  /// 乗換回数（walk 以外の区間数 − 1、下限0）。選定の `RouteCandidate.transferCount`
+  /// と同じ定義で、代替案カードの表示用に確定経路側でも導出できるようにする（#290）。
+  int get transferCount {
+    final transitSegmentCount = segments
+        .where((s) => s.type != SegmentType.walk)
+        .length;
+    return transitSegmentCount == 0 ? 0 : transitSegmentCount - 1;
+  }
 }

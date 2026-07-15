@@ -199,6 +199,7 @@ RoutePlan buildRoutePlan({
   required TimeValue departure,
   required int budgetMin,
   DateTime? departureAt,
+  List<RoutePlan> alternatives = const [],
 }) {
   // 距離・所要ともに実質ゼロの徒歩レッグ（同駅乗換など #225）はノイズなので除外する。
   // segments と timelineNodes の 1:1 対応を保つため、ノード生成前にここで落とす。全データ源が
@@ -290,5 +291,6 @@ RoutePlan buildRoutePlan({
     walkRatio: totalKm == 0 ? 0 : walkKm / totalKm,
     segments: segments,
     timelineNodes: nodes,
+    alternatives: alternatives,
   );
 }
