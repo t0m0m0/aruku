@@ -13,6 +13,15 @@ import 'route_service.dart';
 import 'transit_api_client.dart';
 import 'transit_plan_parser.dart';
 
+/// 選定・enrich 検証の結果一式。[chosen] は enrich 前の選定候補（guidance 見積りのまま）、
+/// [enriched] は Google 実測で確定した採用経路、[alternatives] は残存プールから選んだ
+/// パレート非劣解の代替案（確定経路と同じ不変条件で検証済み・#290）。
+typedef _Selection = ({
+  RouteCandidate chosen,
+  RouteCandidate enriched,
+  List<RouteCandidate> alternatives,
+});
+
 /// Transit API（`/guidance/plan`）から、予算内で徒歩を最大化するルートを生成する
 /// `RouteService`（#137）。NAVITIME 版（[NaviTimeRouteService]）を置換する。
 ///
@@ -347,6 +356,7 @@ class TransitRouteService implements SearchEngine {
       onProgress,
       fromName: fromName,
       toName: toName,
+      alternatives: selected.alternatives,
     );
   }
 
@@ -543,7 +553,10 @@ class TransitRouteService implements SearchEngine {
   /// 候補としてプールへ混ざるだけで、逆戻りフィルタ・乗り遅れ除外・幽霊便拒否といった
   /// 既存の検証はそのまま効く。省略時はバスを引かず従来どおり縮退する（再入時がこれ）。
   /// [lastResortBus] はメモ化前提で、既にプールにあるバス候補は積み増さない。
-  Future<({RouteCandidate chosen, RouteCandidate enriched})> _selectAndEnrich(
+  ///
+  /// 戻り値の [alternatives] は勝者確定後の残存プールから選んだパレート非劣解の代替案
+  /// （#290・検証済み）。確定経路と同じ不変条件を通った候補だけが入る。
+  Future<_Selection> _selectAndEnrich(
     List<RouteCandidate> candidates,
     int budgetMin,
     DateTime departureAt, {
@@ -564,20 +577,35 @@ class TransitRouteService implements SearchEngine {
     /// は乗り遅れた便を「待ち0で予定どおり乗車」と楽観近似して進めるため、実測徒歩で発車後に
     /// 駅着する経路が予算内に見えてしまう。それを予算内と誤認するとバスを引かず、実際には
     /// 乗れない電車を確定してしまう（#250 レビュー指摘）。
-    Future<({RouteCandidate chosen, RouteCandidate enriched})> giveUp() async {
+    Future<_Selection> giveUp() async {
       final fallback = await _bestEffortResolved(
         candidates,
         budgetMin,
         departureAt,
         walkCache,
       );
-      if (lastResortBus == null) return fallback;
       final segs = fallback.enriched.segments;
       final arrival = arrivalMinutes(segs, departureAt);
       final missed = firstMissedTransit(segs, departureAt) != null;
+      // 代替案の予算チェックは best-effort の勝者に適用されたのと同じだけ緩和する
+      // （勝者が予算外なら代替案も予算外を許す）。乗り遅れ・時刻なしは緩和しない（#290）。
+      Future<_Selection> fallbackWithAlternatives() async => (
+        chosen: fallback.chosen,
+        enriched: fallback.enriched,
+        alternatives: await _validatedAlternatives(
+          candidates,
+          fallback.chosen,
+          fallback.enriched,
+          budgetMin,
+          departureAt,
+          walkCache,
+          relaxBudget: arrival > budgetMin,
+        ),
+      );
+      if (lastResortBus == null) return fallbackWithAlternatives();
       if (arrival <= budgetMin && !missed) {
         _diag.log(() => '  → best-effort が予算内(arr=${arrival}m) → バス再照会せず');
-        return fallback;
+        return fallbackWithAlternatives();
       }
       final bus = await lastResortBus();
       // 再入時（バス追加後の選び直しから再び縮退したとき）に同じ候補を積み増さない。
@@ -587,7 +615,7 @@ class TransitRouteService implements SearchEngine {
       ];
       if (fresh.isEmpty) {
         _diag.log(() => '  → 追加できるバス候補なし → best-effort のまま');
-        return fallback;
+        return fallbackWithAlternatives();
       }
       _diag.log(
         () =>
@@ -681,8 +709,85 @@ class TransitRouteService implements SearchEngine {
       _diag.log(
         () => '  → 確定: ${_diag.candLine(enriched, budgetMin, departureAt)}',
       );
-      return (chosen: chosen, enriched: enriched);
+      return (
+        chosen: chosen,
+        enriched: enriched,
+        alternatives: await _validatedAlternatives(
+          pool,
+          chosen,
+          enriched,
+          budgetMin,
+          departureAt,
+          walkCache,
+        ),
+      );
     }
+  }
+
+  /// 勝者確定後の残存プール [pool] へ [paretoAlternatives] を適用し、選ばれた各代替案を
+  /// 確定経路と同じ順序（enrich 実測→実時刻解決）で検証して生き残りだけ返す（#290）。
+  /// 検証は [_invariantViolation] と同一基準で、[relaxBudget] のときのみ予算超過を許す
+  /// （best-effort の勝者と同じ緩和）。乗り遅れ・時刻なし transit は緩和しない——乗れない
+  /// 便・実在の確証が無い便は代替案としても提示してよいものではないため。
+  ///
+  /// 検証後（実測値）で勝者と (到着, 徒歩) が同値になった候補・代替案同士の同値重複は
+  /// 落とす（パレート選出は見積り値で行うため、実測後に差分が消えることがある）。
+  /// 返却は実測到着の昇順（同着は徒歩多い順）で決定的。
+  Future<List<RouteCandidate>> _validatedAlternatives(
+    List<RouteCandidate> pool,
+    RouteCandidate chosen,
+    RouteCandidate enrichedWinner,
+    int budgetMin,
+    DateTime departureAt,
+    Map<String, RouteCandidate> walkCache, {
+    bool relaxBudget = false,
+  }) async {
+    final picked = paretoAlternatives(
+      candidates: pool,
+      chosen: chosen,
+      departureAt: departureAt,
+    );
+
+    Future<RouteCandidate?> validate(RouteCandidate c) async {
+      // 例外は候補単位で握って null（落とす）にする。代替案は確定経路の付加情報で、
+      // その検証失敗が plan() 全体を失敗させてはならない。rethrow すると壊れた応答
+      // 1件で本命の経路まで道連れになる（#290）。
+      try {
+        final e = await _resolveBoardingTimes(
+          await _enrichWalkGeometry(c, walkCache),
+          departureAt,
+        );
+        final v = _invariantViolation(e.segments, budgetMin, departureAt);
+        final rejected =
+            (v.overBudget && !relaxBudget) || v.missed || v.unverified;
+        return rejected ? null : e;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    // 候補ごとの検証は互いに独立なので並列に投げる（walkCache 共有で同一レッグは畳む）。
+    final validated = await Future.wait([for (final c in picked) validate(c)]);
+
+    int arrival(RouteCandidate c) => arrivalMinutes(c.segments, departureAt);
+    String key(RouteCandidate c) => '${arrival(c)}:${c.walkMinutes}';
+    final seen = <String>{key(enrichedWinner)};
+    final out = <RouteCandidate>[
+      for (final e in validated)
+        if (e != null && seen.add(key(e))) e,
+    ];
+    out.sort((a, b) {
+      final byArrival = arrival(a).compareTo(arrival(b));
+      return byArrival != 0
+          ? byArrival
+          : b.walkMinutes.compareTo(a.walkMinutes);
+    });
+    _diag.log(
+      () =>
+          'alternatives: pareto=${picked.length}件 → 検証後 ${out.length}件'
+          '${relaxBudget ? '（best-effort: 予算チェック緩和）' : ''}',
+    );
+    return out;
   }
 
   /// enrich／実時刻検証を経た区間列が確定不変条件（#254）に反しているかの3条件判定。
@@ -1172,6 +1277,7 @@ class TransitRouteService implements SearchEngine {
     void Function(RoutePhase)? onProgress, {
     String? fromName,
     String? toName,
+    List<RouteCandidate> alternatives = const [],
   }) {
     onProgress?.call(RoutePhase.building);
     final departureAt = _departureDateTime(departure);
@@ -1182,6 +1288,17 @@ class TransitRouteService implements SearchEngine {
       departure: departure,
       budgetMin: budgetMin,
       departureAt: departureAt,
+      alternatives: [
+        for (final a in alternatives)
+          buildRoutePlan(
+            from: _displayName(fromName, a.from),
+            to: _displayName(toName, a.to),
+            segments: a.segments,
+            departure: departure,
+            budgetMin: budgetMin,
+            departureAt: departureAt,
+          ),
+      ],
     );
   }
 
