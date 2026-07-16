@@ -2798,4 +2798,188 @@ void main() {
       expect(plan.alternatives.map((a) => a.totalMin).toList(), [27, 34]);
     });
   });
+
+  group('plan: 崩壊再選定と代替案検証のタイミング (#290 レビュー指摘③)', () {
+    const o = GeoPoint(35.0, 139.000);
+    const g = GeoPoint(35.0, 139.100);
+
+    // 早着・徒歩少の標準候補（実到着25分・徒歩5分）。corridor は1点で base にならない。
+    // 初回プールのフロントには残るが、最終プールでは board-search 候補（19分,徒歩11）に
+    // 厳密支配されてフロントから消える＝最終確定後の検証なら決して enrich されない位置。
+    Map<String, dynamic> s1() => {
+      'journey': {
+        'departureSecs': 32700, // 09:05（徒歩3分→09:03着→待ち2分）
+        'arrivalSecs': 33780, // 09:23
+        'durationSecs': 33780 - 32700 + 300,
+        'accessWalkSecs': 180, // origin→139.003 ≒ 3分
+        'egressWalkSecs': 120, // 139.0985→goal ≒ 2分
+        'legs': [
+          _railLeg(
+            route: '早着S',
+            fromId: 's1:board',
+            fromName: 'S1乗車',
+            toId: 's1:alight',
+            toName: 'S1降車',
+            dep: 32700,
+            arr: 33780,
+          ),
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('walk', 'origin', 's1:board', 'osmWalk', const [
+            [35.0, 139.000],
+            [35.0, 139.003],
+          ]),
+          _mapSeg('transit', 's1:board', 's1:alight', 'stopOrder', const [
+            [35.0, 139.003],
+          ]),
+          _mapSeg('walk', 's1:alight', 'destination', 'estimatedWalk', const [
+            [35.0, 139.0985],
+            [35.0, 139.100],
+          ]),
+        ],
+      },
+    };
+
+    // 徒歩最大の標準候補（実到着34分・徒歩13分）。乗降2点の corridor を持ち、ここから
+    // ハイブリッド（見積り29分・徒歩13分＝初回の勝者）と board-search の土台が生まれる。
+    Map<String, dynamic> s2() => {
+      'journey': {
+        'departureSecs': 33300, // 09:15（徒歩11分→09:11着→待ち4分）
+        'arrivalSecs': 34320, // 09:32
+        'durationSecs': 34320 - 33300 + 780,
+        'accessWalkSecs': 660, // origin→139.010 ≒ 11分
+        'egressWalkSecs': 120, // 139.098→goal ≒ 2分
+        'legs': [
+          _railLeg(
+            route: '基準S',
+            fromId: 's2:board',
+            fromName: 'S2乗車',
+            toId: 's2:alight',
+            toName: 'S2降車',
+            dep: 33300,
+            arr: 34320,
+          ),
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('walk', 'origin', 's2:board', 'osmWalk', const [
+            [35.0, 139.000],
+            [35.0, 139.010],
+          ]),
+          _mapSeg('transit', 's2:board', 's2:alight', 'stopOrder', const [
+            [35.0, 139.010],
+            [35.0, 139.098],
+          ]),
+          _mapSeg('walk', 's2:alight', 'destination', 'estimatedWalk', const [
+            [35.0, 139.098],
+            [35.0, 139.100],
+          ]),
+        ],
+      },
+    };
+
+    int secsOf(String hhmm) {
+      final p = hhmm.split(':');
+      return int.parse(p[0]) * 3600 + int.parse(p[1]) * 60;
+    }
+
+    // 乗車駅 X からの引き直し便: 乗車待ち0（dep=照会時刻）の速い電車（1000m/分）で goal
+    // まで直行。手前の乗車駅ほど早着になり、board-search 候補 B0（139.010 発・19分・徒歩11）
+    // が S1（25分・徒歩5）を厳密支配する構図を作る。
+    Map<String, dynamic> reentry(double lng, String time) {
+      final dep = secsOf(time);
+      final ride = (haversineKm(GeoPoint(35.0, lng), g) * 1000 / 1000).round();
+      final arr = dep + ride * 60;
+      return _guidance([
+        {
+          'journey': {
+            'departureSecs': dep,
+            'arrivalSecs': arr,
+            'durationSecs': arr - dep,
+            'accessWalkSecs': 0,
+            'egressWalkSecs': 0,
+            'legs': [
+              _railLeg(
+                route: '引直線',
+                fromId: 'bx',
+                fromName: '引直乗車',
+                toId: 'gx',
+                toName: '引直降車',
+                dep: dep,
+                arr: arr,
+              ),
+            ],
+          },
+          'map': {
+            'points': const [],
+            'segments': [
+              _mapSeg('transit', 'bx', 'gx', 'stopOrder', [
+                [35.0, lng],
+                [35.0, 139.100],
+              ]),
+            ],
+          },
+        },
+      ]);
+    }
+
+    http.Client collapseMock(List<Uri> log) => MockClient((req) async {
+      log.add(req.url);
+      final path = req.url.path;
+      if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+      if (path.contains('googleWalkProxy')) return _walkFor(req.url);
+      if (path.contains('guidance/plan')) {
+        final from = req.url.queryParameters['from'] ?? '';
+        final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
+        if ((lng - 139.0).abs() < 1e-9) return _json(_guidance([s1(), s2()]));
+        return _json(reentry(lng, req.url.queryParameters['time'] ?? '09:00'));
+      }
+      return _json(const {}, 404);
+    });
+
+    test('代替案の検証は board-search 再選定の後に1回だけ走る', () async {
+      // 09:00発・予算60分。初回選定は S2 corridor 由来のハイブリッド（29分,徒歩13）が勝ち、
+      // 余り31分（≥絶対閾値20分）・margin 0（≤10分）で崩壊 → board-search が引き直し候補
+      // B0（19分,徒歩11）を足して再選定する。S1 は初回プールのフロントには残るが、最終
+      // プールでは B0 に厳密支配されて消える。よって代替案検証が最終確定後の1回だけなら
+      // S1 のアクセス徒歩 enrich（goal=35.0,139.003）は決して走らない。崩壊前の selection
+      // でも検証を走らせる実装は、捨てられる選定のために S1 へ walk IO を無駄撃ちする。
+      final log = <Uri>[];
+      final svc = _service(collapseMock(log));
+      final plan = await svc.plan(
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0), // 予算60分
+        origin: o,
+        originName: '出発',
+      );
+
+      final s1AccessEnrich = log.where(
+        (u) =>
+            u.path.contains('googleWalkProxy') &&
+            u.queryParameters['goal'] == '35.0,139.003',
+      );
+      expect(
+        s1AccessEnrich,
+        isEmpty,
+        reason: '最終フロントに残らない候補を、捨てられる崩壊前の選定で検証（enrich）してはならない',
+      );
+
+      // 検証が最終確定後に走った証拠: 最終プールにしか居ない board-search 候補が代替案に載る。
+      expect(plan.totalMin, lessThanOrEqualTo(60));
+      expect(
+        plan.alternatives.any(
+          (a) => a.segments.any((s) => s.line == '引直線') && a.totalMin == 19,
+        ),
+        isTrue,
+        reason: 'board-search 候補（引直線・19分）が代替案として提示されるはず',
+      );
+    });
+  });
 }

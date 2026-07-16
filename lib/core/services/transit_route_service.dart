@@ -14,12 +14,16 @@ import 'transit_api_client.dart';
 import 'transit_plan_parser.dart';
 
 /// 選定・enrich 検証の結果一式。[chosen] は enrich 前の選定候補（guidance 見積りのまま）、
-/// [enriched] は Google 実測で確定した採用経路、[alternatives] は残存プールから選んだ
-/// パレート非劣解の代替案（確定経路と同じ不変条件で検証済み・#290）。
+/// [enriched] は Google 実測で確定した採用経路。[pool] は勝者確定後の残存プール
+/// （enrich 検証で除外済みの候補を除く・代替案 #290 の母集団）、[relaxBudget] は
+/// best-effort 縮退で勝者が予算外のまま確定したか（代替案の予算チェックも同じだけ緩める）。
+/// 代替案の選出・検証はここでは行わない：崩壊時は選定が2回走り、1回目の結果は捨てられる
+/// ため、最終 selection が確定した後に [_validatedAlternatives] を1回だけ掛ける。
 typedef _Selection = ({
   RouteCandidate chosen,
   RouteCandidate enriched,
-  List<RouteCandidate> alternatives,
+  List<RouteCandidate> pool,
+  bool relaxBudget,
 });
 
 /// Transit API（`/guidance/plan`）から、予算内で徒歩を最大化するルートを生成する
@@ -352,6 +356,19 @@ class TransitRouteService implements SearchEngine {
       _diag.log(() => 'collapse=false → フォールバック起動せず');
     }
 
+    // 代替案の選出・検証は最終 selection が確定してから1回だけ行う（#290 レビュー指摘）。
+    // 崩壊時は選定が2回走り1回目の結果は捨てられるため、_selectAndEnrich 内で都度検証
+    // すると捨てられる selection のための walk/guidance IO を無駄撃ちする。
+    final alternatives = await _validatedAlternatives(
+      selected.pool,
+      selected.chosen,
+      selected.enriched,
+      budgetMin,
+      departureAt,
+      walkCache,
+      relaxBudget: selected.relaxBudget,
+    );
+
     final named = await _finalizeStationNames(selected.enriched, departureAt);
     _diag.log(
       () => '=== FINAL: ${_diag.candLine(named, budgetMin, departureAt)} ===',
@@ -364,7 +381,7 @@ class TransitRouteService implements SearchEngine {
       onProgress,
       fromName: fromName,
       toName: toName,
-      alternatives: selected.alternatives,
+      alternatives: alternatives,
     );
   }
 
@@ -562,8 +579,10 @@ class TransitRouteService implements SearchEngine {
   /// 既存の検証はそのまま効く。省略時はバスを引かず従来どおり縮退する（再入時がこれ）。
   /// [lastResortBus] はメモ化前提で、既にプールにあるバス候補は積み増さない。
   ///
-  /// 戻り値の [alternatives] は勝者確定後の残存プールから選んだパレート非劣解の代替案
-  /// （#290・検証済み）。確定経路と同じ不変条件を通った候補だけが入る。
+  /// 代替案（#290）はここでは選ばない。戻り値の [pool]（残存プール）と [relaxBudget] を
+  /// 使い、崩壊/board-search 分岐が最終 selection を確定した後に呼び出し側が
+  /// [_validatedAlternatives] を1回だけ掛ける（捨てられる selection のための検証 IO を
+  /// 発生させないため）。
   Future<_Selection> _selectAndEnrich(
     List<RouteCandidate> candidates,
     int budgetMin,
@@ -597,23 +616,16 @@ class TransitRouteService implements SearchEngine {
       final missed = firstMissedTransit(segs, departureAt) != null;
       // 代替案の予算チェックは best-effort の勝者に適用されたのと同じだけ緩和する
       // （勝者が予算外なら代替案も予算外を許す）。乗り遅れ・時刻なしは緩和しない（#290）。
-      Future<_Selection> fallbackWithAlternatives() async => (
+      _Selection fallbackSelection() => (
         chosen: fallback.chosen,
         enriched: fallback.enriched,
-        alternatives: await _validatedAlternatives(
-          candidates,
-          fallback.chosen,
-          fallback.enriched,
-          budgetMin,
-          departureAt,
-          walkCache,
-          relaxBudget: arrival > budgetMin,
-        ),
+        pool: candidates,
+        relaxBudget: arrival > budgetMin,
       );
-      if (lastResortBus == null) return fallbackWithAlternatives();
+      if (lastResortBus == null) return fallbackSelection();
       if (arrival <= budgetMin && !missed) {
         _diag.log(() => '  → best-effort が予算内(arr=${arrival}m) → バス再照会せず');
-        return fallbackWithAlternatives();
+        return fallbackSelection();
       }
       final bus = await lastResortBus();
       // 再入時（バス追加後の選び直しから再び縮退したとき）に同じ候補を積み増さない。
@@ -623,7 +635,7 @@ class TransitRouteService implements SearchEngine {
       ];
       if (fresh.isEmpty) {
         _diag.log(() => '  → 追加できるバス候補なし → best-effort のまま');
-        return fallbackWithAlternatives();
+        return fallbackSelection();
       }
       _diag.log(
         () =>
@@ -720,14 +732,8 @@ class TransitRouteService implements SearchEngine {
       return (
         chosen: chosen,
         enriched: enriched,
-        alternatives: await _validatedAlternatives(
-          pool,
-          chosen,
-          enriched,
-          budgetMin,
-          departureAt,
-          walkCache,
-        ),
+        pool: pool,
+        relaxBudget: false,
       );
     }
   }
