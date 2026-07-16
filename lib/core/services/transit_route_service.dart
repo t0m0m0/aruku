@@ -62,6 +62,14 @@ class TransitRouteService implements SearchEngine {
   /// 採用候補を enrich（街路実測）で検証して選び直す試行上限。
   static const int _maxEnrichAttempts = 8;
 
+  /// 代替案（パレート非劣解）の最大提示件数（#290）。
+  static const int _maxAlternatives = 3;
+
+  /// 代替案の検証（enrich＋実時刻解決）に掛ける候補数の総上限。検証落ちの補充を
+  /// 無制限に回すと、全滅状況（候補が軒並み乗り遅れ・幻便）でフロント全体へ walk/guidance
+  /// の IO を掛け尽くしてしまうため、[_maxAlternatives] の3巡分で打ち切る。
+  static const int _maxAlternativeValidations = 9;
+
   /// アクセス徒歩を一括実測するマトリクスの片側の駅数上限（要素数課金を抑える）。
   static const int _maxMatrixSideStations = 10;
 
@@ -724,15 +732,24 @@ class TransitRouteService implements SearchEngine {
     }
   }
 
-  /// 勝者確定後の残存プール [pool] へ [paretoAlternatives] を適用し、選ばれた各代替案を
-  /// 確定経路と同じ順序（enrich 実測→実時刻解決）で検証して生き残りだけ返す（#290）。
-  /// 検証は [_invariantViolation] と同一基準で、[relaxBudget] のときのみ予算超過を許す
-  /// （best-effort の勝者と同じ緩和）。乗り遅れ・時刻なし transit は緩和しない——乗れない
+  /// 勝者確定後の残存プール [pool] のパレート・フロント（非劣解全体）を到着昇順に検証し、
+  /// 生き残った代替案を最大 [_maxAlternatives] 件返す（#290）。検証は確定経路と同じ順序
+  /// （enrich 実測→実時刻解決→[_invariantViolation]）で、[relaxBudget] のときのみ予算超過を
+  /// 許す（best-effort の勝者と同じ緩和）。乗り遅れ・時刻なし transit は緩和しない——乗れない
   /// 便・実在の確証が無い便は代替案としても提示してよいものではないため。
   ///
-  /// 検証後（実測値）で勝者と (到着, 徒歩) が同値になった候補・代替案同士の同値重複は
-  /// 落とす（パレート選出は見積り値で行うため、実測後に差分が消えることがある）。
-  /// 返却は実測到着の昇順（同着は徒歩多い順）で決定的。
+  /// 上位 [_maxAlternatives] 件だけを検証して終わりにしない：選出候補が検証で落ちたとき、
+  /// プールに検証可能な次点の非劣解が残っていても「他の候補」が本来より疎になるため、
+  /// 落ちた枠はフロントの次点から補充する。検証は候補ごとに walk/guidance の IO を伴うため、
+  /// 通常モードでは見積り予算外の候補を検証前に足切りする——見積りは楽観側に倒す不変条件
+  /// （§6・[walkMetersPerMinute]）により、見積りですら予算外なら実測でも通らず、検証する
+  /// 価値が無い（best-effort 緩和時は予算チェック自体が緩むので足切りしない）。全滅状況で
+  /// フロント全体を検証し尽くさないよう、総検証数は [_maxAlternativeValidations] で打ち切る。
+  ///
+  /// 検証後は**実測値で**支配関係を掛け直す：enrich・実時刻解決で到着・徒歩が動くと、
+  /// 見積りでは非劣解だった候補が勝者や他の検証済み代替案に厳密支配され得る。実測値で
+  /// [paretoAlternatives] を再適用（勝者を支配者として含める）し、落ちた分も次点から補充
+  /// する。順序・同値除去・勝者同値の除外は再適用が担保する（実測到着の昇順で決定的）。
   Future<List<RouteCandidate>> _validatedAlternatives(
     List<RouteCandidate> pool,
     RouteCandidate chosen,
@@ -742,11 +759,16 @@ class TransitRouteService implements SearchEngine {
     Map<String, RouteCandidate> walkCache, {
     bool relaxBudget = false,
   }) async {
-    final picked = paretoAlternatives(
-      candidates: pool,
-      chosen: chosen,
-      departureAt: departureAt,
-    );
+    int arrival(RouteCandidate c) => arrivalMinutes(c.segments, departureAt);
+    final front = [
+      for (final c in paretoAlternatives(
+        candidates: pool,
+        chosen: chosen,
+        departureAt: departureAt,
+        maxCount: pool.length,
+      ))
+        if (relaxBudget || arrival(c) <= budgetMin) c,
+    ];
 
     Future<RouteCandidate?> validate(RouteCandidate c) async {
       // 例外は候補単位で握って null（落とす）にする。代替案は確定経路の付加情報で、
@@ -766,28 +788,37 @@ class TransitRouteService implements SearchEngine {
       }
     }
 
-    // 候補ごとの検証は互いに独立なので並列に投げる（walkCache 共有で同一レッグは畳む）。
-    final validated = await Future.wait([for (final c in picked) validate(c)]);
-
-    int arrival(RouteCandidate c) => arrivalMinutes(c.segments, departureAt);
-    String key(RouteCandidate c) => '${arrival(c)}:${c.walkMinutes}';
-    final seen = <String>{key(enrichedWinner)};
-    final out = <RouteCandidate>[
-      for (final e in validated)
-        if (e != null && seen.add(key(e))) e,
-    ];
-    out.sort((a, b) {
-      final byArrival = arrival(a).compareTo(arrival(b));
-      return byArrival != 0
-          ? byArrival
-          : b.walkMinutes.compareTo(a.walkMinutes);
-    });
+    var accepted = <RouteCandidate>[];
+    var cursor = 0;
+    var validations = 0;
+    while (accepted.length < _maxAlternatives &&
+        cursor < front.length &&
+        validations < _maxAlternativeValidations) {
+      var take = _maxAlternatives - accepted.length;
+      if (take > front.length - cursor) take = front.length - cursor;
+      if (take > _maxAlternativeValidations - validations) {
+        take = _maxAlternativeValidations - validations;
+      }
+      final batch = front.sublist(cursor, cursor + take);
+      cursor += take;
+      validations += take;
+      // バッチ内の検証は互いに独立なので並列に投げる（walkCache 共有で同一レッグは畳む）。
+      final validated = await Future.wait([for (final c in batch) validate(c)]);
+      accepted.addAll([for (final e in validated) ?e]);
+      accepted = paretoAlternatives(
+        candidates: [...accepted, enrichedWinner],
+        chosen: enrichedWinner,
+        departureAt: departureAt,
+        maxCount: _maxAlternatives,
+      );
+    }
     _diag.log(
       () =>
-          'alternatives: pareto=${picked.length}件 → 検証後 ${out.length}件'
+          'alternatives: front=${front.length}件 検証=$validations件 '
+          '→ ${accepted.length}件'
           '${relaxBudget ? '（best-effort: 予算チェック緩和）' : ''}',
     );
-    return out;
+    return accepted;
   }
 
   /// enrich／実時刻検証を経た区間列が確定不変条件（#254）に反しているかの3条件判定。

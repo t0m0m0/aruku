@@ -2467,8 +2467,9 @@ void main() {
     const g = GeoPoint(35.0, 139.100);
     final departureAt = DateTime(2026, 6, 27, 9, 0);
 
-    /// 電車1本の標準 option。transit の map polyline を1点だけにして corridor を痩せさせ、
-    /// ハイブリッド・board-search の生成を封じる（プール＝標準候補＋全徒歩に固定）。
+    /// 電車1本の標準 option。既定では transit の map polyline を1点だけにして corridor を
+    /// 痩せさせ、ハイブリッド・board-search の生成を封じる（プール＝標準候補＋全徒歩に固定。
+    /// [withCorridor] で乗降2点の corridor を持たせられる）。
     /// dep/arr を null にすると時刻なし transit（幽霊便疑い）になる。
     Map<String, dynamic> opt({
       required String line,
@@ -2478,6 +2479,7 @@ void main() {
       int? arr,
       required int accessSecs,
       required int egressSecs,
+      bool withCorridor = false,
     }) => {
       'journey': {
         'departureSecs': ?dep,
@@ -2506,6 +2508,7 @@ void main() {
           ]),
           _mapSeg('transit', '$line:board', '$line:alight', 'stopOrder', [
             [35.0, boardLon],
+            if (withCorridor) [35.0, alightLon],
           ]),
           _mapSeg('walk', '$line:alight', 'destination', 'estimatedWalk', [
             [35.0, alightLon],
@@ -2568,6 +2571,30 @@ void main() {
       alightLon: 139.099,
       accessSecs: 120,
       egressSecs: 60,
+    );
+
+    // 4本目の非劣解: 徒歩9+4=13分・実到着41分。E・M より遅いが徒歩は多い（トレードオフ）。
+    // パレート上位3件（到着昇順）からは漏れる位置＝検証落ちの補充でだけ現れる。
+    Map<String, dynamic> altLate() => opt(
+      line: '準々L',
+      boardLon: 139.008,
+      alightLon: 139.0965,
+      dep: 33060, // 09:11（徒歩9分→09:09着→待ち2分）
+      arr: 34620, // 09:37
+      accessSecs: 540,
+      egressSecs: 240,
+    );
+
+    // 見積りでは最早（楽観到着3分・徒歩3分）だが、実発車時刻の解決で 09:15発（先頭 option
+    // の便）が当たり実測到着41分へ膨らむ時刻なし候補。実測後は E(27,徒歩4)・M(34,徒歩10)
+    // に厳密支配される＝見積りベースの選出だけでは劣った候補を提示してしまう位置に置く。
+    Map<String, dynamic> estimatedFastGhost() => opt(
+      line: '見積早U',
+      boardLon: 139.002,
+      alightLon: 139.099,
+      accessSecs: 120,
+      egressSecs: 60,
+      withCorridor: true, // polyline 2点＝引き直しで実時刻が解決できる
     );
 
     Future<RoutePlan> planWith(
@@ -2717,6 +2744,58 @@ void main() {
         expect(alt.segments.any((s) => s.line == '幽霊G'), isFalse);
         expect(firstMissedTransit(alt.segments, departureAt), isNull);
       }
+    });
+
+    test('検証で落ちた選出枠は次点の非劣解から補充する（レビュー指摘①）', () async {
+      // フロント（到着昇順）: 幽霊G(18,徒歩3)→E(27,4)→M(34,10)→準々L(41,13)。
+      // 上位3件だけ検証すると幽霊G が乗り遅れで落ちて2件に痩せるが、プールには検証可能な
+      // 次点 L が残っている。補充が無いと「他の候補」が本来より疎になる。
+      final plan = await planWith(
+        _mock(
+          transit: _guidance([
+            missedGhost(),
+            winner(),
+            altEarly(),
+            altMid(),
+            altLate(),
+          ]),
+        ),
+      );
+
+      expect(plan.alternatives, hasLength(3));
+      expect(plan.alternatives.map((a) => a.totalMin).toList(), [27, 34, 41]);
+      expect(
+        plan.alternatives[2].segments.any((s) => s.line == '準々L'),
+        isTrue,
+        reason: '検証落ち（幽霊G）の枠は次点の非劣解 L で補充されるはず',
+      );
+      for (final alt in plan.alternatives) {
+        expect(alt.segments.any((s) => s.line == '幽霊G'), isFalse);
+      }
+    });
+
+    test('実測で他の代替案に厳密支配された候補は提示しない（レビュー指摘②）', () async {
+      // 見積早U は見積り（楽観到着3分・徒歩3分）ではフロント先頭だが、実発車時刻の解決で
+      // 実測到着41分・徒歩3分になり、検証済みの E(27,4)・M(34,10) に厳密支配される。
+      // 見積りベースの選出結果をそのまま返すと「あらゆる軸で劣る候補」を提示してしまう。
+      final plan = await planWith(
+        _mock(
+          transit: _guidance([
+            winner(),
+            altEarly(),
+            altMid(),
+            estimatedFastGhost(),
+          ]),
+        ),
+      );
+
+      expect(
+        plan.alternatives.any((a) => a.segments.any((s) => s.line == '見積早U')),
+        isFalse,
+        reason: '実測後に厳密支配される候補（(41,3) vs E(27,4)/M(34,10)）を提示してはならない',
+      );
+      expect(plan.alternatives, hasLength(2));
+      expect(plan.alternatives.map((a) => a.totalMin).toList(), [27, 34]);
     });
   });
 }
