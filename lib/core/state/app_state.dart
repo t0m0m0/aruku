@@ -134,6 +134,7 @@ class AppState {
     this.todayKcal = 0,
     this.isRerouting = false,
     this.rerouteFailed = false,
+    this.routeAlternatives = const [],
   });
 
   final Screen screen;
@@ -148,6 +149,11 @@ class AppState {
   final TimeValue arrival;
   final RoutePlan? route;
   final LocationState locationState;
+
+  /// [route] と対になるパレート非劣解の代替案（#290）。result 画面の候補切替に使う。
+  /// route を差し替える経路（新規検索成功・リルート成功・失効）では必ず同じ
+  /// copyWith で更新する。リルート後・失効後は stale になるため空へ戻す。
+  final List<RoutePlan> routeAlternatives;
 
   /// isNow（今すぐ出発）経路が前提とする「現在時刻」。確定時に設定し、この時刻から
   /// [kRouteFreshness] を超えて実時間が進むと失効する（#264）。固定出発（isNow=false）
@@ -229,6 +235,7 @@ class AppState {
     int? todayKcal,
     bool? isRerouting,
     bool? rerouteFailed,
+    List<RoutePlan>? routeAlternatives,
   }) {
     return AppState(
       screen: screen ?? this.screen,
@@ -268,6 +275,7 @@ class AppState {
       todayKcal: todayKcal ?? this.todayKcal,
       isRerouting: isRerouting ?? this.isRerouting,
       rerouteFailed: rerouteFailed ?? this.rerouteFailed,
+      routeAlternatives: routeAlternatives ?? this.routeAlternatives,
     );
   }
 
@@ -735,7 +743,13 @@ class AppNotifier extends Notifier<AppState> {
       // リルートは常に isNow:true で引き直す（歩行中＝今出発）。差し替えた経路は元の
       // フォームが固定出発でも now 基準なので、失効基準 routeAsOf を必ず更新する。
       // これを付けないと、ナビ離脱後に古い now リルートが失効せず再入場できてしまう（#264）。
-      state = state.copyWith(route: plan, routeAsOf: now, isRerouting: false);
+      // 直前の代替案は差し替え前の経路に紐づく stale な選択肢なので空に戻す（#290）。
+      state = state.copyWith(
+        route: plan,
+        routeAsOf: now,
+        isRerouting: false,
+        routeAlternatives: const [],
+      );
       // 新しい経路のポリラインは旧経路と別物なので、直前の累積距離は無効。
       _lastDistanceAlongMeters = null;
     } catch (_) {
@@ -870,6 +884,7 @@ class AppNotifier extends Notifier<AppState> {
         arrival: refreshed.arrival,
         routeErrorKind: null,
         routePhase: null,
+        routeAlternatives: plan.alternatives,
       );
     } catch (e) {
       if (generation != _searchGeneration || _disposed) return;
@@ -950,6 +965,23 @@ class AppNotifier extends Notifier<AppState> {
       routeErrorKind: null,
       departure: refreshed.departure,
       arrival: refreshed.arrival,
+      routeAlternatives: const [],
+    );
+  }
+
+  /// 結果画面の候補カードから代替案 [index] を選ぶ。確定経路と代替案を入れ替え、
+  /// 何度でも行き来できるようにする（#290）。範囲外 index や経路未確定は no-op。
+  /// 画面遷移はしない（result 画面のまま再描画させる）。
+  void selectAlternative(int index) {
+    final current = state.route;
+    final alternatives = state.routeAlternatives;
+    if (current == null || index < 0 || index >= alternatives.length) return;
+    state = state.copyWith(
+      route: alternatives[index],
+      routeAlternatives: [
+        for (var i = 0; i < alternatives.length; i++)
+          i == index ? current : alternatives[i],
+      ],
     );
   }
 

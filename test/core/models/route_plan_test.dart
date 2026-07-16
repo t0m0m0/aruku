@@ -55,6 +55,71 @@ void main() {
     });
   });
 
+  group('RoutePlan.alternatives', () {
+    test('省略時は空リスト（既存フィクスチャの後方互換）', () {
+      expect(sampleRoutePlan.alternatives, isEmpty);
+    });
+
+    test('渡した代替案を保持する', () {
+      const plan = RoutePlan(
+        from: 'A',
+        to: 'B',
+        totalKm: 1,
+        totalMin: 1,
+        budgetMin: 1,
+        kcal: 1,
+        walkKm: 1,
+        walkRatio: 1,
+        segments: [],
+        timelineNodes: [],
+        alternatives: [sampleRoutePlan],
+      );
+      expect(plan.alternatives, hasLength(1));
+      expect(plan.alternatives.first.from, sampleRoutePlan.from);
+    });
+  });
+
+  group('RoutePlan.transferCount', () {
+    RoutePlan planWith(List<RouteSegment> segments) => RoutePlan(
+      from: 'A',
+      to: 'B',
+      totalKm: 1,
+      totalMin: 1,
+      budgetMin: 1,
+      kcal: 1,
+      walkKm: 1,
+      walkRatio: 1,
+      segments: segments,
+      timelineNodes: const [],
+    );
+
+    test('walk 以外の区間数−1（下限0）で導出する', () {
+      const walk = RouteSegment(
+        type: SegmentType.walk,
+        fromName: 'A',
+        toName: 'B',
+        minutes: 5,
+      );
+      const train = RouteSegment(
+        type: SegmentType.train,
+        fromName: 'B',
+        toName: 'C',
+        minutes: 10,
+      );
+      const bus = RouteSegment(
+        type: SegmentType.bus,
+        fromName: 'C',
+        toName: 'D',
+        minutes: 10,
+      );
+
+      expect(planWith(const [walk]).transferCount, 0);
+      expect(planWith(const [walk, train, walk]).transferCount, 0);
+      expect(planWith(const [walk, train, walk, bus]).transferCount, 1);
+      expect(planWith(const []).transferCount, 0);
+    });
+  });
+
   group('RouteMapOverlays.toPolylines', () {
     test('builds one polyline per segment', () {
       expect(

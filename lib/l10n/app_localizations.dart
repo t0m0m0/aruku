@@ -543,6 +543,28 @@ abstract class AppLocalizations {
   /// **'ルートを共有'**
   String get resultShareButton;
 
+  /// No description provided for @resultAlternativesTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'他の候補'**
+  String get resultAlternativesTitle;
+
+  /// No description provided for @resultAlternativeSummary.
+  ///
+  /// In ja, this message translates to:
+  /// **'徒歩{walkMin}分 · 到着 {arrival} · 乗換{transferCount}回'**
+  String resultAlternativeSummary(
+    int walkMin,
+    String arrival,
+    int transferCount,
+  );
+
+  /// No description provided for @resultAlternativeArrivalFallback.
+  ///
+  /// In ja, this message translates to:
+  /// **'+{minutes}分'**
+  String resultAlternativeArrivalFallback(int minutes);
+
   /// No description provided for @resultShareText.
   ///
   /// In ja, this message translates to:

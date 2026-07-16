@@ -114,6 +114,13 @@ int arrivalMinutes(List<RouteSegment> segments, DateTime? departureAt) {
   return null;
 }
 
+/// 実発車時刻（[RouteSegment.depTime]）を確認できていない transit 区間（電車・バス）を
+/// 含むか。引き直し（[_resolveBoardingTimes] 相当）を経ても時刻が付かない区間は「その
+/// 時間に便が走っている確証が無い」＝幻便の疑いで、確定経路にも代替案にも出せない
+/// （#137 深夜の幻便・#250 幽霊バス・#290 代替案検証）。徒歩は時刻を持たないため対象外。
+bool hasUnverifiedTransit(List<RouteSegment> segments) =>
+    segments.any((s) => _isTransit(s.type) && s.depTime == null);
+
 /// 出発から各時刻表付き transit 区間（電車・バス）に乗車するまでの待ち時間の最大値
 /// （分, #121 原因②）。駅着・停留所着から発車までの待機分で、終電・終バス後は翌朝始発
 /// までの長い待ちがここに表れる。複数便を含む経路では「最初の便には乗れても後続が翌朝
@@ -192,6 +199,7 @@ RoutePlan buildRoutePlan({
   required TimeValue departure,
   required int budgetMin,
   DateTime? departureAt,
+  List<RoutePlan> alternatives = const [],
 }) {
   // 距離・所要ともに実質ゼロの徒歩レッグ（同駅乗換など #225）はノイズなので除外する。
   // segments と timelineNodes の 1:1 対応を保つため、ノード生成前にここで落とす。全データ源が
@@ -283,5 +291,6 @@ RoutePlan buildRoutePlan({
     walkRatio: totalKm == 0 ? 0 : walkKm / totalKm,
     segments: segments,
     timelineNodes: nodes,
+    alternatives: alternatives,
   );
 }
