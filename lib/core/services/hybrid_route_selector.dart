@@ -62,13 +62,12 @@ RouteCandidate selectBestRoute({
 }) {
   assert(candidates.isNotEmpty, 'candidates must not be empty');
 
-  var pool = candidates;
-  if (origin != null && goal != null) {
-    final forward = pool
-        .where((c) => !_isBacktrackDetour(c, origin, goal, maxBacktrackRatio))
-        .toList();
-    if (forward.isNotEmpty) pool = forward;
-  }
+  final pool = forwardCandidates(
+    candidates,
+    origin,
+    goal,
+    maxBacktrackRatio: maxBacktrackRatio,
+  );
 
   // 待ち時間込みの実到着分。departureAt が無ければ待ち抜き合計へフォールバック。
   int arrival(RouteCandidate c) => departureAt == null
@@ -126,6 +125,24 @@ List<RouteCandidate>? reachableWithinBudget(
       )
       .toList();
   return reachable.isEmpty ? null : reachable;
+}
+
+/// 出発地より進行方向の後方へ [maxBacktrackRatio] × 直線距離(origin→goal) を超えて戻る
+/// 「逆戻り迂回」候補を除いた前方プールを返す。全候補が逆戻りなら除外せずそのまま返し、
+/// [origin]/[goal] 未指定はフィルタなし。勝者選定（[selectBestRoute]）と代替案選出
+/// （#290・[paretoAlternatives] の母集団）が同じ方向フィルタを共有するための純粋関数——
+/// 選定で意図的に除外した迂回が、生プールからのパレート選出で代替案に再登場するのを防ぐ。
+List<RouteCandidate> forwardCandidates(
+  List<RouteCandidate> candidates,
+  GeoPoint? origin,
+  GeoPoint? goal, {
+  double maxBacktrackRatio = 0.15,
+}) {
+  if (origin == null || goal == null) return candidates;
+  final forward = candidates
+      .where((c) => !_isBacktrackDetour(c, origin, goal, maxBacktrackRatio))
+      .toList();
+  return forward.isNotEmpty ? forward : candidates;
 }
 
 /// 確定した [chosen] とは別の「非劣解（実到着 vs 徒歩のパレート最適）」を代替案として

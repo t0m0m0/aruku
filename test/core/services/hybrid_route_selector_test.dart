@@ -688,6 +688,37 @@ void main() {
     });
   });
 
+  group('forwardCandidates', () {
+    test('逆戻り候補を除き、全滅時と origin/goal 未指定時はそのまま返す', () {
+      const origin = GeoPoint(35.50, 139.50);
+      const goal = GeoPoint(35.70, 139.50); // 出発地の北
+      // 出発地より南（目的地と逆方向）の駅を経由する逆戻り候補。
+      final backtrack = _candidate([
+        const RouteSegment(
+          type: SegmentType.train,
+          fromName: '南駅',
+          toName: 'goal',
+          minutes: 10,
+          km: 30,
+          line: 'L',
+          polyline: [GeoPoint(35.30, 139.50), GeoPoint(35.70, 139.50)],
+        ),
+      ]);
+      final straight = _candidate([_walk(10), _train(8)]);
+
+      expect(forwardCandidates([backtrack, straight], origin, goal), [
+        same(straight),
+      ]);
+      // 全候補が逆戻りなら除外せずそのまま（selectBestRoute の縮退と同じ）。
+      expect(forwardCandidates([backtrack], origin, goal), [same(backtrack)]);
+      // origin/goal 未指定はフィルタなし。
+      expect(forwardCandidates([backtrack, straight], null, null), [
+        same(backtrack),
+        same(straight),
+      ]);
+    });
+  });
+
   group('RouteCandidate.transferCount', () {
     test('時刻なし区間でもtransit区間数から乗換回数を下限0で導出する', () {
       final allWalk = _candidate([_walk(10), _walk(5)]);
