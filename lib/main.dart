@@ -114,16 +114,19 @@ void _assertFirebaseKeyPresent() {
 // 登録して開発する。
 Future<void> _activateAppCheck() {
   if (kDebugMode) {
-    const token = AppConfig.appCheckDebugToken;
+    const androidToken = AppConfig.androidAppCheckDebugToken;
+    const appleToken = AppConfig.appleAppCheckDebugToken;
+
     return FirebaseAppCheck.instance.activate(
       providerAndroid: AndroidDebugProvider(
-        debugToken: token.isEmpty ? null : token,
+        debugToken: androidToken.isEmpty ? null : androidToken,
       ),
       providerApple: AppleDebugProvider(
-        debugToken: token.isEmpty ? null : token,
+        debugToken: appleToken.isEmpty ? null : appleToken,
       ),
     );
   }
+
   return FirebaseAppCheck.instance.activate(
     providerAndroid: const AndroidPlayIntegrityProvider(),
     providerApple: const AppleAppAttestProvider(),

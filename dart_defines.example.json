@@ -1,4 +1,6 @@
 {
   "FIREBASE_ANDROID_API_KEY": "your-android-api-key",
-  "FIREBASE_IOS_API_KEY": "your-ios-api-key"
+  "FIREBASE_IOS_API_KEY": "your-ios-api-key",
+  "ANDROID_APP_CHECK_DEBUG_TOKEN": "your-android-app-check-debug-token",
+  "APPLE_APP_CHECK_DEBUG_TOKEN": "your-ios-app-check-debug-token"
 }
