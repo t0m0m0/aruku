@@ -151,6 +151,10 @@ gcloud firestore fields ttls list --collection-group=rateLimits --project aruku-
 # Firestore API が有効か（#301 の直接原因。無効ならレート制限は常時フェイルオープン）
 gcloud services list --enabled --project aruku-app | grep firestore.googleapis.com
 
+# (default) データベースが実在するか。API 有効化とデータベース作成は別物で、
+# API だけ有効／DB 未作成なら NOT_FOUND となり、やはり常時フェイルオープンする。
+gcloud firestore databases describe --project aruku-app
+
 # HMAC 鍵が登録されているか（未登録でも同じくフェイルオープンする）
 npx -y firebase-tools@latest functions:secrets:access RATE_LIMIT_HMAC_KEY | wc -c  # 32以上
 
