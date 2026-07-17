@@ -13,6 +13,7 @@ import 'package:aruku/core/services/route_plan_builder.dart'
         firstMissedTransit,
         maxBoardingWait;
 import 'package:aruku/core/services/route_service.dart';
+import 'package:aruku/core/services/search_deadline.dart';
 import 'package:aruku/core/services/transit_plan_parser.dart';
 import 'package:aruku/core/services/transit_route_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1081,6 +1082,97 @@ void main() {
       expect(walkMinutesOf(plan), greaterThan(50));
       expect(plan.totalMin, lessThanOrEqualTo(150));
     });
+
+    group('検索の締切 (#300)', () {
+      /// 初期 guidance が発行された直後に予算を使い切る締切。実機の「必須の1本は間に合った
+      /// が、引き直しの途中で待ち時間の上限に達した」を決定的に再現する。締切を最初から
+      /// 期限切れにすると必須の初期照会まで落ちてしまい、再現したい状況とは別物になる。
+      SearchDeadline expiringAfterFirstGuidance(List<Uri> calls) =>
+          SearchDeadline(
+            const Duration(seconds: 120),
+            elapsed: () =>
+                calls.isEmpty ? Duration.zero : const Duration(seconds: 120),
+          );
+
+      TransitRouteService serviceWith(
+        http.Client client,
+        SearchDeadline deadline,
+      ) => TransitRouteService(
+        transitClient: client,
+        proxyClient: client,
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        clock: () => DateTime(2026, 6, 27, 9, 0),
+        deadline: deadline,
+      );
+
+      test('締切を使い切っても確定経路は返る（引き直しの全滅で失敗させない）', () async {
+        final calls = <Uri>[];
+        final svc = serviceWith(
+          inflatedFromMock(guidanceCalls: calls),
+          expiringAfterFirstGuidance(calls),
+        );
+
+        // 締切は縮退の合図であって失敗ではない。徒歩最大化は諦めても経路は返す。
+        // 引き直しの TIMEOUT が plan() まで伝播したらここで throw して赤くなる。
+        final plan = await svc.plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30),
+          origin: origin3,
+          originName: '出発',
+        );
+
+        expect(plan.segments, isNotEmpty);
+      });
+
+      test('締切超過後は引き直しの HTTP を発行しない', () async {
+        final calls = <Uri>[];
+        final svc = serviceWith(
+          inflatedFromMock(guidanceCalls: calls),
+          expiringAfterFirstGuidance(calls),
+        );
+
+        await svc.plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30),
+          origin: origin3,
+          originName: '出発',
+        );
+
+        // 必須の初期照会1本だけ。締切なしの同条件（上のテスト群）では board-search が
+        // 複数本引く。残予算0で投げた照会は必ず打ち切られる＝上流を無駄に叩くだけなので、
+        // 送る前に落とす。
+        expect(calls, hasLength(1));
+      });
+
+      test('締切内なら従来どおり引き直して徒歩最大化する', () async {
+        final calls = <Uri>[];
+        final svc = serviceWith(
+          inflatedFromMock(guidanceCalls: calls),
+          // 使い切らない締切。ゲート・クランプが正常系を邪魔していないことの反証。
+          SearchDeadline(
+            const Duration(seconds: 120),
+            elapsed: () => Duration.zero,
+          ),
+        );
+
+        final plan = await svc.plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30),
+          origin: origin3,
+          originName: '出発',
+        );
+
+        expect(calls.length, greaterThan(1));
+        expect(walkMinutesOf(plan), greaterThan(50));
+      });
+    });
   });
 
   group('plan: enrich後の乗り遅れ再検証（#137 副次）', () {
@@ -1168,7 +1260,7 @@ void main() {
       },
     ]);
 
-    http.Client mock() {
+    http.Client mock({List<Uri>? guidanceCalls}) {
       http.Response walk(Uri url) {
         final s = _pt(url.queryParameters['start'] ?? '0,0');
         final g = _pt(url.queryParameters['goal'] ?? '0,0');
@@ -1203,10 +1295,55 @@ void main() {
         final path = req.url.path;
         if (path.contains('googleWalkMatrixProxy')) return matrix(req.url);
         if (path.contains('googleWalkProxy')) return walk(req.url);
-        if (path.contains('guidance/plan')) return _json(twoOptions());
+        if (path.contains('guidance/plan')) {
+          guidanceCalls?.add(req.url);
+          return _json(twoOptions());
+        }
         return _json(const {}, 404);
       });
     }
+
+    test('締切を使い切っても実測徒歩で乗り遅れる経路は確定させない (#300)', () async {
+      // 締切が実測徒歩の最終検証を飛ばすと、A は見積り（アクセス徒歩5分）のまま
+      // 「09:06 発に間に合う」と判定されて確定してしまう。実街路では9分＝乗り遅れる。
+      // 締切は探索を打ち切ってよいが、確定経路の検証まで飛ばしてはならない——不変条件
+      // 「実測徒歩で乗り遅れる経路を確定・提示しない」（#254）は締切より優先する。
+      final guidance = <Uri>[];
+      final svc = TransitRouteService(
+        transitClient: mock(guidanceCalls: guidance),
+        proxyClient: mock(guidanceCalls: guidance),
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        clock: () => DateTime(2026, 6, 27, 9, 0),
+        deadline: SearchDeadline(
+          const Duration(seconds: 120),
+          elapsed: () =>
+              guidance.isEmpty ? Duration.zero : const Duration(seconds: 120),
+        ),
+      );
+
+      final plan = await svc.plan(
+        destination: '目的地',
+        destinationLatLng: goal4,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 9, m: 35),
+        origin: origin4,
+        originName: '出発',
+      );
+
+      // firstMissedTransit を plan 自身のセグメントへ当てても検出できない——実測を
+      // 飛ばした経路は「徒歩5分」という楽観値を自分で持っており、自己整合してしまう。
+      // 実際にどちらの便を確定したかで反証する。
+      // firstMissedTransit や totalMin を plan 自身へ当てても検出できない——実測を
+      // 飛ばした経路は楽観値を自分で持っており、自己整合してしまう（全徒歩を「23分」と
+      // 名乗る）。この fixture の地上真実「実街路＝直線×2」に照らして反証する：全徒歩は
+      // 実際には46分で予算35分を超えるので、確定経路は電車を含まねばならない。
+      expect(
+        plan.segments.any((s) => s.type == SegmentType.train),
+        isTrue,
+        reason: '締切超過で徒歩の実測を飛ばし、実際は46分かかる全徒歩を23分と誤認して確定している',
+      );
+    });
 
     test('enrich で先頭電車に乗り遅れる標準乗換は除外し、乗れる次善を返す', () async {
       final plan = await _service(mock()).plan(

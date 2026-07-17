@@ -59,17 +59,38 @@ void main() {
         RouteErrorKind.network,
       );
       expect(
-        classifyRouteError(TimeoutException('slow')),
+        classifyRouteError(http.ClientException('reset')),
         RouteErrorKind.network,
       );
-      // サービス最下層でタイムアウトを変換した RouteException('TIMEOUT') も
-      // 通信系として扱う（#156）。
+    });
+
+    test('タイムアウトは network と別種別にする (#300)', () {
+      // 上流 Transit API の遅延（正常9〜11秒・裾30秒超）は「通信断」ではない。
+      // network に丸めると「通信状況を確認して再試行」と案内してしまい、電波が
+      // 正常なユーザーを的外れな導線へ送る。#300 の切り分けでは画面表示から
+      // App Check 拒否・レート制限・上流遅延を区別できないこと自体が障害になった。
       expect(
         classifyRouteError(const RouteException('TIMEOUT')),
+        RouteErrorKind.timeout,
+      );
+      expect(
+        classifyRouteError(TimeoutException('slow')),
+        RouteErrorKind.timeout,
+      );
+    });
+
+    test('タイムアウト以外の通信系は network のまま (#300)', () {
+      // 分離の副作用で通信断まで timeout へ寄せていないことの反証。
+      expect(
+        classifyRouteError(const SocketException('failed')),
         RouteErrorKind.network,
       );
       expect(
         classifyRouteError(http.ClientException('reset')),
+        RouteErrorKind.network,
+      );
+      expect(
+        classifyRouteError(const RouteException('HTTP 500')),
         RouteErrorKind.network,
       );
     });
@@ -106,6 +127,16 @@ void main() {
         routeErrorView(l10n, RouteErrorKind.noDestination).primaryRecovery,
         RouteRecovery.changeConditions,
       );
+    });
+
+    test('タイムアウトは network と別の文言で、主導線は再試行 (#300)', () {
+      final timeout = routeErrorView(l10n, RouteErrorKind.timeout);
+      final network = routeErrorView(l10n, RouteErrorKind.network);
+
+      expect(timeout.title, isNot(network.title));
+      expect(timeout.description, isNot(network.description));
+      // 上流が遅いだけで経路自体は存在し得るので、導線は条件変更でなく再試行。
+      expect(timeout.primaryRecovery, RouteRecovery.retry);
     });
 
     test('network / noLocation / unknown は主導線が再試行', () {

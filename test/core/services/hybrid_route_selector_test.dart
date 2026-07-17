@@ -930,5 +930,53 @@ void main() {
       // 直列版と同じ二分探索の軌道: mid=4→6→7→(区間枯れ) の順。
       expect(evaluated, [4, 6, 7]);
     });
+
+    group('shouldContinue による打ち切り (#300)', () {
+      test('打ち切り後は新ラウンドを起こさず、既得の境界を返す', () async {
+        final evaluated = <int>[];
+        var rounds = 0;
+        final i = await maxWalkBoardingIndexParallel(
+          count: totals.length,
+          // 全点が予算内＝打ち切らなければ末尾 8 まで境界が伸びる予算にする。
+          // 6 で止まることが「新ラウンドを起こしていない」ことの反証になる。
+          budgetMin: 999,
+          shouldContinue: () => rounds++ < 1,
+          evaluate: (index) async {
+            evaluated.add(index);
+            return totals[index];
+          },
+        );
+
+        // 1ラウンド目（区間0..8の4等分点 {2,4,6}）だけを評価して確定している。
+        expect(evaluated, [2, 4, 6]);
+        expect(i, 6);
+      });
+
+      test('打ち切らなければ同じ条件で末尾まで境界が伸びる', () async {
+        final i = await maxWalkBoardingIndexParallel(
+          count: totals.length,
+          budgetMin: 999,
+          evaluate: (index) async => totals[index],
+        );
+
+        expect(i, totals.length - 1);
+      });
+
+      test('最初から打ち切られていれば評価を1回も呼ばず null', () async {
+        var calls = 0;
+        final i = await maxWalkBoardingIndexParallel(
+          count: totals.length,
+          budgetMin: 180,
+          shouldContinue: () => false,
+          evaluate: (index) async {
+            calls++;
+            return totals[index];
+          },
+        );
+
+        expect(i, isNull);
+        expect(calls, 0);
+      });
+    });
   });
 }

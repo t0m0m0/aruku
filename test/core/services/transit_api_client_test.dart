@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/services/cancellation.dart';
 import 'package:aruku/core/services/route_service.dart';
+import 'package:aruku/core/services/search_deadline.dart';
 import 'package:aruku/core/services/transit_api_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -338,7 +339,160 @@ void main() {
       expect(proxy.closed, 1);
     });
   });
+
+  group('締切による残予算クランプ (#300)', () {
+    test('上流が残予算より遅ければ残予算で TIMEOUT になる', () async {
+      // 1本の上限（TimeoutHttpClient・35s）より締切の残予算の方が短い状況。
+      // クランプが無ければ 200ms 待って成功してしまう。
+      final client = TransitApiClient(
+        transitClient: MockClient((_) async {
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+          return _json({'ok': true});
+        }),
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        deadline: SearchDeadline(
+          const Duration(seconds: 120),
+          elapsed: () => const Duration(seconds: 120) - _remaining,
+        ),
+      );
+
+      await expectLater(
+        client.fetchGuidanceAt(
+          const GeoPoint(35.0, 139.0),
+          const GeoPoint(35.5, 139.5),
+          DateTime(2026, 6, 27, 9, 5),
+        ),
+        throwsA(
+          isA<RouteException>().having((e) => e.status, 'status', 'TIMEOUT'),
+        ),
+      );
+    });
+
+    test('残予算が上流の応答より長ければ透過する', () async {
+      final client = TransitApiClient(
+        transitClient: MockClient((_) async => _json({'ok': true})),
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        deadline: SearchDeadline(
+          const Duration(seconds: 120),
+          elapsed: () => const Duration(seconds: 30),
+        ),
+      );
+
+      expect(
+        await client.fetchGuidanceAt(
+          const GeoPoint(35.0, 139.0),
+          const GeoPoint(35.5, 139.5),
+          DateTime(2026, 6, 27, 9, 5),
+        ),
+        {'ok': true},
+      );
+    });
+
+    test('期限切れ後は HTTP を発行せず即 TIMEOUT にする', () async {
+      var calls = 0;
+      final client = TransitApiClient(
+        transitClient: MockClient((_) async {
+          calls++;
+          return _json({'ok': true});
+        }),
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        deadline: SearchDeadline(
+          const Duration(seconds: 120),
+          elapsed: () => const Duration(seconds: 500),
+        ),
+      );
+
+      await expectLater(
+        client.fetchGuidanceAt(
+          const GeoPoint(35.0, 139.0),
+          const GeoPoint(35.5, 139.5),
+          DateTime(2026, 6, 27, 9, 5),
+        ),
+        throwsA(
+          isA<RouteException>().having((e) => e.status, 'status', 'TIMEOUT'),
+        ),
+      );
+      expect(calls, 0);
+    });
+
+    test('締切を渡さなければ残予算でクランプしない', () async {
+      final client = TransitApiClient(
+        transitClient: MockClient((_) async {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          return _json({'ok': true});
+        }),
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+      );
+
+      expect(
+        await client.fetchGuidanceAt(
+          const GeoPoint(35.0, 139.0),
+          const GeoPoint(35.5, 139.5),
+          DateTime(2026, 6, 27, 9, 5),
+        ),
+        {'ok': true},
+      );
+    });
+
+    test('徒歩プロキシには締切を適用しない（実測は検証であって改善ではない）', () async {
+      // 締切で切ってよいのは「切っても嘘をつかない」呼び出しだけ。徒歩実測は fail-open
+      // （_enrichWalkGeometry が失敗時に楽観的な見積りを残す）なので、締切で切ると
+      // 予算超過・乗り遅れの経路を「予算内」と偽って確定させる（#254 を破る）。
+      var calls = 0;
+      final client = TransitApiClient(
+        proxyClient: MockClient((_) async {
+          calls++;
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          return _json({'routes': []});
+        }),
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        // 使い切り済みの締切。transit なら即 TIMEOUT になる状況。
+        deadline: SearchDeadline(
+          const Duration(seconds: 120),
+          elapsed: () => const Duration(seconds: 500),
+        ),
+      );
+
+      expect(
+        await client.fetchWalkRoute(
+          const GeoPoint(35.0, 139.0),
+          const GeoPoint(35.5, 139.5),
+        ),
+        {'routes': []},
+      );
+      expect(calls, 1);
+    });
+
+    test('徒歩マトリクスにも締切を適用しない', () async {
+      final client = TransitApiClient(
+        proxyClient: MockClient((_) async => _json([])),
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        deadline: SearchDeadline(
+          const Duration(seconds: 120),
+          elapsed: () => const Duration(seconds: 500),
+        ),
+      );
+
+      // null（＝直線推定へフォールバック）ではなく実測が返ることの反証。
+      expect(
+        await client.fetchWalkMatrix(
+          const [GeoPoint(35.0, 139.0)],
+          const [GeoPoint(35.5, 139.5)],
+        ),
+        isNotNull,
+      );
+    });
+  });
 }
+
+/// クランプを観測するための短い残予算。上流 fake の遅延より十分短くとる。
+const _remaining = Duration(milliseconds: 20);
 
 /// close 回数だけを数えるクライアント。MockClient の close は no-op で観測できない。
 class _CountingClient extends http.BaseClient {
