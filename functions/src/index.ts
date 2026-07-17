@@ -335,6 +335,23 @@ class UpstreamError extends Error {
 // 衝突しないよう Symbol を使う。
 const UPSTREAM_FAILED = Symbol("upstream_failed");
 
+// 上流呼び出し用の共有 Agent（issue #307）。1検索あたり最大13本のプロキシ
+// ファンアウト（#161）のたびに新規 TCP+TLS ハンドシェイクが走るのを避け、
+// インスタンス内で接続を再利用する。
+//
+// Why not 「Agent を明示せず既定に任せる」: functions/package.json の
+// engines は Node 22 で、Node 19+ は https.globalAgent が既定で
+// { keepAlive: true, timeout: 5000 } を持つため、実は本 PR 以前でも
+// 暗黙の keep-alive は効いていた。しかし「ランタイムの既定値に暗黙依存」
+// したままだと、将来 Node の既定が変わった際に気づかず退行し得る。
+// keepAliveMsecs / timeout は現行 Node 既定と同値をあえて明示し、挙動を
+// 固定化することが目的で、新規の速度改善を主張するものではない。
+const upstreamAgent = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 1000,
+  timeout: 5_000,
+});
+
 // Places API (New) 用。エラー時も JSON ボディ（{error:...}）を返すため
 // ステータスコードに関わらずパースして呼び出し側（変換層）へ渡す。
 // タイムアウト時は timeout イベントで接続を破棄し UpstreamError で reject する
@@ -345,10 +362,34 @@ function requestJsonNew(
   headers: Record<string, string>,
   body?: string
 ): Promise<{ statusCode: number; data: unknown }> {
+  return attemptRequestJsonNew(url, method, headers, body, false);
+}
+
+// stale keep-alive ソケット対策（issue #307）。Cloud Functions はリクエスト
+// 処理外で CPU がスロットリングされるため、空きソケットが相手側から先に
+// 切られ、次リクエストでの再利用時に ECONNRESET になり得る。GET かつ
+// 「Agent の空きプールから再利用したソケット」（req.reusedSocket）でのみ、
+// レスポンスヘッダ受信前の生ネットワークエラーを1回だけ再試行する。
+//
+// Why not 「無条件・全メソッドでリトライ」: 本プロキシに書き込み系の上流は
+// 無いが、POST を無条件リトライ対象にすると将来の変更で非冪等な呼び出しを
+// 誤って再送しかねないため GET 限定にしている。reusedSocket で絞るのは、
+// 新規ソケットでの失敗は stale socket ではなく本物の上流障害である可能性が
+// 高く、そこまでリトライで隠すと #268 の障害検知が鈍るため。timeout /
+// too_large / parse は既に UpstreamError 化されており、ここでは
+// instanceof チェックにより再試行対象から除外される（#268/#274 の計測・
+// タイムアウト挙動は不変）。
+function attemptRequestJsonNew(
+  url: string,
+  method: "GET" | "POST",
+  headers: Record<string, string>,
+  body: string | undefined,
+  isRetry: boolean
+): Promise<{ statusCode: number; data: unknown }> {
   return new Promise((resolve, reject) => {
     const req = https.request(
       url,
-      { method, headers, timeout: UPSTREAM_TIMEOUT_MS },
+      { method, headers, timeout: UPSTREAM_TIMEOUT_MS, agent: upstreamAgent },
       (res) => {
         const chunks: Buffer[] = [];
         let received = 0;
@@ -377,6 +418,15 @@ function requestJsonNew(
       req.destroy(new UpstreamError("upstream request timed out", "timeout"));
     });
     req.on("error", (err) => {
+      const canRetryStaleSocket =
+        !isRetry &&
+        method === "GET" &&
+        req.reusedSocket === true &&
+        !(err instanceof UpstreamError);
+      if (canRetryStaleSocket) {
+        resolve(attemptRequestJsonNew(url, method, headers, body, true));
+        return;
+      }
       reject(
         err instanceof UpstreamError
           ? err
