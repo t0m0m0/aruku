@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
+import 'core/config/app_check_provider.dart';
 import 'core/config/app_config.dart';
 import 'core/navigation/app_router.dart';
 import 'core/services/crash_reporter.dart';
@@ -110,26 +111,31 @@ void _assertFirebaseKeyPresent() {
 }
 
 // App Check で Cloud Functions プロキシ（課金 API）への未認証アクセスを遮断する。
-// debug ビルドは debug プロバイダを使い、Firebase Console でデバッグトークンを
-// 登録して開発する。
+// デバッグトークンは Firebase Console に登録して使う。
 Future<void> _activateAppCheck() {
-  if (kDebugMode) {
-    const androidToken = AppConfig.androidAppCheckDebugToken;
-    const appleToken = AppConfig.appleAppCheckDebugToken;
+  const androidToken = AppConfig.androidAppCheckDebugToken;
+  const appleToken = AppConfig.appleAppCheckDebugToken;
 
-    return FirebaseAppCheck.instance.activate(
-      providerAndroid: AndroidDebugProvider(
-        debugToken: androidToken.isEmpty ? null : androidToken,
-      ),
-      providerApple: AppleDebugProvider(
-        debugToken: appleToken.isEmpty ? null : appleToken,
-      ),
-    );
-  }
+  final androidUsesDebug = useDebugAppCheckProvider(
+    isDebugBuild: kDebugMode,
+    isProfileBuild: kProfileMode,
+    debugToken: androidToken,
+  );
+  final appleUsesDebug = useDebugAppCheckProvider(
+    isDebugBuild: kDebugMode,
+    isProfileBuild: kProfileMode,
+    debugToken: appleToken,
+  );
 
   return FirebaseAppCheck.instance.activate(
-    providerAndroid: const AndroidPlayIntegrityProvider(),
-    providerApple: const AppleAppAttestProvider(),
+    providerAndroid: androidUsesDebug
+        ? AndroidDebugProvider(
+            debugToken: androidToken.isEmpty ? null : androidToken,
+          )
+        : const AndroidPlayIntegrityProvider(),
+    providerApple: appleUsesDebug
+        ? AppleDebugProvider(debugToken: appleToken.isEmpty ? null : appleToken)
+        : const AppleAppAttestProvider(),
   );
 }
 
