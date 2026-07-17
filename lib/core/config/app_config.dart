@@ -28,4 +28,16 @@ class AppConfig {
   static const String appCheckDebugToken = String.fromEnvironment(
     'APP_CHECK_DEBUG_TOKEN',
   );
+
+  /// Android デバッグビルド用の App Check トークン。
+  static const String androidAppCheckDebugToken = String.fromEnvironment(
+    'ANDROID_APP_CHECK_DEBUG_TOKEN',
+    defaultValue: appCheckDebugToken,
+  );
+
+  /// Apple デバッグビルド用の App Check トークン。
+  static const String appleAppCheckDebugToken = String.fromEnvironment(
+    'APPLE_APP_CHECK_DEBUG_TOKEN',
+    defaultValue: appCheckDebugToken,
+  );
 }
