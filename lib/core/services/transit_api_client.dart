@@ -130,7 +130,7 @@ class TransitApiClient {
     final uri = Uri.parse(
       '$_proxyBaseUrl/$path',
     ).replace(queryParameters: params);
-    final res = await _getOrTimeout(_proxy, uri);
+    final res = await _getOrTimeout(_proxy, uri, deadlineApplies: false);
     if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
     return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
   }
@@ -142,7 +142,7 @@ class TransitApiClient {
     final uri = Uri.parse(
       '$_proxyBaseUrl/$path',
     ).replace(queryParameters: params);
-    final res = await _getOrTimeout(_proxy, uri);
+    final res = await _getOrTimeout(_proxy, uri, deadlineApplies: false);
     if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
     final decoded = jsonDecode(utf8.decode(res.bodyBytes));
     if (decoded is! List) throw const RouteException('MATRIX_NOT_ARRAY');
@@ -158,16 +158,31 @@ class TransitApiClient {
   /// [SearchCanceledException] が `RouteException` でない以上そこで握り潰されずに
   /// 抜けるため（#259）。
   ///
-  /// [deadline] の残予算でも打ち切る（#300）。1本の上限（[TimeoutHttpClient]・35s）
-  /// だけでは検索全体の最悪待ち時間が「上限 × 直列ラウンド数」に膨らむため、残予算で
-  /// クランプして天井を締切ちょうどに落とす。両者とも `TIMEOUT` へ落とすので、
-  /// 呼び出し側の縮退（`on RouteException` → null）はどちらでも同じに働く。
+  /// [deadlineApplies] のとき [deadline] の残予算でも打ち切る（#300）。1本の上限
+  /// （[TimeoutHttpClient]・35s）だけでは検索全体の最悪待ち時間が「上限 × 直列ラウンド数」
+  /// に膨らむため、残予算でクランプして天井を締切へ落とす。期限切れなら HTTP を発行
+  /// しない——残予算 0 で投げた照会は必ず打ち切られる＝無料・無認証の上流を無駄に叩く
+  /// だけなので、送る前に落とす。
   ///
-  /// 期限切れなら HTTP を発行しない。残予算 0 で投げた照会は必ず打ち切られる＝
-  /// 無料・無認証の上流を無駄に叩くだけなので、送る前に落とす。
-  Future<http.Response> _getOrTimeout(http.Client client, Uri uri) async {
+  /// **徒歩プロキシには締切を適用しない（`deadlineApplies: false`）。** 締切で切って
+  /// よいのは「切っても嘘をつかない」呼び出しだけ、という非対称性がある：
+  /// - Transit の引き直しは **fail-closed**。失敗すると候補が `unverified` として除外され
+  ///   確証ある候補へ縮退する（§4 #137 approach A）。締切で切っても提示内容は嘘にならない。
+  /// - 徒歩の実測は **fail-open**。[TransitRouteService._enrichWalkGeometry] は取得失敗時に
+  ///   元の見積り（guidance / 直線）を**そのまま残す**。直線は実街路に対し大きく楽観に
+  ///   倒れる（実機で -36分・25%）ため、締切で切ると「23分」と名乗る実際46分の全徒歩を
+  ///   確定させ、予算超過・乗り遅れの経路を平然と提示する（#254 の不変条件を破る）。
+  ///
+  /// measure-first の実測は探索の**改善**ではなく確定経路の**検証**であり、締切より優先する。
+  /// 探索側（乗車駅探索・代替検証）は [TransitRouteService] が締切でラウンドごと止めるので、
+  /// 期限切れ後に走る徒歩実測は確定候補の検証だけ＝本数は候補の区間数で頭打ちになる。
+  Future<http.Response> _getOrTimeout(
+    http.Client client,
+    Uri uri, {
+    bool deadlineApplies = true,
+  }) async {
     cancellation?.throwIfCanceled();
-    final remaining = deadline.remaining;
+    final remaining = deadlineApplies ? deadline.remaining : null;
     if (remaining == Duration.zero) throw const RouteException('TIMEOUT');
     try {
       final request = client.get(uri);

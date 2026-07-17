@@ -438,28 +438,54 @@ void main() {
       );
     });
 
-    test('徒歩プロキシにも同じ残予算が効く', () async {
+    test('徒歩プロキシには締切を適用しない（実測は検証であって改善ではない）', () async {
+      // 締切で切ってよいのは「切っても嘘をつかない」呼び出しだけ。徒歩実測は fail-open
+      // （_enrichWalkGeometry が失敗時に楽観的な見積りを残す）なので、締切で切ると
+      // 予算超過・乗り遅れの経路を「予算内」と偽って確定させる（#254 を破る）。
+      var calls = 0;
       final client = TransitApiClient(
         proxyClient: MockClient((_) async {
-          await Future<void>.delayed(const Duration(milliseconds: 200));
+          calls++;
+          await Future<void>.delayed(const Duration(milliseconds: 50));
           return _json({'routes': []});
         }),
         transitBaseUrl: _transitBase,
         proxyBaseUrl: _proxyBase,
+        // 使い切り済みの締切。transit なら即 TIMEOUT になる状況。
         deadline: SearchDeadline(
           const Duration(seconds: 120),
-          elapsed: () => const Duration(seconds: 120) - _remaining,
+          elapsed: () => const Duration(seconds: 500),
         ),
       );
 
-      await expectLater(
-        client.fetchWalkRoute(
+      expect(
+        await client.fetchWalkRoute(
           const GeoPoint(35.0, 139.0),
           const GeoPoint(35.5, 139.5),
         ),
-        throwsA(
-          isA<RouteException>().having((e) => e.status, 'status', 'TIMEOUT'),
+        {'routes': []},
+      );
+      expect(calls, 1);
+    });
+
+    test('徒歩マトリクスにも締切を適用しない', () async {
+      final client = TransitApiClient(
+        proxyClient: MockClient((_) async => _json([])),
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        deadline: SearchDeadline(
+          const Duration(seconds: 120),
+          elapsed: () => const Duration(seconds: 500),
         ),
+      );
+
+      // null（＝直線推定へフォールバック）ではなく実測が返ることの反証。
+      expect(
+        await client.fetchWalkMatrix(
+          const [GeoPoint(35.0, 139.0)],
+          const [GeoPoint(35.5, 139.5)],
+        ),
+        isNotNull,
       );
     });
   });
