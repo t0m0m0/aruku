@@ -23,7 +23,7 @@ Places / NAVITIME / Google Routes への薄いプロキシ（`placesProxy`, `nav
 |---|---|---|---|
 | `search_request` | `fetchUpstream`（全プロキシ共通） | `endpoint`（例: `placesProxy.autocomplete`, `navitimeProxy`）, `upstream`（`places`\|`navitime`\|`routes-walk`\|`routes-matrix`）, `status`（`success`\|`failure`）, `latencyMs`, `httpStatus`（任意・タイムアウトは504）, `rateLimited`（上流429のときのみ`true`）, `semanticFailure`（上流が2xxでもボディがエラー形状＝クライアントへ502変換される失敗のときのみ`true`。このとき`status="failure"`・`httpStatus`は上流値のまま、通常200） | success→info, failure→error |
 | `app_check_denied` | `verifyAppCheck` | `endpoint`, `reason`（`missing`\|`invalid`\|`replayed`） | warn |
-| `rate_limit` | `checkRateLimit` 呼び出し元 | `decision`（`blocked`\|`fail-open`。`allowed`は型上のみ存在し実際には出力されない） | blocked→warn, fail-open→error |
+| `rate_limit` | `checkRateLimit` 呼び出し元 | `decision`（`blocked`\|`fail-open`。`allowed`は型上のみ存在し実際には出力されない）, `reason`（`fail-open`のときのみ必ず付く。`config`\|`transient`） | blocked→warn, fail-open→error |
 
 PII: 生IP・検索クエリ・座標・駅名はログに含まれない（`metrics.ts` 冒頭コメント）。
 
@@ -52,7 +52,16 @@ success_rate(upstream) = count(status="success")
 
 ### 3.4 レート制限フェイルオープン件数
 
-`rate_limit` かつ `decision="fail-open"` の件数。フェイルオープンは「レート制限を検証できず制限をかけずに通した」状態で、保護が機能していないことを意味する — 発生自体がインシデント候補。
+`rate_limit` かつ `decision="fail-open"` の件数。フェイルオープンは「レート制限を検証できず制限をかけずに通した」状態で、保護が機能していないことを意味する。
+
+ただしフェイルオープンは**一枚岩に扱ってはいけない**。`reason` で二分し、別々の指標・アラートとして運用する（#301）。
+
+| `reason` | 原因 | 性質 | 運用 |
+|---|---|---|---|
+| `config` | Firestore 未プロビジョニング（API 未有効・DB 未作成・IAM 不足）、`RATE_LIMIT_HMAC_KEY` 未登録／32文字未満 | 人が設定するまで**永続的に**保護が無効。時間経過では絶対に解消しない | 1件でも即 P1（§6.1） |
+| `transient` | ホットドキュメント競合によるリトライ枯渇、一時的な不通・タイムアウト | 単発は README「制約・トレードオフ」で**設計上許容**。バースト局面で必然的に出る | 急増のみ P3（§6.1） |
+
+**なぜ分けるか:** かつて fail-open は理由を持たず、`config` と `transient` が同一の信号だった。`transient` は許容済みで恒常的に出るため「1件でも P1」は必ずノイズとして黙らされ、その結果 #301 では本番の Firestore API 未有効化による**恒久的なフェイルオープンが数か月検知されなかった**。`transient` を黙らせても `config` が鳴り続ける構造にすることが、この指標の存在意義である。
 
 参考: `decision="blocked"` の件数も同じログから取得できる（正当なレート制限動作。急増は乱用 or クライアント側リトライ暴走の兆候として監視対象にはするが、SLO 対象ではない）。
 
@@ -177,7 +186,7 @@ gcloud logging metrics create app_check_denied_count \
 
 ```yaml
 # rate_limit_decision_count.yaml
-description: "rate_limit イベントの件数（decision別ラベル。blocked/fail-openのみ、allowedは出力されない）"
+description: "rate_limit イベントの件数（decision/reason別ラベル。blocked/fail-openのみ、allowedは出力されない）"
 filter: >-
   resource.type="cloud_run_revision"
   jsonPayload.event="rate_limit"
@@ -187,8 +196,12 @@ metricDescriptor:
   labels:
     - key: decision
       valueType: STRING
+    - key: reason
+      valueType: STRING
 labelExtractors:
   decision: EXTRACT(jsonPayload.decision)
+  # blocked には reason が無いため空ラベルになる（fail-open のみ config/transient が入る）。
+  reason: EXTRACT(jsonPayload.reason)
 ```
 
 ```bash
@@ -196,13 +209,21 @@ gcloud logging metrics create rate_limit_decision_count \
   --config-from-file=rate_limit_decision_count.yaml
 ```
 
-フェイルオープン専用の即時アラート用に、フィルタを絞った単独カウンタも作る（§6.1 のアラート条件をシンプルに保つため）。こちらはラベルなしの単純カウンタなので、フラグ指定のみで作成できる。
+アラート条件（§6）をシンプルに保つため、`reason` ごとにフィルタを絞った単独カウンタも作る。いずれもラベルなしの単純カウンタなので、フラグ指定のみで作成できる。
 
 ```bash
-gcloud logging metrics create rate_limit_fail_open_count \
-  --description="rate_limit decision=fail-open の件数（保護が機能していない状態）" \
-  --log-filter='resource.type="cloud_run_revision" AND jsonPayload.event="rate_limit" AND jsonPayload.decision="fail-open"'
+# 恒久的な設定不備。1件でも出たら保護が「設定するまでずっと無効」を意味する（§6.1）。
+gcloud logging metrics create rate_limit_fail_open_config_count \
+  --description="rate_limit fail-open (reason=config) の件数。設定するまで保護が恒久的に無効" \
+  --log-filter='resource.type="cloud_run_revision" AND jsonPayload.event="rate_limit" AND jsonPayload.decision="fail-open" AND jsonPayload.reason="config"'
+
+# 競合・一時不通。単発は許容、急増のみ関心（§6.2）。
+gcloud logging metrics create rate_limit_fail_open_transient_count \
+  --description="rate_limit fail-open (reason=transient) の件数。単発は設計上許容・急増のみ監視" \
+  --log-filter='resource.type="cloud_run_revision" AND jsonPayload.event="rate_limit" AND jsonPayload.decision="fail-open" AND jsonPayload.reason="transient"'
 ```
+
+**既存環境からの移行:** 旧 `rate_limit_fail_open_count`（reason 無しの全 fail-open）を作成済みの場合は、上記2つへ置き換えたうえで削除する（`gcloud logging metrics delete rate_limit_fail_open_count`）。残すと §6.1 と重複発火し、`transient` でも P1 が鳴る従来の問題がそのまま残る。
 
 ---
 
@@ -223,20 +244,25 @@ gcloud alpha monitoring channels create \
 
 ### 6.1 レート制限フェイルオープン（最優先・即時）
 
-- **条件:** `rate_limit_fail_open_count` が 5分間で 1件以上
-- **理由:** 保護機構が機能していない状態。発生自体がインシデント
-- **系列横断リデューサ不要:** これは「1件でも出たら発火」の存在検知（`thresholdValue: 0`）で、いずれかの系列が非0なら発火すれば目的を満たす。合計値を閾値と比較するわけではないため系列単位評価でよく、`crossSeriesReducer` は付けない（`rate_limit_fail_open_count` は元々ラベルなしの単一系列でもある）。
+`reason` ごとに緊急度が根本的に違うため、**2本のポリシーに分ける**（§3.4）。1本にまとめると、許容済みの `transient` が P1 を鳴らし続け、ポリシーごとミュートされて `config` を取り逃す（#301 の再発）。
+
+#### 6.1.a `reason=config`（P1・即時）
+
+- **条件:** `rate_limit_fail_open_config_count` が 5分間で 1件以上
+- **理由:** 設定するまで保護が**恒久的に**無効。1件出た時点で「今この瞬間もレート制限は全く効いていない」を意味する。時間経過では解消しないため、様子見は無意味
+- **対応:** README「レートリミッタ（Firestore）」節のプロビジョニング手順を実施（Firestore DB 作成／`RATE_LIMIT_HMAC_KEY` 登録／rules デプロイ／TTL 設定）
+- **系列横断リデューサ不要:** これは「1件でも出たら発火」の存在検知（`thresholdValue: 0`）で、いずれかの系列が非0なら発火すれば目的を満たす。合計値を閾値と比較するわけではないため系列単位評価でよく、`crossSeriesReducer` は付けない（このカウンタは元々ラベルなしの単一系列でもある）。
 
 ```yaml
-# policy_fail_open.yaml
-displayName: "[P1] Rate limiter fail-open detected"
+# policy_fail_open_config.yaml
+displayName: "[P1] Rate limiter fail-open (misconfiguration) — protection permanently off"
 combiner: OR
 conditions:
-  - displayName: "fail-open >= 1 in 5m"
+  - displayName: "fail-open reason=config >= 1 in 5m"
     conditionThreshold:
       filter: >-
         resource.type="cloud_run_revision" AND
-        metric.type="logging.googleapis.com/user/rate_limit_fail_open_count"
+        metric.type="logging.googleapis.com/user/rate_limit_fail_open_config_count"
       comparison: COMPARISON_GT
       thresholdValue: 0
       duration: 0s
@@ -247,8 +273,35 @@ notificationChannels:
   - projects/PROJECT_ID/notificationChannels/CHANNEL_ID
 ```
 
+#### 6.1.b `reason=transient`（P3・急増のみ）
+
+- **条件:** `rate_limit_fail_open_transient_count` が 5分間で 20件以上
+- **理由:** 単発の競合フェイルオープンは設計上許容（README「制約・トレードオフ」）のため存在検知にしない。一方で継続的な多発は、ホットドキュメント競合が常態化し「最も制限したいバースト局面で上限が緩む」ことを意味するので、設計見直し（シャーディング等）の判断材料として拾う
+- **閾値の根拠:** 実測値がまだ無いための暫定値。本番でプロビジョニング後に定常のフェイルオープン率を観測し、誤検知が出るなら引き上げる
+
+```yaml
+# policy_fail_open_transient.yaml
+displayName: "[P3] Rate limiter fail-open (transient) sustained spike"
+combiner: OR
+conditions:
+  - displayName: "fail-open reason=transient >= 20 in 5m"
+    conditionThreshold:
+      filter: >-
+        resource.type="cloud_run_revision" AND
+        metric.type="logging.googleapis.com/user/rate_limit_fail_open_transient_count"
+      comparison: COMPARISON_GT
+      thresholdValue: 20
+      duration: 0s
+      aggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_SUM
+notificationChannels:
+  - projects/PROJECT_ID/notificationChannels/CHANNEL_ID
+```
+
 ```bash
-gcloud alpha monitoring policies create --policy-from-file=policy_fail_open.yaml
+gcloud alpha monitoring policies create --policy-from-file=policy_fail_open_config.yaml
+gcloud alpha monitoring policies create --policy-from-file=policy_fail_open_transient.yaml
 ```
 
 ### 6.2 App Check 拒否スパイク
