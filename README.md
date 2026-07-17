@@ -141,9 +141,39 @@ gcloud firestore fields ttls list --collection-group=rateLimits --project aruku-
 手順 4 はコンソール操作でも設定可能なため、コードからは実施済みかどうか判別できません。
 定期的に手順 5 で `state: ACTIVE` を確認してください（Issue #161）。
 
+#### プロビジョニングが実際に効いているかの確認
+
+上記の手順 1・2 はどちらも、**未実施でもアプリは正常に動いたまま**レート制限だけが黙って無効になります
+（フェイルオープン）。実際 Issue #301 では、本番の Cloud Firestore API が未有効のまま全リクエストが
+フェイルオープンし続けていました。デプロイ後は必ず以下で「有効になっていること」を確認してください。
+
+```bash
+# Firestore API が有効か（#301 の直接原因。無効ならレート制限は常時フェイルオープン）
+gcloud services list --enabled --project aruku-app | grep firestore.googleapis.com
+
+# (default) データベースが実在するか。API 有効化とデータベース作成は別物で、
+# API だけ有効／DB 未作成なら NOT_FOUND となり、やはり常時フェイルオープンする。
+gcloud firestore databases describe --project aruku-app
+
+# HMAC 鍵が登録されているか（未登録でも同じくフェイルオープンする）
+npx -y firebase-tools@latest functions:secrets:access RATE_LIMIT_HMAC_KEY | wc -c  # 32以上
+
+# 設定不備由来のフェイルオープンが出ていないか（1件でもあれば保護は無効）
+gcloud logging read \
+  'jsonPayload.event="rate_limit" AND jsonPayload.decision="fail-open" AND jsonPayload.reason="config"' \
+  --project aruku-app --freshness=1h --limit=5
+```
+
+最後のクエリは恒常的な監視にもなります。`reason="config"` は設定するまで解消しないため、
+`docs/ops/observability.md` §6.1 で P1 アラートの対象としています。
+
 ドキュメントは `{ count, resetAt, expireAt }` を持ち、`expireAt`（Timestamp）が TTL の対象です。
 Firestore 呼び出しが失敗した場合はフェイルオープン（リクエスト通過）し、`console.error` に記録します。
 一次の濫用防止は App Check が担うため、レートリミッタ障害でプロキシ全体が停止することはありません。
+
+フェイルオープンのログには理由（`reason`）が付きます。`config` は設定不備で**恒久的に**保護が無効な状態、
+`transient` は競合・一時不通で自然に解消しうる状態です。後者は下記「制約・トレードオフ」のとおり設計上
+許容しているため、両者を混ぜるとアラートがノイズ化し、前者を取り逃します（Issue #301）。
 
 ### 制約・トレードオフ
 
