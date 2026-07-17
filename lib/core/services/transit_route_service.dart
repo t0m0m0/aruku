@@ -442,21 +442,32 @@ class TransitRouteService implements SearchEngine {
     DateTime departureAt,
   ) async {
     final segs = [...chosen.segments];
-    for (var i = 0; i < segs.length; i++) {
-      final seg = segs[i];
-      if (seg.type == SegmentType.walk) continue;
-      if (seg.fromName.isNotEmpty && seg.toName.isNotEmpty) continue;
-      if (seg.polyline.length < 2) continue;
-      final names = await _fetchTransitEndpoints(
-        seg.polyline.first,
-        seg.polyline.last,
-        departureAt,
-        type: seg.type,
-      );
+    // 区間ごとの照会は互いに独立なので並列に投げる（#304）。実時刻解決
+    // （[_resolveBoardingTimes]）と違い boardAt の累積依存が無く、全区間を
+    // departureAt で引くため直列にする理由がない。
+    final targets = [
+      for (var i = 0; i < segs.length; i++)
+        if (segs[i].type != SegmentType.walk &&
+            (segs[i].fromName.isEmpty || segs[i].toName.isEmpty) &&
+            segs[i].polyline.length >= 2)
+          i,
+    ];
+    final fetched = await Future.wait([
+      for (final i in targets)
+        _fetchTransitEndpoints(
+          segs[i].polyline.first,
+          segs[i].polyline.last,
+          departureAt,
+          type: segs[i].type,
+        ),
+    ]);
+    for (var k = 0; k < targets.length; k++) {
+      final names = fetched[k];
       if (names == null) continue;
-      segs[i] = seg.copyWith(
-        fromName: seg.fromName.isEmpty ? names.from : null,
-        toName: seg.toName.isEmpty ? names.to : null,
+      final i = targets[k];
+      segs[i] = segs[i].copyWith(
+        fromName: segs[i].fromName.isEmpty ? names.from : null,
+        toName: segs[i].toName.isEmpty ? names.to : null,
       );
     }
     _propagateStationNames(segs);
