@@ -7,6 +7,7 @@ import '../config/app_config.dart';
 import '../models/geo_point.dart';
 import 'cancellation.dart';
 import 'route_service.dart';
+import 'search_deadline.dart';
 
 /// `/guidance/plan` の既定の除外モード。バス優勢な区間では `numItineraries` の枠が
 /// バス経路で埋まり電車候補が消えるため、主照会は電車のみを要求する（#247）。
@@ -33,6 +34,7 @@ class TransitApiClient {
     String? transitBaseUrl,
     String? proxyBaseUrl,
     this.cancellation,
+    this.deadline = const SearchDeadline.none(),
   }) : _transit = transitClient ?? http.Client(),
        _proxy = proxyClient ?? http.Client(),
        _transitBaseUrl = (transitBaseUrl ?? AppConfig.transitApiBaseUrl)
@@ -49,6 +51,9 @@ class TransitApiClient {
 
   /// 検索1回分のキャンセル境界（#259）。null なら中断不能（既定）。
   final CancellationToken? cancellation;
+
+  /// 検索1回分の締切（#300）。既定（[SearchDeadline.none]）は無期限。
+  final SearchDeadline deadline;
 
   /// `/guidance/plan` で取得する候補数。
   static const int _numItineraries = 5;
@@ -152,10 +157,21 @@ class TransitApiClient {
   /// ような縮退の口（`on RouteException` → null）の内側で投げても、
   /// [SearchCanceledException] が `RouteException` でない以上そこで握り潰されずに
   /// 抜けるため（#259）。
+  ///
+  /// [deadline] の残予算でも打ち切る（#300）。1本の上限（[TimeoutHttpClient]・35s）
+  /// だけでは検索全体の最悪待ち時間が「上限 × 直列ラウンド数」に膨らむため、残予算で
+  /// クランプして天井を締切ちょうどに落とす。両者とも `TIMEOUT` へ落とすので、
+  /// 呼び出し側の縮退（`on RouteException` → null）はどちらでも同じに働く。
+  ///
+  /// 期限切れなら HTTP を発行しない。残予算 0 で投げた照会は必ず打ち切られる＝
+  /// 無料・無認証の上流を無駄に叩くだけなので、送る前に落とす。
   Future<http.Response> _getOrTimeout(http.Client client, Uri uri) async {
     cancellation?.throwIfCanceled();
+    final remaining = deadline.remaining;
+    if (remaining == Duration.zero) throw const RouteException('TIMEOUT');
     try {
-      return await client.get(uri);
+      final request = client.get(uri);
+      return await (remaining == null ? request : request.timeout(remaining));
     } on TimeoutException {
       throw const RouteException('TIMEOUT');
     }
