@@ -72,9 +72,20 @@ export function logAppCheckDenied(params: AppCheckDeniedParams): void {
 
 export type RateLimitDecision = "allowed" | "blocked" | "fail-open";
 
-export interface RateLimitParams {
-  decision: RateLimitDecision;
-}
+/**
+ * フェイルオープンの原因種別。
+ * - `config`: 設定するまで永続的に保護が無効（Firestore 未プロビジョニング、HMAC 鍵未登録）。
+ * - `transient`: 競合・一時不通など、放置しても自然に解消しうるもの。
+ */
+export type FailOpenReason = "config" | "transient";
+
+// なぜ optional フィールドではなく判別可能合併型か:
+//   `reason` を optional にすると `{ decision: "fail-open" }` が型検査を通り、
+//   理由なしのフェイルオープンが再び書けてしまう。「fail-open は必ず理由を持つ」
+//   を規約ではなく型で固定し、#301 の「静かに通る」構造の再発を封じる。
+export type RateLimitParams =
+  | { decision: Exclude<RateLimitDecision, "fail-open"> }
+  | { decision: "fail-open"; reason: FailOpenReason };
 
 // なぜ "allowed" を実際には呼び出し側から出さないか:
 //   許可はリクエストごとに発生し件数が支配的なため、毎回ログすると量・コストが
@@ -82,7 +93,11 @@ export interface RateLimitParams {
 //   契約上の型としてのみ残す（将来サンプリング付きで出す拡張の余地を潰さないため）。
 /** レート制限の判定イベント（特にフェイルオープン）を記録する。 */
 export function logRateLimit(params: RateLimitParams): void {
-  const payload = { event: "rate_limit", decision: params.decision };
+  const payload = {
+    event: "rate_limit",
+    decision: params.decision,
+    ...(params.decision === "fail-open" ? { reason: params.reason } : {}),
+  };
   if (params.decision === "fail-open") {
     // search_request の failure 経路と同じ理由で write を使う（logger.error は
     // Error Reporting に synthetic stack 付きで計上される）。

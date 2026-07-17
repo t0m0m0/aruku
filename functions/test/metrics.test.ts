@@ -161,14 +161,26 @@ describe("logRateLimit", () => {
   });
 
   it("decision=fail-open は logger.write に severity=ERROR の LogEntry を渡す（Error Reporting 汚染防止）", () => {
-    logRateLimit({ decision: "fail-open" });
+    logRateLimit({ decision: "fail-open", reason: "transient" });
     expect(writeMock).toHaveBeenCalledWith({
       severity: "ERROR",
       message: "rate_limit",
       event: "rate_limit",
       decision: "fail-open",
+      reason: "transient",
     });
     expect(errorMock).not.toHaveBeenCalled();
+  });
+
+  it("reason=config は jsonPayload.reason に出て、恒久的な設定不備を一過性と切り分けられる", () => {
+    logRateLimit({ decision: "fail-open", reason: "config" });
+    expect(writeMock).toHaveBeenCalledWith({
+      severity: "ERROR",
+      message: "rate_limit",
+      event: "rate_limit",
+      decision: "fail-open",
+      reason: "config",
+    });
   });
 
   it("decision=blocked は warn ログを出す", () => {

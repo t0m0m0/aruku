@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 
-import { logRateLimit } from "./metrics";
+import { logRateLimit, type FailOpenReason } from "./metrics";
 
 // 標準上限（IP あたり 30 req/min）。
 export const RATE_LIMIT = 30;
@@ -87,13 +87,40 @@ const MIN_HMAC_KEY_LENGTH = 32;
 //   無い」を避けるため、本番相当で鍵が無い/弱いときは例外にする。例外は呼び出し側の
 //   try で捕捉されフェイルオープン（通過）するため、可用性は保ちつつ「逆引き可能な
 //   ドキュメントは一切書かない」。フォールバックはエミュレータ専用に限定する。
+/** プロビジョニング／Secret 登録をするまで解消しない不備を表す。 */
+class RateLimitConfigError extends Error {}
+
 function getRateLimitHmacKey(): string {
   const key = process.env.RATE_LIMIT_HMAC_KEY;
   if (key && key.length >= MIN_HMAC_KEY_LENGTH) return key;
   if (process.env.FUNCTIONS_EMULATOR === "true") return "aruku-emulator-fallback";
-  throw new Error(
+  throw new RateLimitConfigError(
     "RATE_LIMIT_HMAC_KEY unset or too short (>=32 chars required)"
   );
+}
+
+// gRPC ステータスコードのうち、リトライや時間経過では解消せず人手の設定変更を
+// 要するもの。Firestore API 未有効化・DB 未作成は 7/5 で、まさに #301 の事象。
+//
+// なぜ FAILED_PRECONDITION(9) を含めないか:
+//   9 は「Datastore モードのプロジェクト」のような恒久不備にも、複合インデックス
+//   欠落のような可変要因にも使われ、意味が一意でない。誤って config に倒すと
+//   「設定漏れ」アラートの信頼性が落ちる（config は必ず人を呼ぶ想定）。リミッタは
+//   単一ドキュメントの get/set しか行わずインデックスに依存しないが、判別できない
+//   コードを恒久側へ倒すより transient 側の既定に委ねる方が害が小さい。
+const CONFIG_ERROR_GRPC_CODES = new Set([
+  5, // NOT_FOUND: データベースが存在しない
+  7, // PERMISSION_DENIED: API 未有効化 / IAM 不足
+  16, // UNAUTHENTICATED: 資格情報の設定不備
+]);
+
+function classifyFailOpen(e: unknown): FailOpenReason {
+  if (e instanceof RateLimitConfigError) return "config";
+  const code = (e as { code?: unknown } | null)?.code;
+  if (typeof code === "number" && CONFIG_ERROR_GRPC_CODES.has(code)) {
+    return "config";
+  }
+  return "transient";
 }
 
 // 生 IP を Firestore に残さないための不可逆なドキュメント ID を導出する（#263）。
@@ -162,8 +189,17 @@ export async function checkRateLimitFirestore(
   } catch (e) {
     // フェイルオープン: レート制限の障害で課金 API 全体を落とさない。
     // 一次の濫用防止は App Check が担う。検知のためログは残す。
-    console.error("[rateLimiter] Firestore error, failing open:", e);
-    logRateLimit({ decision: "fail-open" });
+    //
+    // なぜ理由を分類してから記録するか:
+    //   競合由来のフェイルオープンは README「制約・トレードオフ」で許容済みのため
+    //   アラートは実運用でミュートされる。設定不備由来を同じ信号に混ぜると、
+    //   保護が恒久的に無効な状態がそのノイズに埋もれる（#301 の実害）。
+    const reason = classifyFailOpen(e);
+    console.error(
+      `[rateLimiter] Firestore error, failing open (reason=${reason}):`,
+      e
+    );
+    logRateLimit({ decision: "fail-open", reason });
     return true;
   }
 }
