@@ -112,6 +112,18 @@ abstract class AppLocalizations {
   /// **'通信状況を確認してもう一度お試しください'**
   String get routeErrorNetworkDescription;
 
+  /// No description provided for @routeErrorTimeoutTitle.
+  ///
+  /// In ja, this message translates to:
+  /// **'経路サービスの応答が遅れています'**
+  String get routeErrorTimeoutTitle;
+
+  /// No description provided for @routeErrorTimeoutDescription.
+  ///
+  /// In ja, this message translates to:
+  /// **'混み合っているようです。少し時間をおいてもう一度お試しください'**
+  String get routeErrorTimeoutDescription;
+
   /// No description provided for @routeErrorNoResultsTitle.
   ///
   /// In ja, this message translates to:

@@ -18,6 +18,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get routeErrorNetworkDescription => '通信状況を確認してもう一度お試しください';
 
   @override
+  String get routeErrorTimeoutTitle => '経路サービスの応答が遅れています';
+
+  @override
+  String get routeErrorTimeoutDescription => '混み合っているようです。少し時間をおいてもう一度お試しください';
+
+  @override
   String get routeErrorNoResultsTitle => 'ルートが見つかりませんでした';
 
   @override
