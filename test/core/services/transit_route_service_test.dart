@@ -3302,6 +3302,191 @@ void main() {
   // 先行の応答を待ったまま後続を発行できずデッドロック（テストは timeout で fail）し、
   // 並列実装でのみ完走する。タイミング依存の sleep を使わない決定的な検証。
   group('plan: 独立IOの並列化 (#304)', () {
+    test('崩壊時の電車/バス2系統 board-search は並列に照会する', () async {
+      // #250/#251 と同型の状況: 電車は予算外 → バス last-resort が勝つ → 崩壊判定が立ち、
+      // 電車 base とバス busBase の両系統で board-search が起動する。
+      const o = GeoPoint(35.0, 139.0);
+      const g = GeoPoint(35.0, 139.127); // 直線 ~11.6km（全徒歩 ~145分）
+      const trainLat = 35.0;
+      const busLat = 35.001; // コリドー緯度で電車系/バス系の照会を判別する
+      const trainCorridorLngs = [139.02, 139.05, 139.08, 139.10];
+      const busCorridorLngs = [139.012, 139.05, 139.09, 139.127];
+      final busRideMin =
+          (haversineKm(
+                    const GeoPoint(busLat, 139.012),
+                    const GeoPoint(busLat, 139.127),
+                  ) *
+                  1000 /
+                  trainMetersPerMinute)
+              .round();
+
+      /// 電車のみの主照会が返す option。09:50 発 10:20 着＋徒歩2分で予算60分に届かない。
+      Map<String, dynamic> slowTrainOption() => {
+        'journey': {
+          'departureSecs': 35400, // 09:50
+          'arrivalSecs': 37200, // 10:20
+          'durationSecs': 1920,
+          'accessWalkSecs': 60,
+          'egressWalkSecs': 60,
+          'legs': [
+            _railLeg(
+              route: '各停線',
+              fromId: 's0',
+              fromName: '始発駅',
+              toId: 's1',
+              toName: '終着駅',
+              dep: 35400,
+              arr: 37200,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('walk', 'origin', 's0', 'osmWalk', const [
+              [35.0, 139.0],
+              [trainLat, 139.02],
+            ]),
+            _mapSeg('transit', 's0', 's1', 'stopOrder', [
+              for (final lng in trainCorridorLngs) [trainLat, lng],
+            ]),
+            _mapSeg('walk', 's1', 'destination', 'estimatedWalk', const [
+              [trainLat, 139.10],
+              [35.0, 139.127],
+            ]),
+          ],
+        },
+      };
+
+      /// バス許容照会（origin 起点）が返す option。徒歩14分＋09:15 発で予算内に収まり
+      /// 勝者になる（＝busBase が立つ）。
+      Map<String, dynamic> busDoorToDoor() => {
+        'journey': {
+          'departureSecs': 33300, // 09:15
+          'arrivalSecs': 33300 + busRideMin * 60,
+          'durationSecs': 840 + busRideMin * 60 + 60,
+          'accessWalkSecs': 840, // 徒歩14分
+          'egressWalkSecs': 60,
+          'legs': [
+            {
+              'kind': 'transit',
+              'mode': 'bus',
+              'routeName': 'バス01',
+              'from': _station('bs:0', 'A停留所'),
+              'to': _station('bs:1', 'B停留所'),
+              'departureSecs': 33300,
+              'arrivalSecs': 33300 + busRideMin * 60,
+            },
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('walk', 'origin', 'bs:0', 'osmWalk', const [
+              [35.0, 139.0],
+              [busLat, 139.012],
+            ]),
+            _mapSeg('transit', 'bs:0', 'bs:1', 'gtfsShape', [
+              for (final lng in busCorridorLngs) [busLat, lng],
+            ]),
+            _mapSeg('walk', 'bs:1', 'destination', 'estimatedWalk', const [
+              [busLat, 139.127],
+              [35.0, 139.127],
+            ]),
+          ],
+        },
+      };
+
+      /// all-walk のみ＝引き直しで便を確認できない応答。
+      Map<String, dynamic> walkOnlyOption() => {
+        'journey': {
+          'departureSecs': 0,
+          'arrivalSecs': 600,
+          'durationSecs': 600,
+          'legs': const [
+            {'kind': 'walk', 'departureSecs': 0, 'arrivalSecs': 600},
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('walk', 'a', 'b', 'osmWalk', const [
+              [35.0, 139.1],
+              [35.0, 139.2],
+            ]),
+          ],
+        },
+      };
+
+      final trainProbe = Completer<void>();
+      final busProbe = Completer<void>();
+      Future<void> barrier() =>
+          Future.wait([trainProbe.future, busProbe.future]);
+      bool near(double a, double b) => (a - b).abs() < 1e-6;
+
+      final client = MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+        if (path.contains('googleWalkProxy')) return _walkFor(req.url);
+        if (!path.contains('guidance/plan')) return _json(const {}, 404);
+        final q = req.url.queryParameters;
+        final allowsBus = !(q['avoidModes'] ?? '').contains('bus');
+        final from = (q['from'] ?? '').replaceFirst('geo:', '').split(',');
+        final to = (q['to'] ?? '').replaceFirst('geo:', '').split(',');
+        final fromLat = double.parse(from[0]);
+        final fromLng = double.parse(from[1]);
+        final fromOrigin = near(fromLat, o.lat) && near(fromLng, o.lng);
+        final toGoal =
+            near(double.parse(to[0]), g.lat) &&
+            near(double.parse(to[1]), g.lng);
+        final Map<String, dynamic> body;
+        if (fromOrigin) {
+          body = _guidance([allowsBus ? busDoorToDoor() : slowTrainOption()]);
+        } else if (toGoal && !allowsBus && near(fromLat, trainLat)) {
+          // 電車系 board-search の引き直し（崩壊フェーズ）: バス系の到達までブロック。
+          if (!trainProbe.isCompleted) trainProbe.complete();
+          await barrier();
+          body = _guidance([walkOnlyOption()]);
+        } else if (toGoal && allowsBus && near(fromLat, busLat)) {
+          // バス系 board-search の引き直し（崩壊フェーズ）: 電車系の到達までブロック。
+          if (!busProbe.isCompleted) busProbe.complete();
+          await barrier();
+          body = _guidance([walkOnlyOption()]);
+        } else {
+          // その他の引き直し（実時刻解決など）は即応答。
+          body = _guidance([walkOnlyOption()]);
+        }
+        body['date'] = q['date'];
+        return _json(body);
+      });
+
+      final plan = await _service(client)
+          .plan(
+            destination: '目的地',
+            destinationLatLng: g,
+            departure: const TimeValue(h: 9, m: 0),
+            arrival: const TimeValue(h: 10, m: 0), // 予算60分
+            origin: o,
+            originName: '出発',
+          )
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () =>
+                fail('電車系とバス系の board-search 照会が同時到達しない（逐次実行でデッドロック）'),
+          );
+
+      expect(
+        trainProbe.isCompleted,
+        isTrue,
+        reason: '前提: 電車系 board-search が発火',
+      );
+      expect(busProbe.isCompleted, isTrue, reason: '前提: バス系 board-search が発火');
+      // 退行ガード: 並列化しても選定結果（予算内のバス勝者）は変わらない。
+      final bus = plan.segments.firstWhere((s) => s.type == SegmentType.bus);
+      expect(bus.line, 'バス01');
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+    });
+
     test('_finalizeStationNames は未命名 transit 区間を並列に照会する', () async {
       // 実時刻付き・駅名なしの2連 rail leg が勝者になり、_finalizeStationNames が
       // 2区間それぞれの乗降座標で引き直す状況を作る。照会は departureAt（time=09:00）で
