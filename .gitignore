@@ -53,6 +53,7 @@ CLAUDE.md
 !.claude/commands/
 !.claude/docs/
 !.claude/guard.py
+!.claude/guard_test.py
 !.claude/bash_guard.py
 !.claude/dart_quality.sh
 .claude/settings.local.json
