@@ -10,6 +10,7 @@ import 'hybrid_route_selector.dart';
 import 'route_diagnostics.dart';
 import 'route_plan_builder.dart';
 import 'route_service.dart';
+import 'search_deadline.dart';
 import 'transit_api_client.dart';
 import 'transit_plan_parser.dart';
 
@@ -47,18 +48,30 @@ class TransitRouteService implements SearchEngine {
     String? proxyBaseUrl,
     DateTime Function()? clock,
     CancellationToken? cancellation,
+    SearchDeadline deadline = const SearchDeadline.none(),
   }) : _api = TransitApiClient(
          transitClient: transitClient,
          proxyClient: proxyClient,
          transitBaseUrl: transitBaseUrl,
          proxyBaseUrl: proxyBaseUrl,
          cancellation: cancellation,
+         deadline: deadline,
        ),
+       _deadline = deadline,
        _clock = clock ?? DateTime.now;
 
   /// Transit API / Google プロキシへの HTTP 通信（#169）。
   final TransitApiClient _api;
   final DateTime Function() _clock;
+
+  /// 検索1回分の締切（#300）。超過したら**引き直しの新ラウンドを起こさない**。
+  ///
+  /// 引き直し（乗車駅探索・代替検証）は徒歩最大化のための改善であって、必須なのは
+  /// 初期 `/guidance/plan` 1本だけ。改善は `on RouteException` → null で縮退するが、
+  /// 縮退する前に1本の上限いっぱい待つため、締切で止めないと「劣化した経路を、
+  /// 上限×直列ラウンド数だけ待った末に受け取る」最悪が生じる。ゲートするのは改善側
+  /// だけで、必須の初期照会は締切で止めない（止めれば #300 の症状そのものへ戻る）。
+  final SearchDeadline _deadline;
 
   /// 選定の診断ログ整形（#169）。`verbose` は既定で [kDebugMode]。
   final RouteDiagnostics _diag = const RouteDiagnostics();
@@ -833,7 +846,9 @@ class TransitRouteService implements SearchEngine {
     final rejected = <RouteCandidate>{};
     final enrichedOf = <RouteCandidate, RouteCandidate>{};
     var validations = 0;
-    while (validations < _maxAlternativeValidations) {
+    // 締切超過で検証を打ち切る（#300）。代替案は確定経路の付加情報なので、検証済みの
+    // 分だけ出せばよい——1件も検証できなくても確定経路は返る。
+    while (validations < _maxAlternativeValidations && !_deadline.isExpired) {
       final front = frontOf(rejected);
       final unvalidated = [
         for (final c in front)
@@ -1100,6 +1115,12 @@ class TransitRouteService implements SearchEngine {
       count: stops.length,
       budgetMin: budgetMin,
       fanout: _boardSearchFanout,
+      // 締切超過で新ラウンドを起こさない（#300）。[TransitApiClient] の残予算クランプが
+      // 既に HTTP を止めるので通信量の面では冗長だが、ゲートが無いと探索はラウンドを
+      // 回し続け、全 probe が即 TIMEOUT →「予算外」と解釈されて区間を縮める——実測では
+      // なく締切で境界を決めることになる。徒歩最大化の判断材料に締切を混ぜないため、
+      // 探索そのものを止める。
+      shouldContinue: () => !_deadline.isExpired,
       evaluate: (i) async {
         final c = await buildAt(i);
         // 経路無し（引き直し失敗）は予算外として扱い、手前の駅を探す。

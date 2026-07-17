@@ -247,16 +247,25 @@ Future<int?> maxWalkBoardingIndex({
 /// （[TransitRouteService]・#137）のため、最終選定が直列版と変わり得る（評価点が
 /// 増える分、徒歩最大の解像度はむしろ上がる方向）。`fanout: 1` は直列二分探索と
 /// 同一の軌道になる。同一 index を二度評価しないことは保証する。
+///
+/// [shouldContinue] が false を返すと**新しいラウンドを起こさず、その時点の境界で
+/// 打ち切る**（#300。呼び出し側は検索の締切を渡す）。探索を尽くさないので境界は
+/// 本来より手前＝徒歩は最大より短くなり得るが、返す index は「評価済みの中で予算内の
+/// 最遠」である性質を保つので、呼び出し側の候補プールは正しいまま疎になるだけ。
+/// 述語でなく [SearchDeadline] を直接受けないのは、探索を時間の概念から独立に保ち
+/// テストで軌道を決定的に固定できるようにするため。
 Future<int?> maxWalkBoardingIndexParallel({
   required int count,
   required int budgetMin,
   required Future<int> Function(int index) evaluate,
   int fanout = 3,
+  bool Function()? shouldContinue,
 }) async {
   var lo = 0;
   var hi = count - 1;
   int? best;
   while (lo <= hi) {
+    if (shouldContinue != null && !shouldContinue()) break;
     // 区間 [lo, hi] を (fanout+1) 等分する内分点。区間が狭いと同一点へ縮退する
     // ため Set で重複除去する（probe は必ず区間内にあり、毎ラウンド区間が縮む）。
     final span = hi - lo;

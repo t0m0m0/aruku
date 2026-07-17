@@ -13,6 +13,7 @@ import 'package:aruku/core/services/route_plan_builder.dart'
         firstMissedTransit,
         maxBoardingWait;
 import 'package:aruku/core/services/route_service.dart';
+import 'package:aruku/core/services/search_deadline.dart';
 import 'package:aruku/core/services/transit_plan_parser.dart';
 import 'package:aruku/core/services/transit_route_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1080,6 +1081,97 @@ void main() {
       expect(calls.length, greaterThan(1));
       expect(walkMinutesOf(plan), greaterThan(50));
       expect(plan.totalMin, lessThanOrEqualTo(150));
+    });
+
+    group('検索の締切 (#300)', () {
+      /// 初期 guidance が発行された直後に予算を使い切る締切。実機の「必須の1本は間に合った
+      /// が、引き直しの途中で待ち時間の上限に達した」を決定的に再現する。締切を最初から
+      /// 期限切れにすると必須の初期照会まで落ちてしまい、再現したい状況とは別物になる。
+      SearchDeadline expiringAfterFirstGuidance(List<Uri> calls) =>
+          SearchDeadline(
+            const Duration(seconds: 120),
+            elapsed: () =>
+                calls.isEmpty ? Duration.zero : const Duration(seconds: 120),
+          );
+
+      TransitRouteService serviceWith(
+        http.Client client,
+        SearchDeadline deadline,
+      ) => TransitRouteService(
+        transitClient: client,
+        proxyClient: client,
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        clock: () => DateTime(2026, 6, 27, 9, 0),
+        deadline: deadline,
+      );
+
+      test('締切を使い切っても確定経路は返る（引き直しの全滅で失敗させない）', () async {
+        final calls = <Uri>[];
+        final svc = serviceWith(
+          inflatedFromMock(guidanceCalls: calls),
+          expiringAfterFirstGuidance(calls),
+        );
+
+        // 締切は縮退の合図であって失敗ではない。徒歩最大化は諦めても経路は返す。
+        // 引き直しの TIMEOUT が plan() まで伝播したらここで throw して赤くなる。
+        final plan = await svc.plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30),
+          origin: origin3,
+          originName: '出発',
+        );
+
+        expect(plan.segments, isNotEmpty);
+      });
+
+      test('締切超過後は引き直しの HTTP を発行しない', () async {
+        final calls = <Uri>[];
+        final svc = serviceWith(
+          inflatedFromMock(guidanceCalls: calls),
+          expiringAfterFirstGuidance(calls),
+        );
+
+        await svc.plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30),
+          origin: origin3,
+          originName: '出発',
+        );
+
+        // 必須の初期照会1本だけ。締切なしの同条件（上のテスト群）では board-search が
+        // 複数本引く。残予算0で投げた照会は必ず打ち切られる＝上流を無駄に叩くだけなので、
+        // 送る前に落とす。
+        expect(calls, hasLength(1));
+      });
+
+      test('締切内なら従来どおり引き直して徒歩最大化する', () async {
+        final calls = <Uri>[];
+        final svc = serviceWith(
+          inflatedFromMock(guidanceCalls: calls),
+          // 使い切らない締切。ゲート・クランプが正常系を邪魔していないことの反証。
+          SearchDeadline(
+            const Duration(seconds: 120),
+            elapsed: () => Duration.zero,
+          ),
+        );
+
+        final plan = await svc.plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30),
+          origin: origin3,
+          originName: '出発',
+        );
+
+        expect(calls.length, greaterThan(1));
+        expect(walkMinutesOf(plan), greaterThan(50));
+      });
     });
   });
 
