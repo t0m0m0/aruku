@@ -10,15 +10,30 @@ import { EventEmitter } from "events";
 import type { HttpsFunction, Request } from "firebase-functions/v2/https";
 import type { Response } from "express";
 
-// vi.mock はホイストされるため、参照する mock 関数は vi.hoisted で先に生成する。
-const { httpsRequestMock, verifyTokenMock } = vi.hoisted(() => ({
+// vi.mock はホイストされるため、参照する mock 関数・クラスは vi.hoisted で
+// 先に生成する。MockAgent は https.Agent はモジュール読込時（トップレベル）に
+// `new https.Agent(...)` されるため、request 同様にコンストラクト可能な
+// スタブが必要（issue #307）。実際の keepAlive 挙動は検証対象ではなく、
+// 渡されたオプションを保持するだけでよい。
+const { httpsRequestMock, verifyTokenMock, MockAgent } = vi.hoisted(() => ({
   httpsRequestMock: vi.fn(),
   verifyTokenMock: vi.fn(),
+  MockAgent: class MockAgent {
+    options: Record<string, unknown>;
+    constructor(options: Record<string, unknown>) {
+      this.options = options;
+    }
+  },
 }));
 
+// MockAgent は vi.hoisted 内のクラス式のためコンストラクタ型の値であり、
+// そのままではインスタンス型として使えない。型参照用に別名を用意する。
+type MockAgentInstance = InstanceType<typeof MockAgent>;
+
 vi.mock("https", () => ({
-  default: { request: httpsRequestMock },
+  default: { request: httpsRequestMock, Agent: MockAgent },
   request: httpsRequestMock,
+  Agent: MockAgent,
 }));
 
 vi.mock("firebase-admin/app-check", () => ({
@@ -82,16 +97,21 @@ function mockUpstreamCapture(body: unknown): { sent(): unknown } {
 // タイムアウト/サイズ超過検証用の擬似リクエスト。https.request の返り値を
 // EventEmitter とし、destroy(err) が error イベントを発火する挙動を再現する
 // （本番の req.destroy と同じく error 経由で reject させるため）。
-function makeMockReq(): EventEmitter & {
+// reusedSocket は stale ソケットリトライ（issue #307）検証用。既定 false は
+// 「新規ソケット」を表し、既存のタイムアウト/サイズ超過テストの挙動を変えない。
+function makeMockReq(reusedSocket = false): EventEmitter & {
   write: (c: string) => void;
   end: () => void;
   destroy: (e?: Error) => void;
+  reusedSocket: boolean;
 } {
   const req = new EventEmitter() as EventEmitter & {
     write: (c: string) => void;
     end: () => void;
     destroy: (e?: Error) => void;
+    reusedSocket: boolean;
   };
+  req.reusedSocket = reusedSocket;
   req.write = () => {};
   req.end = () => {};
   req.destroy = (e?: Error) => {
@@ -107,6 +127,41 @@ function mockUpstreamTimeout(): void {
     process.nextTick(() => req.emit("timeout"));
     return req;
   });
+}
+
+// stale keep-alive ソケット検証用（issue #307）。1回目の呼び出しは
+// reusedSocket=<firstReusedSocket> の擬似リクエストが、レスポンスヘッダ受信前に
+// 生の（UpstreamError でない）ネットワークエラーで失敗する。2回目の呼び出しが
+// 発生した場合は正常応答を返す。実際に何回 https.request が呼ばれたかは
+// httpsRequestMock.mock.calls.length で検証する。
+function mockUpstreamStaleSocketThenSuccess(
+  body: unknown,
+  firstReusedSocket: boolean
+): void {
+  let callCount = 0;
+  httpsRequestMock.mockImplementation(
+    (_url: string, _opts: unknown, cb: (r: EventEmitter) => void) => {
+      callCount += 1;
+      if (callCount === 1) {
+        const req = makeMockReq(firstReusedSocket);
+        process.nextTick(() => {
+          const err = new Error("socket hang up") as NodeJS.ErrnoException;
+          err.code = "ECONNRESET";
+          req.emit("error", err);
+        });
+        return req;
+      }
+      const req = makeMockReq(false);
+      const res = new EventEmitter() as EventEmitter & { statusCode: number };
+      res.statusCode = 200;
+      cb(res);
+      process.nextTick(() => {
+        res.emit("data", Buffer.from(JSON.stringify(body)));
+        res.emit("end");
+      });
+      return req;
+    }
+  );
 }
 
 // 指定バイト数のボディを 1 チャンクで流す上流をシミュレートする（end は発火せず、
@@ -507,6 +562,85 @@ describe("ハンドラ統合（タイムアウト・信頼性ガード / issue #
     );
     const opts = httpsRequestMock.mock.calls[0][1] as { timeout?: number };
     expect(opts.timeout).toBe(10000);
+  });
+
+  it("https.request に keepAlive:true の共有 Agent を渡す（issue #307）", async () => {
+    mockUpstream({ items: [{ summary: {} }] });
+    const res = makeRes();
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      res
+    );
+    const opts = httpsRequestMock.mock.calls[0][1] as {
+      agent?: MockAgentInstance;
+    };
+    expect(opts.agent).toBeInstanceOf(MockAgent);
+    expect(opts.agent?.options.keepAlive).toBe(true);
+  });
+
+  it("複数回の呼び出しで同一の Agent インスタンスを再利用する", async () => {
+    mockUpstream({ items: [{ summary: {} }] });
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      makeRes()
+    );
+    mockUpstream({ items: [{ summary: {} }] });
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ query: { start: "3,3", goal: "4,4", start_time: "t" } }),
+      makeRes()
+    );
+    const firstAgent = (
+      httpsRequestMock.mock.calls[0][1] as { agent?: MockAgentInstance }
+    ).agent;
+    const secondAgent = (
+      httpsRequestMock.mock.calls[1][1] as { agent?: MockAgentInstance }
+    ).agent;
+    expect(firstAgent).toBe(secondAgent);
+  });
+
+  it("GET かつ再利用ソケットでの生ネットワークエラーは1回だけ再試行して成功させる（issue #307）", async () => {
+    const payload = { items: [{ summary: {} }] };
+    mockUpstreamStaleSocketThenSuccess(payload, true);
+    const res = makeRes();
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      res
+    );
+    expect(httpsRequestMock).toHaveBeenCalledTimes(2);
+    expect(res.statusCode).toBeUndefined();
+    expect(res.body).toEqual(payload);
+  });
+
+  it("新規ソケット（reusedSocket=false）での生ネットワークエラーは再試行せず 502 を返す", async () => {
+    mockUpstreamStaleSocketThenSuccess({ items: [{ summary: {} }] }, false);
+    const res = makeRes();
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      res
+    );
+    expect(httpsRequestMock).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(502);
+    expect(res.body).toEqual({ error: "upstream error" });
+  });
+
+  it("POST（非冪等扱い）は再利用ソケットでの生ネットワークエラーでも再試行せず 502 を返す", async () => {
+    // placesProxy の autocomplete は上流へ POST で問い合わせる唯一の GET
+    // エンドポイント。再試行ガードが method で正しく絞れているかを見る。
+    mockUpstreamStaleSocketThenSuccess({ suggestions: [] }, true);
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
+      res
+    );
+    expect(httpsRequestMock).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(502);
+    expect(res.body).toEqual({ error: "upstream error" });
   });
 
   it("navitimeProxy: 上流無応答（timeout）は 504 を返す", async () => {

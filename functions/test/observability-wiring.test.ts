@@ -7,6 +7,9 @@ import type { Response } from "express";
 // vi.mock はホイストされるため、参照する mock 関数は vi.hoisted で先に生成する。
 // メトリクス呼び出しそのもの（引数の形）を検証したいので、metrics モジュールを
 // まるごとモックし、実際の logger 出力は metrics.test.ts 側で担保する。
+// MockAgent は https.Agent がモジュール読込時（トップレベル）に
+// `new https.Agent(...)` されるため、request 同様にコンストラクト可能な
+// スタブが必要（issue #307）。
 const {
   httpsRequestMock,
   verifyTokenMock,
@@ -14,6 +17,7 @@ const {
   logRequestOutcomeMock,
   logAppCheckDeniedMock,
   logRateLimitMock,
+  MockAgent,
 } = vi.hoisted(() => ({
   httpsRequestMock: vi.fn(),
   verifyTokenMock: vi.fn(),
@@ -21,11 +25,18 @@ const {
   logRequestOutcomeMock: vi.fn(),
   logAppCheckDeniedMock: vi.fn(),
   logRateLimitMock: vi.fn(),
+  MockAgent: class MockAgent {
+    options: Record<string, unknown>;
+    constructor(options: Record<string, unknown>) {
+      this.options = options;
+    }
+  },
 }));
 
 vi.mock("https", () => ({
-  default: { request: httpsRequestMock },
+  default: { request: httpsRequestMock, Agent: MockAgent },
   request: httpsRequestMock,
+  Agent: MockAgent,
 }));
 
 vi.mock("firebase-admin/app-check", () => ({
