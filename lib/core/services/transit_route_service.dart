@@ -299,49 +299,53 @@ class TransitRouteService implements SearchEngine {
     if ((base != null || busBase != null) &&
         _isCollapse(selected.chosen, collapseOptions, budgetMin, departureAt)) {
       _diag.log(() => 'collapse=true → board-search フォールバック起動');
-      final extra = <RouteCandidate>[];
-      if (base != null) {
-        // バスが勝ったときも電車 base の board-search は走らせる。last-resort の発火条件は
-        // 「予算外**または乗り遅れ**」（#250）なので、door-to-door では乗り遅れた電車も、
-        // より手前の駅から引き直せば後続便で予算内に入ることがある。電車が全滅する状況なら
-        // 予算内候補は0件で [extra] に何も足さない＝プールも選定結果も変わらない。
-        extra.addAll(
-          await _buildBoardSearchCandidate(
-            base,
-            origin,
-            goal,
-            budgetMin,
-            departureAt,
-            walkCache,
-          ),
-        );
-      }
-      if (busBase != null) {
-        // バス corridor は基準になったのがここが初めてなので、途中乗降ハイブリッドも
-        // ここで作る（通常照会の base と違い、事前に作る機会がなかった）。
-        _diag.log(() => 'バス corridor を基準に徒歩最大化（#251）');
-        extra
-          ..addAll(
-            await _buildCorridorHybrids(
-              busBase,
-              origin,
-              goal,
-              budgetMin,
-              departureAt,
-              measured,
-            ),
-          )
-          ..addAll(
-            await _buildBoardSearchCandidate(
-              busBase,
+      // 電車系（base）とバス系（busBase）は基準コリドーが独立なので並列に走らせる
+      // （#304）。各系統は O(log corridorStops) ラウンド × Transit API を直列に積む
+      // ため、逐次だと壁時計時間が2系統ぶん数珠つなぎになる。共有する [walkCache] に
+      // in-flight の共有は足さない——両系統のコリドーは別路線で、レッグキー（5桁丸め）
+      // が重なるのは稀・重なっても同一レッグを二重取得するだけで結果は冪等なため。
+      final extra = [
+        for (final built in await Future.wait([
+          if (base != null)
+            // バスが勝ったときも電車 base の board-search は走らせる。last-resort の発火条件は
+            // 「予算外**または乗り遅れ**」（#250）なので、door-to-door では乗り遅れた電車も、
+            // より手前の駅から引き直せば後続便で予算内に入ることがある。電車が全滅する状況なら
+            // 予算内候補は0件で [extra] に何も足さない＝プールも選定結果も変わらない。
+            _buildBoardSearchCandidate(
+              base,
               origin,
               goal,
               budgetMin,
               departureAt,
               walkCache,
             ),
-          );
-      }
+          if (busBase != null)
+            // バス corridor は基準になったのがここが初めてなので、途中乗降ハイブリッドも
+            // ここで作る（通常照会の base と違い、事前に作る機会がなかった）。
+            () async {
+              _diag.log(() => 'バス corridor を基準に徒歩最大化（#251）');
+              return [
+                ...await _buildCorridorHybrids(
+                  busBase,
+                  origin,
+                  goal,
+                  budgetMin,
+                  departureAt,
+                  measured,
+                ),
+                ...await _buildBoardSearchCandidate(
+                  busBase,
+                  origin,
+                  goal,
+                  budgetMin,
+                  departureAt,
+                  walkCache,
+                ),
+              ];
+            }(),
+        ]))
+          ...built,
+      ];
       if (extra.isNotEmpty) {
         _diag.log(() => '徒歩最大化候補: ${extra.length}件をプールへ追加');
         // 既に引いたバス候補（あれば）も再選定のプールへ引き継ぐ。board-search 候補が
@@ -442,21 +446,32 @@ class TransitRouteService implements SearchEngine {
     DateTime departureAt,
   ) async {
     final segs = [...chosen.segments];
-    for (var i = 0; i < segs.length; i++) {
-      final seg = segs[i];
-      if (seg.type == SegmentType.walk) continue;
-      if (seg.fromName.isNotEmpty && seg.toName.isNotEmpty) continue;
-      if (seg.polyline.length < 2) continue;
-      final names = await _fetchTransitEndpoints(
-        seg.polyline.first,
-        seg.polyline.last,
-        departureAt,
-        type: seg.type,
-      );
+    // 区間ごとの照会は互いに独立なので並列に投げる（#304）。実時刻解決
+    // （[_resolveBoardingTimes]）と違い boardAt の累積依存が無く、全区間を
+    // departureAt で引くため直列にする理由がない。
+    final targets = [
+      for (var i = 0; i < segs.length; i++)
+        if (segs[i].type != SegmentType.walk &&
+            (segs[i].fromName.isEmpty || segs[i].toName.isEmpty) &&
+            segs[i].polyline.length >= 2)
+          i,
+    ];
+    final fetched = await Future.wait([
+      for (final i in targets)
+        _fetchTransitEndpoints(
+          segs[i].polyline.first,
+          segs[i].polyline.last,
+          departureAt,
+          type: segs[i].type,
+        ),
+    ]);
+    for (var k = 0; k < targets.length; k++) {
+      final names = fetched[k];
       if (names == null) continue;
-      segs[i] = seg.copyWith(
-        fromName: seg.fromName.isEmpty ? names.from : null,
-        toName: seg.toName.isEmpty ? names.to : null,
+      final i = targets[k];
+      segs[i] = segs[i].copyWith(
+        fromName: segs[i].fromName.isEmpty ? names.from : null,
+        toName: segs[i].toName.isEmpty ? names.to : null,
       );
     }
     _propagateStationNames(segs);
