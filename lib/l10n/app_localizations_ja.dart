@@ -227,6 +227,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get resultCtaLaunchFailed => 'Google Mapsを開けませんでした';
 
   @override
+  String get resultCtaMarkLegComplete => 'この区間を完了';
+
+  @override
   String get resultJourneyCompleteMessage => '目的地に到着しました';
 
   @override

@@ -367,6 +367,37 @@ void main() {
       expect(state.route, sampleRoutePlan);
       expect(state.screen, Screen.result);
     });
+
+    test('結果ハブから home へ離脱すると行程を破棄し、復帰しても完了扱いにしない', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      // 結果ハブを離れた時点で行程は放棄。システム back とヘッダー back は
+      // どちらも syncScreen(Screen.home) を通る。
+      notifier.go(Screen.home);
+      expect(h.container.read(appStateProvider).journey, isNull);
+
+      // その後に終点付近で復帰しても、隠れた行程を完了させたり
+      // WalkingWorkout を書き込んだりしない。
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      await notifier.onAppResumed();
+      await settle();
+
+      final state = h.container.read(appStateProvider);
+      expect(state.screen, Screen.home);
+      expect(state.journey, isNull);
+      expect(h.health.writeCount, 0);
+    });
   });
 
   group('外部アプリ往復中の歩数の追いつき（#305）', () {

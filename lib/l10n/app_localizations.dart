@@ -496,6 +496,12 @@ abstract class AppLocalizations {
   /// **'Google Mapsを開けませんでした'**
   String get resultCtaLaunchFailed;
 
+  /// No description provided for @resultCtaMarkLegComplete.
+  ///
+  /// In ja, this message translates to:
+  /// **'この区間を完了'**
+  String get resultCtaMarkLegComplete;
+
   /// No description provided for @resultJourneyCompleteMessage.
   ///
   /// In ja, this message translates to:

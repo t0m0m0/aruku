@@ -110,6 +110,60 @@ const _threeLegRoute = RoutePlan(
   ],
 );
 
+// 最初の徒歩区間だけ geometry が欠落した経路。自動到着判定ができない場合でも、
+// Google Maps から戻ったユーザーが手動で次区間へ進めることを検証する。
+const _emptyFirstLegRoute = RoutePlan(
+  from: '蒲田',
+  to: '東京駅',
+  totalKm: 1.5,
+  totalMin: 23,
+  budgetMin: 60,
+  kcal: 80,
+  walkKm: 1.5,
+  walkRatio: 0.8,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: '蒲田',
+      toName: '新橋駅',
+      km: 1.5,
+      minutes: 20,
+      kcal: 80,
+    ),
+    _trainToTokyo,
+  ],
+  timelineNodes: [
+    TimelineNode(time: '9:00', place: '蒲田', sub: '出発'),
+    TimelineNode(time: '9:20', place: '新橋駅', sub: 'JR山手線 内回り'),
+    TimelineNode(time: '9:23', place: '東京駅', sub: '到着'),
+  ],
+);
+
+const _singleEmptyLegRoute = RoutePlan(
+  from: '蒲田',
+  to: '新橋駅',
+  totalKm: 1.5,
+  totalMin: 20,
+  budgetMin: 60,
+  kcal: 80,
+  walkKm: 1.5,
+  walkRatio: 1.0,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: '蒲田',
+      toName: '新橋駅',
+      km: 1.5,
+      minutes: 20,
+      kcal: 80,
+    ),
+  ],
+  timelineNodes: [
+    TimelineNode(time: '9:00', place: '蒲田', sub: '出発'),
+    TimelineNode(time: '9:20', place: '新橋駅', sub: '到着'),
+  ],
+);
+
 Widget _wrap(ProviderContainer container) => UncontrolledProviderScope(
   container: container,
   child: MaterialApp(
@@ -419,5 +473,51 @@ void main() {
 
     expect(find.text('完了'), findsOneWidget);
     expect(find.text('進行中'), findsOneWidget);
+  });
+
+  testWidgets('polyline が空の開始済み区間は手動完了で次区間へ進める', (tester) async {
+    final container = _containerFor(
+      plan: _emptyFirstLegRoute,
+      launcher: (_) async => true,
+    );
+    container.read(appStateProvider.notifier).setDestination('東京駅');
+    await container.read(appStateProvider.notifier).startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    // 行程開始前には誤操作防止のため手動完了を出さない。
+    expect(find.text('この区間を完了'), findsNothing);
+    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.pump();
+
+    expect(find.text('この区間を完了'), findsOneWidget);
+    await tester.tap(find.text('この区間を完了'));
+    await tester.pump();
+
+    expect(container.read(appStateProvider).journey!.currentLegIndex, 1);
+    expect(find.text('Google Mapsで東京駅まで行く'), findsOneWidget);
+    expect(find.text('この区間を完了'), findsNothing);
+  });
+
+  testWidgets('polyline が空の最終区間は手動完了で行程完了になる', (tester) async {
+    final container = _containerFor(
+      plan: _singleEmptyLegRoute,
+      launcher: (_) async => true,
+    );
+    container.read(appStateProvider.notifier).setDestination('新橋駅');
+    await container.read(appStateProvider.notifier).startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.pump();
+    await tester.tap(find.text('この区間を完了'));
+    await tester.pump();
+
+    expect(
+      container.read(appStateProvider).journey!.currentLegIndex,
+      _singleEmptyLegRoute.segments.length,
+    );
+    expect(find.text('目的地に到着しました'), findsOneWidget);
   });
 }

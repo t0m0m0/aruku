@@ -78,11 +78,14 @@ void main() {
     final notifier = container.read(appStateProvider.notifier);
     notifier.setDestination('渋谷駅', latLng: const GeoPoint(35.658, 139.702));
     await notifier.startSearch();
+    notifier.startJourney();
     await pumpTransition(tester);
     expect(screenOf(container), Screen.result);
+    expect(container.read(appStateProvider).journey, isNotNull);
 
     await back(tester);
     expect(screenOf(container), Screen.home);
+    expect(container.read(appStateProvider).journey, isNull);
   });
 
   testWidgets('nav からの back は確認ダイアログを経由して home へ戻る', (tester) async {

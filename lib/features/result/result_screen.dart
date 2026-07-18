@@ -61,9 +61,8 @@ class ResultScreen extends ConsumerWidget {
     final route = state.route;
     // journey 未開始（journey == null）は index0 扱い（#305 の仕様: 途中復帰と
     // 未開始を区別せず同じ CTA を出す）。segments 範囲外は全区間完了の番兵値。
-    final currentLeg = route == null
-        ? null
-        : legAt(route, state.journey?.currentLegIndex ?? 0);
+    final currentLegIndex = state.journey?.currentLegIndex ?? 0;
+    final currentLeg = route == null ? null : legAt(route, currentLegIndex);
 
     if (route == null) {
       return Material(
@@ -211,6 +210,12 @@ class ResultScreen extends ConsumerWidget {
                           'leg-cta-${state.journey?.currentLegIndex ?? 0}',
                         ),
                         leg: currentLeg,
+                        onManualAdvance:
+                            currentLeg != null &&
+                                currentLeg.polyline.isEmpty &&
+                                state.journey != null
+                            ? () => notifier.advanceToLeg(currentLegIndex + 1)
+                            : null,
                         onLaunch: currentLeg == null
                             ? null
                             : () async {

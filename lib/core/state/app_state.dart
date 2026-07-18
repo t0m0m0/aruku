@@ -593,7 +593,16 @@ class AppNotifier extends Notifier<AppState> {
   /// 同値なら何もしない（router との相互同期がエコーで往復しないための冪等性）。
   void syncScreen(Screen s) {
     if (state.screen == s) return;
-    state = state.copyWith(screen: s);
+    // 結果ハブから home へ戻る操作は、外部地図を使った行程の放棄として扱う。
+    // ヘッダー操作だけでなく router の system back も syncScreen を通るため、
+    // ここで同じ copyWith により journey を破棄し、home 復帰時に非表示の行程が
+    // 進んだり WalkingWorkout が書かれたりするのを防ぐ（#305）。route は
+    // result への戻り表示に使える既存挙動を維持するため残す。
+    final abandonsJourney = state.screen == Screen.result && s == Screen.home;
+    state = state.copyWith(
+      screen: s,
+      journey: abandonsJourney ? null : state.journey,
+    );
     if (s == Screen.nav) {
       _startTracking();
     } else {

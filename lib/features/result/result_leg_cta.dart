@@ -7,7 +7,12 @@ part of 'result_screen.dart';
 /// [onLaunch] の実装側＝呼び出し元に委ねる。ウィジェットは起動失敗の
 /// 表示状態だけを持つ）。
 class _LegCta extends StatefulWidget {
-  const _LegCta({super.key, required this.leg, required this.onLaunch});
+  const _LegCta({
+    super.key,
+    required this.leg,
+    required this.onLaunch,
+    this.onManualAdvance,
+  });
 
   /// 現在案内中の区間。null は全区間完了（currentLegIndex が segments 範囲外）
   /// を表し、CTA の代わりに簡素な完了表示を出す。
@@ -16,6 +21,10 @@ class _LegCta extends StatefulWidget {
   /// タップ時に呼ばれ、起動成否（true=成功）を返す。[leg] が null のときは
   /// 呼ばれないため null 許容にしている。
   final Future<bool> Function()? onLaunch;
+
+  /// 終点 geometry がなく復帰時の自動到着判定ができない開始済み区間だけに渡す
+  /// 手動完了処理。通常区間や行程開始前は null とし、誤操作の導線を増やさない。
+  final VoidCallback? onManualAdvance;
 
   @override
   State<_LegCta> createState() => _LegCtaState();
@@ -125,6 +134,21 @@ class _LegCtaState extends State<_LegCta> {
             ),
           ],
         ),
+        if (widget.onManualAdvance != null)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: widget.onManualAdvance,
+              child: Text(
+                l10n.resultCtaMarkLegComplete,
+                style: jpStyle(
+                  size: 13,
+                  weight: FontWeight.w700,
+                  color: c.ink3,
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
