@@ -452,7 +452,7 @@ void main() {
       expect(w.end.isBefore(w.start), isFalse);
     });
 
-    test('復帰時の到着で全区間完了に達したら WalkingWorkout を書く', () async {
+    test('最終区間の到着判定が先でも復帰後の歩数更新を待って WalkingWorkout を書く', () async {
       final h = await makeHarness(
         plan: _singleWalkPlan,
         healthKitEnabled: true,
@@ -463,16 +463,47 @@ void main() {
       await settle();
       await notifier.startSearch();
       notifier.startJourney();
-      h.activity.add(ActivitySnapshot.fromSteps(400));
-      await settle();
 
-      // 復帰時に終点へ到着 → 唯一の区間が完了し番兵値へ達する。
+      // 復帰時は位置取得が先に終点到着を返す。外部 Google Maps 中の歩数は
+      // pedometer ストリームから少し遅れて届く競合を再現する。
       h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
-      await notifier.onAppResumed();
+      final resumed = notifier.onAppResumed();
+      await settle();
+      expect(h.health.writeCount, 0);
+
+      h.activity.add(ActivitySnapshot.fromSteps(400));
+      await resumed;
       await settle();
 
       expect(h.health.writeCount, 1);
       expect(h.health.written!.steps, 400);
+    });
+
+    test('復帰後の歩数更新が上限まで来なければ不正確な Workout を捨てて行程だけ完了する', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      // 復帰前に一部だけ（50歩）反映された状態。復帰後の更新が来ない場合、この
+      // 不完全な値で Workout を確定せず、待機上限後は行程進捗だけを完了させる。
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await settle();
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      await notifier.onAppResumed();
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _singleWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 0);
     });
 
     test('連携オフなら全区間完了でも WalkingWorkout を書かない', () async {
