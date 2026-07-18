@@ -941,6 +941,18 @@ class AppNotifier extends Notifier<AppState> {
     );
   }
 
+  /// 結果画面（ハブ）で現在区間を [index] へ進める（#305）。区間到着の自動検出
+  /// （コミット4以降）と、区間 CTA からの手動進行の両方がここを通る想定。
+  /// journey 未開始・経路未確定は no-op。index は 0〜segments.length にクランプする
+  /// （segments.length は「全区間完了」を表す番兵値）。
+  void advanceToLeg(int index) {
+    final route = state.route;
+    final journey = state.journey;
+    if (route == null || journey == null) return;
+    final clamped = index.clamp(0, route.segments.length);
+    state = state.copyWith(journey: journey.copyWith(currentLegIndex: clamped));
+  }
+
   /// アプリがフォアグラウンド復帰したときに now 経路の時刻を再検証する（#264）。
   /// 結果表示中・ホーム退避中の失効経路は無効化して再検索を促す（メモリに残った失効
   /// 経路を掃除し、ホームの出発時刻の追従も回復させる）。ナビ中は歩行を中断させない

@@ -142,6 +142,79 @@ void main() {
     });
   });
 
+  group('AppNotifier.advanceToLeg', () {
+    test('journey がある場合 currentLegIndex を更新する', () async {
+      final container = _containerWith(sampleRoutePlan);
+      final notifier = container.read(appStateProvider.notifier);
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      notifier.advanceToLeg(1);
+
+      expect(container.read(appStateProvider).journey!.currentLegIndex, 1);
+    });
+
+    test('index は segments.length を上限にクランプする（全区間完了の番兵値）', () async {
+      final container = _containerWith(sampleRoutePlan);
+      final notifier = container.read(appStateProvider.notifier);
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      notifier.advanceToLeg(999);
+
+      expect(
+        container.read(appStateProvider).journey!.currentLegIndex,
+        sampleRoutePlan.segments.length,
+      );
+    });
+
+    test('index は 0 を下限にクランプする', () async {
+      final container = _containerWith(sampleRoutePlan);
+      final notifier = container.read(appStateProvider.notifier);
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      notifier.advanceToLeg(-1);
+
+      expect(container.read(appStateProvider).journey!.currentLegIndex, 0);
+    });
+
+    test('journey が無ければ no-op', () async {
+      final container = _containerWith(sampleRoutePlan);
+      final notifier = container.read(appStateProvider.notifier);
+      await notifier.startSearch();
+
+      notifier.advanceToLeg(1);
+
+      expect(container.read(appStateProvider).journey, isNull);
+    });
+
+    test('route が無ければ no-op', () {
+      final container = _containerWith(sampleRoutePlan);
+      final notifier = container.read(appStateProvider.notifier);
+
+      notifier.advanceToLeg(1);
+
+      expect(container.read(appStateProvider).journey, isNull);
+    });
+
+    test('開始時刻・開始歩数は書き換えない', () async {
+      final clock = _Clock(DateTime(2026, 7, 18, 9, 30));
+      final container = _containerWith(sampleRoutePlan, clock: clock);
+      final notifier = container.read(appStateProvider.notifier);
+      await notifier.startSearch();
+      notifier.startJourney();
+      final before = container.read(appStateProvider).journey!;
+
+      clock.value = DateTime(2026, 7, 18, 9, 40);
+      notifier.advanceToLeg(1);
+
+      final after = container.read(appStateProvider).journey!;
+      expect(after.startedAt, before.startedAt);
+      expect(after.startSteps, before.startSteps);
+    });
+  });
+
   group('journey のリセット', () {
     test('selectAlternative で journey をリセットする', () async {
       final container = _containerWith(_winnerWithAlternatives);

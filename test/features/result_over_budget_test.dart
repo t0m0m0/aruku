@@ -104,9 +104,10 @@ void main() {
     // アイコンのみのヘッダーボタンにラベルが付く。
     expect(find.bySemanticsLabel('戻る'), findsOneWidget);
 
-    // 経路開始CTAはボタンとして公開される。
+    // 区間CTA（#305 でNavScreen遷移からGoogle Maps引き継ぎへ差し替え）は
+    // ボタンとして公開される。sampleRoutePlan の先頭区間は徒歩・原宿駅行き。
     expect(
-      tester.getSemantics(find.text('このルートで歩く')),
+      tester.getSemantics(find.text('Google Mapsで原宿駅まで歩く')),
       containsSemantics(isButton: true, hasTapAction: true),
     );
     handle.dispose();

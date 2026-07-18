@@ -106,6 +106,13 @@ void main() {
       expect(uri.queryParameters['travelmode'], 'transit');
       expect(uri.queryParameters['destination'], '35.6812,139.7671');
     });
+
+    test('origin 省略時は origin クエリを含まない（Google Maps 側の現在地補完に委ねる）', () {
+      final uri = buildLegHandoffUri(leg: _walkLegToShimbashi());
+
+      expect(uri.queryParameters.containsKey('origin'), isFalse);
+      expect(uri.queryParameters['destination'], '35.6665,139.758');
+    });
   });
 
   group('isLegArrived', () {

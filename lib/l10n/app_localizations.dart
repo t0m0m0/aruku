@@ -478,11 +478,41 @@ abstract class AppLocalizations {
   /// **'条件を変更'**
   String get resultChangeConditions;
 
-  /// No description provided for @resultWalkThisRoute.
+  /// No description provided for @resultCtaWalkToDestination.
   ///
   /// In ja, this message translates to:
-  /// **'このルートで歩く'**
-  String get resultWalkThisRoute;
+  /// **'Google Mapsで{destination}まで歩く'**
+  String resultCtaWalkToDestination(String destination);
+
+  /// No description provided for @resultCtaTransitToDestination.
+  ///
+  /// In ja, this message translates to:
+  /// **'Google Mapsで{destination}まで行く'**
+  String resultCtaTransitToDestination(String destination);
+
+  /// No description provided for @resultCtaLaunchFailed.
+  ///
+  /// In ja, this message translates to:
+  /// **'Google Mapsを開けませんでした'**
+  String get resultCtaLaunchFailed;
+
+  /// No description provided for @resultJourneyCompleteMessage.
+  ///
+  /// In ja, this message translates to:
+  /// **'目的地に到着しました'**
+  String get resultJourneyCompleteMessage;
+
+  /// No description provided for @resultLegDoneLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'完了'**
+  String get resultLegDoneLabel;
+
+  /// No description provided for @resultLegCurrentLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'進行中'**
+  String get resultLegCurrentLabel;
 
   /// No description provided for @resultHourUnit.
   ///

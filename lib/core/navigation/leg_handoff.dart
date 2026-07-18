@@ -11,11 +11,16 @@ GeoPoint? legEndPoint(RouteSegment leg) =>
 ///
 /// destination は [legEndPoint] があれば座標、無ければ [RouteSegment.toName]
 /// をそのまま渡す（Uri のクエリエンコードに委ね、文字列連結でエンコードしない）。
-Uri buildLegHandoffUri({required RouteSegment leg, required GeoPoint origin}) {
+///
+/// [origin] は省略可能。結果画面（ハブ）は歩行中の GPS 追跡を持たず、現在地が
+/// 未確定のことがある。省略時は origin クエリ自体を付けない — Google Maps は
+/// origin 省略時に端末の現在地を出発地として扱うため、誤った固定座標を渡すより
+/// 安全（#305）。
+Uri buildLegHandoffUri({required RouteSegment leg, GeoPoint? origin}) {
   final endPoint = legEndPoint(leg);
   final queryParameters = <String, String>{
     'api': '1',
-    'origin': '${origin.lat},${origin.lng}',
+    if (origin != null) 'origin': '${origin.lat},${origin.lng}',
     'destination': endPoint != null
         ? '${endPoint.lat},${endPoint.lng}'
         : leg.toName,
