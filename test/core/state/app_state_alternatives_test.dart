@@ -276,7 +276,7 @@ void main() {
       expect(container.read(appStateProvider).routeAlternatives, isNotEmpty);
 
       clock.value = DateTime(2026, 7, 13, 14, 40);
-      notifier.onAppResumed();
+      await notifier.onAppResumed();
 
       final state = container.read(appStateProvider);
       expect(state.route, isNull);

@@ -123,7 +123,7 @@ void main() {
       await notifier.startSearch();
 
       s.clock.value = DateTime(2026, 7, 13, 14, 40);
-      notifier.onAppResumed();
+      await notifier.onAppResumed();
 
       final state = s.container.read(appStateProvider);
       expect(state.screen, Screen.home);
@@ -138,7 +138,7 @@ void main() {
       await notifier.startSearch();
 
       s.clock.value = DateTime(2026, 7, 13, 9, 27);
-      notifier.onAppResumed();
+      await notifier.onAppResumed();
 
       // 経路を表示中は、そのタイムラインが前提とする出発時刻とヘッダーがズレないよう
       // 出発を書き換えない。次の検索が現在時刻へ更新するので正しさは保てる。
@@ -156,7 +156,7 @@ void main() {
       expect(s.container.read(appStateProvider).route, isNull);
 
       s.clock.value = DateTime(2026, 7, 13, 14, 40);
-      notifier.onAppResumed();
+      await notifier.onAppResumed();
 
       final state = s.container.read(appStateProvider);
       expect(state.screen, Screen.home);
@@ -177,7 +177,7 @@ void main() {
 
       // 猶予超過後に復帰すると、残った失効経路を落として出発も現在時刻へ追従させる。
       s.clock.value = DateTime(2026, 7, 13, 14, 40);
-      notifier.onAppResumed();
+      await notifier.onAppResumed();
 
       final state = s.container.read(appStateProvider);
       expect(state.screen, Screen.home);
@@ -228,7 +228,7 @@ void main() {
       // 猶予内（2分後）に復帰。in-flight の plan は 9:25 の前提で進行中なので、
       // ここで出発を 9:27 へ書き換えるとタイムラインとヘッダーがズレる。
       s.clock.value = DateTime(2026, 7, 13, 9, 27);
-      notifier.onAppResumed();
+      await notifier.onAppResumed();
 
       gate.complete();
       await search;
@@ -343,7 +343,7 @@ void main() {
 
       // 猶予超過後の復帰。フォームは固定でも、経路メタデータ基準で失効させる。
       s.clock.value = DateTime(2026, 7, 13, 9, 31);
-      notifier.onAppResumed();
+      await notifier.onAppResumed();
 
       final state = s.container.read(appStateProvider);
       expect(state.screen, Screen.home);
@@ -360,7 +360,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       expect(s.container.read(appStateProvider).screen, Screen.loading);
       s.clock.value = DateTime(2026, 7, 13, 14, 40);
-      notifier.onAppResumed();
+      await notifier.onAppResumed();
 
       // 応答が後着しても、古い前提の結果は publish されず home へ戻る。
       gate.complete();
@@ -380,7 +380,7 @@ void main() {
 
       // ナビ中に長時間経過して復帰しても、経路もナビ画面も維持される。
       s.clock.value = DateTime(2026, 7, 13, 14, 40);
-      notifier.onAppResumed();
+      await notifier.onAppResumed();
 
       final state = s.container.read(appStateProvider);
       expect(state.screen, Screen.nav);

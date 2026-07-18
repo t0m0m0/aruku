@@ -12,6 +12,7 @@ import '../models/route_error.dart';
 import '../models/route_plan.dart';
 import '../models/time_value.dart';
 import '../models/walk_summary.dart';
+import '../navigation/leg_handoff.dart';
 import '../navigation/nav_engine.dart';
 import '../services/activity_log_repository.dart';
 import '../services/activity_service.dart';
@@ -413,17 +414,21 @@ class AppNotifier extends Notifier<AppState> {
   /// 現在地を再取得する。ホームのコンパスボタンから明示的に再要求するため公開する。
   Future<void> refreshLocation() => _fetchLocation();
 
-  Future<void> _fetchLocation() async {
+  /// 現在地を単発取得し locationState へ反映する。反映した最新の判定を返す
+  /// （復帰時の区間再評価が取得成否と座標を参照するため）。破棄済みなら null。
+  Future<LocationState?> _fetchLocation() async {
     try {
       final service = ref.read(locationServiceProvider);
       final result = await service.request();
-      if (_disposed) return;
+      if (_disposed) return null;
       state = state.copyWith(locationState: result);
+      return result;
     } catch (_) {
-      if (_disposed) return;
+      if (_disposed) return null;
       // service.request() は失敗理由を LocationState として返す設計だが、
       // 想定外の例外は権限拒否と断定できないため再試行可能な状態に寄せる。
       state = state.copyWith(locationState: const LocationUnavailable());
+      return const LocationUnavailable();
     }
   }
 
@@ -647,15 +652,30 @@ class AppNotifier extends Notifier<AppState> {
     if (start == null) return;
     // 基準歩数が未確定のまま始まったセッションは差分が過大になるため書き込まない。
     if (!baselineValid) return;
-    final sessionSteps = state.todaySteps - _sessionStartSteps;
-    if (sessionSteps <= 0) return;
-    final enabled = ref.read(settingsProvider).value?.healthKitEnabled ?? false;
-    if (!enabled) return;
-    final snap = ActivitySnapshot.fromSteps(sessionSteps);
-    final workout = WalkingWorkout(
+    _writeWorkout(
       start: start,
       end: DateTime.now(),
-      steps: sessionSteps,
+      steps: state.todaySteps - _sessionStartSteps,
+    );
+  }
+
+  /// HealthKit 連携がオンなら [start]〜[end] の歩行を [steps] 歩のワークアウトとして
+  /// 書き込む。歩数が増えていない（[steps] <= 0）セッションは書き込まない。書き込みは
+  /// ベストエフォートで、失敗しても体験を妨げない。nav セッションの退場（[_maybeWriteWorkout]）
+  /// と行程セッションの完了（[advanceToLeg]）の両方がここを通り、二重書き込みを避ける。
+  void _writeWorkout({
+    required DateTime start,
+    required DateTime end,
+    required int steps,
+  }) {
+    if (steps <= 0) return;
+    final enabled = ref.read(settingsProvider).value?.healthKitEnabled ?? false;
+    if (!enabled) return;
+    final snap = ActivitySnapshot.fromSteps(steps);
+    final workout = WalkingWorkout(
+      start: start,
+      end: end,
+      steps: steps,
       km: snap.km,
       kcal: snap.kcal,
     );
@@ -949,8 +969,20 @@ class AppNotifier extends Notifier<AppState> {
     final route = state.route;
     final journey = state.journey;
     if (route == null || journey == null) return;
+    final previous = journey.currentLegIndex;
     final clamped = index.clamp(0, route.segments.length);
     state = state.copyWith(journey: journey.copyWith(currentLegIndex: clamped));
+    // 全区間完了（番兵値）へ初めて到達した行程だけを HealthKit へ記録する。歩数は
+    // 行程開始からの当日累計差分（外部 Google Maps 中の増分を含む）、期間は開始〜現在。
+    // journey がリセット（新規検索・代替案選択・失効）で消える経路はここを通らないため、
+    // 放棄した行程は完走として記録されない。
+    if (clamped == route.segments.length && previous < route.segments.length) {
+      _writeWorkout(
+        start: journey.startedAt,
+        end: _now(),
+        steps: state.todaySteps - journey.startSteps,
+      );
+    }
   }
 
   /// アプリがフォアグラウンド復帰したときに now 経路の時刻を再検証する（#264）。
@@ -961,7 +993,7 @@ class AppNotifier extends Notifier<AppState> {
   /// 失効判定は routeAsOf（経路メタデータ）に依存する [isNowRouteExpired] に委ね、現在の
   /// 出発フォームでは分岐しない。固定出発から始めたナビのリルート経路（now 基準）も、
   /// フォームが isNow=false のまま失効させられるようにするため。
-  void onAppResumed() {
+  Future<void> onAppResumed() async {
     final now = _now();
     final onExpirableScreen =
         state.screen == Screen.result || state.screen == Screen.home;
@@ -970,6 +1002,34 @@ class AppNotifier extends Notifier<AppState> {
       return;
     }
     _refreshNowDeparture();
+    await _reevaluateJourneyLeg();
+  }
+
+  /// 復帰時に現在地を単発再取得し、現在区間の終点へ到着していれば行程を 1 区間だけ
+  /// 進める（#305）。「近くにいる」だけで複数区間を一気に進めないよう、到着していても
+  /// 進めるのは 1 つまで（次区間の終点にも近い場合でも 1 区間）。現在地取得に失敗
+  /// （Denied/Unavailable）したときは自動完了させず、最後に確定した状態を維持する
+  /// （CTA が再試行導線として残る）。
+  ///
+  /// journey が無ければ再評価しない（#264 の失効検査のみ）。nav 中はナビセッションが
+  /// 歩行計測の権威なので、行程セッションの区間再評価は走らせない。
+  Future<void> _reevaluateJourneyLeg() async {
+    final journey = state.journey;
+    final route = state.route;
+    if (journey == null || route == null || state.screen == Screen.nav) return;
+    if (legAt(route, journey.currentLegIndex) == null) return;
+
+    final result = await _fetchLocation();
+    if (_disposed || result is! LocationAvailable) return;
+    // async gap 中に失効・リセット・別の復帰で journey/route が変わり得るため再取得する。
+    final journeyNow = state.journey;
+    final routeNow = state.route;
+    if (journeyNow == null || routeNow == null) return;
+    final leg = legAt(routeNow, journeyNow.currentLegIndex);
+    if (leg == null) return;
+    if (isLegArrived(leg: leg, current: result.position)) {
+      advanceToLeg(journeyNow.currentLegIndex + 1);
+    }
   }
 
   /// 表示中の経路が無く、かつ検索も走っていないときだけ isNow 出発を現在時刻へ追従

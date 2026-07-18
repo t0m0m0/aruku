@@ -274,7 +274,7 @@ void main() {
       expect(container.read(appStateProvider).journey, isNotNull);
 
       clock.value = DateTime(2026, 7, 18, 14, 40);
-      notifier.onAppResumed();
+      await notifier.onAppResumed();
 
       final state = container.read(appStateProvider);
       expect(state.route, isNull);
