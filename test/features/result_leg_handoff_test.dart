@@ -120,9 +120,17 @@ Widget _wrap(ProviderContainer container) => UncontrolledProviderScope(
   ),
 );
 
+/// 可変の現在時刻。`now` を [nowProvider] へ渡し、`value` を書き換えて時間を進める。
+class _Clock {
+  _Clock(this.value);
+  DateTime value;
+  DateTime now() => value;
+}
+
 ProviderContainer _containerFor({
   RoutePlan plan = _threeLegRoute,
   LocationState locationState = const LocationDenied(),
+  DateTime Function()? now,
   required Future<bool> Function(Uri url) launcher,
 }) {
   final container = ProviderContainer(
@@ -134,6 +142,7 @@ ProviderContainer _containerFor({
       ),
       activityServiceProvider.overrideWithValue(_FakeActivityService()),
       urlLauncherProvider.overrideWithValue(launcher),
+      if (now != null) nowProvider.overrideWithValue(now),
     ],
   );
   addTearDown(container.dispose);
@@ -301,6 +310,101 @@ void main() {
 
     expect(launched, hasLength(1));
     expect(launched.single.queryParameters.containsKey('origin'), isFalse);
+  });
+
+  testWidgets('起動成功時のみ journey が開始される', (tester) async {
+    final container = _containerFor(launcher: (_) async => true);
+    container.read(appStateProvider.notifier).setDestination('東京タワー');
+    await container.read(appStateProvider.notifier).startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    expect(container.read(appStateProvider).journey, isNull);
+    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.pump();
+
+    expect(container.read(appStateProvider).journey, isNotNull);
+  });
+
+  testWidgets('起動失敗時は journey が開始されない', (tester) async {
+    final container = _containerFor(launcher: (_) async => false);
+    container.read(appStateProvider.notifier).setDestination('東京タワー');
+    await container.read(appStateProvider.notifier).startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.pump();
+
+    expect(container.read(appStateProvider).journey, isNull);
+  });
+
+  testWidgets('起動が例外を投げても journey は開始されない', (tester) async {
+    final container = _containerFor(
+      launcher: (_) async => throw Exception('launch failed'),
+    );
+    container.read(appStateProvider.notifier).setDestination('東京タワー');
+    await container.read(appStateProvider.notifier).startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.pump();
+
+    expect(container.read(appStateProvider).journey, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('失効した経路の初回タップは launcher を呼ばず経路を無効化する', (tester) async {
+    final clock = _Clock(DateTime(2026, 7, 18, 9, 0));
+    var calls = 0;
+    final container = _containerFor(
+      now: clock.now,
+      launcher: (_) async {
+        calls++;
+        return true;
+      },
+    );
+    container.read(appStateProvider.notifier).setDestination('東京タワー');
+    await container.read(appStateProvider.notifier).startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    // 猶予（5分）を超過させてから初回タップする。
+    clock.value = DateTime(2026, 7, 18, 9, 30);
+    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.pump();
+
+    expect(calls, 0);
+    final state = container.read(appStateProvider);
+    expect(state.route, isNull);
+    expect(state.journey, isNull);
+    expect(state.screen, Screen.home);
+  });
+
+  testWidgets('行程開始済みなら失効していても launcher が呼ばれ経路は維持される', (tester) async {
+    final clock = _Clock(DateTime(2026, 7, 18, 9, 0));
+    var calls = 0;
+    final container = _containerFor(
+      now: clock.now,
+      launcher: (_) async {
+        calls++;
+        return true;
+      },
+    );
+    final notifier = container.read(appStateProvider.notifier);
+    notifier.setDestination('東京タワー');
+    await notifier.startSearch();
+    notifier.startJourney(); // 行程を開始済みにする。
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    clock.value = DateTime(2026, 7, 18, 9, 30); // 失効。
+    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.pump();
+
+    expect(calls, 1);
+    expect(container.read(appStateProvider).route, _threeLegRoute);
   });
 
   testWidgets('advanceToLeg後は完了済み区間に完了バッジ、現在区間に進行中バッジが出る', (tester) async {

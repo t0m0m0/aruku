@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:aruku/core/models/activity_snapshot.dart';
+import 'package:aruku/core/models/daily_activity.dart';
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/location_state.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
+import 'package:aruku/core/services/activity_log_repository.dart';
 import 'package:aruku/core/services/activity_service.dart';
 import 'package:aruku/core/services/cancellation.dart';
 import 'package:aruku/core/services/health_service.dart';
@@ -165,6 +167,10 @@ void main() {
     LocationState location = const LocationDenied(),
     bool healthKitEnabled = false,
     DateTime? start,
+    // 履歴ロードを遅延させ、ロード完了前に行程を開始する状況を再現する（基準歩数
+    // ガードのテスト用）。null なら即時（実運用の通常起動）。
+    Duration? historyLoadDelay,
+    int recordedTodaySteps = 0,
   }) async {
     final clock = _Clock(start ?? DateTime(2026, 7, 18, 9, 0));
     SharedPreferences.setMockInitialValues({
@@ -174,6 +180,16 @@ void main() {
         'healthKitEnabled': healthKitEnabled,
       }),
     });
+    ActivityLogRepository? seededRepo;
+    if (historyLoadDelay != null) {
+      final prefs = await SharedPreferences.getInstance();
+      seededRepo = ActivityLogRepository(prefs);
+      if (recordedTodaySteps > 0) {
+        await seededRepo.upsert(
+          DailyActivity(date: DateTime.now(), steps: recordedTodaySteps),
+        );
+      }
+    }
     final loc = _FakeLocationService(location);
     final activity = StreamController<ActivitySnapshot>();
     final health = _FakeHealthService();
@@ -187,6 +203,11 @@ void main() {
         healthServiceProvider.overrideWithValue(health),
         onboardingCompletedProvider.overrideWithValue(true),
         nowProvider.overrideWithValue(clock.now),
+        if (historyLoadDelay != null)
+          activityLogRepositoryProvider.overrideWith((ref) async {
+            await Future<void>.delayed(historyLoadDelay);
+            return seededRepo!;
+          }),
       ],
     );
     addTearDown(container.dispose);
@@ -292,7 +313,7 @@ void main() {
       expect(state.screen, Screen.result);
     });
 
-    test('isNow 経路が失効していれば journey ごと無効化される（既存 #264 との整合）', () async {
+    test('行程進行中は失効超過でも復帰で route/journey を維持し区間を再評価する', () async {
       final h = await makeHarness(start: DateTime(2026, 7, 18, 9, 0));
       final notifier = h.container.read(appStateProvider.notifier);
       await settle();
@@ -300,7 +321,25 @@ void main() {
       notifier.startJourney();
       expect(h.container.read(appStateProvider).journey, isNotNull);
 
-      // 猶予超過。復帰で区間再評価より前に失効判定が経路と journey を落とす。
+      // 5分超の徒歩区間を外部地図で歩いて復帰。失効していても行程は消さず、
+      // 現在地が現在区間の終点閾値内なら区間を1つ進める（#305 修正1）。
+      h.clock.value = DateTime(2026, 7, 18, 14, 40);
+      h.location.next = const LocationAvailable(_leg0End);
+      await notifier.onAppResumed();
+
+      final state = h.container.read(appStateProvider);
+      expect(state.route, sampleRoutePlan);
+      expect(state.journey, isNotNull);
+      expect(state.journey!.currentLegIndex, 1);
+    });
+
+    test('journey が無ければ失効超過の復帰で従来どおり経路を無効化する', () async {
+      final h = await makeHarness(start: DateTime(2026, 7, 18, 9, 0));
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      await notifier.startSearch();
+      // 行程は未開始（結果画面のまま失効を迎える）。
+
       h.clock.value = DateTime(2026, 7, 18, 14, 40);
       h.location.next = const LocationAvailable(_leg0End);
       await notifier.onAppResumed();
@@ -308,6 +347,7 @@ void main() {
       final state = h.container.read(appStateProvider);
       expect(state.route, isNull);
       expect(state.journey, isNull);
+      expect(state.screen, Screen.home);
     });
 
     test('外部URL往復（背景化→復帰）で journey と route が保持される', () async {
@@ -455,6 +495,61 @@ void main() {
       await settle();
 
       expect(h.health.writeCount, 1);
+    });
+  });
+
+  group('行程完了の基準歩数ガード（#305 修正2）', () {
+    test('履歴ロード完了前に開始した行程は全区間完了でも WalkingWorkout を書かない', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+        historyLoadDelay: const Duration(milliseconds: 30),
+        recordedTodaySteps: 1000,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      // 履歴ロード（30ms）未完了のうちに検索・行程開始する。startSearch の await は
+      // マイクロタスクだけを回すので 30ms タイマーはまだ発火しない。
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      expect(
+        h.container.read(appStateProvider).journey!.startBaselineValid,
+        isFalse,
+      );
+
+      // セッション歩数が届き、ロード完了後に基準 1000 が乗る（累積が過大になる）。
+      h.activity.add(ActivitySnapshot.fromSteps(500));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      notifier.advanceToLeg(_singleWalkPlan.segments.length);
+      await settle();
+
+      expect(h.health.writeCount, 0);
+    });
+
+    test('履歴ロード後に開始した行程は全区間完了で WalkingWorkout を書く', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      expect(
+        h.container.read(appStateProvider).journey!.startBaselineValid,
+        isTrue,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      notifier.advanceToLeg(_singleWalkPlan.segments.length);
+      await settle();
+
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
     });
   });
 }

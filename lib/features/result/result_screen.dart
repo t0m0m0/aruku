@@ -214,12 +214,23 @@ class ResultScreen extends ConsumerWidget {
                         onLaunch: currentLeg == null
                             ? null
                             : () async {
-                                notifier.startJourney();
+                                // 初回タップ（行程未開始）で失効していたら外部起動せず
+                                // 経路を無効化する。redirect が画面を遷移させるため、
+                                // 起動失敗ではなく true を返しバナーを出さない（#305）。
+                                if (notifier.expireStaleBeforeHandoff()) {
+                                  return true;
+                                }
                                 final uri = buildLegHandoffUri(
                                   leg: currentLeg,
                                   origin: _currentOrigin(state),
                                 );
-                                return ref.read(urlLauncherProvider)(uri);
+                                final launched = await ref.read(
+                                  urlLauncherProvider,
+                                )(uri);
+                                // 起動に成功したときだけ行程を開始する。失敗で「開始済み」
+                                // にすると、以後の復帰再評価が走ってしまうため（#305）。
+                                if (launched) notifier.startJourney();
+                                return launched;
                               },
                       ),
                     ],

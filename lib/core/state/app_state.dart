@@ -948,8 +948,29 @@ class AppNotifier extends Notifier<AppState> {
     go(Screen.nav);
   }
 
+  /// 区間 CTA の初回タップ（行程未開始）で、失効した isNow 経路のまま外部地図へ
+  /// 引き継ぐのを防ぐ（#305）。旧導線 [startNavigation] がタップ時に行っていた失効判定を
+  /// 新 CTA でも共有する。失効していれば経路を無効化して true を返し、呼び出し側は外部
+  /// 起動をスキップする（無効化で redirect ガードが画面を遷移させるため、起動失敗バナーは
+  /// 出さない）。
+  ///
+  /// 行程開始済み（[state.journey] != null）は継続を優先し、失効していても無効化しない
+  /// （#264 の onAppResumed 例外と整合。歩行中の行程を途中で消さない）。判定・無効化を
+  /// notifier 側へ寄せ、widget は起動可否だけを扱う。
+  bool expireStaleBeforeHandoff() {
+    if (state.journey != null) return false;
+    final now = _now();
+    if (!state.isNowRouteExpired(now)) return false;
+    _expireRoute(now);
+    return true;
+  }
+
   /// 結果画面で現在区間の行程を開始する（#305）。経路が無ければ何もしない。
   /// 既に開始済みなら維持する（再タップで開始時刻・歩数・区間を巻き戻さない）。
+  ///
+  /// 開始時点の基準歩数の確定状況（[_historyLoaded]）を捕捉する。nav セッションの
+  /// `_sessionBaselineValid` と同じ基準で、未確定のまま始まった行程は完了時の差分が
+  /// 当日全歩数に膨れるため、[advanceToLeg] の HealthKit 書き込みで抑止する。
   void startJourney() {
     if (state.route == null || state.journey != null) return;
     state = state.copyWith(
@@ -957,6 +978,7 @@ class AppNotifier extends Notifier<AppState> {
         currentLegIndex: 0,
         startedAt: _now(),
         startSteps: state.todaySteps,
+        startBaselineValid: _historyLoaded,
       ),
     );
   }
@@ -976,7 +998,11 @@ class AppNotifier extends Notifier<AppState> {
     // 行程開始からの当日累計差分（外部 Google Maps 中の増分を含む）、期間は開始〜現在。
     // journey がリセット（新規検索・代替案選択・失効）で消える経路はここを通らないため、
     // 放棄した行程は完走として記録されない。
-    if (clamped == route.segments.length && previous < route.segments.length) {
+    if (clamped == route.segments.length &&
+        previous < route.segments.length &&
+        // 基準歩数が未確定のまま始まった行程は差分が過大になるため書き込まない
+        // （nav セッションの _maybeWriteWorkout と同じガード）。
+        journey.startBaselineValid) {
       _writeWorkout(
         start: journey.startedAt,
         end: _now(),
@@ -997,7 +1023,14 @@ class AppNotifier extends Notifier<AppState> {
     final now = _now();
     final onExpirableScreen =
         state.screen == Screen.result || state.screen == Screen.home;
-    if (onExpirableScreen && state.isNowRouteExpired(now)) {
+    // 行程進行中（journey != null）は失効しても経路を落とさない。5分超の徒歩区間を
+    // 外部地図で歩く間に必ず猶予を超過するため、ここで無効化すると歩行中の行程が消えて
+    // ホームへ戻される。ナビ中に失効させない既存例外（_reevaluateJourneyLeg が nav を
+    // スキップするのと同じ理屈）に揃え、区間再評価へ進める。失効した now 経路の掃除は、
+    // 行程を持たない result/home でのみ行う。
+    if (state.journey == null &&
+        onExpirableScreen &&
+        state.isNowRouteExpired(now)) {
       _expireRoute(now);
       return;
     }

@@ -8,6 +8,7 @@ class JourneyProgress {
     required this.currentLegIndex,
     required this.startedAt,
     required this.startSteps,
+    required this.startBaselineValid,
   });
 
   /// RoutePlan.segments 上の、いま案内している区間の index。
@@ -19,14 +20,22 @@ class JourneyProgress {
   /// 行程開始時点の当日累計歩数。
   final int startSteps;
 
+  /// 開始時点で履歴ロードが完了し基準歩数が確定していたか。未確定（false）だと
+  /// [startSteps] が 0 で捕捉され、完了時の差分に当日の既存歩数が混ざって過大計上に
+  /// なるため、行程完了の HealthKit 書き込みをこのフラグでガードする（nav セッションの
+  /// `_sessionBaselineValid` と同じ役割）。
+  final bool startBaselineValid;
+
   JourneyProgress copyWith({
     int? currentLegIndex,
     DateTime? startedAt,
     int? startSteps,
+    bool? startBaselineValid,
   }) => JourneyProgress(
     currentLegIndex: currentLegIndex ?? this.currentLegIndex,
     startedAt: startedAt ?? this.startedAt,
     startSteps: startSteps ?? this.startSteps,
+    startBaselineValid: startBaselineValid ?? this.startBaselineValid,
   );
 
   @override
@@ -35,8 +44,10 @@ class JourneyProgress {
       other is JourneyProgress &&
           currentLegIndex == other.currentLegIndex &&
           startedAt == other.startedAt &&
-          startSteps == other.startSteps;
+          startSteps == other.startSteps &&
+          startBaselineValid == other.startBaselineValid;
 
   @override
-  int get hashCode => Object.hash(currentLegIndex, startedAt, startSteps);
+  int get hashCode =>
+      Object.hash(currentLegIndex, startedAt, startSteps, startBaselineValid);
 }

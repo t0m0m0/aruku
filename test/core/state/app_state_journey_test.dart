@@ -265,22 +265,6 @@ void main() {
       expect(state.journey, isNull);
     });
 
-    test('isNow 経路の失効で journey をリセットする', () async {
-      final clock = _Clock(DateTime(2026, 7, 18, 9, 25));
-      final container = _containerWith(_winnerWithAlternatives, clock: clock);
-      final notifier = container.read(appStateProvider.notifier);
-      await notifier.startSearch();
-      notifier.startJourney();
-      expect(container.read(appStateProvider).journey, isNotNull);
-
-      clock.value = DateTime(2026, 7, 18, 14, 40);
-      await notifier.onAppResumed();
-
-      final state = container.read(appStateProvider);
-      expect(state.route, isNull);
-      expect(state.journey, isNull);
-    });
-
     test('新規検索成功で前の journey をリセットする', () async {
       final container = _containerWith(sampleRoutePlan);
       final notifier = container.read(appStateProvider.notifier);
