@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/activity_snapshot.dart';
 import '../models/daily_activity.dart';
 import '../models/geo_point.dart';
+import '../models/journey_progress.dart';
 import '../models/location_state.dart';
 import '../models/route_error.dart';
 import '../models/route_plan.dart';
@@ -135,6 +136,7 @@ class AppState {
     this.isRerouting = false,
     this.rerouteFailed = false,
     this.routeAlternatives = const [],
+    this.journey,
   });
 
   final Screen screen;
@@ -148,6 +150,14 @@ class AppState {
   final TimeValue departure;
   final TimeValue arrival;
   final RoutePlan? route;
+
+  /// 現在案内中の1区間を外部地図へ引き継ぐための行程進捗（#305）。
+  ///
+  /// 不変条件: `journey != null ⇒ route != null`。[route] を差し替える・クリアする
+  /// ときは同一 copyWith で journey も null にリセットする（currentLegIndex は
+  /// 差し替え前の segments を指しており、別経路では無意味になるため）。
+  final JourneyProgress? journey;
+
   final LocationState locationState;
 
   /// [route] と対になるパレート非劣解の代替案（#290）。result 画面の候補切替に使う。
@@ -236,6 +246,7 @@ class AppState {
     bool? isRerouting,
     bool? rerouteFailed,
     List<RoutePlan>? routeAlternatives,
+    Object? journey = _sentinel,
   }) {
     return AppState(
       screen: screen ?? this.screen,
@@ -276,6 +287,9 @@ class AppState {
       isRerouting: isRerouting ?? this.isRerouting,
       rerouteFailed: rerouteFailed ?? this.rerouteFailed,
       routeAlternatives: routeAlternatives ?? this.routeAlternatives,
+      journey: identical(journey, _sentinel)
+          ? this.journey
+          : journey as JourneyProgress?,
     );
   }
 
@@ -749,6 +763,7 @@ class AppNotifier extends Notifier<AppState> {
         routeAsOf: now,
         isRerouting: false,
         routeAlternatives: const [],
+        journey: null,
       );
       // 新しい経路のポリラインは旧経路と別物なので、直前の累積距離は無効。
       _lastDistanceAlongMeters = null;
@@ -885,6 +900,7 @@ class AppNotifier extends Notifier<AppState> {
         routeErrorKind: null,
         routePhase: null,
         routeAlternatives: plan.alternatives,
+        journey: null,
       );
     } catch (e) {
       if (generation != _searchGeneration || _disposed) return;
@@ -910,6 +926,19 @@ class AppNotifier extends Notifier<AppState> {
       return;
     }
     go(Screen.nav);
+  }
+
+  /// 結果画面で現在区間の行程を開始する（#305）。経路が無ければ何もしない。
+  /// 既に開始済みなら維持する（再タップで開始時刻・歩数・区間を巻き戻さない）。
+  void startJourney() {
+    if (state.route == null || state.journey != null) return;
+    state = state.copyWith(
+      journey: JourneyProgress(
+        currentLegIndex: 0,
+        startedAt: _now(),
+        startSteps: state.todaySteps,
+      ),
+    );
   }
 
   /// アプリがフォアグラウンド復帰したときに now 経路の時刻を再検証する（#264）。
@@ -966,6 +995,7 @@ class AppNotifier extends Notifier<AppState> {
       departure: refreshed.departure,
       arrival: refreshed.arrival,
       routeAlternatives: const [],
+      journey: null,
     );
   }
 
@@ -982,6 +1012,7 @@ class AppNotifier extends Notifier<AppState> {
         for (var i = 0; i < alternatives.length; i++)
           i == index ? current : alternatives[i],
       ],
+      journey: null,
     );
   }
 
