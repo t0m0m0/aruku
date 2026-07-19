@@ -201,6 +201,37 @@ const _twoEmptyWalkPlan = RoutePlan(
   timelineNodes: [],
 );
 
+/// 徒歩で増えた歩数を保持したまま、歩数が増えない最終電車区間へ進む経路。
+const _walkThenTrainPlan = RoutePlan(
+  from: 'A',
+  to: 'C',
+  totalKm: 5.5,
+  totalMin: 20,
+  budgetMin: 30,
+  kcal: 25,
+  walkKm: 0.5,
+  walkRatio: 0.09,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A',
+      toName: 'B',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+    ),
+    RouteSegment(
+      type: SegmentType.train,
+      fromName: 'B',
+      toName: 'C',
+      km: 5.0,
+      minutes: 10,
+      polyline: [GeoPoint(35.0, 139.0), GeoPoint(35.001, 139.0)],
+    ),
+  ],
+  timelineNodes: [],
+);
+
 /// 徒歩区間0（[sampleRoutePlan]）の終点座標。到着とみなされる位置。
 const _leg0End = GeoPoint(35.6703, 139.7027);
 
@@ -672,6 +703,71 @@ void main() {
       expect(
         h.container.read(appStateProvider).journey!.currentLegIndex,
         _twoEmptyWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
+    });
+
+    test('歩数が増えない最終電車区間は新しい活動イベントを待たずに Workout を書く', () async {
+      final h = await makeHarness(
+        plan: _walkThenTrainPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      // 最初の徒歩区間で増えた歩数は既に反映済み。最終電車区間では歩数が
+      // 増えないため、復帰後の新しい活動イベントなしで現在値を確定できる。
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      await notifier.onAppResumed();
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _walkThenTrainPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
+    });
+
+    test('handoff中の歩数が復帰前に反映済みなら追加イベントを待たずに Workout を書く', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // URL起動成功後の境界を通して行程を開始し、外部アプリ中の活動イベントが
+      // onAppResumed より先に届く実機の順序を再現する。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      await notifier.onAppResumed();
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _singleWalkPlan.segments.length,
       );
       expect(h.health.writeCount, 1);
       expect(h.health.written!.steps, 500);

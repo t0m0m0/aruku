@@ -44,8 +44,8 @@ const Duration kRouteFreshness = Duration(minutes: 5);
 /// 確定しないための短い同期猶予（#305）。センサー無反応時は復帰処理を塞がない。
 const Duration _journeyActivityCatchUpTimeout = Duration(seconds: 1);
 
-/// 復帰後の歩数同期結果。後続の復帰に置き換えられた処理を実際の歩数更新と区別し、
-/// stale な到着判定で行程やWorkoutを確定しないために使う。
+/// 外部地図利用中から復帰後までの歩数同期結果。handoff の置き換えを実際の歩数更新と
+/// 区別し、古い区間の Workout を確定しないために使う。
 enum _JourneyActivityCatchUpResult { updated, superseded, timedOut }
 
 /// 起動時の初期到着時刻を「出発 + この分数」で算出する。ユーザーはホーム画面で
@@ -330,15 +330,19 @@ class AppNotifier extends Notifier<AppState> {
   StreamSubscription<ActivitySnapshot>? _activitySub;
   bool _disposed = false;
 
-  /// 外部地図からの復帰中に、pedometer の次の累積値が state へ反映されたことを
-  /// 最終区間の到着処理へ伝える一回限りのシグナル。
+  /// 外部地図への handoff 開始後に、pedometer の次の累積値が state へ反映されたことを
+  /// 最終徒歩区間の到着処理へ伝える一回限りのシグナル。
   Completer<_JourneyActivityCatchUpResult>? _resumeActivityCatchUp;
 
-  /// 上のシグナルを開始した経路・行程。位置だけでは自動到着にできず、復帰処理の
-  /// 完了後に手動完了する場合も同じ歩数更新を待てるよう、現在の行程と一致する間は
-  /// シグナルを保持する。代替案選択や区間進行後の古いシグナルは一致しないため使わない。
+  /// 上のシグナルを開始した経路・行程セッション。復帰前に更新済みの場合や、復帰後に
+  /// 手動完了する場合も同じ更新を使えるよう、区間進行をまたいで次の handoff まで保持する。
+  /// 代替案選択や新しい行程では一致しないため使わない。
   RoutePlan? _resumeActivityCatchUpRoute;
   JourneyProgress? _resumeActivityCatchUpJourney;
+
+  /// 復帰時の位置再取得の世代。歩数同期シグナルとは別に世代管理し、同じ handoff の
+  /// 歩数更新を保持したまま、後続の復帰より古い位置取得だけを破棄する。
+  int _journeyResumeGeneration = 0;
 
   /// 日次活動履歴のリポジトリ。永続化が使えない場合は null（メモリのみ動作）。
   ActivityLogRepository? _activityLog;
@@ -1046,6 +1050,10 @@ class AppNotifier extends Notifier<AppState> {
       return;
     }
     startJourney();
+    final journey = state.journey;
+    if (journey != null) {
+      _startResumeActivityCatchUp(expectedRoute, journey);
+    }
   }
 
   /// 結果画面（ハブ）で現在区間を [index] へ進める（#305）。区間到着の自動検出
@@ -1128,18 +1136,23 @@ class AppNotifier extends Notifier<AppState> {
       return;
     }
     _refreshNowDeparture();
-    // 外部地図から result ハブへ戻った行程だけ、復帰後の最初の歩数反映を捕捉する。
-    // 位置取得より歩数ストリームが後着しても、最終区間の Workout 確定を待たせる。
+    // 外部地図から result ハブへ戻った行程だけ、handoff 開始後の歩数反映を使う。
+    // 起動中に既に届いた更新は保持し、位置取得より後着する場合も Workout 確定を待たせる。
     Completer<_JourneyActivityCatchUpResult>? activityCatchUp;
+    int? resumeGeneration;
     if (state.journey != null && state.screen == Screen.result) {
       state = state.copyWith(journeyManualCompletionAvailable: false);
-      _supersedeResumeActivityCatchUp();
-      activityCatchUp = Completer<_JourneyActivityCatchUpResult>();
-      _resumeActivityCatchUp = activityCatchUp;
-      _resumeActivityCatchUpRoute = state.route;
-      _resumeActivityCatchUpJourney = state.journey;
+      final route = state.route!;
+      final journey = state.journey!;
+      activityCatchUp =
+          _matchingResumeActivityCatchUp(route, journey) ??
+          _startResumeActivityCatchUp(route, journey);
+      resumeGeneration = ++_journeyResumeGeneration;
     }
-    await _reevaluateJourneyLeg(activityCatchUp: activityCatchUp);
+    await _reevaluateJourneyLeg(
+      activityCatchUp: activityCatchUp,
+      resumeGeneration: resumeGeneration,
+    );
   }
 
   /// [route]/[journey] の復帰で開始した歩数更新だけを返す。完了済みの Future も保持し、
@@ -1159,9 +1172,22 @@ class AppNotifier extends Notifier<AppState> {
     return _resumeActivityCatchUp;
   }
 
+  Completer<_JourneyActivityCatchUpResult> _startResumeActivityCatchUp(
+    RoutePlan route,
+    JourneyProgress journey,
+  ) {
+    _supersedeResumeActivityCatchUp();
+    final activityCatchUp = Completer<_JourneyActivityCatchUpResult>();
+    _resumeActivityCatchUp = activityCatchUp;
+    _resumeActivityCatchUpRoute = route;
+    _resumeActivityCatchUpJourney = journey;
+    return activityCatchUp;
+  }
+
   /// 保持中の復帰歩数同期を無効化する。新しい復帰・行程開始・結果ハブ離脱では、
   /// 以前の行程や復帰処理が後着して現在の進捗へ適用されないよう参照も破棄する。
   void _supersedeResumeActivityCatchUp() {
+    _journeyResumeGeneration++;
     final activityCatchUp = _resumeActivityCatchUp;
     if (activityCatchUp != null && !activityCatchUp.isCompleted) {
       activityCatchUp.complete(_JourneyActivityCatchUpResult.superseded);
@@ -1171,20 +1197,24 @@ class AppNotifier extends Notifier<AppState> {
     _resumeActivityCatchUpJourney = null;
   }
 
-  /// 自動到着・手動完了で共有する区間進行処理。最終区間かつ HealthKit 記録が有効なら、
-  /// 復帰後の活動更新を上限付きで待つ。待機中に画面・経路・区間が変わった場合は古い操作を
-  /// 適用せず、更新が来なかった場合は行程だけ完了して不正確な Workout を捨てる。
+  /// 自動到着・手動完了で共有する区間進行処理。最終徒歩区間かつ HealthKit 記録が
+  /// 有効なら、handoff 後の活動更新を上限付きで待つ。電車・バス区間は新しい歩数が
+  /// 発生しないため現在値を使う。待機中に画面・経路・区間が変わった場合は古い操作を
+  /// 適用せず、徒歩区間で更新が来なかった場合は行程だけ完了して不正確な Workout を捨てる。
   Future<void> _advanceJourneyLegAfterActivityCatchUp({
     required RoutePlan expectedRoute,
     required JourneyProgress expectedJourney,
     Completer<_JourneyActivityCatchUpResult>? activityCatchUp,
+    int? expectedResumeGeneration,
   }) async {
     final isFinalLeg =
         expectedJourney.currentLegIndex == expectedRoute.segments.length - 1;
+    final finalLeg = legAt(expectedRoute, expectedJourney.currentLegIndex);
     final healthKitEnabled =
         ref.read(settingsProvider).value?.healthKitEnabled ?? false;
     final shouldWaitForActivity =
         isFinalLeg &&
+        finalLeg?.type == SegmentType.walk &&
         activityCatchUp != null &&
         expectedJourney.startBaselineValid &&
         healthKitEnabled;
@@ -1202,6 +1232,8 @@ class AppNotifier extends Notifier<AppState> {
     final journeyNow = state.journey;
     if ((activityCatchUp != null &&
             !identical(_resumeActivityCatchUp, activityCatchUp)) ||
+        (expectedResumeGeneration != null &&
+            expectedResumeGeneration != _journeyResumeGeneration) ||
         state.screen != Screen.result ||
         !identical(state.route, expectedRoute) ||
         !identical(journeyNow, expectedJourney)) {
@@ -1223,6 +1255,7 @@ class AppNotifier extends Notifier<AppState> {
   /// 行程を画面に表示していないため、非表示の進捗更新やWorkout書き込みを避けて走らせない。
   Future<void> _reevaluateJourneyLeg({
     Completer<_JourneyActivityCatchUpResult>? activityCatchUp,
+    int? resumeGeneration,
   }) async {
     final journey = state.journey;
     final route = state.route;
@@ -1233,7 +1266,7 @@ class AppNotifier extends Notifier<AppState> {
 
     final result = await _fetchLocation();
     if (_disposed ||
-        !identical(_resumeActivityCatchUp, activityCatchUp) ||
+        resumeGeneration != _journeyResumeGeneration ||
         state.screen != Screen.result ||
         !identical(state.route, route) ||
         !identical(state.journey, journey)) {
@@ -1254,6 +1287,7 @@ class AppNotifier extends Notifier<AppState> {
         expectedRoute: routeNow,
         expectedJourney: journeyNow,
         activityCatchUp: activityCatchUp,
+        expectedResumeGeneration: resumeGeneration,
       );
     } else {
       state = state.copyWith(journeyManualCompletionAvailable: true);
