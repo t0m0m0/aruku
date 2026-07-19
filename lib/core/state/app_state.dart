@@ -349,6 +349,11 @@ class AppNotifier extends Notifier<AppState> {
   JourneyProgress? _resumeActivityCatchUpJourney;
   int? _resumeActivityCatchUpStartSteps;
 
+  /// 同期待機を開始した時点の区間。追いつき判定は journey の現在区間ではなくこの
+  /// 区間で行う。最終区間が電車・バスでも、直前の徒歩 handoff の歩数が遅延したまま
+  /// 完了へ到達し得るため、現在区間の種別では同期の要否を判定できない。
+  int? _resumeActivityCatchUpLegIndex;
+
   /// 復帰時の位置再取得の世代。歩数同期シグナルとは別に世代管理し、同じ handoff の
   /// 歩数更新を保持したまま、後続の復帰より古い位置取得だけを破棄する。
   int _journeyResumeGeneration = 0;
@@ -1056,7 +1061,12 @@ class AppNotifier extends Notifier<AppState> {
     }
     startJourney();
     final journey = state.journey;
-    if (journey != null) {
+    if (journey == null) return;
+    // 同じ区間の再 handoff（閾値外で復帰して再タップ等）では同期基準を巻き戻さない。
+    // ここで開始し直すと基準歩数が現在値へ進み、残距離の短い再 handoff が同期閾値を
+    // 満たせず、歩き切った行程の Workout を捨ててしまう。
+    if (_matchingResumeActivityCatchUp(expectedRoute, journey) == null ||
+        _resumeActivityCatchUpLegIndex != journey.currentLegIndex) {
       _startResumeActivityCatchUp(expectedRoute, journey);
     }
   }
@@ -1187,18 +1197,24 @@ class AppNotifier extends Notifier<AppState> {
     _resumeActivityCatchUpRoute = route;
     _resumeActivityCatchUpJourney = journey;
     _resumeActivityCatchUpStartSteps = state.todaySteps;
+    _resumeActivityCatchUpLegIndex = journey.currentLegIndex;
     return activityCatchUp;
   }
 
-  /// handoff 開始後の歩数差分が、引き継いだ徒歩区間に対して十分反映されたかを判定する。
-  /// 到着自体は位置確認・手動操作で確定済みなので、計画距離の半分を同期根拠とし、
-  /// 経路短縮や pedometer の過少計測で正しい Workout を捨てすぎないようにする。
-  bool _hasJourneyActivityCaughtUp(RoutePlan route, JourneyProgress journey) {
-    final leg = legAt(route, journey.currentLegIndex);
+  /// handoff 開始後の歩数差分が、同期待機を開始した徒歩区間に対して十分反映されたかを
+  /// 判定する。journey の現在区間ではなく [_resumeActivityCatchUpLegIndex] を使うのは、
+  /// 徒歩 handoff の歩数が遅延したまま非最終区間として進み、最終の電車・バス区間で
+  /// 完了へ到達するケースを拾うため。到着自体は位置確認・手動操作で確定済みなので、
+  /// 計画距離の半分を同期根拠とし、経路短縮や pedometer の過少計測で正しい Workout を
+  /// 捨てすぎないようにする。
+  bool _hasJourneyActivityCaughtUp() {
+    final route = _resumeActivityCatchUpRoute;
+    final legIndex = _resumeActivityCatchUpLegIndex;
+    final startSteps = _resumeActivityCatchUpStartSteps;
+    if (route == null || legIndex == null || startSteps == null) return false;
+    final leg = legAt(route, legIndex);
     if (leg == null) return false;
     if (leg.type != SegmentType.walk) return true;
-    final startSteps = _resumeActivityCatchUpStartSteps;
-    if (startSteps == null) return false;
     final handoffSteps = state.todaySteps - startSteps;
     if (handoffSteps <= 0) return false;
     final plannedThresholdKm =
@@ -1221,12 +1237,14 @@ class AppNotifier extends Notifier<AppState> {
     _resumeActivityCatchUpRoute = null;
     _resumeActivityCatchUpJourney = null;
     _resumeActivityCatchUpStartSteps = null;
+    _resumeActivityCatchUpLegIndex = null;
   }
 
-  /// 自動到着・手動完了で共有する区間進行処理。最終徒歩区間かつ HealthKit 記録が
-  /// 有効なら、handoff 後の活動更新を上限付きで待つ。電車・バス区間は新しい歩数が
-  /// 発生しないため現在値を使う。待機中に画面・経路・区間が変わった場合は古い操作を
-  /// 適用せず、徒歩区間で更新が来なかった場合は行程だけ完了して不正確な Workout を捨てる。
+  /// 自動到着・手動完了で共有する区間進行処理。最終区間かつ HealthKit 記録が有効で、
+  /// handoff した徒歩区間の歩数がまだ追いついていなければ、活動更新を上限付きで待つ。
+  /// 電車・バスだけを handoff した場合や追いつき済みの場合は現在値で確定する。
+  /// 待機中に画面・経路・区間が変わった場合は古い操作を適用せず、徒歩区間で更新が
+  /// 来なかった場合は行程だけ完了して不正確な Workout を捨てる。
   Future<void> _advanceJourneyLegAfterActivityCatchUp({
     required RoutePlan expectedRoute,
     required JourneyProgress expectedJourney,
@@ -1235,15 +1253,14 @@ class AppNotifier extends Notifier<AppState> {
   }) async {
     final isFinalLeg =
         expectedJourney.currentLegIndex == expectedRoute.segments.length - 1;
-    final finalLeg = legAt(expectedRoute, expectedJourney.currentLegIndex);
     final healthKitEnabled =
         ref.read(settingsProvider).value?.healthKitEnabled ?? false;
     final shouldWaitForActivity =
         isFinalLeg &&
-        finalLeg?.type == SegmentType.walk &&
         activityCatchUp != null &&
         expectedJourney.startBaselineValid &&
-        healthKitEnabled;
+        healthKitEnabled &&
+        !_hasJourneyActivityCaughtUp();
     var activityCaughtUp = true;
     if (shouldWaitForActivity) {
       // 最初の歩数イベントは部分値の可能性があるため、それだけで早期完了しない。
@@ -1257,12 +1274,7 @@ class AppNotifier extends Notifier<AppState> {
         ),
       ]);
       if (catchUpResult == _JourneyActivityCatchUpResult.superseded) return;
-      final catchUpRoute = _resumeActivityCatchUpRoute;
-      final catchUpJourney = _resumeActivityCatchUpJourney;
-      activityCaughtUp =
-          catchUpRoute != null &&
-          catchUpJourney != null &&
-          _hasJourneyActivityCaughtUp(catchUpRoute, catchUpJourney);
+      activityCaughtUp = _hasJourneyActivityCaughtUp();
     }
     if (_disposed) return;
 
