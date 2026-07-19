@@ -594,6 +594,33 @@ void main() {
     expect(find.text('Google Mapsで東京駅まで行く'), findsOneWidget);
   });
 
+  testWidgets('到着閾値外の現在地でも復帰後は手動完了できる', (tester) async {
+    final container = _containerFor(
+      locationState: const LocationAvailable(GeoPoint(35.0, 139.0)),
+      launcher: (_) async => true,
+    );
+    final notifier = container.read(appStateProvider.notifier);
+    notifier.setDestination('東京タワー');
+    await notifier.startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.pump();
+    expect(find.text('この区間を完了'), findsNothing);
+
+    // 有効な現在地でも終点の到着閾値外なら、自動進行せず手動フォールバックを出す。
+    await notifier.onAppResumed();
+    await tester.pump();
+    expect(find.text('この区間を完了'), findsOneWidget);
+
+    await tester.tap(find.text('この区間を完了'));
+    await tester.pump();
+
+    expect(container.read(appStateProvider).journey!.currentLegIndex, 1);
+    expect(find.text('Google Mapsで東京駅まで行く'), findsOneWidget);
+  });
+
   testWidgets('polyline が空の最終区間は手動完了で行程完了になる', (tester) async {
     final container = _containerFor(
       plan: _singleEmptyLegRoute,

@@ -170,6 +170,37 @@ const _singleEmptyWalkPlan = RoutePlan(
   timelineNodes: [],
 );
 
+/// 連続する手動完了でも、行程全体で復帰後の歩数同期を引き継ぐ経路。
+const _twoEmptyWalkPlan = RoutePlan(
+  from: 'A',
+  to: 'C',
+  totalKm: 1.0,
+  totalMin: 20,
+  budgetMin: 30,
+  kcal: 50,
+  walkKm: 1.0,
+  walkRatio: 1.0,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A',
+      toName: 'B',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+    ),
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'B',
+      toName: 'C',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+    ),
+  ],
+  timelineNodes: [],
+);
+
 /// 徒歩区間0（[sampleRoutePlan]）の終点座標。到着とみなされる位置。
 const _leg0End = GeoPoint(35.6703, 139.7027);
 
@@ -308,7 +339,7 @@ void main() {
       final state = h.container.read(appStateProvider);
       expect(state.journey!.currentLegIndex, 0);
       expect(state.locationState, isA<LocationDenied>());
-      expect(state.journeyArrivalCheckFailed, isTrue);
+      expect(state.journeyManualCompletionAvailable, isTrue);
     });
 
     test('現在地取得失敗（Unavailable）では区間を自動完了させない', () async {
@@ -324,7 +355,7 @@ void main() {
       final state = h.container.read(appStateProvider);
       expect(state.journey!.currentLegIndex, 0);
       expect(state.locationState, isA<LocationUnavailable>());
-      expect(state.journeyArrivalCheckFailed, isTrue);
+      expect(state.journeyManualCompletionAvailable, isTrue);
     });
 
     test('journey が無ければ復帰時の区間再評価は走らない（現在地を再取得しない）', () async {
@@ -602,6 +633,45 @@ void main() {
       expect(
         h.container.read(appStateProvider).journey!.currentLegIndex,
         _singleEmptyWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
+    });
+
+    test('連続する手動区間でも最終完了まで復帰後の歩数同期を引き継ぐ', () async {
+      final h = await makeHarness(
+        plan: _twoEmptyWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      // 復帰前には一部の歩数しか反映されていない。最初の手動区間を進めても、
+      // 同じ行程の最終区間では復帰後の歩数更新を引き続き待つ必要がある。
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await settle();
+      h.location.next = const LocationDenied();
+      await notifier.onAppResumed();
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+
+      final completed = notifier.advanceCurrentLegManually();
+      await settle();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await completed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _twoEmptyWalkPlan.segments.length,
       );
       expect(h.health.writeCount, 1);
       expect(h.health.written!.steps, 500);
