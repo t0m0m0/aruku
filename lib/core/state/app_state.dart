@@ -44,6 +44,10 @@ const Duration kRouteFreshness = Duration(minutes: 5);
 /// 確定しないための短い同期猶予（#305）。センサー無反応時は復帰処理を塞がない。
 const Duration _journeyActivityCatchUpTimeout = Duration(seconds: 1);
 
+/// 復帰後の歩数同期結果。後続の復帰に置き換えられた処理を実際の歩数更新と区別し、
+/// stale な到着判定で行程やWorkoutを確定しないために使う。
+enum _JourneyActivityCatchUpResult { updated, superseded, timedOut }
+
 /// 起動時の初期到着時刻を「出発 + この分数」で算出する。ユーザーはホーム画面で
 /// いつでも調整できるため、設定では持たず固定のシード値とする。
 const int kInitialBudgetMinutes = 60;
@@ -143,6 +147,7 @@ class AppState {
     this.rerouteFailed = false,
     this.routeAlternatives = const [],
     this.journey,
+    this.journeyArrivalCheckFailed = false,
   });
 
   final Screen screen;
@@ -163,6 +168,10 @@ class AppState {
   /// ときは同一 copyWith で journey も null にリセットする（currentLegIndex は
   /// 差し替え前の segments を指しており、別経路では無意味になるため）。
   final JourneyProgress? journey;
+
+  /// 現在の行程区間について、直近の復帰時到着確認が位置取得失敗で判定不能だったか。
+  /// true の間は geometry の有無にかかわらず手動完了へフォールバックできる。
+  final bool journeyArrivalCheckFailed;
 
   final LocationState locationState;
 
@@ -253,6 +262,7 @@ class AppState {
     bool? rerouteFailed,
     List<RoutePlan>? routeAlternatives,
     Object? journey = _sentinel,
+    bool? journeyArrivalCheckFailed,
   }) {
     return AppState(
       screen: screen ?? this.screen,
@@ -296,6 +306,8 @@ class AppState {
       journey: identical(journey, _sentinel)
           ? this.journey
           : journey as JourneyProgress?,
+      journeyArrivalCheckFailed:
+          journeyArrivalCheckFailed ?? this.journeyArrivalCheckFailed,
     );
   }
 
@@ -319,7 +331,7 @@ class AppNotifier extends Notifier<AppState> {
 
   /// 外部地図からの復帰中に、pedometer の次の累積値が state へ反映されたことを
   /// 最終区間の到着処理へ伝える一回限りのシグナル。
-  Completer<void>? _resumeActivityCatchUp;
+  Completer<_JourneyActivityCatchUpResult>? _resumeActivityCatchUp;
 
   /// 上のシグナルを開始した経路・行程。位置だけでは自動到着にできず、復帰処理の
   /// 完了後に手動完了する場合も同じ歩数更新を待てるよう、現在の行程と一致する間は
@@ -395,7 +407,7 @@ class AppNotifier extends Notifier<AppState> {
       _disposed = true;
       final activityCatchUp = _resumeActivityCatchUp;
       if (activityCatchUp != null && !activityCatchUp.isCompleted) {
-        activityCatchUp.complete();
+        activityCatchUp.complete(_JourneyActivityCatchUpResult.superseded);
       }
       _resumeActivityCatchUp = null;
       _resumeActivityCatchUpRoute = null;
@@ -538,7 +550,7 @@ class AppNotifier extends Notifier<AppState> {
     _applyActivityStats(now);
     final activityCatchUp = _resumeActivityCatchUp;
     if (activityCatchUp != null && !activityCatchUp.isCompleted) {
-      activityCatchUp.complete();
+      activityCatchUp.complete(_JourneyActivityCatchUpResult.updated);
     }
   }
 
@@ -619,15 +631,17 @@ class AppNotifier extends Notifier<AppState> {
   /// 同値なら何もしない（router との相互同期がエコーで往復しないための冪等性）。
   void syncScreen(Screen s) {
     if (state.screen == s) return;
-    // 結果ハブから home へ戻る操作は、外部地図を使った行程の放棄として扱う。
-    // ヘッダー操作だけでなく router の system back も syncScreen を通るため、
-    // ここで同じ copyWith により journey を破棄し、home 復帰時に非表示の行程が
-    // 進んだり WalkingWorkout が書かれたりするのを防ぐ（#305）。route は
+    // 結果ハブを離れる操作は、外部地図を使った行程の放棄として扱う。home への back
+    // だけでなく、deep link / 旧導線で nav 等へ移る場合も syncScreen を通るため、
+    // ここで journey を破棄して別画面に非表示の行程を残さない（#305）。route は
     // result への戻り表示に使える既存挙動を維持するため残す。
-    final abandonsJourney = state.screen == Screen.result && s == Screen.home;
+    final abandonsJourney = state.screen == Screen.result;
     state = state.copyWith(
       screen: s,
       journey: abandonsJourney ? null : state.journey,
+      journeyArrivalCheckFailed: abandonsJourney
+          ? false
+          : state.journeyArrivalCheckFailed,
     );
     if (s == Screen.nav) {
       _startTracking();
@@ -1015,6 +1029,7 @@ class AppNotifier extends Notifier<AppState> {
         startSteps: state.todaySteps,
         startBaselineValid: _historyLoaded,
       ),
+      journeyArrivalCheckFailed: false,
     );
   }
 
@@ -1052,7 +1067,10 @@ class AppNotifier extends Notifier<AppState> {
       return;
     }
     final leg = legAt(route, journey.currentLegIndex);
-    if (leg == null || leg.polyline.isNotEmpty) return;
+    if (leg == null ||
+        (leg.polyline.isNotEmpty && !state.journeyArrivalCheckFailed)) {
+      return;
+    }
     await _advanceJourneyLegAfterActivityCatchUp(
       expectedRoute: route,
       expectedJourney: journey,
@@ -1066,7 +1084,10 @@ class AppNotifier extends Notifier<AppState> {
     if (route == null || journey == null) return;
     final previous = journey.currentLegIndex;
     final clamped = index.clamp(0, route.segments.length);
-    state = state.copyWith(journey: journey.copyWith(currentLegIndex: clamped));
+    state = state.copyWith(
+      journey: journey.copyWith(currentLegIndex: clamped),
+      journeyArrivalCheckFailed: false,
+    );
     // 全区間完了（番兵値）へ初めて到達した行程だけを HealthKit へ記録する。歩数は
     // 行程開始からの当日累計差分（外部 Google Maps 中の増分を含む）、期間は開始〜現在。
     // journey がリセット（新規検索・代替案選択・失効）で消える経路はここを通らないため、
@@ -1111,21 +1132,24 @@ class AppNotifier extends Notifier<AppState> {
     _refreshNowDeparture();
     // 外部地図から result ハブへ戻った行程だけ、復帰後の最初の歩数反映を捕捉する。
     // 位置取得より歩数ストリームが後着しても、最終区間の Workout 確定を待たせる。
-    Completer<void>? activityCatchUp;
+    Completer<_JourneyActivityCatchUpResult>? activityCatchUp;
     if (state.journey != null && state.screen == Screen.result) {
+      state = state.copyWith(journeyArrivalCheckFailed: false);
       final previous = _resumeActivityCatchUp;
-      if (previous != null && !previous.isCompleted) previous.complete();
-      activityCatchUp = Completer<void>();
+      if (previous != null && !previous.isCompleted) {
+        previous.complete(_JourneyActivityCatchUpResult.superseded);
+      }
+      activityCatchUp = Completer<_JourneyActivityCatchUpResult>();
       _resumeActivityCatchUp = activityCatchUp;
       _resumeActivityCatchUpRoute = state.route;
       _resumeActivityCatchUpJourney = state.journey;
     }
-    await _reevaluateJourneyLeg(activityCatchUp: activityCatchUp?.future);
+    await _reevaluateJourneyLeg(activityCatchUp: activityCatchUp);
   }
 
   /// [route]/[journey] の復帰で開始した歩数更新だけを返す。完了済みの Future も保持し、
   /// 復帰処理より先に歩数が追いついた場合は手動完了を待たせず正しい値で確定する。
-  Future<void>? _matchingResumeActivityCatchUp(
+  Completer<_JourneyActivityCatchUpResult>? _matchingResumeActivityCatchUp(
     RoutePlan route,
     JourneyProgress journey,
   ) {
@@ -1133,7 +1157,7 @@ class AppNotifier extends Notifier<AppState> {
         !identical(_resumeActivityCatchUpJourney, journey)) {
       return null;
     }
-    return _resumeActivityCatchUp?.future;
+    return _resumeActivityCatchUp;
   }
 
   /// 自動到着・手動完了で共有する区間進行処理。最終区間かつ HealthKit 記録が有効なら、
@@ -1142,7 +1166,7 @@ class AppNotifier extends Notifier<AppState> {
   Future<void> _advanceJourneyLegAfterActivityCatchUp({
     required RoutePlan expectedRoute,
     required JourneyProgress expectedJourney,
-    Future<void>? activityCatchUp,
+    Completer<_JourneyActivityCatchUpResult>? activityCatchUp,
   }) async {
     final isFinalLeg =
         expectedJourney.currentLegIndex == expectedRoute.segments.length - 1;
@@ -1155,15 +1179,19 @@ class AppNotifier extends Notifier<AppState> {
         healthKitEnabled;
     var activityCaughtUp = true;
     if (shouldWaitForActivity) {
-      await activityCatchUp.timeout(
+      final catchUpResult = await activityCatchUp.future.timeout(
         _journeyActivityCatchUpTimeout,
-        onTimeout: () => activityCaughtUp = false,
+        onTimeout: () => _JourneyActivityCatchUpResult.timedOut,
       );
+      if (catchUpResult == _JourneyActivityCatchUpResult.superseded) return;
+      activityCaughtUp = catchUpResult == _JourneyActivityCatchUpResult.updated;
     }
     if (_disposed) return;
 
     final journeyNow = state.journey;
-    if (state.screen != Screen.result ||
+    if ((activityCatchUp != null &&
+            !identical(_resumeActivityCatchUp, activityCatchUp)) ||
+        state.screen != Screen.result ||
         !identical(state.route, expectedRoute) ||
         !identical(journeyNow, expectedJourney)) {
       return;
@@ -1180,16 +1208,30 @@ class AppNotifier extends Notifier<AppState> {
   /// （Denied/Unavailable）したときは自動完了させず、最後に確定した状態を維持する
   /// （CTA が再試行導線として残る）。
   ///
-  /// journey が無ければ再評価しない（#264 の失効検査のみ）。nav 中はナビセッションが
-  /// 歩行計測の権威なので、行程セッションの区間再評価は走らせない。
-  Future<void> _reevaluateJourneyLeg({Future<void>? activityCatchUp}) async {
+  /// journey が無ければ再評価しない（#264 の失効検査のみ）。result ハブ以外では
+  /// 行程を画面に表示していないため、非表示の進捗更新やWorkout書き込みを避けて走らせない。
+  Future<void> _reevaluateJourneyLeg({
+    Completer<_JourneyActivityCatchUpResult>? activityCatchUp,
+  }) async {
     final journey = state.journey;
     final route = state.route;
-    if (journey == null || route == null || state.screen == Screen.nav) return;
+    if (journey == null || route == null || state.screen != Screen.result) {
+      return;
+    }
     if (legAt(route, journey.currentLegIndex) == null) return;
 
     final result = await _fetchLocation();
-    if (_disposed || result is! LocationAvailable) return;
+    if (_disposed ||
+        !identical(_resumeActivityCatchUp, activityCatchUp) ||
+        state.screen != Screen.result ||
+        !identical(state.route, route) ||
+        !identical(state.journey, journey)) {
+      return;
+    }
+    if (result is! LocationAvailable) {
+      state = state.copyWith(journeyArrivalCheckFailed: true);
+      return;
+    }
     // async gap 中に失効・リセット・別の復帰で journey/route が変わり得るため再取得する。
     final journeyNow = state.journey;
     final routeNow = state.route;

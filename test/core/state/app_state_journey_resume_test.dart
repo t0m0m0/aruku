@@ -27,9 +27,14 @@ import '../../support/route_plan_fixtures.dart';
 class _FakeLocationService implements LocationService {
   _FakeLocationService([this.next = const LocationDenied()]);
   LocationState next;
+  final List<Future<LocationState>> _queuedRequests = [];
+
+  void enqueue(Future<LocationState> result) => _queuedRequests.add(result);
 
   @override
-  Future<LocationState> request() async => next;
+  Future<LocationState> request() => _queuedRequests.isEmpty
+      ? Future.value(next)
+      : _queuedRequests.removeAt(0);
 
   @override
   Stream<GeoPoint> positionStream() => const Stream.empty();
@@ -303,6 +308,7 @@ void main() {
       final state = h.container.read(appStateProvider);
       expect(state.journey!.currentLegIndex, 0);
       expect(state.locationState, isA<LocationDenied>());
+      expect(state.journeyArrivalCheckFailed, isTrue);
     });
 
     test('現在地取得失敗（Unavailable）では区間を自動完了させない', () async {
@@ -318,6 +324,7 @@ void main() {
       final state = h.container.read(appStateProvider);
       expect(state.journey!.currentLegIndex, 0);
       expect(state.locationState, isA<LocationUnavailable>());
+      expect(state.journeyArrivalCheckFailed, isTrue);
     });
 
     test('journey が無ければ復帰時の区間再評価は走らない（現在地を再取得しない）', () async {
@@ -421,6 +428,33 @@ void main() {
       expect(state.journey, isNull);
       expect(h.health.writeCount, 0);
     });
+
+    test('結果ハブから nav へ離脱した行程は破棄し、home 復帰後も保持しない', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      notifier.startNavigation();
+      expect(h.container.read(appStateProvider).screen, Screen.nav);
+      expect(h.container.read(appStateProvider).journey, isNull);
+
+      notifier.go(Screen.home);
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      await notifier.onAppResumed();
+      await settle();
+
+      expect(h.container.read(appStateProvider).journey, isNull);
+      expect(h.health.writeCount, 0);
+    });
   });
 
   group('外部アプリ往復中の歩数の追いつき（#305）', () {
@@ -500,6 +534,44 @@ void main() {
 
       expect(h.health.writeCount, 1);
       expect(h.health.written!.steps, 400);
+    });
+
+    test('後続の復帰に置き換えられた到着判定を歩数同期成功として完了しない', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      // 外部利用分の全量が未反映で、一部の50歩だけが見えている状態。
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await settle();
+
+      final firstLocation = Completer<LocationState>();
+      h.location.enqueue(firstLocation.future);
+      final firstResume = notifier.onAppResumed();
+      await settle();
+
+      final secondLocation = Completer<LocationState>();
+      h.location.enqueue(secondLocation.future);
+      final secondResume = notifier.onAppResumed();
+      await settle();
+
+      // 古い位置取得だけが最終区間の到着を返す。後続復帰の開始は歩数更新ではないため、
+      // この結果で行程完了や50歩のWorkout書き込みをしてはいけない。
+      firstLocation.complete(const LocationAvailable(GeoPoint(35.001, 139.0)));
+      await firstResume;
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 0);
+      expect(h.health.writeCount, 0);
+
+      secondLocation.complete(const LocationAvailable(GeoPoint(35.0, 139.0)));
+      await secondResume;
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 0);
+      expect(h.health.writeCount, 0);
     });
 
     test('手動の最終区間完了も復帰後の歩数更新を待って WalkingWorkout を書く', () async {

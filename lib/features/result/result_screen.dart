@@ -210,7 +210,8 @@ class ResultScreen extends ConsumerWidget {
                         leg: currentLeg,
                         onManualAdvance:
                             currentLeg != null &&
-                                currentLeg.polyline.isEmpty &&
+                                (currentLeg.polyline.isEmpty ||
+                                    state.journeyArrivalCheckFailed) &&
                                 state.journey != null
                             ? notifier.advanceCurrentLegManually
                             : null,
