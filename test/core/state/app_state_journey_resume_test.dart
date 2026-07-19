@@ -142,6 +142,29 @@ const _singleWalkPlan = RoutePlan(
   timelineNodes: [],
 );
 
+/// 終点 geometry を持たず、復帰時の自動到着判定を手動完了へフォールバックする経路。
+const _singleEmptyWalkPlan = RoutePlan(
+  from: 'A',
+  to: 'B',
+  totalKm: 0.5,
+  totalMin: 10,
+  budgetMin: 30,
+  kcal: 25,
+  walkKm: 0.5,
+  walkRatio: 1.0,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A',
+      toName: 'B',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+    ),
+  ],
+  timelineNodes: [],
+);
+
 /// 徒歩区間0（[sampleRoutePlan]）の終点座標。到着とみなされる位置。
 const _leg0End = GeoPoint(35.6703, 139.7027);
 
@@ -477,6 +500,39 @@ void main() {
 
       expect(h.health.writeCount, 1);
       expect(h.health.written!.steps, 400);
+    });
+
+    test('手動の最終区間完了も復帰後の歩数更新を待って WalkingWorkout を書く', () async {
+      final h = await makeHarness(
+        plan: _singleEmptyWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      // geometry 欠落などで自動到着に進めない復帰を再現する。復帰処理自体が
+      // 終わった後に手動完了を押しても、遅れて届く歩数を待つ必要がある。
+      h.location.next = const LocationDenied();
+      await notifier.onAppResumed();
+      final completed = notifier.advanceCurrentLegManually();
+      await settle();
+      expect(h.health.writeCount, 0);
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 0);
+
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await completed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _singleEmptyWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
     });
 
     test('復帰後の歩数更新が上限まで来なければ不正確な Workout を捨てて行程だけ完了する', () async {

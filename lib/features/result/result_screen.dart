@@ -204,17 +204,15 @@ class ResultScreen extends ConsumerWidget {
                       ),
                       const SizedBox(height: 8),
                       _LegCta(
-                        // legIndex ごとに State を作り直し、区間が進んだら前区間の
-                        // 起動失敗バナーを持ち越さない。
-                        key: ValueKey(
-                          'leg-cta-${state.journey?.currentLegIndex ?? 0}',
-                        ),
+                        // 経路または legIndex ごとに State を作り直し、区間進行だけで
+                        // なく代替案の切替でも前経路の起動失敗バナーを持ち越さない。
+                        key: ValueKey((route, currentLegIndex)),
                         leg: currentLeg,
                         onManualAdvance:
                             currentLeg != null &&
                                 currentLeg.polyline.isEmpty &&
                                 state.journey != null
-                            ? () => notifier.advanceToLeg(currentLegIndex + 1)
+                            ? notifier.advanceCurrentLegManually
                             : null,
                         onLaunch: currentLeg == null
                             ? null
@@ -229,12 +227,21 @@ class ResultScreen extends ConsumerWidget {
                                   leg: currentLeg,
                                   origin: _currentOrigin(state),
                                 );
+                                final expectedJourney = state.journey;
                                 final launched = await ref.read(
                                   urlLauncherProvider,
                                 )(uri);
                                 // 起動に成功したときだけ行程を開始する。失敗で「開始済み」
                                 // にすると、以後の復帰再評価が走ってしまうため（#305）。
-                                if (launched) notifier.startJourney();
+                                // await 中に結果画面を離れた・代替案/区間が変わった場合は、
+                                // 完了した古い起動から非表示または別経路の行程を始めない。
+                                if (launched) {
+                                  notifier.startJourneyIfHandoffStillCurrent(
+                                    expectedRoute: route,
+                                    expectedJourney: expectedJourney,
+                                    expectedLegIndex: currentLegIndex,
+                                  );
+                                }
                                 return launched;
                               },
                       ),

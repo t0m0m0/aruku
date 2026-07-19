@@ -24,7 +24,7 @@ class _LegCta extends StatefulWidget {
 
   /// 終点 geometry がなく復帰時の自動到着判定ができない開始済み区間だけに渡す
   /// 手動完了処理。通常区間や行程開始前は null とし、誤操作の導線を増やさない。
-  final VoidCallback? onManualAdvance;
+  final Future<void> Function()? onManualAdvance;
 
   @override
   State<_LegCta> createState() => _LegCtaState();

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:aruku/core/models/activity_snapshot.dart';
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/location_state.dart';
@@ -17,6 +19,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../support/route_plan_fixtures.dart';
 
 class _FixedRouteService implements RouteService {
   _FixedRouteService(this.result);
@@ -407,6 +411,73 @@ void main() {
 
     expect(container.read(appStateProvider).journey, isNull);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('外部起動の完了前に結果画面を離れた場合は非表示の journey を開始しない', (tester) async {
+    final launchResult = Completer<bool>();
+    final container = _containerFor(launcher: (_) => launchResult.future);
+    final notifier = container.read(appStateProvider.notifier);
+    notifier.setDestination('東京タワー');
+    await notifier.startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.pump();
+    notifier.go(Screen.home);
+    launchResult.complete(true);
+    await tester.pump();
+    await tester.pump();
+
+    final state = container.read(appStateProvider);
+    expect(state.screen, Screen.home);
+    expect(state.journey, isNull);
+  });
+
+  testWidgets('外部起動の完了前に代替ルートへ切り替えた場合は別ルートの journey を開始しない', (tester) async {
+    final launchResult = Completer<bool>();
+    final container = _containerFor(
+      plan: sampleRoutePlanWithAlternatives,
+      launcher: (_) => launchResult.future,
+    );
+    final notifier = container.read(appStateProvider.notifier);
+    notifier.setDestination('渋谷ヒカリエ');
+    await notifier.startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    await tester.tap(find.text('Google Mapsで原宿駅まで歩く'));
+    await tester.pump();
+    notifier.selectAlternative(0);
+    launchResult.complete(true);
+    await tester.pump();
+    await tester.pump();
+
+    final state = container.read(appStateProvider);
+    expect(state.route, same(sampleAlternativeArrTime));
+    expect(state.journey, isNull);
+  });
+
+  testWidgets('代替ルートへ切り替えると前ルートの起動失敗バナーを持ち越さない', (tester) async {
+    final container = _containerFor(
+      plan: sampleRoutePlanWithAlternatives,
+      launcher: (_) async => false,
+    );
+    final notifier = container.read(appStateProvider.notifier);
+    notifier.setDestination('渋谷ヒカリエ');
+    await notifier.startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    await tester.tap(find.text('Google Mapsで原宿駅まで歩く'));
+    await tester.pump();
+    expect(find.text('Google Mapsを開けませんでした'), findsOneWidget);
+
+    notifier.selectAlternative(0);
+    await tester.pump();
+
+    expect(find.text('Google Mapsで代々木駅まで歩く'), findsOneWidget);
+    expect(find.text('Google Mapsを開けませんでした'), findsNothing);
   });
 
   testWidgets('失効した経路の初回タップは launcher を呼ばず経路を無効化する', (tester) async {

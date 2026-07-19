@@ -321,6 +321,12 @@ class AppNotifier extends Notifier<AppState> {
   /// 最終区間の到着処理へ伝える一回限りのシグナル。
   Completer<void>? _resumeActivityCatchUp;
 
+  /// 上のシグナルを開始した経路・行程。位置だけでは自動到着にできず、復帰処理の
+  /// 完了後に手動完了する場合も同じ歩数更新を待てるよう、現在の行程と一致する間は
+  /// シグナルを保持する。代替案選択や区間進行後の古いシグナルは一致しないため使わない。
+  RoutePlan? _resumeActivityCatchUpRoute;
+  JourneyProgress? _resumeActivityCatchUpJourney;
+
   /// 日次活動履歴のリポジトリ。永続化が使えない場合は null（メモリのみ動作）。
   ActivityLogRepository? _activityLog;
 
@@ -392,6 +398,8 @@ class AppNotifier extends Notifier<AppState> {
         activityCatchUp.complete();
       }
       _resumeActivityCatchUp = null;
+      _resumeActivityCatchUpRoute = null;
+      _resumeActivityCatchUpJourney = null;
       _activeCancellation?.cancel();
       _activeRerouteCancellation?.cancel();
       _posSub?.cancel();
@@ -1010,11 +1018,47 @@ class AppNotifier extends Notifier<AppState> {
     );
   }
 
+  /// 外部 URL 起動の await 前に捕捉した経路・行程・区間が現在も表示中の場合だけ行程を
+  /// 開始する。結果画面の離脱や代替案選択後に古い Future が完了しても、非表示または
+  /// 別経路の行程を開始しない。WidgetRef を async gap 後に参照せずに検証できるよう、
+  /// 状態の権威である notifier 側へ境界を置く。
+  void startJourneyIfHandoffStillCurrent({
+    required RoutePlan expectedRoute,
+    required JourneyProgress? expectedJourney,
+    required int expectedLegIndex,
+  }) {
+    if (state.screen != Screen.result ||
+        !identical(state.route, expectedRoute) ||
+        !identical(state.journey, expectedJourney) ||
+        (state.journey?.currentLegIndex ?? 0) != expectedLegIndex) {
+      return;
+    }
+    startJourney();
+  }
+
   /// 結果画面（ハブ）で現在区間を [index] へ進める（#305）。区間到着の自動検出
   /// （コミット4以降）と、区間 CTA からの手動進行の両方がここを通る想定。
   /// journey 未開始・経路未確定は no-op。index は 0〜segments.length にクランプする
   /// （segments.length は「全区間完了」を表す番兵値）。
   void advanceToLeg(int index) => _advanceToLeg(index);
+
+  /// geometry 欠落で自動到着判定できない現在区間を手動で完了する。最終区間では、
+  /// 外部地図からの復帰後に pedometer の累積値が遅れて届く場合があるため、自動到着と
+  /// 同じ追いつき処理を通してから Workout を確定する。
+  Future<void> advanceCurrentLegManually() async {
+    final route = state.route;
+    final journey = state.journey;
+    if (route == null || journey == null || state.screen != Screen.result) {
+      return;
+    }
+    final leg = legAt(route, journey.currentLegIndex);
+    if (leg == null || leg.polyline.isNotEmpty) return;
+    await _advanceJourneyLegAfterActivityCatchUp(
+      expectedRoute: route,
+      expectedJourney: journey,
+      activityCatchUp: _matchingResumeActivityCatchUp(route, journey),
+    );
+  }
 
   void _advanceToLeg(int index, {bool writeWorkoutOnCompletion = true}) {
     final route = state.route;
@@ -1073,14 +1117,61 @@ class AppNotifier extends Notifier<AppState> {
       if (previous != null && !previous.isCompleted) previous.complete();
       activityCatchUp = Completer<void>();
       _resumeActivityCatchUp = activityCatchUp;
+      _resumeActivityCatchUpRoute = state.route;
+      _resumeActivityCatchUpJourney = state.journey;
     }
-    try {
-      await _reevaluateJourneyLeg(activityCatchUp: activityCatchUp?.future);
-    } finally {
-      if (identical(_resumeActivityCatchUp, activityCatchUp)) {
-        _resumeActivityCatchUp = null;
-      }
+    await _reevaluateJourneyLeg(activityCatchUp: activityCatchUp?.future);
+  }
+
+  /// [route]/[journey] の復帰で開始した歩数更新だけを返す。完了済みの Future も保持し、
+  /// 復帰処理より先に歩数が追いついた場合は手動完了を待たせず正しい値で確定する。
+  Future<void>? _matchingResumeActivityCatchUp(
+    RoutePlan route,
+    JourneyProgress journey,
+  ) {
+    if (!identical(_resumeActivityCatchUpRoute, route) ||
+        !identical(_resumeActivityCatchUpJourney, journey)) {
+      return null;
     }
+    return _resumeActivityCatchUp?.future;
+  }
+
+  /// 自動到着・手動完了で共有する区間進行処理。最終区間かつ HealthKit 記録が有効なら、
+  /// 復帰後の活動更新を上限付きで待つ。待機中に画面・経路・区間が変わった場合は古い操作を
+  /// 適用せず、更新が来なかった場合は行程だけ完了して不正確な Workout を捨てる。
+  Future<void> _advanceJourneyLegAfterActivityCatchUp({
+    required RoutePlan expectedRoute,
+    required JourneyProgress expectedJourney,
+    Future<void>? activityCatchUp,
+  }) async {
+    final isFinalLeg =
+        expectedJourney.currentLegIndex == expectedRoute.segments.length - 1;
+    final healthKitEnabled =
+        ref.read(settingsProvider).value?.healthKitEnabled ?? false;
+    final shouldWaitForActivity =
+        isFinalLeg &&
+        activityCatchUp != null &&
+        expectedJourney.startBaselineValid &&
+        healthKitEnabled;
+    var activityCaughtUp = true;
+    if (shouldWaitForActivity) {
+      await activityCatchUp.timeout(
+        _journeyActivityCatchUpTimeout,
+        onTimeout: () => activityCaughtUp = false,
+      );
+    }
+    if (_disposed) return;
+
+    final journeyNow = state.journey;
+    if (state.screen != Screen.result ||
+        !identical(state.route, expectedRoute) ||
+        !identical(journeyNow, expectedJourney)) {
+      return;
+    }
+    _advanceToLeg(
+      expectedJourney.currentLegIndex + 1,
+      writeWorkoutOnCompletion: activityCaughtUp,
+    );
   }
 
   /// 復帰時に現在地を単発再取得し、現在区間の終点へ到着していれば行程を 1 区間だけ
@@ -1106,43 +1197,11 @@ class AppNotifier extends Notifier<AppState> {
     final leg = legAt(routeNow, journeyNow.currentLegIndex);
     if (leg == null) return;
     if (isLegArrived(leg: leg, current: result.position)) {
-      final isFinalLeg =
-          journeyNow.currentLegIndex == routeNow.segments.length - 1;
-      final healthKitEnabled =
-          ref.read(settingsProvider).value?.healthKitEnabled ?? false;
-      final shouldWaitForActivity =
-          isFinalLeg &&
-          activityCatchUp != null &&
-          journeyNow.startBaselineValid &&
-          healthKitEnabled;
-      if (shouldWaitForActivity) {
-        // 最終区間だけは、この復帰後の pedometer 更新が state へ反映されるまで
-        // Workout 確定を遅らせる。位置取得と歩数更新は独立しており、位置が先だと
-        // 古い todaySteps で過少記録または書き込みスキップになるため（#305）。
-        var activityCaughtUp = true;
-        await activityCatchUp.timeout(
-          _journeyActivityCatchUpTimeout,
-          onTimeout: () => activityCaughtUp = false,
-        );
-        if (_disposed) return;
-        // 待機中に home 退避・新規検索・別復帰で行程が変わった場合は、古い到着を
-        // 適用しない。activity 更新だけなら route と index は維持される。
-        final journeyAfterCatchUp = state.journey;
-        if (state.screen != Screen.result ||
-            !identical(state.route, routeNow) ||
-            journeyAfterCatchUp == null ||
-            journeyAfterCatchUp.currentLegIndex != journeyNow.currentLegIndex) {
-          return;
-        }
-        // 上限まで更新が無ければ行程UIは完了させる一方、不完全な todaySteps で
-        // HealthKit を汚さないよう Workout だけを捨てる。
-        _advanceToLeg(
-          journeyAfterCatchUp.currentLegIndex + 1,
-          writeWorkoutOnCompletion: activityCaughtUp,
-        );
-        return;
-      }
-      advanceToLeg(journeyNow.currentLegIndex + 1);
+      await _advanceJourneyLegAfterActivityCatchUp(
+        expectedRoute: routeNow,
+        expectedJourney: journeyNow,
+        activityCatchUp: activityCatchUp,
+      );
     }
   }
 
