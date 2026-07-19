@@ -773,6 +773,137 @@ void main() {
       expect(h.health.written!.steps, 500);
     });
 
+    test('handoff中の部分歩数だけでは完了せず復帰後の最終歩数を待って Workout を書く', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+
+      // 外部アプリ中に部分値（50歩分）だけが先着する。この時点を同期完了とせず、
+      // 復帰直後に届く最終値（500歩分）まで Workout 確定を待つ必要がある。
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await settle();
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      final resumed = notifier.onAppResumed();
+      await settle();
+
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 0);
+      expect(h.health.writeCount, 0);
+
+      // 計画距離の半分を超える途中値まで来ても、同期猶予中はまだ確定しない。
+      h.activity.add(ActivitySnapshot.fromSteps(450));
+      await settle();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 0);
+      expect(h.health.writeCount, 0);
+
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await resumed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _singleWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
+    });
+
+    test('歩数の同期猶予中に結果ハブを離れたら古い行程の Workout を書かない', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await settle();
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      final resumed = notifier.onAppResumed();
+      await settle();
+
+      // 同期待ちを残したまま結果ハブを離れると、待機中の完了処理を失効させる。
+      notifier.go(Screen.home);
+      await resumed;
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      final state = h.container.read(appStateProvider);
+      expect(state.screen, Screen.home);
+      expect(state.journey, isNull);
+      expect(h.health.writeCount, 0);
+    });
+
+    test('次のhandoffでは開始歩数を更新し前区間の歩数だけで同期完了しない', () async {
+      final h = await makeHarness(
+        plan: _twoEmptyWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+      await notifier.advanceCurrentLegManually();
+      final secondLegJourney = h.container.read(appStateProvider).journey!;
+      expect(secondLegJourney.currentLegIndex, 1);
+
+      // 2区間目のhandoff成功時に600歩を新しい基準にする。その後の部分値50歩では
+      // 最終区間を確定せず、2区間目の最終値500歩分まで待つ。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: secondLegJourney,
+        expectedLegIndex: 1,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(650));
+      await settle();
+      final completed = notifier.advanceCurrentLegManually();
+      await settle();
+
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+
+      h.activity.add(ActivitySnapshot.fromSteps(1100));
+      await completed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _twoEmptyWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 1000);
+    });
+
     test('復帰後の歩数更新が上限まで来なければ不正確な Workout を捨てて行程だけ完了する', () async {
       final h = await makeHarness(
         plan: _singleWalkPlan,

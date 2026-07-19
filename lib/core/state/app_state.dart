@@ -44,9 +44,17 @@ const Duration kRouteFreshness = Duration(minutes: 5);
 /// 確定しないための短い同期猶予（#305）。センサー無反応時は復帰処理を塞がない。
 const Duration _journeyActivityCatchUpTimeout = Duration(seconds: 1);
 
-/// 外部地図利用中から復帰後までの歩数同期結果。handoff の置き換えを実際の歩数更新と
-/// 区別し、古い区間の Workout を確定しないために使う。
-enum _JourneyActivityCatchUpResult { updated, superseded, timedOut }
+/// 到着済み徒歩区間の計画距離に対し、この割合以上の実歩行が反映されていれば
+/// pedometer が十分追いついたとみなす。経路短縮やセンサー過少計測を許容しつつ、
+/// handoff 直後の小さな部分スナップショットで Workout を確定しないための下限。
+const double _journeyActivityCatchUpMinLegDistanceRatio = 0.5;
+
+/// 距離欠落・極短区間でも、単発のごく小さい部分値を同期完了にしないための実歩行下限。
+const double _journeyActivityCatchUpMinDistanceKm = 0.05;
+
+/// 外部地図利用中から復帰後までの歩数同期待機結果。handoff の置き換えと、最新値を
+/// 評価する同期猶予の満了を区別し、古い区間の Workout を確定しないために使う。
+enum _JourneyActivityCatchUpResult { superseded, settled }
 
 /// 起動時の初期到着時刻を「出発 + この分数」で算出する。ユーザーはホーム画面で
 /// いつでも調整できるため、設定では持たず固定のシード値とする。
@@ -330,8 +338,8 @@ class AppNotifier extends Notifier<AppState> {
   StreamSubscription<ActivitySnapshot>? _activitySub;
   bool _disposed = false;
 
-  /// 外部地図への handoff 開始後に、pedometer の次の累積値が state へ反映されたことを
-  /// 最終徒歩区間の到着処理へ伝える一回限りのシグナル。
+  /// 外部地図への handoff ごとの歩数同期待機境界。最初の活動イベントでは完了せず、
+  /// 新しい handoff・画面離脱時に古い最終区間処理を中断するために使う。
   Completer<_JourneyActivityCatchUpResult>? _resumeActivityCatchUp;
 
   /// 上のシグナルを開始した経路・行程セッション。復帰前に更新済みの場合や、復帰後に
@@ -339,6 +347,7 @@ class AppNotifier extends Notifier<AppState> {
   /// 代替案選択や新しい行程では一致しないため使わない。
   RoutePlan? _resumeActivityCatchUpRoute;
   JourneyProgress? _resumeActivityCatchUpJourney;
+  int? _resumeActivityCatchUpStartSteps;
 
   /// 復帰時の位置再取得の世代。歩数同期シグナルとは別に世代管理し、同じ handoff の
   /// 歩数更新を保持したまま、後続の復帰より古い位置取得だけを破棄する。
@@ -547,10 +556,6 @@ class AppNotifier extends Notifier<AppState> {
       );
     }
     _applyActivityStats(now);
-    final activityCatchUp = _resumeActivityCatchUp;
-    if (activityCatchUp != null && !activityCatchUp.isCompleted) {
-      activityCatchUp.complete(_JourneyActivityCatchUpResult.updated);
-    }
   }
 
   /// メモリ上の履歴から [now]（既定は現在）時点の集計を state へ反映する。
@@ -1181,7 +1186,27 @@ class AppNotifier extends Notifier<AppState> {
     _resumeActivityCatchUp = activityCatchUp;
     _resumeActivityCatchUpRoute = route;
     _resumeActivityCatchUpJourney = journey;
+    _resumeActivityCatchUpStartSteps = state.todaySteps;
     return activityCatchUp;
+  }
+
+  /// handoff 開始後の歩数差分が、引き継いだ徒歩区間に対して十分反映されたかを判定する。
+  /// 到着自体は位置確認・手動操作で確定済みなので、計画距離の半分を同期根拠とし、
+  /// 経路短縮や pedometer の過少計測で正しい Workout を捨てすぎないようにする。
+  bool _hasJourneyActivityCaughtUp(RoutePlan route, JourneyProgress journey) {
+    final leg = legAt(route, journey.currentLegIndex);
+    if (leg == null) return false;
+    if (leg.type != SegmentType.walk) return true;
+    final startSteps = _resumeActivityCatchUpStartSteps;
+    if (startSteps == null) return false;
+    final handoffSteps = state.todaySteps - startSteps;
+    if (handoffSteps <= 0) return false;
+    final plannedThresholdKm =
+        (leg.km ?? 0) * _journeyActivityCatchUpMinLegDistanceRatio;
+    final requiredKm = plannedThresholdKm < _journeyActivityCatchUpMinDistanceKm
+        ? _journeyActivityCatchUpMinDistanceKm
+        : plannedThresholdKm;
+    return ActivitySnapshot.fromSteps(handoffSteps).km >= requiredKm;
   }
 
   /// 保持中の復帰歩数同期を無効化する。新しい復帰・行程開始・結果ハブ離脱では、
@@ -1195,6 +1220,7 @@ class AppNotifier extends Notifier<AppState> {
     _resumeActivityCatchUp = null;
     _resumeActivityCatchUpRoute = null;
     _resumeActivityCatchUpJourney = null;
+    _resumeActivityCatchUpStartSteps = null;
   }
 
   /// 自動到着・手動完了で共有する区間進行処理。最終徒歩区間かつ HealthKit 記録が
@@ -1220,12 +1246,23 @@ class AppNotifier extends Notifier<AppState> {
         healthKitEnabled;
     var activityCaughtUp = true;
     if (shouldWaitForActivity) {
-      final catchUpResult = await activityCatchUp.future.timeout(
-        _journeyActivityCatchUpTimeout,
-        onTimeout: () => _JourneyActivityCatchUpResult.timedOut,
-      );
+      // 最初の歩数イベントは部分値の可能性があるため、それだけで早期完了しない。
+      // 同期猶予を最後まで使って state に反映された最新値を評価し、新しい handoff や
+      // 画面離脱で置き換えられた場合だけ待機を途中終了する。
+      final catchUpResult = await Future.any([
+        activityCatchUp.future,
+        Future.delayed(
+          _journeyActivityCatchUpTimeout,
+          () => _JourneyActivityCatchUpResult.settled,
+        ),
+      ]);
       if (catchUpResult == _JourneyActivityCatchUpResult.superseded) return;
-      activityCaughtUp = catchUpResult == _JourneyActivityCatchUpResult.updated;
+      final catchUpRoute = _resumeActivityCatchUpRoute;
+      final catchUpJourney = _resumeActivityCatchUpJourney;
+      activityCaughtUp =
+          catchUpRoute != null &&
+          catchUpJourney != null &&
+          _hasJourneyActivityCaughtUp(catchUpRoute, catchUpJourney);
     }
     if (_disposed) return;
 
