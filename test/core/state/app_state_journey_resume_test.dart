@@ -881,6 +881,7 @@ void main() {
       h.activity.add(ActivitySnapshot.fromSteps(100));
       await settle();
       await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
       notifier.startJourney();
 
       // 復帰前には一部の歩数しか反映されていない。最初の手動区間を進めても、
@@ -893,6 +894,12 @@ void main() {
       expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
       expect(h.health.writeCount, 0);
 
+      // 次区間も handoff してから手動完了する（未起動区間は飛ばせない）。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
       final completed = notifier.advanceCurrentLegManually();
       await settle();
       expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
@@ -1753,6 +1760,44 @@ void main() {
       // 歩行は最初のhandoff 9:00〜9:10。再handoffの9:08で巻き戻さない。
       expect(w.start, DateTime(2026, 7, 18, 9, 0));
       expect(w.end, DateTime(2026, 7, 18, 9, 10));
+    });
+
+    test('handoff していない geometry 欠落区間は notifier 側でも手動完了を拒否する', () async {
+      final h = await makeHarness(
+        plan: _twoEmptyWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 区間0を handoff→手動完了して区間1へ。区間1は未起動（handoff 前）。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+      // 再描画前の古いボタンコールバック相当。未起動の区間1を手動完了で飛ばさない。
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+      // handoff すれば手動完了できる。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
+      await notifier.advanceCurrentLegManually();
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _twoEmptyWalkPlan.segments.length,
+      );
     });
 
     test('手動完了の連打では1区間だけ進め次区間を飛ばさない', () async {

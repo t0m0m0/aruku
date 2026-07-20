@@ -1147,10 +1147,14 @@ class AppNotifier extends Notifier<AppState> {
       return;
     }
     final leg = legAt(route, journey.currentLegIndex);
-    if (leg == null ||
-        (leg.polyline.isNotEmpty && !state.journeyManualCompletionAvailable)) {
-      return;
-    }
+    if (leg == null) return;
+    // 手動完了を許すのは、復帰時の到着確認が許可した区間か、geometry 欠落かつ handoff 済みの
+    // 区間だけ（結果画面のボタン表示条件と同じ）。前区間完了直後、再描画前に走る古いボタン
+    // コールバックが、まだ起動していない次の geometry 欠落区間を飛ばすのを notifier 側でも防ぐ。
+    final canComplete =
+        state.journeyManualCompletionAvailable ||
+        (leg.polyline.isEmpty && state.journeyCurrentLegHandedOff);
+    if (!canComplete) return;
     _manualCompletionInFlight = true;
     try {
       await _advanceJourneyLegAfterActivityCatchUp(
