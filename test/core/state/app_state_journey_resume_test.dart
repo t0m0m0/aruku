@@ -1300,6 +1300,60 @@ void main() {
       expect(w.end, DateTime(2026, 7, 18, 9, 10));
     });
 
+    test('電車降車後の駅歩き歩数では最終徒歩の同期を早期成立させない', () async {
+      final h = await makeHarness(
+        plan: _trainThenWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 電車区間を handoff→到着で徒歩区間へ。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+      h.location.next = const LocationAvailable(GeoPoint(35.10, 139.10));
+      await notifier.onAppResumed();
+      await settle();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+      // 電車降車〜徒歩CTAの間に駅で歩き回った歩数（500歩）が先に反映される。
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      // 徒歩区間を handoff。基準は区間進入時(100)ではなくこの起動時点(600)にする。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
+
+      // 徒歩の歩数は遅延。駅歩きの500歩だけでは最終到着を確定させない。
+      h.location.next = const LocationAvailable(GeoPoint(35.20, 139.20));
+      final resumed = notifier.onAppResumed();
+      await settle();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+
+      // 徒歩の歩数が届いたら、駅歩き＋徒歩の総歩数で確定する。
+      h.activity.add(ActivitySnapshot.fromSteps(1000));
+      await resumed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _trainThenWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 900);
+    });
+
     test('電車のあとの徒歩は Workout を実際の徒歩窓へ配置する', () async {
       final h = await makeHarness(
         plan: _trainThenWalkPlan,

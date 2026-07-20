@@ -1106,11 +1106,14 @@ class AppNotifier extends Notifier<AppState> {
       _walkTimerLegIndex = journey.currentLegIndex;
     }
     final walkJourney = state.journey!;
-    // 完了待ちシグナルが無ければ張る。歩数到着待ちの登録は区間へ入った時点
-    // （startJourney／_advanceToLeg）で済んでいるため、ここでは基準を触らない。
+    // 完了待ちシグナルが無ければ張る。
     if (_matchingResumeActivityCatchUp(expectedRoute, walkJourney) == null) {
       _startResumeActivityCatchUp(expectedRoute, walkJourney);
     }
+    // 歩数到着待ちは「区間に入った時点」ではなく「この徒歩を handoff した時点」の歩数を
+    // 基準に登録する。電車降車〜徒歩CTAの間の駅歩き歩数を徒歩区間の歩数に数えて早期成立
+    // させないため（同じ区間の再 handoff では既存基準を保つ）。
+    _ensurePendingWalkCatchUp(expectedRoute, walkJourney.currentLegIndex);
   }
 
   /// 結果画面（ハブ）で現在区間を [index] へ進める（#305）。区間到着の自動検出
@@ -1176,9 +1179,6 @@ class AppNotifier extends Notifier<AppState> {
       // 出さない（前区間完了の直後に次区間を1タップで飛ばさせない）。
       journeyCurrentLegHandedOff: false,
     );
-    // 新しく案内する区間が徒歩なら、その区間に入った時点の歩数を基準に歩数到着待ちを
-    // 登録する（handoff や復帰より前に捕捉し、遅れて届く歩数を取りこぼさない）。
-    if (clamped > previous) _ensurePendingWalkCatchUp(route, clamped);
     // 全区間完了（番兵値）へ初めて到達した行程だけを HealthKit へ記録する。歩数は
     // 行程開始からの当日累計差分（外部 Google Maps 中の増分を含む）。期間は徒歩区間の
     // 実経過時間ぶんを、最後の徒歩区間の終了時刻を終点として配置する（電車のあとの徒歩は
