@@ -9,6 +9,8 @@ class JourneyProgress {
     required this.startedAt,
     required this.startSteps,
     required this.startBaselineValid,
+    required this.currentLegStartedAt,
+    this.walkElapsed = Duration.zero,
   });
 
   /// RoutePlan.segments 上の、いま案内している区間の index。
@@ -26,16 +28,29 @@ class JourneyProgress {
   /// `_sessionBaselineValid` と同じ役割）。
   final bool startBaselineValid;
 
+  /// 現在区間の計時を始めた時刻。区間を進めるたびに更新し、直前の徒歩区間の実経過時間
+  /// （＝完了時刻 − この時刻）を [walkElapsed] へ積む。徒歩ワークアウトの期間を電車・
+  /// バス区間の乗車時間で膨らませないための起点。
+  final DateTime currentLegStartedAt;
+
+  /// これまでに完了した徒歩区間の実経過時間の累計。混在ルートでは電車・バス区間の
+  /// 時間を除いた徒歩分だけを積むため、HealthKit の徒歩ワークアウト期間に使う。
+  final Duration walkElapsed;
+
   JourneyProgress copyWith({
     int? currentLegIndex,
     DateTime? startedAt,
     int? startSteps,
     bool? startBaselineValid,
+    DateTime? currentLegStartedAt,
+    Duration? walkElapsed,
   }) => JourneyProgress(
     currentLegIndex: currentLegIndex ?? this.currentLegIndex,
     startedAt: startedAt ?? this.startedAt,
     startSteps: startSteps ?? this.startSteps,
     startBaselineValid: startBaselineValid ?? this.startBaselineValid,
+    currentLegStartedAt: currentLegStartedAt ?? this.currentLegStartedAt,
+    walkElapsed: walkElapsed ?? this.walkElapsed,
   );
 
   @override
@@ -45,9 +60,17 @@ class JourneyProgress {
           currentLegIndex == other.currentLegIndex &&
           startedAt == other.startedAt &&
           startSteps == other.startSteps &&
-          startBaselineValid == other.startBaselineValid;
+          startBaselineValid == other.startBaselineValid &&
+          currentLegStartedAt == other.currentLegStartedAt &&
+          walkElapsed == other.walkElapsed;
 
   @override
-  int get hashCode =>
-      Object.hash(currentLegIndex, startedAt, startSteps, startBaselineValid);
+  int get hashCode => Object.hash(
+    currentLegIndex,
+    startedAt,
+    startSteps,
+    startBaselineValid,
+    currentLegStartedAt,
+    walkElapsed,
+  );
 }

@@ -1051,6 +1051,43 @@ void main() {
       expect(h.health.writeCount, 0);
     });
 
+    test('混在ルートの Workout 期間は徒歩区間の実経過時間だけを含む', () async {
+      final h = await makeHarness(
+        plan: _walkThenTrainPlan,
+        healthKitEnabled: true,
+        start: DateTime(2026, 7, 18, 9, 0),
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      final started = h.container.read(appStateProvider).journey!.startedAt;
+
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      // 徒歩区間を10分歩いて手動完了する（9:00→9:10）。
+      h.clock.value = DateTime(2026, 7, 18, 9, 10);
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+      // 電車区間に30分乗ってから最終到着する（9:10→9:40）。この乗車時間は
+      // 徒歩ワークアウトの期間に含めない。
+      h.clock.value = DateTime(2026, 7, 18, 9, 40);
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      await notifier.onAppResumed();
+      await settle();
+
+      expect(h.health.writeCount, 1);
+      final w = h.health.written!;
+      expect(w.steps, 500);
+      expect(w.start, started);
+      // 徒歩10分のみ。電車の30分を跨がない。
+      expect(w.end, DateTime(2026, 7, 18, 9, 10));
+    });
+
     test('連携オフなら全区間完了でも WalkingWorkout を書かない', () async {
       final h = await makeHarness(healthKitEnabled: false);
       final notifier = h.container.read(appStateProvider.notifier);

@@ -1033,12 +1033,14 @@ class AppNotifier extends Notifier<AppState> {
   void startJourney() {
     if (state.route == null || state.journey != null) return;
     _supersedeResumeActivityCatchUp();
+    final now = _now();
     state = state.copyWith(
       journey: JourneyProgress(
         currentLegIndex: 0,
-        startedAt: _now(),
+        startedAt: now,
         startSteps: state.todaySteps,
         startBaselineValid: _historyLoaded,
+        currentLegStartedAt: now,
       ),
       journeyManualCompletionAvailable: false,
     );
@@ -1105,14 +1107,26 @@ class AppNotifier extends Notifier<AppState> {
     if (route == null || journey == null) return;
     final previous = journey.currentLegIndex;
     final clamped = index.clamp(0, route.segments.length);
+    final now = _now();
+    // 直前に案内していた区間が徒歩なら、その実経過時間だけを歩行時間へ積む。混在ルート
+    // では電車・バス区間の乗車時間を除外し、徒歩ワークアウトの期間を膨らませない。純徒歩
+    // ルートでは全区間の合計＝行程開始〜完了の実時間になり、従来の end=現在と一致する。
+    final completedLeg = clamped > previous ? legAt(route, previous) : null;
+    final walkElapsed = completedLeg?.type == SegmentType.walk
+        ? journey.walkElapsed + now.difference(journey.currentLegStartedAt)
+        : journey.walkElapsed;
     state = state.copyWith(
-      journey: journey.copyWith(currentLegIndex: clamped),
+      journey: journey.copyWith(
+        currentLegIndex: clamped,
+        currentLegStartedAt: now,
+        walkElapsed: walkElapsed,
+      ),
       journeyManualCompletionAvailable: false,
     );
     // 全区間完了（番兵値）へ初めて到達した行程だけを HealthKit へ記録する。歩数は
-    // 行程開始からの当日累計差分（外部 Google Maps 中の増分を含む）、期間は開始〜現在。
-    // journey がリセット（新規検索・代替案選択・失効）で消える経路はここを通らないため、
-    // 放棄した行程は完走として記録されない。
+    // 行程開始からの当日累計差分（外部 Google Maps 中の増分を含む）、期間は開始時刻から
+    // 徒歩区間の実経過時間ぶん。journey がリセット（新規検索・代替案選択・失効）で消える
+    // 経路はここを通らないため、放棄した行程は完走として記録されない。
     if (writeWorkoutOnCompletion &&
         clamped == route.segments.length &&
         previous < route.segments.length &&
@@ -1121,7 +1135,7 @@ class AppNotifier extends Notifier<AppState> {
         journey.startBaselineValid) {
       _writeWorkout(
         start: journey.startedAt,
-        end: _now(),
+        end: journey.startedAt.add(walkElapsed),
         steps: state.todaySteps - journey.startSteps,
       );
     }
