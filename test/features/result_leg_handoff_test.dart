@@ -717,6 +717,46 @@ void main() {
     );
   });
 
+  testWidgets('前区間完了後に猶予超過して待機した経路は次区間タップで失効させる', (tester) async {
+    final clock = _Clock(DateTime(2026, 7, 18, 9, 0));
+    var calls = 0;
+    final container = _containerFor(
+      plan: _emptyFirstLegRoute,
+      now: clock.now,
+      launcher: (_) async {
+        calls++;
+        return true;
+      },
+    );
+    final notifier = container.read(appStateProvider.notifier);
+    notifier.setDestination('東京駅');
+    await notifier.startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    // 区間0を handoff→手動完了して未起動の区間1（電車）へ。
+    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.pump();
+    await tester.tap(find.text('この区間を完了'));
+    await tester.pump();
+    expect(container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+    // 区間0の handoff で launcher が1回呼ばれている。
+    expect(calls, 1);
+
+    // 区間1を起動せずハブで猶予（5分）超過。次区間タップは launcher を呼ばず失効させる。
+    clock.value = DateTime(2026, 7, 18, 9, 30);
+    await tester.tap(find.text('Google Mapsで東京駅まで行く'));
+    await tester.pump();
+
+    // 失効タップでは launcher を呼ばない（1 のまま）。
+    expect(calls, 1);
+    final state = container.read(appStateProvider);
+    expect(state.route, isNull);
+    expect(state.journey, isNull);
+    expect(state.screen, Screen.home);
+  });
+
   testWidgets('手動指定の出発地から検索した経路の先頭区間は計画起点を origin にする', (tester) async {
     final launched = <Uri>[];
     final container = _containerFor(

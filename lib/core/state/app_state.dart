@@ -367,6 +367,14 @@ class AppNotifier extends Notifier<AppState> {
   /// 何度 handoff しても最初の起動時刻を保ち、再タップで歩行時間を巻き戻さない。
   int? _walkTimerLegIndex;
 
+  /// 完了した徒歩区間ごとの記録（区間 index・開始/終了時刻・開始/終了歩数）。混在ルートで
+  /// 電車を挟んで離れた徒歩は 1 本の連続ワークアウトにまとめられないため、連続する徒歩の
+  /// まとまり単位で HealthKit へ書き込むための素材。行程リセット・離脱で破棄する。
+  final List<
+    ({int legIndex, DateTime start, DateTime end, int startSteps, int endSteps})
+  >
+  _completedWalkSegments = [];
+
   /// 手動完了の処理中フラグ。await 中の連打で次区間まで一気に進めないよう再入を防ぐ。
   bool _manualCompletionInFlight = false;
 
@@ -1033,7 +1041,10 @@ class AppNotifier extends Notifier<AppState> {
   /// （#264 の onAppResumed 例外と整合。歩行中の行程を途中で消さない）。判定・無効化を
   /// notifier 側へ寄せ、widget は起動可否だけを扱う。
   bool expireStaleBeforeHandoff() {
-    if (state.journey != null) return false;
+    // handoff 済みの区間を案内中（歩行中）の再タップは、失効しても経路を守る。まだ起動して
+    // いない次区間の初回タップは、猶予切れなら失効させて再検索へ（古い時刻の便へ引き継が
+    // せない）。
+    if (state.journey != null && state.journeyCurrentLegHandedOff) return false;
     final now = _now();
     if (!state.isNowRouteExpired(now)) return false;
     _expireRoute(now);
@@ -1097,7 +1108,7 @@ class AppNotifier extends Notifier<AppState> {
       return;
     }
     // 徒歩区間のタイマーは、前区間完了時ではなく CTA を押して外部地図へ発った瞬間から
-    // 計る。前区間完了〜起動までのハブ滞在・駅待ちを歩行時間（walkElapsed）に含めない。
+    // 計る。前区間完了〜起動までのハブ滞在・駅待ちを区間ワークアウトの期間に含めない。
     // 同じ区間を何度 handoff しても最初の起動時刻を保ち、再タップで歩行時間を巻き戻さない。
     if (_walkTimerLegIndex != journey.currentLegIndex) {
       state = state.copyWith(
@@ -1159,44 +1170,89 @@ class AppNotifier extends Notifier<AppState> {
     final previous = journey.currentLegIndex;
     final clamped = index.clamp(0, route.segments.length);
     final now = _now();
-    // 直前に案内していた区間が徒歩なら、その実経過時間を歩行時間へ積み、終了時刻を控える。
-    // 混在ルートでは電車・バス区間の乗車時間を除外し、徒歩ワークアウトの期間を膨らませない。
+    // 直前に案内していた区間が徒歩なら、その区間の実区間（handoff〜完了）と歩数差分を
+    // 記録する。混在ルートで電車を挟んで離れた徒歩を、後で連続まとまり単位に書き分ける素材。
     final completedLeg = clamped > previous ? legAt(route, previous) : null;
-    final completedWalk = completedLeg?.type == SegmentType.walk;
-    final walkElapsed = completedWalk
-        ? journey.walkElapsed + now.difference(journey.currentLegStartedAt)
-        : journey.walkElapsed;
-    final lastWalkEndedAt = completedWalk ? now : journey.lastWalkEndedAt;
+    if (completedLeg?.type == SegmentType.walk) {
+      _completedWalkSegments.add((
+        legIndex: previous,
+        start: journey.currentLegStartedAt,
+        end: now,
+        startSteps: _walkCatchUpBaseline(previous) ?? journey.startSteps,
+        endSteps: state.todaySteps,
+      ));
+    }
     state = state.copyWith(
       journey: journey.copyWith(
         currentLegIndex: clamped,
         currentLegStartedAt: now,
-        walkElapsed: walkElapsed,
-        lastWalkEndedAt: lastWalkEndedAt,
       ),
       journeyManualCompletionAvailable: false,
       // 新しい区間はまだ handoff していない。geometry 欠落区間の手動完了は起動/復帰後まで
       // 出さない（前区間完了の直後に次区間を1タップで飛ばさせない）。
       journeyCurrentLegHandedOff: false,
     );
-    // 全区間完了（番兵値）へ初めて到達した行程だけを HealthKit へ記録する。歩数は
-    // 行程開始からの当日累計差分（外部 Google Maps 中の増分を含む）。期間は徒歩区間の
-    // 実経過時間ぶんを、最後の徒歩区間の終了時刻を終点として配置する（電車のあとの徒歩は
-    // 時系列上の実位置に置く）。徒歩を1つも完了していない（電車・バスのみの）行程は
-    // lastWalkEndedAt が null のまま書き込まない（乗車中の紛れ歩数で0分ワークアウトを
-    // 作らない）。journey がリセット（新規検索・代替案選択・失効）で消える経路はここを
+    // 全区間完了（番兵値）へ初めて到達した行程だけを HealthKit へ記録する。基準歩数が
+    // 未確定のまま始まった行程は差分が過大になるため書き込まない（nav の _maybeWriteWorkout
+    // と同じガード）。journey がリセット（新規検索・代替案選択・失効）で消える経路はここを
     // 通らないため、放棄した行程は完走として記録されない。
     if (writeWorkoutOnCompletion &&
         clamped == route.segments.length &&
         previous < route.segments.length &&
-        // 基準歩数が未確定のまま始まった行程は差分が過大になるため書き込まない
-        // （nav セッションの _maybeWriteWorkout と同じガード）。
-        journey.startBaselineValid &&
-        lastWalkEndedAt != null) {
+        journey.startBaselineValid) {
+      _writeWalkRunWorkouts();
+    }
+  }
+
+  /// 保持中の歩数到着待ちから、徒歩区間 [legIndex] の handoff 時点の基準歩数を返す。
+  int? _walkCatchUpBaseline(int legIndex) {
+    for (final c in _pendingWalkCatchUps) {
+      if (c.legIndex == legIndex) return c.startSteps;
+    }
+    return null;
+  }
+
+  /// 完了した徒歩区間を「連続する index のまとまり（電車・バスで途切れない徒歩の連続）」
+  /// 単位にまとめ、まとまりごとに 1 本の徒歩ワークアウトを書く。期間はまとまりの最初の
+  /// 区間開始〜最後の区間終了、歩数はその間の差分。電車を挟んで離れた徒歩は別ワークアウトに
+  /// なり、乗車時間や乗車前の駅歩き歩数を混ぜない。徒歩が皆無なら何も書かない。
+  ///
+  /// 最後のまとまりの終端歩数だけは行程完了時点の当日累計を使う。最終区間の歩数同期を
+  /// 待ってから完了するため、handoff 後に遅れて届いた歩数もここに反映される。途中の
+  /// まとまりは各区間完了時点のスナップショットを使う。
+  void _writeWalkRunWorkouts() {
+    ({DateTime start, DateTime end, int startSteps, int endSteps})? run;
+    var previousLegIndex = -2;
+    for (final seg in _completedWalkSegments) {
+      if (run != null && seg.legIndex == previousLegIndex + 1) {
+        run = (
+          start: run.start,
+          end: seg.end,
+          startSteps: run.startSteps,
+          endSteps: seg.endSteps,
+        );
+      } else {
+        if (run != null) {
+          _writeWorkout(
+            start: run.start,
+            end: run.end,
+            steps: run.endSteps - run.startSteps,
+          );
+        }
+        run = (
+          start: seg.start,
+          end: seg.end,
+          startSteps: seg.startSteps,
+          endSteps: seg.endSteps,
+        );
+      }
+      previousLegIndex = seg.legIndex;
+    }
+    if (run != null) {
       _writeWorkout(
-        start: lastWalkEndedAt.subtract(walkElapsed),
-        end: lastWalkEndedAt,
-        steps: state.todaySteps - journey.startSteps,
+        start: run.start,
+        end: run.end,
+        steps: state.todaySteps - run.startSteps,
       );
     }
   }
@@ -1221,10 +1277,14 @@ class AppNotifier extends Notifier<AppState> {
     // ホームへ戻れないため、行程を持たない result/home と同じく失効させる。
     final journey = state.journey;
     final route = state.route;
+    // 保護するのは handoff 済みの区間を案内中の行程だけ。前区間完了後に結果ハブで待機中
+    // （未起動）の間に猶予を超過したら、番兵値・行程なしと同様に失効させて再検索を促す
+    // （古い時刻の便のまま次区間へ引き継がせない）。
     final hasActiveJourneyLeg =
         journey != null &&
         route != null &&
-        legAt(route, journey.currentLegIndex) != null;
+        legAt(route, journey.currentLegIndex) != null &&
+        state.journeyCurrentLegHandedOff;
     if (!hasActiveJourneyLeg &&
         onExpirableScreen &&
         state.isNowRouteExpired(now)) {
@@ -1354,6 +1414,7 @@ class AppNotifier extends Notifier<AppState> {
     _resumeActivityCatchUpRoute = null;
     _resumeActivityCatchUpJourney = null;
     _pendingWalkCatchUps.clear();
+    _completedWalkSegments.clear();
     _walkTimerLegIndex = null;
   }
 

@@ -69,16 +69,16 @@ class _FakeActivityService implements ActivityService {
 }
 
 class _FakeHealthService implements HealthService {
-  WalkingWorkout? written;
-  int writeCount = 0;
+  final List<WalkingWorkout> writes = [];
+  WalkingWorkout? get written => writes.isEmpty ? null : writes.last;
+  int get writeCount => writes.length;
 
   @override
   Future<bool> requestAuthorization() async => true;
 
   @override
   Future<bool> writeWalkingWorkout(WalkingWorkout workout) async {
-    written = workout;
-    writeCount++;
+    writes.add(workout);
     return true;
   }
 }
@@ -362,6 +362,45 @@ const _missingKmWalkPlan = RoutePlan(
       type: SegmentType.walk,
       fromName: 'A',
       toName: 'B',
+      minutes: 10,
+      kcal: 25,
+    ),
+  ],
+  timelineNodes: [],
+);
+
+/// 徒歩→電車→徒歩の3区間（全て geometry 欠落で手動完了）。電車を挟んで離れた徒歩を
+/// 別々のワークアウトへ書き分けることを固定する。
+const _walkTrainWalkPlan = RoutePlan(
+  from: 'A',
+  to: 'D',
+  totalKm: 6.0,
+  totalMin: 50,
+  budgetMin: 90,
+  kcal: 100,
+  walkKm: 1.0,
+  walkRatio: 0.17,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A',
+      toName: 'B',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+    ),
+    RouteSegment(
+      type: SegmentType.train,
+      fromName: 'B',
+      toName: 'C',
+      km: 5.0,
+      minutes: 30,
+    ),
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'C',
+      toName: 'D',
+      km: 0.5,
       minutes: 10,
       kcal: 25,
     ),
@@ -1341,7 +1380,8 @@ void main() {
       expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
       expect(h.health.writeCount, 0);
 
-      // 徒歩の歩数が届いたら、駅歩き＋徒歩の総歩数で確定する。
+      // 徒歩の歩数が届いたら確定する。ワークアウトは徒歩区間の歩数（400）のみで、
+      // handoff 前の駅歩き 500 歩は徒歩ワークアウトに混ぜない。
       h.activity.add(ActivitySnapshot.fromSteps(1000));
       await resumed;
       await settle();
@@ -1351,7 +1391,68 @@ void main() {
         _trainThenWalkPlan.segments.length,
       );
       expect(h.health.writeCount, 1);
-      expect(h.health.written!.steps, 900);
+      expect(h.health.written!.steps, 400);
+    });
+
+    test('電車を挟んで離れた徒歩は別々のワークアウトに書き分ける', () async {
+      final h = await makeHarness(
+        plan: _walkTrainWalkPlan,
+        healthKitEnabled: true,
+        start: DateTime(2026, 7, 18, 9, 0),
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 徒歩区間0（9:00 handoff、基準100）。歩数400を歩いて 9:10 に手動完了。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(500));
+      await settle();
+      h.clock.value = DateTime(2026, 7, 18, 9, 10);
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+      // 電車区間1を handoff→乗車（駅歩き100歩が紛れる）→ 9:40 手動完了。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+      h.clock.value = DateTime(2026, 7, 18, 9, 40);
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 2);
+
+      // 徒歩区間2（9:40 handoff、基準600）。歩数400を歩いて 9:50 に手動完了。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 2,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(1000));
+      await settle();
+      h.clock.value = DateTime(2026, 7, 18, 9, 50);
+      await notifier.advanceCurrentLegManually();
+      await settle();
+
+      // 2本の徒歩ワークアウト。電車の乗車時間も駅歩き100歩も混ぜない。
+      expect(h.health.writeCount, 2);
+      final first = h.health.writes[0];
+      expect(first.start, DateTime(2026, 7, 18, 9, 0));
+      expect(first.end, DateTime(2026, 7, 18, 9, 10));
+      expect(first.steps, 400); // 500-100
+      final second = h.health.writes[1];
+      expect(second.start, DateTime(2026, 7, 18, 9, 40));
+      expect(second.end, DateTime(2026, 7, 18, 9, 50));
+      expect(second.steps, 400); // 1000-600
     });
 
     test('電車のあとの徒歩は Workout を実際の徒歩窓へ配置する', () async {
