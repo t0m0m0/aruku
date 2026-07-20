@@ -1212,19 +1212,28 @@ class AppNotifier extends Notifier<AppState> {
     return null;
   }
 
-  /// 完了した徒歩区間を「連続する index のまとまり（電車・バスで途切れない徒歩の連続）」
-  /// 単位にまとめ、まとまりごとに 1 本の徒歩ワークアウトを書く。期間はまとまりの最初の
-  /// 区間開始〜最後の区間終了、歩数はその間の差分。電車を挟んで離れた徒歩は別ワークアウトに
-  /// なり、乗車時間や乗車前の駅歩き歩数を混ぜない。徒歩が皆無なら何も書かない。
+  /// 完了した徒歩区間を「連続する index かつ時間的に途切れない徒歩の連続」単位にまとめ、
+  /// まとまりごとに 1 本の徒歩ワークアウトを書く。期間はまとまりの最初の区間開始〜最後の
+  /// 区間終了、歩数はその間の差分。電車を挟んで離れた徒歩（index が飛ぶ）や、前区間完了後に
+  /// ハブで一服してから次の徒歩を起動した場合（前区間終了と次区間開始の間に空白がある）は
+  /// 別ワークアウトにし、乗車時間・乗車前の駅歩き歩数・ハブ滞在の空き時間を混ぜない。
+  /// 徒歩が皆無なら何も書かない。
   ///
   /// 最後のまとまりの終端歩数だけは行程完了時点の当日累計を使う。最終区間の歩数同期を
   /// 待ってから完了するため、handoff 後に遅れて届いた歩数もここに反映される。途中の
-  /// まとまりは各区間完了時点のスナップショットを使う。
+  /// まとまりは各区間完了時点のスナップショットを使う（pedometer が区間完了までに追いつく
+  /// 通常フローでは正確。完了後に遅延した歩数は取りこぼし得るが、単一累積計では区間ごとの
+  /// 厳密な帰属はできないため近似とする）。
   void _writeWalkRunWorkouts() {
     ({DateTime start, DateTime end, int startSteps, int endSteps})? run;
     var previousLegIndex = -2;
     for (final seg in _completedWalkSegments) {
-      if (run != null && seg.legIndex == previousLegIndex + 1) {
+      // index が連続し、かつ前区間終了と間を空けずに始まった徒歩だけ同じまとまりへ。
+      final contiguous =
+          run != null &&
+          seg.legIndex == previousLegIndex + 1 &&
+          !seg.start.isAfter(run.end);
+      if (contiguous) {
         run = (
           start: run.start,
           end: seg.end,
@@ -1355,6 +1364,13 @@ class AppNotifier extends Notifier<AppState> {
   /// 徒歩区間 [legIndex] の歩数到着待ちを一覧へ登録する。電車・バス区間は歩数を生まない
   /// ため登録しない。同じ区間が既に登録済みなら基準を巻き戻さない（閾値外で復帰して同じ
   /// 区間を再 handoff しても、歩き切った歩数を捨てないため）。
+  ///
+  /// 基準は handoff 時点の当日累計。前の徒歩の pedometer が遅延して未反映のまま次の徒歩を
+  /// handoff すると、この基準が本来より低く捕捉され、後着した前区間の歩数が次区間側へ
+  /// 混ざり得る。単一累積歩数計では「どの歩がどの区間か」を厳密に分けられないため、駅歩き
+  /// 歩数を徒歩区間に混ぜない（handoff 基準を使う）ことを優先した近似とする。全区間の同期は
+  /// [_hasJourneyActivityCaughtUp] が保留中の全区間で待つため、前区間の未反映を無視して
+  /// 早期完了することはない。
   void _ensurePendingWalkCatchUp(RoutePlan route, int legIndex) {
     if (legAt(route, legIndex)?.type != SegmentType.walk) return;
     if (_pendingWalkCatchUps.any((c) => c.legIndex == legIndex)) return;

@@ -1394,6 +1394,56 @@ void main() {
       expect(h.health.written!.steps, 400);
     });
 
+    test('連続する徒歩でもハブで一服したら別々のワークアウトにし空き時間を含めない', () async {
+      final h = await makeHarness(
+        plan: _twoEmptyWalkPlan,
+        healthKitEnabled: true,
+        start: DateTime(2026, 7, 18, 9, 0),
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 徒歩区間0（9:00 handoff、基準100）→ 400歩歩いて 9:10 完了。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(500));
+      await settle();
+      h.clock.value = DateTime(2026, 7, 18, 9, 10);
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+      // ハブで10分一服してから徒歩区間1を 9:20 handoff → 400歩歩いて 9:30 完了。
+      h.clock.value = DateTime(2026, 7, 18, 9, 20);
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(900));
+      await settle();
+      h.clock.value = DateTime(2026, 7, 18, 9, 30);
+      await notifier.advanceCurrentLegManually();
+      await settle();
+
+      // 隣接区間でも一服の空白があるので 2 本に分け、9:10〜9:20 の空き時間を含めない。
+      expect(h.health.writeCount, 2);
+      final first = h.health.writes[0];
+      expect(first.start, DateTime(2026, 7, 18, 9, 0));
+      expect(first.end, DateTime(2026, 7, 18, 9, 10));
+      expect(first.steps, 400);
+      final second = h.health.writes[1];
+      expect(second.start, DateTime(2026, 7, 18, 9, 20));
+      expect(second.end, DateTime(2026, 7, 18, 9, 30));
+      expect(second.steps, 400);
+    });
+
     test('電車を挟んで離れた徒歩は別々のワークアウトに書き分ける', () async {
       final h = await makeHarness(
         plan: _walkTrainWalkPlan,
