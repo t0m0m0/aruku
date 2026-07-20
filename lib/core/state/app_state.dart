@@ -1064,6 +1064,13 @@ class AppNotifier extends Notifier<AppState> {
     startJourney();
     final journey = state.journey;
     if (journey == null) return;
+    // 電車・バス区間の handoff では歩数同期を張り替えない。直前の徒歩区間の未了同期を
+    // 保持したまま、乗車後の最終完了までその徒歩歩数を待たせる（transit は新しい歩数を
+    // 生まないため、ここで transit 区間の同期を始めると徒歩の未反映分を取りこぼす）。
+    if (legAt(expectedRoute, journey.currentLegIndex)?.type !=
+        SegmentType.walk) {
+      return;
+    }
     // 同じ区間の再 handoff（閾値外で復帰して再タップ等）では同期基準を巻き戻さない。
     // ここで開始し直すと基準歩数が現在値へ進み、残距離の短い再 handoff が同期閾値を
     // 満たせず、歩き切った行程の Workout を捨ててしまう。
@@ -1108,34 +1115,40 @@ class AppNotifier extends Notifier<AppState> {
     final previous = journey.currentLegIndex;
     final clamped = index.clamp(0, route.segments.length);
     final now = _now();
-    // 直前に案内していた区間が徒歩なら、その実経過時間だけを歩行時間へ積む。混在ルート
-    // では電車・バス区間の乗車時間を除外し、徒歩ワークアウトの期間を膨らませない。純徒歩
-    // ルートでは全区間の合計＝行程開始〜完了の実時間になり、従来の end=現在と一致する。
+    // 直前に案内していた区間が徒歩なら、その実経過時間を歩行時間へ積み、終了時刻を控える。
+    // 混在ルートでは電車・バス区間の乗車時間を除外し、徒歩ワークアウトの期間を膨らませない。
     final completedLeg = clamped > previous ? legAt(route, previous) : null;
-    final walkElapsed = completedLeg?.type == SegmentType.walk
+    final completedWalk = completedLeg?.type == SegmentType.walk;
+    final walkElapsed = completedWalk
         ? journey.walkElapsed + now.difference(journey.currentLegStartedAt)
         : journey.walkElapsed;
+    final lastWalkEndedAt = completedWalk ? now : journey.lastWalkEndedAt;
     state = state.copyWith(
       journey: journey.copyWith(
         currentLegIndex: clamped,
         currentLegStartedAt: now,
         walkElapsed: walkElapsed,
+        lastWalkEndedAt: lastWalkEndedAt,
       ),
       journeyManualCompletionAvailable: false,
     );
     // 全区間完了（番兵値）へ初めて到達した行程だけを HealthKit へ記録する。歩数は
-    // 行程開始からの当日累計差分（外部 Google Maps 中の増分を含む）、期間は開始時刻から
-    // 徒歩区間の実経過時間ぶん。journey がリセット（新規検索・代替案選択・失効）で消える
-    // 経路はここを通らないため、放棄した行程は完走として記録されない。
+    // 行程開始からの当日累計差分（外部 Google Maps 中の増分を含む）。期間は徒歩区間の
+    // 実経過時間ぶんを、最後の徒歩区間の終了時刻を終点として配置する（電車のあとの徒歩は
+    // 時系列上の実位置に置く）。徒歩を1つも完了していない（電車・バスのみの）行程は
+    // lastWalkEndedAt が null のまま書き込まない（乗車中の紛れ歩数で0分ワークアウトを
+    // 作らない）。journey がリセット（新規検索・代替案選択・失効）で消える経路はここを
+    // 通らないため、放棄した行程は完走として記録されない。
     if (writeWorkoutOnCompletion &&
         clamped == route.segments.length &&
         previous < route.segments.length &&
         // 基準歩数が未確定のまま始まった行程は差分が過大になるため書き込まない
         // （nav セッションの _maybeWriteWorkout と同じガード）。
-        journey.startBaselineValid) {
+        journey.startBaselineValid &&
+        lastWalkEndedAt != null) {
       _writeWorkout(
-        start: journey.startedAt,
-        end: journey.startedAt.add(walkElapsed),
+        start: lastWalkEndedAt.subtract(walkElapsed),
+        end: lastWalkEndedAt,
         steps: state.todaySteps - journey.startSteps,
       );
     }
@@ -1238,11 +1251,15 @@ class AppNotifier extends Notifier<AppState> {
     if (leg.type != SegmentType.walk) return true;
     final handoffSteps = state.todaySteps - startSteps;
     if (handoffSteps <= 0) return false;
+    final plannedKm = leg.km ?? 0;
     final plannedThresholdKm =
-        (leg.km ?? 0) * _journeyActivityCatchUpMinLegDistanceRatio;
-    final requiredKm = plannedThresholdKm < _journeyActivityCatchUpMinDistanceKm
+        plannedKm * _journeyActivityCatchUpMinLegDistanceRatio;
+    final flooredKm = plannedThresholdKm < _journeyActivityCatchUpMinDistanceKm
         ? _journeyActivityCatchUpMinDistanceKm
         : plannedThresholdKm;
+    // 下限（50m）が計画区間距離より長いと、区間を歩き切っても届かず同期不能になる。
+    // 駅出口すぐの数十m徒歩などでは計画距離で頭打ちにし、全歩数が来れば確定できるようにする。
+    final requiredKm = flooredKm > plannedKm ? plannedKm : flooredKm;
     return ActivitySnapshot.fromSteps(handoffSteps).km >= requiredKm;
   }
 
