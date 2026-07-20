@@ -143,6 +143,42 @@ const _emptyFirstLegRoute = RoutePlan(
   ],
 );
 
+// 2区間とも geometry 欠落の徒歩。前区間を手動完了した直後の次区間で、handoff 前に
+// 手動完了ボタンを出さないことを検証する。
+const _twoEmptyLegRoute = RoutePlan(
+  from: '蒲田',
+  to: '東京タワー',
+  totalKm: 3.0,
+  totalMin: 40,
+  budgetMin: 90,
+  kcal: 160,
+  walkKm: 3.0,
+  walkRatio: 1.0,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: '蒲田',
+      toName: '新橋駅',
+      km: 1.5,
+      minutes: 20,
+      kcal: 80,
+    ),
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: '新橋駅',
+      toName: '東京タワー',
+      km: 1.5,
+      minutes: 20,
+      kcal: 80,
+    ),
+  ],
+  timelineNodes: [
+    TimelineNode(time: '9:00', place: '蒲田', sub: '出発'),
+    TimelineNode(time: '9:20', place: '新橋駅', sub: '徒歩へ'),
+    TimelineNode(time: '9:40', place: '東京タワー', sub: '到着'),
+  ],
+);
+
 const _singleEmptyLegRoute = RoutePlan(
   from: '蒲田',
   to: '新橋駅',
@@ -619,6 +655,59 @@ void main() {
 
     expect(container.read(appStateProvider).journey!.currentLegIndex, 1);
     expect(find.text('Google Mapsで東京駅まで行く'), findsOneWidget);
+  });
+
+  testWidgets('前区間完了直後の geometry 欠落区間は handoff 前に手動完了を出さない', (tester) async {
+    final container = _containerFor(
+      plan: _twoEmptyLegRoute,
+      launcher: (_) async => true,
+    );
+    container.read(appStateProvider.notifier).setDestination('東京タワー');
+    await container.read(appStateProvider.notifier).startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    // 区間0: handoff 後に手動完了が出て、完了で区間1へ進む。
+    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.pump();
+    await tester.tap(find.text('この区間を完了'));
+    await tester.pump();
+    expect(container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+    // 区間1になった直後（journey は非 null）でも、まだ handoff していないので
+    // 手動完了は出さない。1タップで未踏の区間を飛ばさせない。
+    expect(find.text('Google Mapsで東京タワーまで歩く'), findsOneWidget);
+    expect(find.text('この区間を完了'), findsNothing);
+
+    // 区間1を handoff したら手動完了が出る。
+    await tester.tap(find.text('Google Mapsで東京タワーまで歩く'));
+    await tester.pump();
+    expect(find.text('この区間を完了'), findsOneWidget);
+  });
+
+  testWidgets('手動指定の出発地から検索した経路の先頭区間は計画起点を origin にする', (tester) async {
+    final launched = <Uri>[];
+    final container = _containerFor(
+      // 現在地は計画起点とは別の座標。先頭区間は現在地ではなく計画起点を使う。
+      locationState: const LocationAvailable(GeoPoint(35.0, 139.0)),
+      launcher: (url) async {
+        launched.add(url);
+        return true;
+      },
+    );
+    final notifier = container.read(appStateProvider.notifier);
+    notifier.setDestination('東京タワー');
+    notifier.setOrigin('蒲田駅', latLng: const GeoPoint(35.5614, 139.7161));
+    await notifier.startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.pump();
+
+    expect(launched, hasLength(1));
+    // origin は計画起点（蒲田駅）。現在地 35.0,139.0 ではない。
+    expect(launched.single.queryParameters['origin'], '35.5614,139.7161');
   });
 
   testWidgets('polyline が空の最終区間は手動完了で行程完了になる', (tester) async {

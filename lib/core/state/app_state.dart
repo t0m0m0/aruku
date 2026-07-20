@@ -156,6 +156,7 @@ class AppState {
     this.routeAlternatives = const [],
     this.journey,
     this.journeyManualCompletionAvailable = false,
+    this.journeyCurrentLegHandedOff = false,
   });
 
   final Screen screen;
@@ -180,6 +181,11 @@ class AppState {
   /// 現在の行程区間について、直近の復帰時到着確認後に手動完了を許可するか。
   /// 位置取得失敗、または有効な現在地が到着閾値外だった場合に true となる。
   final bool journeyManualCompletionAvailable;
+
+  /// 現在の行程区間を外部地図へ handoff（Google Maps 起動）済みか。区間を進めるたびに
+  /// false へ戻す。geometry 欠落区間の手動完了ボタンを、まだ出発していない区間で先に
+  /// 見せて1タップで飛ばさないためのガード。
+  final bool journeyCurrentLegHandedOff;
 
   final LocationState locationState;
 
@@ -271,6 +277,7 @@ class AppState {
     List<RoutePlan>? routeAlternatives,
     Object? journey = _sentinel,
     bool? journeyManualCompletionAvailable,
+    bool? journeyCurrentLegHandedOff,
   }) {
     return AppState(
       screen: screen ?? this.screen,
@@ -317,6 +324,8 @@ class AppState {
       journeyManualCompletionAvailable:
           journeyManualCompletionAvailable ??
           this.journeyManualCompletionAvailable,
+      journeyCurrentLegHandedOff:
+          journeyCurrentLegHandedOff ?? this.journeyCurrentLegHandedOff,
     );
   }
 
@@ -1050,6 +1059,7 @@ class AppNotifier extends Notifier<AppState> {
         currentLegStartedAt: now,
       ),
       journeyManualCompletionAvailable: false,
+      journeyCurrentLegHandedOff: false,
     );
     // 先頭区間が徒歩なら、開始時点の歩数を基準に歩数到着待ちを登録する。区間に入った
     // 時点で捕捉することで、歩き終えて復帰した後に登録して差分を取りこぼす事故を防ぐ。
@@ -1074,6 +1084,9 @@ class AppNotifier extends Notifier<AppState> {
     startJourney();
     final journey = state.journey;
     if (journey == null) return;
+    // 現在区間を外部地図へ handoff した。geometry 欠落区間の手動完了は、この起動（または
+    // 復帰）より後にだけ許可し、まだ出発していない区間を先に飛ばせないようにする。
+    state = state.copyWith(journeyCurrentLegHandedOff: true);
     // 電車・バス区間の handoff では歩数同期を張り替えない。直前の徒歩区間の未了同期を
     // 保持したまま、乗車後の最終完了までその徒歩歩数を待たせる（transit は新しい歩数を
     // 生まないため、ここで transit 区間の同期を始めると徒歩の未反映分を取りこぼす）。
@@ -1157,6 +1170,9 @@ class AppNotifier extends Notifier<AppState> {
         lastWalkEndedAt: lastWalkEndedAt,
       ),
       journeyManualCompletionAvailable: false,
+      // 新しい区間はまだ handoff していない。geometry 欠落区間の手動完了は起動/復帰後まで
+      // 出さない（前区間完了の直後に次区間を1タップで飛ばさせない）。
+      journeyCurrentLegHandedOff: false,
     );
     // 新しく案内する区間が徒歩なら、その区間に入った時点の歩数を基準に歩数到着待ちを
     // 登録する（handoff や復帰より前に捕捉し、遅れて届く歩数を取りこぼさない）。

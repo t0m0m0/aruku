@@ -210,9 +210,13 @@ class ResultScreen extends ConsumerWidget {
                         leg: currentLeg,
                         onManualAdvance:
                             currentLeg != null &&
-                                (currentLeg.polyline.isEmpty ||
-                                    state.journeyManualCompletionAvailable) &&
-                                state.journey != null
+                                state.journey != null &&
+                                // 復帰時の到着確認が手動完了を許可した区間、または
+                                // geometry 欠落かつ既に handoff（起動）済みの区間のみ。
+                                // まだ出発していない geometry 欠落区間を先に完了させない。
+                                (state.journeyManualCompletionAvailable ||
+                                    (currentLeg.polyline.isEmpty &&
+                                        state.journeyCurrentLegHandedOff))
                             ? notifier.advanceCurrentLegManually
                             : null,
                         onLaunch: currentLeg == null
@@ -226,7 +230,10 @@ class ResultScreen extends ConsumerWidget {
                                 }
                                 final uri = buildLegHandoffUri(
                                   leg: currentLeg,
-                                  origin: _currentOrigin(state),
+                                  origin: _handoffOrigin(
+                                    state,
+                                    currentLegIndex,
+                                  ),
                                 );
                                 final expectedJourney = state.journey;
                                 final launched = await ref.read(
@@ -455,11 +462,18 @@ class _JourneyHeader extends StatelessWidget {
   }
 }
 
-/// 現在地の GeoPoint。区間 CTA の Google Maps 引き継ぎ URL の origin に使う
-/// （#305）。[startSearch] の origin 解決と同じ優先順位（ナビ中の実測位置 →
-/// GPS 確定済みの現在地）を踏襲する。手動指定の出発地（[AppState.originLatLng]）
-/// は最初の検索時点の起点であり、区間が進んだ後の「現在地」としては古びるため
-/// 使わない。
+/// 区間 CTA の Google Maps 引き継ぎ URL の origin（#305）。
+/// 先頭区間（[legIndex] == 0）は、手動指定の出発地から検索した経路なら表示中の経路の
+/// 起点（[AppState.originLatLng]）を使う。現在地に置き換えると、駅・職場など計画とは別
+/// 地点から始まる別経路の案内へ飛んでしまう。区間が進んだ後は手動起点が古びるため現在地。
+GeoPoint? _handoffOrigin(AppState state, int legIndex) {
+  if (legIndex == 0 && state.originLatLng != null) return state.originLatLng;
+  return _currentOrigin(state);
+}
+
+/// 現在地の GeoPoint。[startSearch] の origin 解決と同じ優先順位（ナビ中の実測位置 →
+/// GPS 確定済みの現在地）を踏襲する。手動指定の出発地（[AppState.originLatLng]）は最初の
+/// 検索時点の起点であり、区間が進んだ後の「現在地」としては古びるため使わない。
 GeoPoint? _currentOrigin(AppState state) {
   final tracked = state.currentPosition;
   if (tracked != null) return tracked;
