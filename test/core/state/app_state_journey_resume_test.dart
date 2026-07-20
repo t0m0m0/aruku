@@ -890,6 +890,13 @@ void main() {
       await notifier.advanceCurrentLegManually();
       expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
 
+      // 最終電車区間も handoff してから復帰する（未起動区間は復帰で完了させない）。
+      final route = h.container.read(appStateProvider).route!;
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
       h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
       await notifier.onAppResumed();
       await settle();
@@ -927,6 +934,12 @@ void main() {
       expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
       expect(h.health.writeCount, 0);
 
+      // 最終電車区間も handoff する（transit なので徒歩同期は保持される）。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
       // 最終電車区間の到着では歩数は増えないが、直前の徒歩handoffの同期が
       // 未了のため、遅れて届く歩数を待ってから Workout を確定する必要がある。
       h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
@@ -1265,6 +1278,13 @@ void main() {
       await notifier.advanceCurrentLegManually();
       expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
 
+      // 最終電車区間も handoff してから復帰する。
+      final route = h.container.read(appStateProvider).route!;
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
       // 電車区間に30分乗ってから最終到着する（9:10→9:40）。この乗車時間は
       // 徒歩ワークアウトの期間に含めない。
       h.clock.value = DateTime(2026, 7, 18, 9, 40);
@@ -1291,6 +1311,7 @@ void main() {
       h.activity.add(ActivitySnapshot.fromSteps(100));
       await settle();
       await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
       notifier.startJourney();
 
       // 電車区間に30分乗って原宿着（9:00→9:30）。非最終なので待たずに徒歩区間へ。
@@ -1301,6 +1322,12 @@ void main() {
       expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
       expect(h.health.writeCount, 0);
 
+      // 徒歩区間を 9:30 に handoff（前区間完了と同時なので歩行タイマー起点は 9:30）。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
       // 徒歩を10分歩いて最終到着（9:30→9:40）。歩数も反映済み。
       h.activity.add(ActivitySnapshot.fromSteps(600));
       await settle();

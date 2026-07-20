@@ -28,6 +28,12 @@ Uri buildLegHandoffUri({required RouteSegment leg, GeoPoint? origin}) {
   };
   // 徒歩区間のみ Google Maps アプリの「ナビ開始」直行を指定する。公共交通は
   // 乗換案内の一覧表示に留めたいため dir_action は付けない。
+  //
+  // 電車・バスの [RouteSegment.depTime]（固定出発の便）は URL に載せられない。Maps
+  // URLs（api=1）に出発時刻パラメータが無く、時刻指定は Directions API（サーバー側）
+  // 専用のため。よって dir_action を付けず乗換案内の一覧で開き、Maps 側の出発時刻選択に
+  // 委ねる（ナビ直行にすると「現在時刻」の別便へ確定してしまう）。固定出発を厳密に引き継ぐ
+  // 手段が無いことを踏まえ、公共交通は「厳密な引き継ぎ」ではなく一覧提示に留める設計。
   if (leg.type == SegmentType.walk) {
     queryParameters['dir_action'] = 'navigate';
   }

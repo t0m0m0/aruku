@@ -685,6 +685,38 @@ void main() {
     expect(find.text('この区間を完了'), findsOneWidget);
   });
 
+  testWidgets('前区間完了後、handoff 前のロック復帰では次区間を自動/手動完了させない', (tester) async {
+    final container = _containerFor(
+      // 復帰時の現在地が次区間（東京タワー）終点の閾値内でも自動完了させない。
+      locationState: const LocationAvailable(_tokyoTowerPos),
+      plan: _twoEmptyLegRoute,
+      launcher: (_) async => true,
+    );
+    final notifier = container.read(appStateProvider.notifier);
+    notifier.setDestination('東京タワー');
+    await notifier.startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    // 区間0を handoff→完了して区間1へ。区間1はまだ handoff していない。
+    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.pump();
+    await tester.tap(find.text('この区間を完了'));
+    await tester.pump();
+    expect(container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+    // 区間1を起動せずに端末ロック等から復帰しても、到着判定を走らせない。
+    await notifier.onAppResumed();
+    await tester.pump();
+
+    expect(container.read(appStateProvider).journey!.currentLegIndex, 1);
+    expect(find.text('この区間を完了'), findsNothing);
+    expect(
+      container.read(appStateProvider).journeyManualCompletionAvailable,
+      isFalse,
+    );
+  });
+
   testWidgets('手動指定の出発地から検索した経路の先頭区間は計画起点を origin にする', (tester) async {
     final launched = <Uri>[];
     final container = _containerFor(
@@ -708,6 +740,36 @@ void main() {
     expect(launched, hasLength(1));
     // origin は計画起点（蒲田駅）。現在地 35.0,139.0 ではない。
     expect(launched.single.queryParameters['origin'], '35.5614,139.7161');
+  });
+
+  testWidgets('出発済みの先頭区間の再起動は計画起点ではなく現在地を origin にする', (tester) async {
+    final launched = <Uri>[];
+    final container = _containerFor(
+      // 出発後にノイズの多い測位で戻った現在地。再起動はこの現在地を使う。
+      locationState: const LocationAvailable(GeoPoint(35.6, 139.75)),
+      launcher: (url) async {
+        launched.add(url);
+        return true;
+      },
+    );
+    final notifier = container.read(appStateProvider.notifier);
+    notifier.setDestination('東京タワー');
+    notifier.setOrigin('蒲田駅', latLng: const GeoPoint(35.5614, 139.7161));
+    await notifier.startSearch();
+    await tester.pumpWidget(_wrap(container));
+    await tester.pump();
+
+    // 初回起動（計画起点）。
+    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.pump();
+    expect(launched.single.queryParameters['origin'], '35.5614,139.7161');
+
+    // 区間途中で戻って同じ区間を再起動。計画起点へ引き戻さず現在地を使う。
+    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.pump();
+
+    expect(launched, hasLength(2));
+    expect(launched.last.queryParameters['origin'], '35.6,139.75');
   });
 
   testWidgets('polyline が空の最終区間は手動完了で行程完了になる', (tester) async {

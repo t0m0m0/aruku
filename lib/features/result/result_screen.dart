@@ -463,11 +463,15 @@ class _JourneyHeader extends StatelessWidget {
 }
 
 /// 区間 CTA の Google Maps 引き継ぎ URL の origin（#305）。
-/// 先頭区間（[legIndex] == 0）は、手動指定の出発地から検索した経路なら表示中の経路の
-/// 起点（[AppState.originLatLng]）を使う。現在地に置き換えると、駅・職場など計画とは別
-/// 地点から始まる別経路の案内へ飛んでしまう。区間が進んだ後は手動起点が古びるため現在地。
+/// まだ出発していない先頭区間の初回起動（journey 未開始）だけは、手動指定の出発地から
+/// 検索した経路なら表示中の経路の起点（[AppState.originLatLng]）を使う。現在地に置き
+/// 換えると駅・職場など計画とは別地点から始まる別経路の案内へ飛んでしまう。
+/// 一度出発した後の再起動（区間途中で戻って再タップ等）は、計画起点が古びて経路の先頭へ
+/// 引き戻されるため、実測の現在地（無ければ省略）を使う。
 GeoPoint? _handoffOrigin(AppState state, int legIndex) {
-  if (legIndex == 0 && state.originLatLng != null) return state.originLatLng;
+  if (legIndex == 0 && state.journey == null && state.originLatLng != null) {
+    return state.originLatLng;
+  }
   return _currentOrigin(state);
 }
 

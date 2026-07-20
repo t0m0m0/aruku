@@ -1059,7 +1059,9 @@ class AppNotifier extends Notifier<AppState> {
         currentLegStartedAt: now,
       ),
       journeyManualCompletionAvailable: false,
-      journeyCurrentLegHandedOff: false,
+      // 行程開始は先頭区間の handoff と同時に起きる（本番では起動成功時のみ）。
+      // 先頭区間は handoff 済みとして扱い、復帰時の到着判定・手動完了を許可する。
+      journeyCurrentLegHandedOff: true,
     );
     // 先頭区間が徒歩なら、開始時点の歩数を基準に歩数到着待ちを登録する。区間に入った
     // 時点で捕捉することで、歩き終えて復帰した後に登録して差分を取りこぼす事故を防ぐ。
@@ -1234,7 +1236,12 @@ class AppNotifier extends Notifier<AppState> {
     // 起動中に既に届いた更新は保持し、位置取得より後着する場合も Workout 確定を待たせる。
     Completer<_JourneyActivityCatchUpResult>? activityCatchUp;
     int? resumeGeneration;
-    if (state.journey != null && state.screen == Screen.result) {
+    // 現在区間を外部地図へ handoff した後の復帰だけ再評価する。前区間完了直後で
+    // まだ起動していない区間は、ロック・バックグラウンド復帰で到着判定を走らせない
+    // （未起動の区間を自動完了・手動完了で飛ばさせない）。
+    if (state.journey != null &&
+        state.screen == Screen.result &&
+        state.journeyCurrentLegHandedOff) {
       state = state.copyWith(journeyManualCompletionAvailable: false);
       final route = state.route!;
       final journey = state.journey!;
@@ -1422,6 +1429,9 @@ class AppNotifier extends Notifier<AppState> {
       return;
     }
     if (legAt(route, journey.currentLegIndex) == null) return;
+    // 現在区間を handoff していなければ到着判定しない。前区間完了直後の未起動区間を、
+    // 端末ロック等の復帰で自動完了・手動完了へ進めさせないため。
+    if (!state.journeyCurrentLegHandedOff) return;
 
     final result = await _fetchLocation();
     if (_disposed ||
