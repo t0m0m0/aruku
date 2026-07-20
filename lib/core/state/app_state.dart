@@ -347,12 +347,19 @@ class AppNotifier extends Notifier<AppState> {
   /// 代替案選択や新しい行程では一致しないため使わない。
   RoutePlan? _resumeActivityCatchUpRoute;
   JourneyProgress? _resumeActivityCatchUpJourney;
-  int? _resumeActivityCatchUpStartSteps;
 
-  /// 同期待機を開始した時点の区間。追いつき判定は journey の現在区間ではなくこの
-  /// 区間で行う。最終区間が電車・バスでも、直前の徒歩 handoff の歩数が遅延したまま
-  /// 完了へ到達し得るため、現在区間の種別では同期の要否を判定できない。
-  int? _resumeActivityCatchUpLegIndex;
+  /// 歩数の到着を待っている徒歩区間の一覧（区間 index と handoff 起動時点の当日累計歩数）。
+  /// 完了判定は「保留中の全区間が閾値に達したか」で行う。前の徒歩の歩数が未了のまま次の
+  /// 徒歩・電車へ進む場合も両方を追跡し、先に前区間だけ追いついても現在区間の歩数を
+  /// 取りこぼして早期完了しないようにする。行程リセット・離脱でのみ破棄する。
+  final List<({int legIndex, int startSteps})> _pendingWalkCatchUps = [];
+
+  /// currentLegStartedAt を handoff 起動時刻に合わせた徒歩区間の index。同じ区間を
+  /// 何度 handoff しても最初の起動時刻を保ち、再タップで歩行時間を巻き戻さない。
+  int? _walkTimerLegIndex;
+
+  /// 手動完了の処理中フラグ。await 中の連打で次区間まで一気に進めないよう再入を防ぐ。
+  bool _manualCompletionInFlight = false;
 
   /// 復帰時の位置再取得の世代。歩数同期シグナルとは別に世代管理し、同じ handoff の
   /// 歩数更新を保持したまま、後続の復帰より古い位置取得だけを破棄する。
@@ -1044,6 +1051,9 @@ class AppNotifier extends Notifier<AppState> {
       ),
       journeyManualCompletionAvailable: false,
     );
+    // 先頭区間が徒歩なら、開始時点の歩数を基準に歩数到着待ちを登録する。区間に入った
+    // 時点で捕捉することで、歩き終えて復帰した後に登録して差分を取りこぼす事故を防ぐ。
+    _ensurePendingWalkCatchUp(state.route!, 0);
   }
 
   /// 外部 URL 起動の await 前に捕捉した経路・行程・区間が現在も表示中の場合だけ行程を
@@ -1073,22 +1083,17 @@ class AppNotifier extends Notifier<AppState> {
     }
     // 徒歩区間のタイマーは、前区間完了時ではなく CTA を押して外部地図へ発った瞬間から
     // 計る。前区間完了〜起動までのハブ滞在・駅待ちを歩行時間（walkElapsed）に含めない。
-    state = state.copyWith(
-      journey: journey.copyWith(currentLegStartedAt: _now()),
-    );
+    // 同じ区間を何度 handoff しても最初の起動時刻を保ち、再タップで歩行時間を巻き戻さない。
+    if (_walkTimerLegIndex != journey.currentLegIndex) {
+      state = state.copyWith(
+        journey: journey.copyWith(currentLegStartedAt: _now()),
+      );
+      _walkTimerLegIndex = journey.currentLegIndex;
+    }
     final walkJourney = state.journey!;
-    // 同期基準の再開は次の条件でのみ行う。
-    // - 保持中の同期が無い（初回 handoff、または失効直後）
-    // - 別の徒歩区間へ移り、かつ前区間の徒歩歩数が既に追いついている
-    // 同じ区間の再 handoff（閾値外で復帰して再タップ等）では基準を巻き戻さない。基準が
-    // 現在値へ進むと、残距離の短い再 handoff が同期閾値を満たせず Workout を捨てるため。
-    // 前区間の徒歩歩数が未了のまま次の徒歩へ進む場合も張り替えない。張り替えると、後着
-    // する前区間の歩数を取りこぼしたまま次区間の歩数だけで早期完了してしまうため。
-    final hasMatching =
-        _matchingResumeActivityCatchUp(expectedRoute, walkJourney) != null;
-    final sameLeg =
-        _resumeActivityCatchUpLegIndex == walkJourney.currentLegIndex;
-    if (!hasMatching || (!sameLeg && _hasJourneyActivityCaughtUp())) {
+    // 完了待ちシグナルが無ければ張る。歩数到着待ちの登録は区間へ入った時点
+    // （startJourney／_advanceToLeg）で済んでいるため、ここでは基準を触らない。
+    if (_matchingResumeActivityCatchUp(expectedRoute, walkJourney) == null) {
       _startResumeActivityCatchUp(expectedRoute, walkJourney);
     }
   }
@@ -1104,6 +1109,9 @@ class AppNotifier extends Notifier<AppState> {
   /// 外部地図からの復帰後に pedometer の累積値が遅れて届く場合があるため、自動到着と
   /// 同じ追いつき処理を通してから Workout を確定する。
   Future<void> advanceCurrentLegManually() async {
+    // 連打で await 中に再入すると、まだ handoff していない次区間まで一気に進めてしまう。
+    // 処理中は後続タップを無視し、1タップ＝1区間だけ進める。
+    if (_manualCompletionInFlight) return;
     final route = state.route;
     final journey = state.journey;
     if (route == null || journey == null || state.screen != Screen.result) {
@@ -1114,11 +1122,16 @@ class AppNotifier extends Notifier<AppState> {
         (leg.polyline.isNotEmpty && !state.journeyManualCompletionAvailable)) {
       return;
     }
-    await _advanceJourneyLegAfterActivityCatchUp(
-      expectedRoute: route,
-      expectedJourney: journey,
-      activityCatchUp: _matchingResumeActivityCatchUp(route, journey),
-    );
+    _manualCompletionInFlight = true;
+    try {
+      await _advanceJourneyLegAfterActivityCatchUp(
+        expectedRoute: route,
+        expectedJourney: journey,
+        activityCatchUp: _matchingResumeActivityCatchUp(route, journey),
+      );
+    } finally {
+      _manualCompletionInFlight = false;
+    }
   }
 
   void _advanceToLeg(int index, {bool writeWorkoutOnCompletion = true}) {
@@ -1145,6 +1158,9 @@ class AppNotifier extends Notifier<AppState> {
       ),
       journeyManualCompletionAvailable: false,
     );
+    // 新しく案内する区間が徒歩なら、その区間に入った時点の歩数を基準に歩数到着待ちを
+    // 登録する（handoff や復帰より前に捕捉し、遅れて届く歩数を取りこぼさない）。
+    if (clamped > previous) _ensurePendingWalkCatchUp(route, clamped);
     // 全区間完了（番兵値）へ初めて到達した行程だけを HealthKit へ記録する。歩数は
     // 行程開始からの当日累計差分（外部 Google Maps 中の増分を含む）。期間は徒歩区間の
     // 実経過時間ぶんを、最後の徒歩区間の終了時刻を終点として配置する（電車のあとの徒歩は
@@ -1234,35 +1250,57 @@ class AppNotifier extends Notifier<AppState> {
     return _resumeActivityCatchUp;
   }
 
+  /// 復帰／handoff セッションの中断シグナル（完了待ちを打ち切る Completer）を張り替える。
+  /// 保留中の徒歩同期一覧は同じ行程のものなので消さず、古い完了待ちだけを superseded で
+  /// 終わらせて世代を進める。
   Completer<_JourneyActivityCatchUpResult> _startResumeActivityCatchUp(
     RoutePlan route,
     JourneyProgress journey,
   ) {
-    _supersedeResumeActivityCatchUp();
+    final old = _resumeActivityCatchUp;
+    if (old != null && !old.isCompleted) {
+      old.complete(_JourneyActivityCatchUpResult.superseded);
+    }
+    _journeyResumeGeneration++;
     final activityCatchUp = Completer<_JourneyActivityCatchUpResult>();
     _resumeActivityCatchUp = activityCatchUp;
     _resumeActivityCatchUpRoute = route;
     _resumeActivityCatchUpJourney = journey;
-    _resumeActivityCatchUpStartSteps = state.todaySteps;
-    _resumeActivityCatchUpLegIndex = journey.currentLegIndex;
     return activityCatchUp;
   }
 
-  /// handoff 開始後の歩数差分が、同期待機を開始した徒歩区間に対して十分反映されたかを
-  /// 判定する。journey の現在区間ではなく [_resumeActivityCatchUpLegIndex] を使うのは、
-  /// 徒歩 handoff の歩数が遅延したまま非最終区間として進み、最終の電車・バス区間で
-  /// 完了へ到達するケースを拾うため。到着自体は位置確認・手動操作で確定済みなので、
-  /// 計画距離の半分を同期根拠とし、経路短縮や pedometer の過少計測で正しい Workout を
-  /// 捨てすぎないようにする。
+  /// 徒歩区間 [legIndex] の歩数到着待ちを一覧へ登録する。電車・バス区間は歩数を生まない
+  /// ため登録しない。同じ区間が既に登録済みなら基準を巻き戻さない（閾値外で復帰して同じ
+  /// 区間を再 handoff しても、歩き切った歩数を捨てないため）。
+  void _ensurePendingWalkCatchUp(RoutePlan route, int legIndex) {
+    if (legAt(route, legIndex)?.type != SegmentType.walk) return;
+    if (_pendingWalkCatchUps.any((c) => c.legIndex == legIndex)) return;
+    _pendingWalkCatchUps.add((
+      legIndex: legIndex,
+      startSteps: state.todaySteps,
+    ));
+  }
+
+  /// 保留中の全徒歩区間の歩数が十分反映されたか。前の徒歩が未了のまま次区間へ進んだ場合も
+  /// 両方を検査し、先に前区間だけ追いついても現在区間の歩数を取りこぼして早期完了しない。
+  /// 保留が無ければ（電車・バスのみ到達）待つ意味がないため true。
   bool _hasJourneyActivityCaughtUp() {
     final route = _resumeActivityCatchUpRoute;
-    final legIndex = _resumeActivityCatchUpLegIndex;
-    final startSteps = _resumeActivityCatchUpStartSteps;
-    if (route == null || legIndex == null || startSteps == null) return false;
-    final leg = legAt(route, legIndex);
-    if (leg == null) return false;
-    if (leg.type != SegmentType.walk) return true;
-    final handoffSteps = state.todaySteps - startSteps;
+    if (route == null) return false;
+    if (_pendingWalkCatchUps.isEmpty) return true;
+    return _pendingWalkCatchUps.every((c) => _walkCatchUpSettled(route, c));
+  }
+
+  /// 徒歩区間 [c] の handoff 後歩数が閾値に達したか。到着自体は位置確認・手動操作で
+  /// 確定済みなので、計画距離の半分を同期根拠とし、経路短縮や pedometer の過少計測で
+  /// 正しい Workout を捨てすぎないようにする。
+  bool _walkCatchUpSettled(
+    RoutePlan route,
+    ({int legIndex, int startSteps}) c,
+  ) {
+    final leg = legAt(route, c.legIndex);
+    if (leg == null || leg.type != SegmentType.walk) return true;
+    final handoffSteps = state.todaySteps - c.startSteps;
     if (handoffSteps <= 0) return false;
     final plannedKm = leg.km ?? 0;
     final plannedThresholdKm =
@@ -1281,8 +1319,8 @@ class AppNotifier extends Notifier<AppState> {
     return ActivitySnapshot.fromSteps(handoffSteps).km >= requiredKm;
   }
 
-  /// 保持中の復帰歩数同期を無効化する。新しい復帰・行程開始・結果ハブ離脱では、
-  /// 以前の行程や復帰処理が後着して現在の進捗へ適用されないよう参照も破棄する。
+  /// 保持中の復帰歩数同期を無効化する。新しい行程・結果ハブ離脱では、以前の行程や復帰
+  /// 処理が後着して現在の進捗へ適用されないよう参照も破棄し、保留中の徒歩同期も一掃する。
   void _supersedeResumeActivityCatchUp() {
     _journeyResumeGeneration++;
     final activityCatchUp = _resumeActivityCatchUp;
@@ -1292,8 +1330,8 @@ class AppNotifier extends Notifier<AppState> {
     _resumeActivityCatchUp = null;
     _resumeActivityCatchUpRoute = null;
     _resumeActivityCatchUpJourney = null;
-    _resumeActivityCatchUpStartSteps = null;
-    _resumeActivityCatchUpLegIndex = null;
+    _pendingWalkCatchUps.clear();
+    _walkTimerLegIndex = null;
   }
 
   /// 自動到着・手動完了で共有する区間進行処理。最終区間かつ HealthKit 記録が有効で、

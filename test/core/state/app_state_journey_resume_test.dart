@@ -1424,6 +1424,130 @@ void main() {
       expect(h.health.written!.steps, 700);
     });
 
+    test('前区間が先に追いついても現在区間の歩数を待ってから Workout を書く', () async {
+      final h = await makeHarness(
+        plan: _twoEmptyWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 徒歩区間0の handoff（基準100）。部分値50だけ届く。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await settle();
+
+      // 徒歩区間1へ進み handoff（区間1の基準150）。
+      await notifier.advanceCurrentLegManually();
+      final leg1Journey = h.container.read(appStateProvider).journey;
+      expect(leg1Journey!.currentLegIndex, 1);
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: leg1Journey,
+        expectedLegIndex: 1,
+      );
+
+      // 区間0の遅延歩数が先に届く（区間0は追いつくが、区間1はまだ）。
+      // 区間0基準100→450で0.2625km(閾値0.25)超え。区間1基準150→450で0.225km(未達)。
+      h.activity.add(ActivitySnapshot.fromSteps(450));
+      await settle();
+      final completed = notifier.advanceCurrentLegManually();
+      await settle();
+      // 前区間だけ追いついても、現在区間の歩数を取りこぼして早期完了しない。
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+
+      // 区間1の歩数も届いたら総歩数で確定する。
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await completed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _twoEmptyWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
+    });
+
+    test('同じ徒歩区間の再handoffでは歩行時間の起点を巻き戻さない', () async {
+      final h = await makeHarness(
+        plan: _singleEmptyWalkPlan,
+        healthKitEnabled: true,
+        start: DateTime(2026, 7, 18, 9, 0),
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 9:00に最初のhandoff。歩行タイマーの起点は9:00。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+
+      // ノイズの多い測位で未到着のまま9:08に同じ区間を再handoff。起点を9:08へ
+      // 巻き戻すと、最初の8分の歩行が歩行時間から落ちてしまう。
+      h.clock.value = DateTime(2026, 7, 18, 9, 8);
+      final journey = h.container.read(appStateProvider).journey;
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: journey,
+        expectedLegIndex: 0,
+      );
+
+      // 9:10に歩数反映済みで最終到着。
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+      h.clock.value = DateTime(2026, 7, 18, 9, 10);
+      await notifier.advanceCurrentLegManually();
+      await settle();
+
+      expect(h.health.writeCount, 1);
+      final w = h.health.written!;
+      expect(w.steps, 500);
+      // 歩行は最初のhandoff 9:00〜9:10。再handoffの9:08で巻き戻さない。
+      expect(w.start, DateTime(2026, 7, 18, 9, 0));
+      expect(w.end, DateTime(2026, 7, 18, 9, 10));
+    });
+
+    test('手動完了の連打では1区間だけ進め次区間を飛ばさない', () async {
+      final h = await makeHarness(
+        plan: _twoEmptyWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      // ウィジェット再描画前の2連打を再現する。1回目の処理中は2回目を無視し、
+      // 1タップ＝1区間に留めて、まだ handoff していない次区間まで一気に完了しない。
+      final first = notifier.advanceCurrentLegManually();
+      final second = notifier.advanceCurrentLegManually();
+      await Future.wait([first, second]);
+      await settle();
+
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+    });
+
     test('計画距離が不明な徒歩は下限を保ち紛れ歩数で早期確定しない', () async {
       final h = await makeHarness(
         plan: _missingKmWalkPlan,
