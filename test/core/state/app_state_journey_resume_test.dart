@@ -425,6 +425,32 @@ void main() {
       expect(state.journey!.currentLegIndex, 1);
     });
 
+    test('全区間完了済みの行程は失効超過の復帰で経路を無効化して home へ戻す', () async {
+      final h = await makeHarness(start: DateTime(2026, 7, 18, 9, 0));
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      // 全区間を完了させる。currentLegIndex は番兵値になるが journey は残る。
+      notifier.advanceToLeg(sampleRoutePlan.segments.length);
+      await settle();
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        sampleRoutePlan.segments.length,
+      );
+
+      // 完了済み行程には保護すべき進行中 handoff が無い。失効超過の復帰では通常どおり
+      // 経路を無効化してホームへ戻し、失効した isNow 経路を残さない。
+      h.clock.value = DateTime(2026, 7, 18, 14, 40);
+      h.location.next = const LocationAvailable(_leg0End);
+      await notifier.onAppResumed();
+
+      final state = h.container.read(appStateProvider);
+      expect(state.route, isNull);
+      expect(state.journey, isNull);
+      expect(state.screen, Screen.home);
+    });
+
     test('journey が無ければ失効超過の復帰で従来どおり経路を無効化する', () async {
       final h = await makeHarness(start: DateTime(2026, 7, 18, 9, 0));
       final notifier = h.container.read(appStateProvider.notifier);

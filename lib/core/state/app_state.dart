@@ -1139,12 +1139,19 @@ class AppNotifier extends Notifier<AppState> {
     final now = _now();
     final onExpirableScreen =
         state.screen == Screen.result || state.screen == Screen.home;
-    // 行程進行中（journey != null）は失効しても経路を落とさない。5分超の徒歩区間を
+    // 進行中の区間を持つ行程だけは失効しても経路を落とさない。5分超の徒歩区間を
     // 外部地図で歩く間に必ず猶予を超過するため、ここで無効化すると歩行中の行程が消えて
     // ホームへ戻される。ナビ中に失効させない既存例外（_reevaluateJourneyLeg が nav を
-    // スキップするのと同じ理屈）に揃え、区間再評価へ進める。失効した now 経路の掃除は、
-    // 行程を持たない result/home でのみ行う。
-    if (state.journey == null &&
+    // スキップするのと同じ理屈）に揃え、区間再評価へ進める。全区間完了済み（番兵値で
+    // legAt が null）の行程は保護すべき handoff が無く、猶予切れの経路を掃除させないと
+    // ホームへ戻れないため、行程を持たない result/home と同じく失効させる。
+    final journey = state.journey;
+    final route = state.route;
+    final hasActiveJourneyLeg =
+        journey != null &&
+        route != null &&
+        legAt(route, journey.currentLegIndex) != null;
+    if (!hasActiveJourneyLeg &&
         onExpirableScreen &&
         state.isNowRouteExpired(now)) {
       _expireRoute(now);
