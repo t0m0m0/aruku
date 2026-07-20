@@ -1071,12 +1071,25 @@ class AppNotifier extends Notifier<AppState> {
         SegmentType.walk) {
       return;
     }
-    // 同じ区間の再 handoff（閾値外で復帰して再タップ等）では同期基準を巻き戻さない。
-    // ここで開始し直すと基準歩数が現在値へ進み、残距離の短い再 handoff が同期閾値を
-    // 満たせず、歩き切った行程の Workout を捨ててしまう。
-    if (_matchingResumeActivityCatchUp(expectedRoute, journey) == null ||
-        _resumeActivityCatchUpLegIndex != journey.currentLegIndex) {
-      _startResumeActivityCatchUp(expectedRoute, journey);
+    // 徒歩区間のタイマーは、前区間完了時ではなく CTA を押して外部地図へ発った瞬間から
+    // 計る。前区間完了〜起動までのハブ滞在・駅待ちを歩行時間（walkElapsed）に含めない。
+    state = state.copyWith(
+      journey: journey.copyWith(currentLegStartedAt: _now()),
+    );
+    final walkJourney = state.journey!;
+    // 同期基準の再開は次の条件でのみ行う。
+    // - 保持中の同期が無い（初回 handoff、または失効直後）
+    // - 別の徒歩区間へ移り、かつ前区間の徒歩歩数が既に追いついている
+    // 同じ区間の再 handoff（閾値外で復帰して再タップ等）では基準を巻き戻さない。基準が
+    // 現在値へ進むと、残距離の短い再 handoff が同期閾値を満たせず Workout を捨てるため。
+    // 前区間の徒歩歩数が未了のまま次の徒歩へ進む場合も張り替えない。張り替えると、後着
+    // する前区間の歩数を取りこぼしたまま次区間の歩数だけで早期完了してしまうため。
+    final hasMatching =
+        _matchingResumeActivityCatchUp(expectedRoute, walkJourney) != null;
+    final sameLeg =
+        _resumeActivityCatchUpLegIndex == walkJourney.currentLegIndex;
+    if (!hasMatching || (!sameLeg && _hasJourneyActivityCaughtUp())) {
+      _startResumeActivityCatchUp(expectedRoute, walkJourney);
     }
   }
 
@@ -1259,7 +1272,12 @@ class AppNotifier extends Notifier<AppState> {
         : plannedThresholdKm;
     // 下限（50m）が計画区間距離より長いと、区間を歩き切っても届かず同期不能になる。
     // 駅出口すぐの数十m徒歩などでは計画距離で頭打ちにし、全歩数が来れば確定できるようにする。
-    final requiredKm = flooredKm > plannedKm ? plannedKm : flooredKm;
+    // ただし計画距離が不明（geometry 欠落で km=0）の区間で 0 まで潰すと、乗車中の紛れ
+    // 歩数1歩で即時に同期成立し、後着する実歩数を待たず早期確定してしまう。距離が取れる
+    // ときだけ頭打ちにし、不明なときは下限を維持する。
+    final requiredKm = plannedKm > 0 && flooredKm > plannedKm
+        ? plannedKm
+        : flooredKm;
     return ActivitySnapshot.fromSteps(handoffSteps).km >= requiredKm;
   }
 

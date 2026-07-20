@@ -314,6 +314,61 @@ const _shortFinalWalkPlan = RoutePlan(
   timelineNodes: [],
 );
 
+/// 長い徒歩→短い最終徒歩。前区間の歩数が未了のまま次の徒歩へ進む場合に、
+/// 短い最終区間の歩数だけで早期完了させないことを固定する。
+const _longThenShortWalkPlan = RoutePlan(
+  from: 'A',
+  to: 'C',
+  totalKm: 0.53,
+  totalMin: 11,
+  budgetMin: 30,
+  kcal: 27,
+  walkKm: 0.53,
+  walkRatio: 1.0,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A',
+      toName: 'B',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+    ),
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'B',
+      toName: 'C',
+      km: 0.03,
+      minutes: 1,
+      kcal: 2,
+    ),
+  ],
+  timelineNodes: [],
+);
+
+/// 計画距離が欠落した徒歩区間（geometry 欠落で km 不明、分数は正）。同期下限を
+/// 保ち、乗車中の紛れ歩数1歩では早期確定しないことを固定する。
+const _missingKmWalkPlan = RoutePlan(
+  from: 'A',
+  to: 'B',
+  totalKm: 0.5,
+  totalMin: 10,
+  budgetMin: 30,
+  kcal: 25,
+  walkKm: 0.5,
+  walkRatio: 1.0,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A',
+      toName: 'B',
+      minutes: 10,
+      kcal: 25,
+    ),
+  ],
+  timelineNodes: [],
+);
+
 /// 徒歩区間0（[sampleRoutePlan]）の終点座標。到着とみなされる位置。
 const _leg0End = GeoPoint(35.6703, 139.7027);
 
@@ -1260,6 +1315,147 @@ void main() {
       // 徒歩の実区間 9:30〜9:40。行程開始の 9:00 には寄せない。
       expect(w.start, DateTime(2026, 7, 18, 9, 30));
       expect(w.end, DateTime(2026, 7, 18, 9, 40));
+    });
+
+    test('徒歩タイマーは前区間完了ではなくhandoff起動から計る', () async {
+      final h = await makeHarness(
+        plan: _trainThenWalkPlan,
+        healthKitEnabled: true,
+        start: DateTime(2026, 7, 18, 9, 0),
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 電車区間の handoff で行程開始（9:00）。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+
+      // 電車で原宿着 9:30 → 徒歩区間へ。
+      h.clock.value = DateTime(2026, 7, 18, 9, 30);
+      h.location.next = const LocationAvailable(GeoPoint(35.10, 139.10));
+      await notifier.onAppResumed();
+      await settle();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+      // 駅で5分待ってから徒歩CTAを起動（9:35）。この待ちは歩行時間に含めない。
+      h.clock.value = DateTime(2026, 7, 18, 9, 35);
+      final walkJourney = h.container.read(appStateProvider).journey;
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: walkJourney,
+        expectedLegIndex: 1,
+      );
+
+      // 徒歩の歩数が反映され、9:45に最終到着。
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+      h.clock.value = DateTime(2026, 7, 18, 9, 45);
+      h.location.next = const LocationAvailable(GeoPoint(35.20, 139.20));
+      await notifier.onAppResumed();
+      await settle();
+
+      expect(h.health.writeCount, 1);
+      final w = h.health.written!;
+      expect(w.steps, 500);
+      // 徒歩は 9:35（CTA起動）〜9:45。前区間完了の 9:30 からではない。
+      expect(w.start, DateTime(2026, 7, 18, 9, 35));
+      expect(w.end, DateTime(2026, 7, 18, 9, 45));
+    });
+
+    test('前徒歩の同期が未了なら次の徒歩handoffで基準を張り替えない', () async {
+      final h = await makeHarness(
+        plan: _longThenShortWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 長い徒歩区間の handoff（基準100）。歩数はまだ部分値50しか届かない。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await settle();
+
+      // 手動で短い最終徒歩へ進む（非最終なので待たない）。
+      await notifier.advanceCurrentLegManually();
+      final shortJourney = h.container.read(appStateProvider).journey;
+      expect(shortJourney!.currentLegIndex, 1);
+
+      // 短い最終徒歩の handoff。前区間の徒歩歩数が未了のため、基準を張り替えて
+      // 短い区間の閾値だけで早期完了させてはいけない。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: shortJourney,
+        expectedLegIndex: 1,
+      );
+
+      // 短い区間の閾値(0.03km=40歩)は満たすが、長い前区間(0.25km)には足りない歩数。
+      h.activity.add(ActivitySnapshot.fromSteps(250));
+      await settle();
+      final completed = notifier.advanceCurrentLegManually();
+      await settle();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+
+      // 前区間ぶんの歩数が遅れて届いたら、取りこぼさず総歩数で確定する。
+      h.activity.add(ActivitySnapshot.fromSteps(800));
+      await completed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _longThenShortWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 700);
+    });
+
+    test('計画距離が不明な徒歩は下限を保ち紛れ歩数で早期確定しない', () async {
+      final h = await makeHarness(
+        plan: _missingKmWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      // geometry 欠落で自動到着に進めず、手動完了へ。
+      h.location.next = const LocationDenied();
+      await notifier.onAppResumed();
+      final completed = notifier.advanceCurrentLegManually();
+      await settle();
+      expect(h.health.writeCount, 0);
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 0);
+
+      // 下限50m(約67歩)未満の紛れ歩数30歩では確定させない。計画距離0で下限を
+      // 0まで潰すと1歩で成立してしまうため、下限を維持する。
+      h.activity.add(ActivitySnapshot.fromSteps(130));
+      await completed;
+      await settle();
+
+      // 行程は完了へ進むが、不正確な Workout は書かない。
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _missingKmWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 0);
     });
 
     test('電車のみの経路は乗車中の紛れ歩数があっても Workout を書かない', () async {
