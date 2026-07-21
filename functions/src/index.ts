@@ -608,18 +608,32 @@ type RawHandler = (req: Request, res: Response) => void | Promise<void>;
 //
 // search_request（#274・上流区間のみ）とは別イベント（#309・logRequestLatency）にして
 // 計上を汚さない。上流を一度も叩かない要求（キャッシュヒット・早期 return）でも出す。
-function withRequestLatency(endpoint: string, handler: RawHandler): RawHandler {
+// テスト互換のため export する（例外時の 500 記録を直接検証する）。
+export function withRequestLatency(
+  endpoint: string,
+  handler: RawHandler
+): RawHandler {
   return async (req, res) => {
     const start = Date.now();
+    let threw = false;
     try {
       await handler(req, res);
+    } catch (e) {
+      threw = true;
+      throw e;
     } finally {
       // OPTIONS プリフライトは実検索ではなくレイテンシ分布を汚すため除外する。
       if (req.method !== "OPTIONS") {
+        // ハンドラが status を書く前に throw すると Express は既定の 200 のまま finally に
+        // 入り、プラットフォームが後から 500 に変換する。ここで res.statusCode をそのまま
+        // 信じると失敗リクエストを 200 として記録し、status 別のレイテンシ/エラー分析から
+        // 隠してしまう。未書き込み（<400）のまま throw した経路は 500 として記録する。
+        const written =
+          typeof res.statusCode === "number" ? res.statusCode : 200;
         logRequestLatency({
           endpoint,
           totalLatencyMs: Date.now() - start,
-          httpStatus: res.statusCode ?? 200,
+          httpStatus: threw && written < 400 ? 500 : written,
         });
       }
     }

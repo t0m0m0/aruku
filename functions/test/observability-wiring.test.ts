@@ -71,6 +71,7 @@ import {
   navitimeProxy,
   resetRateLimit as resetRateLimitFromIndex,
   verifyAppCheck,
+  withRequestLatency,
 } from "../src/index";
 import { resetUpstreamCache } from "../src/upstream-cache";
 
@@ -405,6 +406,32 @@ describe("request_latency イベント配線（ハンドラ全体レイテンシ
     );
     expect(res.statusCode).toBe(204);
     expect(logRequestLatencyMock).not.toHaveBeenCalled();
+  });
+
+  it("ハンドラが status を書く前に throw したら 500 として記録し例外は伝播する", async () => {
+    // status 未書き込みの例外は Express の既定 200 のまま finally に入る。これを 200 と
+    // 記録すると失敗が成功に紛れるため、500 に寄せる（プラットフォームの 500 変換に合わせる）。
+    const wrapped = withRequestLatency("navitimeProxy", async () => {
+      throw new Error("boom");
+    });
+    const res = makeRes();
+    await expect(
+      wrapped(makeReq({}) as unknown as Request, res as unknown as Response)
+    ).rejects.toThrow("boom");
+    expect(logRequestLatencyMock).toHaveBeenCalledTimes(1);
+    expect(logRequestLatencyMock.mock.calls[0][0].httpStatus).toBe(500);
+  });
+
+  it("ハンドラが 4xx/5xx を書いてから throw したらその status を保つ", async () => {
+    const wrapped = withRequestLatency("navitimeProxy", async (_req, res) => {
+      res.status(502);
+      throw new Error("boom after 502");
+    });
+    const res = makeRes();
+    await expect(
+      wrapped(makeReq({}) as unknown as Request, res as unknown as Response)
+    ).rejects.toThrow("boom after 502");
+    expect(logRequestLatencyMock.mock.calls[0][0].httpStatus).toBe(502);
   });
 });
 
