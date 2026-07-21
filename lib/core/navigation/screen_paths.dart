@@ -18,8 +18,6 @@ extension ScreenPath on Screen {
     Screen.searchOrigin => '/home/search-origin',
     Screen.loading => '/home/loading',
     Screen.result => '/home/result',
-    Screen.nav => '/home/nav',
-    Screen.complete => '/home/complete',
     Screen.error => '/home/error',
   };
 

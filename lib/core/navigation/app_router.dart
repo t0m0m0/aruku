@@ -5,8 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../../features/error/error_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/loading/loading_screen.dart';
-import '../../features/navigation/complete_screen.dart';
-import '../../features/navigation/nav_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/result/result_screen.dart';
 import '../../features/search/search_screen.dart';
@@ -60,7 +58,7 @@ CustomTransitionPage<void> _page(GoRouterState state, Widget child) {
 /// path 比較、go_router 自身の同一 location no-op。
 ///
 /// ネスト構造は旧 _Root の PopScope 手動分岐を実 pop で再現する:
-/// settings/search/result/nav/error→home。
+/// settings/search/result/error→home。
 /// home・onboarding・loading は PopScope(canPop: false) で back を無効化し、
 /// 「back でアプリが終了しない」現行仕様を維持する。
 final goRouterProvider = Provider<GoRouter>((ref) {
@@ -70,15 +68,19 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     // では可能になる。表示前提データを欠く場合は home へ跳ね返す。
     redirect: (context, state) {
       final app = ref.read(appStateProvider);
+      final requestedPath = state.uri.path;
+      final target = ScreenPath.fromLocation(requestedPath);
+      // 未登録の location（削除済み /home/nav・/home/complete やタイプミスの
+      // deep link）は go_router に一致するルートが無く既定エラーページになる。
+      // fromLocation は安全側の home へ解決するので、その正規パスへ明示的に redirect
+      // して未知 location の戻り先を home に集約する（#312）。
+      if (target.path != requestedPath) return target.path;
       // 失効した isNow 経路（#264）は「表示前提データ欠落」と同じく home へ跳ね返す。
       // deep link・ブラウザ履歴・home 退避後の再入場など router 由来の遷移はすべて
       // ここを通るため、失効判定をここへ集約すると全経路で一貫する（go_router が権威）。
       final expired = app.isNowRouteExpired(ref.read(nowProvider)());
-      final missingPrerequisite = switch (ScreenPath.fromLocation(
-        state.uri.path,
-      )) {
-        Screen.result || Screen.nav => app.route == null || expired,
-        Screen.complete => app.walkSummary == null,
+      final missingPrerequisite = switch (target) {
+        Screen.result => app.route == null || expired,
         Screen.loading => app.routePhase == null,
         Screen.error => app.routeErrorKind == null,
         _ => false,
@@ -122,15 +124,6 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: 'result',
             pageBuilder: (context, state) => _page(state, const ResultScreen()),
-          ),
-          GoRoute(
-            path: 'nav',
-            pageBuilder: (context, state) => _page(state, const NavScreen()),
-          ),
-          GoRoute(
-            path: 'complete',
-            pageBuilder: (context, state) =>
-                _page(state, const CompleteScreen()),
           ),
           GoRoute(
             path: 'error',

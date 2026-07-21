@@ -23,8 +23,7 @@ class JourneyProgress {
 
   /// 開始時点で履歴ロードが完了し基準歩数が確定していたか。未確定（false）だと
   /// [startSteps] が 0 で捕捉され、完了時の差分に当日の既存歩数が混ざって過大計上に
-  /// なるため、行程完了の HealthKit 書き込みをこのフラグでガードする（nav セッションの
-  /// `_sessionBaselineValid` と同じ役割）。
+  /// なるため、行程完了の HealthKit 書き込みをこのフラグでガードする。
   final bool startBaselineValid;
 
   /// 現在区間の計時を始めた時刻。徒歩区間はこの時刻を区間ワークアウトの開始とする。

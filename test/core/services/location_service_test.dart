@@ -11,17 +11,11 @@ class _FakeLocationService implements LocationService {
 
   @override
   Future<LocationState> request() async => _result;
-
-  @override
-  Stream<GeoPoint> positionStream() => const Stream.empty();
 }
 
 class _ThrowingLocationService implements LocationService {
   @override
   Future<LocationState> request() => Future.error(Exception('GPS error'));
-
-  @override
-  Stream<GeoPoint> positionStream() => const Stream.empty();
 }
 
 ProviderContainer _makeContainer(LocationService service) {

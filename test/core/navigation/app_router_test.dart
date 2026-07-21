@@ -183,35 +183,44 @@ void main() {
       expect(find.byType(HomeScreen), findsOneWidget);
     });
 
-    testWidgets('失効した isNow 経路への /home/nav deep link は home へ跳ね返す', (
+    testWidgets('削除済み /home/nav への deep link は home へ寄せる（エラー画面を出さない）', (
       tester,
     ) async {
-      var clock = DateTime(2026, 7, 13, 9, 25);
-      final container = await makeContainer(
-        routeService: const FixedRouteService(testRoutePlan),
-        now: () => clock,
-      );
+      final container = await makeContainer();
       addTearDown(container.dispose);
       final router = container.read(goRouterProvider);
 
       await tester.pumpWidget(routerApp(container));
       await pumpTransition(tester);
 
-      container
-          .read(appStateProvider.notifier)
-          .setDestination('渋谷駅', latLng: const GeoPoint(35.658, 139.702));
-      await container.read(appStateProvider.notifier).startSearch();
-      await tester.pump();
-
-      clock = DateTime(2026, 7, 13, 9, 31);
+      // ブラウザ履歴・外部 deep link に残った旧 nav パスは未登録ルート。
+      // 既定のエラーページではなく安全側の home へ寄せる（#312）。
       router.go('/home/nav');
       await pumpTransition(tester);
 
+      expect(find.byType(HomeScreen), findsOneWidget);
       expect(
         router.routerDelegate.currentConfiguration.uri.path,
         Screen.home.path,
       );
+    });
+
+    testWidgets('削除済み /home/complete への deep link は home へ寄せる', (tester) async {
+      final container = await makeContainer();
+      addTearDown(container.dispose);
+      final router = container.read(goRouterProvider);
+
+      await tester.pumpWidget(routerApp(container));
+      await pumpTransition(tester);
+
+      router.go('/home/complete');
+      await pumpTransition(tester);
+
       expect(find.byType(HomeScreen), findsOneWidget);
+      expect(
+        router.routerDelegate.currentConfiguration.uri.path,
+        Screen.home.path,
+      );
     });
   });
 }

@@ -17,9 +17,6 @@ class _FakeLocationService implements LocationService {
 
   @override
   Future<LocationState> request() async => result;
-
-  @override
-  Stream<GeoPoint> positionStream() => const Stream.empty();
 }
 
 /// autocomplete は 1 件返すが fetchLatLng は座標を返さない（または例外）。
