@@ -101,6 +101,8 @@ dart run tool/route_metrics_agg.dart device.log        # ファイル
 flutter run | dart run tool/route_metrics_agg.dart     # パイプ
 ```
 
+採取から集計までは **`tool/run_metrics.sh`** が実機で一括する（profile 起動＝定性ログ抑制・実機相当レイテンシ）。無線接続で Dart VM Service が繋がらず `flutter run` が止まる場合は、USB 接続にするか `tool/run_metrics.sh --logs-only`（`flutter logs` の syslog ストリームで VM Service 不要・無線可）を使う。
+
 #310（乗車駅探索の徒歩評価を matrix へバッチ化）は発火率が低ければ費用対効果が限定的なため、この集計で発火率を確認してから着手可否を決める。
 
 ---
