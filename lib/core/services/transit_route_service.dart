@@ -186,6 +186,7 @@ class TransitRouteService implements SearchEngine {
     metrics
       ..totalMs = totalSw.elapsedMilliseconds
       ..guidanceCalls = _api.guidanceCalls
+      ..guidanceDupCalls = _api.guidanceDupCalls
       ..walkCalls = _api.walkCalls
       ..matrixCalls = _api.matrixCalls;
     _diag.logMetrics(metrics);

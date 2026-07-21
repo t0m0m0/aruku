@@ -73,6 +73,24 @@ void main() {
       expect(captured.queryParameters['avoidModes'], 'ferry,air');
     });
 
+    test('同一リクエストの再発行を guidanceDupCalls に数える（enrich 削減の実測）', () async {
+      final client = _client(MockClient((req) async => _json({'ok': true})));
+      const from = GeoPoint(35.1, 139.2);
+      const to = GeoPoint(35.3, 139.4);
+      final at = DateTime(2026, 6, 27, 9, 5);
+
+      await client.fetchGuidanceAt(from, to, at); // 初回＝ユニーク
+      await client.fetchGuidanceAt(from, to, at); // 同一 URI＝重複
+      await client.fetchGuidanceAt(from, to, at); // 同一 URI＝重複
+      // 目的地違いは別 URI＝重複でない。
+      await client.fetchGuidanceAt(from, const GeoPoint(35.9, 139.9), at);
+      // モード違い（allowBus）も avoidModes が変わり別 URI。
+      await client.fetchGuidanceAt(from, to, at, allowBus: true);
+
+      expect(client.guidanceCalls, 5);
+      expect(client.guidanceDupCalls, 2);
+    });
+
     test('非200は RouteException(HTTP <code>)', () async {
       final client = _client(MockClient((req) async => _json(const {}, 503)));
       expect(

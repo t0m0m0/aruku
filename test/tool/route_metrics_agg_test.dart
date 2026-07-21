@@ -12,6 +12,7 @@ void main() {
         ..collapseFired = true
         ..boardSearchActivated = true
         ..guidanceCalls = 4
+        ..guidanceDupCalls = 2
         ..walkCalls = 6
         ..matrixCalls = 2
         ..guidanceMs = 900
@@ -29,6 +30,7 @@ void main() {
       expect(sample.boardSearch, isTrue);
       expect(sample.http, m.httpRoundTrips);
       expect(sample.guidanceCalls, 4);
+      expect(sample.guidanceDupCalls, 2);
       expect(sample.walkCalls, 6);
       expect(sample.matrixCalls, 2);
       expect(sample.guidanceMs, 900);
@@ -120,6 +122,20 @@ void main() {
       expect(agg.count, 0);
       expect(agg.collapseRate, 0.0);
       expect(agg.boardSearchRate, 0.0);
+    });
+
+    test('guidance重複率＝dup÷calls（キャッシュで消せる上限）', () {
+      final agg = aggregate([
+        parseRouteMetricsLine(
+          '[route-metrics] collapse=0 boardSearch=0 http=58 guidanceCalls=40 '
+          'walkCalls=14 matrixCalls=4 guidanceDupCalls=30 guidanceMs=9000 '
+          'hybridMs=1000 enrichMs=80000 boardSearchMs=0 alternativesMs=15000 '
+          'finalizeMs=0 totalMs=105000',
+        )!,
+      ]);
+      expect(agg.guidanceDupCalls.mean, 30);
+      expect(agg.guidanceDupRate, closeTo(0.75, 1e-9));
+      expect(formatAggregation(agg), contains('guidance重複率'));
     });
 
     test('フェーズ別平均と残差を集計する（どこで時間を使うか）', () {

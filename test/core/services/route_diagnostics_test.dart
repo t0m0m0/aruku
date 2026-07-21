@@ -85,6 +85,7 @@ void main() {
         ..collapseFired = true
         ..boardSearchActivated = true
         ..guidanceCalls = 3
+        ..guidanceDupCalls = 1
         ..walkCalls = 10
         ..matrixCalls = 2
         ..guidanceMs = 1200
@@ -98,6 +99,7 @@ void main() {
         m.toLogLine(),
         'collapse=1 boardSearch=1 http=15 '
         'guidanceCalls=3 walkCalls=10 matrixCalls=2 '
+        'guidanceDupCalls=1 '
         'guidanceMs=1200 hybridMs=500 enrichMs=2600 boardSearchMs=3400 '
         'alternativesMs=800 finalizeMs=300 totalMs=9000',
       );
@@ -112,6 +114,7 @@ void main() {
         m.toLogLine(),
         'collapse=0 boardSearch=0 http=5 '
         'guidanceCalls=1 walkCalls=4 matrixCalls=0 '
+        'guidanceDupCalls=0 '
         'guidanceMs=0 hybridMs=0 enrichMs=0 boardSearchMs=0 '
         'alternativesMs=0 finalizeMs=0 totalMs=0',
       );

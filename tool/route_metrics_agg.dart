@@ -21,6 +21,7 @@ class RouteMetricSample {
     required this.boardSearch,
     required this.http,
     required this.guidanceCalls,
+    required this.guidanceDupCalls,
     required this.walkCalls,
     required this.matrixCalls,
     required this.guidanceMs,
@@ -36,6 +37,7 @@ class RouteMetricSample {
   final bool boardSearch;
   final int http;
   final int guidanceCalls;
+  final int guidanceDupCalls;
   final int walkCalls;
   final int matrixCalls;
   final int guidanceMs;
@@ -69,6 +71,7 @@ RouteMetricSample? parseRouteMetricsLine(String line) {
     boardSearch: at('boardSearch') == 1,
     http: at('http'),
     guidanceCalls: at('guidanceCalls'),
+    guidanceDupCalls: at('guidanceDupCalls'),
     walkCalls: at('walkCalls'),
     matrixCalls: at('matrixCalls'),
     guidanceMs: at('guidanceMs'),
@@ -145,6 +148,7 @@ class MetricsAggregation {
     required this.boardSearchCount,
     required this.http,
     required this.guidanceCalls,
+    required this.guidanceDupCalls,
     required this.walkCalls,
     required this.matrixCalls,
     required this.totalMs,
@@ -165,6 +169,7 @@ class MetricsAggregation {
 
   final MetricStats http;
   final MetricStats guidanceCalls;
+  final MetricStats guidanceDupCalls;
   final MetricStats walkCalls;
   final MetricStats matrixCalls;
   final MetricStats totalMs;
@@ -185,6 +190,13 @@ class MetricsAggregation {
 
   double get collapseRate => count == 0 ? 0.0 : collapseCount / count;
   double get boardSearchRate => count == 0 ? 0.0 : boardSearchCount / count;
+
+  /// guidance 重複率＝重複本数 ÷ 総 guidance 本数（平均ベース）。guidance キャッシュを
+  /// 噛ませたら消せる往復の割合の見込み。enrich 削減の費用対効果の一次指標。
+  double get guidanceDupRate {
+    final calls = guidanceCalls.mean ?? 0;
+    return calls == 0 ? 0.0 : (guidanceDupCalls.mean ?? 0) / calls;
+  }
 
   /// 計測フェーズの平均所要の合計（残差＝total平均 − これ が未帰属の目安）。
   double get measuredPhaseMeanSum => [
@@ -211,6 +223,7 @@ MetricsAggregation aggregate(List<RouteMetricSample> samples) {
     boardSearchCount: samples.where((s) => s.boardSearch).length,
     http: statsOf([for (final s in samples) s.http]),
     guidanceCalls: statsOf([for (final s in samples) s.guidanceCalls]),
+    guidanceDupCalls: statsOf([for (final s in samples) s.guidanceDupCalls]),
     walkCalls: statsOf([for (final s in samples) s.walkCalls]),
     matrixCalls: statsOf([for (final s in samples) s.matrixCalls]),
     totalMs: statsOf([for (final s in samples) s.totalMs]),
@@ -295,9 +308,11 @@ String formatAggregation(MetricsAggregation a) {
     ..writeln('--- 全体分布 ---')
     ..writeln(_statLine('http往復', a.http))
     ..writeln(_statLine('guidanceCalls', a.guidanceCalls))
+    ..writeln(_statLine('guidanceDup(重複)', a.guidanceDupCalls))
     ..writeln(_statLine('walkCalls', a.walkCalls))
     ..writeln(_statLine('matrixCalls', a.matrixCalls))
     ..writeln(_statLine('totalMs', a.totalMs))
+    ..writeln('guidance重複率（キャッシュで消せる上限）: ${_pct(a.guidanceDupRate)}')
     ..writeln(_phaseBreakdown(a))
     ..writeln('--- collapse=1 サブセット（#310 が動かすレバー） ---')
     ..writeln(_statLine('walkCalls(崩壊時)', a.collapseWalkCalls))
