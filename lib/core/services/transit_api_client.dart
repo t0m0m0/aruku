@@ -58,6 +58,26 @@ class TransitApiClient {
   /// `/guidance/plan` で取得する候補数。
   static const int _numItineraries = 5;
 
+  // 上流 HTTP 往復本数の実測（#309）。「実際に GET を発行した回数」を種別ごとに数える。
+  // 締切切れ・キャンセルで発行前に落ちた要求は往復していないので数えない（[_getOrTimeout]
+  // が発行直前にだけ [onIssued] を呼ぶ）。成功・失敗は問わない——本数は叩いた回数であって
+  // 成功回数ではない（マトリクスの null 縮退でも往復はしている）。
+  int _guidanceCalls = 0;
+  int _walkCalls = 0;
+  int _matrixCalls = 0;
+
+  /// `/guidance/plan` の実 HTTP 往復本数（初回＋引き直し）。
+  int get guidanceCalls => _guidanceCalls;
+
+  /// Google 徒歩ルート（enrich）の実 HTTP 往復本数。
+  int get walkCalls => _walkCalls;
+
+  /// Google 徒歩マトリクスの実 HTTP 往復本数。
+  int get matrixCalls => _matrixCalls;
+
+  /// 全種別の実 HTTP 往復本数の合計（1検索あたりの上流負荷の実測）。
+  int get roundTrips => _guidanceCalls + _walkCalls + _matrixCalls;
+
   /// 正規化済みの Transit API ベース URL（テスト・観測用）。
   String get transitBaseUrl => _transitBaseUrl;
 
@@ -90,7 +110,11 @@ class TransitApiClient {
             .join(','),
       },
     );
-    final res = await _getOrTimeout(_transit, uri);
+    final res = await _getOrTimeout(
+      _transit,
+      uri,
+      onIssued: () => _guidanceCalls++,
+    );
     if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
     return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
   }
@@ -109,7 +133,7 @@ class TransitApiClient {
       return await _fetchProxyArray('googleWalkMatrixProxy', {
         'origins': join(origins),
         'destinations': join(dests),
-      });
+      }, onIssued: () => _matrixCalls++);
     } on RouteException {
       return null;
     }
@@ -121,28 +145,40 @@ class TransitApiClient {
       _fetchProxy('googleWalkProxy', {
         'start': '${origin.lat},${origin.lng}',
         'goal': '${dest.lat},${dest.lng}',
-      });
+      }, onIssued: () => _walkCalls++);
 
   Future<Map<String, dynamic>> _fetchProxy(
     String path,
-    Map<String, String> params,
-  ) async {
+    Map<String, String> params, {
+    required void Function() onIssued,
+  }) async {
     final uri = Uri.parse(
       '$_proxyBaseUrl/$path',
     ).replace(queryParameters: params);
-    final res = await _getOrTimeout(_proxy, uri, deadlineApplies: false);
+    final res = await _getOrTimeout(
+      _proxy,
+      uri,
+      deadlineApplies: false,
+      onIssued: onIssued,
+    );
     if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
     return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
   }
 
   Future<List<dynamic>> _fetchProxyArray(
     String path,
-    Map<String, String> params,
-  ) async {
+    Map<String, String> params, {
+    required void Function() onIssued,
+  }) async {
     final uri = Uri.parse(
       '$_proxyBaseUrl/$path',
     ).replace(queryParameters: params);
-    final res = await _getOrTimeout(_proxy, uri, deadlineApplies: false);
+    final res = await _getOrTimeout(
+      _proxy,
+      uri,
+      deadlineApplies: false,
+      onIssued: onIssued,
+    );
     if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
     final decoded = jsonDecode(utf8.decode(res.bodyBytes));
     if (decoded is! List) throw const RouteException('MATRIX_NOT_ARRAY');
@@ -180,11 +216,15 @@ class TransitApiClient {
     http.Client client,
     Uri uri, {
     bool deadlineApplies = true,
+    void Function()? onIssued,
   }) async {
     cancellation?.throwIfCanceled();
     final remaining = deadlineApplies ? deadline.remaining : null;
     if (remaining == Duration.zero) throw const RouteException('TIMEOUT');
     try {
+      // 往復本数の計上（#309）は「発行が確定した瞬間」にだけ行う。キャンセル・締切切れで
+      // 上の 2 ガードに掛かった要求は往復していないので数えない。
+      onIssued?.call();
       final request = client.get(uri);
       return await (remaining == null ? request : request.timeout(remaining));
     } on TimeoutException {

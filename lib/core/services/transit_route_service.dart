@@ -49,6 +49,7 @@ class TransitRouteService implements SearchEngine {
     DateTime Function()? clock,
     CancellationToken? cancellation,
     SearchDeadline deadline = const SearchDeadline.none(),
+    void Function(RouteSearchMetrics)? onMetrics,
   }) : _api = TransitApiClient(
          transitClient: transitClient,
          proxyClient: proxyClient,
@@ -58,7 +59,8 @@ class TransitRouteService implements SearchEngine {
          deadline: deadline,
        ),
        _deadline = deadline,
-       _clock = clock ?? DateTime.now;
+       _clock = clock ?? DateTime.now,
+       _onMetrics = onMetrics;
 
   /// Transit API / Google プロキシへの HTTP 通信（#169）。
   final TransitApiClient _api;
@@ -75,6 +77,11 @@ class TransitRouteService implements SearchEngine {
 
   /// 選定の診断ログ整形（#169）。`verbose` は既定で [kDebugMode]。
   final RouteDiagnostics _diag = const RouteDiagnostics();
+
+  /// 1検索分の定量指標（#309）の受け取り口。既定 null（本番は [_diag] のログ出力のみ）。
+  /// テストが発火率・本数を debugPrint パースなしで検証するための注入点（[plan] 完了時に
+  /// 1回だけ呼ぶ）。[onProgress] と同じく副作用の観測を外へ委ねる流儀。
+  final void Function(RouteSearchMetrics)? _onMetrics;
 
   /// 採用候補を enrich（街路実測）で検証して選び直す試行上限。
   static const int _maxEnrichAttempts = 8;
@@ -142,20 +149,27 @@ class TransitRouteService implements SearchEngine {
     if (destinationLatLng == null) throw const RouteException('NO_DESTINATION');
     final budgetMin = budgetMinutes(departure, arrival);
 
+    // 定量指標（#309）は plan 入口〜確定までを1オブジェクトに集約する。ZERO_RESULTS 等で
+    // 途中離脱した検索は集計対象にしない——器を作るのは初回 guidance が成功した後にする。
+    final metrics = RouteSearchMetrics();
+    final totalSw = Stopwatch()..start();
+
     onProgress?.call(RoutePhase.routing);
 
     final departureAt = _departureDateTime(departure);
+    final guidanceSw = Stopwatch()..start();
     final body = await _api.fetchGuidanceAt(
       origin,
       destinationLatLng,
       departureAt,
     );
+    metrics.guidanceMs = guidanceSw.elapsedMilliseconds;
     final options = parseGuidancePlan(body);
     if (options.isEmpty) throw const RouteException('ZERO_RESULTS');
 
     onProgress?.call(RoutePhase.walkability);
 
-    return _selectMeasured(
+    final plan = await _selectMeasured(
       options,
       budgetMin,
       departure,
@@ -164,7 +178,20 @@ class TransitRouteService implements SearchEngine {
       onProgress: onProgress,
       fromName: originName,
       toName: destination,
+      metrics: metrics,
     );
+
+    // 上流本数は API クライアントの実測カウンタから、全体時間は Stopwatch から確定させ、
+    // 1検索分の指標を1行に出す。search_request（#274）とは独立の可視化なので計上を汚さない。
+    metrics
+      ..totalMs = totalSw.elapsedMilliseconds
+      ..guidanceCalls = _api.guidanceCalls
+      ..walkCalls = _api.walkCalls
+      ..matrixCalls = _api.matrixCalls;
+    _diag.logMetrics(metrics);
+    _onMetrics?.call(metrics);
+
+    return plan;
   }
 
   @override
@@ -179,6 +206,7 @@ class TransitRouteService implements SearchEngine {
     TimeValue departure, {
     required GeoPoint origin,
     required GeoPoint goal,
+    required RouteSearchMetrics metrics,
     void Function(RoutePhase)? onProgress,
     String? fromName,
     String? toName,
@@ -296,8 +324,13 @@ class TransitRouteService implements SearchEngine {
     final collapseOptions = busOptions == null
         ? options
         : [...options, ...busOptions!];
-    if ((base != null || busBase != null) &&
-        _isCollapse(selected.chosen, collapseOptions, budgetMin, departureAt)) {
+    final collapse =
+        (base != null || busBase != null) &&
+        _isCollapse(selected.chosen, collapseOptions, budgetMin, departureAt);
+    metrics.collapseFired = collapse;
+    if (collapse) {
+      metrics.boardSearchActivated = true;
+      final boardSw = Stopwatch()..start();
       _diag.log(() => 'collapse=true → board-search フォールバック起動');
       // 電車系（base）とバス系（busBase）は基準コリドーが独立なので並列に走らせる
       // （#304）。各系統は O(log corridorStops) ラウンド × Transit API を直列に積む
@@ -369,6 +402,7 @@ class TransitRouteService implements SearchEngine {
       } else {
         _diag.log(() => '徒歩最大化候補: なし');
       }
+      metrics.boardSearchMs = boardSw.elapsedMilliseconds;
     } else if (base != null || busBase != null) {
       _diag.log(() => 'collapse=false → フォールバック起動せず');
     }
@@ -388,7 +422,9 @@ class TransitRouteService implements SearchEngine {
       relaxBudget: selected.relaxBudget,
     );
 
+    final finalizeSw = Stopwatch()..start();
     final named = await _finalizeStationNames(selected.enriched, departureAt);
+    metrics.finalizeMs = finalizeSw.elapsedMilliseconds;
     _diag.log(
       () => '=== FINAL: ${_diag.candLine(named, budgetMin, departureAt)} ===',
     );

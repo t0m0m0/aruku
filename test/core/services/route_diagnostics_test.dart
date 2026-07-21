@@ -2,6 +2,7 @@ import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/services/hybrid_route_selector.dart';
 import 'package:aruku/core/services/route_diagnostics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 RouteSegment _walk(int minutes, {String from = '', String to = ''}) =>
@@ -75,6 +76,69 @@ void main() {
         'walk=80m arr=80m slack=-20m within=false maxWait=0m '
         'missed=false [walk80m]',
       );
+    });
+  });
+
+  group('RouteSearchMetrics.toLogLine', () {
+    test('collapse/board-search/本数/フェーズ時間を安定した key=value 行にする', () {
+      final m = RouteSearchMetrics()
+        ..collapseFired = true
+        ..boardSearchActivated = true
+        ..guidanceCalls = 3
+        ..walkCalls = 10
+        ..matrixCalls = 2
+        ..guidanceMs = 1200
+        ..boardSearchMs = 3400
+        ..finalizeMs = 300
+        ..totalMs = 9000;
+      expect(
+        m.toLogLine(),
+        'collapse=1 boardSearch=1 http=15 '
+        'guidanceCalls=3 walkCalls=10 matrixCalls=2 '
+        'guidanceMs=1200 boardSearchMs=3400 finalizeMs=300 totalMs=9000',
+      );
+    });
+
+    test('bool は 0/1・http は本数合計として集計可能', () {
+      final m = RouteSearchMetrics()
+        ..guidanceCalls = 1
+        ..walkCalls = 4;
+      expect(m.httpRoundTrips, 5);
+      expect(
+        m.toLogLine(),
+        'collapse=0 boardSearch=0 http=5 '
+        'guidanceCalls=1 walkCalls=4 matrixCalls=0 '
+        'guidanceMs=0 boardSearchMs=0 finalizeMs=0 totalMs=0',
+      );
+    });
+  });
+
+  group('logMetrics のゲート（#309 レビュー指摘: profile でも出す）', () {
+    List<String?> capture(void Function() body) {
+      final lines = <String?>[];
+      final original = debugPrint;
+      debugPrint = (message, {int? wrapWidth}) => lines.add(message);
+      try {
+        body();
+      } finally {
+        debugPrint = original;
+      }
+      return lines;
+    }
+
+    test('定性ログ verbose=false でも metricsEnabled=true なら指標行を出す', () {
+      // 実機フィールド計測は多く profile ビルド（verbose=false）。定量指標が定性ログの
+      // debug 限定フラグに縛られず出ることを固定する（縛られると profile で発火率が出ない）。
+      const diag = RouteDiagnostics(verbose: false, metricsEnabled: true);
+      final lines = capture(() => diag.logMetrics(RouteSearchMetrics()));
+      expect(lines, hasLength(1));
+      expect(lines.single, startsWith('[route-metrics] collapse=0'));
+    });
+
+    test('metricsEnabled=false（release 相当）では何も出さない', () {
+      const diag = RouteDiagnostics(metricsEnabled: false);
+      final lines = capture(() => diag.logMetrics(RouteSearchMetrics()));
+      expect(lines, isEmpty);
     });
   });
 

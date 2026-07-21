@@ -6,6 +6,8 @@ import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/hybrid_route_selector.dart'
     show RouteCandidate, haversineKm;
+import 'package:aruku/core/services/route_diagnostics.dart'
+    show RouteSearchMetrics;
 import 'package:aruku/core/services/route_plan_builder.dart'
     show
         walkMetersPerMinute,
@@ -189,12 +191,16 @@ http.Client _mock({
   return _json(const {}, 404);
 });
 
-TransitRouteService _service(http.Client client) => TransitRouteService(
+TransitRouteService _service(
+  http.Client client, {
+  void Function(RouteSearchMetrics)? onMetrics,
+}) => TransitRouteService(
   transitClient: client,
   proxyClient: client,
   transitBaseUrl: _transitBase,
   proxyBaseUrl: _proxyBase,
   clock: () => DateTime(2026, 6, 27, 9, 0),
+  onMetrics: onMetrics,
 );
 
 void main() {
@@ -326,6 +332,29 @@ void main() {
       expect(g.queryParameters['date'], '20260627');
       expect(g.queryParameters['time'], '09:00');
       expect(g.queryParameters['type'], 'departure');
+    });
+
+    test('崩壊しない検索は collapse=0・board-search 不起動を記録する (#309)', () async {
+      RouteSearchMetrics? captured;
+      final svc = _service(
+        _mock(transit: _guidance([_singleTrainOption(dep: 33300, arr: 35100)])),
+        onMetrics: (m) => captured = m,
+      );
+      await svc.plan(
+        destination: '新宿駅',
+        destinationLatLng: goal,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 9, m: 50), // 予算が小さく余りが出ない＝非崩壊
+        origin: origin,
+        originName: '東京駅',
+      );
+      final m = captured!;
+      expect(m.collapseFired, isFalse);
+      expect(m.boardSearchActivated, isFalse);
+      expect(m.boardSearchMs, 0);
+      // 崩壊しなくても初回 guidance の1本は必ず往復している。
+      expect(m.guidanceCalls, greaterThanOrEqualTo(1));
+      expect(m.httpRoundTrips, greaterThanOrEqualTo(1));
     });
   });
 
@@ -844,6 +873,30 @@ void main() {
       // （guidance を複数回）する。enrich 後の膨らんだ徒歩を使うと崩壊判定が潰れ、
       // 初回 guidance 1回だけで終わってしまう（指摘2の回帰）。
       expect(guidanceCalls.length, greaterThan(1));
+    });
+
+    test('崩壊・board-search 起動・上流本数を定量指標として記録する (#309)', () async {
+      RouteSearchMetrics? captured;
+      final svc = _service(
+        inflatedMock(<Uri>[]),
+        onMetrics: (m) => captured = m,
+      );
+      await svc.plan(
+        destination: '降車駅',
+        destinationLatLng: goal2,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0),
+        origin: origin2,
+        originName: '出発',
+      );
+      final m = captured!;
+      expect(m.collapseFired, isTrue);
+      expect(m.boardSearchActivated, isTrue);
+      // board-search は乗車駅探索でマトリクスを引く → matrixCalls が立つ。
+      expect(m.matrixCalls, greaterThan(0));
+      // 初回 + 引き直しで guidance は複数本。合計 http は種別合計に一致する。
+      expect(m.guidanceCalls, greaterThan(1));
+      expect(m.httpRoundTrips, m.guidanceCalls + m.walkCalls + m.matrixCalls);
     });
 
     test('コリドー由来の確定経路でも乗降駅名を復元しタイムラインに出す', () async {

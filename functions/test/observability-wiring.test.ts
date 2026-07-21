@@ -15,6 +15,7 @@ const {
   verifyTokenMock,
   runTransactionMock,
   logRequestOutcomeMock,
+  logRequestLatencyMock,
   logAppCheckDeniedMock,
   logRateLimitMock,
   MockAgent,
@@ -23,6 +24,7 @@ const {
   verifyTokenMock: vi.fn(),
   runTransactionMock: vi.fn(),
   logRequestOutcomeMock: vi.fn(),
+  logRequestLatencyMock: vi.fn(),
   logAppCheckDeniedMock: vi.fn(),
   logRateLimitMock: vi.fn(),
   MockAgent: class MockAgent {
@@ -53,6 +55,7 @@ vi.mock("firebase-admin/firestore", () => ({
 
 vi.mock("../src/metrics", () => ({
   logRequestOutcome: logRequestOutcomeMock,
+  logRequestLatency: logRequestLatencyMock,
   logAppCheckDenied: logAppCheckDeniedMock,
   logRateLimit: logRateLimitMock,
 }));
@@ -68,6 +71,7 @@ import {
   navitimeProxy,
   resetRateLimit as resetRateLimitFromIndex,
   verifyAppCheck,
+  withRequestLatency,
 } from "../src/index";
 import { resetUpstreamCache } from "../src/upstream-cache";
 
@@ -342,6 +346,92 @@ describe("search_request イベント配線（fetchUpstream 経由）", () => {
     const call = logRequestOutcomeMock.mock.calls[0][0];
     expect(call.status).toBe("success");
     expect(call).not.toHaveProperty("semanticFailure");
+  });
+});
+
+describe("request_latency イベント配線（ハンドラ全体レイテンシ・#309）", () => {
+  const original = process.env.FUNCTIONS_EMULATOR;
+
+  beforeEach(() => {
+    resetRateLimitFromIndex();
+    resetUpstreamCache();
+    httpsRequestMock.mockReset();
+    verifyTokenMock.mockReset();
+    logRequestLatencyMock.mockReset();
+    logRequestOutcomeMock.mockReset();
+    process.env.FUNCTIONS_EMULATOR = "true";
+  });
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.FUNCTIONS_EMULATOR;
+    else process.env.FUNCTIONS_EMULATOR = original;
+  });
+
+  it("成功時: endpoint と数値 totalLatencyMs・httpStatus を1回だけ記録する", async () => {
+    mockUpstream({ items: [{ summary: {} }] });
+    const res = makeRes();
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      res
+    );
+    expect(logRequestLatencyMock).toHaveBeenCalledTimes(1);
+    const call = logRequestLatencyMock.mock.calls[0][0];
+    expect(call.endpoint).toBe("navitimeProxy");
+    expect(typeof call.totalLatencyMs).toBe("number");
+    expect(call.httpStatus).toBe(200);
+  });
+
+  it("上流を呼ばない早期 return（400 不正引数）でも記録する", async () => {
+    // 上流を一度も叩かない経路（引数不正・キャッシュヒット・拒否）でも全体レイテンシは
+    // 計上する——上流を叩かない要求の可視化がこのイベントの狙い（search_request は
+    // 上流呼び出し時しか出ないため、この層が抜け落ちる盲点を埋める）。
+    const res = makeRes();
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ query: {} }), // start/goal/start_time 欠落 → 400 早期 return
+      res
+    );
+    expect(res.statusCode).toBe(400);
+    expect(logRequestLatencyMock).toHaveBeenCalledTimes(1);
+    expect(logRequestLatencyMock.mock.calls[0][0].httpStatus).toBe(400);
+  });
+
+  it("OPTIONS プリフライトは記録しない（ノイズ除外）", async () => {
+    const res = makeRes();
+    await invokeHandler(
+      navitimeProxy,
+      makeReq({ method: "OPTIONS" }),
+      res
+    );
+    expect(res.statusCode).toBe(204);
+    expect(logRequestLatencyMock).not.toHaveBeenCalled();
+  });
+
+  it("ハンドラが status を書く前に throw したら 500 として記録し例外は伝播する", async () => {
+    // status 未書き込みの例外は Express の既定 200 のまま finally に入る。これを 200 と
+    // 記録すると失敗が成功に紛れるため、500 に寄せる（プラットフォームの 500 変換に合わせる）。
+    const wrapped = withRequestLatency("navitimeProxy", async () => {
+      throw new Error("boom");
+    });
+    const res = makeRes();
+    await expect(
+      wrapped(makeReq({}) as unknown as Request, res as unknown as Response)
+    ).rejects.toThrow("boom");
+    expect(logRequestLatencyMock).toHaveBeenCalledTimes(1);
+    expect(logRequestLatencyMock.mock.calls[0][0].httpStatus).toBe(500);
+  });
+
+  it("ハンドラが 4xx/5xx を書いてから throw したらその status を保つ", async () => {
+    const wrapped = withRequestLatency("navitimeProxy", async (_req, res) => {
+      res.status(502);
+      throw new Error("boom after 502");
+    });
+    const res = makeRes();
+    await expect(
+      wrapped(makeReq({}) as unknown as Request, res as unknown as Response)
+    ).rejects.toThrow("boom after 502");
+    expect(logRequestLatencyMock.mock.calls[0][0].httpStatus).toBe(502);
   });
 });
 
