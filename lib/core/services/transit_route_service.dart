@@ -301,7 +301,59 @@ class TransitRouteService implements SearchEngine {
       ];
     }
 
+    // 崩壊が見込まれないなら、見積りフロント（勝者母集団＋代替案上位）を1回の並列パスで
+    // 先行実測して [enrichedCache] を温める（#315）。以降の winner-phase・代替案検証は
+    // キャッシュヒットで純粋計算になり、勝者と代替案の実測が**1パスに畳まれる**（別フェーズの
+    // 統合）。崩壊が見込まれるときは温めない——board-search 後に支配される早着・徒歩少の候補
+    // （#290: deferred 検証の対象）へ IO を無駄撃ちしないため。判定は見積り勝者で行い、実測を
+    // 待たない（崩壊判定は見積り基準なので実測なしで確定できる）。バスは last-resort（予算外時）
+    // でしか出ないので、見積り予算内のこの分岐では busBase 崩壊は起こらず options だけで足りる。
+    final estWinner = selectBestRoute(
+      candidates: candidates,
+      budgetMin: budgetMin,
+      origin: origin,
+      goal: goal,
+      departureAt: departureAt,
+    );
+    final estWithin =
+        arrivalMinutes(estWinner.segments, departureAt) <= budgetMin;
+    final preCollapse =
+        base != null &&
+        estWithin &&
+        _isCollapse(estWinner, options, budgetMin, departureAt);
+
     final enrichSw = Stopwatch()..start();
+    if (estWithin && !preCollapse) {
+      final forward = forwardCandidates(candidates, origin, goal);
+      final prewarm = <RouteCandidate>{
+        estWinner,
+        ...paretoAlternatives(
+          candidates: [
+            for (final c in forward)
+              if (arrivalMinutes(c.segments, departureAt) <= budgetMin) c,
+          ],
+          chosen: estWinner,
+          departureAt: departureAt,
+          maxCount: _maxAlternatives,
+        ),
+      };
+      _diag.log(
+        () => '非崩壊: 見積りフロント${prewarm.length}件を1パスで先行実測（#315 winner+代替案統合）',
+      );
+      // 例外は候補単位で握る。先行実測はキャッシュ温めの最適化にすぎず、壊れた応答1件で
+      // plan() 全体を落としてはならない（#290: 代替案の enrich 失敗は確定経路をブロックしない）。
+      // 握った候補は未キャッシュのまま残り、winner-phase / _validatedAlternatives が改めて
+      // 測って各々の try/catch で処理する（勝者が壊れていれば従来どおり winner-phase で顕在化）。
+      await Future.wait([
+        for (final c in prewarm)
+          _measureCandidate(
+            c,
+            departureAt,
+            walkCache,
+            enrichedCache,
+          ).catchError((_) => c),
+      ]);
+    }
     var selected = await _selectAndEnrich(
       candidates,
       budgetMin,
@@ -644,6 +696,24 @@ class TransitRouteService implements SearchEngine {
     }
   }
 
+  /// 候補1件を実測（enrich 徒歩＋実発車時刻解決）し、identity でメモ化する（#315）。winner-phase の
+  /// 並列一括実測・非崩壊時の先行実測・代替案検証（#290）が同じ候補を二度測らないための単一の
+  /// 測定口。[RouteCandidate] は == を上書きしないので Map は同一インスタンス単位で畳む。
+  Future<RouteCandidate> _measureCandidate(
+    RouteCandidate c,
+    DateTime departureAt,
+    Map<String, RouteCandidate> walkCache,
+    Map<RouteCandidate, RouteCandidate> enrichedCache,
+  ) async {
+    final hit = enrichedCache[c];
+    if (hit != null) return hit;
+    final e = await _resolveBoardingTimes(
+      await _enrichWalkGeometry(c, walkCache),
+      departureAt,
+    );
+    return enrichedCache[c] = e;
+  }
+
   /// 候補から決定的に選定し、採用1経路を Google 実測（enrich）で検証する確定ループ。
   /// NAVITIME 版と違い**乗り遅れ再照会（#115）は行わない**：実在便への差し替えはせず、
   /// enrich で (a) 予算超過、または (b) 先頭電車に乗り遅れ（標準乗換のアクセス徒歩が実街路で
@@ -675,18 +745,8 @@ class TransitRouteService implements SearchEngine {
     required Map<RouteCandidate, RouteCandidate> enrichedCache,
     Future<List<RouteCandidate>> Function()? lastResortBus,
   }) async {
-    // 実測（enrich 徒歩＋実発車時刻解決）を候補 identity でメモ化する。winner-phase と
-    // 代替案（#290）が同じ候補を二度測らないための単一の測定口（#315）。RouteCandidate は
-    // == を上書きしないので Map は同一インスタンス単位で畳む。
-    Future<RouteCandidate> measure(RouteCandidate c) async {
-      final hit = enrichedCache[c];
-      if (hit != null) return hit;
-      final e = await _resolveBoardingTimes(
-        await _enrichWalkGeometry(c, walkCache),
-        departureAt,
-      );
-      return enrichedCache[c] = e;
-    }
+    Future<RouteCandidate> measure(RouteCandidate c) =>
+        _measureCandidate(c, departureAt, walkCache, enrichedCache);
 
     /// 縮退。まず従来どおり best-effort を求め、それでも予算外ならバス許容の再照会を
     /// 一度だけ試して候補を足し、選定をやり直す（#250）。
@@ -905,13 +965,13 @@ class TransitRouteService implements SearchEngine {
       // その検証失敗が plan() 全体を失敗させてはならない。rethrow すると壊れた応答
       // 1件で本命の経路まで道連れになる（#290）。
       try {
-        // winner-phase で測り済みなら再利用し、二度測らない（#315 の測定統合）。
-        final e =
-            enrichedCache[c] ??
-            (enrichedCache[c] = await _resolveBoardingTimes(
-              await _enrichWalkGeometry(c, walkCache),
-              departureAt,
-            ));
+        // winner-phase・先行実測で測り済みなら再利用し、二度測らない（#315 の測定統合）。
+        final e = await _measureCandidate(
+          c,
+          departureAt,
+          walkCache,
+          enrichedCache,
+        );
         final v = _invariantViolation(e.segments, budgetMin, departureAt);
         // relaxBudget（best-effort）では予算超過を許すが、乗車待ちが予算を超える
         // 「今夜乗れない」便（翌朝の始発級）は勝者パス（reachableWithinBudget・#121）と
