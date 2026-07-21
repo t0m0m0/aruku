@@ -92,6 +92,17 @@
 
 直線で予算外なら確実に予算外（下限ゆえ）なので二分の上界打ち切りは安全。境界付近の数駅だけ実 walk で確認すればよい。
 
+### 4.3 実機ログからの発火率集計（#309→#310）
+
+collapse/board-search の発火率は `RouteSearchMetrics.toLogLine()`（#309）が `[route-metrics]` 行で端末ログに出す（サーバへは送らない・#268 PII 方針）。実機ログ（`flutter run` / logcat の保存）を **`tool/route_metrics_agg.dart`** に流すと、発火率・上流往復本数・所要の分布と、**collapse=1 サブセットの walkCalls**（＝#310 でマトリクスに束ねて削減できる往復の的）を集計できる。
+
+```
+dart run tool/route_metrics_agg.dart device.log        # ファイル
+flutter run | dart run tool/route_metrics_agg.dart     # パイプ
+```
+
+#310（乗車駅探索の徒歩評価を matrix へバッチ化）は発火率が低ければ費用対効果が限定的なため、この集計で発火率を確認してから着手可否を決める。
+
 ---
 
 ## 5. 非目標（この再設計でやらないこと）
