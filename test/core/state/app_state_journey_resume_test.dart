@@ -1,0 +1,2024 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:aruku/core/models/activity_snapshot.dart';
+import 'package:aruku/core/models/daily_activity.dart';
+import 'package:aruku/core/models/geo_point.dart';
+import 'package:aruku/core/models/location_state.dart';
+import 'package:aruku/core/models/route_plan.dart';
+import 'package:aruku/core/models/time_value.dart';
+import 'package:aruku/core/services/activity_log_repository.dart';
+import 'package:aruku/core/services/activity_service.dart';
+import 'package:aruku/core/services/cancellation.dart';
+import 'package:aruku/core/services/health_service.dart';
+import 'package:aruku/core/services/location_service.dart';
+import 'package:aruku/core/services/onboarding_repository.dart';
+import 'package:aruku/core/services/route_service.dart';
+import 'package:aruku/core/state/app_state.dart';
+import 'package:aruku/core/state/settings_provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../support/route_plan_fixtures.dart';
+
+/// `request()` の戻り値を差し替えられる LocationService（復帰時の単発再取得の再現用）。
+/// positionStream は使わない（結果ハブは GPS 追跡を持たない）。
+class _FakeLocationService implements LocationService {
+  _FakeLocationService([this.next = const LocationDenied()]);
+  LocationState next;
+  final List<Future<LocationState>> _queuedRequests = [];
+
+  void enqueue(Future<LocationState> result) => _queuedRequests.add(result);
+
+  @override
+  Future<LocationState> request() => _queuedRequests.isEmpty
+      ? Future.value(next)
+      : _queuedRequests.removeAt(0);
+
+  @override
+  Stream<GeoPoint> positionStream() => const Stream.empty();
+}
+
+class _FixedRouteService implements RouteService {
+  _FixedRouteService(this.result);
+  final RoutePlan result;
+
+  @override
+  Future<RoutePlan> plan({
+    required String? destination,
+    required GeoPoint? destinationLatLng,
+    required TimeValue departure,
+    required TimeValue arrival,
+    GeoPoint? origin,
+    String? originName,
+    void Function(RoutePhase)? onProgress,
+    CancellationToken? cancellation,
+  }) async => result;
+}
+
+class _FakeActivityService implements ActivityService {
+  _FakeActivityService(this._controller);
+  final StreamController<ActivitySnapshot> _controller;
+
+  @override
+  Future<bool> requestPermission() async => true;
+
+  @override
+  Stream<ActivitySnapshot> sessionActivityStream() => _controller.stream;
+}
+
+class _FakeHealthService implements HealthService {
+  final List<WalkingWorkout> writes = [];
+  WalkingWorkout? get written => writes.isEmpty ? null : writes.last;
+  int get writeCount => writes.length;
+
+  @override
+  Future<bool> requestAuthorization() async => true;
+
+  @override
+  Future<bool> writeWalkingWorkout(WalkingWorkout workout) async {
+    writes.add(workout);
+    return true;
+  }
+}
+
+class _Clock {
+  _Clock(this.value);
+  DateTime value;
+  DateTime now() => value;
+}
+
+/// 2 つの徒歩区間の終点をほぼ同一座標に重ねた経路。復帰が「近くにいる」だけで
+/// 複数区間を一気に進めないこと（1 区間まで）を固定するために使う。
+const _coincidentEndpointsPlan = RoutePlan(
+  from: 'A',
+  to: 'C',
+  totalKm: 1.0,
+  totalMin: 20,
+  budgetMin: 30,
+  kcal: 50,
+  walkKm: 1.0,
+  walkRatio: 1.0,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A',
+      toName: 'B',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+      polyline: [GeoPoint(35.0, 139.0), GeoPoint(35.001, 139.0)],
+    ),
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'B',
+      toName: 'C',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+      polyline: [GeoPoint(35.001, 139.0), GeoPoint(35.001, 139.0)],
+    ),
+  ],
+  timelineNodes: [],
+);
+
+/// 徒歩1区間だけの経路。到着で行程が全区間完了へ到達する再現に使う。
+const _singleWalkPlan = RoutePlan(
+  from: 'A',
+  to: 'B',
+  totalKm: 0.5,
+  totalMin: 10,
+  budgetMin: 30,
+  kcal: 25,
+  walkKm: 0.5,
+  walkRatio: 1.0,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A',
+      toName: 'B',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+      polyline: [GeoPoint(35.0, 139.0), GeoPoint(35.001, 139.0)],
+    ),
+  ],
+  timelineNodes: [],
+);
+
+/// 終点 geometry を持たず、復帰時の自動到着判定を手動完了へフォールバックする経路。
+const _singleEmptyWalkPlan = RoutePlan(
+  from: 'A',
+  to: 'B',
+  totalKm: 0.5,
+  totalMin: 10,
+  budgetMin: 30,
+  kcal: 25,
+  walkKm: 0.5,
+  walkRatio: 1.0,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A',
+      toName: 'B',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+    ),
+  ],
+  timelineNodes: [],
+);
+
+/// 連続する手動完了でも、行程全体で復帰後の歩数同期を引き継ぐ経路。
+const _twoEmptyWalkPlan = RoutePlan(
+  from: 'A',
+  to: 'C',
+  totalKm: 1.0,
+  totalMin: 20,
+  budgetMin: 30,
+  kcal: 50,
+  walkKm: 1.0,
+  walkRatio: 1.0,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A',
+      toName: 'B',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+    ),
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'B',
+      toName: 'C',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+    ),
+  ],
+  timelineNodes: [],
+);
+
+/// 徒歩で増えた歩数を保持したまま、歩数が増えない最終電車区間へ進む経路。
+const _walkThenTrainPlan = RoutePlan(
+  from: 'A',
+  to: 'C',
+  totalKm: 5.5,
+  totalMin: 20,
+  budgetMin: 30,
+  kcal: 25,
+  walkKm: 0.5,
+  walkRatio: 0.09,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A',
+      toName: 'B',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+    ),
+    RouteSegment(
+      type: SegmentType.train,
+      fromName: 'B',
+      toName: 'C',
+      km: 5.0,
+      minutes: 10,
+      polyline: [GeoPoint(35.0, 139.0), GeoPoint(35.001, 139.0)],
+    ),
+  ],
+  timelineNodes: [],
+);
+
+/// 電車のあとに徒歩が来る経路。徒歩ワークアウトを行程開始ではなく実際の徒歩窓へ
+/// 配置することを固定する。
+const _trainThenWalkPlan = RoutePlan(
+  from: 'A',
+  to: 'C',
+  totalKm: 5.5,
+  totalMin: 40,
+  budgetMin: 60,
+  kcal: 25,
+  walkKm: 0.5,
+  walkRatio: 0.09,
+  segments: [
+    RouteSegment(
+      type: SegmentType.train,
+      fromName: 'A',
+      toName: 'B',
+      km: 5.0,
+      minutes: 30,
+      polyline: [GeoPoint(35.0, 139.0), GeoPoint(35.10, 139.10)],
+    ),
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'B',
+      toName: 'C',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+      polyline: [GeoPoint(35.10, 139.10), GeoPoint(35.20, 139.20)],
+    ),
+  ],
+  timelineNodes: [],
+);
+
+/// 電車のみの経路。徒歩区間が無いため、乗車中の紛れ歩数があっても
+/// WalkingWorkout を書かないことを固定する。
+const _trainOnlyPlan = RoutePlan(
+  from: 'A',
+  to: 'B',
+  totalKm: 5.0,
+  totalMin: 30,
+  budgetMin: 60,
+  kcal: 0,
+  walkKm: 0.0,
+  walkRatio: 0.0,
+  segments: [
+    RouteSegment(
+      type: SegmentType.train,
+      fromName: 'A',
+      toName: 'B',
+      km: 5.0,
+      minutes: 30,
+      polyline: [GeoPoint(35.0, 139.0), GeoPoint(35.001, 139.0)],
+    ),
+  ],
+  timelineNodes: [],
+);
+
+/// 同期下限(50m)より短い最終徒歩区間。区間を歩き切った歩数で同期を満たせることを
+/// 固定する（駅出口すぐの数十m徒歩）。
+const _shortFinalWalkPlan = RoutePlan(
+  from: 'A',
+  to: 'B',
+  totalKm: 0.03,
+  totalMin: 1,
+  budgetMin: 30,
+  kcal: 2,
+  walkKm: 0.03,
+  walkRatio: 1.0,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A',
+      toName: 'B',
+      km: 0.03,
+      minutes: 1,
+      kcal: 2,
+      polyline: [GeoPoint(35.0, 139.0), GeoPoint(35.001, 139.0)],
+    ),
+  ],
+  timelineNodes: [],
+);
+
+/// 長い徒歩→短い最終徒歩。前区間の歩数が未了のまま次の徒歩へ進む場合に、
+/// 短い最終区間の歩数だけで早期完了させないことを固定する。
+const _longThenShortWalkPlan = RoutePlan(
+  from: 'A',
+  to: 'C',
+  totalKm: 0.53,
+  totalMin: 11,
+  budgetMin: 30,
+  kcal: 27,
+  walkKm: 0.53,
+  walkRatio: 1.0,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A',
+      toName: 'B',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+    ),
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'B',
+      toName: 'C',
+      km: 0.03,
+      minutes: 1,
+      kcal: 2,
+    ),
+  ],
+  timelineNodes: [],
+);
+
+/// 計画距離が欠落した徒歩区間（geometry 欠落で km 不明、分数は正）。同期下限を
+/// 保ち、乗車中の紛れ歩数1歩では早期確定しないことを固定する。
+const _missingKmWalkPlan = RoutePlan(
+  from: 'A',
+  to: 'B',
+  totalKm: 0.5,
+  totalMin: 10,
+  budgetMin: 30,
+  kcal: 25,
+  walkKm: 0.5,
+  walkRatio: 1.0,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A',
+      toName: 'B',
+      minutes: 10,
+      kcal: 25,
+    ),
+  ],
+  timelineNodes: [],
+);
+
+/// 徒歩→電車→徒歩の3区間（全て geometry 欠落で手動完了）。電車を挟んで離れた徒歩を
+/// 別々のワークアウトへ書き分けることを固定する。
+const _walkTrainWalkPlan = RoutePlan(
+  from: 'A',
+  to: 'D',
+  totalKm: 6.0,
+  totalMin: 50,
+  budgetMin: 90,
+  kcal: 100,
+  walkKm: 1.0,
+  walkRatio: 0.17,
+  segments: [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'A',
+      toName: 'B',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+    ),
+    RouteSegment(
+      type: SegmentType.train,
+      fromName: 'B',
+      toName: 'C',
+      km: 5.0,
+      minutes: 30,
+    ),
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: 'C',
+      toName: 'D',
+      km: 0.5,
+      minutes: 10,
+      kcal: 25,
+    ),
+  ],
+  timelineNodes: [],
+);
+
+/// 徒歩区間0（[sampleRoutePlan]）の終点座標。到着とみなされる位置。
+const _leg0End = GeoPoint(35.6703, 139.7027);
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  Future<void> settle() async {
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+  }
+
+  Future<
+    ({
+      ProviderContainer container,
+      _FakeLocationService location,
+      StreamController<ActivitySnapshot> activity,
+      _FakeHealthService health,
+      _Clock clock,
+    })
+  >
+  makeHarness({
+    RoutePlan plan = sampleRoutePlan,
+    LocationState location = const LocationDenied(),
+    bool healthKitEnabled = false,
+    DateTime? start,
+    // 履歴ロードを遅延させ、ロード完了前に行程を開始する状況を再現する（基準歩数
+    // ガードのテスト用）。null なら即時（実運用の通常起動）。
+    Duration? historyLoadDelay,
+    int recordedTodaySteps = 0,
+  }) async {
+    final clock = _Clock(start ?? DateTime(2026, 7, 18, 9, 0));
+    SharedPreferences.setMockInitialValues({
+      'settings.v1': jsonEncode({
+        'notificationsEnabled': false,
+        'weeklyGoalKm': 10.0,
+        'healthKitEnabled': healthKitEnabled,
+      }),
+    });
+    ActivityLogRepository? seededRepo;
+    if (historyLoadDelay != null) {
+      final prefs = await SharedPreferences.getInstance();
+      seededRepo = ActivityLogRepository(prefs);
+      if (recordedTodaySteps > 0) {
+        await seededRepo.upsert(
+          DailyActivity(date: DateTime.now(), steps: recordedTodaySteps),
+        );
+      }
+    }
+    final loc = _FakeLocationService(location);
+    final activity = StreamController<ActivitySnapshot>();
+    final health = _FakeHealthService();
+    final container = ProviderContainer(
+      overrides: [
+        routeServiceProvider.overrideWithValue(_FixedRouteService(plan)),
+        locationServiceProvider.overrideWithValue(loc),
+        activityServiceProvider.overrideWithValue(
+          _FakeActivityService(activity),
+        ),
+        healthServiceProvider.overrideWithValue(health),
+        onboardingCompletedProvider.overrideWithValue(true),
+        nowProvider.overrideWithValue(clock.now),
+        if (historyLoadDelay != null)
+          activityLogRepositoryProvider.overrideWith((ref) async {
+            await Future<void>.delayed(historyLoadDelay);
+            return seededRepo!;
+          }),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(activity.close);
+    await container.read(settingsProvider.future);
+    return (
+      container: container,
+      location: loc,
+      activity: activity,
+      health: health,
+      clock: clock,
+    );
+  }
+
+  group('復帰時の区間再評価（#305）', () {
+    test('現在地が現在区間の終点閾値内なら区間が1つ進む', () async {
+      final h = await makeHarness();
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 0);
+
+      h.location.next = const LocationAvailable(_leg0End);
+      await notifier.onAppResumed();
+
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+    });
+
+    test('次区間の終点にも近い位置でも一度の復帰で進むのは1区間まで', () async {
+      final h = await makeHarness(plan: _coincidentEndpointsPlan);
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      // leg0 と leg1 の終点は同一座標。1 度の復帰では 1 区間だけ進む。
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      await notifier.onAppResumed();
+
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+    });
+
+    test('終点から遠ければ区間は進まず journey は維持される', () async {
+      final h = await makeHarness();
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      h.location.next = const LocationAvailable(GeoPoint(35.0, 139.0));
+      await notifier.onAppResumed();
+
+      final state = h.container.read(appStateProvider);
+      expect(state.journey, isNotNull);
+      expect(state.journey!.currentLegIndex, 0);
+      expect(state.route, sampleRoutePlan);
+    });
+
+    test('現在地取得失敗（Denied）では区間を自動完了させない', () async {
+      final h = await makeHarness();
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      h.location.next = const LocationDenied();
+      await notifier.onAppResumed();
+
+      final state = h.container.read(appStateProvider);
+      expect(state.journey!.currentLegIndex, 0);
+      expect(state.locationState, isA<LocationDenied>());
+      expect(state.journeyManualCompletionAvailable, isTrue);
+    });
+
+    test('現在地取得失敗（Unavailable）では区間を自動完了させない', () async {
+      final h = await makeHarness();
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      h.location.next = const LocationUnavailable();
+      await notifier.onAppResumed();
+
+      final state = h.container.read(appStateProvider);
+      expect(state.journey!.currentLegIndex, 0);
+      expect(state.locationState, isA<LocationUnavailable>());
+      expect(state.journeyManualCompletionAvailable, isTrue);
+    });
+
+    test('journey が無ければ復帰時の区間再評価は走らない（現在地を再取得しない）', () async {
+      final h = await makeHarness();
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      await notifier.startSearch();
+      // journey 未開始。結果画面のまま。
+
+      // 復帰時に区間到着扱いになる位置でも、journey が無ければ何も起きない。
+      h.location.next = const LocationAvailable(_leg0End);
+      await notifier.onAppResumed();
+
+      final state = h.container.read(appStateProvider);
+      expect(state.journey, isNull);
+      expect(state.screen, Screen.result);
+    });
+
+    test('行程進行中は失効超過でも復帰で route/journey を維持し区間を再評価する', () async {
+      final h = await makeHarness(start: DateTime(2026, 7, 18, 9, 0));
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      expect(h.container.read(appStateProvider).journey, isNotNull);
+
+      // 5分超の徒歩区間を外部地図で歩いて復帰。失効していても行程は消さず、
+      // 現在地が現在区間の終点閾値内なら区間を1つ進める（#305 修正1）。
+      h.clock.value = DateTime(2026, 7, 18, 14, 40);
+      h.location.next = const LocationAvailable(_leg0End);
+      await notifier.onAppResumed();
+
+      final state = h.container.read(appStateProvider);
+      expect(state.route, sampleRoutePlan);
+      expect(state.journey, isNotNull);
+      expect(state.journey!.currentLegIndex, 1);
+    });
+
+    test('全区間完了済みの行程は失効超過の復帰で経路を無効化して home へ戻す', () async {
+      final h = await makeHarness(start: DateTime(2026, 7, 18, 9, 0));
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      // 全区間を完了させる。currentLegIndex は番兵値になるが journey は残る。
+      notifier.advanceToLeg(sampleRoutePlan.segments.length);
+      await settle();
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        sampleRoutePlan.segments.length,
+      );
+
+      // 完了済み行程には保護すべき進行中 handoff が無い。失効超過の復帰では通常どおり
+      // 経路を無効化してホームへ戻し、失効した isNow 経路を残さない。
+      h.clock.value = DateTime(2026, 7, 18, 14, 40);
+      h.location.next = const LocationAvailable(_leg0End);
+      await notifier.onAppResumed();
+
+      final state = h.container.read(appStateProvider);
+      expect(state.route, isNull);
+      expect(state.journey, isNull);
+      expect(state.screen, Screen.home);
+    });
+
+    test('journey が無ければ失効超過の復帰で従来どおり経路を無効化する', () async {
+      final h = await makeHarness(start: DateTime(2026, 7, 18, 9, 0));
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      await notifier.startSearch();
+      // 行程は未開始（結果画面のまま失効を迎える）。
+
+      h.clock.value = DateTime(2026, 7, 18, 14, 40);
+      h.location.next = const LocationAvailable(_leg0End);
+      await notifier.onAppResumed();
+
+      final state = h.container.read(appStateProvider);
+      expect(state.route, isNull);
+      expect(state.journey, isNull);
+      expect(state.screen, Screen.home);
+    });
+
+    test('外部URL往復（背景化→復帰）で journey と route が保持される', () async {
+      final h = await makeHarness();
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      final journey = h.container.read(appStateProvider).journey;
+
+      // 外部地図表示中に現在地が終点から離れている（まだ到着していない）。
+      h.location.next = const LocationAvailable(GeoPoint(35.0, 139.0));
+      await notifier.onAppResumed();
+
+      final state = h.container.read(appStateProvider);
+      expect(state.journey, same(journey));
+      expect(state.route, sampleRoutePlan);
+      expect(state.screen, Screen.result);
+    });
+
+    test('結果ハブから home へ離脱すると行程を破棄し、復帰しても完了扱いにしない', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      // 結果ハブを離れた時点で行程は放棄。システム back とヘッダー back は
+      // どちらも syncScreen(Screen.home) を通る。
+      notifier.go(Screen.home);
+      expect(h.container.read(appStateProvider).journey, isNull);
+
+      // その後に終点付近で復帰しても、隠れた行程を完了させたり
+      // WalkingWorkout を書き込んだりしない。
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      await notifier.onAppResumed();
+      await settle();
+
+      final state = h.container.read(appStateProvider);
+      expect(state.screen, Screen.home);
+      expect(state.journey, isNull);
+      expect(h.health.writeCount, 0);
+    });
+
+    test('結果ハブから nav へ離脱した行程は破棄し、home 復帰後も保持しない', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      notifier.startNavigation();
+      expect(h.container.read(appStateProvider).screen, Screen.nav);
+      expect(h.container.read(appStateProvider).journey, isNull);
+
+      notifier.go(Screen.home);
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      await notifier.onAppResumed();
+      await settle();
+
+      expect(h.container.read(appStateProvider).journey, isNull);
+      expect(h.health.writeCount, 0);
+    });
+  });
+
+  group('外部アプリ往復中の歩数の追いつき（#305）', () {
+    test('バックグラウンド中に増えた歩数が復帰後の todaySteps と行程歩数に反映される', () async {
+      final h = await makeHarness();
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      final startSteps = h.container.read(appStateProvider).journey!.startSteps;
+      expect(startSteps, 100);
+
+      // 外部地図で歩いた分がストリームで後追いされる（累積 600）。
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+      h.location.next = const LocationAvailable(GeoPoint(35.0, 139.0));
+      await notifier.onAppResumed();
+
+      final state = h.container.read(appStateProvider);
+      expect(state.todaySteps, 600);
+      expect(state.todaySteps - state.journey!.startSteps, 500);
+    });
+  });
+
+  group('行程セッションの終了と HealthKit（#305）', () {
+    test('全区間完了時に WalkingWorkout が書かれ、歩数に外部利用中の差分が含まれる', () async {
+      final h = await makeHarness(healthKitEnabled: true);
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      // 行程中（外部地図含む）に歩数が 100→600 へ増える。
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      // 全区間完了（番兵値）へ到達させる。
+      notifier.advanceToLeg(sampleRoutePlan.segments.length);
+      await settle();
+
+      expect(h.health.writeCount, 1);
+      final w = h.health.written!;
+      expect(w.steps, 500);
+      final snap = ActivitySnapshot.fromSteps(500);
+      expect(w.km, snap.km);
+      expect(w.kcal, snap.kcal);
+      expect(w.start, h.container.read(appStateProvider).journey!.startedAt);
+      expect(w.end.isBefore(w.start), isFalse);
+    });
+
+    test('最終区間の到着判定が先でも復帰後の歩数更新を待って WalkingWorkout を書く', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(0));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      // 復帰時は位置取得が先に終点到着を返す。外部 Google Maps 中の歩数は
+      // pedometer ストリームから少し遅れて届く競合を再現する。
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      final resumed = notifier.onAppResumed();
+      await settle();
+      expect(h.health.writeCount, 0);
+
+      h.activity.add(ActivitySnapshot.fromSteps(400));
+      await resumed;
+      await settle();
+
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 400);
+    });
+
+    test('後続の復帰に置き換えられた到着判定を歩数同期成功として完了しない', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      // 外部利用分の全量が未反映で、一部の50歩だけが見えている状態。
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await settle();
+
+      final firstLocation = Completer<LocationState>();
+      h.location.enqueue(firstLocation.future);
+      final firstResume = notifier.onAppResumed();
+      await settle();
+
+      final secondLocation = Completer<LocationState>();
+      h.location.enqueue(secondLocation.future);
+      final secondResume = notifier.onAppResumed();
+      await settle();
+
+      // 古い位置取得だけが最終区間の到着を返す。後続復帰の開始は歩数更新ではないため、
+      // この結果で行程完了や50歩のWorkout書き込みをしてはいけない。
+      firstLocation.complete(const LocationAvailable(GeoPoint(35.001, 139.0)));
+      await firstResume;
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 0);
+      expect(h.health.writeCount, 0);
+
+      secondLocation.complete(const LocationAvailable(GeoPoint(35.0, 139.0)));
+      await secondResume;
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 0);
+      expect(h.health.writeCount, 0);
+    });
+
+    test('手動の最終区間完了も復帰後の歩数更新を待って WalkingWorkout を書く', () async {
+      final h = await makeHarness(
+        plan: _singleEmptyWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      // geometry 欠落などで自動到着に進めない復帰を再現する。復帰処理自体が
+      // 終わった後に手動完了を押しても、遅れて届く歩数を待つ必要がある。
+      h.location.next = const LocationDenied();
+      await notifier.onAppResumed();
+      final completed = notifier.advanceCurrentLegManually();
+      await settle();
+      expect(h.health.writeCount, 0);
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 0);
+
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await completed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _singleEmptyWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
+    });
+
+    test('連続する手動区間でも最終完了まで復帰後の歩数同期を引き継ぐ', () async {
+      final h = await makeHarness(
+        plan: _twoEmptyWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+      notifier.startJourney();
+
+      // 復帰前には一部の歩数しか反映されていない。最初の手動区間を進めても、
+      // 同じ行程の最終区間では復帰後の歩数更新を引き続き待つ必要がある。
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await settle();
+      h.location.next = const LocationDenied();
+      await notifier.onAppResumed();
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+
+      // 次区間も handoff してから手動完了する（未起動区間は飛ばせない）。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
+      final completed = notifier.advanceCurrentLegManually();
+      await settle();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await completed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _twoEmptyWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
+    });
+
+    test('歩数が増えない最終電車区間は新しい活動イベントを待たずに Workout を書く', () async {
+      final h = await makeHarness(
+        plan: _walkThenTrainPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      // 最初の徒歩区間で増えた歩数は既に反映済み。最終電車区間では歩数が
+      // 増えないため、復帰後の新しい活動イベントなしで現在値を確定できる。
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+      // 最終電車区間も handoff してから復帰する（未起動区間は復帰で完了させない）。
+      final route = h.container.read(appStateProvider).route!;
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      await notifier.onAppResumed();
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _walkThenTrainPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
+    });
+
+    test('先行する徒歩handoffの歩数同期が未了なら最終電車区間でも待ってから Workout を書く', () async {
+      final h = await makeHarness(
+        plan: _walkThenTrainPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+
+      // 徒歩handoffの歩数が部分値（50歩分）のまま手動で次の電車区間へ進む。
+      // 非最終区間の進行は歩数同期を待たない。
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await settle();
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+
+      // 最終電車区間も handoff する（transit なので徒歩同期は保持される）。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
+      // 最終電車区間の到着では歩数は増えないが、直前の徒歩handoffの同期が
+      // 未了のため、遅れて届く歩数を待ってから Workout を確定する必要がある。
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      final resumed = notifier.onAppResumed();
+      await settle();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await resumed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _walkThenTrainPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
+    });
+
+    test('電車区間のhandoff再起動で先行徒歩の未了同期を張り替えない', () async {
+      final h = await makeHarness(
+        plan: _walkThenTrainPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 徒歩区間の handoff を開始し、同期基準を100にする。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+
+      // 部分値だけ反映（handoff 50歩）。同期閾値には届いていない。
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await settle();
+
+      // 徒歩を手動完了して電車区間へ。非最終なので待たずに進む。
+      await notifier.advanceCurrentLegManually();
+      final trainJourney = h.container.read(appStateProvider).journey;
+      expect(trainJourney!.currentLegIndex, 1);
+
+      // 電車区間の handoff を起動しても、徒歩の未了同期を捨てて張り替えてはいけない。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: trainJourney,
+        expectedLegIndex: 1,
+      );
+
+      // 復帰＝最終電車到着。徒歩の部分値のままでは Workout を確定しない。
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      final resumed = notifier.onAppResumed();
+      await settle();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+
+      // 徒歩の最終歩数が届いたら 500歩で確定する。
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await resumed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _walkThenTrainPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
+    });
+
+    test('同じ最終徒歩区間の再handoffで同期基準を巻き戻さず Workout を書く', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+
+      // 区間の大半を歩いた歩数は反映済みだが、復帰時の現在地が終点閾値の外で
+      // 自動到着に進めない（ノイズの多い測位を再現）。
+      h.activity.add(ActivitySnapshot.fromSteps(550));
+      await settle();
+      h.location.next = const LocationAvailable(GeoPoint(35.0, 139.0));
+      await notifier.onAppResumed();
+      expect(
+        h.container.read(appStateProvider).journeyManualCompletionAvailable,
+        isTrue,
+      );
+
+      // 残りわずかを歩くため同じ区間をもう一度 handoff する。ここで同期基準が
+      // 現在歩数へ巻き戻ると、残距離では閾値を満たせず Workout が捨てられる。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 0,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      await notifier.onAppResumed();
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _singleWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
+    });
+
+    test('handoff中の歩数が復帰前に反映済みなら追加イベントを待たずに Workout を書く', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // URL起動成功後の境界を通して行程を開始し、外部アプリ中の活動イベントが
+      // onAppResumed より先に届く実機の順序を再現する。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      await notifier.onAppResumed();
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _singleWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
+    });
+
+    test('handoff中の部分歩数だけでは完了せず復帰後の最終歩数を待って Workout を書く', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+
+      // 外部アプリ中に部分値（50歩分）だけが先着する。この時点を同期完了とせず、
+      // 復帰直後に届く最終値（500歩分）まで Workout 確定を待つ必要がある。
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await settle();
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      final resumed = notifier.onAppResumed();
+      await settle();
+
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 0);
+      expect(h.health.writeCount, 0);
+
+      // 計画距離の半分を超える途中値まで来ても、同期猶予中はまだ確定しない。
+      h.activity.add(ActivitySnapshot.fromSteps(450));
+      await settle();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 0);
+      expect(h.health.writeCount, 0);
+
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await resumed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _singleWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
+    });
+
+    test('歩数の同期猶予中に結果ハブを離れたら古い行程の Workout を書かない', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await settle();
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      final resumed = notifier.onAppResumed();
+      await settle();
+
+      // 同期待ちを残したまま結果ハブを離れると、待機中の完了処理を失効させる。
+      notifier.go(Screen.home);
+      await resumed;
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      final state = h.container.read(appStateProvider);
+      expect(state.screen, Screen.home);
+      expect(state.journey, isNull);
+      expect(h.health.writeCount, 0);
+    });
+
+    test('次のhandoffでは開始歩数を更新し前区間の歩数だけで同期完了しない', () async {
+      final h = await makeHarness(
+        plan: _twoEmptyWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+      await notifier.advanceCurrentLegManually();
+      final secondLegJourney = h.container.read(appStateProvider).journey!;
+      expect(secondLegJourney.currentLegIndex, 1);
+
+      // 2区間目のhandoff成功時に600歩を新しい基準にする。その後の部分値50歩では
+      // 最終区間を確定せず、2区間目の最終値500歩分まで待つ。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: secondLegJourney,
+        expectedLegIndex: 1,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(650));
+      await settle();
+      final completed = notifier.advanceCurrentLegManually();
+      await settle();
+
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+
+      h.activity.add(ActivitySnapshot.fromSteps(1100));
+      await completed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _twoEmptyWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 1000);
+    });
+
+    test('復帰後の歩数更新が上限まで来なければ不正確な Workout を捨てて行程だけ完了する', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      // 復帰前に一部だけ（50歩）反映された状態。復帰後の更新が来ない場合、この
+      // 不完全な値で Workout を確定せず、待機上限後は行程進捗だけを完了させる。
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await settle();
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      await notifier.onAppResumed();
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _singleWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 0);
+    });
+
+    test('混在ルートの Workout 期間は徒歩区間の実経過時間だけを含む', () async {
+      final h = await makeHarness(
+        plan: _walkThenTrainPlan,
+        healthKitEnabled: true,
+        start: DateTime(2026, 7, 18, 9, 0),
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      final started = h.container.read(appStateProvider).journey!.startedAt;
+
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      // 徒歩区間を10分歩いて手動完了する（9:00→9:10）。
+      h.clock.value = DateTime(2026, 7, 18, 9, 10);
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+      // 最終電車区間も handoff してから復帰する。
+      final route = h.container.read(appStateProvider).route!;
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
+      // 電車区間に30分乗ってから最終到着する（9:10→9:40）。この乗車時間は
+      // 徒歩ワークアウトの期間に含めない。
+      h.clock.value = DateTime(2026, 7, 18, 9, 40);
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      await notifier.onAppResumed();
+      await settle();
+
+      expect(h.health.writeCount, 1);
+      final w = h.health.written!;
+      expect(w.steps, 500);
+      expect(w.start, started);
+      // 徒歩10分のみ。電車の30分を跨がない。
+      expect(w.end, DateTime(2026, 7, 18, 9, 10));
+    });
+
+    test('電車降車後の駅歩き歩数では最終徒歩の同期を早期成立させない', () async {
+      final h = await makeHarness(
+        plan: _trainThenWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 電車区間を handoff→到着で徒歩区間へ。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+      h.location.next = const LocationAvailable(GeoPoint(35.10, 139.10));
+      await notifier.onAppResumed();
+      await settle();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+      // 電車降車〜徒歩CTAの間に駅で歩き回った歩数（500歩）が先に反映される。
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      // 徒歩区間を handoff。基準は区間進入時(100)ではなくこの起動時点(600)にする。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
+
+      // 徒歩の歩数は遅延。駅歩きの500歩だけでは最終到着を確定させない。
+      h.location.next = const LocationAvailable(GeoPoint(35.20, 139.20));
+      final resumed = notifier.onAppResumed();
+      await settle();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+
+      // 徒歩の歩数が届いたら確定する。ワークアウトは徒歩区間の歩数（400）のみで、
+      // handoff 前の駅歩き 500 歩は徒歩ワークアウトに混ぜない。
+      h.activity.add(ActivitySnapshot.fromSteps(1000));
+      await resumed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _trainThenWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 400);
+    });
+
+    test('連続する徒歩でもハブで一服したら別々のワークアウトにし空き時間を含めない', () async {
+      final h = await makeHarness(
+        plan: _twoEmptyWalkPlan,
+        healthKitEnabled: true,
+        start: DateTime(2026, 7, 18, 9, 0),
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 徒歩区間0（9:00 handoff、基準100）→ 400歩歩いて 9:10 完了。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(500));
+      await settle();
+      h.clock.value = DateTime(2026, 7, 18, 9, 10);
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+      // ハブで10分一服してから徒歩区間1を 9:20 handoff → 400歩歩いて 9:30 完了。
+      h.clock.value = DateTime(2026, 7, 18, 9, 20);
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(900));
+      await settle();
+      h.clock.value = DateTime(2026, 7, 18, 9, 30);
+      await notifier.advanceCurrentLegManually();
+      await settle();
+
+      // 隣接区間でも一服の空白があるので 2 本に分け、9:10〜9:20 の空き時間を含めない。
+      expect(h.health.writeCount, 2);
+      final first = h.health.writes[0];
+      expect(first.start, DateTime(2026, 7, 18, 9, 0));
+      expect(first.end, DateTime(2026, 7, 18, 9, 10));
+      expect(first.steps, 400);
+      final second = h.health.writes[1];
+      expect(second.start, DateTime(2026, 7, 18, 9, 20));
+      expect(second.end, DateTime(2026, 7, 18, 9, 30));
+      expect(second.steps, 400);
+    });
+
+    test('電車を挟んで離れた徒歩は別々のワークアウトに書き分ける', () async {
+      final h = await makeHarness(
+        plan: _walkTrainWalkPlan,
+        healthKitEnabled: true,
+        start: DateTime(2026, 7, 18, 9, 0),
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 徒歩区間0（9:00 handoff、基準100）。歩数400を歩いて 9:10 に手動完了。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(500));
+      await settle();
+      h.clock.value = DateTime(2026, 7, 18, 9, 10);
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+      // 電車区間1を handoff→乗車（駅歩き100歩が紛れる）→ 9:40 手動完了。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+      h.clock.value = DateTime(2026, 7, 18, 9, 40);
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 2);
+
+      // 徒歩区間2（9:40 handoff、基準600）。歩数400を歩いて 9:50 に手動完了。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 2,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(1000));
+      await settle();
+      h.clock.value = DateTime(2026, 7, 18, 9, 50);
+      await notifier.advanceCurrentLegManually();
+      await settle();
+
+      // 2本の徒歩ワークアウト。電車の乗車時間も駅歩き100歩も混ぜない。
+      expect(h.health.writeCount, 2);
+      final first = h.health.writes[0];
+      expect(first.start, DateTime(2026, 7, 18, 9, 0));
+      expect(first.end, DateTime(2026, 7, 18, 9, 10));
+      expect(first.steps, 400); // 500-100
+      final second = h.health.writes[1];
+      expect(second.start, DateTime(2026, 7, 18, 9, 40));
+      expect(second.end, DateTime(2026, 7, 18, 9, 50));
+      expect(second.steps, 400); // 1000-600
+    });
+
+    test('電車のあとの徒歩は Workout を実際の徒歩窓へ配置する', () async {
+      final h = await makeHarness(
+        plan: _trainThenWalkPlan,
+        healthKitEnabled: true,
+        start: DateTime(2026, 7, 18, 9, 0),
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+      notifier.startJourney();
+
+      // 電車区間に30分乗って原宿着（9:00→9:30）。非最終なので待たずに徒歩区間へ。
+      h.clock.value = DateTime(2026, 7, 18, 9, 30);
+      h.location.next = const LocationAvailable(GeoPoint(35.10, 139.10));
+      await notifier.onAppResumed();
+      await settle();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+
+      // 徒歩区間を 9:30 に handoff（前区間完了と同時なので歩行タイマー起点は 9:30）。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
+      // 徒歩を10分歩いて最終到着（9:30→9:40）。歩数も反映済み。
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+      h.clock.value = DateTime(2026, 7, 18, 9, 40);
+      h.location.next = const LocationAvailable(GeoPoint(35.20, 139.20));
+      await notifier.onAppResumed();
+      await settle();
+
+      expect(h.health.writeCount, 1);
+      final w = h.health.written!;
+      expect(w.steps, 500);
+      // 徒歩の実区間 9:30〜9:40。行程開始の 9:00 には寄せない。
+      expect(w.start, DateTime(2026, 7, 18, 9, 30));
+      expect(w.end, DateTime(2026, 7, 18, 9, 40));
+    });
+
+    test('徒歩タイマーは前区間完了ではなくhandoff起動から計る', () async {
+      final h = await makeHarness(
+        plan: _trainThenWalkPlan,
+        healthKitEnabled: true,
+        start: DateTime(2026, 7, 18, 9, 0),
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 電車区間の handoff で行程開始（9:00）。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+
+      // 電車で原宿着 9:30 → 徒歩区間へ。
+      h.clock.value = DateTime(2026, 7, 18, 9, 30);
+      h.location.next = const LocationAvailable(GeoPoint(35.10, 139.10));
+      await notifier.onAppResumed();
+      await settle();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+      // 駅で5分待ってから徒歩CTAを起動（9:35）。この待ちは歩行時間に含めない。
+      h.clock.value = DateTime(2026, 7, 18, 9, 35);
+      final walkJourney = h.container.read(appStateProvider).journey;
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: walkJourney,
+        expectedLegIndex: 1,
+      );
+
+      // 徒歩の歩数が反映され、9:45に最終到着。
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+      h.clock.value = DateTime(2026, 7, 18, 9, 45);
+      h.location.next = const LocationAvailable(GeoPoint(35.20, 139.20));
+      await notifier.onAppResumed();
+      await settle();
+
+      expect(h.health.writeCount, 1);
+      final w = h.health.written!;
+      expect(w.steps, 500);
+      // 徒歩は 9:35（CTA起動）〜9:45。前区間完了の 9:30 からではない。
+      expect(w.start, DateTime(2026, 7, 18, 9, 35));
+      expect(w.end, DateTime(2026, 7, 18, 9, 45));
+    });
+
+    test('前徒歩の同期が未了なら次の徒歩handoffで基準を張り替えない', () async {
+      final h = await makeHarness(
+        plan: _longThenShortWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 長い徒歩区間の handoff（基準100）。歩数はまだ部分値50しか届かない。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await settle();
+
+      // 手動で短い最終徒歩へ進む（非最終なので待たない）。
+      await notifier.advanceCurrentLegManually();
+      final shortJourney = h.container.read(appStateProvider).journey;
+      expect(shortJourney!.currentLegIndex, 1);
+
+      // 短い最終徒歩の handoff。前区間の徒歩歩数が未了のため、基準を張り替えて
+      // 短い区間の閾値だけで早期完了させてはいけない。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: shortJourney,
+        expectedLegIndex: 1,
+      );
+
+      // 短い区間の閾値(0.03km=40歩)は満たすが、長い前区間(0.25km)には足りない歩数。
+      h.activity.add(ActivitySnapshot.fromSteps(250));
+      await settle();
+      final completed = notifier.advanceCurrentLegManually();
+      await settle();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+
+      // 前区間ぶんの歩数が遅れて届いたら、取りこぼさず総歩数で確定する。
+      h.activity.add(ActivitySnapshot.fromSteps(800));
+      await completed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _longThenShortWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 700);
+    });
+
+    test('前区間が先に追いついても現在区間の歩数を待ってから Workout を書く', () async {
+      final h = await makeHarness(
+        plan: _twoEmptyWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 徒歩区間0の handoff（基準100）。部分値50だけ届く。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await settle();
+
+      // 徒歩区間1へ進み handoff（区間1の基準150）。
+      await notifier.advanceCurrentLegManually();
+      final leg1Journey = h.container.read(appStateProvider).journey;
+      expect(leg1Journey!.currentLegIndex, 1);
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: leg1Journey,
+        expectedLegIndex: 1,
+      );
+
+      // 区間0の遅延歩数が先に届く（区間0は追いつくが、区間1はまだ）。
+      // 区間0基準100→450で0.2625km(閾値0.25)超え。区間1基準150→450で0.225km(未達)。
+      h.activity.add(ActivitySnapshot.fromSteps(450));
+      await settle();
+      final completed = notifier.advanceCurrentLegManually();
+      await settle();
+      // 前区間だけ追いついても、現在区間の歩数を取りこぼして早期完了しない。
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+
+      // 区間1の歩数も届いたら総歩数で確定する。
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await completed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _twoEmptyWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
+    });
+
+    test('同じ徒歩区間の再handoffでは歩行時間の起点を巻き戻さない', () async {
+      final h = await makeHarness(
+        plan: _singleEmptyWalkPlan,
+        healthKitEnabled: true,
+        start: DateTime(2026, 7, 18, 9, 0),
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 9:00に最初のhandoff。歩行タイマーの起点は9:00。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+
+      // ノイズの多い測位で未到着のまま9:08に同じ区間を再handoff。起点を9:08へ
+      // 巻き戻すと、最初の8分の歩行が歩行時間から落ちてしまう。
+      h.clock.value = DateTime(2026, 7, 18, 9, 8);
+      final journey = h.container.read(appStateProvider).journey;
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: journey,
+        expectedLegIndex: 0,
+      );
+
+      // 9:10に歩数反映済みで最終到着。
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+      h.clock.value = DateTime(2026, 7, 18, 9, 10);
+      await notifier.advanceCurrentLegManually();
+      await settle();
+
+      expect(h.health.writeCount, 1);
+      final w = h.health.written!;
+      expect(w.steps, 500);
+      // 歩行は最初のhandoff 9:00〜9:10。再handoffの9:08で巻き戻さない。
+      expect(w.start, DateTime(2026, 7, 18, 9, 0));
+      expect(w.end, DateTime(2026, 7, 18, 9, 10));
+    });
+
+    test('handoff していない geometry 欠落区間は notifier 側でも手動完了を拒否する', () async {
+      final h = await makeHarness(
+        plan: _twoEmptyWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      final route = h.container.read(appStateProvider).route!;
+
+      // 区間0を handoff→手動完了して区間1へ。区間1は未起動（handoff 前）。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: null,
+        expectedLegIndex: 0,
+      );
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+      // 再描画前の古いボタンコールバック相当。未起動の区間1を手動完了で飛ばさない。
+      await notifier.advanceCurrentLegManually();
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+
+      // handoff すれば手動完了できる。
+      notifier.startJourneyIfHandoffStillCurrent(
+        expectedRoute: route,
+        expectedJourney: h.container.read(appStateProvider).journey,
+        expectedLegIndex: 1,
+      );
+      await notifier.advanceCurrentLegManually();
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _twoEmptyWalkPlan.segments.length,
+      );
+    });
+
+    test('手動完了の連打では1区間だけ進め次区間を飛ばさない', () async {
+      final h = await makeHarness(
+        plan: _twoEmptyWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      // ウィジェット再描画前の2連打を再現する。1回目の処理中は2回目を無視し、
+      // 1タップ＝1区間に留めて、まだ handoff していない次区間まで一気に完了しない。
+      final first = notifier.advanceCurrentLegManually();
+      final second = notifier.advanceCurrentLegManually();
+      await Future.wait([first, second]);
+      await settle();
+
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 1);
+      expect(h.health.writeCount, 0);
+    });
+
+    test('計画距離が不明な徒歩は下限を保ち紛れ歩数で早期確定しない', () async {
+      final h = await makeHarness(
+        plan: _missingKmWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      // geometry 欠落で自動到着に進めず、手動完了へ。
+      h.location.next = const LocationDenied();
+      await notifier.onAppResumed();
+      final completed = notifier.advanceCurrentLegManually();
+      await settle();
+      expect(h.health.writeCount, 0);
+      expect(h.container.read(appStateProvider).journey!.currentLegIndex, 0);
+
+      // 下限50m(約67歩)未満の紛れ歩数30歩では確定させない。計画距離0で下限を
+      // 0まで潰すと1歩で成立してしまうため、下限を維持する。
+      h.activity.add(ActivitySnapshot.fromSteps(130));
+      await completed;
+      await settle();
+
+      // 行程は完了へ進むが、不正確な Workout は書かない。
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _missingKmWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 0);
+    });
+
+    test('電車のみの経路は乗車中の紛れ歩数があっても Workout を書かない', () async {
+      final h = await makeHarness(plan: _trainOnlyPlan, healthKitEnabled: true);
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      // 乗車中に歩数が紛れて増える（100→600）。徒歩区間は無い。
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      await notifier.onAppResumed();
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _trainOnlyPlan.segments.length,
+      );
+      expect(h.health.writeCount, 0);
+    });
+
+    test('計画距離が同期下限より短い最終徒歩でも歩き切れば Workout を書く', () async {
+      final h = await makeHarness(
+        plan: _shortFinalWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      // 復帰時に終点到着。区間全体（50歩≒0.0375km）を歩いた歩数が遅れて届く。
+      // 下限50mを計画距離30mで頭打ちにしないと、全歩数が来ても同期不能で捨てられる。
+      h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
+      final resumed = notifier.onAppResumed();
+      await settle();
+      expect(h.health.writeCount, 0);
+
+      h.activity.add(ActivitySnapshot.fromSteps(150));
+      await resumed;
+      await settle();
+
+      expect(
+        h.container.read(appStateProvider).journey!.currentLegIndex,
+        _shortFinalWalkPlan.segments.length,
+      );
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 50);
+    });
+
+    test('連携オフなら全区間完了でも WalkingWorkout を書かない', () async {
+      final h = await makeHarness(healthKitEnabled: false);
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      notifier.advanceToLeg(sampleRoutePlan.segments.length);
+      await settle();
+
+      expect(h.health.writeCount, 0);
+    });
+
+    test('途中でのリセット（新規検索）では WalkingWorkout を書かない', () async {
+      final h = await makeHarness(healthKitEnabled: true);
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+
+      // 途中まで進めてから新規検索でリセット（行程を放棄）。
+      notifier.advanceToLeg(1);
+      await notifier.startSearch();
+      await settle();
+
+      expect(h.container.read(appStateProvider).journey, isNull);
+      expect(h.health.writeCount, 0);
+    });
+
+    test('全区間完了へ再度到達しても二重に書き込まない', () async {
+      final h = await makeHarness(healthKitEnabled: true);
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      notifier.advanceToLeg(sampleRoutePlan.segments.length);
+      notifier.advanceToLeg(sampleRoutePlan.segments.length);
+      await settle();
+
+      expect(h.health.writeCount, 1);
+    });
+  });
+
+  group('行程完了の基準歩数ガード（#305 修正2）', () {
+    test('履歴ロード完了前に開始した行程は全区間完了でも WalkingWorkout を書かない', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+        historyLoadDelay: const Duration(milliseconds: 30),
+        recordedTodaySteps: 1000,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      // 履歴ロード（30ms）未完了のうちに検索・行程開始する。startSearch の await は
+      // マイクロタスクだけを回すので 30ms タイマーはまだ発火しない。
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      expect(
+        h.container.read(appStateProvider).journey!.startBaselineValid,
+        isFalse,
+      );
+
+      // セッション歩数が届き、ロード完了後に基準 1000 が乗る（累積が過大になる）。
+      h.activity.add(ActivitySnapshot.fromSteps(500));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      notifier.advanceToLeg(_singleWalkPlan.segments.length);
+      await settle();
+
+      expect(h.health.writeCount, 0);
+    });
+
+    test('履歴ロード後に開始した行程は全区間完了で WalkingWorkout を書く', () async {
+      final h = await makeHarness(
+        plan: _singleWalkPlan,
+        healthKitEnabled: true,
+      );
+      final notifier = h.container.read(appStateProvider.notifier);
+      await settle();
+      h.activity.add(ActivitySnapshot.fromSteps(100));
+      await settle();
+      await notifier.startSearch();
+      notifier.startJourney();
+      expect(
+        h.container.read(appStateProvider).journey!.startBaselineValid,
+        isTrue,
+      );
+      h.activity.add(ActivitySnapshot.fromSteps(600));
+      await settle();
+
+      notifier.advanceToLeg(_singleWalkPlan.segments.length);
+      await settle();
+
+      expect(h.health.writeCount, 1);
+      expect(h.health.written!.steps, 500);
+    });
+  });
+}

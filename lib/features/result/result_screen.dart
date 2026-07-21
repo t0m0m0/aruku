@@ -4,9 +4,14 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/models/geo_point.dart';
+import '../../core/models/journey_progress.dart';
+import '../../core/models/location_state.dart';
 import '../../core/models/route_plan.dart';
 import '../../core/models/time_value.dart';
+import '../../core/navigation/leg_handoff.dart';
 import '../../core/services/share_service.dart';
+import '../../core/services/url_launcher.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../l10n/app_localizations.dart';
@@ -19,6 +24,7 @@ import '../../shared/widgets/aruku_map.dart';
 part 'result_alternatives.dart';
 part 'result_totals.dart';
 part 'result_timeline.dart';
+part 'result_leg_cta.dart';
 
 /// ルート概要テキストを共有する。share_plus が PlatformException 等を投げても
 /// `unawaited` 実行で未捕捉の非同期例外にならないよう握り、致命化させない。
@@ -53,6 +59,10 @@ class ResultScreen extends ConsumerWidget {
     final notifier = ref.read(appStateProvider.notifier);
     final state = ref.watch(appStateProvider);
     final route = state.route;
+    // journey 未開始（journey == null）は index0 扱い（#305 の仕様: 途中復帰と
+    // 未開始を区別せず同じ CTA を出す）。segments 範囲外は全区間完了の番兵値。
+    final currentLegIndex = state.journey?.currentLegIndex ?? 0;
+    final currentLeg = route == null ? null : legAt(route, currentLegIndex);
 
     if (route == null) {
       return Material(
@@ -183,7 +193,7 @@ class ResultScreen extends ConsumerWidget {
                               const SizedBox(height: 12),
                               _WalkRatioRow(route: route),
                               const SizedBox(height: 14),
-                              _Timeline(route: route),
+                              _Timeline(route: route, journey: state.journey),
                               _AlternativesSection(
                                 alternatives: state.routeAlternatives,
                                 onSelect: notifier.selectAlternative,
@@ -193,7 +203,56 @@ class ResultScreen extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      _CtaRow(onNav: notifier.startNavigation),
+                      _LegCta(
+                        // 経路または legIndex ごとに State を作り直し、区間進行だけで
+                        // なく代替案の切替でも前経路の起動失敗バナーを持ち越さない。
+                        key: ValueKey((route, currentLegIndex)),
+                        leg: currentLeg,
+                        onManualAdvance:
+                            currentLeg != null &&
+                                state.journey != null &&
+                                // 復帰時の到着確認が手動完了を許可した区間、または
+                                // geometry 欠落かつ既に handoff（起動）済みの区間のみ。
+                                // まだ出発していない geometry 欠落区間を先に完了させない。
+                                (state.journeyManualCompletionAvailable ||
+                                    (currentLeg.polyline.isEmpty &&
+                                        state.journeyCurrentLegHandedOff))
+                            ? notifier.advanceCurrentLegManually
+                            : null,
+                        onLaunch: currentLeg == null
+                            ? null
+                            : () async {
+                                // 初回タップ（行程未開始）で失効していたら外部起動せず
+                                // 経路を無効化する。redirect が画面を遷移させるため、
+                                // 起動失敗ではなく true を返しバナーを出さない（#305）。
+                                if (notifier.expireStaleBeforeHandoff()) {
+                                  return true;
+                                }
+                                final uri = buildLegHandoffUri(
+                                  leg: currentLeg,
+                                  origin: _handoffOrigin(
+                                    state,
+                                    currentLegIndex,
+                                  ),
+                                );
+                                final expectedJourney = state.journey;
+                                final launched = await ref.read(
+                                  urlLauncherProvider,
+                                )(uri);
+                                // 起動に成功したときだけ行程を開始する。失敗で「開始済み」
+                                // にすると、以後の復帰再評価が走ってしまうため（#305）。
+                                // await 中に結果画面を離れた・代替案/区間が変わった場合は、
+                                // 完了した古い起動から非表示または別経路の行程を始めない。
+                                if (launched) {
+                                  notifier.startJourneyIfHandoffStillCurrent(
+                                    expectedRoute: route,
+                                    expectedJourney: expectedJourney,
+                                    expectedLegIndex: currentLegIndex,
+                                  );
+                                }
+                                return launched;
+                              },
+                      ),
                     ],
                   ),
                 ),
@@ -403,49 +462,27 @@ class _JourneyHeader extends StatelessWidget {
   }
 }
 
-class _CtaRow extends StatelessWidget {
-  const _CtaRow({required this.onNav});
-  final VoidCallback onNav;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    final l10n = AppLocalizations.of(context);
-    return Row(
-      children: [
-        Container(
-          width: 52,
-          height: 52,
-          decoration: BoxDecoration(
-            color: c.paper,
-            border: Border.all(color: c.hairline),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Center(child: Ic.search(size: 18, color: c.ink2)),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: ArukuButton(
-            label: l10n.resultWalkThisRoute,
-            onPressed: onNav,
-            icon: Ic.arrowUp(size: 18, color: c.ivory),
-            iconGap: 8,
-            shadow: const [
-              BoxShadow(
-                color: ArukuTokens.shadowCtaResult,
-                blurRadius: 20,
-                offset: Offset(0, 8),
-              ),
-            ],
-            textStyle: jpStyle(
-              size: 16,
-              weight: FontWeight.w800,
-              color: c.ivory,
-              letterSpacing: 0.06 * 16,
-            ),
-          ),
-        ),
-      ],
-    );
+/// 区間 CTA の Google Maps 引き継ぎ URL の origin（#305）。
+/// まだ出発していない先頭区間の初回起動（journey 未開始）だけは、手動指定の出発地から
+/// 検索した経路なら表示中の経路の起点（[AppState.originLatLng]）を使う。現在地に置き
+/// 換えると駅・職場など計画とは別地点から始まる別経路の案内へ飛んでしまう。
+/// 一度出発した後の再起動（区間途中で戻って再タップ等）は、計画起点が古びて経路の先頭へ
+/// 引き戻されるため、実測の現在地（無ければ省略）を使う。
+GeoPoint? _handoffOrigin(AppState state, int legIndex) {
+  if (legIndex == 0 && state.journey == null && state.originLatLng != null) {
+    return state.originLatLng;
   }
+  return _currentOrigin(state);
+}
+
+/// 現在地の GeoPoint。[startSearch] の origin 解決と同じ優先順位（ナビ中の実測位置 →
+/// GPS 確定済みの現在地）を踏襲する。手動指定の出発地（[AppState.originLatLng]）は最初の
+/// 検索時点の起点であり、区間が進んだ後の「現在地」としては古びるため使わない。
+GeoPoint? _currentOrigin(AppState state) {
+  final tracked = state.currentPosition;
+  if (tracked != null) return tracked;
+  return switch (state.locationState) {
+    LocationAvailable(:final position) => position,
+    _ => null,
+  };
 }

@@ -162,8 +162,28 @@
   "@resultOverBudgetHint": {},
   "resultChangeConditions": "条件を変更",
   "@resultChangeConditions": {},
-  "resultWalkThisRoute": "このルートで歩く",
-  "@resultWalkThisRoute": {},
+  "resultCtaWalkToDestination": "Google Mapsで{destination}まで歩く",
+  "@resultCtaWalkToDestination": {
+    "placeholders": {
+      "destination": { "type": "String" }
+    }
+  },
+  "resultCtaTransitToDestination": "Google Mapsで{destination}まで行く",
+  "@resultCtaTransitToDestination": {
+    "placeholders": {
+      "destination": { "type": "String" }
+    }
+  },
+  "resultCtaLaunchFailed": "Google Mapsを開けませんでした",
+  "@resultCtaLaunchFailed": {},
+  "resultCtaMarkLegComplete": "この区間を完了",
+  "@resultCtaMarkLegComplete": {},
+  "resultJourneyCompleteMessage": "目的地に到着しました",
+  "@resultJourneyCompleteMessage": {},
+  "resultLegDoneLabel": "完了",
+  "@resultLegDoneLabel": {},
+  "resultLegCurrentLabel": "進行中",
+  "@resultLegCurrentLabel": {},
   "resultHourUnit": "時間",
   "@resultHourUnit": {},
   "resultMinuteUnit": "分",

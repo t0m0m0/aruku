@@ -72,6 +72,8 @@ const _plan = RoutePlan(
 );
 
 /// 乗換の多い長いタイムラインを持つプラン（カード高を超える想定）。
+/// segments は空でなく1件（区間CTAが「全区間完了」扱いにならないよう、実際の
+/// ルートと同じく最低1区間を持たせる。#305 で主CTAが区間単位になったため）。
 RoutePlan _longPlan() => RoutePlan(
   from: '現在地',
   to: '渋谷駅',
@@ -81,7 +83,16 @@ RoutePlan _longPlan() => RoutePlan(
   kcal: 187,
   walkKm: 3.8,
   walkRatio: 0.9,
-  segments: const [],
+  segments: const [
+    RouteSegment(
+      type: SegmentType.walk,
+      fromName: '現在地',
+      toName: '渋谷駅',
+      km: 3.8,
+      minutes: 52,
+      kcal: 187,
+    ),
+  ],
   timelineNodes: List.generate(
     24,
     (i) => TimelineNode(

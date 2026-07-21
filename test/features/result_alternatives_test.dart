@@ -106,7 +106,7 @@ void main() {
     expect(find.textContaining('徒歩32分'), findsOneWidget);
   });
 
-  testWidgets('候補セクション表示後も「このルートで歩く」CTAは画面内に残る', (tester) async {
+  testWidgets('候補セクション表示後も区間CTA（ArukuButton）は画面内に残る', (tester) async {
     tester.view.physicalSize = const Size(1170, 2532);
     tester.view.devicePixelRatio = 3.0;
     addTearDown(tester.view.reset);

@@ -214,7 +214,29 @@ class AppLocalizationsJa extends AppLocalizations {
   String get resultChangeConditions => '条件を変更';
 
   @override
-  String get resultWalkThisRoute => 'このルートで歩く';
+  String resultCtaWalkToDestination(String destination) {
+    return 'Google Mapsで$destinationまで歩く';
+  }
+
+  @override
+  String resultCtaTransitToDestination(String destination) {
+    return 'Google Mapsで$destinationまで行く';
+  }
+
+  @override
+  String get resultCtaLaunchFailed => 'Google Mapsを開けませんでした';
+
+  @override
+  String get resultCtaMarkLegComplete => 'この区間を完了';
+
+  @override
+  String get resultJourneyCompleteMessage => '目的地に到着しました';
+
+  @override
+  String get resultLegDoneLabel => '完了';
+
+  @override
+  String get resultLegCurrentLabel => '進行中';
 
   @override
   String get resultHourUnit => '時間';

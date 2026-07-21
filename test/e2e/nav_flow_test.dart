@@ -41,11 +41,14 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  testWidgets('結果画面の「このルートで歩く」でナビ画面へ遷移する', (tester) async {
+  // #305: 結果画面の主CTAはNavScreen遷移からGoogle Maps引き継ぎへ差し替わった
+  // （区間CTAタップは外部起動のみで screen を変えない）。Nav 画面自体は健在の
+  // ため、startNavigation() を直接呼んで遷移させ、画面としての疎通を検証する。
+  testWidgets('startNavigation() 呼び出しでナビ画面へ遷移する', (tester) async {
     final setup = await _pumpToResult(tester);
     addTearDown(setup.container.dispose);
 
-    await tester.tap(find.text('このルートで歩く'));
+    setup.container.read(appStateProvider.notifier).startNavigation();
     await tester.pump();
     // ルーターの遷移アニメ（220ms）を完了させる。nav 画面は位置ドットが
     // アニメし続け pumpAndSettle できないため固定時間で送る。
@@ -59,7 +62,7 @@ void main() {
     final setup = await _pumpToResult(tester);
     addTearDown(setup.container.dispose);
 
-    await tester.tap(find.text('このルートで歩く'));
+    setup.container.read(appStateProvider.notifier).startNavigation();
     await tester.pump();
     // ルーターの遷移アニメ（220ms）を完了させる。nav 画面は位置ドットが
     // アニメし続け pumpAndSettle できないため固定時間で送る。
@@ -83,7 +86,7 @@ void main() {
     // ナビ開始前: currentPosition は null
     expect(setup.container.read(appStateProvider).currentPosition, isNull);
 
-    await tester.tap(find.text('このルートで歩く'));
+    setup.container.read(appStateProvider.notifier).startNavigation();
     await tester.pump();
     // ルーターの遷移アニメ（220ms）を完了させる。nav 画面は位置ドットが
     // アニメし続け pumpAndSettle できないため固定時間で送る。
