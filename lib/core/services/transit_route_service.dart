@@ -237,6 +237,7 @@ class TransitRouteService implements SearchEngine {
     // 崩壊時の board-search は単一 base を土台にする（#137）。先頭は総所要最小＝従来の
     // [_baseForHybrid] と一致するため、崩壊フォールバックの挙動は #292 前と変わらない。
     final base = bases.isEmpty ? null : bases.first;
+    final hybridSw = Stopwatch()..start();
     if (bases.isNotEmpty) {
       _diag.log(() => 'hybrid bases: ${bases.length}家系');
       // base ごとの実測（マトリクス IO）は互いに独立なので並列に投げる（#163・Codex 指摘）。
@@ -265,6 +266,7 @@ class TransitRouteService implements SearchEngine {
       _diag.log(() => 'no base route (corridor<2); all-walk only');
       await _measureAccessWalks(origin, goal, const [], const [], measured);
     }
+    metrics.hybridMs = hybridSw.elapsedMilliseconds;
 
     final allWalk = _measuredWalk(
       origin,
@@ -292,6 +294,7 @@ class TransitRouteService implements SearchEngine {
       ];
     }
 
+    final enrichSw = Stopwatch()..start();
     var selected = await _selectAndEnrich(
       candidates,
       budgetMin,
@@ -301,6 +304,7 @@ class TransitRouteService implements SearchEngine {
       walkCache: walkCache,
       lastResortBus: lastResortBus,
     );
+    metrics.enrichMs = enrichSw.elapsedMilliseconds;
 
     _diag.log(
       () =>
@@ -410,6 +414,7 @@ class TransitRouteService implements SearchEngine {
     // 代替案の選出・検証は最終 selection が確定してから1回だけ行う（#290 レビュー指摘）。
     // 崩壊時は選定が2回走り1回目の結果は捨てられるため、_selectAndEnrich 内で都度検証
     // すると捨てられる selection のための walk/guidance IO を無駄撃ちする。
+    final alternativesSw = Stopwatch()..start();
     final alternatives = await _validatedAlternatives(
       selected.pool,
       selected.chosen,
@@ -421,6 +426,7 @@ class TransitRouteService implements SearchEngine {
       goal: goal,
       relaxBudget: selected.relaxBudget,
     );
+    metrics.alternativesMs = alternativesSw.elapsedMilliseconds;
 
     final finalizeSw = Stopwatch()..start();
     final named = await _finalizeStationNames(selected.enriched, departureAt);

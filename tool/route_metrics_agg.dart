@@ -24,7 +24,10 @@ class RouteMetricSample {
     required this.walkCalls,
     required this.matrixCalls,
     required this.guidanceMs,
+    required this.hybridMs,
+    required this.enrichMs,
     required this.boardSearchMs,
+    required this.alternativesMs,
     required this.finalizeMs,
     required this.totalMs,
   });
@@ -36,7 +39,10 @@ class RouteMetricSample {
   final int walkCalls;
   final int matrixCalls;
   final int guidanceMs;
+  final int hybridMs;
+  final int enrichMs;
   final int boardSearchMs;
+  final int alternativesMs;
   final int finalizeMs;
   final int totalMs;
 }
@@ -66,7 +72,10 @@ RouteMetricSample? parseRouteMetricsLine(String line) {
     walkCalls: at('walkCalls'),
     matrixCalls: at('matrixCalls'),
     guidanceMs: at('guidanceMs'),
+    hybridMs: at('hybridMs'),
+    enrichMs: at('enrichMs'),
     boardSearchMs: at('boardSearchMs'),
+    alternativesMs: at('alternativesMs'),
     finalizeMs: at('finalizeMs'),
     totalMs: at('totalMs'),
   );
@@ -139,7 +148,12 @@ class MetricsAggregation {
     required this.walkCalls,
     required this.matrixCalls,
     required this.totalMs,
+    required this.guidanceMs,
+    required this.hybridMs,
+    required this.enrichMs,
     required this.boardSearchMs,
+    required this.alternativesMs,
+    required this.finalizeMs,
     required this.collapseWalkCalls,
     required this.collapseMatrixCalls,
     required this.collapseBoardSearchMs,
@@ -154,7 +168,15 @@ class MetricsAggregation {
   final MetricStats walkCalls;
   final MetricStats matrixCalls;
   final MetricStats totalMs;
+
+  /// フェーズ別所要（#309 拡張・どこで時間を使うか）。パイプラインは
+  /// guidance→hybrid→enrich→(boardSearch)→alternatives→finalize と直列。
+  final MetricStats guidanceMs;
+  final MetricStats hybridMs;
+  final MetricStats enrichMs;
   final MetricStats boardSearchMs;
+  final MetricStats alternativesMs;
+  final MetricStats finalizeMs;
 
   /// collapse=1 サブセットの統計（#310 が直接動かすレバー）。
   final MetricStats collapseWalkCalls;
@@ -163,6 +185,16 @@ class MetricsAggregation {
 
   double get collapseRate => count == 0 ? 0.0 : collapseCount / count;
   double get boardSearchRate => count == 0 ? 0.0 : boardSearchCount / count;
+
+  /// 計測フェーズの平均所要の合計（残差＝total平均 − これ が未帰属の目安）。
+  double get measuredPhaseMeanSum => [
+    guidanceMs,
+    hybridMs,
+    enrichMs,
+    boardSearchMs,
+    alternativesMs,
+    finalizeMs,
+  ].fold(0.0, (a, s) => a + (s.mean ?? 0));
 }
 
 /// [samples] を集計する。全体分布に加え、collapse=1 サブセットの walkCalls/matrixCalls/
@@ -182,7 +214,12 @@ MetricsAggregation aggregate(List<RouteMetricSample> samples) {
     walkCalls: statsOf([for (final s in samples) s.walkCalls]),
     matrixCalls: statsOf([for (final s in samples) s.matrixCalls]),
     totalMs: statsOf([for (final s in samples) s.totalMs]),
+    guidanceMs: statsOf([for (final s in samples) s.guidanceMs]),
+    hybridMs: statsOf([for (final s in samples) s.hybridMs]),
+    enrichMs: statsOf([for (final s in samples) s.enrichMs]),
     boardSearchMs: statsOf([for (final s in samples) s.boardSearchMs]),
+    alternativesMs: statsOf([for (final s in samples) s.alternativesMs]),
+    finalizeMs: statsOf([for (final s in samples) s.finalizeMs]),
     collapseWalkCalls: statsOf([for (final s in collapsed) s.walkCalls]),
     collapseMatrixCalls: statsOf([for (final s in collapsed) s.matrixCalls]),
     collapseBoardSearchMs: statsOf([
@@ -198,6 +235,48 @@ String _statLine(String label, MetricStats s) {
   final mean = s.mean!.toStringAsFixed(1);
   return '  $label: min=${s.min} p50=${s.p50} p90=${s.p90} '
       'max=${s.max} mean=$mean';
+}
+
+/// フェーズ1行：平均ms と total 平均に対する割合。降順で並べて支配フェーズを一目にする。
+String _phaseLine(String label, MetricStats s, double totalMean) {
+  final mean = s.mean ?? 0;
+  final share = totalMean == 0 ? 0.0 : mean / totalMean;
+  final padded = label.padRight(16);
+  return '  $padded mean=${mean.toStringAsFixed(0)}ms (${_pct(share)}) '
+      'p90=${s.p90 ?? 0}ms';
+}
+
+/// フェーズ別所要のブロック。パイプライン各段の平均と total 比を降順で出し、
+/// 「見えない時間」がどの段に居るかを直接示す（#309 拡張の主目的）。
+String _phaseBreakdown(MetricsAggregation a) {
+  final totalMean = a.totalMs.mean ?? 0;
+  final phases = <(String, MetricStats)>[
+    ('guidance(初回)', a.guidanceMs),
+    ('hybrid', a.hybridMs),
+    ('enrich', a.enrichMs),
+    ('boardSearch', a.boardSearchMs),
+    ('alternatives', a.alternativesMs),
+    ('finalize', a.finalizeMs),
+  ]..sort((x, y) => (y.$2.mean ?? 0).compareTo(x.$2.mean ?? 0));
+  final b = StringBuffer()..writeln('--- フェーズ別所要（平均・total比／どこで時間を使うか） ---');
+  for (final p in phases) {
+    b.writeln(_phaseLine(p.$1, p.$2, totalMean));
+  }
+  final residual = totalMean - a.measuredPhaseMeanSum;
+  final residualShare = totalMean == 0 ? 0.0 : residual / totalMean;
+  b
+    ..writeln(
+      '  ${'計測フェーズ合計'.padRight(12)} '
+      'mean=${a.measuredPhaseMeanSum.toStringAsFixed(0)}ms',
+    )
+    ..writeln(
+      '  ${'残差(未帰属)'.padRight(13)} '
+      'mean=${residual.toStringAsFixed(0)}ms (${_pct(residualShare)})',
+    )
+    ..write(
+      '  ${'totalMs'.padRight(16)} mean=${totalMean.toStringAsFixed(0)}ms',
+    );
+  return b.toString();
 }
 
 /// 集計結果を人が読めるレポートに整形する。#310 判断の要点（発火率・collapse 時の
@@ -219,6 +298,7 @@ String formatAggregation(MetricsAggregation a) {
     ..writeln(_statLine('walkCalls', a.walkCalls))
     ..writeln(_statLine('matrixCalls', a.matrixCalls))
     ..writeln(_statLine('totalMs', a.totalMs))
+    ..writeln(_phaseBreakdown(a))
     ..writeln('--- collapse=1 サブセット（#310 が動かすレバー） ---')
     ..writeln(_statLine('walkCalls(崩壊時)', a.collapseWalkCalls))
     ..writeln(_statLine('matrixCalls(崩壊時)', a.collapseMatrixCalls))

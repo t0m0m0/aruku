@@ -21,8 +21,19 @@ class RouteSearchMetrics {
   /// 初回 `/guidance/plan`（必須の1本）に掛かった実時間（ミリ秒）。
   int guidanceMs = 0;
 
-  /// board-search フォールバック区間の実時間（起動しなければ 0）。
+  /// ハイブリッド候補生成（コリドー実測マトリクス＋候補構築）区間の実時間。
+  int hybridMs = 0;
+
+  /// 初回の選定＋enrich（実測徒歩・実発車時刻の確定検証ループ）区間の実時間。
+  /// 崩壊時の再選定は [boardSearchMs] に含める（二重計上しない）。
+  int enrichMs = 0;
+
+  /// board-search フォールバック区間の実時間（起動しなければ 0）。崩壊時の再選定
+  /// （board-search 候補を足した再 enrich）もこの区間に含む。
   int boardSearchMs = 0;
+
+  /// 代替案（パレート非劣解）の選出・検証区間の実時間。
+  int alternativesMs = 0;
 
   /// 確定候補の駅名確定（`_finalizeStationNames`）に掛かった実時間。
   int finalizeMs = 0;
@@ -49,7 +60,8 @@ class RouteSearchMetrics {
       'boardSearch=${boardSearchActivated ? 1 : 0} '
       'http=$httpRoundTrips '
       'guidanceCalls=$guidanceCalls walkCalls=$walkCalls matrixCalls=$matrixCalls '
-      'guidanceMs=$guidanceMs boardSearchMs=$boardSearchMs '
+      'guidanceMs=$guidanceMs hybridMs=$hybridMs enrichMs=$enrichMs '
+      'boardSearchMs=$boardSearchMs alternativesMs=$alternativesMs '
       'finalizeMs=$finalizeMs totalMs=$totalMs';
 }
 

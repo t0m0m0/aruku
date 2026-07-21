@@ -15,7 +15,10 @@ void main() {
         ..walkCalls = 6
         ..matrixCalls = 2
         ..guidanceMs = 900
+        ..hybridMs = 1500
+        ..enrichMs = 42000
         ..boardSearchMs = 3200
+        ..alternativesMs = 8000
         ..finalizeMs = 120
         ..totalMs = 5000;
 
@@ -29,7 +32,10 @@ void main() {
       expect(sample.walkCalls, 6);
       expect(sample.matrixCalls, 2);
       expect(sample.guidanceMs, 900);
+      expect(sample.hybridMs, 1500);
+      expect(sample.enrichMs, 42000);
       expect(sample.boardSearchMs, 3200);
+      expect(sample.alternativesMs, 8000);
       expect(sample.finalizeMs, 120);
       expect(sample.totalMs, 5000);
     });
@@ -114,6 +120,29 @@ void main() {
       expect(agg.count, 0);
       expect(agg.collapseRate, 0.0);
       expect(agg.boardSearchRate, 0.0);
+    });
+
+    test('フェーズ別平均と残差を集計する（どこで時間を使うか）', () {
+      // enrich が支配的な検索。フェーズ合計＋残差＝total を保つことを確かめる。
+      final agg = aggregate([
+        parseRouteMetricsLine(
+          '[route-metrics] collapse=0 boardSearch=0 http=10 guidanceCalls=5 '
+          'walkCalls=3 matrixCalls=2 guidanceMs=6000 hybridMs=10000 '
+          'enrichMs=60000 boardSearchMs=0 alternativesMs=20000 finalizeMs=0 '
+          'totalMs=100000',
+        )!,
+      ]);
+      expect(agg.guidanceMs.mean, 6000);
+      expect(agg.hybridMs.mean, 10000);
+      expect(agg.enrichMs.mean, 60000);
+      expect(agg.alternativesMs.mean, 20000);
+      // 6000+10000+60000+0+20000+0 = 96000、残差 = 100000-96000 = 4000。
+      expect(agg.measuredPhaseMeanSum, 96000);
+
+      final report = formatAggregation(agg);
+      expect(report, contains('フェーズ別所要'));
+      expect(report, contains('enrich'));
+      expect(report, contains('残差'));
     });
   });
 
