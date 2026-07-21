@@ -54,6 +54,33 @@ export function logRequestOutcome(params: RequestOutcomeParams): void {
   }
 }
 
+export interface RequestLatencyParams {
+  /** どのハンドラか（例: "googleWalkMatrixProxy"）。 */
+  endpoint: string;
+  /** ハンドラ入口〜応答完了までの全体レイテンシ（ミリ秒）。 */
+  totalLatencyMs: number;
+  /** 応答の HTTP ステータスコード。 */
+  httpStatus: number;
+}
+
+// なぜ search_request に latencyMs を足すのではなく別イベントにするか:
+//   search_request の latencyMs は #274 の不変条件で「上流 API 呼び出し区間のみ」を
+//   producer 内で計上する（dedupe の single-flight 相乗り・TTL ヒットには計上しない）。
+//   ここで測るのはハンドラ入口〜応答＝App Check 検証・レートリミッタ・キャッシュ判定を
+//   含む全体で、上流を一度も呼ばない要求（キャッシュヒット等）でも出す。両者を同じ
+//   イベント・同じフィールドに混ぜると #268 SLO と #274 計測が汚れるため、独立イベントに
+//   分ける。severity は情報（info）——失敗応答でも「レイテンシ計測」であって関数エラー
+//   ではないので、logger.error/write に寄せて Error Reporting を汚さない。
+/** ハンドラ入口〜応答までのリクエスト全体レイテンシを記録する（#309）。 */
+export function logRequestLatency(params: RequestLatencyParams): void {
+  logger.info("request_latency", {
+    event: "request_latency",
+    endpoint: params.endpoint,
+    totalLatencyMs: params.totalLatencyMs,
+    httpStatus: params.httpStatus,
+  });
+}
+
 export type AppCheckDenialReason = "missing" | "invalid" | "replayed";
 
 export interface AppCheckDeniedParams {

@@ -12,7 +12,12 @@ vi.mock("firebase-functions", () => ({
   logger: { info: infoMock, warn: warnMock, error: errorMock, write: writeMock },
 }));
 
-import { logAppCheckDenied, logRateLimit, logRequestOutcome } from "../src/metrics";
+import {
+  logAppCheckDenied,
+  logRateLimit,
+  logRequestLatency,
+  logRequestOutcome,
+} from "../src/metrics";
 
 describe("logRequestOutcome", () => {
   beforeEach(() => {
@@ -122,6 +127,49 @@ describe("logRequestOutcome", () => {
     });
     const payload = infoMock.mock.calls[0][1] as Record<string, unknown>;
     expect(payload).not.toHaveProperty("semanticFailure");
+  });
+});
+
+describe("logRequestLatency", () => {
+  beforeEach(() => {
+    infoMock.mockReset();
+    warnMock.mockReset();
+    errorMock.mockReset();
+    writeMock.mockReset();
+  });
+
+  it("event=request_latency で info ログを出す（search_request とは別イベント）", () => {
+    logRequestLatency({
+      endpoint: "googleWalkMatrixProxy",
+      totalLatencyMs: 87,
+      httpStatus: 200,
+    });
+    expect(infoMock).toHaveBeenCalledWith("request_latency", {
+      event: "request_latency",
+      endpoint: "googleWalkMatrixProxy",
+      totalLatencyMs: 87,
+      httpStatus: 200,
+    });
+    // search_request の計上（#274）を汚さない: 上流区間 latencyMs は出さない。
+    const payload = infoMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload.event).toBe("request_latency");
+    expect(payload).not.toHaveProperty("latencyMs");
+    expect(writeMock).not.toHaveBeenCalled();
+    expect(errorMock).not.toHaveBeenCalled();
+  });
+
+  it("失敗ステータスでも info で出す（レイテンシは情報イベント・Error Reporting を汚さない）", () => {
+    logRequestLatency({
+      endpoint: "navitimeProxy",
+      totalLatencyMs: 5,
+      httpStatus: 502,
+    });
+    expect(infoMock).toHaveBeenCalledWith(
+      "request_latency",
+      expect.objectContaining({ httpStatus: 502, totalLatencyMs: 5 })
+    );
+    expect(writeMock).not.toHaveBeenCalled();
+    expect(errorMock).not.toHaveBeenCalled();
   });
 });
 

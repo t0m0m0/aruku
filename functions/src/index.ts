@@ -8,7 +8,11 @@ import { getAppCheck } from "firebase-admin/app-check";
 
 import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
 import { checkRateLimit, WALK_RATE_LIMIT } from "./rate-limiter";
-import { logAppCheckDenied, logRequestOutcome } from "./metrics";
+import {
+  logAppCheckDenied,
+  logRequestLatency,
+  logRequestOutcome,
+} from "./metrics";
 import { dedupeUpstream } from "./upstream-cache";
 
 // レート制限ユーティリティはテスト互換のため再エクスポートする。
@@ -593,8 +597,37 @@ function buildLocationBias(
   return { circle: { center, radius } };
 }
 
+type RawHandler = (req: Request, res: Response) => void | Promise<void>;
+
+// なぜ res.on("finish") ではなくハンドラ完了時点で測るか:
+//   ハンドラ本体が解決した時点で全 return 経路（App Check 拒否・429・400・502・成功）を
+//   単一の finally で漏れなく捕捉できる。res.on("finish") はソケット flush までの真の応答
+//   時間を測れる利点があるが、Express Response の finish イベントに依存し、テストの軽量な
+//   res スタブ（EventEmitter ではない）を壊す。ハンドラ完了までで App Check 検証・
+//   レートリミッタ・キャッシュ判定・上流・直列化まで含み、目的（層ごとの盲点可視化）には十分。
+//
+// search_request（#274・上流区間のみ）とは別イベント（#309・logRequestLatency）にして
+// 計上を汚さない。上流を一度も叩かない要求（キャッシュヒット・早期 return）でも出す。
+function withRequestLatency(endpoint: string, handler: RawHandler): RawHandler {
+  return async (req, res) => {
+    const start = Date.now();
+    try {
+      await handler(req, res);
+    } finally {
+      // OPTIONS プリフライトは実検索ではなくレイテンシ分布を汚すため除外する。
+      if (req.method !== "OPTIONS") {
+        logRequestLatency({
+          endpoint,
+          totalLatencyMs: Date.now() - start,
+          httpStatus: res.statusCode ?? 200,
+        });
+      }
+    }
+  };
+}
+
 /** Places Autocomplete / Details プロキシ */
-export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKeySecret] }, async (req, res) => {
+export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKeySecret] }, withRequestLatency("placesProxy", async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Methods", "GET");
@@ -689,10 +722,10 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKey
   }
 
   res.status(400).json({ error: "action must be autocomplete or details" });
-});
+}));
 
 /** NAVITIME route_transit プロキシ（RapidAPI 経由、レスポンスは無加工で返す） */
-export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret, rateLimitHmacKeySecret] }, async (req, res) => {
+export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret, rateLimitHmacKeySecret] }, withRequestLatency("navitimeProxy", async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Methods", "GET");
@@ -745,7 +778,7 @@ export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret, rateLimitH
   }
 
   res.json(data);
-});
+}));
 
 
 /**
@@ -753,7 +786,7 @@ export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret, rateLimitH
  * travelMode=WALK で叩き、街路追従の encodedPolyline・距離・所要時間を返す。
  * レスポンスは無加工で返す（変換はクライアント側）。
  */
-export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKeySecret] }, async (req, res) => {
+export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKeySecret] }, withRequestLatency("googleWalkProxy", async (req, res) => {
   res.set("Access-Control-Allow-Origin", "*");
   if (req.method === "OPTIONS") {
     res.set("Access-Control-Allow-Methods", "GET");
@@ -807,7 +840,7 @@ export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHma
   }
 
   res.json(data);
-});
+}));
 
 /**
  * Google Routes 徒歩マトリクスプロキシ（#118）。origins/destinations（"lat,lng" を
@@ -819,7 +852,7 @@ export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHma
  */
 export const googleWalkMatrixProxy = onRequest(
   { secrets: [mapsKeySecret, rateLimitHmacKeySecret] },
-  async (req, res) => {
+  withRequestLatency("googleWalkMatrixProxy", async (req, res) => {
     res.set("Access-Control-Allow-Origin", "*");
     if (req.method === "OPTIONS") {
       res.set("Access-Control-Allow-Methods", "GET");
@@ -897,5 +930,5 @@ export const googleWalkMatrixProxy = onRequest(
     }
 
     res.json(data);
-  }
+  })
 );
