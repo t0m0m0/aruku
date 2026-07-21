@@ -6,14 +6,14 @@ import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/hybrid_route_selector.dart'
     show RouteCandidate, haversineKm;
+import 'package:aruku/core/services/route_diagnostics.dart'
+    show RouteSearchMetrics;
 import 'package:aruku/core/services/route_plan_builder.dart'
     show
         walkMetersPerMinute,
         trainMetersPerMinute,
         firstMissedTransit,
         maxBoardingWait;
-import 'package:aruku/core/services/route_diagnostics.dart'
-    show RouteSearchMetrics;
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/services/search_deadline.dart';
 import 'package:aruku/core/services/transit_plan_parser.dart';
