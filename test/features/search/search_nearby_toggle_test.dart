@@ -18,9 +18,6 @@ class _FakeLocationService implements LocationService {
 
   @override
   Future<LocationState> request() async => result;
-
-  @override
-  Stream<GeoPoint> positionStream() => const Stream.empty();
 }
 
 /// C案: autocomplete が distanceMeters 付き候補を返す（座標は持たない）。

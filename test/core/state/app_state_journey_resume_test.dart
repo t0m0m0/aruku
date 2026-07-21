@@ -23,7 +23,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../support/route_plan_fixtures.dart';
 
 /// `request()` の戻り値を差し替えられる LocationService（復帰時の単発再取得の再現用）。
-/// positionStream は使わない（結果ハブは GPS 追跡を持たない）。
 class _FakeLocationService implements LocationService {
   _FakeLocationService([this.next = const LocationDenied()]);
   LocationState next;
@@ -35,9 +34,6 @@ class _FakeLocationService implements LocationService {
   Future<LocationState> request() => _queuedRequests.isEmpty
       ? Future.value(next)
       : _queuedRequests.removeAt(0);
-
-  @override
-  Stream<GeoPoint> positionStream() => const Stream.empty();
 }
 
 class _FixedRouteService implements RouteService {

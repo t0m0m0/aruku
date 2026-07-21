@@ -25,9 +25,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 class _FakeLocationService implements LocationService {
   @override
   Future<LocationState> request() async => const LocationDenied();
-
-  @override
-  Stream<GeoPoint> positionStream() => const Stream.empty();
 }
 
 class _FakeActivityService implements ActivityService {

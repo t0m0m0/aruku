@@ -54,9 +54,6 @@ class HoldingRouteService implements RouteService {
 class FakeLocationService implements LocationService {
   @override
   Future<LocationState> request() async => const LocationDenied();
-
-  @override
-  Stream<GeoPoint> positionStream() => const Stream.empty();
 }
 
 class FakeActivityService implements ActivityService {

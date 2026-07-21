@@ -6,9 +6,6 @@ import '../models/location_state.dart';
 
 abstract interface class LocationService {
   Future<LocationState> request();
-
-  /// ナビ中の現在地を連続取得するストリーム。
-  Stream<GeoPoint> positionStream();
 }
 
 class GeolocatorLocationService implements LocationService {
@@ -46,23 +43,6 @@ class GeolocatorLocationService implements LocationService {
       return const LocationUnavailable();
     }
   }
-
-  @override
-  Stream<GeoPoint> positionStream() =>
-      Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 5,
-        ),
-      ).map(
-        (p) => GeoPoint(
-          p.latitude,
-          p.longitude,
-          // heading は取得不能時に負値やNaNを返すプラットフォームがあるため、
-          // 有効な向き（0〜360度）のみ伝播する。
-          heading: (p.heading >= 0 && p.heading <= 360) ? p.heading : null,
-        ),
-      );
 }
 
 final locationServiceProvider = Provider<LocationService>(

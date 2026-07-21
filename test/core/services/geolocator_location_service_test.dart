@@ -37,12 +37,6 @@ class _MockGeolocatorPlatform extends GeolocatorPlatform
     if (positionError != null) return Future.error(positionError!);
     return Future.value(position);
   }
-
-  Stream<Position>? positionStreamToReturn;
-
-  @override
-  Stream<Position> getPositionStream({LocationSettings? locationSettings}) =>
-      positionStreamToReturn ?? const Stream.empty();
 }
 
 Position _fakePosition(double lat, double lng, {double heading = 0}) =>
@@ -136,29 +130,5 @@ void main() {
 
     expect(mock.lastSettings?.timeLimit, isNotNull);
     expect(mock.lastSettings!.timeLimit! > Duration.zero, isTrue);
-  });
-
-  group('positionStream', () {
-    test('Position.heading を GeoPoint.heading に伝播する', () async {
-      mock.positionStreamToReturn = Stream.value(
-        _fakePosition(35.68, 139.76, heading: 90.0),
-      );
-
-      final point = await service.positionStream().first;
-
-      expect(point.lat, 35.68);
-      expect(point.lng, 139.76);
-      expect(point.heading, 90.0);
-    });
-
-    test('headingが無効値（負値）ならnullに丸める', () async {
-      mock.positionStreamToReturn = Stream.value(
-        _fakePosition(35.68, 139.76, heading: -1.0),
-      );
-
-      final point = await service.positionStream().first;
-
-      expect(point.heading, isNull);
-    });
   });
 }

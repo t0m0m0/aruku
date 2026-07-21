@@ -15,9 +15,6 @@ class _FakeLocationService implements LocationService {
 
   @override
   Future<LocationState> request() async => result;
-
-  @override
-  Stream<GeoPoint> positionStream() => const Stream.empty();
 }
 
 Widget _wrap(ProviderContainer container, SearchMode mode) =>

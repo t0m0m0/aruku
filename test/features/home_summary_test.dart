@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:aruku/core/models/activity_snapshot.dart';
-import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/location_state.dart';
 import 'package:aruku/core/services/activity_log_repository.dart';
 import 'package:aruku/core/services/activity_service.dart';
@@ -18,9 +17,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 class _FakeLocationService implements LocationService {
   @override
   Future<LocationState> request() async => const LocationDenied();
-
-  @override
-  Stream<GeoPoint> positionStream() => const Stream.empty();
 }
 
 class _FakeActivityService implements ActivityService {
