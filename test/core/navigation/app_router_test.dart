@@ -182,5 +182,45 @@ void main() {
       expect(find.byType(ResultScreen), findsNothing);
       expect(find.byType(HomeScreen), findsOneWidget);
     });
+
+    testWidgets('削除済み /home/nav への deep link は home へ寄せる（エラー画面を出さない）', (
+      tester,
+    ) async {
+      final container = await makeContainer();
+      addTearDown(container.dispose);
+      final router = container.read(goRouterProvider);
+
+      await tester.pumpWidget(routerApp(container));
+      await pumpTransition(tester);
+
+      // ブラウザ履歴・外部 deep link に残った旧 nav パスは未登録ルート。
+      // 既定のエラーページではなく安全側の home へ寄せる（#312）。
+      router.go('/home/nav');
+      await pumpTransition(tester);
+
+      expect(find.byType(HomeScreen), findsOneWidget);
+      expect(
+        router.routerDelegate.currentConfiguration.uri.path,
+        Screen.home.path,
+      );
+    });
+
+    testWidgets('削除済み /home/complete への deep link は home へ寄せる', (tester) async {
+      final container = await makeContainer();
+      addTearDown(container.dispose);
+      final router = container.read(goRouterProvider);
+
+      await tester.pumpWidget(routerApp(container));
+      await pumpTransition(tester);
+
+      router.go('/home/complete');
+      await pumpTransition(tester);
+
+      expect(find.byType(HomeScreen), findsOneWidget);
+      expect(
+        router.routerDelegate.currentConfiguration.uri.path,
+        Screen.home.path,
+      );
+    });
   });
 }

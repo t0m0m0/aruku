@@ -68,13 +68,18 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     // では可能になる。表示前提データを欠く場合は home へ跳ね返す。
     redirect: (context, state) {
       final app = ref.read(appStateProvider);
+      final requestedPath = state.uri.path;
+      final target = ScreenPath.fromLocation(requestedPath);
+      // 未登録の location（削除済み /home/nav・/home/complete やタイプミスの
+      // deep link）は go_router に一致するルートが無く既定エラーページになる。
+      // fromLocation は安全側の home へ解決するので、その正規パスへ明示的に redirect
+      // して未知 location の戻り先を home に集約する（#312）。
+      if (target.path != requestedPath) return target.path;
       // 失効した isNow 経路（#264）は「表示前提データ欠落」と同じく home へ跳ね返す。
       // deep link・ブラウザ履歴・home 退避後の再入場など router 由来の遷移はすべて
       // ここを通るため、失効判定をここへ集約すると全経路で一貫する（go_router が権威）。
       final expired = app.isNowRouteExpired(ref.read(nowProvider)());
-      final missingPrerequisite = switch (ScreenPath.fromLocation(
-        state.uri.path,
-      )) {
+      final missingPrerequisite = switch (target) {
         Screen.result => app.route == null || expired,
         Screen.loading => app.routePhase == null,
         Screen.error => app.routeErrorKind == null,
