@@ -2,6 +2,7 @@ import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/services/hybrid_route_selector.dart';
 import 'package:aruku/core/services/route_diagnostics.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 RouteSegment _walk(int minutes, {String from = '', String to = ''}) =>
@@ -109,6 +110,35 @@ void main() {
         'guidanceCalls=1 walkCalls=4 matrixCalls=0 '
         'guidanceMs=0 boardSearchMs=0 finalizeMs=0 totalMs=0',
       );
+    });
+  });
+
+  group('logMetrics のゲート（#309 レビュー指摘: profile でも出す）', () {
+    List<String?> capture(void Function() body) {
+      final lines = <String?>[];
+      final original = debugPrint;
+      debugPrint = (message, {int? wrapWidth}) => lines.add(message);
+      try {
+        body();
+      } finally {
+        debugPrint = original;
+      }
+      return lines;
+    }
+
+    test('定性ログ verbose=false でも metricsEnabled=true なら指標行を出す', () {
+      // 実機フィールド計測は多く profile ビルド（verbose=false）。定量指標が定性ログの
+      // debug 限定フラグに縛られず出ることを固定する（縛られると profile で発火率が出ない）。
+      const diag = RouteDiagnostics(verbose: false, metricsEnabled: true);
+      final lines = capture(() => diag.logMetrics(RouteSearchMetrics()));
+      expect(lines, hasLength(1));
+      expect(lines.single, startsWith('[route-metrics] collapse=0'));
+    });
+
+    test('metricsEnabled=false（release 相当）では何も出さない', () {
+      const diag = RouteDiagnostics(metricsEnabled: false);
+      final lines = capture(() => diag.logMetrics(RouteSearchMetrics()));
+      expect(lines, isEmpty);
     });
   });
 

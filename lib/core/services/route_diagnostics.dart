@@ -67,9 +67,20 @@ class RouteDiagnostics {
   /// [verbose] が真のときだけ [log] が `[route]` プレフィックス付きで出力する。既定は
   /// [kDebugMode]。debugPrint はリリースビルドでも出力されるため、`kDebugMode` から
   /// 導出してリリースビルドでは無効化する（#153）。
-  const RouteDiagnostics({bool verbose = kDebugMode}) : _verbose = verbose;
+  ///
+  /// [metricsEnabled] は [logMetrics]（定量指標）を出すかを別に握る。既定は `!kReleaseMode`
+  /// ＝ debug に加え **profile でも出す**。定性ログ（[verbose]）を debug 限定にするのは
+  /// スパム抑制のためだが、定量指標は実機のフィールド計測（多くは profile ビルド）で集める
+  /// のが目的（#309）なので、debug 専用フラグに縛らない。全ユーザーのログを汚さないよう
+  /// release だけは抑制する。
+  const RouteDiagnostics({
+    bool verbose = kDebugMode,
+    bool metricsEnabled = !kReleaseMode,
+  }) : _verbose = verbose,
+       _metricsEnabled = metricsEnabled;
 
   final bool _verbose;
+  final bool _metricsEnabled;
 
   /// 選定ログ1行を `[route]` プレフィックス付きで出す（[_verbose] が真のときのみ）。
   ///
@@ -80,11 +91,13 @@ class RouteDiagnostics {
     if (_verbose) debugPrint('[route] ${build()}');
   }
 
-  /// 1検索分の定量指標（#309）を `[route-metrics]` プレフィックス付きで1行出す（[_verbose]
-  /// が真のときのみ）。定性ログと別プレフィックスにして、実機ログから発火率・本数を
-  /// `grep '\[route-metrics\]'` で切り出して集計できるようにする。
+  /// 1検索分の定量指標（#309）を `[route-metrics]` プレフィックス付きで1行出す
+  /// （[_metricsEnabled] が真のとき＝既定では release 以外）。定性ログ（[log]）と別
+  /// プレフィックス・別フラグにして、profile ビルドの実機ログからも発火率・本数を
+  /// `grep '\[route-metrics\]'` で切り出して集計できるようにする（debug 限定にすると
+  /// フィールド計測で使う profile で一切出ない・#309 レビュー指摘）。
   void logMetrics(RouteSearchMetrics metrics) {
-    if (_verbose) debugPrint('[route-metrics] ${metrics.toLogLine()}');
+    if (_metricsEnabled) debugPrint('[route-metrics] ${metrics.toLogLine()}');
   }
 
   /// 候補の区間構成を `walk12m+蒲12_train33m+walk3m` 形式の短い文字列にする（ログ用）。
