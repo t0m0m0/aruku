@@ -1560,6 +1560,154 @@ void main() {
     });
   });
 
+  // reject後の残り予算内候補を1並列バッチで実測（#315 B）。徒歩最大の見積り勝者が
+  // 楽観ハイブリッド（実測で乗り遅れ・予算超過）だと、旧実装は徒歩tier を1本ずつ直列に
+  // 降りて reject ごとに上流 guidance を数珠つなぎにしていた。最上位 tier が全滅したら残りを
+  // 1バッチで一括実測する。fake client の Completer バリア——「降下先の2候補の access 徒歩
+  // enrich が**両方**到達するまで応答を返さない」——で一括並列を検証する。旧の tier 直列降下は
+  // 徒歩最大の生存者を見つけた時点で下位候補を測らない＝下位の probe が発火せずデッドロック
+  // （timeout で fail）し、一括バッチ実装でのみ完走する。
+  group('plan: reject後の残り候補を1並列バッチで実測 (#315 B)', () {
+    const o = GeoPoint(35.0, 139.0);
+    const g = GeoPoint(35.0, 139.06); // 直線 ~5.5km（全徒歩 ~68分＝予算60分外）
+    const topBoard = [35.0, 139.013]; // 徒歩最大の見積り勝者（ghost: ×2 enrich で乗り遅れ）
+    const midBoard = [35.0, 139.009]; // 降下先・徒歩中（生存＝勝者）
+    const lowBoard = [35.0, 139.006]; // 降下先・徒歩少（生存だが徒歩で mid に負ける）
+    const alight = [35.0, 139.058];
+
+    Map<String, dynamic> option({
+      required String route,
+      required List<double> board,
+      required int accessSecs,
+      required int dep,
+      required int arr,
+    }) => {
+      'journey': {
+        'departureSecs': 32400,
+        'arrivalSecs': arr,
+        'durationSecs': arr - 32400,
+        'accessWalkSecs': accessSecs,
+        'egressWalkSecs': 120,
+        'legs': [
+          _railLeg(
+            route: route,
+            fromId: '$route:board',
+            fromName: '乗車$route',
+            toId: '$route:alight',
+            toName: '降車$route',
+            dep: dep,
+            arr: arr,
+          ),
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('walk', 'origin', '$route:board', 'osmWalk', [
+            [o.lat, o.lng],
+            board,
+          ]),
+          _mapSeg('transit', '$route:board', '$route:alight', 'stopOrder', [
+            alight,
+          ]),
+          _mapSeg('walk', '$route:alight', 'destination', 'estimatedWalk', [
+            alight,
+            [g.lat, g.lng],
+          ]),
+        ],
+      },
+    };
+
+    // T: 徒歩15分・09:16発（見積り最速で徒歩最大＝見積り勝者。×2 enrich で駅着09:30＝乗り遅れ）。
+    //    見積りでは M・L を厳密支配するので先行実測フロントには載らず、winner-phase で棄却される。
+    // M: 徒歩10分・09:30発（×2 enrich でも間に合う＝徒歩最大の生存者＝勝者）。
+    // L: 徒歩7分・09:30発（×2 enrich でも間に合うが徒歩で M に負ける）。
+    Map<String, dynamic> threeOptions() => _guidance([
+      option(
+        route: '快速T',
+        board: topBoard,
+        accessSecs: 900,
+        dep: 33360,
+        arr: 34500,
+      ),
+      option(
+        route: '快速M',
+        board: midBoard,
+        accessSecs: 600,
+        dep: 34200,
+        arr: 35100,
+      ),
+      option(
+        route: '快速L',
+        board: lowBoard,
+        accessSecs: 420,
+        dep: 34200,
+        arr: 35400,
+      ),
+    ]);
+
+    test('最上位tier が全滅したら残りの予算内候補を1バッチで並行実測する', () async {
+      final probeM = Completer<void>();
+      final probeL = Completer<void>();
+      Future<void> barrier() => Future.wait([probeM.future, probeL.future]);
+      bool near(double a, double b) => (a - b).abs() < 1e-6;
+
+      final client = MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+        if (path.contains('googleWalkProxy')) {
+          final gl = _pt(req.url.queryParameters['goal'] ?? '0,0');
+          // 降下先 M・L の access 徒歩 enrich だけを両到達までブロックする（T の access・
+          // egress・全徒歩は即応答）。
+          if (near(gl.lat, midBoard[0]) && near(gl.lng, midBoard[1])) {
+            if (!probeM.isCompleted) probeM.complete();
+            await barrier();
+          } else if (near(gl.lat, lowBoard[0]) && near(gl.lng, lowBoard[1])) {
+            if (!probeL.isCompleted) probeL.complete();
+            await barrier();
+          }
+          return _walkFor(req.url, factor: 2.0); // 実街路＝直線×2（T は乗り遅れ）
+        }
+        if (path.contains('guidance/plan')) return _json(threeOptions());
+        return _json(const {}, 404);
+      });
+
+      final plan = await _service(client)
+          .plan(
+            destination: '目的地',
+            destinationLatLng: g,
+            departure: const TimeValue(h: 9, m: 0),
+            arrival: const TimeValue(h: 10, m: 0), // 予算60分（全徒歩は予算外）
+            origin: o,
+            originName: '出発',
+          )
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () =>
+                fail('reject 後の降下先候補が1バッチで並行実測されない（tier 直列降下でデッドロック）'),
+          );
+
+      expect(
+        probeM.isCompleted,
+        isTrue,
+        reason: '前提: 降下先 M の access 徒歩 enrich が発火',
+      );
+      expect(
+        probeL.isCompleted,
+        isTrue,
+        reason: '一括バッチなら徒歩最大 M が勝っても徒歩少 L も同バッチで実測される',
+      );
+      // 退行ガード: 乗り遅れる T を棄却し、降下先で徒歩最大の生存者 M を勝者に確定する。
+      final departureAt = DateTime(2026, 6, 27, 9, 0);
+      expect(firstMissedTransit(plan.segments, departureAt), isNull);
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.line, '快速M', reason: '降下先で徒歩最大の生存者 M が勝者のはず');
+      expect(plan.totalMin, lessThanOrEqualTo(60));
+    });
+  });
+
   group('plan: 乗車駅探索は非単調コリドーでも徒歩最大を返す（#137）', () {
     // 乗車駅探索の二分探索は「到着が index 単調増」を仮定して予算内の最大 index を境界に
     // するが、実街路の徒歩は非単調になり得る（後方の停車駅の方が origin に近い等）。境界

@@ -832,31 +832,37 @@ class TransitRouteService implements SearchEngine {
       return giveUp();
     }
 
-    // 短リストを徒歩tier（見積り徒歩が同値の塊）単位に、候補**間**並列で一括実測する。
-    // [selectBestRoute] は徒歩最大を勝者にするので、ある tier に実測生存者が出れば下位 tier
-    // （より短い徒歩）は勝者になり得ず、そこで測定を止める（＝下位候補は測らない＝崩壊後に
-    // 支配される候補へ IO を無駄撃ちしない #290）。直列 reject-reselect（外れるたび1本ずつ
-    // 測る）を tier ごとの1並列パスへ畳む（#315）。勝者は tier 内の選好最上位の生存者＝
-    // 直列版の「見積り選好順で最初に実測を通った候補」と一致する。
+    // 短リストを候補**間**並列で実測する（#315）。まず最上位の徒歩tier だけを測る——[selectBestRoute]
+    // は徒歩最大を勝者にするので、共通ケース（勝者が最上位 tier で即生存）はこの1バッチで済み IO 最小。
+    // 最上位 tier が全滅したら、残りの見積り予算内候補（徒歩降順・短リスト上限 [_maxMeasureShortlist]
+    // まで）を**1回の並列バッチ**で一括実測する。時刻なしハイブリッドは見積りが楽観で実測すると
+    // 予算超過に転じやすく（#137）、1本ずつ tier を降りると reject ごとに上流 guidance が数珠つなぎ
+    // になる（実機 enrichMs 24.9s の主因）。reject 時だけ残りを1ラウンドへ畳んでこれを解消する。
+    // 下位候補を測るのは reject 時だけなので、勝者即確定ルートの余計な IO も、崩壊後に支配される候補
+    // への無駄撃ち（#290 deferred）も避ける。勝者は徒歩最大の生存者＝直列版と一致する。
     final rejected = <RouteCandidate>{};
-    var measured = 0;
-    var i = 0;
-    while (i < within.length && measured < _maxMeasureShortlist) {
-      final tierWalk = within[i].walkMinutes;
-      final tier = <RouteCandidate>[];
-      while (i < within.length &&
-          within[i].walkMinutes == tierWalk &&
-          measured < _maxMeasureShortlist) {
-        tier.add(within[i]);
-        i++;
-        measured++;
-      }
+    final cap = within.length < _maxMeasureShortlist
+        ? within.length
+        : _maxMeasureShortlist;
+    final firstTierWalk = within.first.walkMinutes;
+    var firstTierEnd = 0;
+    while (firstTierEnd < cap &&
+        within[firstTierEnd].walkMinutes == firstTierWalk) {
+      firstTierEnd++;
+    }
+    for (final range in [
+      [0, firstTierEnd],
+      if (firstTierEnd < cap) [firstTierEnd, cap],
+    ]) {
+      final batch = within.sublist(range[0], range[1]);
       _diag.log(
-        () => 'measure tier: walk=${tierWalk}m ${tier.length}件を候補間並列で実測',
+        () => range[0] == 0
+            ? 'measure tier: walk=${firstTierWalk}m ${batch.length}件を候補間並列で実測'
+            : 'reject後の残り予算内候補 ${batch.length}件を1並列バッチで一括実測（#315 B）',
       );
-      final enriched = await Future.wait([for (final c in tier) measure(c)]);
+      final enriched = await Future.wait([for (final c in batch) measure(c)]);
       int? winnerIdx;
-      for (var k = 0; k < tier.length; k++) {
+      for (var k = 0; k < batch.length; k++) {
         final v = _invariantViolation(
           enriched[k].segments,
           budgetMin,
@@ -873,14 +879,14 @@ class TransitRouteService implements SearchEngine {
                     : '未確認便'}'
                 '): ${_diag.candLine(enriched[k], budgetMin, departureAt)}',
           );
-          rejected.add(tier[k]);
+          rejected.add(batch[k]);
         } else {
-          // tier 内は選好順（実到着昇順）に並ぶので、最初の生存者が選好最上位。
+          // batch は選好順（徒歩降順→到着昇順）なので最初の生存者が徒歩最大＝勝者。
           winnerIdx ??= k;
         }
       }
       if (winnerIdx != null) {
-        final chosen = tier[winnerIdx];
+        final chosen = batch[winnerIdx];
         final enrichedWinner = enriched[winnerIdx];
         // 代替案（#290）の母集団は実測で失格した候補を除いた残存プール。未測定の下位候補は
         // 素通しで残す（代替案側が改めて検証する）。
