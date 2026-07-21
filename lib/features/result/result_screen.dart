@@ -475,12 +475,10 @@ GeoPoint? _handoffOrigin(AppState state, int legIndex) {
   return _currentOrigin(state);
 }
 
-/// 現在地の GeoPoint。[startSearch] の origin 解決と同じ優先順位（ナビ中の実測位置 →
-/// GPS 確定済みの現在地）を踏襲する。手動指定の出発地（[AppState.originLatLng]）は最初の
-/// 検索時点の起点であり、区間が進んだ後の「現在地」としては古びるため使わない。
+/// 現在地の GeoPoint。GPS 確定済みの現在地を使う。手動指定の出発地
+/// （[AppState.originLatLng]）は最初の検索時点の起点であり、区間が進んだ後の
+/// 「現在地」としては古びるため使わない。
 GeoPoint? _currentOrigin(AppState state) {
-  final tracked = state.currentPosition;
-  if (tracked != null) return tracked;
   return switch (state.locationState) {
     LocationAvailable(:final position) => position,
     _ => null,

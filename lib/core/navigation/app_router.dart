@@ -5,8 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../../features/error/error_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/loading/loading_screen.dart';
-import '../../features/navigation/complete_screen.dart';
-import '../../features/navigation/nav_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/result/result_screen.dart';
 import '../../features/search/search_screen.dart';
@@ -60,7 +58,7 @@ CustomTransitionPage<void> _page(GoRouterState state, Widget child) {
 /// path 比較、go_router 自身の同一 location no-op。
 ///
 /// ネスト構造は旧 _Root の PopScope 手動分岐を実 pop で再現する:
-/// settings/search/result/nav/error→home。
+/// settings/search/result/error→home。
 /// home・onboarding・loading は PopScope(canPop: false) で back を無効化し、
 /// 「back でアプリが終了しない」現行仕様を維持する。
 final goRouterProvider = Provider<GoRouter>((ref) {
@@ -77,8 +75,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       final missingPrerequisite = switch (ScreenPath.fromLocation(
         state.uri.path,
       )) {
-        Screen.result || Screen.nav => app.route == null || expired,
-        Screen.complete => app.walkSummary == null,
+        Screen.result => app.route == null || expired,
         Screen.loading => app.routePhase == null,
         Screen.error => app.routeErrorKind == null,
         _ => false,
@@ -122,15 +119,6 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: 'result',
             pageBuilder: (context, state) => _page(state, const ResultScreen()),
-          ),
-          GoRoute(
-            path: 'nav',
-            pageBuilder: (context, state) => _page(state, const NavScreen()),
-          ),
-          GoRoute(
-            path: 'complete',
-            pageBuilder: (context, state) =>
-                _page(state, const CompleteScreen()),
           ),
           GoRoute(
             path: 'error',

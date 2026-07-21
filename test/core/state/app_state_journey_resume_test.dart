@@ -693,7 +693,7 @@ void main() {
       expect(h.health.writeCount, 0);
     });
 
-    test('結果ハブから nav へ離脱した行程は破棄し、home 復帰後も保持しない', () async {
+    test('結果ハブから離脱した行程は破棄し、home 復帰後も保持しない', () async {
       final h = await makeHarness(
         plan: _singleWalkPlan,
         healthKitEnabled: true,
@@ -707,11 +707,10 @@ void main() {
       h.activity.add(ActivitySnapshot.fromSteps(600));
       await settle();
 
-      notifier.startNavigation();
-      expect(h.container.read(appStateProvider).screen, Screen.nav);
+      notifier.go(Screen.home);
+      expect(h.container.read(appStateProvider).screen, Screen.home);
       expect(h.container.read(appStateProvider).journey, isNull);
 
-      notifier.go(Screen.home);
       h.location.next = const LocationAvailable(GeoPoint(35.001, 139.0));
       await notifier.onAppResumed();
       await settle();

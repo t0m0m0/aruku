@@ -1,11 +1,7 @@
-import 'dart:async';
-
 import 'package:aruku/core/models/geo_point.dart';
-import 'package:aruku/core/models/location_state.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/cancellation.dart';
-import 'package:aruku/core/services/location_service.dart';
 import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
@@ -13,41 +9,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/route_plan_fixtures.dart';
-
-/// 位置ストリームを外部制御できる LocationService（リルート発火の再現用）。
-class _StreamLocationService implements LocationService {
-  _StreamLocationService(this._controller);
-  final StreamController<GeoPoint> _controller;
-
-  @override
-  Future<LocationState> request() async => const LocationDenied();
-
-  @override
-  Stream<GeoPoint> positionStream() => _controller.stream;
-}
-
-/// 1 回目の plan() は [first] を、2 回目以降は [reroute] を返す。
-class _RerouteRouteService implements RouteService {
-  _RerouteRouteService({required this.first, required this.reroute});
-  final RoutePlan first;
-  final RoutePlan reroute;
-  int calls = 0;
-
-  @override
-  Future<RoutePlan> plan({
-    required String? destination,
-    required GeoPoint? destinationLatLng,
-    required TimeValue departure,
-    required TimeValue arrival,
-    GeoPoint? origin,
-    String? originName,
-    void Function(RoutePhase)? onProgress,
-    CancellationToken? cancellation,
-  }) async {
-    calls++;
-    return calls == 1 ? first : reroute;
-  }
-}
 
 class _FixedRouteService implements RouteService {
   _FixedRouteService(this.result);
@@ -226,43 +187,6 @@ void main() {
       notifier.selectAlternative(0);
 
       expect(container.read(appStateProvider).journey, isNull);
-    });
-
-    test('自動リルート成功で journey をリセットする', () async {
-      const offRoute = GeoPoint(35.69, 139.85);
-      final controller = StreamController<GeoPoint>.broadcast();
-      final route = _RerouteRouteService(
-        first: _winnerWithAlternatives,
-        reroute: sampleRoutePlan,
-      );
-      final container = ProviderContainer(
-        overrides: [
-          locationServiceProvider.overrideWithValue(
-            _StreamLocationService(controller),
-          ),
-          routeServiceProvider.overrideWithValue(route),
-          onboardingCompletedProvider.overrideWithValue(true),
-        ],
-      );
-      addTearDown(controller.close);
-      addTearDown(container.dispose);
-
-      final notifier = container.read(appStateProvider.notifier);
-      notifier.setDestination('渋谷', latLng: const GeoPoint(35.658, 139.701));
-      await notifier.startSearch();
-      notifier.go(Screen.nav);
-      notifier.startJourney();
-      expect(container.read(appStateProvider).journey, isNotNull);
-
-      for (var i = 0; i < 3; i++) {
-        controller.add(offRoute);
-        await Future<void>.delayed(Duration.zero);
-      }
-      await Future<void>.delayed(Duration.zero);
-
-      final state = container.read(appStateProvider);
-      expect(state.route, sampleRoutePlan);
-      expect(state.journey, isNull);
     });
 
     test('新規検索成功で前の journey をリセットする', () async {
