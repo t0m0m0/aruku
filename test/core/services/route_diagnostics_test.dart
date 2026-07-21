@@ -78,6 +78,40 @@ void main() {
     });
   });
 
+  group('RouteSearchMetrics.toLogLine', () {
+    test('collapse/board-search/本数/フェーズ時間を安定した key=value 行にする', () {
+      final m = RouteSearchMetrics()
+        ..collapseFired = true
+        ..boardSearchActivated = true
+        ..guidanceCalls = 3
+        ..walkCalls = 10
+        ..matrixCalls = 2
+        ..guidanceMs = 1200
+        ..boardSearchMs = 3400
+        ..finalizeMs = 300
+        ..totalMs = 9000;
+      expect(
+        m.toLogLine(),
+        'collapse=1 boardSearch=1 http=15 '
+        'guidanceCalls=3 walkCalls=10 matrixCalls=2 '
+        'guidanceMs=1200 boardSearchMs=3400 finalizeMs=300 totalMs=9000',
+      );
+    });
+
+    test('bool は 0/1・http は本数合計として集計可能', () {
+      final m = RouteSearchMetrics()
+        ..guidanceCalls = 1
+        ..walkCalls = 4;
+      expect(m.httpRoundTrips, 5);
+      expect(
+        m.toLogLine(),
+        'collapse=0 boardSearch=0 http=5 '
+        'guidanceCalls=1 walkCalls=4 matrixCalls=0 '
+        'guidanceMs=0 boardSearchMs=0 finalizeMs=0 totalMs=0',
+      );
+    });
+  });
+
   group('boardingStationOf', () {
     test('最初の電車区間の乗車駅名を返す', () {
       final c = RouteCandidate(

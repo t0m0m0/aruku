@@ -191,6 +191,71 @@ void main() {
     });
   });
 
+  group('上流 HTTP 往復本数の計測 (#309)', () {
+    test('初期値はすべて 0', () {
+      final client = _client(MockClient((req) async => _json(const {})));
+      expect(client.guidanceCalls, 0);
+      expect(client.walkCalls, 0);
+      expect(client.matrixCalls, 0);
+      expect(client.roundTrips, 0);
+    });
+
+    test('種別ごとに本数を数え、roundTrips は合計になる', () async {
+      final client = _client(
+        MockClient((req) async {
+          if (req.url.path == '/googleWalkMatrixProxy') {
+            return _json(const [
+              {'originIndex': 0, 'destinationIndex': 0, 'duration': '60s'},
+            ]);
+          }
+          if (req.url.path == '/googleWalkProxy') {
+            return _json({
+              'routes': [
+                {'duration': '300s'},
+              ],
+            });
+          }
+          return _json({'ok': true});
+        }),
+      );
+      await client.fetchGuidanceAt(
+        const GeoPoint(35.0, 139.0),
+        const GeoPoint(35.5, 139.5),
+        DateTime(2026, 6, 27, 9, 0),
+      );
+      await client.fetchGuidanceAt(
+        const GeoPoint(35.0, 139.0),
+        const GeoPoint(35.6, 139.6),
+        DateTime(2026, 6, 27, 9, 5),
+      );
+      await client.fetchWalkRoute(
+        const GeoPoint(35.0, 139.0),
+        const GeoPoint(35.5, 139.5),
+      );
+      await client.fetchWalkMatrix(
+        const [GeoPoint(35.0, 139.0)],
+        const [GeoPoint(35.1, 139.1)],
+      );
+
+      expect(client.guidanceCalls, 2);
+      expect(client.walkCalls, 1);
+      expect(client.matrixCalls, 1);
+      expect(client.roundTrips, 4);
+    });
+
+    // マトリクスは失敗を null へ握り潰す口だが、HTTP は実際に往復しているので計上する
+    // （本数は「叩いた回数」であって「成功回数」ではない）。
+    test('マトリクスが非200で null 縮退しても往復本数は数える', () async {
+      final client = _client(MockClient((req) async => _json(const [], 500)));
+      final rows = await client.fetchWalkMatrix(
+        const [GeoPoint(0, 0)],
+        const [GeoPoint(1, 1)],
+      );
+      expect(rows, isNull);
+      expect(client.matrixCalls, 1);
+    });
+  });
+
   group('baseUrl 正規化', () {
     test('transitBaseUrl 末尾スラッシュを除去する', () {
       final client = _client(
