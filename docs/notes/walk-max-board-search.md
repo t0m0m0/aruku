@@ -172,6 +172,12 @@ afterReselect walk=154 arrival=169
 
 **fanout を欲張らない理由（上流レート制限）:** guidance は **30 req/min/IP**（`functions/src/rate-limiter.ts`）。崩壊時は電車系＋バス系の2 base が並列に走るので、フロンティア×fanout×2base＋初期照会＋代替案を 30/min 内に収める。fanout=7（2ラウンド化）は両 base 発火時に 30 を超え、429→`_fetchTransitFrom` が null→「予算外」誤認で区間を縮める＝**境界を実測でなくレート制限で決める退行**（§6 打ち切りゲートと同じ危険）を招くため見送り。将来 2 base の guidance 合計に並行キャップを入れれば fanout をさらに上げられる（残課題）。
 
+**PR#320 レビュー対応（Codex・#317）:**
+
+1. **matrix は 25 目的地ずつに分割（`_maxScanMatrixDests`）:** コリドー点は最大60だが、サーバ `MATRIX_MAX_ELEMENTS`（`functions/src/index.ts`）は25。単発 matrix は 25 超で 400 全滅し `fetchWalkMatrix` が null → t1 プレ実測が直線推定のみへ縮退（＝密な gtfsShape で刈り込みが効かず guidance 無駄撃ち）。目的地を25以下ずつに分割して投げる（`destinationIndex` はチャンク内0起点なのでチャンク先頭を足して大域 index へ戻す）。
+2. **締切切れなら board-search を起こさない:** proxy(matrix) は `deadlineApplies:false` で締切に縛られず走るため、締切切れの collapse では使われない改善のためにユーザーを待たせていた。`_deadline.isExpired` なら scan/probe を起こさず縮退（探索は shouldContinue でどのみち空になるが、先頭の matrix を投げないため）。
+3. **probe 総数の人工上限は入れない（間引き見送り）:** 崩壊は「goal まで歩くと予算外」＝ goal 寄りの遠点が t1 で刈られる状況なので、予算内フロンティアは構造的に小さく `scanCount` は自然に小さい（例: 予算90分・徒歩×6 で feasible ≈16/60）。fanout=5 の probe 総数はこの刈り込みで律速される。「フロンティア36点超」は徒歩安価＝崩壊しない状況と両立しないため、間引き上限は実質デッドコードになる。主たる probe 抑制は matrix 刈り込みである点を `_boardSearchFanout` の doc に明記。
+
 ### 6.1 組み込み試作で判明した制約（2026-06-19・ステップ2の設計確定材料）
 
 `_buildBoardSearchCandidate` を「全徒歩が予算超過なら走らせ候補に1本足す」常時併存で試作したところ、既存テストが4件落ち、**常時併存は不可**と判明した（試作はコミットせず revert）。
