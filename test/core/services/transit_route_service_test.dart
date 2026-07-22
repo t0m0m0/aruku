@@ -924,6 +924,45 @@ void main() {
       final places = plan.timelineNodes.map((n) => n.place);
       expect(places, contains('乗車駅'));
     });
+
+    test('前半徒歩が単独で予算外の遠いコリドー点は guidance を引き直さない（#317）', () async {
+      // コリドー点 139.25 / 139.49 は origin(139.0) から実測徒歩だけで予算60分を大きく
+      // 超過する（inflatedMock は徒歩を直線×3で返す）。到着 = t1 + t2(≥0) なので、これらは
+      // 引き直すまでもなく確実に予算外。matrix プレ実測で t1 を先に測り、探索範囲を予算内の
+      // 最遠点まで刈ることで、遠点への guidance 引き直しを起こさない（#317: 直列 guidance
+      // 積み上げの削減）。刈らない実装では二分探索が index1(139.25) を probe して引き直す。
+      final guidanceCalls = <Uri>[];
+      final svc = _service(inflatedMock(guidanceCalls));
+      await svc.plan(
+        destination: '降車駅',
+        destinationLatLng: goal2,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0), // 予算60分
+        origin: origin2,
+        originName: '出発',
+      );
+
+      double? fromLng(Uri u) {
+        final f = u.queryParameters['from'];
+        if (f == null) return null;
+        return double.tryParse(f.replaceFirst('geo:', '').split(',')[1]);
+      }
+
+      final queriedLngs = guidanceCalls
+          .map(fromLng)
+          .whereType<double>()
+          .toList();
+      expect(
+        queriedLngs.any((lng) => (lng - 139.25).abs() < 1e-6),
+        isFalse,
+        reason: '徒歩単独で予算外の遠点(139.25)を guidance 引き直ししている',
+      );
+      expect(
+        queriedLngs.any((lng) => (lng - 139.49).abs() < 1e-6),
+        isFalse,
+        reason: '徒歩単独で予算外の遠点(139.49)を guidance 引き直ししている',
+      );
+    });
   });
 
   group('plan: 乗車駅探索の実測駆動（#137 主因）', () {
@@ -1041,12 +1080,19 @@ void main() {
       int aArr = 33000,
       int bArr = 33600,
       List<Uri>? guidanceCalls,
+      List<int>? matrixDests,
+      bool enforceMatrixLimit = false,
     }) {
       List<GeoPoint> parse(String? raw) =>
           (raw ?? '').split(';').where((s) => s.isNotEmpty).map(_pt).toList();
       http.Response matrix(Uri url) {
         final os = parse(url.queryParameters['origins']);
         final ds = parse(url.queryParameters['destinations']);
+        matrixDests?.add(ds.length);
+        // サーバ MATRIX_MAX_ELEMENTS(25) を再現：超過は 400 で全滅（→直線推定のみへ縮退）。
+        if (enforceMatrixLimit && os.length * ds.length > 25) {
+          return _json({'error': 'too many elements'}, 400);
+        }
         return _json([
           for (var i = 0; i < os.length; i++)
             for (var j = 0; j < ds.length; j++)
@@ -1137,6 +1183,122 @@ void main() {
       expect(plan.totalMin, lessThanOrEqualTo(150));
     });
 
+    test(
+      'コリドーが密で25点超でも matrix を分割して投げる（MATRIX_MAX_ELEMENTS・#317 レビュー）',
+      () async {
+        // leg1+leg2 で最大60点のコリドー。単発 matrix は要素数超過で 400 全滅し、board-search の
+        // t1 プレ実測が直線推定のみへ縮退する（実測で予算外の近点を刈れず guidance を無駄に引く）。
+        // 目的地を25以下ずつに分割すれば実測が通る。
+        final dests = <int>[];
+        final svc = _service(
+          inflatedFromMock(matrixDests: dests, enforceMatrixLimit: true),
+        );
+        await svc.plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30), // 予算90分（崩壊→board-search 起動）
+          origin: origin3,
+          originName: '出発',
+        );
+
+        expect(dests, isNotEmpty);
+        expect(
+          dests.every((c) => c <= 25),
+          isTrue,
+          reason: 'matrix 目的地が MATRIX_MAX_ELEMENTS(25) を超えている（400 全滅の原因）',
+        );
+        // board-search の t1 プレ実測が実際に走った担保（ハイブリッドの ≤11 と区別できる分割）。
+        expect(
+          dests.any((c) => c > 11),
+          isTrue,
+          reason: '前提: board-search の matrix プレ実測が走る',
+        );
+      },
+    );
+
+    test('matrix プレ実測のチャンクを並列に投げる（#317 レビュー）', () async {
+      // コリドー60点 → scan は 25/25/10 の3チャンク。>11 の2チャンクが互いの到達まで
+      // ブロックする関門を張り、直列（1本目が関門で止まり2本目が発行されない）なら
+      // デッドロック→timeout で fail する。ハイブリッドのアクセス徒歩 matrix は ≤11 で素通り。
+      final probeA = Completer<void>();
+      final probeB = Completer<void>();
+      Future<void> barrier() => Future.wait([probeA.future, probeB.future]);
+      List<GeoPoint> parse(String? raw) =>
+          (raw ?? '').split(';').where((s) => s.isNotEmpty).map(_pt).toList();
+      http.Response matrixRows(Uri url) {
+        final os = parse(url.queryParameters['origins']);
+        final ds = parse(url.queryParameters['destinations']);
+        return _json([
+          for (var i = 0; i < os.length; i++)
+            for (var j = 0; j < ds.length; j++)
+              {
+                'originIndex': i,
+                'destinationIndex': j,
+                'duration': '${_walkMin(os[i], ds[j]) * inflate * 60}s',
+                'distanceMeters': (haversineKm(os[i], ds[j]) * 1000).round(),
+              },
+        ]);
+      }
+
+      final client = MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) {
+          final ds = parse(req.url.queryParameters['destinations']);
+          if (ds.length > 11) {
+            if (!probeA.isCompleted) {
+              probeA.complete();
+            } else if (!probeB.isCompleted) {
+              probeB.complete();
+            }
+            await barrier();
+          }
+          return matrixRows(req.url);
+        }
+        if (path.contains('googleWalkProxy')) {
+          final s = _pt(req.url.queryParameters['start'] ?? '0,0');
+          final gg = _pt(req.url.queryParameters['goal'] ?? '0,0');
+          return _json({
+            'routes': [
+              {
+                'distanceMeters': (haversineKm(s, gg) * 1000).round(),
+                'duration': '${_walkMin(s, gg) * inflate * 60}s',
+              },
+            ],
+          });
+        }
+        if (path.contains('guidance/plan')) {
+          final from = req.url.queryParameters['from'] ?? '';
+          final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
+          final time = req.url.queryParameters['time'] ?? '09:00';
+          return _json(
+            (lng - 139.0).abs() < 1e-6 ? baseGuidance() : reentry(lng, time),
+          );
+        }
+        return _json(const {}, 404);
+      });
+
+      await _service(client)
+          .plan(
+            destination: '目的駅',
+            destinationLatLng: goal3,
+            departure: const TimeValue(h: 9, m: 0),
+            arrival: const TimeValue(h: 10, m: 30),
+            origin: origin3,
+            originName: '出発',
+          )
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => fail('scan チャンクが同時到達しない（直列でデッドロック）'),
+          );
+
+      expect(
+        probeA.isCompleted && probeB.isCompleted,
+        isTrue,
+        reason: '前提: 2チャンクが並列に発火する',
+      );
+    });
+
     group('検索の締切 (#300)', () {
       /// 初期 guidance が発行された直後に予算を使い切る締切。実機の「必須の1本は間に合った
       /// が、引き直しの途中で待ち時間の上限に達した」を決定的に再現する。締切を最初から
@@ -1201,6 +1363,64 @@ void main() {
         // 複数本引く。残予算0で投げた照会は必ず打ち切られる＝上流を無駄に叩くだけなので、
         // 送る前に落とす。
         expect(calls, hasLength(1));
+      });
+
+      test('締切超過後は board-search の matrix プレ実測も投げない（#317 レビュー）', () async {
+        // proxy（matrix）は締切に縛られず（deadlineApplies:false）走ってしまう。締切切れなら
+        // board-search 自体を起こさず、その t1 プレ実測（コリドー~60点を25以下ずつ分割＝>11 の
+        // matrix 要求）を投げない。ハイブリッドのアクセス徒歩 matrix は ≤11 なので区別できる。
+        final freshDests = <int>[];
+        final freshCalls = <Uri>[];
+        await serviceWith(
+          inflatedFromMock(
+            guidanceCalls: freshCalls,
+            matrixDests: freshDests,
+            enforceMatrixLimit: true,
+          ),
+          SearchDeadline(
+            const Duration(seconds: 120),
+            elapsed: () => Duration.zero,
+          ),
+        ).plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30),
+          origin: origin3,
+          originName: '出発',
+        );
+
+        final expiredDests = <int>[];
+        final expiredCalls = <Uri>[];
+        await serviceWith(
+          inflatedFromMock(
+            guidanceCalls: expiredCalls,
+            matrixDests: expiredDests,
+            enforceMatrixLimit: true,
+          ),
+          expiringAfterFirstGuidance(expiredCalls),
+        ).plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30),
+          origin: origin3,
+          originName: '出発',
+        );
+
+        expect(
+          freshDests.any((c) => c > 11),
+          isTrue,
+          reason: '前提: 締切内では board-search の matrix プレ実測が走る',
+        );
+        // ハイブリッドのアクセス徒歩 matrix（≤11）は締切後も走るので空にはならない
+        // （空だと every が自明成立して反証にならない）。
+        expect(expiredDests, isNotEmpty);
+        expect(
+          expiredDests.every((c) => c <= 11),
+          isTrue,
+          reason: '締切切れでも board-search の matrix プレ実測を投げている',
+        );
       });
 
       test('締切内なら従来どおり引き直して徒歩最大化する', () async {

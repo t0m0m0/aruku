@@ -931,6 +931,43 @@ void main() {
       expect(evaluated, [4, 6, 7]);
     });
 
+    test('fanout 拡大でラウンド数（直列 guidance の段数）が減る（#317）', () async {
+      // 崩壊時 board-search の律速はラウンド間直列 guidance。壁時計 = ラウンド数 × 最遅1本
+      // なのでラウンド数が短縮の的。matrix プレ実測で刈ったフロンティア区間（~36点・境界を
+      // index20 に置く）を、fanout=3 と 5 で走らせてラウンド数を数える。
+      Future<int> roundsFor(int fanout) async {
+        final pending = <int, Completer<int>>{};
+        final future = maxWalkBoardingIndexParallel(
+          count: 36,
+          budgetMin: 20, // 到着=index として index<=20 を予算内にする
+          fanout: fanout,
+          evaluate: (index) {
+            final c = Completer<int>();
+            pending[index] = c;
+            return c.future;
+          },
+        );
+        await Future<void>.delayed(Duration.zero);
+        var rounds = 0;
+        while (pending.isNotEmpty) {
+          rounds++;
+          final batch = [...pending.entries];
+          pending.clear();
+          for (final e in batch) {
+            e.value.complete(e.key);
+          }
+          await Future<void>.delayed(Duration.zero);
+        }
+        expect(await future, 20, reason: '境界(予算内の最遠 index)は fanout に依らず不変');
+        return rounds;
+      }
+
+      final r3 = await roundsFor(3);
+      final r5 = await roundsFor(5);
+      expect(r3, 3);
+      expect(r5, 2, reason: 'fanout=5 なら同区間が1ラウンド少なく収束する');
+    });
+
     group('shouldContinue による打ち切り (#300)', () {
       test('打ち切り後は新ラウンドを起こさず、既得の境界を返す', () async {
         final evaluated = <int>[];
@@ -977,6 +1014,35 @@ void main() {
         expect(i, isNull);
         expect(calls, 0);
       });
+    });
+  });
+
+  group('walkFeasiblePrefixCount', () {
+    test('全点が予算内なら全長を返す', () {
+      expect(walkFeasiblePrefixCount([10, 30, 60, 90], 100), 4);
+    });
+
+    test('末尾が予算超過なら予算内の最遠 index+1 を返す', () {
+      // index 3(120) だけ超過 → 探索は [0,3) の3点。
+      expect(walkFeasiblePrefixCount([10, 40, 80, 120], 100), 3);
+    });
+
+    test('非単調な dip があっても予算内の最遠 index を落とさない', () {
+      // index1(200) は超過だが index2(30) は予算内。安全上界は最遠の予算内 index=2
+      // → count=3（index1 は範囲に残り評価に委ねる。index3(250) は確実に予算外で刈る）。
+      expect(walkFeasiblePrefixCount([10, 200, 30, 250], 100), 3);
+    });
+
+    test('先頭すら予算超過なら 0（探索しない）', () {
+      expect(walkFeasiblePrefixCount([150, 200], 100), 0);
+    });
+
+    test('空なら 0', () {
+      expect(walkFeasiblePrefixCount(const [], 100), 0);
+    });
+
+    test('境界値（walk1 == budget）は予算内に含める', () {
+      expect(walkFeasiblePrefixCount([50, 100, 101], 100), 2);
     });
   });
 }

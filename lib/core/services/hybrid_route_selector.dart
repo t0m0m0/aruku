@@ -292,6 +292,24 @@ Future<int?> maxWalkBoardingIndexParallel({
   return best;
 }
 
+/// 乗車駅探索の区間を「前半徒歩 t1 が予算内の最遠 index」までへ刈った探索点数を返す
+/// （#317・matrix プレ実測による範囲刈り込み）。返り値 `n` は探索を index `[0, n)` に
+/// 限ってよいことを表す。予算内の点が皆無・[walk1Min] が空なら 0。
+///
+/// **単調性に依存しない安全上界**：door-to-door 到着 = t1 + t2（t2 = X→goal 電車所要 ≥ 0）
+/// なので、`t1(i) > budgetMin` の点は到着も必ず予算外。よって予算内の最遠 index より先を
+/// 刈っても予算内候補（`arrival ≤ budgetMin`）を1件も落とさない。t1 が index に対し非単調に
+/// dip しても、上界（最遠の予算内 t1）を採るだけなので dip の内側は範囲に残り、guidance
+/// 引き直しの評価に委ねられる（正しさは不変・[maxWalkBoardingIndexParallel] の単調性仮定は
+/// そのまま）。刈るのは「t1 単独で既に予算外」の確実に無駄な引き直しだけ。
+int walkFeasiblePrefixCount(List<int> walk1Min, int budgetMin) {
+  var last = -1;
+  for (var i = 0; i < walk1Min.length; i++) {
+    if (walk1Min[i] <= budgetMin) last = i;
+  }
+  return last + 1;
+}
+
 /// 候補の transit 区間（電車・バス）に、出発地より進行方向(origin→goal)の後方へ
 /// [maxBacktrackRatio] × 直線距離(origin→goal) を超えて戻る駅を含むか。
 /// 徒歩区間は判定しない（目的地へ近づくための短い徒歩を弾かないため）。
