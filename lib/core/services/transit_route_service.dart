@@ -91,6 +91,16 @@ class TransitRouteService implements SearchEngine {
   /// に合わせる。徒歩tier 降順に測り、生存者が出た tier で打ち切るため通常はここまで測らない。
   static const int _maxMeasureShortlist = 13;
 
+  /// 非崩壊ルートの先行実測を「見積りフロント」から「予算内短リスト全体」へ広げる（Option A・
+  /// #318）発火しきい値。見積り予算内ハイブリッドがこの件数以上並ぶルートは reject 多発とみなし、
+  /// 短リストを1パスで先行実測して reject 後の2パス目（実機 enrichMs ~21s の主因）を畳む。
+  ///
+  /// 無条件では発火させない（[prewarmFront]）：勝者が最上位 tier で即生存する標準乗換中心の
+  /// ルートでも短リストを測ると guidance ファンアウトが増え、レート制限（#161: 1検索最大13）と
+  /// 上流コストを食う。3 は「予算内ハイブリッドが少ない共通ケース（0〜2件）では従来の tier 段階
+  /// 実測を保ち、楽観ハイブリッドが並ぶルートでだけ 2パス→1パスに畳む」境目（#318 の争点）。
+  static const int _singlePassHybridThreshold = 3;
+
   /// 代替案（パレート非劣解）の最大提示件数（#290）。
   static const int _maxAlternatives = 3;
 
@@ -245,6 +255,11 @@ class TransitRouteService implements SearchEngine {
     // 並列一括実測と代替案（#290）の検証が同じ候補を二度測らないための単一の測定口（#315）。
     final enrichedCache = <RouteCandidate, RouteCandidate>{};
 
+    // ハイブリッド候補（コリドー実測由来）の identity 集合。予算内にこれが多いほど reject 多発
+    // ＝先行実測を短リスト全体へ広げる（Option A・#318。[prewarmFront]）。標準乗換・全徒歩は
+    // 含めない——時刻なしハイブリッドの楽観見積り（#137）だけが reject の主因だから。
+    final hybrids = <RouteCandidate>{};
+
     // 標準乗換候補（guidance の door-to-door をそのまま候補化）。
     final candidates = <RouteCandidate>[
       for (final o in options)
@@ -284,6 +299,7 @@ class TransitRouteService implements SearchEngine {
         (h) => arrivalMinutes(h.segments, departureAt) <= budgetMin,
       );
       candidates.addAll(merged);
+      hybrids.addAll(merged);
       _diag.log(
         () => 'merged hybrids: ${merged.length}件（上限$_maxHybridCandidates）',
       );
@@ -342,21 +358,36 @@ class TransitRouteService implements SearchEngine {
 
     final enrichSw = Stopwatch()..start();
     if (estWithin && !preCollapse) {
-      final forward = forwardCandidates(candidates, origin, goal);
-      final prewarm = <RouteCandidate>{
-        estWinner,
-        ...paretoAlternatives(
-          candidates: [
-            for (final c in forward)
-              if (arrivalMinutes(c.segments, departureAt) <= budgetMin) c,
-          ],
-          chosen: estWinner,
-          departureAt: departureAt,
-          maxCount: _maxAlternatives,
-        ),
-      };
+      // 先行実測の対象は [prewarmFront] が決める：予算内ハイブリッドが多い reject 多発ルートは
+      // 短リスト全体を1パスで温めて reject 後の2パス目を畳み（Option A・#318）、そうでなければ
+      // 従来どおり見積りフロントだけを温める（Option B・#315）。短リストは [_selectAndEnrich] の
+      // tier 実測と同一の [measureShortlist] を用い、温めたキャッシュが確実にヒットするようにする。
+      final shortlist = measureShortlist(
+        candidates: candidates,
+        budgetMin: budgetMin,
+        departureAt: departureAt,
+        origin: origin,
+        goal: goal,
+      );
+      // 締切切れなら Option A の広い先行実測を許さない（#318 レビュー対応）。先行実測の徒歩
+      // enrich は締切を無視する fail-open なので、締切を過ぎたのに短リスト全体を測ると使われない
+      // 下位候補へ余計な上流往復を撃つ。見積りフロントだけ温める Option B へ抑制する。
+      final front = prewarmFront(
+        shortlist: shortlist,
+        chosen: estWinner,
+        hybrids: hybrids,
+        departureAt: departureAt,
+        singlePassHybridThreshold: _singlePassHybridThreshold,
+        maxMeasureShortlist: _maxMeasureShortlist,
+        maxAlternatives: _maxAlternatives,
+        allowSinglePass: !_deadline.isExpired,
+      );
+      final prewarm = front.prewarm;
+      metrics.singlePassMeasure = front.singlePass;
       _diag.log(
-        () => '非崩壊: 見積りフロント${prewarm.length}件を1パスで先行実測（#315 winner+代替案統合）',
+        () => front.singlePass
+            ? '非崩壊: 予算内短リスト${prewarm.length}件を1パスで先行実測（#318 Option A: reject多発ルート）'
+            : '非崩壊: 見積りフロント${prewarm.length}件を1パスで先行実測（#315 winner+代替案統合）',
       );
       // 例外は候補単位で握る。先行実測はキャッシュ温めの最適化にすぎず、壊れた応答1件で
       // plan() 全体を落としてはならない（#290: 代替案の enrich 失敗は確定経路をブロックしない）。
@@ -843,22 +874,16 @@ class TransitRouteService implements SearchEngine {
     }
 
     // 見積り予算内候補を短リスト化（見積りを「勝者決定」から「実測する短リスト作り」へ降格）。
-    // 逆戻り除外は勝者選定（[selectBestRoute]）と同じ前方フィルタを掛け、選好順（徒歩降順→
-    // 実到着昇順→乗換少ない順）に並べる。
-    final forward = forwardCandidates(candidates, origin, goal);
-    final within =
-        [
-          for (final c in forward)
-            if (arrivalMinutes(c.segments, departureAt) <= budgetMin) c,
-        ]..sort((a, b) {
-          if (a.walkMinutes != b.walkMinutes) {
-            return b.walkMinutes.compareTo(a.walkMinutes);
-          }
-          final aa = arrivalMinutes(a.segments, departureAt);
-          final ab = arrivalMinutes(b.segments, departureAt);
-          if (aa != ab) return aa.compareTo(ab);
-          return a.transferCount.compareTo(b.transferCount);
-        });
+    // 逆戻り除外＋予算内フィルタ＋選好順（徒歩降順→実到着昇順→乗換少ない順）は先行実測
+    // （Option A・#318）と同一の [measureShortlist] を用いる——両者がずれると先行実測で温めた
+    // キャッシュがここでヒットせず1パスへ畳めない。
+    final within = measureShortlist(
+      candidates: candidates,
+      budgetMin: budgetMin,
+      departureAt: departureAt,
+      origin: origin,
+      goal: goal,
+    );
     if (within.isEmpty) {
       _diag.log(() => '  → 見積り予算内候補なし → best-effort 縮退（予算外ならバス last-resort）');
       return giveUp();

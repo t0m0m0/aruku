@@ -18,6 +18,12 @@ class RouteSearchMetrics {
   /// board-search フォールバックが実際に候補を引きに走ったか。
   bool boardSearchActivated = false;
 
+  /// 非崩壊ルートの先行実測で「見積りフロントだけ」でなく予算内短リスト全体を1パスで温めたか
+  /// （Option A・#318）。予算内ハイブリッドが多い reject 多発ルートで発火し、reject 後の2パス目を
+  /// 先行実測へ畳む。恩恵（enrichMs 短縮）とコスト（guidance ファンアウト増）が発火率で決まるので
+  /// 本番ログから機械集計できるよう計上する。
+  bool singlePassMeasure = false;
+
   /// 初回 `/guidance/plan`（必須の1本）に掛かった実時間（ミリ秒）。
   int guidanceMs = 0;
 
@@ -65,6 +71,7 @@ class RouteSearchMetrics {
   String toLogLine() =>
       'collapse=${collapseFired ? 1 : 0} '
       'boardSearch=${boardSearchActivated ? 1 : 0} '
+      'singlePass=${singlePassMeasure ? 1 : 0} '
       'http=$httpRoundTrips '
       'guidanceCalls=$guidanceCalls walkCalls=$walkCalls matrixCalls=$matrixCalls '
       'guidanceDupCalls=$guidanceDupCalls '

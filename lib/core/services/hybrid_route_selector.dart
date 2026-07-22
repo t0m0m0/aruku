@@ -198,6 +198,82 @@ List<RouteCandidate> paretoAlternatives({
   return result;
 }
 
+/// 見積り予算内候補を実測する短リスト（#315/#318）。逆戻り除外（[forwardCandidates]）の上で
+/// 見積り実到着（[arrivalMinutes]。[departureAt] で待ち込みの実到着を用いる）が予算内の候補
+/// だけを、徒歩降順→実到着昇順→乗換少ない順で並べて返す（cap は掛けない）。先行実測（Option
+/// A・#318）と [TransitRouteService] の tier 実測が**同一集合・同一順序**を測るための単一の
+/// 並び——両者がずれると先行実測で温めたキャッシュが tier 実測に効かず1パスへ畳めない。
+List<RouteCandidate> measureShortlist({
+  required List<RouteCandidate> candidates,
+  required int budgetMin,
+  required DateTime departureAt,
+  GeoPoint? origin,
+  GeoPoint? goal,
+}) {
+  final forward = forwardCandidates(candidates, origin, goal);
+  return [
+    for (final c in forward)
+      if (arrivalMinutes(c.segments, departureAt) <= budgetMin) c,
+  ]..sort((a, b) {
+    if (a.walkMinutes != b.walkMinutes) {
+      return b.walkMinutes.compareTo(a.walkMinutes);
+    }
+    final aa = arrivalMinutes(a.segments, departureAt);
+    final ab = arrivalMinutes(b.segments, departureAt);
+    if (aa != ab) return aa.compareTo(ab);
+    return a.transferCount.compareTo(b.transferCount);
+  });
+}
+
+/// 非崩壊ルートで先行実測（キャッシュ温め・#315）する候補集合と single-pass 発火有無を返す。
+///
+/// [shortlist]（[measureShortlist] の結果）に見積り予算内ハイブリッドが
+/// [singlePassHybridThreshold] 件以上並ぶ **reject 多発ルート**では、見積りフロントに限らず
+/// 短リスト上位 [maxMeasureShortlist] 件全体を1パスで先行実測して reject 後の2パス目を畳む
+/// （Option A・#318）。時刻なしハイブリッドは見積りが楽観で実測すると予算超過に転じやすく
+/// （#137）、フロントだけ温めると勝者棄却後に残りを測る2パスが逐次化する（実機 enrichMs ~21s）。
+///
+/// ハイブリッドが閾値未満の標準乗換中心のルートでは従来どおり見積りフロント（[chosen]＋
+/// パレート代替案 [maxAlternatives] 件）だけを温め、guidance ファンアウトを増やさない
+/// （Option B）。勝者が最上位 tier で即生存する共通ケースで下位候補まで撃たないため。
+///
+/// [hybrids] はハイブリッド候補の identity 集合。件数は cap 前の [shortlist] 全体で数える
+/// ——閾値はルートの reject 起きやすさ（予算内ハイブリッドの多さ）を測る指標で、実測本数の
+/// 上限（[maxMeasureShortlist]）とは別の軸だから。
+///
+/// [allowSinglePass] を false にすると閾値を満たしても Option A を発火させず見積りフロントへ
+/// 抑制する。検索の締切切れ時に呼び出し側が渡す：先行実測の徒歩 enrich は締切を無視する
+/// fail-open（[TransitApiClient]）なので、締切を過ぎたのに短リスト全体（最大
+/// [maxMeasureShortlist] 件）を測ると、使われないかもしれない下位候補へ余計な上流往復を撃つ。
+({List<RouteCandidate> prewarm, bool singlePass}) prewarmFront({
+  required List<RouteCandidate> shortlist,
+  required RouteCandidate chosen,
+  required Set<RouteCandidate> hybrids,
+  required DateTime departureAt,
+  required int singlePassHybridThreshold,
+  required int maxMeasureShortlist,
+  int maxAlternatives = 3,
+  bool allowSinglePass = true,
+}) {
+  final inBudgetHybrids = shortlist.where(hybrids.contains).length;
+  if (allowSinglePass && inBudgetHybrids >= singlePassHybridThreshold) {
+    final cap = shortlist.length < maxMeasureShortlist
+        ? shortlist.length
+        : maxMeasureShortlist;
+    return (prewarm: shortlist.sublist(0, cap), singlePass: true);
+  }
+  final front = <RouteCandidate>{
+    chosen,
+    ...paretoAlternatives(
+      candidates: shortlist,
+      chosen: chosen,
+      departureAt: departureAt,
+      maxCount: maxAlternatives,
+    ),
+  }.toList();
+  return (prewarm: front, singlePass: false);
+}
+
 /// 乗車駅探索（docs/notes/walk-max-board-search.md）：乗車駅候補（前半徒歩 t1 の
 /// 昇順）について「到着が予算内の最遠 index ＝ 総徒歩最大」を二分探索で返す。
 ///

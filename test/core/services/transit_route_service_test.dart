@@ -1929,6 +1929,139 @@ void main() {
     });
   });
 
+  // Option A（#318）: 予算内にコリドー由来の楽観ハイブリッドが多い reject 多発ルートでは、
+  // 先行実測を「見積りフロント」から「予算内短リスト全体」へ広げ、reject 後の2パス目を1パスへ
+  // 畳む。発火有無は singlePassMeasure（#309 計測）で観測する。並列一括実測の並行性そのものは
+  // #315 の Completer バリアテストが既に担保しており、ここは merged→hybrids→prewarmFront→
+  // メトリクスの配線を検証する。
+  group('plan: reject多発ルートは短リスト全体を1パスで先行実測する (#318 Option A)', () {
+    const o = GeoPoint(35.0, 139.0);
+    const g = GeoPoint(35.0, 139.10); // 直線 ~8.9km
+
+    // 8点コリドー（乗車→…→降車）。frontier の複数乗車駅から予算内ハイブリッドが生成される。
+    List<List<double>> corridor() => [
+      for (var i = 1; i <= 8; i++) [35.0, 139.0 + 0.0115 * i],
+    ];
+
+    // 単一 base（09:05発→09:20着の速い電車）。コリドー各点から乗るハイブリッドは access 徒歩の
+    // ぶん所要が伸びるが、大きな予算では手前の複数点が予算内に収まり ≥3 件のハイブリッドが並ぶ。
+    Map<String, dynamic> baseOption() => _guidance([
+      {
+        'journey': {
+          'departureSecs': 32400, // 09:00
+          'arrivalSecs': 33600, // 09:20
+          'durationSecs': 1200,
+          'accessWalkSecs': 300,
+          'egressWalkSecs': 300,
+          'legs': [
+            _railLeg(
+              route: '各停',
+              fromId: 'c:board',
+              fromName: '乗車',
+              toId: 'c:alight',
+              toName: '降車',
+              dep: 32700, // 09:05
+              arr: 33600, // 09:20
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('walk', 'origin', 'c:board', 'osmWalk', [
+              [o.lat, o.lng],
+              corridor().first,
+            ]),
+            _mapSeg('transit', 'c:board', 'c:alight', 'stopOrder', corridor()),
+            _mapSeg('walk', 'c:alight', 'destination', 'estimatedWalk', [
+              corridor().last,
+              [g.lat, g.lng],
+            ]),
+          ],
+        },
+      },
+    ]);
+
+    test('予算内ハイブリッドが閾値以上なら singlePassMeasure を立て予算内に収める', () async {
+      RouteSearchMetrics? captured;
+      final svc = _service(
+        _mock(transit: baseOption()),
+        onMetrics: (m) => captured = m,
+      );
+      final plan = await svc.plan(
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 0), // 予算120分（手前の複数乗車駅が予算内）
+        origin: o,
+        originName: '出発',
+      );
+      expect(
+        captured!.singlePassMeasure,
+        isTrue,
+        reason: '予算内ハイブリッドが閾値以上のルートは Option A で短リスト全体を先行実測する',
+      );
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+    });
+
+    test('標準乗換のみ（ハイブリッド無し）のルートでは発火しない', () async {
+      RouteSearchMetrics? captured;
+      // 1点コリドー（base=null）＝ハイブリッドを生成しない純粋な標準乗換2本。
+      final svc = _service(
+        _mock(
+          transit: _guidance([
+            {
+              'journey': {
+                'departureSecs': 32400,
+                'arrivalSecs': 33600,
+                'durationSecs': 1200,
+                'accessWalkSecs': 300,
+                'egressWalkSecs': 300,
+                'legs': [
+                  _railLeg(
+                    route: '快速',
+                    fromId: 's:board',
+                    fromName: '乗車',
+                    toId: 's:alight',
+                    toName: '降車',
+                    dep: 32700,
+                    arr: 33600,
+                  ),
+                ],
+              },
+              'map': {
+                'points': const [],
+                'segments': [
+                  _mapSeg('walk', 'origin', 's:board', 'osmWalk', [
+                    [o.lat, o.lng],
+                    [35.0, 139.02],
+                  ]),
+                  _mapSeg('transit', 's:board', 's:alight', 'stopOrder', const [
+                    [35.0, 139.08],
+                  ]),
+                  _mapSeg('walk', 's:alight', 'destination', 'estimatedWalk', [
+                    [35.0, 139.08],
+                    [g.lat, g.lng],
+                  ]),
+                ],
+              },
+            },
+          ]),
+        ),
+        onMetrics: (m) => captured = m,
+      );
+      await svc.plan(
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 11, m: 0),
+        origin: o,
+        originName: '出発',
+      );
+      expect(captured!.singlePassMeasure, isFalse);
+    });
+  });
+
   group('plan: 乗車駅探索は非単調コリドーでも徒歩最大を返す（#137）', () {
     // 乗車駅探索の二分探索は「到着が index 単調増」を仮定して予算内の最大 index を境界に
     // するが、実街路の徒歩は非単調になり得る（後方の停車駅の方が origin に近い等）。境界

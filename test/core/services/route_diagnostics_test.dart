@@ -84,6 +84,7 @@ void main() {
       final m = RouteSearchMetrics()
         ..collapseFired = true
         ..boardSearchActivated = true
+        ..singlePassMeasure = true
         ..guidanceCalls = 3
         ..guidanceDupCalls = 1
         ..walkCalls = 10
@@ -97,7 +98,7 @@ void main() {
         ..totalMs = 9000;
       expect(
         m.toLogLine(),
-        'collapse=1 boardSearch=1 http=15 '
+        'collapse=1 boardSearch=1 singlePass=1 http=15 '
         'guidanceCalls=3 walkCalls=10 matrixCalls=2 '
         'guidanceDupCalls=1 '
         'guidanceMs=1200 hybridMs=500 enrichMs=2600 boardSearchMs=3400 '
@@ -112,7 +113,7 @@ void main() {
       expect(m.httpRoundTrips, 5);
       expect(
         m.toLogLine(),
-        'collapse=0 boardSearch=0 http=5 '
+        'collapse=0 boardSearch=0 singlePass=0 http=5 '
         'guidanceCalls=1 walkCalls=4 matrixCalls=0 '
         'guidanceDupCalls=0 '
         'guidanceMs=0 hybridMs=0 enrichMs=0 boardSearchMs=0 '
