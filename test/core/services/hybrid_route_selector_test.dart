@@ -1045,4 +1045,112 @@ void main() {
       expect(walkFeasiblePrefixCount([50, 100, 101], 100), 2);
     });
   });
+
+  // 見積り予算内候補を実測する短リスト（#315/#318）。先行実測と _selectAndEnrich の
+  // tier 実測が同一集合・同一順序を測るための単一の並び。
+  group('measureShortlist', () {
+    final departureAt = DateTime(2026, 7, 15, 9, 0);
+
+    test('予算外を落とし徒歩降順に並べる', () {
+      final over = _candidate([_walk(50), _train(30)]); // 計80＞60
+      final walk20 = _candidate([_walk(20), _train(10)]); // 計30
+      final walk15 = _candidate([_walk(15), _train(10)]); // 計25
+      final walk10 = _candidate([_walk(10), _train(10)]); // 計20
+
+      final shortlist = measureShortlist(
+        candidates: [walk10, over, walk20, walk15],
+        budgetMin: 60,
+        departureAt: departureAt,
+      );
+
+      expect(shortlist, [walk20, walk15, walk10]);
+    });
+
+    test('徒歩同値は実到着昇順で並べる', () {
+      final earlier = _candidate([_walk(10), _train(5)]); // 計15
+      final later = _candidate([_walk(10), _train(20)]); // 計30
+
+      final shortlist = measureShortlist(
+        candidates: [later, earlier],
+        budgetMin: 60,
+        departureAt: departureAt,
+      );
+
+      expect(shortlist, [earlier, later]);
+    });
+  });
+
+  // 非崩壊ルートの先行実測対象と single-pass 発火有無（#318）。見積り予算内ハイブリッドが
+  // 閾値以上並ぶ reject 多発ルートでは短リスト全体を、そうでなければ見積りフロントだけを温める。
+  group('prewarmFront', () {
+    final departureAt = DateTime(2026, 7, 15, 9, 0);
+
+    ({List<RouteCandidate> shortlist, RouteCandidate chosen}) fiveInBudget() {
+      final chosen = _candidate([_walk(25), _train(10)]); // 徒歩最大＝見積り勝者
+      final b = _candidate([_walk(20), _train(10)]);
+      final c = _candidate([_walk(15), _train(10)]);
+      final d = _candidate([_walk(10), _train(10)]);
+      final e = _candidate([_walk(5), _train(10)]);
+      return (shortlist: [chosen, b, c, d, e], chosen: chosen);
+    }
+
+    test('予算内ハイブリッドが閾値以上なら短リスト全体を single-pass で温める', () {
+      final s = fiveInBudget();
+      // 上位3件をハイブリッド扱い（identity 集合）。
+      final hybrids = Set<RouteCandidate>.identity()
+        ..addAll(s.shortlist.take(3));
+
+      final r = prewarmFront(
+        shortlist: s.shortlist,
+        chosen: s.chosen,
+        hybrids: hybrids,
+        departureAt: departureAt,
+        singlePassHybridThreshold: 3,
+        maxMeasureShortlist: 13,
+      );
+
+      expect(r.singlePass, isTrue);
+      expect(r.prewarm, s.shortlist);
+    });
+
+    test('予算内ハイブリッドが閾値未満なら見積りフロントだけを温める', () {
+      final s = fiveInBudget();
+      final hybrids = Set<RouteCandidate>.identity()
+        ..addAll(s.shortlist.take(2)); // 2件＜閾値3
+
+      final r = prewarmFront(
+        shortlist: s.shortlist,
+        chosen: s.chosen,
+        hybrids: hybrids,
+        departureAt: departureAt,
+        singlePassHybridThreshold: 3,
+        maxMeasureShortlist: 13,
+      );
+
+      expect(r.singlePass, isFalse);
+      expect(r.prewarm, contains(s.chosen));
+      // フロントは短リスト全体より小さい（支配される下位候補を含まない）。
+      expect(r.prewarm.length, lessThan(s.shortlist.length));
+    });
+
+    test('single-pass の温め対象は maxMeasureShortlist 件で頭打ち', () {
+      final many = [
+        for (var i = 0; i < 15; i++) _candidate([_walk(30 - i), _train(10)]),
+      ];
+      final hybrids = Set<RouteCandidate>.identity()..addAll(many);
+
+      final r = prewarmFront(
+        shortlist: many,
+        chosen: many.first,
+        hybrids: hybrids,
+        departureAt: departureAt,
+        singlePassHybridThreshold: 3,
+        maxMeasureShortlist: 13,
+      );
+
+      expect(r.singlePass, isTrue);
+      expect(r.prewarm.length, 13);
+      expect(r.prewarm, many.sublist(0, 13));
+    });
+  });
 }
