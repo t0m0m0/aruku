@@ -1080,12 +1080,19 @@ void main() {
       int aArr = 33000,
       int bArr = 33600,
       List<Uri>? guidanceCalls,
+      List<int>? matrixDests,
+      bool enforceMatrixLimit = false,
     }) {
       List<GeoPoint> parse(String? raw) =>
           (raw ?? '').split(';').where((s) => s.isNotEmpty).map(_pt).toList();
       http.Response matrix(Uri url) {
         final os = parse(url.queryParameters['origins']);
         final ds = parse(url.queryParameters['destinations']);
+        matrixDests?.add(ds.length);
+        // サーバ MATRIX_MAX_ELEMENTS(25) を再現：超過は 400 で全滅（→直線推定のみへ縮退）。
+        if (enforceMatrixLimit && os.length * ds.length > 25) {
+          return _json({'error': 'too many elements'}, 400);
+        }
         return _json([
           for (var i = 0; i < os.length; i++)
             for (var j = 0; j < ds.length; j++)
@@ -1176,6 +1183,40 @@ void main() {
       expect(plan.totalMin, lessThanOrEqualTo(150));
     });
 
+    test(
+      'コリドーが密で25点超でも matrix を分割して投げる（MATRIX_MAX_ELEMENTS・#317 レビュー）',
+      () async {
+        // leg1+leg2 で最大60点のコリドー。単発 matrix は要素数超過で 400 全滅し、board-search の
+        // t1 プレ実測が直線推定のみへ縮退する（実測で予算外の近点を刈れず guidance を無駄に引く）。
+        // 目的地を25以下ずつに分割すれば実測が通る。
+        final dests = <int>[];
+        final svc = _service(
+          inflatedFromMock(matrixDests: dests, enforceMatrixLimit: true),
+        );
+        await svc.plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30), // 予算90分（崩壊→board-search 起動）
+          origin: origin3,
+          originName: '出発',
+        );
+
+        expect(dests, isNotEmpty);
+        expect(
+          dests.every((c) => c <= 25),
+          isTrue,
+          reason: 'matrix 目的地が MATRIX_MAX_ELEMENTS(25) を超えている（400 全滅の原因）',
+        );
+        // board-search の t1 プレ実測が実際に走った担保（ハイブリッドの ≤11 と区別できる分割）。
+        expect(
+          dests.any((c) => c > 11),
+          isTrue,
+          reason: '前提: board-search の matrix プレ実測が走る',
+        );
+      },
+    );
+
     group('検索の締切 (#300)', () {
       /// 初期 guidance が発行された直後に予算を使い切る締切。実機の「必須の1本は間に合った
       /// が、引き直しの途中で待ち時間の上限に達した」を決定的に再現する。締切を最初から
@@ -1240,6 +1281,64 @@ void main() {
         // 複数本引く。残予算0で投げた照会は必ず打ち切られる＝上流を無駄に叩くだけなので、
         // 送る前に落とす。
         expect(calls, hasLength(1));
+      });
+
+      test('締切超過後は board-search の matrix プレ実測も投げない（#317 レビュー）', () async {
+        // proxy（matrix）は締切に縛られず（deadlineApplies:false）走ってしまう。締切切れなら
+        // board-search 自体を起こさず、その t1 プレ実測（コリドー~60点を25以下ずつ分割＝>11 の
+        // matrix 要求）を投げない。ハイブリッドのアクセス徒歩 matrix は ≤11 なので区別できる。
+        final freshDests = <int>[];
+        final freshCalls = <Uri>[];
+        await serviceWith(
+          inflatedFromMock(
+            guidanceCalls: freshCalls,
+            matrixDests: freshDests,
+            enforceMatrixLimit: true,
+          ),
+          SearchDeadline(
+            const Duration(seconds: 120),
+            elapsed: () => Duration.zero,
+          ),
+        ).plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30),
+          origin: origin3,
+          originName: '出発',
+        );
+
+        final expiredDests = <int>[];
+        final expiredCalls = <Uri>[];
+        await serviceWith(
+          inflatedFromMock(
+            guidanceCalls: expiredCalls,
+            matrixDests: expiredDests,
+            enforceMatrixLimit: true,
+          ),
+          expiringAfterFirstGuidance(expiredCalls),
+        ).plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30),
+          origin: origin3,
+          originName: '出発',
+        );
+
+        expect(
+          freshDests.any((c) => c > 11),
+          isTrue,
+          reason: '前提: 締切内では board-search の matrix プレ実測が走る',
+        );
+        // ハイブリッドのアクセス徒歩 matrix（≤11）は締切後も走るので空にはならない
+        // （空だと every が自明成立して反証にならない）。
+        expect(expiredDests, isNotEmpty);
+        expect(
+          expiredDests.every((c) => c <= 11),
+          isTrue,
+          reason: '締切切れでも board-search の matrix プレ実測を投げている',
+        );
       });
 
       test('締切内なら従来どおり引き直して徒歩最大化する', () async {

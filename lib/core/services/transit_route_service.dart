@@ -129,6 +129,12 @@ class TransitRouteService implements SearchEngine {
   /// null→予算外誤認で境界を実測でなくレート制限で決めてしまう）。
   static const int _boardSearchFanout = 5;
 
+  /// フロンティア t1 一括実測マトリクスの1コールあたり目的地数の上限（#317 レビュー対応）。
+  /// サーバ側 `MATRIX_MAX_ELEMENTS`（`functions/src/index.ts`・25）を超えると 400 で全滅し
+  /// 直線推定のみへ縮退するため、目的地をこの数以下ずつに分割して投げる（origins は 1 なので
+  /// elements = 目的地数）。コリドー点は最大 [_maxCorridorStops]（60）なので分割は最大3本。
+  static const int _maxScanMatrixDests = 25;
+
   /// 乗車駅探索のコリドー候補点の上限。gtfsShape は線路追従で頂点が密（数百）なため、
   /// 均等間引きでこの数へ絞る（§2.5）。二分探索は実測 walk で駆動するので評価回数は
   /// O(log n) のまま、候補点が密なほど境界の解像度が上がり余りが小さくなる（#137）。
@@ -1265,13 +1271,21 @@ class TransitRouteService implements SearchEngine {
   ) async {
     final stops = _corridorStops(base);
     if (stops.length < 2) return const [];
+    // 締切切れなら scan/probe を一切起こさず縮退する（#317 レビュー対応）。この先の探索は
+    // どのみち [maxWalkBoardingIndexParallel] の shouldContinue で即打ち切られて空になるが、
+    // 先頭の matrix プレ実測（proxy・deadlineApplies:false）は締切に縛られず走ってしまい、
+    // 使われない改善のためだけにユーザーを待たせる。探索自体を起こさないのが正しい縮退。
+    if (_deadline.isExpired) {
+      _diag.log(() => 'board-search: 締切切れのため起動せず縮退');
+      return const [];
+    }
     // 引き直しの照会モードは基準コリドーの種別に揃える（#251）。
     final allowBus = base.segments.any((s) => s.type == SegmentType.bus);
 
-    // #317: 全コリドー点の前半徒歩 t1 を matrix 1コールで一括実測し、t1 単独で予算外の
-    // 遠点を探索範囲から刈る。ラウンド間直列の guidance 引き直し（律速）を、予算内になり
-    // 得る手前の点だけに絞ることでラウンド数を減らす。刈っても予算内候補は落ちない
-    // （[walkFeasiblePrefixCount] の安全上界）。
+    // #317: 全コリドー点の前半徒歩 t1 を matrix 一括実測し、t1 単独で予算外の遠点を探索範囲
+    // から刈る。ラウンド間直列の guidance 引き直し（律速）を、予算内になり得る手前の点だけに
+    // 絞ることでラウンド数を減らす。刈っても予算内候補は落ちない（[walkFeasiblePrefixCount] の
+    // 安全上界）。
     final scanCount = await _boardSearchScanCount(origin, stops, budgetMin);
     if (scanCount == 0) {
       _diag.log(() => 'board-search: 予算内の乗車駅なし（t1 実測で全点予算外）');
@@ -1364,14 +1378,18 @@ class TransitRouteService implements SearchEngine {
     return within;
   }
 
-  /// コリドー全点の前半徒歩 t1 を matrix 1コールで一括実測し、探索を「t1 が予算内の最遠点」
-  /// まで（先頭からの点数）に刈った値を返す（#317）。到着 = t1 + t2(≥0) なので t1 単独で
-  /// 予算外の遠点は確実に予算外——[maxWalkBoardingIndexParallel] のラウンド間直列 guidance を
-  /// そこへ費やさない。matrix 欠落レッグは直線推定（実徒歩の下限）で埋める：下限すら予算外
-  /// なら実測でも予算外なので刈って安全、下限が予算内なら刈らず探索の街路実測に委ねる。
-  /// matrix は刈り込み判定にだけ使い、採用候補の徒歩ジオメトリは従来どおり buildAt の街路
-  /// 実測（[_tryWalk]）が持つ。matrix 全滅時も直線推定だけで安全に刈れる（追加往復に依存
-  /// しない）。
+  /// コリドー全点の前半徒歩 t1 を matrix 一括実測し、探索を「t1 が予算内の最遠点」まで
+  /// （先頭からの点数）に刈った値を返す（#317）。到着 = t1 + t2(≥0) なので t1 単独で予算外の
+  /// 遠点は確実に予算外——[maxWalkBoardingIndexParallel] のラウンド間直列 guidance をそこへ
+  /// 費やさない。matrix 欠落レッグは直線推定（実徒歩の下限）で埋める：下限すら予算外なら実測
+  /// でも予算外なので刈って安全、下限が予算内なら刈らず探索の街路実測に委ねる。matrix は刈り
+  /// 込み判定にだけ使い、採用候補の徒歩ジオメトリは従来どおり buildAt の街路実測（[_tryWalk]）
+  /// が持つ。matrix 全滅時も直線推定だけで安全に刈れる（追加往復に依存しない）。
+  ///
+  /// 目的地はサーバの `MATRIX_MAX_ELEMENTS`（25）を超えると 400 で全滅する（→直線推定のみへ
+  /// 縮退）ため、[_maxScanMatrixDests] 個以下ずつに分割して投げる（#317 レビュー対応）。分割
+  /// レスポンスの `destinationIndex` はチャンク内 0 起点なので、チャンク先頭を足して大域 index
+  /// へ戻す。
   Future<int> _boardSearchScanCount(
     GeoPoint origin,
     List<_CorridorStop> stops,
@@ -1381,17 +1399,21 @@ class TransitRouteService implements SearchEngine {
       for (final s in stops)
         (haversineKm(origin, s.coord) * 1000 / walkMetersPerMinute).round(),
     ];
-    final rows = await _api.fetchWalkMatrix(
-      [origin],
-      [for (final s in stops) s.coord],
-    );
-    if (rows != null) {
+    for (var start = 0; start < stops.length; start += _maxScanMatrixDests) {
+      final end = start + _maxScanMatrixDests < stops.length
+          ? start + _maxScanMatrixDests
+          : stops.length;
+      final rows = await _api.fetchWalkMatrix(
+        [origin],
+        [for (var i = start; i < end; i++) stops[i].coord],
+      );
+      if (rows == null) continue;
       for (final e in rows) {
         if (e is! Map) continue;
         final di = (e['destinationIndex'] as num?)?.toInt() ?? 0;
         final min = _parseDurationMin(e['duration']);
-        if (min == null || di < 0 || di >= walk1.length) continue;
-        walk1[di] = min;
+        if (min == null || di < 0 || di >= end - start) continue;
+        walk1[start + di] = min;
       }
     }
     return walkFeasiblePrefixCount(walk1, budgetMin);
