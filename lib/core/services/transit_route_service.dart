@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:google_polyline_algorithm/google_polyline_algorithm.dart';
 import 'package:http/http.dart' as http;
@@ -83,8 +85,11 @@ class TransitRouteService implements SearchEngine {
   /// 1回だけ呼ぶ）。[onProgress] と同じく副作用の観測を外へ委ねる流儀。
   final void Function(RouteSearchMetrics)? _onMetrics;
 
-  /// 採用候補を enrich（街路実測）で検証して選び直す試行上限。
-  static const int _maxEnrichAttempts = 8;
+  /// 見積り予算内候補を1回の並列パスで実測する短リストの本数上限（#315）。見積りを
+  /// 「勝者決定」から「実測する短リスト作り」へ降格し、この本数までを候補間並列で一括
+  /// 実測して実測値から勝者＋代替案を選ぶ。上限はレート制限（#161: 1検索最大13ファンアウト）
+  /// に合わせる。徒歩tier 降順に測り、生存者が出た tier で打ち切るため通常はここまで測らない。
+  static const int _maxMeasureShortlist = 13;
 
   /// 代替案（パレート非劣解）の最大提示件数（#290）。
   static const int _maxAlternatives = 3;
@@ -123,12 +128,12 @@ class TransitRouteService implements SearchEngine {
 
   /// ハイブリッドの土台に据える路線ファミリ base の本数上限（#292）。単一最速1本では
   /// 別路線コリドー由来の徒歩多め候補が原理的に生成されない（限界2）ため、routeName 集合の
-  /// 異なる代表を最大この本数だけ土台にする。増やすほど候補が多様化するが、`_maxEnrichAttempts`
+  /// 異なる代表を最大この本数だけ土台にする。増やすほど候補が多様化するが、`_maxMeasureShortlist`
   /// の実測試行を食い合い収束前に最短へ縮退する退行（限界3）が起きやすくなるため小さく抑える。
   static const int _maxHybridBases = 3;
 
   /// 複数 base をマージしたハイブリッド候補の総数上限（#292）。base を増やすと候補が増え、
-  /// あるファミリの「見積り予算内・実測予算外」候補が [_maxEnrichAttempts] の試行を食い潰して
+  /// あるファミリの「見積り予算内・実測予算外」候補が [_maxMeasureShortlist] の試行を食い潰して
   /// 別ファミリの正当な候補を検証前に打ち切り、最短（best-effort＝最早到着）へ縮退させる退行
   /// （限界3）が起きうる。総数をここで抑え、超過時は base 間ラウンドロビンで各ファミリの
   /// 徒歩多め候補を優先的に残す（1ファミリの候補群が他ファミリを締め出さないため・#292 §3）。
@@ -186,6 +191,7 @@ class TransitRouteService implements SearchEngine {
     metrics
       ..totalMs = totalSw.elapsedMilliseconds
       ..guidanceCalls = _api.guidanceCalls
+      ..guidanceDupCalls = _api.guidanceDupCalls
       ..walkCalls = _api.walkCalls
       ..matrixCalls = _api.matrixCalls;
     _diag.logMetrics(metrics);
@@ -217,8 +223,11 @@ class TransitRouteService implements SearchEngine {
           '=== plan start: budget=${budgetMin}m departureAt=$departureAt '
           'options=${options.length} ===',
     );
-    final walkCache = <String, RouteCandidate>{};
+    final walkCache = _WalkLegCache();
     final measured = <String, int>{};
+    // 候補の実測（enrich 徒歩＋実発車時刻解決）を identity で畳むキャッシュ。winner-phase の
+    // 並列一括実測と代替案（#290）の検証が同じ候補を二度測らないための単一の測定口（#315）。
+    final enrichedCache = <RouteCandidate, RouteCandidate>{};
 
     // 標準乗換候補（guidance の door-to-door をそのまま候補化）。
     final candidates = <RouteCandidate>[
@@ -237,6 +246,7 @@ class TransitRouteService implements SearchEngine {
     // 崩壊時の board-search は単一 base を土台にする（#137）。先頭は総所要最小＝従来の
     // [_baseForHybrid] と一致するため、崩壊フォールバックの挙動は #292 前と変わらない。
     final base = bases.isEmpty ? null : bases.first;
+    final hybridSw = Stopwatch()..start();
     if (bases.isNotEmpty) {
       _diag.log(() => 'hybrid bases: ${bases.length}家系');
       // base ごとの実測（マトリクス IO）は互いに独立なので並列に投げる（#163・Codex 指摘）。
@@ -265,6 +275,7 @@ class TransitRouteService implements SearchEngine {
       _diag.log(() => 'no base route (corridor<2); all-walk only');
       await _measureAccessWalks(origin, goal, const [], const [], measured);
     }
+    metrics.hybridMs = hybridSw.elapsedMilliseconds;
 
     final allWalk = _measuredWalk(
       origin,
@@ -292,6 +303,56 @@ class TransitRouteService implements SearchEngine {
       ];
     }
 
+    // 崩壊が見込まれないなら、見積りフロント（勝者母集団＋代替案上位）を1回の並列パスで
+    // 先行実測して [enrichedCache] を温める（#315）。以降の winner-phase・代替案検証は
+    // キャッシュヒットで純粋計算になり、勝者と代替案の実測が**1パスに畳まれる**（別フェーズの
+    // 統合）。崩壊が見込まれるときは温めない——board-search 後に支配される早着・徒歩少の候補
+    // （#290: deferred 検証の対象）へ IO を無駄撃ちしないため。判定は見積り勝者で行い、実測を
+    // 待たない（崩壊判定は見積り基準なので実測なしで確定できる）。バスは last-resort（予算外時）
+    // でしか出ないので、見積り予算内のこの分岐では busBase 崩壊は起こらず options だけで足りる。
+    final estWinner = selectBestRoute(
+      candidates: candidates,
+      budgetMin: budgetMin,
+      origin: origin,
+      goal: goal,
+      departureAt: departureAt,
+    );
+    final estWithin =
+        arrivalMinutes(estWinner.segments, departureAt) <= budgetMin;
+    final preCollapse =
+        base != null &&
+        estWithin &&
+        _isCollapse(estWinner, options, budgetMin, departureAt);
+
+    final enrichSw = Stopwatch()..start();
+    if (estWithin && !preCollapse) {
+      final forward = forwardCandidates(candidates, origin, goal);
+      final prewarm = <RouteCandidate>{
+        estWinner,
+        ...paretoAlternatives(
+          candidates: [
+            for (final c in forward)
+              if (arrivalMinutes(c.segments, departureAt) <= budgetMin) c,
+          ],
+          chosen: estWinner,
+          departureAt: departureAt,
+          maxCount: _maxAlternatives,
+        ),
+      };
+      _diag.log(
+        () => '非崩壊: 見積りフロント${prewarm.length}件を1パスで先行実測（#315 winner+代替案統合）',
+      );
+      // 例外は候補単位で握る。先行実測はキャッシュ温めの最適化にすぎず、壊れた応答1件で
+      // plan() 全体を落としてはならない（#290: 代替案の enrich 失敗は確定経路をブロックしない）。
+      // 握った候補は未キャッシュのまま残り、winner-phase / _validatedAlternatives が改めて
+      // 測って各々の try/catch で処理する（勝者が壊れていれば従来どおり winner-phase で顕在化）。
+      // ただしキャンセルだけは飲まない——先行実測中の離脱を握り潰すと勝者だけで完走してしまう
+      // （#316: cancellation.dart のキャンセル境界を並列パスでも守る）。
+      await Future.wait([
+        for (final c in prewarm)
+          _measureOrDrop(c, departureAt, walkCache, enrichedCache),
+      ]);
+    }
     var selected = await _selectAndEnrich(
       candidates,
       budgetMin,
@@ -299,8 +360,10 @@ class TransitRouteService implements SearchEngine {
       origin: origin,
       goal: goal,
       walkCache: walkCache,
+      enrichedCache: enrichedCache,
       lastResortBus: lastResortBus,
     );
+    metrics.enrichMs = enrichSw.elapsedMilliseconds;
 
     _diag.log(
       () =>
@@ -392,6 +455,7 @@ class TransitRouteService implements SearchEngine {
           origin: origin,
           goal: goal,
           walkCache: walkCache,
+          enrichedCache: enrichedCache,
           lastResortBus: lastResortBus,
         );
         _diag.log(
@@ -410,6 +474,7 @@ class TransitRouteService implements SearchEngine {
     // 代替案の選出・検証は最終 selection が確定してから1回だけ行う（#290 レビュー指摘）。
     // 崩壊時は選定が2回走り1回目の結果は捨てられるため、_selectAndEnrich 内で都度検証
     // すると捨てられる selection のための walk/guidance IO を無駄撃ちする。
+    final alternativesSw = Stopwatch()..start();
     final alternatives = await _validatedAlternatives(
       selected.pool,
       selected.chosen,
@@ -417,10 +482,12 @@ class TransitRouteService implements SearchEngine {
       budgetMin,
       departureAt,
       walkCache,
+      enrichedCache,
       origin: origin,
       goal: goal,
       relaxBudget: selected.relaxBudget,
     );
+    metrics.alternativesMs = alternativesSw.elapsedMilliseconds;
 
     final finalizeSw = Stopwatch()..start();
     final named = await _finalizeStationNames(selected.enriched, departureAt);
@@ -628,6 +695,44 @@ class TransitRouteService implements SearchEngine {
     }
   }
 
+  /// 候補1件を実測（enrich 徒歩＋実発車時刻解決）し、identity でメモ化する（#315）。winner-phase の
+  /// 並列一括実測・非崩壊時の先行実測・代替案検証（#290）が同じ候補を二度測らないための単一の
+  /// 測定口。[RouteCandidate] は == を上書きしないので Map は同一インスタンス単位で畳む。
+  Future<RouteCandidate> _measureCandidate(
+    RouteCandidate c,
+    DateTime departureAt,
+    _WalkLegCache walkCache,
+    Map<RouteCandidate, RouteCandidate> enrichedCache,
+  ) async {
+    final hit = enrichedCache[c];
+    if (hit != null) return hit;
+    final e = await _resolveBoardingTimes(
+      await _enrichWalkGeometry(c, walkCache),
+      departureAt,
+    );
+    return enrichedCache[c] = e;
+  }
+
+  /// 候補**間**並列（#315）の実測を候補単位で隔離する。壊れた応答（parse 不能・プロキシ
+  /// 失敗など）は null にして当該候補だけ落とすが、[SearchCanceledException] だけは飲まず
+  /// 伝播させる——並列ファンアウトでキャンセルを握り潰すと、離脱後も残りの実測が走り続け
+  /// plan() が停止できない（cancellation.dart）。直列版は生存者を見つけた時点で下位を測らず
+  /// 壊れた候補に触れなかったので、並列化で1件の失敗が plan() 全体を巻き込まないようにする。
+  Future<RouteCandidate?> _measureOrDrop(
+    RouteCandidate c,
+    DateTime departureAt,
+    _WalkLegCache walkCache,
+    Map<RouteCandidate, RouteCandidate> enrichedCache,
+  ) async {
+    try {
+      return await _measureCandidate(c, departureAt, walkCache, enrichedCache);
+    } on SearchCanceledException {
+      rethrow;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 候補から決定的に選定し、採用1経路を Google 実測（enrich）で検証する確定ループ。
   /// NAVITIME 版と違い**乗り遅れ再照会（#115）は行わない**：実在便への差し替えはせず、
   /// enrich で (a) 予算超過、または (b) 先頭電車に乗り遅れ（標準乗換のアクセス徒歩が実街路で
@@ -655,7 +760,8 @@ class TransitRouteService implements SearchEngine {
     DateTime departureAt, {
     required GeoPoint origin,
     required GeoPoint goal,
-    required Map<String, RouteCandidate> walkCache,
+    required _WalkLegCache walkCache,
+    required Map<RouteCandidate, RouteCandidate> enrichedCache,
     Future<List<RouteCandidate>> Function()? lastResortBus,
   }) async {
     /// 縮退。まず従来どおり best-effort を求め、それでも予算外ならバス許容の再照会を
@@ -716,92 +822,122 @@ class TransitRouteService implements SearchEngine {
         origin: origin,
         goal: goal,
         walkCache: walkCache,
+        enrichedCache: enrichedCache,
       );
     }
 
-    var pool = candidates;
-    for (var attempt = 0; ; attempt++) {
-      final chosen = selectBestRoute(
-        candidates: pool,
-        budgetMin: budgetMin,
-        origin: origin,
-        goal: goal,
-        departureAt: departureAt,
-      );
-      final withinByEstimate =
-          arrivalMinutes(chosen.segments, departureAt) <= budgetMin;
-      _diag.log(
-        () =>
-            'enrich attempt=$attempt pool=${pool.length} '
-            'chosen: ${_diag.candLine(chosen, budgetMin, departureAt)}',
-      );
-      if (!withinByEstimate) {
-        _diag.log(() => '  → 予算内候補なし → best-effort 縮退（予算外ならバス last-resort）');
-        return await giveUp();
-      }
-
-      // enrich（実測徒歩）に加え、時刻なしハイブリッドの電車区間へ実発車時刻を当てる
-      // （approach A）。これで乗車待ち（深夜の始発待ち等）が arrivalMinutes に入り、
-      // 走っていない電車が予算内へ化けるのを防ぐ。
-      final enriched = await _resolveBoardingTimes(
-        await _enrichWalkGeometry(chosen, walkCache),
-        departureAt,
-      );
-      // enrich／実時刻検証で (a) 予算超過に転じた、または (b) 先頭電車に乗り遅れる（標準乗換の
-      // アクセス徒歩が guidance 見積りより実街路で伸び、駅着が発車後になる）候補は除外して
-      // 選び直す。除外は実測の確認時だけ。乗り遅れは「予算内に見えても実際には乗れない」
-      // 経路なので、予算超過と同様に確定させない（#137 副次）。
-      final violation = _invariantViolation(
-        enriched.segments,
-        budgetMin,
-        departureAt,
-      );
-      final overBudget = violation.overBudget;
-      final missedAfterEnrich = violation.missed;
-      final unverifiedTransit = violation.unverified;
-      if (attempt < _maxEnrichAttempts &&
-          pool.length > 1 &&
-          (overBudget || missedAfterEnrich || unverifiedTransit)) {
-        _diag.log(
-          () =>
-              '  → enrich実測で'
-              '${overBudget
-                  ? '予算超過'
-                  : missedAfterEnrich
-                  ? '先頭電車に乗り遅れ'
-                  : '実発車時刻を確認できず'}'
-              '→除外して選び直し: ${_diag.candLine(enriched, budgetMin, departureAt)}',
-        );
-        pool = pool.where((c) => !identical(c, chosen)).toList();
-        continue;
-      }
-      // 候補を除外しきれなかった（プールが1件に痩せた・attempt 上限）ときは、実測で失格した
-      // 候補をそのまま確定させず best-effort（検証済み）へ縮退する（#254）。乗り遅れる便・
-      // 予算を超える便・実在の確証が無い便のいずれも「そのまま提示してよい」ものではない。
-      // ここも [giveUp] を通す＝best-effort が予算外のときだけバスを引く（#250）。
-      if (overBudget || missedAfterEnrich || unverifiedTransit) {
-        _diag.log(
-          () =>
-              '  → 除外しきれず'
-              '${overBudget
-                  ? '予算超過'
-                  : missedAfterEnrich
-                  ? '乗り遅れ'
-                  : '未確認の便'}'
-              'のまま確定不可 → best-effort 縮退（予算外ならバス last-resort）',
-        );
-        return await giveUp();
-      }
-      _diag.log(
-        () => '  → 確定: ${_diag.candLine(enriched, budgetMin, departureAt)}',
-      );
-      return (
-        chosen: chosen,
-        enriched: enriched,
-        pool: pool,
-        relaxBudget: false,
-      );
+    // 見積り予算内候補を短リスト化（見積りを「勝者決定」から「実測する短リスト作り」へ降格）。
+    // 逆戻り除外は勝者選定（[selectBestRoute]）と同じ前方フィルタを掛け、選好順（徒歩降順→
+    // 実到着昇順→乗換少ない順）に並べる。
+    final forward = forwardCandidates(candidates, origin, goal);
+    final within =
+        [
+          for (final c in forward)
+            if (arrivalMinutes(c.segments, departureAt) <= budgetMin) c,
+        ]..sort((a, b) {
+          if (a.walkMinutes != b.walkMinutes) {
+            return b.walkMinutes.compareTo(a.walkMinutes);
+          }
+          final aa = arrivalMinutes(a.segments, departureAt);
+          final ab = arrivalMinutes(b.segments, departureAt);
+          if (aa != ab) return aa.compareTo(ab);
+          return a.transferCount.compareTo(b.transferCount);
+        });
+    if (within.isEmpty) {
+      _diag.log(() => '  → 見積り予算内候補なし → best-effort 縮退（予算外ならバス last-resort）');
+      return giveUp();
     }
+
+    // 短リストを候補**間**並列で実測する（#315）。まず最上位の徒歩tier だけを測る——[selectBestRoute]
+    // は徒歩最大を勝者にするので、共通ケース（勝者が最上位 tier で即生存）はこの1バッチで済み IO 最小。
+    // 最上位 tier が全滅したら、残りの見積り予算内候補（徒歩降順・短リスト上限 [_maxMeasureShortlist]
+    // まで）を**1回の並列バッチ**で一括実測する。時刻なしハイブリッドは見積りが楽観で実測すると
+    // 予算超過に転じやすく（#137）、1本ずつ tier を降りると reject ごとに上流 guidance が数珠つなぎ
+    // になる（実機 enrichMs 24.9s の主因）。reject 時だけ残りを1ラウンドへ畳んでこれを解消する。
+    // 下位候補を測るのは reject 時だけなので、勝者即確定ルートの余計な IO も、崩壊後に支配される候補
+    // への無駄撃ち（#290 deferred）も避ける。勝者は徒歩最大の生存者＝直列版と一致する。
+    final rejected = <RouteCandidate>{};
+    final cap = within.length < _maxMeasureShortlist
+        ? within.length
+        : _maxMeasureShortlist;
+    final firstTierWalk = within.first.walkMinutes;
+    var firstTierEnd = 0;
+    while (firstTierEnd < cap &&
+        within[firstTierEnd].walkMinutes == firstTierWalk) {
+      firstTierEnd++;
+    }
+    for (final range in [
+      [0, firstTierEnd],
+      if (firstTierEnd < cap) [firstTierEnd, cap],
+    ]) {
+      final batch = within.sublist(range[0], range[1]);
+      _diag.log(
+        () => range[0] == 0
+            ? 'measure tier: walk=${firstTierWalk}m ${batch.length}件を候補間並列で実測'
+            : 'reject後の残り予算内候補 ${batch.length}件を1並列バッチで一括実測（#315 B）',
+      );
+      // 候補単位で隔離して一括実測する。壊れた応答1件（非勝者）で Future.wait が plan()
+      // 全体を落とさないよう、失敗候補は null（棄却扱い）に落とす。キャンセルだけは
+      // _measureOrDrop が伝播させ、await ごと上へ抜ける（#316）。
+      final enriched = await Future.wait([
+        for (final c in batch)
+          _measureOrDrop(c, departureAt, walkCache, enrichedCache),
+      ]);
+      int? winnerIdx;
+      for (var k = 0; k < batch.length; k++) {
+        final e = enriched[k];
+        if (e == null) {
+          _diag.log(
+            () =>
+                '  → 棄却(実測失敗): ${_diag.candLine(batch[k], budgetMin, departureAt)}',
+          );
+          rejected.add(batch[k]);
+          continue;
+        }
+        final v = _invariantViolation(e.segments, budgetMin, departureAt);
+        if (v.overBudget || v.missed || v.unverified) {
+          _diag.log(
+            () =>
+                '  → 棄却('
+                '${v.overBudget
+                    ? '予算超過'
+                    : v.missed
+                    ? '乗り遅れ'
+                    : '未確認便'}'
+                '): ${_diag.candLine(e, budgetMin, departureAt)}',
+          );
+          rejected.add(batch[k]);
+        } else {
+          // batch は選好順（徒歩降順→到着昇順）なので最初の生存者が徒歩最大＝勝者。
+          winnerIdx ??= k;
+        }
+      }
+      if (winnerIdx != null) {
+        final chosen = batch[winnerIdx];
+        final enrichedWinner = enriched[winnerIdx]!;
+        // 代替案（#290）の母集団は実測で失格した候補を除いた残存プール。未測定の下位候補は
+        // 素通しで残す（代替案側が改めて検証する）。
+        final pool = [
+          for (final c in candidates)
+            if (!rejected.contains(c)) c,
+        ];
+        _diag.log(
+          () =>
+              '  → 確定: ${_diag.candLine(enrichedWinner, budgetMin, departureAt)}',
+        );
+        return (
+          chosen: chosen,
+          enriched: enrichedWinner,
+          pool: pool,
+          relaxBudget: false,
+        );
+      }
+    }
+    // 予算内 tier をすべて測っても生存者なし（または短リスト上限）→ best-effort へ縮退する
+    // （#254。実測で失格した候補をそのまま確定させない）。ここも [giveUp] を通す＝best-effort
+    // が予算外のときだけバスを引く（#250）。
+    _diag.log(() => '  → 予算内候補が実測で全滅 → best-effort 縮退（予算外ならバス last-resort）');
+    return giveUp();
   }
 
   /// 勝者確定後の残存プール [pool] から検証済みの代替案を最大 [_maxAlternatives] 件返す
@@ -814,6 +950,7 @@ class TransitRouteService implements SearchEngine {
   /// パレート・フロントは**検証落ちをプールから除いて引き直す**：検証前のプールで一度だけ
   /// フロントを作ると「後で無効と判明する候補にだけ支配されていた有効候補」が一度も選出
   /// されず、代替案が本来より疎になる。検証は候補ごとに walk/guidance の IO を伴うため、
+  /// [enrichedCache] で winner-phase の実測を再利用し同じ候補を二度測らない（#315）。加えて
   /// 通常モードでは見積り予算外の候補を検証前に足切りし——見積りは楽観側に倒す不変条件
   /// （§6・[walkMetersPerMinute]）により、見積りですら予算外なら実測でも通らない——、
   /// 総検証数は [_maxAlternativeValidations] で打ち切る（全滅状況でフロント全体へ IO を
@@ -829,7 +966,8 @@ class TransitRouteService implements SearchEngine {
     RouteCandidate enrichedWinner,
     int budgetMin,
     DateTime departureAt,
-    Map<String, RouteCandidate> walkCache, {
+    _WalkLegCache walkCache,
+    Map<RouteCandidate, RouteCandidate> enrichedCache, {
     GeoPoint? origin,
     GeoPoint? goal,
     bool relaxBudget = false,
@@ -858,11 +996,15 @@ class TransitRouteService implements SearchEngine {
     Future<RouteCandidate?> validate(RouteCandidate c) async {
       // 例外は候補単位で握って null（落とす）にする。代替案は確定経路の付加情報で、
       // その検証失敗が plan() 全体を失敗させてはならない。rethrow すると壊れた応答
-      // 1件で本命の経路まで道連れになる（#290）。
+      // 1件で本命の経路まで道連れになる（#290）。ただしキャンセルだけは飲まず伝播させる
+      // ——検証ファンアウト中の離脱を握り潰すと plan() が止まらない（#316）。
       try {
-        final e = await _resolveBoardingTimes(
-          await _enrichWalkGeometry(c, walkCache),
+        // winner-phase・先行実測で測り済みなら再利用し、二度測らない（#315 の測定統合）。
+        final e = await _measureCandidate(
+          c,
           departureAt,
+          walkCache,
+          enrichedCache,
         );
         final v = _invariantViolation(e.segments, budgetMin, departureAt);
         // relaxBudget（best-effort）では予算超過を許すが、乗車待ちが予算を超える
@@ -877,6 +1019,8 @@ class TransitRouteService implements SearchEngine {
             v.missed ||
             v.unverified;
         return rejected ? null : e;
+      } on SearchCanceledException {
+        rethrow;
       } catch (_) {
         return null;
       }
@@ -959,7 +1103,7 @@ class TransitRouteService implements SearchEngine {
   /// 実測で乗り遅れが判明した候補は除外して選び直す。全徒歩は transit を含まず決して乗り遅れ
   /// ないので、候補に含まれる限りこのループは必ず「乗れる」候補へ収束する。
   ///
-  /// ここに [_maxEnrichAttempts] のような試行上限は**置かない**。プールは毎反復 `identical` で
+  /// ここに [_maxMeasureShortlist] のような試行上限は**置かない**。プールは毎反復 `identical` で
   /// 厳密に1件減るため停止性は `pool.length` が保証しており、上限は「全徒歩へ到達する前に
   /// 打ち切って乗り遅れ経路を返す」＝この修正が拠って立つ不変条件を壊す方向にしか働かない。
   /// enrich の IO も [walkCache] が同一レッグを1回に畳むため候補数に対して線形以下に収まる。
@@ -971,7 +1115,7 @@ class TransitRouteService implements SearchEngine {
     List<RouteCandidate> candidates,
     int budgetMin,
     DateTime departureAt,
-    Map<String, RouteCandidate> walkCache,
+    _WalkLegCache walkCache,
   ) async {
     // 候補ごとの実時刻解決は互いに独立なので並列に投げる（#163）。候補内の区間ループは
     // 後続区間の boardAt が前区間の解決済み実乗車時間に依存するため直列のまま。
@@ -1107,7 +1251,7 @@ class TransitRouteService implements SearchEngine {
     GeoPoint goal,
     int budgetMin,
     DateTime departureAt,
-    Map<String, RouteCandidate> walkCache,
+    _WalkLegCache walkCache,
   ) async {
     final stops = _corridorStops(base);
     if (stops.length < 2) return const [];
@@ -1399,7 +1543,7 @@ class TransitRouteService implements SearchEngine {
   /// 取得失敗時は元（guidance の polyline / 直線）を保つ。
   Future<RouteCandidate> _enrichWalkGeometry(
     RouteCandidate chosen,
-    Map<String, RouteCandidate> cache,
+    _WalkLegCache cache,
   ) async {
     // 徒歩区間の実測は互いに独立なので並列に投げる（#163）。取得失敗（null）は
     // 従来どおり元の区間を保つ。
@@ -1723,12 +1867,23 @@ class TransitRouteService implements SearchEngine {
     GeoPoint dest, {
     required String fromName,
     required String toName,
-    Map<String, RouteCandidate>? cache,
+    _WalkLegCache? cache,
   }) async {
-    if (cache != null) {
-      final hit = cache[_walkCacheKey(origin, dest)];
-      if (hit != null) return _renameWalk(hit, fromName, toName);
-    }
+    // キャッシュのレッグ実測は区間名に依らずキー（座標丸め）で共有し、呼び出し側の
+    // fromName/toName は取得後に _renameWalk で被せる。同一レッグを複数候補が同時に測る
+    // 候補間並列（#315）では、resolve が in-flight の Future も単一化して二重発行を防ぐ。
+    final key = _walkCacheKey(origin, dest);
+    final result = cache == null
+        ? await _fetchWalkLeg(origin, dest)
+        : await cache.resolve(key, () => _fetchWalkLeg(origin, dest));
+    return result == null ? null : _renameWalk(result, fromName, toName);
+  }
+
+  /// origin→dest の徒歩を Google 実測で1レッグ分取得する。区間名はキャッシュ共有のため
+  /// 素の座標名で組み、呼び出し側が [_renameWalk] で被せる。上流失敗（[RouteException]）は
+  /// null へ縮退するが、[SearchCanceledException] は別型なのでそのまま伝播する
+  /// （cancellation.dart: キャンセルを縮退パスで飲まない）。
+  Future<RouteCandidate?> _fetchWalkLeg(GeoPoint origin, GeoPoint dest) async {
     try {
       final body = await _api.fetchWalkRoute(origin, dest);
       final routes = body['routes'] as List<dynamic>? ?? const [];
@@ -1738,14 +1893,14 @@ class TransitRouteService implements SearchEngine {
       if (minutes == null) return null;
       final km = ((route['distanceMeters'] as num?)?.toInt() ?? 0) / 1000.0;
       final shape = _parseEncodedPolyline(route['polyline']);
-      final result = RouteCandidate(
-        from: fromName,
-        to: toName,
+      return RouteCandidate(
+        from: '',
+        to: '',
         segments: [
           RouteSegment(
             type: SegmentType.walk,
-            fromName: fromName,
-            toName: toName,
+            fromName: '',
+            toName: '',
             minutes: minutes,
             km: km,
             kcal: (km * kcalPerKm).round(),
@@ -1753,8 +1908,6 @@ class TransitRouteService implements SearchEngine {
           ),
         ],
       );
-      if (cache != null) cache[_walkCacheKey(origin, dest)] = result;
-      return result;
     } on RouteException {
       return null;
     }
@@ -1853,4 +2006,45 @@ class _CorridorStop {
 
   /// ハイブリッド駅名は不明（コリドー座標に駅名は付かない）。空表示。
   String get name => '';
+}
+
+/// 徒歩レッグ実測の1検索分キャッシュ。完了結果に加えて **in-flight の Future** も
+/// レッグキーで共有する。#315 で予算内候補を候補**間**並列で一括実測するようになり、
+/// 同一 egress レッグ（例: 同じ降車駅→目的地）を持つ候補が同時に enrich されるが、
+/// 完了結果しか持たない素の Map では両者ともキャッシュを外して `googleWalkProxy` を
+/// 二重発行する——直列 reject-reselect が得ていた共有が消える。in-flight を単一化し、
+/// 共有レッグの実測を候補数に依らず1回へ畳む。
+class _WalkLegCache {
+  final Map<String, RouteCandidate> _done = {};
+  final Map<String, Future<RouteCandidate?>> _inflight = {};
+
+  /// [key] の実測を単一化する。完了済みなら即返し、実行中なら同じ Future に相乗り、
+  /// どちらも無ければ [fetch] を1回だけ起こす。失敗（null 解決や例外）は永続キャッシュ
+  /// しない——一過性のプロキシ失敗を検索の残り全体へ固定しないため。
+  Future<RouteCandidate?> resolve(
+    String key,
+    Future<RouteCandidate?> Function() fetch,
+  ) {
+    final done = _done[key];
+    if (done != null) return Future.value(done);
+    // 相乗り者・起動者が全員この1本を await するよう、in-flight は単一の Future に統一する。
+    // whenComplete で後始末を別 Future へ枝分かれさせると、fetch がエラーで倒れたとき誰も
+    // await しない枝が未処理例外になる（catch 済みでもテストが落ちる）。try/finally なら
+    // エラーは唯一の Future に載ってすべての await 側で処理される。
+    return _inflight[key] ??= _resolveUncached(key, fetch);
+  }
+
+  Future<RouteCandidate?> _resolveUncached(
+    String key,
+    Future<RouteCandidate?> Function() fetch,
+  ) async {
+    try {
+      final result = await fetch();
+      if (result != null) _done[key] = result;
+      return result;
+    } finally {
+      // 除去される Future は今まさに解決中の自分自身。await せず捨てる（相乗り者が処理する）。
+      unawaited(_inflight.remove(key));
+    }
+  }
 }

@@ -21,8 +21,22 @@ class RouteSearchMetrics {
   /// 初回 `/guidance/plan`（必須の1本）に掛かった実時間（ミリ秒）。
   int guidanceMs = 0;
 
-  /// board-search フォールバック区間の実時間（起動しなければ 0）。
+  /// ハイブリッド候補生成（コリドー実測マトリクス＋候補構築）区間の実時間。
+  int hybridMs = 0;
+
+  /// 初回の選定＋enrich（実測徒歩・実発車時刻の確定検証）区間の実時間。非崩壊時は見積り
+  /// フロント（勝者母集団＋代替案）の1並列パス先行実測もここに含む（#315）——以降の代替案検証は
+  /// キャッシュ再利用で [alternativesMs] がほぼ0に畳まれる。崩壊時の再選定は [boardSearchMs] に
+  /// 含める（二重計上しない）。
+  int enrichMs = 0;
+
+  /// board-search フォールバック区間の実時間（起動しなければ 0）。崩壊時の再選定
+  /// （board-search 候補を足した再 enrich）もこの区間に含む。
   int boardSearchMs = 0;
+
+  /// 代替案（パレート非劣解）の選出・検証区間の実時間。非崩壊時は winner-phase の先行実測
+  /// （[enrichMs]）を再利用するため純粋計算に畳まれ、ほぼ0になる（#315）。
+  int alternativesMs = 0;
 
   /// 確定候補の駅名確定（`_finalizeStationNames`）に掛かった実時間。
   int finalizeMs = 0;
@@ -32,6 +46,10 @@ class RouteSearchMetrics {
 
   /// `/guidance/plan` の実 HTTP 往復本数（初回＋引き直し）。
   int guidanceCalls = 0;
+
+  /// [guidanceCalls] のうち同一リクエストの重複発行だった本数（guidance キャッシュで
+  /// 消える上限）。enrich 削減の費用対効果を測るための実測（振る舞いは未変更）。
+  int guidanceDupCalls = 0;
 
   /// Google 徒歩ルート（enrich）の実 HTTP 往復本数。
   int walkCalls = 0;
@@ -49,7 +67,9 @@ class RouteSearchMetrics {
       'boardSearch=${boardSearchActivated ? 1 : 0} '
       'http=$httpRoundTrips '
       'guidanceCalls=$guidanceCalls walkCalls=$walkCalls matrixCalls=$matrixCalls '
-      'guidanceMs=$guidanceMs boardSearchMs=$boardSearchMs '
+      'guidanceDupCalls=$guidanceDupCalls '
+      'guidanceMs=$guidanceMs hybridMs=$hybridMs enrichMs=$enrichMs '
+      'boardSearchMs=$boardSearchMs alternativesMs=$alternativesMs '
       'finalizeMs=$finalizeMs totalMs=$totalMs';
 }
 

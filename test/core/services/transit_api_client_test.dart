@@ -73,6 +73,24 @@ void main() {
       expect(captured.queryParameters['avoidModes'], 'ferry,air');
     });
 
+    test('同一リクエストの再発行を guidanceDupCalls に数える（enrich 削減の実測）', () async {
+      final client = _client(MockClient((req) async => _json({'ok': true})));
+      const from = GeoPoint(35.1, 139.2);
+      const to = GeoPoint(35.3, 139.4);
+      final at = DateTime(2026, 6, 27, 9, 5);
+
+      await client.fetchGuidanceAt(from, to, at); // 初回＝ユニーク
+      await client.fetchGuidanceAt(from, to, at); // 同一 URI＝重複
+      await client.fetchGuidanceAt(from, to, at); // 同一 URI＝重複
+      // 目的地違いは別 URI＝重複でない。
+      await client.fetchGuidanceAt(from, const GeoPoint(35.9, 139.9), at);
+      // モード違い（allowBus）も avoidModes が変わり別 URI。
+      await client.fetchGuidanceAt(from, to, at, allowBus: true);
+
+      expect(client.guidanceCalls, 5);
+      expect(client.guidanceDupCalls, 2);
+    });
+
     test('非200は RouteException(HTTP <code>)', () async {
       final client = _client(MockClient((req) async => _json(const {}, 503)));
       expect(
@@ -388,6 +406,31 @@ void main() {
       cancellation.cancel();
       await expectLater(fetch(), throwsA(isA<SearchCanceledException>()));
       expect(calls, 1);
+    });
+
+    test('発行後にキャンセルで閉じられた in-flight の client エラーはキャンセルへ昇格', () async {
+      // throwIfCanceled は発行**前**ガード。発行後にユーザーが離脱すると scoped client が
+      // 閉じられ、in-flight は SearchCanceledException ではなく素の client エラーで倒れる。
+      // これを昇格させないと上位の縮退 catch（候補ドロップ）に握り潰される（#316）。
+      final cancellation = CancellationToken();
+      final client = TransitApiClient(
+        transitClient: MockClient((_) async {
+          cancellation.cancel(); // 発行直後の離脱＝scoped client close 相当
+          throw http.ClientException('Client is already closed');
+        }),
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        cancellation: cancellation,
+      );
+
+      await expectLater(
+        client.fetchGuidanceAt(
+          const GeoPoint(35.0, 139.0),
+          const GeoPoint(35.5, 139.5),
+          DateTime(2026, 6, 27, 9, 5),
+        ),
+        throwsA(isA<SearchCanceledException>()),
+      );
     });
 
     test('close は transit / proxy 双方のクライアントを閉じる', () {

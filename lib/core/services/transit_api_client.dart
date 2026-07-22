@@ -66,8 +66,18 @@ class TransitApiClient {
   int _walkCalls = 0;
   int _matrixCalls = 0;
 
+  // 1検索内で「同一 guidance リクエスト（同じ URI＝同じ from/to/date/time/mode）」を
+  // 何本重複発行したかの実測（enrich 削減の判断材料）。クライアントは検索1回ごとに
+  // 作り捨て（#259）なので、この Set の寿命＝1検索。値は「guidance キャッシュを噛ませたら
+  // 消える本数の上限」を意味する。振る舞いは変えない——キャッシュはまだ入れない。
+  int _guidanceDupCalls = 0;
+  final Set<String> _guidanceKeys = <String>{};
+
   /// `/guidance/plan` の実 HTTP 往復本数（初回＋引き直し）。
   int get guidanceCalls => _guidanceCalls;
+
+  /// 上記のうち、同一 URI の重複発行だった本数（guidance キャッシュで消える上限）。
+  int get guidanceDupCalls => _guidanceDupCalls;
 
   /// Google 徒歩ルート（enrich）の実 HTTP 往復本数。
   int get walkCalls => _walkCalls;
@@ -110,10 +120,16 @@ class TransitApiClient {
             .join(','),
       },
     );
+    // 重複判定は実発行時（onIssued）に行い guidanceCalls と数え方を揃える。同一 URI が
+    // 二度目以降なら「キャッシュがあればヒットしていた」1本として dup に計上する。
+    final key = uri.toString();
     final res = await _getOrTimeout(
       _transit,
       uri,
-      onIssued: () => _guidanceCalls++,
+      onIssued: () {
+        _guidanceCalls++;
+        if (!_guidanceKeys.add(key)) _guidanceDupCalls++;
+      },
     );
     if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
     return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
@@ -229,6 +245,13 @@ class TransitApiClient {
       return await (remaining == null ? request : request.timeout(remaining));
     } on TimeoutException {
       throw const RouteException('TIMEOUT');
+    } catch (_) {
+      // throwIfCanceled は発行**前**ガード。発行後に離脱すると scoped client が閉じられ、
+      // in-flight は SearchCanceledException ではなく素の client エラー（ClientException 等）で
+      // 倒れる。ここで昇格させないと、上位の縮退 catch（#316 の候補ドロップ・レッグ縮退）が
+      // キャンセルを握り潰し、離脱後も探索が続いて経路を返してしまう。
+      cancellation?.throwIfCanceled();
+      rethrow;
     }
   }
 
