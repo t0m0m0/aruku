@@ -369,6 +369,9 @@ class TransitRouteService implements SearchEngine {
         origin: origin,
         goal: goal,
       );
+      // 締切切れなら Option A の広い先行実測を許さない（#318 レビュー対応）。先行実測の徒歩
+      // enrich は締切を無視する fail-open なので、締切を過ぎたのに短リスト全体を測ると使われない
+      // 下位候補へ余計な上流往復を撃つ。見積りフロントだけ温める Option B へ抑制する。
       final front = prewarmFront(
         shortlist: shortlist,
         chosen: estWinner,
@@ -377,6 +380,7 @@ class TransitRouteService implements SearchEngine {
         singlePassHybridThreshold: _singlePassHybridThreshold,
         maxMeasureShortlist: _maxMeasureShortlist,
         maxAlternatives: _maxAlternatives,
+        allowSinglePass: !_deadline.isExpired,
       );
       final prewarm = front.prewarm;
       metrics.singlePassMeasure = front.singlePass;

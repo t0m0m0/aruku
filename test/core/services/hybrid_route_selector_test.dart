@@ -1133,6 +1133,25 @@ void main() {
       expect(r.prewarm.length, lessThan(s.shortlist.length));
     });
 
+    test('allowSinglePass=false なら閾値以上でも見積りフロントへ抑制する', () {
+      final s = fiveInBudget();
+      final hybrids = Set<RouteCandidate>.identity()
+        ..addAll(s.shortlist.take(3)); // 閾値は満たす
+
+      final r = prewarmFront(
+        shortlist: s.shortlist,
+        chosen: s.chosen,
+        hybrids: hybrids,
+        departureAt: departureAt,
+        singlePassHybridThreshold: 3,
+        maxMeasureShortlist: 13,
+        allowSinglePass: false, // 締切切れ等で広い先行実測を許さない
+      );
+
+      expect(r.singlePass, isFalse);
+      expect(r.prewarm.length, lessThan(s.shortlist.length));
+    });
+
     test('single-pass の温め対象は maxMeasureShortlist 件で頭打ち', () {
       final many = [
         for (var i = 0; i < 15; i++) _candidate([_walk(30 - i), _train(10)]),

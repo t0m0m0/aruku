@@ -19,6 +19,7 @@ class RouteMetricSample {
   const RouteMetricSample({
     required this.collapse,
     required this.boardSearch,
+    required this.singlePass,
     required this.http,
     required this.guidanceCalls,
     required this.guidanceDupCalls,
@@ -35,6 +36,9 @@ class RouteMetricSample {
 
   final bool collapse;
   final bool boardSearch;
+
+  /// 非崩壊ルートで予算内短リスト全体を1パス先行実測したか（Option A・#318）。
+  final bool singlePass;
   final int http;
   final int guidanceCalls;
   final int guidanceDupCalls;
@@ -69,6 +73,7 @@ RouteMetricSample? parseRouteMetricsLine(String line) {
   return RouteMetricSample(
     collapse: at('collapse') == 1,
     boardSearch: at('boardSearch') == 1,
+    singlePass: at('singlePass') == 1,
     http: at('http'),
     guidanceCalls: at('guidanceCalls'),
     guidanceDupCalls: at('guidanceDupCalls'),
@@ -146,6 +151,7 @@ class MetricsAggregation {
     required this.count,
     required this.collapseCount,
     required this.boardSearchCount,
+    required this.singlePassCount,
     required this.http,
     required this.guidanceCalls,
     required this.guidanceDupCalls,
@@ -166,6 +172,9 @@ class MetricsAggregation {
   final int count;
   final int collapseCount;
   final int boardSearchCount;
+
+  /// 非崩壊時に Option A（予算内短リスト全体の1パス先行実測・#318）が発火した件数。
+  final int singlePassCount;
 
   final MetricStats http;
   final MetricStats guidanceCalls;
@@ -190,6 +199,10 @@ class MetricsAggregation {
 
   double get collapseRate => count == 0 ? 0.0 : collapseCount / count;
   double get boardSearchRate => count == 0 ? 0.0 : boardSearchCount / count;
+
+  /// Option A（#318）の発火率。恩恵（enrichMs 短縮）とコスト（guidance ファンアウト増）が
+  /// これで決まるため、collapse/boardSearch と同じく発火率を上段に出す。
+  double get singlePassRate => count == 0 ? 0.0 : singlePassCount / count;
 
   /// guidance 重複率＝重複本数 ÷ 総 guidance 本数（平均ベース）。guidance キャッシュを
   /// 噛ませたら消せる往復の割合の見込み。enrich 削減の費用対効果の一次指標。
@@ -221,6 +234,7 @@ MetricsAggregation aggregate(List<RouteMetricSample> samples) {
     count: samples.length,
     collapseCount: collapsed.length,
     boardSearchCount: samples.where((s) => s.boardSearch).length,
+    singlePassCount: samples.where((s) => s.singlePass).length,
     http: statsOf([for (final s in samples) s.http]),
     guidanceCalls: statsOf([for (final s in samples) s.guidanceCalls]),
     guidanceDupCalls: statsOf([for (final s in samples) s.guidanceDupCalls]),
@@ -304,6 +318,10 @@ String formatAggregation(MetricsAggregation a) {
     ..writeln(
       'boardSearch起動: ${a.boardSearchCount}/${a.count} '
       '(${_pct(a.boardSearchRate)})',
+    )
+    ..writeln(
+      'singlePass発火(Option A・#318): ${a.singlePassCount}/${a.count} '
+      '(${_pct(a.singlePassRate)})',
     )
     ..writeln('--- 全体分布 ---')
     ..writeln(_statLine('http往復', a.http))

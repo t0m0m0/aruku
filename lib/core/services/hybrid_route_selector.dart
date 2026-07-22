@@ -240,6 +240,11 @@ List<RouteCandidate> measureShortlist({
 /// [hybrids] はハイブリッド候補の identity 集合。件数は cap 前の [shortlist] 全体で数える
 /// ——閾値はルートの reject 起きやすさ（予算内ハイブリッドの多さ）を測る指標で、実測本数の
 /// 上限（[maxMeasureShortlist]）とは別の軸だから。
+///
+/// [allowSinglePass] を false にすると閾値を満たしても Option A を発火させず見積りフロントへ
+/// 抑制する。検索の締切切れ時に呼び出し側が渡す：先行実測の徒歩 enrich は締切を無視する
+/// fail-open（[TransitApiClient]）なので、締切を過ぎたのに短リスト全体（最大
+/// [maxMeasureShortlist] 件）を測ると、使われないかもしれない下位候補へ余計な上流往復を撃つ。
 ({List<RouteCandidate> prewarm, bool singlePass}) prewarmFront({
   required List<RouteCandidate> shortlist,
   required RouteCandidate chosen,
@@ -248,9 +253,10 @@ List<RouteCandidate> measureShortlist({
   required int singlePassHybridThreshold,
   required int maxMeasureShortlist,
   int maxAlternatives = 3,
+  bool allowSinglePass = true,
 }) {
   final inBudgetHybrids = shortlist.where(hybrids.contains).length;
-  if (inBudgetHybrids >= singlePassHybridThreshold) {
+  if (allowSinglePass && inBudgetHybrids >= singlePassHybridThreshold) {
     final cap = shortlist.length < maxMeasureShortlist
         ? shortlist.length
         : maxMeasureShortlist;

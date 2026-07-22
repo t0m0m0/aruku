@@ -11,6 +11,7 @@ void main() {
       final m = RouteSearchMetrics()
         ..collapseFired = true
         ..boardSearchActivated = true
+        ..singlePassMeasure = true
         ..guidanceCalls = 4
         ..guidanceDupCalls = 2
         ..walkCalls = 6
@@ -28,6 +29,7 @@ void main() {
       expect(sample, isNotNull);
       expect(sample!.collapse, isTrue);
       expect(sample.boardSearch, isTrue);
+      expect(sample.singlePass, isTrue);
       expect(sample.http, m.httpRoundTrips);
       expect(sample.guidanceCalls, 4);
       expect(sample.guidanceDupCalls, 2);
@@ -91,6 +93,27 @@ void main() {
       expect(agg.boardSearchCount, 1);
       expect(agg.collapseRate, 0.5);
       expect(agg.boardSearchRate, 0.25);
+    });
+
+    test('singlePass 発火率＝singlePass=1 の件数 ÷ 総件数（#318 Option A の可視化）', () {
+      final agg = aggregate(
+        samplesOf(const [
+          '[route-metrics] collapse=0 boardSearch=0 singlePass=1 http=3 '
+              'guidanceCalls=1 walkCalls=0 matrixCalls=2 guidanceMs=1 '
+              'boardSearchMs=0 finalizeMs=1 totalMs=1',
+          '[route-metrics] collapse=0 boardSearch=0 singlePass=0 http=3 '
+              'guidanceCalls=1 walkCalls=0 matrixCalls=2 guidanceMs=1 '
+              'boardSearchMs=0 finalizeMs=1 totalMs=1',
+          // singlePass キー欠落の旧ログは 0 扱いで壊れない（後方互換）。
+          '[route-metrics] collapse=0 boardSearch=0 http=3 guidanceCalls=1 '
+              'walkCalls=0 matrixCalls=2 guidanceMs=1 boardSearchMs=0 '
+              'finalizeMs=1 totalMs=1',
+        ]),
+      );
+
+      expect(agg.singlePassCount, 1);
+      expect(agg.singlePassRate, closeTo(1 / 3, 1e-9));
+      expect(formatAggregation(agg), contains('singlePass発火'));
     });
 
     test('collapse サブセットの walkCalls 統計＝#310 で削減できる往復本数の的', () {
