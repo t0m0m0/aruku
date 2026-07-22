@@ -924,6 +924,45 @@ void main() {
       final places = plan.timelineNodes.map((n) => n.place);
       expect(places, contains('乗車駅'));
     });
+
+    test('前半徒歩が単独で予算外の遠いコリドー点は guidance を引き直さない（#317）', () async {
+      // コリドー点 139.25 / 139.49 は origin(139.0) から実測徒歩だけで予算60分を大きく
+      // 超過する（inflatedMock は徒歩を直線×3で返す）。到着 = t1 + t2(≥0) なので、これらは
+      // 引き直すまでもなく確実に予算外。matrix プレ実測で t1 を先に測り、探索範囲を予算内の
+      // 最遠点まで刈ることで、遠点への guidance 引き直しを起こさない（#317: 直列 guidance
+      // 積み上げの削減）。刈らない実装では二分探索が index1(139.25) を probe して引き直す。
+      final guidanceCalls = <Uri>[];
+      final svc = _service(inflatedMock(guidanceCalls));
+      await svc.plan(
+        destination: '降車駅',
+        destinationLatLng: goal2,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0), // 予算60分
+        origin: origin2,
+        originName: '出発',
+      );
+
+      double? fromLng(Uri u) {
+        final f = u.queryParameters['from'];
+        if (f == null) return null;
+        return double.tryParse(f.replaceFirst('geo:', '').split(',')[1]);
+      }
+
+      final queriedLngs = guidanceCalls
+          .map(fromLng)
+          .whereType<double>()
+          .toList();
+      expect(
+        queriedLngs.any((lng) => (lng - 139.25).abs() < 1e-6),
+        isFalse,
+        reason: '徒歩単独で予算外の遠点(139.25)を guidance 引き直ししている',
+      );
+      expect(
+        queriedLngs.any((lng) => (lng - 139.49).abs() < 1e-6),
+        isFalse,
+        reason: '徒歩単独で予算外の遠点(139.49)を guidance 引き直ししている',
+      );
+    });
   });
 
   group('plan: 乗車駅探索の実測駆動（#137 主因）', () {

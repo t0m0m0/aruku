@@ -931,6 +931,43 @@ void main() {
       expect(evaluated, [4, 6, 7]);
     });
 
+    test('fanout 拡大でラウンド数（直列 guidance の段数）が減る（#317）', () async {
+      // 崩壊時 board-search の律速はラウンド間直列 guidance。壁時計 = ラウンド数 × 最遅1本
+      // なのでラウンド数が短縮の的。matrix プレ実測で刈ったフロンティア区間（~36点・境界を
+      // index20 に置く）を、fanout=3 と 5 で走らせてラウンド数を数える。
+      Future<int> roundsFor(int fanout) async {
+        final pending = <int, Completer<int>>{};
+        final future = maxWalkBoardingIndexParallel(
+          count: 36,
+          budgetMin: 20, // 到着=index として index<=20 を予算内にする
+          fanout: fanout,
+          evaluate: (index) {
+            final c = Completer<int>();
+            pending[index] = c;
+            return c.future;
+          },
+        );
+        await Future<void>.delayed(Duration.zero);
+        var rounds = 0;
+        while (pending.isNotEmpty) {
+          rounds++;
+          final batch = [...pending.entries];
+          pending.clear();
+          for (final e in batch) {
+            e.value.complete(e.key);
+          }
+          await Future<void>.delayed(Duration.zero);
+        }
+        expect(await future, 20, reason: '境界(予算内の最遠 index)は fanout に依らず不変');
+        return rounds;
+      }
+
+      final r3 = await roundsFor(3);
+      final r5 = await roundsFor(5);
+      expect(r3, 3);
+      expect(r5, 2, reason: 'fanout=5 なら同区間が1ラウンド少なく収束する');
+    });
+
     group('shouldContinue による打ち切り (#300)', () {
       test('打ち切り後は新ラウンドを起こさず、既得の境界を返す', () async {
         final evaluated = <int>[];

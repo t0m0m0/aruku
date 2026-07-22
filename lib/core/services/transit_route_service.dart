@@ -117,7 +117,17 @@ class TransitRouteService implements SearchEngine {
   /// 乗車駅探索のk分割並列探索の並列度（#163）。各ラウンドでこの数の候補点を同時評価
   /// する。上げるほどラウンド数が減り速いが、Transit API への同時リクエストと無駄撃ち
   /// （境界決定に使われない評価）が増える。1 にすると従来の直列二分探索と同じ軌道。
-  static const int _boardSearchFanout = 3;
+  ///
+  /// #317 で 3→5 に拡大。崩壊時 board-search の律速はラウンド間直列 guidance（1コール
+  /// 〜10s）で、壁時計 = ラウンド数 × 最遅1本。matrix プレ実測で探索範囲を予算内フロンティア
+  /// （`_boardSearchScanCount`）へ刈った上で fanout を上げると、刈った区間が ~2ラウンドで
+  /// 収束しラウンド直列を半減できる。同時に、刈り込みで減る probe 密度を fanout が補い、
+  /// 非単調コリドーの「評価済み徒歩最大」（#137）の解像度を保つ。上限を欲張らない理由：
+  /// guidance は上流 30 req/min（`functions/src/rate-limiter.ts`）。崩壊時は電車系＋バス系の
+  /// 2 base が並列に走るため、フロンティアへ刈った区間 × fanout=5 × 2 base ＋ 初期照会＋代替案が
+  /// 30/min に収まる範囲に留める（fanout を 7 まで上げると両 base 発火時に 30 を超え、429→
+  /// null→予算外誤認で境界を実測でなくレート制限で決めてしまう）。
+  static const int _boardSearchFanout = 5;
 
   /// 乗車駅探索のコリドー候補点の上限。gtfsShape は線路追従で頂点が密（数百）なため、
   /// 均等間引きでこの数へ絞る（§2.5）。二分探索は実測 walk で駆動するので評価回数は
@@ -1258,6 +1268,16 @@ class TransitRouteService implements SearchEngine {
     // 引き直しの照会モードは基準コリドーの種別に揃える（#251）。
     final allowBus = base.segments.any((s) => s.type == SegmentType.bus);
 
+    // #317: 全コリドー点の前半徒歩 t1 を matrix 1コールで一括実測し、t1 単独で予算外の
+    // 遠点を探索範囲から刈る。ラウンド間直列の guidance 引き直し（律速）を、予算内になり
+    // 得る手前の点だけに絞ることでラウンド数を減らす。刈っても予算内候補は落ちない
+    // （[walkFeasiblePrefixCount] の安全上界）。
+    final scanCount = await _boardSearchScanCount(origin, stops, budgetMin);
+    if (scanCount == 0) {
+      _diag.log(() => 'board-search: 予算内の乗車駅なし（t1 実測で全点予算外）');
+      return const [];
+    }
+
     // 探索が同じ index を再評価しても引き直さないようメモ化する。同一ラウンド内の
     // 評価点は重複除去済み（[maxWalkBoardingIndexParallel]）なので同時実行は衝突しない。
     final built = <int, RouteCandidate?>{};
@@ -1307,7 +1327,8 @@ class TransitRouteService implements SearchEngine {
     // レイテンシ（1コール2〜10秒）の数珠つなぎを「ラウンド数×最遅1本」へ縮める。
     // 評価点の集合は直列二分探索と異なるため、プールへ足す候補（下の within）も変わり得る。
     final best = await maxWalkBoardingIndexParallel(
-      count: stops.length,
+      // matrix プレ実測で刈った予算内フロンティアまでを探索範囲にする（#317）。
+      count: scanCount,
       budgetMin: budgetMin,
       fanout: _boardSearchFanout,
       // 締切超過で新ラウンドを起こさない（#300）。[TransitApiClient] の残予算クランプが
@@ -1341,6 +1362,39 @@ class TransitRouteService implements SearchEngine {
     ];
     _diag.log(() => 'board-search: 予算内候補 ${within.length}件を返す');
     return within;
+  }
+
+  /// コリドー全点の前半徒歩 t1 を matrix 1コールで一括実測し、探索を「t1 が予算内の最遠点」
+  /// まで（先頭からの点数）に刈った値を返す（#317）。到着 = t1 + t2(≥0) なので t1 単独で
+  /// 予算外の遠点は確実に予算外——[maxWalkBoardingIndexParallel] のラウンド間直列 guidance を
+  /// そこへ費やさない。matrix 欠落レッグは直線推定（実徒歩の下限）で埋める：下限すら予算外
+  /// なら実測でも予算外なので刈って安全、下限が予算内なら刈らず探索の街路実測に委ねる。
+  /// matrix は刈り込み判定にだけ使い、採用候補の徒歩ジオメトリは従来どおり buildAt の街路
+  /// 実測（[_tryWalk]）が持つ。matrix 全滅時も直線推定だけで安全に刈れる（追加往復に依存
+  /// しない）。
+  Future<int> _boardSearchScanCount(
+    GeoPoint origin,
+    List<_CorridorStop> stops,
+    int budgetMin,
+  ) async {
+    final walk1 = [
+      for (final s in stops)
+        (haversineKm(origin, s.coord) * 1000 / walkMetersPerMinute).round(),
+    ];
+    final rows = await _api.fetchWalkMatrix(
+      [origin],
+      [for (final s in stops) s.coord],
+    );
+    if (rows != null) {
+      for (final e in rows) {
+        if (e is! Map) continue;
+        final di = (e['destinationIndex'] as num?)?.toInt() ?? 0;
+        final min = _parseDurationMin(e['duration']);
+        if (min == null || di < 0 || di >= walk1.length) continue;
+        walk1[di] = min;
+      }
+    }
+    return walkFeasiblePrefixCount(walk1, budgetMin);
   }
 
   /// 乗降アクセス徒歩を1回（最大2コール）のマトリクス（Google プロキシ）で一括実測し、
