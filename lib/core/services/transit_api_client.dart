@@ -245,6 +245,13 @@ class TransitApiClient {
       return await (remaining == null ? request : request.timeout(remaining));
     } on TimeoutException {
       throw const RouteException('TIMEOUT');
+    } catch (_) {
+      // throwIfCanceled は発行**前**ガード。発行後に離脱すると scoped client が閉じられ、
+      // in-flight は SearchCanceledException ではなく素の client エラー（ClientException 等）で
+      // 倒れる。ここで昇格させないと、上位の縮退 catch（#316 の候補ドロップ・レッグ縮退）が
+      // キャンセルを握り潰し、離脱後も探索が続いて経路を返してしまう。
+      cancellation?.throwIfCanceled();
+      rethrow;
     }
   }
 

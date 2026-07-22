@@ -408,6 +408,31 @@ void main() {
       expect(calls, 1);
     });
 
+    test('発行後にキャンセルで閉じられた in-flight の client エラーはキャンセルへ昇格', () async {
+      // throwIfCanceled は発行**前**ガード。発行後にユーザーが離脱すると scoped client が
+      // 閉じられ、in-flight は SearchCanceledException ではなく素の client エラーで倒れる。
+      // これを昇格させないと上位の縮退 catch（候補ドロップ）に握り潰される（#316）。
+      final cancellation = CancellationToken();
+      final client = TransitApiClient(
+        transitClient: MockClient((_) async {
+          cancellation.cancel(); // 発行直後の離脱＝scoped client close 相当
+          throw http.ClientException('Client is already closed');
+        }),
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        cancellation: cancellation,
+      );
+
+      await expectLater(
+        client.fetchGuidanceAt(
+          const GeoPoint(35.0, 139.0),
+          const GeoPoint(35.5, 139.5),
+          DateTime(2026, 6, 27, 9, 5),
+        ),
+        throwsA(isA<SearchCanceledException>()),
+      );
+    });
+
     test('close は transit / proxy 双方のクライアントを閉じる', () {
       final transit = _CountingClient();
       final proxy = _CountingClient();
