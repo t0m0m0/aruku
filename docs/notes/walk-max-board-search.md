@@ -174,7 +174,7 @@ afterReselect walk=154 arrival=169
 
 **PR#320 レビュー対応（Codex・#317）:**
 
-1. **matrix は 25 目的地ずつに分割（`_maxScanMatrixDests`）:** コリドー点は最大60だが、サーバ `MATRIX_MAX_ELEMENTS`（`functions/src/index.ts`）は25。単発 matrix は 25 超で 400 全滅し `fetchWalkMatrix` が null → t1 プレ実測が直線推定のみへ縮退（＝密な gtfsShape で刈り込みが効かず guidance 無駄撃ち）。目的地を25以下ずつに分割して投げる（`destinationIndex` はチャンク内0起点なのでチャンク先頭を足して大域 index へ戻す）。
+1. **matrix は 25 目的地ずつに分割し並列発行（`_maxScanMatrixDests`）:** コリドー点は最大60だが、サーバ `MATRIX_MAX_ELEMENTS`（`functions/src/index.ts`）は25。単発 matrix は 25 超で 400 全滅し `fetchWalkMatrix` が null → t1 プレ実測が直線推定のみへ縮退（＝密な gtfsShape で刈り込みが効かず guidance 無駄撃ち）。目的地を25以下ずつに分割して投げる（`destinationIndex` はチャンク内0起点なのでチャンク先頭を足して大域 index へ戻す）。チャンクは独立なので `Future.wait` で**並列発行**——直列だと proxy timeout（15s）×チャンク数まで走時計が膨らみ、締切が近い崩壊で使えない改善のために待たせる（2巡目レビュー対応）。
 2. **締切切れなら board-search を起こさない:** proxy(matrix) は `deadlineApplies:false` で締切に縛られず走るため、締切切れの collapse では使われない改善のためにユーザーを待たせていた。`_deadline.isExpired` なら scan/probe を起こさず縮退（探索は shouldContinue でどのみち空になるが、先頭の matrix を投げないため）。
 3. **probe 総数の人工上限は入れない（間引き見送り）:** 崩壊は「goal まで歩くと予算外」＝ goal 寄りの遠点が t1 で刈られる状況なので、予算内フロンティアは構造的に小さく `scanCount` は自然に小さい（例: 予算90分・徒歩×6 で feasible ≈16/60）。fanout=5 の probe 総数はこの刈り込みで律速される。「フロンティア36点超」は徒歩安価＝崩壊しない状況と両立しないため、間引き上限は実質デッドコードになる。主たる probe 抑制は matrix 刈り込みである点を `_boardSearchFanout` の doc に明記。
 
