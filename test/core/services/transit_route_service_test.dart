@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
+import 'package:aruku/core/services/cancellation.dart';
 import 'package:aruku/core/services/hybrid_route_selector.dart'
     show RouteCandidate, haversineKm;
 import 'package:aruku/core/services/route_diagnostics.dart'
@@ -4005,6 +4006,233 @@ void main() {
       expect(trains[0].toName, '駅二');
       expect(trains[1].fromName, '駅二');
       expect(trains[1].toName, '駅三');
+    });
+  });
+
+  // 候補間並列（#315）の例外境界と共有レッグ再利用（#316 レビュー）。並列一括実測は
+  // (A) キャンセルを飲まず伝播し、(B) 非勝者の壊れた応答で plan() 全体を落とさず、
+  // (C) 同一徒歩レッグを in-flight でも1回に畳む——を検証する。
+  group('plan: 候補間並列の例外境界と共有レッグ (#316)', () {
+    const o = GeoPoint(35.0, 139.0);
+    const g = GeoPoint(35.0, 139.03); // 全徒歩 見積り~34分＝予算30分外
+    const alight = [35.0, 139.029]; // 降車＝全候補共通（egress レッグを共有）
+
+    Map<String, dynamic> option({
+      required String route,
+      required List<double> board,
+      required int accessSecs,
+      required int dep,
+      required int arr,
+    }) => {
+      'journey': {
+        'departureSecs': 32400,
+        'arrivalSecs': arr,
+        'durationSecs': arr - 32400,
+        'accessWalkSecs': accessSecs,
+        'egressWalkSecs': 60,
+        'legs': [
+          _railLeg(
+            route: route,
+            fromId: '$route:board',
+            fromName: '乗車$route',
+            toId: '$route:alight',
+            toName: '降車$route',
+            dep: dep,
+            arr: arr,
+          ),
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('walk', 'origin', '$route:board', 'osmWalk', [
+            [o.lat, o.lng],
+            board,
+          ]),
+          _mapSeg('transit', '$route:board', '$route:alight', 'stopOrder', [
+            alight,
+          ]),
+          _mapSeg('walk', '$route:alight', 'destination', 'estimatedWalk', [
+            alight,
+            [g.lat, g.lng],
+          ]),
+        ],
+      },
+    };
+
+    bool near(double a, double b) => (a - b).abs() < 1e-6;
+
+    // A. 勝者W（徒歩最大・tier1で即生存）＋ 早着・徒歩少の代替V。V は先行実測フロントには
+    //    載るが winner-phase の tier1（=W 単独）では測られない。その V の access 徒歩実測が
+    //    キャンセル例外を上げたとき、先行実測がそれを握り潰すと plan() は勝者だけで完走して
+    //    しまう。キャンセル境界（cancellation.dart）は並列パスでも飲まず伝播させる。
+    test('先行実測中のキャンセルは握り潰さず伝播する', () async {
+      const wBoard = [35.0, 139.010]; // 勝者W: 徒歩最大
+      const vBoard = [35.0, 139.005]; // 代替V: 早着・徒歩少
+      final guidance = _guidance([
+        option(
+          route: '快速W',
+          board: wBoard,
+          accessSecs: 840,
+          dep: 33300,
+          arr: 34020,
+        ),
+        option(
+          route: '快速V',
+          board: vBoard,
+          accessSecs: 420,
+          dep: 33000,
+          arr: 33600,
+        ),
+      ]);
+
+      final client = MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+        if (path.contains('googleWalkProxy')) {
+          final s = _pt(req.url.queryParameters['start'] ?? '0,0');
+          final gl = _pt(req.url.queryParameters['goal'] ?? '0,0');
+          // 代替V の access 徒歩実測（origin→V乗車駅）だけがキャンセルで倒れる。
+          if (near(s.lat, o.lat) &&
+              near(s.lng, o.lng) &&
+              near(gl.lat, vBoard[0]) &&
+              near(gl.lng, vBoard[1])) {
+            throw const SearchCanceledException();
+          }
+          return _walkFor(req.url);
+        }
+        if (path.contains('guidance/plan')) return _json(guidance);
+        return _json(const {}, 404);
+      });
+
+      await expectLater(
+        _service(client).plan(
+          destination: '目的地',
+          destinationLatLng: g,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 9, m: 30),
+          origin: o,
+          originName: '出発',
+        ),
+        throwsA(isA<SearchCanceledException>()),
+      );
+    });
+
+    // B. 同tier の2候補（徒歩同・A が早着で勝者、B が下位）。B の access 徒歩実測が壊れた
+    //    応答（parse 不能）で例外を上げても、B だけ落として A を返す。旧実装は tier バッチの
+    //    Future.wait が非勝者 B の例外を伝播させ plan() 全体を落としていた。
+    test('同tier 非勝者の壊れた応答は当該候補だけ落として勝者を返す', () async {
+      const aBoard = [35.001, 139.010]; // A: 早着で勝者
+      const bBoard = [34.999, 139.010]; // B: 徒歩同（同tier）だが下位。access が壊れる
+      final guidance = _guidance([
+        option(
+          route: '快速A',
+          board: aBoard,
+          accessSecs: 720,
+          dep: 33300,
+          arr: 33900,
+        ),
+        option(
+          route: '快速B',
+          board: bBoard,
+          accessSecs: 720,
+          dep: 33600,
+          arr: 34080,
+        ),
+      ]);
+
+      final client = MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+        if (path.contains('googleWalkProxy')) {
+          final s = _pt(req.url.queryParameters['start'] ?? '0,0');
+          final gl = _pt(req.url.queryParameters['goal'] ?? '0,0');
+          // B の access 徒歩実測だけが parse 不能で倒れる（RouteException でも
+          // SearchCanceledException でもない一般例外）。
+          if (near(s.lat, o.lat) &&
+              near(s.lng, o.lng) &&
+              near(gl.lat, bBoard[0]) &&
+              near(gl.lng, bBoard[1])) {
+            throw const FormatException('malformed walk response');
+          }
+          return _walkFor(req.url);
+        }
+        if (path.contains('guidance/plan')) return _json(guidance);
+        return _json(const {}, 404);
+      });
+
+      final plan = await _service(client).plan(
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 9, m: 30),
+        origin: o,
+        originName: '出発',
+      );
+
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.line, '快速A', reason: '壊れた B を落として同tier の勝者 A を返すはず');
+      expect(plan.totalMin, lessThanOrEqualTo(30));
+    });
+
+    // C. 勝者W と代替V は egress（降車→目的地）を共有する。先行実測は両者を並列に測るので、
+    //    完了結果しか持たない素のキャッシュでは両者とも外して googleWalkProxy を二重発行する。
+    //    in-flight の Future を単一化し、共有レッグの実測を1回に畳む。
+    test('同一 egress レッグは in-flight でも1回だけ実測する', () async {
+      const wBoard = [35.0, 139.010];
+      const vBoard = [35.0, 139.005];
+      final guidance = _guidance([
+        option(
+          route: '快速W',
+          board: wBoard,
+          accessSecs: 840,
+          dep: 33300,
+          arr: 34020,
+        ),
+        option(
+          route: '快速V',
+          board: vBoard,
+          accessSecs: 420,
+          dep: 33000,
+          arr: 33600,
+        ),
+      ]);
+
+      var sharedEgressCalls = 0;
+      final client = MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+        if (path.contains('googleWalkProxy')) {
+          final s = _pt(req.url.queryParameters['start'] ?? '0,0');
+          final gl = _pt(req.url.queryParameters['goal'] ?? '0,0');
+          if (near(s.lat, alight[0]) &&
+              near(s.lng, alight[1]) &&
+              near(gl.lat, g.lat) &&
+              near(gl.lng, g.lng)) {
+            sharedEgressCalls++;
+          }
+          return _walkFor(req.url);
+        }
+        if (path.contains('guidance/plan')) return _json(guidance);
+        return _json(const {}, 404);
+      });
+
+      await _service(client).plan(
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 9, m: 30),
+        origin: o,
+        originName: '出発',
+      );
+
+      expect(
+        sharedEgressCalls,
+        1,
+        reason: '共有 egress レッグは in-flight を単一化して1回だけ実測されるはず',
+      );
     });
   });
 }
