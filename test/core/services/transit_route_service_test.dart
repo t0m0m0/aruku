@@ -1217,6 +1217,88 @@ void main() {
       },
     );
 
+    test('matrix プレ実測のチャンクを並列に投げる（#317 レビュー）', () async {
+      // コリドー60点 → scan は 25/25/10 の3チャンク。>11 の2チャンクが互いの到達まで
+      // ブロックする関門を張り、直列（1本目が関門で止まり2本目が発行されない）なら
+      // デッドロック→timeout で fail する。ハイブリッドのアクセス徒歩 matrix は ≤11 で素通り。
+      final probeA = Completer<void>();
+      final probeB = Completer<void>();
+      Future<void> barrier() => Future.wait([probeA.future, probeB.future]);
+      List<GeoPoint> parse(String? raw) =>
+          (raw ?? '').split(';').where((s) => s.isNotEmpty).map(_pt).toList();
+      http.Response matrixRows(Uri url) {
+        final os = parse(url.queryParameters['origins']);
+        final ds = parse(url.queryParameters['destinations']);
+        return _json([
+          for (var i = 0; i < os.length; i++)
+            for (var j = 0; j < ds.length; j++)
+              {
+                'originIndex': i,
+                'destinationIndex': j,
+                'duration': '${_walkMin(os[i], ds[j]) * inflate * 60}s',
+                'distanceMeters': (haversineKm(os[i], ds[j]) * 1000).round(),
+              },
+        ]);
+      }
+
+      final client = MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) {
+          final ds = parse(req.url.queryParameters['destinations']);
+          if (ds.length > 11) {
+            if (!probeA.isCompleted) {
+              probeA.complete();
+            } else if (!probeB.isCompleted) {
+              probeB.complete();
+            }
+            await barrier();
+          }
+          return matrixRows(req.url);
+        }
+        if (path.contains('googleWalkProxy')) {
+          final s = _pt(req.url.queryParameters['start'] ?? '0,0');
+          final gg = _pt(req.url.queryParameters['goal'] ?? '0,0');
+          return _json({
+            'routes': [
+              {
+                'distanceMeters': (haversineKm(s, gg) * 1000).round(),
+                'duration': '${_walkMin(s, gg) * inflate * 60}s',
+              },
+            ],
+          });
+        }
+        if (path.contains('guidance/plan')) {
+          final from = req.url.queryParameters['from'] ?? '';
+          final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
+          final time = req.url.queryParameters['time'] ?? '09:00';
+          return _json(
+            (lng - 139.0).abs() < 1e-6 ? baseGuidance() : reentry(lng, time),
+          );
+        }
+        return _json(const {}, 404);
+      });
+
+      await _service(client)
+          .plan(
+            destination: '目的駅',
+            destinationLatLng: goal3,
+            departure: const TimeValue(h: 9, m: 0),
+            arrival: const TimeValue(h: 10, m: 30),
+            origin: origin3,
+            originName: '出発',
+          )
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => fail('scan チャンクが同時到達しない（直列でデッドロック）'),
+          );
+
+      expect(
+        probeA.isCompleted && probeB.isCompleted,
+        isTrue,
+        reason: '前提: 2チャンクが並列に発火する',
+      );
+    });
+
     group('検索の締切 (#300)', () {
       /// 初期 guidance が発行された直後に予算を使い切る締切。実機の「必須の1本は間に合った
       /// が、引き直しの途中で待ち時間の上限に達した」を決定的に再現する。締切を最初から

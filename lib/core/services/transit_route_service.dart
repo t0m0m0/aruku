@@ -1387,9 +1387,9 @@ class TransitRouteService implements SearchEngine {
   /// が持つ。matrix 全滅時も直線推定だけで安全に刈れる（追加往復に依存しない）。
   ///
   /// 目的地はサーバの `MATRIX_MAX_ELEMENTS`（25）を超えると 400 で全滅する（→直線推定のみへ
-  /// 縮退）ため、[_maxScanMatrixDests] 個以下ずつに分割して投げる（#317 レビュー対応）。分割
-  /// レスポンスの `destinationIndex` はチャンク内 0 起点なので、チャンク先頭を足して大域 index
-  /// へ戻す。
+  /// 縮退）ため、[_maxScanMatrixDests] 個以下ずつに分割し、チャンクは独立なので**並列**に投げる
+  /// （直列だと proxy timeout×チャンク数まで走時計が膨らむ・#317 レビュー対応）。分割レスポンスの
+  /// `destinationIndex` はチャンク内 0 起点なので、チャンク先頭を足して大域 index へ戻す。
   Future<int> _boardSearchScanCount(
     GeoPoint origin,
     List<_CorridorStop> stops,
@@ -1399,21 +1399,35 @@ class TransitRouteService implements SearchEngine {
       for (final s in stops)
         (haversineKm(origin, s.coord) * 1000 / walkMetersPerMinute).round(),
     ];
-    for (var start = 0; start < stops.length; start += _maxScanMatrixDests) {
-      final end = start + _maxScanMatrixDests < stops.length
-          ? start + _maxScanMatrixDests
-          : stops.length;
-      final rows = await _api.fetchWalkMatrix(
-        [origin],
-        [for (var i = start; i < end; i++) stops[i].coord],
-      );
+    final ranges = [
+      for (var start = 0; start < stops.length; start += _maxScanMatrixDests)
+        (
+          start: start,
+          end: start + _maxScanMatrixDests < stops.length
+              ? start + _maxScanMatrixDests
+              : stops.length,
+        ),
+    ];
+    // チャンクは互いに独立なので並列に投げ、走時計を「最遅1本」に抑える（直列だと proxy の
+    // timeout×チャンク数まで膨らみ、締切が近い崩壊で使えない改善のために待たせる。#317
+    // レビュー対応）。[_measureAccessWalks] の乗車側／降車側マトリクスと同じ相乗り並列。
+    final chunks = await Future.wait([
+      for (final r in ranges)
+        _api.fetchWalkMatrix(
+          [origin],
+          [for (var i = r.start; i < r.end; i++) stops[i].coord],
+        ),
+    ]);
+    for (var c = 0; c < ranges.length; c++) {
+      final rows = chunks[c];
       if (rows == null) continue;
+      final r = ranges[c];
       for (final e in rows) {
         if (e is! Map) continue;
         final di = (e['destinationIndex'] as num?)?.toInt() ?? 0;
         final min = _parseDurationMin(e['duration']);
-        if (min == null || di < 0 || di >= end - start) continue;
-        walk1[start + di] = min;
+        if (min == null || di < 0 || di >= r.end - r.start) continue;
+        walk1[r.start + di] = min;
       }
     }
     return walkFeasiblePrefixCount(walk1, budgetMin);
