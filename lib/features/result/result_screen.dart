@@ -63,6 +63,14 @@ class ResultScreen extends ConsumerWidget {
     // 未開始を区別せず同じ CTA を出す）。segments 範囲外は全区間完了の番兵値。
     final currentLegIndex = state.journey?.currentLegIndex ?? 0;
     final currentLeg = route == null ? null : legAt(route, currentLegIndex);
+    // null は「この区間の引き継ぎ先を特定できない」＝ CTA を出せない区間（#323）。
+    final currentHandoffUri = route == null
+        ? null
+        : buildLegHandoffUri(
+            route: route,
+            index: currentLegIndex,
+            origin: _handoffOrigin(state, currentLegIndex),
+          );
 
     if (route == null) {
       return Material(
@@ -219,6 +227,7 @@ class ResultScreen extends ConsumerWidget {
                                         state.journeyCurrentLegHandedOff))
                             ? notifier.advanceCurrentLegManually
                             : null,
+                        handoffUnavailable: currentHandoffUri == null,
                         onLaunch: currentLeg == null
                             ? null
                             : () async {
@@ -228,17 +237,15 @@ class ResultScreen extends ConsumerWidget {
                                 if (notifier.expireStaleBeforeHandoff()) {
                                   return true;
                                 }
-                                final uri = buildLegHandoffUri(
-                                  leg: currentLeg,
-                                  origin: _handoffOrigin(
-                                    state,
-                                    currentLegIndex,
-                                  ),
-                                );
+                                final uri = currentHandoffUri;
                                 final expectedJourney = state.journey;
-                                final launched = await ref.read(
-                                  urlLauncherProvider,
-                                )(uri);
+                                // 引き継ぎ先を特定できない区間は外部地図を開かない（#323）。
+                                // 起動を飛ばすだけで handoff と同じ状態遷移は通す — ここを
+                                // 通らないと行程開始・歩数基準・失効からの行程保護が
+                                // すべて落ち、区間に入ったまま先へ進めなくなる。
+                                final launched =
+                                    uri == null ||
+                                    await ref.read(urlLauncherProvider)(uri);
                                 // 起動に成功したときだけ行程を開始する。失敗で「開始済み」
                                 // にすると、以後の復帰再評価が走ってしまうため（#305）。
                                 // await 中に結果画面を離れた・代替案/区間が変わった場合は、
