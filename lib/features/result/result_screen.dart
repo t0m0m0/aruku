@@ -222,7 +222,10 @@ class ResultScreen extends ConsumerWidget {
                                 // 復帰時の到着確認が手動完了を許可した区間、または
                                 // geometry 欠落かつ既に handoff（起動）済みの区間のみ。
                                 // まだ出発していない geometry 欠落区間を先に完了させない。
+                                // 引き継ぎ先が無い区間だけは handoff を待てないため例外
+                                // とする。待つと行程が進めなくなる（#323）。
                                 (state.journeyManualCompletionAvailable ||
+                                    currentHandoffUri == null ||
                                     (currentLeg.polyline.isEmpty &&
                                         state.journeyCurrentLegHandedOff))
                             ? notifier.advanceCurrentLegManually

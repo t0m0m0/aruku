@@ -18,8 +18,8 @@ class _LegCta extends StatefulWidget {
   /// を表し、CTA の代わりに簡素な完了表示を出す。
   final RouteSegment? leg;
 
-  /// タップ時に呼ばれ、起動成否（true=成功）を返す。[leg] が null のときは
-  /// 呼ばれないため null 許容にしている。
+  /// タップ時に呼ばれ、起動成否（true=成功）を返す。[leg] が null（全区間完了）か、
+  /// 引き継ぎ先を特定できない区間（#323）では呼ばれないため null 許容にしている。
   final Future<bool> Function()? onLaunch;
 
   /// 終点 geometry がなく復帰時の自動到着判定ができない開始済み区間だけに渡す
@@ -115,25 +115,31 @@ class _LegCtaState extends State<_LegCta> {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: ArukuButton(
-                label: label,
-                onPressed: _handleTap,
-                icon: Ic.arrowUp(size: 18, color: c.ivory),
-                iconGap: 8,
-                shadow: const [
-                  BoxShadow(
-                    color: ArukuTokens.shadowCtaResult,
-                    blurRadius: 20,
-                    offset: Offset(0, 8),
-                  ),
-                ],
-                textStyle: jpStyle(
-                  size: 16,
-                  weight: FontWeight.w800,
-                  color: c.ivory,
-                  letterSpacing: 0.06 * 16,
-                ),
-              ),
+              child: widget.onLaunch == null
+                  // 引き継ぎ先を特定できない区間（#323）。押しても何も起きない
+                  // ボタンを出すより、開けない理由を示して手を止める。
+                  ? _HandoffUnavailableNotice(
+                      message: l10n.resultCtaHandoffUnavailable,
+                    )
+                  : ArukuButton(
+                      label: label,
+                      onPressed: _handleTap,
+                      icon: Ic.arrowUp(size: 18, color: c.ivory),
+                      iconGap: 8,
+                      shadow: const [
+                        BoxShadow(
+                          color: ArukuTokens.shadowCtaResult,
+                          blurRadius: 20,
+                          offset: Offset(0, 8),
+                        ),
+                      ],
+                      textStyle: jpStyle(
+                        size: 16,
+                        weight: FontWeight.w800,
+                        color: c.ivory,
+                        letterSpacing: 0.06 * 16,
+                      ),
+                    ),
             ),
           ],
         ),
@@ -186,6 +192,34 @@ class _LaunchFailedBanner extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 引き継ぎ先を特定できない区間で [ArukuButton] の代わりに置く非操作の表示（#323）。
+/// [ArukuButton.onPressed] は non-nullable で無効状態を表現できないため、共有ボタン
+/// 側に disabled を足さず、この位置だけ別ウィジェットに差し替える。
+class _HandoffUnavailableNotice extends StatelessWidget {
+  const _HandoffUnavailableNotice({required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Container(
+      height: 52,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: c.paper,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: c.hairline),
+      ),
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: jpStyle(size: 13, weight: FontWeight.w700, color: c.ink3),
       ),
     );
   }

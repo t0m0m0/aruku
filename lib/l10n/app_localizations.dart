@@ -496,6 +496,12 @@ abstract class AppLocalizations {
   /// **'Google Mapsを開けませんでした'**
   String get resultCtaLaunchFailed;
 
+  /// No description provided for @resultCtaHandoffUnavailable.
+  ///
+  /// In ja, this message translates to:
+  /// **'この区間はGoogleマップへ引き継げません'**
+  String get resultCtaHandoffUnavailable;
+
   /// No description provided for @resultCtaMarkLegComplete.
   ///
   /// In ja, this message translates to:
