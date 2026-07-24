@@ -162,18 +162,10 @@
   "@resultOverBudgetHint": {},
   "resultChangeConditions": "条件を変更",
   "@resultChangeConditions": {},
-  "resultCtaWalkToDestination": "Google Mapsで{destination}まで歩く",
-  "@resultCtaWalkToDestination": {
-    "placeholders": {
-      "destination": { "type": "String" }
-    }
-  },
-  "resultCtaTransitToDestination": "Google Mapsで{destination}まで行く",
-  "@resultCtaTransitToDestination": {
-    "placeholders": {
-      "destination": { "type": "String" }
-    }
-  },
+  "resultCtaWalkToDestination": "Googleマップで徒歩ルートを開く",
+  "@resultCtaWalkToDestination": {},
+  "resultCtaTransitToDestination": "Googleマップで乗換案内を開く",
+  "@resultCtaTransitToDestination": {},
   "resultCtaLaunchFailed": "Google Mapsを開けませんでした",
   "@resultCtaLaunchFailed": {},
   "resultCtaMarkLegComplete": "この区間を完了",

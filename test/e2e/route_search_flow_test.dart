@@ -93,7 +93,7 @@ void main() {
     expect(container.read(appStateProvider).route, isNotNull);
     // #305: 主CTAはNavScreen遷移からGoogle Maps引き継ぎへ差し替わった。
     // testRoutePlan の唯一の区間は徒歩・渋谷駅行き。
-    expect(find.text('Google Mapsで渋谷駅まで歩く'), findsOneWidget);
+    expect(find.text('Googleマップで徒歩ルートを開く'), findsOneWidget);
   });
 
   testWidgets('結果画面で目的地名が表示される', (tester) async {

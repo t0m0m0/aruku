@@ -59,9 +59,12 @@ class _LegCtaState extends State<_LegCta> {
     }
 
     final isWalk = leg.type == SegmentType.walk;
+    // 行き先名を文言に埋めない。RouteSegment.toName は non-nullable だが上流の
+    // パース結果によっては空文字のまま届き、「Google Mapsでまで歩く」と欠けた
+    // 文言になるため。行き先は上のタイムラインが示す。#322 参照。
     final label = isWalk
-        ? l10n.resultCtaWalkToDestination(leg.toName)
-        : l10n.resultCtaTransitToDestination(leg.toName);
+        ? l10n.resultCtaWalkToDestination
+        : l10n.resultCtaTransitToDestination;
     // バス専用アイコンは未デザインのため、タイムラインカード（#249）と同じく
     // 電車アイコンを流用する。区別は下の modeCaption（路線名/バス表記）で付ける。
     final modeIcon = isWalk
