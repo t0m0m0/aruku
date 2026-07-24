@@ -222,15 +222,13 @@ class ResultScreen extends ConsumerWidget {
                                 // 復帰時の到着確認が手動完了を許可した区間、または
                                 // geometry 欠落かつ既に handoff（起動）済みの区間のみ。
                                 // まだ出発していない geometry 欠落区間を先に完了させない。
-                                // 引き継ぎ先が無い区間だけは handoff を待てないため例外
-                                // とする。待つと行程が進めなくなる（#323）。
                                 (state.journeyManualCompletionAvailable ||
-                                    currentHandoffUri == null ||
                                     (currentLeg.polyline.isEmpty &&
                                         state.journeyCurrentLegHandedOff))
                             ? notifier.advanceCurrentLegManually
                             : null,
-                        onLaunch: currentHandoffUri == null
+                        handoffUnavailable: currentHandoffUri == null,
+                        onLaunch: currentLeg == null
                             ? null
                             : () async {
                                 // 初回タップ（行程未開始）で失効していたら外部起動せず
@@ -241,9 +239,13 @@ class ResultScreen extends ConsumerWidget {
                                 }
                                 final uri = currentHandoffUri;
                                 final expectedJourney = state.journey;
-                                final launched = await ref.read(
-                                  urlLauncherProvider,
-                                )(uri);
+                                // 引き継ぎ先を特定できない区間は外部地図を開かない（#323）。
+                                // 起動を飛ばすだけで handoff と同じ状態遷移は通す — ここを
+                                // 通らないと行程開始・歩数基準・失効からの行程保護が
+                                // すべて落ち、区間に入ったまま先へ進めなくなる。
+                                final launched =
+                                    uri == null ||
+                                    await ref.read(urlLauncherProvider)(uri);
                                 // 起動に成功したときだけ行程を開始する。失敗で「開始済み」
                                 // にすると、以後の復帰再評価が走ってしまうため（#305）。
                                 // await 中に結果画面を離れた・代替案/区間が変わった場合は、

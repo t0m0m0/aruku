@@ -223,7 +223,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get resultCtaLaunchFailed => 'Google Mapsを開けませんでした';
 
   @override
-  String get resultCtaHandoffUnavailable => 'この区間はGoogleマップへ引き継げません';
+  String get resultCtaHandoffUnavailable => 'この区間の行き先が特定できず、Googleマップへ引き継げません';
+
+  @override
+  String get resultCtaStartLegWithoutMaps => 'この区間を自分で進む';
 
   @override
   String get resultCtaMarkLegComplete => 'この区間を完了';

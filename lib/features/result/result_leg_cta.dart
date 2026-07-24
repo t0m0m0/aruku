@@ -11,6 +11,7 @@ class _LegCta extends StatefulWidget {
     super.key,
     required this.leg,
     required this.onLaunch,
+    this.handoffUnavailable = false,
     this.onManualAdvance,
   });
 
@@ -18,9 +19,13 @@ class _LegCta extends StatefulWidget {
   /// を表し、CTA の代わりに簡素な完了表示を出す。
   final RouteSegment? leg;
 
-  /// タップ時に呼ばれ、起動成否（true=成功）を返す。[leg] が null（全区間完了）か、
-  /// 引き継ぎ先を特定できない区間（#323）では呼ばれないため null 許容にしている。
+  /// タップ時に呼ばれ、起動成否（true=成功）を返す。[leg] が null のときは
+  /// 呼ばれないため null 許容にしている。
   final Future<bool> Function()? onLaunch;
+
+  /// この区間の引き継ぎ先を特定できず Google Maps を開けないか（#323）。true でも
+  /// [onLaunch] は残す。外部地図を開かないだけで、区間を始める操作は要るため。
+  final bool handoffUnavailable;
 
   /// 終点 geometry がなく復帰時の自動到着判定ができない開始済み区間だけに渡す
   /// 手動完了処理。通常区間や行程開始前は null とし、誤操作の導線を増やさない。
@@ -62,9 +67,11 @@ class _LegCtaState extends State<_LegCta> {
     // 行き先名を文言に埋めない。RouteSegment.toName は non-nullable だが上流の
     // パース結果によっては空文字のまま届き、「Google Mapsでまで歩く」と欠けた
     // 文言になるため。行き先は上のタイムラインが示す。#322 参照。
-    final label = isWalk
-        ? l10n.resultCtaWalkToDestination
-        : l10n.resultCtaTransitToDestination;
+    final label = widget.handoffUnavailable
+        ? l10n.resultCtaStartLegWithoutMaps
+        : (isWalk
+              ? l10n.resultCtaWalkToDestination
+              : l10n.resultCtaTransitToDestination);
     // バス専用アイコンは未デザインのため、タイムラインカード（#249）と同じく
     // 電車アイコンを流用する。区別は下の modeCaption（路線名/バス表記）で付ける。
     final modeIcon = isWalk
@@ -82,6 +89,8 @@ class _LegCtaState extends State<_LegCta> {
       children: [
         if (_launchFailed)
           _LaunchFailedBanner(message: l10n.resultCtaLaunchFailed),
+        if (widget.handoffUnavailable)
+          _HandoffUnavailableNotice(message: l10n.resultCtaHandoffUnavailable),
         if (modeCaption != null)
           Padding(
             padding: const EdgeInsets.only(bottom: 6, left: 4),
@@ -115,31 +124,25 @@ class _LegCtaState extends State<_LegCta> {
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: widget.onLaunch == null
-                  // 引き継ぎ先を特定できない区間（#323）。押しても何も起きない
-                  // ボタンを出すより、開けない理由を示して手を止める。
-                  ? _HandoffUnavailableNotice(
-                      message: l10n.resultCtaHandoffUnavailable,
-                    )
-                  : ArukuButton(
-                      label: label,
-                      onPressed: _handleTap,
-                      icon: Ic.arrowUp(size: 18, color: c.ivory),
-                      iconGap: 8,
-                      shadow: const [
-                        BoxShadow(
-                          color: ArukuTokens.shadowCtaResult,
-                          blurRadius: 20,
-                          offset: Offset(0, 8),
-                        ),
-                      ],
-                      textStyle: jpStyle(
-                        size: 16,
-                        weight: FontWeight.w800,
-                        color: c.ivory,
-                        letterSpacing: 0.06 * 16,
-                      ),
-                    ),
+              child: ArukuButton(
+                label: label,
+                onPressed: _handleTap,
+                icon: Ic.arrowUp(size: 18, color: c.ivory),
+                iconGap: 8,
+                shadow: const [
+                  BoxShadow(
+                    color: ArukuTokens.shadowCtaResult,
+                    blurRadius: 20,
+                    offset: Offset(0, 8),
+                  ),
+                ],
+                textStyle: jpStyle(
+                  size: 16,
+                  weight: FontWeight.w800,
+                  color: c.ivory,
+                  letterSpacing: 0.06 * 16,
+                ),
+              ),
             ),
           ],
         ),
@@ -197,9 +200,9 @@ class _LaunchFailedBanner extends StatelessWidget {
   }
 }
 
-/// 引き継ぎ先を特定できない区間で [ArukuButton] の代わりに置く非操作の表示（#323）。
-/// [ArukuButton.onPressed] は non-nullable で無効状態を表現できないため、共有ボタン
-/// 側に disabled を足さず、この位置だけ別ウィジェットに差し替える。
+/// 引き継ぎ先を特定できず Google Maps を開けない区間で CTA の上に出す説明（#323）。
+/// CTA 自体は残す — 外部地図を開けないだけで、区間を始める操作を消すと行程が
+/// そこで止まり、失効からの行程保護・歩数基準の捕捉も落ちるため。
 class _HandoffUnavailableNotice extends StatelessWidget {
   const _HandoffUnavailableNotice({required this.message});
   final String message;
@@ -208,18 +211,24 @@ class _HandoffUnavailableNotice extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     return Container(
-      height: 52,
-      alignment: Alignment.center,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: c.paper,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: c.hairline),
       ),
-      child: Text(
-        message,
-        textAlign: TextAlign.center,
-        style: jpStyle(size: 13, weight: FontWeight.w700, color: c.ink3),
+      child: Row(
+        children: [
+          Ic.search(size: 16, color: c.ink3),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: jpStyle(size: 12, weight: FontWeight.w700, color: c.ink3),
+            ),
+          ),
+        ],
       ),
     );
   }

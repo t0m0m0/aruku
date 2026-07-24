@@ -853,14 +853,11 @@ class AppNotifier extends Notifier<AppState> {
     }
     final leg = legAt(route, journey.currentLegIndex);
     if (leg == null) return;
-    // 手動完了を許すのは、復帰時の到着確認が許可した区間か、引き継ぎ先を特定できない区間か、
-    // geometry 欠落かつ handoff 済みの区間だけ（結果画面のボタン表示条件と同じ）。前区間完了
-    // 直後、再描画前に走る古いボタンコールバックが、まだ起動していない次の geometry 欠落区間を
-    // 飛ばすのを notifier 側でも防ぐ。引き継ぎ先が無い区間で handoff 済みを求めないのは、その
-    // 区間は Google Maps を開けず handoff が永久に立たないため（#323）。
+    // 手動完了を許すのは、復帰時の到着確認が許可した区間か、geometry 欠落かつ handoff 済みの
+    // 区間だけ（結果画面のボタン表示条件と同じ）。前区間完了直後、再描画前に走る古いボタン
+    // コールバックが、まだ起動していない次の geometry 欠落区間を飛ばすのを notifier 側でも防ぐ。
     final canComplete =
         state.journeyManualCompletionAvailable ||
-        legHandoffDestination(route, journey.currentLegIndex) == null ||
         (leg.polyline.isEmpty && state.journeyCurrentLegHandedOff);
     if (!canComplete) return;
     _manualCompletionInFlight = true;
