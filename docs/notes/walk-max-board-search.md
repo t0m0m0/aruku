@@ -22,7 +22,7 @@
 新方式は**乗車駅 X を探索変数にし、X の座標から都度 `route_transit(X → goal, 出発 = departureAt + t1)` を引き直す**：
 
 - 返ってくるのは**その時刻に X 付近から実際に乗れる自己整合な door-to-door 経路**。`firstMissedTrain`（乗り遅れ）という概念自体が消える。§7 の詰みは起きない。
-- 到着 = `departureAt + t1 + t2` をそのまま予算判定に使える。**現状の `_maxEnrichAttempts=8` 再検証ループは不要**になる（採用パスの enrich は徒歩ジオメトリ取得のみに縮小）。
+- 到着 = `departureAt + t1 + t2` をそのまま予算判定に使える。**enrich 再検証ループ（旧 `_maxEnrichAttempts`・#315 で撤廃）に頼らずに済む**（採用パスの enrich は徒歩ジオメトリ取得のみに縮小）。
 - NAVITIME が X でなく前方駅 Y から乗る経路を返しても OK。その場合の前半徒歩は `origin→Y`（NAVITIME が実際に乗った駅）で測り直す＝ t1 の実体。破綻しない。
 
 ### 探索（単調性の利用）
@@ -123,7 +123,7 @@ flutter run | dart run tool/route_metrics_agg.dart     # パイプ
 
 - **前半徒歩のみの乗車駅探索**（降車側の両側探索・近接駅探索は不要）。
 - 候補＝基準経路の停車駅。**直線 t1 で単調二分**して境界を絞り、**境界付近のみ実 walk で確定**。
-- 採用候補は `route_transit(X→goal)` を実 `boardAt` で引き直して自己整合に確定。乗り遅れ再検証ループ（`_maxEnrichAttempts`）は本経路では不要化。
+- 採用候補は `route_transit(X→goal)` を実 `boardAt` で引き直して自己整合に確定。乗り遅れ再検証ループ（旧 `_maxEnrichAttempts`・#315 で撤廃）は本経路では不要化。
 
 ### 実装ステップ（TDD・1機能/セッション）
 
