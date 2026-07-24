@@ -63,6 +63,14 @@ class ResultScreen extends ConsumerWidget {
     // 未開始を区別せず同じ CTA を出す）。segments 範囲外は全区間完了の番兵値。
     final currentLegIndex = state.journey?.currentLegIndex ?? 0;
     final currentLeg = route == null ? null : legAt(route, currentLegIndex);
+    // null は「この区間の引き継ぎ先を特定できない」＝ CTA を出せない区間（#323）。
+    final currentHandoffUri = route == null
+        ? null
+        : buildLegHandoffUri(
+            route: route,
+            index: currentLegIndex,
+            origin: _handoffOrigin(state, currentLegIndex),
+          );
 
     if (route == null) {
       return Material(
@@ -219,7 +227,7 @@ class ResultScreen extends ConsumerWidget {
                                         state.journeyCurrentLegHandedOff))
                             ? notifier.advanceCurrentLegManually
                             : null,
-                        onLaunch: currentLeg == null
+                        onLaunch: currentHandoffUri == null
                             ? null
                             : () async {
                                 // 初回タップ（行程未開始）で失効していたら外部起動せず
@@ -228,13 +236,7 @@ class ResultScreen extends ConsumerWidget {
                                 if (notifier.expireStaleBeforeHandoff()) {
                                   return true;
                                 }
-                                final uri = buildLegHandoffUri(
-                                  leg: currentLeg,
-                                  origin: _handoffOrigin(
-                                    state,
-                                    currentLegIndex,
-                                  ),
-                                );
+                                final uri = currentHandoffUri;
                                 final expectedJourney = state.journey;
                                 final launched = await ref.read(
                                   urlLauncherProvider,

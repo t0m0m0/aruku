@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 // 蒲田→(徒歩)→新橋→(電車)→東京の2区間プラン。区間ごとの引き継ぎ先が
 // 全行程の終点（東京）に固定されず、各区間の終点になることを確認するための固定経路。
+const _kamata = GeoPoint(35.5614, 139.7161);
 const _shimbashi = GeoPoint(35.6665, 139.7580);
 const _tokyo = GeoPoint(35.6812, 139.7671);
 
@@ -13,7 +14,7 @@ RouteSegment _walkLegToShimbashi() => const RouteSegment(
   fromName: '蒲田',
   toName: '新橋',
   minutes: 20,
-  polyline: [GeoPoint(35.5614, 139.7161), _shimbashi],
+  polyline: [_kamata, _shimbashi],
 );
 
 RouteSegment _trainLegToTokyo() => const RouteSegment(
@@ -32,18 +33,22 @@ RouteSegment _walkLegNoPolyline() => const RouteSegment(
   minutes: 20,
 );
 
-RoutePlan _twoLegRoute() => RoutePlan(
-  from: '蒲田',
-  to: '東京',
-  totalKm: 5.0,
-  totalMin: 23,
-  budgetMin: 60,
-  kcal: 100,
-  walkKm: 2.0,
-  walkRatio: 0.4,
-  segments: [_walkLegToShimbashi(), _trainLegToTokyo()],
-  timelineNodes: const [],
-);
+RoutePlan _routeOf(List<RouteSegment> segments, {String to = '東京'}) =>
+    RoutePlan(
+      from: '蒲田',
+      to: to,
+      totalKm: 5.0,
+      totalMin: 23,
+      budgetMin: 60,
+      kcal: 100,
+      walkKm: 2.0,
+      walkRatio: 0.4,
+      segments: segments,
+      timelineNodes: const [],
+    );
+
+RoutePlan _twoLegRoute() =>
+    _routeOf([_walkLegToShimbashi(), _trainLegToTokyo()]);
 
 void main() {
   group('legEndPoint', () {
@@ -56,6 +61,93 @@ void main() {
     });
   });
 
+  group('legHandoffDestination', () {
+    test('自区間の polyline 末尾を座標で返す', () {
+      expect(legHandoffDestination(_twoLegRoute(), 0), '35.6665,139.758');
+    });
+
+    test('自区間の polyline が空なら次区間の polyline 先頭を座標で返す', () {
+      // 区間は連結しており、次区間の始点は自区間の終点と同じ地点。名前より
+      // 曖昧さが無いため、空 toName へ落ちる前にここで解決する。
+      final route = _routeOf([_walkLegNoPolyline(), _trainLegToTokyo()]);
+
+      expect(legHandoffDestination(route, 0), '35.6665,139.758');
+    });
+
+    test('自区間・次区間とも polyline が空なら toName を返す', () {
+      final route = _routeOf([
+        _walkLegNoPolyline(),
+        const RouteSegment(
+          type: SegmentType.train,
+          fromName: '新橋駅',
+          toName: '東京',
+          minutes: 3,
+        ),
+      ]);
+
+      expect(legHandoffDestination(route, 0), '新橋駅');
+    });
+
+    test('座標も toName も無い中間区間は次区間の fromName を返す', () {
+      final route = _routeOf([
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '蒲田',
+          toName: '',
+          minutes: 20,
+        ),
+        const RouteSegment(
+          type: SegmentType.train,
+          fromName: '新橋駅',
+          toName: '東京',
+          minutes: 3,
+        ),
+      ]);
+
+      expect(legHandoffDestination(route, 0), '新橋駅');
+    });
+
+    test('座標も toName も無い最終区間は RoutePlan.to を返す', () {
+      // 最終区間の到着地は timelineNodes でも RoutePlan.to として描かれる
+      // （route_plan_builder の到着ノード）。区間の toName ではなくそちらが正。
+      final route = _routeOf([
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '新橋',
+          toName: '',
+          minutes: 8,
+        ),
+      ], to: '東京駅');
+
+      expect(legHandoffDestination(route, 0), '東京駅');
+    });
+
+    test('座標も名前もどこにも無ければ null を返す', () {
+      final route = _routeOf([
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '蒲田',
+          toName: '',
+          minutes: 20,
+        ),
+        const RouteSegment(
+          type: SegmentType.train,
+          fromName: '',
+          toName: '',
+          minutes: 3,
+        ),
+      ], to: '');
+
+      expect(legHandoffDestination(route, 0), isNull);
+    });
+
+    test('範囲外のインデックスは null を返す', () {
+      final route = _twoLegRoute();
+      expect(legHandoffDestination(route, -1), isNull);
+      expect(legHandoffDestination(route, 2), isNull);
+    });
+  });
+
   group('buildLegHandoffUri', () {
     const origin = GeoPoint(35.5616, 139.7160);
 
@@ -63,9 +155,10 @@ void main() {
       '徒歩区間は api=1・origin・座標destination・travelmode=walking・dir_action=navigate を含む',
       () {
         final uri = buildLegHandoffUri(
-          leg: _walkLegToShimbashi(),
+          route: _twoLegRoute(),
+          index: 0,
           origin: origin,
-        );
+        )!;
 
         expect(uri.toString(), startsWith('https://www.google.com/maps/dir/?'));
         expect(uri.queryParameters['api'], '1');
@@ -77,41 +170,86 @@ void main() {
     );
 
     test('公共交通区間は travelmode=transit で dir_action を含まない', () {
-      final uri = buildLegHandoffUri(leg: _trainLegToTokyo(), origin: origin);
+      final uri = buildLegHandoffUri(
+        route: _twoLegRoute(),
+        index: 1,
+        origin: origin,
+      )!;
 
       expect(uri.queryParameters['travelmode'], 'transit');
       expect(uri.queryParameters.containsKey('dir_action'), isFalse);
       expect(uri.queryParameters['destination'], '35.6812,139.7671');
     });
 
-    test('polyline が空の区間では destination が toName の文字列になり日本語がエンコードされる', () {
-      final uri = buildLegHandoffUri(leg: _walkLegNoPolyline(), origin: origin);
+    test('座標が全く無い区間では destination が toName の文字列になり日本語がエンコードされる', () {
+      final route = _routeOf([
+        _walkLegNoPolyline(),
+        const RouteSegment(
+          type: SegmentType.train,
+          fromName: '新橋駅',
+          toName: '東京',
+          minutes: 3,
+        ),
+      ]);
+      final uri = buildLegHandoffUri(route: route, index: 0, origin: origin)!;
 
       expect(uri.queryParameters['destination'], '新橋駅');
       expect(uri.toString(), contains(Uri.encodeQueryComponent('新橋駅')));
     });
 
     test('index0（蒲田→新橋）の destination は全行程の終点(東京)ではなく区間終点(新橋)になる', () {
-      final route = _twoLegRoute();
-      final uri = buildLegHandoffUri(leg: legAt(route, 0)!, origin: origin);
+      final uri = buildLegHandoffUri(
+        route: _twoLegRoute(),
+        index: 0,
+        origin: origin,
+      )!;
 
       expect(uri.queryParameters['destination'], '35.6665,139.758');
       expect(uri.queryParameters['destination'], isNot('35.6812,139.7671'));
     });
 
     test('index1（新橋→東京）は transit で destination が東京になる', () {
-      final route = _twoLegRoute();
-      final uri = buildLegHandoffUri(leg: legAt(route, 1)!, origin: origin);
+      final uri = buildLegHandoffUri(
+        route: _twoLegRoute(),
+        index: 1,
+        origin: origin,
+      )!;
 
       expect(uri.queryParameters['travelmode'], 'transit');
       expect(uri.queryParameters['destination'], '35.6812,139.7671');
     });
 
     test('origin 省略時は origin クエリを含まない（Google Maps 側の現在地補完に委ねる）', () {
-      final uri = buildLegHandoffUri(leg: _walkLegToShimbashi());
+      final uri = buildLegHandoffUri(route: _twoLegRoute(), index: 0)!;
 
       expect(uri.queryParameters.containsKey('origin'), isFalse);
       expect(uri.queryParameters['destination'], '35.6665,139.758');
+    });
+
+    test('引き継ぎ先を特定できない区間は null を返す（空 destination を投げない）', () {
+      final route = _routeOf([
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '蒲田',
+          toName: '',
+          minutes: 20,
+        ),
+        const RouteSegment(
+          type: SegmentType.train,
+          fromName: '',
+          toName: '',
+          minutes: 3,
+        ),
+      ], to: '');
+
+      expect(
+        buildLegHandoffUri(route: route, index: 0, origin: origin),
+        isNull,
+      );
+    });
+
+    test('範囲外のインデックスは null を返す', () {
+      expect(buildLegHandoffUri(route: _twoLegRoute(), index: 2), isNull);
     });
   });
 
