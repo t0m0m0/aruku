@@ -214,14 +214,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get resultChangeConditions => '条件を変更';
 
   @override
-  String resultCtaWalkToDestination(String destination) {
-    return 'Google Mapsで$destinationまで歩く';
-  }
+  String get resultCtaWalkToDestination => 'Googleマップで徒歩ルートを開く';
 
   @override
-  String resultCtaTransitToDestination(String destination) {
-    return 'Google Mapsで$destinationまで行く';
-  }
+  String get resultCtaTransitToDestination => 'Googleマップで乗換案内を開く';
 
   @override
   String get resultCtaLaunchFailed => 'Google Mapsを開けませんでした';

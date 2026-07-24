@@ -481,14 +481,14 @@ abstract class AppLocalizations {
   /// No description provided for @resultCtaWalkToDestination.
   ///
   /// In ja, this message translates to:
-  /// **'Google Mapsで{destination}まで歩く'**
-  String resultCtaWalkToDestination(String destination);
+  /// **'Googleマップで徒歩ルートを開く'**
+  String get resultCtaWalkToDestination;
 
   /// No description provided for @resultCtaTransitToDestination.
   ///
   /// In ja, this message translates to:
-  /// **'Google Mapsで{destination}まで行く'**
-  String resultCtaTransitToDestination(String destination);
+  /// **'Googleマップで乗換案内を開く'**
+  String get resultCtaTransitToDestination;
 
   /// No description provided for @resultCtaLaunchFailed.
   ///

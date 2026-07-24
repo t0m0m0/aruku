@@ -254,7 +254,7 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    expect(find.text('Google Mapsで新橋駅まで歩く'), findsOneWidget);
+    expect(find.text('Googleマップで徒歩ルートを開く'), findsOneWidget);
     expect(find.text('このルートで歩く'), findsNothing);
   });
 
@@ -271,7 +271,7 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
 
     expect(container.read(appStateProvider).journey, isNotNull);
@@ -297,15 +297,15 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
     // 途中復帰相当: journey は index0 のまま。画面を再描画しても同じCTAのまま。
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    expect(find.text('Google Mapsで新橋駅まで歩く'), findsOneWidget);
+    expect(find.text('Googleマップで徒歩ルートを開く'), findsOneWidget);
 
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
 
     expect(launched, hasLength(2));
@@ -329,10 +329,10 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    expect(find.text('Google Mapsで東京駅まで行く'), findsOneWidget);
-    expect(find.text('Google Mapsで新橋駅まで歩く'), findsNothing);
+    expect(find.text('Googleマップで乗換案内を開く'), findsOneWidget);
+    expect(find.text('Googleマップで徒歩ルートを開く'), findsNothing);
 
-    await tester.tap(find.text('Google Mapsで東京駅まで行く'));
+    await tester.tap(find.text('Googleマップで乗換案内を開く'));
     await tester.pump();
 
     expect(launched, hasLength(1));
@@ -354,13 +354,13 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
 
     expect(find.text('Google Mapsを開けませんでした'), findsOneWidget);
-    expect(find.text('Google Mapsで新橋駅まで歩く'), findsOneWidget);
+    expect(find.text('Googleマップで徒歩ルートを開く'), findsOneWidget);
 
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
 
     expect(calls, 2);
@@ -375,7 +375,7 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
 
     expect(find.text('Google Mapsを開けませんでした'), findsOneWidget);
@@ -396,7 +396,7 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
 
     expect(launched, hasLength(1));
@@ -411,7 +411,7 @@ void main() {
     await tester.pump();
 
     expect(container.read(appStateProvider).journey, isNull);
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
 
     expect(container.read(appStateProvider).journey, isNotNull);
@@ -424,7 +424,7 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
 
     expect(container.read(appStateProvider).journey, isNull);
@@ -439,7 +439,7 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
 
     expect(container.read(appStateProvider).journey, isNull);
@@ -455,7 +455,7 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
     notifier.go(Screen.home);
     launchResult.complete(true);
@@ -479,7 +479,7 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    await tester.tap(find.text('Google Mapsで原宿駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
     notifier.selectAlternative(0);
     launchResult.complete(true);
@@ -502,14 +502,19 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    await tester.tap(find.text('Google Mapsで原宿駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
     expect(find.text('Google Mapsを開けませんでした'), findsOneWidget);
 
     notifier.selectAlternative(0);
     await tester.pump();
 
-    expect(find.text('Google Mapsで代々木駅まで歩く'), findsOneWidget);
+    // CTA 文言はモード共通で切替を判別できないため、経路そのもので切替を確認する。
+    expect(
+      container.read(appStateProvider).route,
+      same(sampleAlternativeArrTime),
+    );
+    expect(find.text('Googleマップで徒歩ルートを開く'), findsOneWidget);
     expect(find.text('Google Mapsを開けませんでした'), findsNothing);
   });
 
@@ -530,7 +535,7 @@ void main() {
 
     // 猶予（5分）を超過させてから初回タップする。
     clock.value = DateTime(2026, 7, 18, 9, 30);
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
 
     expect(calls, 0);
@@ -558,7 +563,7 @@ void main() {
     await tester.pump();
 
     clock.value = DateTime(2026, 7, 18, 9, 30); // 失効。
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
 
     expect(calls, 1);
@@ -591,7 +596,7 @@ void main() {
 
     // 行程開始前には誤操作防止のため手動完了を出さない。
     expect(find.text('この区間を完了'), findsNothing);
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
 
     expect(find.text('この区間を完了'), findsOneWidget);
@@ -599,7 +604,7 @@ void main() {
     await tester.pump();
 
     expect(container.read(appStateProvider).journey!.currentLegIndex, 1);
-    expect(find.text('Google Mapsで東京駅まで行く'), findsOneWidget);
+    expect(find.text('Googleマップで乗換案内を開く'), findsOneWidget);
     expect(find.text('この区間を完了'), findsNothing);
   });
 
@@ -611,7 +616,7 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
     expect(find.text('この区間を完了'), findsNothing);
 
@@ -624,7 +629,7 @@ void main() {
     await tester.pump();
 
     expect(container.read(appStateProvider).journey!.currentLegIndex, 1);
-    expect(find.text('Google Mapsで東京駅まで行く'), findsOneWidget);
+    expect(find.text('Googleマップで乗換案内を開く'), findsOneWidget);
   });
 
   testWidgets('到着閾値外の現在地でも復帰後は手動完了できる', (tester) async {
@@ -638,7 +643,7 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
     expect(find.text('この区間を完了'), findsNothing);
 
@@ -651,7 +656,7 @@ void main() {
     await tester.pump();
 
     expect(container.read(appStateProvider).journey!.currentLegIndex, 1);
-    expect(find.text('Google Mapsで東京駅まで行く'), findsOneWidget);
+    expect(find.text('Googleマップで乗換案内を開く'), findsOneWidget);
   });
 
   testWidgets('前区間完了直後の geometry 欠落区間は handoff 前に手動完了を出さない', (tester) async {
@@ -665,7 +670,7 @@ void main() {
     await tester.pump();
 
     // 区間0: handoff 後に手動完了が出て、完了で区間1へ進む。
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
     await tester.tap(find.text('この区間を完了'));
     await tester.pump();
@@ -673,11 +678,11 @@ void main() {
 
     // 区間1になった直後（journey は非 null）でも、まだ handoff していないので
     // 手動完了は出さない。1タップで未踏の区間を飛ばさせない。
-    expect(find.text('Google Mapsで東京タワーまで歩く'), findsOneWidget);
+    expect(find.text('Googleマップで徒歩ルートを開く'), findsOneWidget);
     expect(find.text('この区間を完了'), findsNothing);
 
     // 区間1を handoff したら手動完了が出る。
-    await tester.tap(find.text('Google Mapsで東京タワーまで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
     expect(find.text('この区間を完了'), findsOneWidget);
   });
@@ -696,7 +701,7 @@ void main() {
     await tester.pump();
 
     // 区間0を handoff→完了して区間1へ。区間1はまだ handoff していない。
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
     await tester.tap(find.text('この区間を完了'));
     await tester.pump();
@@ -732,7 +737,7 @@ void main() {
     await tester.pump();
 
     // 区間0を handoff→手動完了して未起動の区間1（電車）へ。
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
     await tester.tap(find.text('この区間を完了'));
     await tester.pump();
@@ -743,7 +748,7 @@ void main() {
 
     // 区間1を起動せずハブで猶予（5分）超過。次区間タップは launcher を呼ばず失効させる。
     clock.value = DateTime(2026, 7, 18, 9, 30);
-    await tester.tap(find.text('Google Mapsで東京駅まで行く'));
+    await tester.tap(find.text('Googleマップで乗換案内を開く'));
     await tester.pump();
 
     // 失効タップでは launcher を呼ばない（1 のまま）。
@@ -771,7 +776,7 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
 
     expect(launched, hasLength(1));
@@ -797,12 +802,12 @@ void main() {
     await tester.pump();
 
     // 初回起動（計画起点）。
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
     expect(launched.single.queryParameters['origin'], '35.5614,139.7161');
 
     // 区間途中で戻って同じ区間を再起動。計画起点へ引き戻さず現在地を使う。
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
 
     expect(launched, hasLength(2));
@@ -819,7 +824,7 @@ void main() {
     await tester.pumpWidget(_wrap(container));
     await tester.pump();
 
-    await tester.tap(find.text('Google Mapsで新橋駅まで歩く'));
+    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
     await tester.pump();
     await tester.tap(find.text('この区間を完了'));
     await tester.pump();
