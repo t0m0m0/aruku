@@ -92,10 +92,6 @@ class TransitRouteService implements SearchEngine {
   /// 実測を保ち、楽観ハイブリッドが並ぶルートでだけ 2パス→1パスに畳む」境目（#318 の争点）。
   static const int _singlePassHybridThreshold = 3;
 
-  /// 先行実測（[prewarmFront] Option B）で勝者と併せて温めるパレート非劣解の件数。
-  /// 勝者棄却時のフォールバック候補（[measureShortlist] フロント）を並列で温める（#315）。
-  static const int _maxAlternatives = 3;
-
   /// アクセス徒歩を一括実測するマトリクスの片側の駅数上限（要素数課金を抑える）。
   static const int _maxMatrixSideStations = 10;
 
@@ -358,15 +354,13 @@ class TransitRouteService implements SearchEngine {
       );
       // 締切切れなら Option A の広い先行実測を許さない（#318 レビュー対応）。先行実測の徒歩
       // enrich は締切を無視する fail-open なので、締切を過ぎたのに短リスト全体を測ると使われない
-      // 下位候補へ余計な上流往復を撃つ。見積りフロントだけ温める Option B へ抑制する。
+      // 下位候補へ余計な上流往復を撃つ。勝者だけ温める Option B へ抑制する。
       final front = prewarmFront(
         shortlist: shortlist,
         chosen: estWinner,
         hybrids: hybrids,
-        departureAt: departureAt,
         singlePassHybridThreshold: _singlePassHybridThreshold,
         maxMeasureShortlist: _maxMeasureShortlist,
-        maxAlternatives: _maxAlternatives,
         allowSinglePass: !_deadline.isExpired,
       );
       final prewarm = front.prewarm;

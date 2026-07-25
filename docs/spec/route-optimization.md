@@ -144,7 +144,7 @@ NAVITIME route_transit 照会（1回）
 
 崩壊が見込まれない通常ルートでは、確定選定の前に**見積り予算内候補を1回の並列パスで先行実測**して enrich キャッシュを温める。以降の winner-phase はキャッシュヒットで純粋計算に畳まれ、勝者棄却時のフォールバック実測も1パスに統合される。判定は見積り勝者で行い実測を待たない（崩壊判定は見積り基準）。温める候補は `prewarmFront`（§5）が決める:
 
-- **Option B（#315・既定）:** 見積りフロント（勝者＋棄却時のフォールバック候補）だけを温める。勝者が最上位徒歩 tier で即生存する標準乗換中心のルートでは、これで1パスに収まり guidance ファンアウトも最小。
+- **Option B（#315・既定）:** 見積り勝者だけを温める。勝者が最上位徒歩 tier で即生存する標準乗換中心のルートでは、これで1パスに収まり guidance ファンアウトも最小。**勝者以外を投機的に温めない**（#327）——代替案提示を撤去した今、返るのは1本だけで、勝者が生存する共通ケースでは下位候補の実測結果はどこにも使われない。それでも `plan()` は全実測を `await` するため、遅い候補が応答を上流タイムアウトまで引き延ばしレート枠も消費する。棄却時の次候補は winner-phase の tier 実測が改めて測る。
 - **Option A（#318・reject 多発時）:** 見積り予算内ハイブリッドが `_singlePassHybridThreshold`（=3）件以上並ぶルートでは、フロントに限らず**予算内短リスト全体（`measureShortlist` の上位 `_maxMeasureShortlist` 件）**を1パスで先行実測する。時刻なしハイブリッドは見積りが楽観で実測すると予算超過・乗り遅れに転じやすく（§4 #137）、フロントだけ温めると「勝者棄却 → 残りを一括実測」が**2パス逐次**になる（各パスが `enrichWalk`→`resolveBoardingTimes` の ~2 上流ラウンドを持つため `2パス×2ラウンド×上流~5s ≈ 20s` が床。実機 enrichMs ~21s）。短リスト全体を先に温めれば確定選定の tier 実測は全てキャッシュヒットになり、2パス→1パスへ畳まれる。
 - **ヒューリスティックの根拠（#318 の争点）:** 無条件 Option A は共通ケースでも下位候補まで測って guidance ファンアウトを増やす（レート制限 #161: 1検索最大13）。ハイブリッド数はルートの reject 起きやすさの指標で、標準乗換（実ダイヤ由来で reject しにくい）中心のルートを巻き込まない。徒歩 tier の深さでは標準中心ルートと区別できないため、ハイブリッド数を信号に採る。
 - **計測:** 発火有無は `RouteSearchMetrics.singlePassMeasure`（`singlePass=0/1`）で本番ログへ出し、恩恵（enrichMs 短縮）とコスト（ファンアウト増）の割合を機械集計できるようにする（#309）。
@@ -229,9 +229,8 @@ NAVITIME route_transit 照会（1回）
 | `reachableWithinBudget(candidates, budgetMin, departureAt)` | hybrid_route_selector.dart | 乗車待ちが予算内 かつ 乗り遅れ無しの候補のみ。該当無しは null。 |
 | `forwardCandidates(candidates, origin, goal, {maxBacktrackRatio})` | hybrid_route_selector.dart | 逆戻り迂回を除いた前方プール。全候補が逆戻りなら除外せずそのまま、origin/goal 未指定はフィルタなし。勝者選定（`selectBestRoute`）と先行実測フロント（§3.7・`measureShortlist`）が共有する方向フィルタの単一実装。 |
 | `maxWalkBoardingIndex({count, budgetMin, evaluate})` | hybrid_route_selector.dart | 乗車駅探索（[walk-max-board-search](../notes/walk-max-board-search.md)）。到着が index 単調増の前提で `evaluate(i) ≤ budget` の最大 index（＝総徒歩最大）を二分探索。evaluate を O(log count) 回に抑える。予算内皆無・count 0 は null。 |
-| `paretoAlternatives({candidates, chosen, departureAt, maxCount})` | hybrid_route_selector.dart | 実到着（`departureAt` 指定時は `arrivalMinutes`、省略時は `totalMin`）× `walkMinutes` の非劣解（パレート）フィルタ。支配される候補・勝者自身・勝者と (到着,徒歩) が同値の候補を除外し、到着昇順（同着は徒歩多い順→乗換少ない順）で最大 `maxCount`（既定3）件を返す。入力順に依存しない。非崩壊時の先行実測フロント（§3.7・`prewarmFront` Option B）が勝者棄却時のフォールバック候補を選ぶのに使う。 |
 | `measureShortlist({candidates, budgetMin, departureAt, origin, goal})` | hybrid_route_selector.dart | 逆戻り除外（`forwardCandidates`）→ 見積り実到着（`arrivalMinutes`）が予算内の候補だけを、徒歩降順→実到着昇順→乗換少ない順で並べて返す（cap なし）。先行実測（§3.7 Option A）と確定選定の tier 実測が**同一集合・同一順序**を測るための単一の並び。 |
-| `prewarmFront({shortlist, chosen, hybrids, departureAt, singlePassHybridThreshold, maxMeasureShortlist, maxAlternatives})` | hybrid_route_selector.dart | 非崩壊ルートの先行実測対象と single-pass 発火有無を返す（§3.7・#318）。`shortlist`（`measureShortlist` 結果）中の予算内ハイブリッド（`hybrids` の identity 集合）が `singlePassHybridThreshold` 件以上なら短リスト上位 `maxMeasureShortlist` 件全体（`singlePass=true`）、未満なら見積りフロント（`chosen`＋`paretoAlternatives` 最大 `maxAlternatives` 件）を返す。 |
+| `prewarmFront({shortlist, chosen, hybrids, singlePassHybridThreshold, maxMeasureShortlist})` | hybrid_route_selector.dart | 非崩壊ルートの先行実測対象と single-pass 発火有無を返す（§3.7・#318）。`shortlist`（`measureShortlist` 結果）中の予算内ハイブリッド（`hybrids` の identity 集合）が `singlePassHybridThreshold` 件以上なら短リスト上位 `maxMeasureShortlist` 件全体（`singlePass=true`）、未満なら `chosen` 単独を返す（#327）。 |
 | `buildRoutePlan({from, to, segments, departure, budgetMin, departureAt})` | route_plan_builder.dart | segments → RoutePlan（totalKm/walkKm/kcal/walkRatio/totalMin/timelineNodes）。待ち時間込みの到着を計算。 |
 | `arrivalMinutes(segments, departureAt)` | route_plan_builder.dart | 乗車前・乗換待ちを含む実到着分。departureAt 無しは待ち抜き合計。 |
 | `firstMissedTransit(segments, departureAt)` | route_plan_builder.dart | 駅着が発車後になる最初の transit（電車・バス）区間（index, cumBefore）。無ければ null。 |
@@ -258,7 +257,6 @@ NAVITIME route_transit 照会（1回）
 | `_maxCorridorStops` | 60 | 乗車駅探索のコリドー候補点の上限（均等間引き）。密なほど境界解像度が上がり余りが減る。二分探索は実測 walk 駆動で評価は O(log n)（§3.6・#137） |
 | `_maxMeasureShortlist` | 13 | 見積り予算内候補を1並列パスで実測する短リストの本数上限。レート制限（#161: 1検索最大13ファンアウト）に合わせる |
 | `_singlePassHybridThreshold` | 3 | 先行実測を「見積りフロント」から「予算内短リスト全体」へ広げる（§3.7 Option A・#318）発火しきい値。予算内ハイブリッドがこの件数以上並ぶルートを reject 多発とみなす。標準乗換中心（0〜2件）は従来の tier 段階実測を保ちファンアウトを増やさない |
-| `_maxAlternatives` | 3 | 非崩壊時の先行実測（§3.7・`prewarmFront` Option B）で勝者と併せて温めるパレート非劣解フロントの件数（勝者棄却時のフォールバック候補） |
 | `MATRIX_MAX_ELEMENTS`（プロキシ） | 25 | マトリクス要素数上限（課金暴発防止） |
 | レート制限 | 30 / 90 req/min | 標準 / 徒歩系（IP単位） |
 

@@ -1632,144 +1632,6 @@ void main() {
     });
   });
 
-  // 予算内候補の並列一括実測（#315）。見積りを「勝者決定」から「実測する短リスト作り」へ
-  // 降格し、非崩壊ルートでは見積りフロント（勝者＋棄却時のフォールバック候補）を1回の並列パスで
-  // 一括実測して、勝者棄却時のフォールバック実測を勝者と畳む。fake client の Completer バリア
-  // ——「勝者とフォールバック候補の access 徒歩 enrich が**両方**到達するまで応答を返さない」——で、
-  // 両者が同一パスで並行実測されることを検証する。逐次実装は勝者の enrich を待つ間に次候補の
-  // enrich を発行できずデッドロック（timeout で fail）し、統合実装でのみ完走する。
-  group('plan: 予算内候補の並列一括実測 (#315)', () {
-    const o = GeoPoint(35.0, 139.0);
-    const g = GeoPoint(35.0, 139.03); // 直線 ~2.7km（全徒歩 見積り~34分＝予算30分外）
-    // lng で判別できる2つの乗車駅。1点コリドー（base=null）でハイブリッド・崩壊を起こさない。
-    const wBoard = [35.0, 139.010]; // 勝者W: access 見積り14分（徒歩最大）
-    const vBoard = [35.0, 139.005]; // 代替V: access 見積り7分（早着・徒歩少）
-    const alight = [35.0, 139.029]; // 降車は共通（egress は同一・キャッシュされ barrier に絡まない）
-
-    // 純粋な標準乗換2本。W が徒歩最大の勝者、V が早着・徒歩少の非劣解（棄却時のフォールバック
-    // 候補）。どちらも見積りフロントに載るので、統合実装では1パスで並行実測される。enrich
-    // （factor=1）でも両者とも先頭電車に間に合い予算内に収まる（実測しても選定は変わらない退行ガード）。
-    Map<String, dynamic> option({
-      required String route,
-      required List<double> board,
-      required int accessSecs,
-      required int dep,
-      required int arr,
-    }) => {
-      'journey': {
-        'departureSecs': 32400,
-        'arrivalSecs': arr,
-        'durationSecs': arr - 32400,
-        'accessWalkSecs': accessSecs,
-        'egressWalkSecs': 60,
-        'legs': [
-          _railLeg(
-            route: route,
-            fromId: '$route:board',
-            fromName: '乗車$route',
-            toId: '$route:alight',
-            toName: '降車$route',
-            dep: dep,
-            arr: arr,
-          ),
-        ],
-      },
-      'map': {
-        'points': const [],
-        'segments': [
-          _mapSeg('walk', 'origin', '$route:board', 'osmWalk', [
-            [o.lat, o.lng],
-            board,
-          ]),
-          _mapSeg('transit', '$route:board', '$route:alight', 'stopOrder', [
-            alight,
-          ]),
-          _mapSeg('walk', '$route:alight', 'destination', 'estimatedWalk', [
-            alight,
-            [g.lat, g.lng],
-          ]),
-        ],
-      },
-    };
-
-    Map<String, dynamic> twoOptions() => _guidance([
-      // W: 徒歩14分・09:15発→09:27着（徒歩最大の勝者）。
-      option(
-        route: '快速W',
-        board: wBoard,
-        accessSecs: 840,
-        dep: 33300,
-        arr: 34020,
-      ),
-      // V: 徒歩7分・09:10発→09:20着（早着・徒歩少のフォールバック候補）。
-      option(
-        route: '快速V',
-        board: vBoard,
-        accessSecs: 420,
-        dep: 33000,
-        arr: 33600,
-      ),
-    ]);
-
-    test('非崩壊ルートは勝者とフォールバック候補を1つの並列パスで実測する（#315 統合）', () async {
-      final probeW = Completer<void>();
-      final probeV = Completer<void>();
-      Future<void> barrier() => Future.wait([probeW.future, probeV.future]);
-      bool near(double a, double b) => (a - b).abs() < 1e-6;
-
-      final client = MockClient((req) async {
-        final path = req.url.path;
-        if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
-        if (path.contains('googleWalkProxy')) {
-          final gl = _pt(req.url.queryParameters['goal'] ?? '0,0');
-          // 勝者W・代替Vの access 徒歩 enrich（origin→乗車駅）だけを両到達までブロックする。
-          if (near(gl.lat, wBoard[0]) && near(gl.lng, wBoard[1])) {
-            if (!probeW.isCompleted) probeW.complete();
-            await barrier();
-          } else if (near(gl.lat, vBoard[0]) && near(gl.lng, vBoard[1])) {
-            if (!probeV.isCompleted) probeV.complete();
-            await barrier();
-          }
-          return _walkFor(req.url); // factor=1: 実街路≒直線（両者とも予算内で生存）
-        }
-        if (path.contains('guidance/plan')) return _json(twoOptions());
-        return _json(const {}, 404);
-      });
-
-      final plan = await _service(client)
-          .plan(
-            destination: '目的地',
-            destinationLatLng: g,
-            departure: const TimeValue(h: 9, m: 0),
-            arrival: const TimeValue(h: 9, m: 30), // 予算30分（全徒歩は予算外）
-            origin: o,
-            originName: '出発',
-          )
-          .timeout(
-            const Duration(seconds: 5),
-            onTimeout: () =>
-                fail('勝者とフォールバック候補の access 徒歩 enrich が同時到達しない（逐次実測でデッドロック）'),
-          );
-
-      expect(
-        probeW.isCompleted,
-        isTrue,
-        reason: '前提: 勝者W の access 徒歩 enrich が発火',
-      );
-      expect(
-        probeV.isCompleted,
-        isTrue,
-        reason: '前提: フォールバック候補V の access 徒歩 enrich が発火',
-      );
-      // 退行ガード: 統合実装でも選定は変わらず、徒歩最大の W が勝者。
-      final train = plan.segments.firstWhere(
-        (s) => s.type == SegmentType.train,
-      );
-      expect(train.line, '快速W', reason: '徒歩最大の W が勝者のはず');
-      expect(plan.totalMin, lessThanOrEqualTo(30));
-    });
-  });
-
   // reject後の残り予算内候補を1並列バッチで実測（#315 B）。徒歩最大の見積り勝者が
   // 楽観ハイブリッド（実測で乗り遅れ・予算超過）だと、旧実装は徒歩tier を1本ずつ直列に
   // 降りて reject ごとに上流 guidance を数珠つなぎにしていた。最上位 tier が全滅したら残りを
@@ -3710,13 +3572,13 @@ void main() {
 
     bool near(double a, double b) => (a - b).abs() < 1e-6;
 
-    // A. 勝者W（徒歩最大・tier1で即生存）＋ 早着・徒歩少の代替V。V は先行実測フロントには
-    //    載るが winner-phase の tier1（=W 単独）では測られない。その V の access 徒歩実測が
-    //    キャンセル例外を上げたとき、先行実測がそれを握り潰すと plan() は勝者だけで完走して
-    //    しまう。キャンセル境界（cancellation.dart）は並列パスでも飲まず伝播させる。
+    // A. 先行実測（#315 Option B＝勝者を1パスで温める）中に徒歩実測がキャンセルで倒れたら、
+    //    その例外は握り潰さず plan() まで伝播させる。先行実測は「壊れた応答は候補ごとに握って
+    //    落とす」fail-open だが、キャンセルだけは飲んではならない——飲むと離脱後も残りの候補で
+    //    完走してしまう（#316: cancellation.dart のキャンセル境界を並列パスでも守る）。
     test('先行実測中のキャンセルは握り潰さず伝播する', () async {
-      const wBoard = [35.0, 139.010]; // 勝者W: 徒歩最大
-      const vBoard = [35.0, 139.005]; // 代替V: 早着・徒歩少
+      const wBoard = [35.0, 139.010]; // 勝者W: 徒歩最大（先行実測で温められる）
+      const vBoard = [35.0, 139.005]; // 早着・徒歩少の下位候補
       final guidance = _guidance([
         option(
           route: '快速W',
@@ -3740,11 +3602,11 @@ void main() {
         if (path.contains('googleWalkProxy')) {
           final s = _pt(req.url.queryParameters['start'] ?? '0,0');
           final gl = _pt(req.url.queryParameters['goal'] ?? '0,0');
-          // 代替V の access 徒歩実測（origin→V乗車駅）だけがキャンセルで倒れる。
+          // 勝者W の access 徒歩実測（origin→W乗車駅）がキャンセルで倒れる。
           if (near(s.lat, o.lat) &&
               near(s.lng, o.lng) &&
-              near(gl.lat, vBoard[0]) &&
-              near(gl.lng, vBoard[1])) {
+              near(gl.lat, wBoard[0]) &&
+              near(gl.lng, wBoard[1])) {
             throw const SearchCanceledException();
           }
           return _walkFor(req.url);

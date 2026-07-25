@@ -562,163 +562,6 @@ void main() {
     });
   });
 
-  group('paretoAlternatives', () {
-    test('支配される候補（到着も徒歩も劣る）は除去される', () {
-      final chosen = _candidate([_walk(20), _train(10)]); // 到着30 徒歩20
-      final tradeoff = _candidate([_walk(15), _train(5)]); // 到着20 徒歩15
-      final dominated = _candidate([_walk(10), _train(15)]); // 到着25 徒歩10
-
-      final alts = paretoAlternatives(
-        candidates: [chosen, tradeoff, dominated],
-        chosen: chosen,
-      );
-
-      // tradeoff は dominated を支配（早着かつ徒歩多い）ので dominated は落ちる。
-      expect(alts, [same(tradeoff)]);
-    });
-
-    test('非劣解は保持し、勝者は結果に含めない（到着昇順）', () {
-      final chosen = _candidate([_walk(30)]); // 到着30 徒歩30（徒歩最大）
-      final more = _candidate([_walk(20), _train(5)]); // 到着25 徒歩20
-      final less = _candidate([_walk(10), _train(5)]); // 到着15 徒歩10
-
-      final alts = paretoAlternatives(
-        candidates: [chosen, more, less],
-        chosen: chosen,
-      );
-
-      // more と less は互いに非劣解（徒歩↔到着のトレードオフ）。到着昇順で less→more。
-      expect(alts, [same(less), same(more)]);
-      expect(alts, isNot(contains(same(chosen))));
-    });
-
-    test('勝者と到着・徒歩が完全同値の候補は含めない（差分が見えない）', () {
-      final chosen = _candidate([_walk(20), _train(10)]); // 到着30 徒歩20
-      final twin = _candidate([_walk(20), _train(10)]); // 別オブジェクトだが同値
-      final tradeoff = _candidate([_walk(10), _train(5)]); // 到着15 徒歩10
-
-      final alts = paretoAlternatives(
-        candidates: [chosen, twin, tradeoff],
-        chosen: chosen,
-      );
-
-      expect(alts, isNot(contains(same(twin))));
-      expect(alts, [same(tradeoff)]);
-    });
-
-    test('返却は最大 maxCount 件（到着の早い順）', () {
-      final chosen = _candidate([_walk(30)]); // 到着30 徒歩30
-      final alt1 = _candidate([_walk(5), _train(5)]); // 到着10 徒歩5
-      final alt2 = _candidate([_walk(10), _train(10)]); // 到着20 徒歩10
-      final alt3 = _candidate([_walk(15), _train(10)]); // 到着25 徒歩15
-
-      final alts = paretoAlternatives(
-        candidates: [chosen, alt3, alt2, alt1],
-        chosen: chosen,
-        maxCount: 2,
-      );
-
-      expect(alts, [same(alt1), same(alt2)]);
-    });
-
-    test('入力順に依存せず同じ結果（到着昇順で決定的）', () {
-      final chosen = _candidate([_walk(30)]);
-      final more = _candidate([_walk(20), _train(5)]); // 到着25 徒歩20
-      final less = _candidate([_walk(10), _train(5)]); // 到着15 徒歩10
-
-      final forward = paretoAlternatives(
-        candidates: [chosen, more, less],
-        chosen: chosen,
-      );
-      final reversed = paretoAlternatives(
-        candidates: [less, more, chosen],
-        chosen: chosen,
-      );
-
-      expect(
-        forward.map((c) => c.totalMin).toList(),
-        reversed.map((c) => c.totalMin).toList(),
-      );
-      expect(forward, [same(less), same(more)]);
-      expect(reversed, [same(less), same(more)]);
-    });
-
-    ({RouteCandidate chosen, RouteCandidate longWait, RouteCandidate shortWait})
-    waitSensitiveCandidates() {
-      // longWait: 待ち抜き合計25分だが待ち時間で実到着45分・徒歩10。
-      final longWait = _candidate([
-        _walk(10),
-        _timedTrain(DateTime(2026, 7, 15, 9, 30), DateTime(2026, 7, 15, 9, 45)),
-      ]);
-      // shortWait: 待ち抜き合計30分・実到着32分・徒歩20。
-      final shortWait = _candidate([
-        _walk(20),
-        _timedTrain(DateTime(2026, 7, 15, 9, 22), DateTime(2026, 7, 15, 9, 32)),
-      ]);
-      final chosen = _candidate([
-        _walk(40),
-        _timedTrain(DateTime(2026, 7, 15, 9, 50), DateTime(2026, 7, 15, 10, 0)),
-      ]);
-      return (chosen: chosen, longWait: longWait, shortWait: shortWait);
-    }
-
-    test('departureAt ありでは待ち時間込みの実到着で支配を判定する', () {
-      final c = waitSensitiveCandidates();
-
-      final alts = paretoAlternatives(
-        candidates: [c.chosen, c.longWait, c.shortWait],
-        chosen: c.chosen,
-        departureAt: DateTime(2026, 7, 15, 9),
-      );
-
-      // 実到着 shortWait(32,徒歩20) が longWait(45,徒歩10) を支配（早着かつ徒歩多い）。
-      expect(alts, [same(c.shortWait)]);
-    });
-
-    test('departureAt 省略時は totalMin で判定するため両者が非劣解として残る', () {
-      final c = waitSensitiveCandidates();
-
-      final alts = paretoAlternatives(
-        candidates: [c.chosen, c.longWait, c.shortWait],
-        chosen: c.chosen,
-      );
-
-      // 待ち抜き合計は longWait(25,徒歩10) と shortWait(30,徒歩20) でトレードオフ。
-      expect(alts, [same(c.longWait), same(c.shortWait)]);
-    });
-  });
-
-  group('forwardCandidates', () {
-    test('逆戻り候補を除き、全滅時と origin/goal 未指定時はそのまま返す', () {
-      const origin = GeoPoint(35.50, 139.50);
-      const goal = GeoPoint(35.70, 139.50); // 出発地の北
-      // 出発地より南（目的地と逆方向）の駅を経由する逆戻り候補。
-      final backtrack = _candidate([
-        const RouteSegment(
-          type: SegmentType.train,
-          fromName: '南駅',
-          toName: 'goal',
-          minutes: 10,
-          km: 30,
-          line: 'L',
-          polyline: [GeoPoint(35.30, 139.50), GeoPoint(35.70, 139.50)],
-        ),
-      ]);
-      final straight = _candidate([_walk(10), _train(8)]);
-
-      expect(forwardCandidates([backtrack, straight], origin, goal), [
-        same(straight),
-      ]);
-      // 全候補が逆戻りなら除外せずそのまま（selectBestRoute の縮退と同じ）。
-      expect(forwardCandidates([backtrack], origin, goal), [same(backtrack)]);
-      // origin/goal 未指定はフィルタなし。
-      expect(forwardCandidates([backtrack, straight], null, null), [
-        same(backtrack),
-        same(straight),
-      ]);
-    });
-  });
-
   group('RouteCandidate.transferCount', () {
     test('時刻なし区間でもtransit区間数から乗換回数を下限0で導出する', () {
       final allWalk = _candidate([_walk(10), _walk(5)]);
@@ -1081,10 +924,8 @@ void main() {
   });
 
   // 非崩壊ルートの先行実測対象と single-pass 発火有無（#318）。見積り予算内ハイブリッドが
-  // 閾値以上並ぶ reject 多発ルートでは短リスト全体を、そうでなければ見積りフロントだけを温める。
+  // 閾値以上並ぶ reject 多発ルートでは短リスト全体を、そうでなければ勝者だけを温める。
   group('prewarmFront', () {
-    final departureAt = DateTime(2026, 7, 15, 9, 0);
-
     ({List<RouteCandidate> shortlist, RouteCandidate chosen}) fiveInBudget() {
       final chosen = _candidate([_walk(25), _train(10)]); // 徒歩最大＝見積り勝者
       final b = _candidate([_walk(20), _train(10)]);
@@ -1104,7 +945,6 @@ void main() {
         shortlist: s.shortlist,
         chosen: s.chosen,
         hybrids: hybrids,
-        departureAt: departureAt,
         singlePassHybridThreshold: 3,
         maxMeasureShortlist: 13,
       );
@@ -1113,7 +953,7 @@ void main() {
       expect(r.prewarm, s.shortlist);
     });
 
-    test('予算内ハイブリッドが閾値未満なら見積りフロントだけを温める', () {
+    test('予算内ハイブリッドが閾値未満なら勝者だけを温める', () {
       final s = fiveInBudget();
       final hybrids = Set<RouteCandidate>.identity()
         ..addAll(s.shortlist.take(2)); // 2件＜閾値3
@@ -1122,18 +962,16 @@ void main() {
         shortlist: s.shortlist,
         chosen: s.chosen,
         hybrids: hybrids,
-        departureAt: departureAt,
         singlePassHybridThreshold: 3,
         maxMeasureShortlist: 13,
       );
 
       expect(r.singlePass, isFalse);
-      expect(r.prewarm, contains(s.chosen));
-      // フロントは短リスト全体より小さい（支配される下位候補を含まない）。
-      expect(r.prewarm.length, lessThan(s.shortlist.length));
+      // Option B は勝者のみ。棄却時の次候補は winner-phase の tier 実測に委ねる。
+      expect(r.prewarm, [s.chosen]);
     });
 
-    test('allowSinglePass=false なら閾値以上でも見積りフロントへ抑制する', () {
+    test('allowSinglePass=false なら閾値以上でも勝者のみへ抑制する', () {
       final s = fiveInBudget();
       final hybrids = Set<RouteCandidate>.identity()
         ..addAll(s.shortlist.take(3)); // 閾値は満たす
@@ -1142,14 +980,13 @@ void main() {
         shortlist: s.shortlist,
         chosen: s.chosen,
         hybrids: hybrids,
-        departureAt: departureAt,
         singlePassHybridThreshold: 3,
         maxMeasureShortlist: 13,
         allowSinglePass: false, // 締切切れ等で広い先行実測を許さない
       );
 
       expect(r.singlePass, isFalse);
-      expect(r.prewarm.length, lessThan(s.shortlist.length));
+      expect(r.prewarm, [s.chosen]);
     });
 
     test('single-pass の温め対象は maxMeasureShortlist 件で頭打ち', () {
@@ -1162,7 +999,6 @@ void main() {
         shortlist: many,
         chosen: many.first,
         hybrids: hybrids,
-        departureAt: departureAt,
         singlePassHybridThreshold: 3,
         maxMeasureShortlist: 13,
       );

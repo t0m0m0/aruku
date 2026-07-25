@@ -29,6 +29,7 @@ class RouteMetricSample {
     required this.hybridMs,
     required this.enrichMs,
     required this.boardSearchMs,
+    required this.alternativesMs,
     required this.finalizeMs,
     required this.totalMs,
   });
@@ -47,6 +48,11 @@ class RouteMetricSample {
   final int hybridMs;
   final int enrichMs;
   final int boardSearchMs;
+
+  /// 代替案の選出・検証フェーズの所要（legacy・#290→#327 で廃止）。現行アプリはこの key を
+  /// 出さない（=0）が、撤去前に保存した旧ログを解析するとき `totalMs` に含まれるこの分を
+  /// 残差（未帰属）へ誤って積まないよう、パースだけは残す（#327 レビュー指摘）。
+  final int alternativesMs;
   final int finalizeMs;
   final int totalMs;
 }
@@ -81,6 +87,7 @@ RouteMetricSample? parseRouteMetricsLine(String line) {
     hybridMs: at('hybridMs'),
     enrichMs: at('enrichMs'),
     boardSearchMs: at('boardSearchMs'),
+    alternativesMs: at('alternativesMs'),
     finalizeMs: at('finalizeMs'),
     totalMs: at('totalMs'),
   );
@@ -159,6 +166,7 @@ class MetricsAggregation {
     required this.hybridMs,
     required this.enrichMs,
     required this.boardSearchMs,
+    required this.alternativesMs,
     required this.finalizeMs,
     required this.collapseWalkCalls,
     required this.collapseMatrixCalls,
@@ -185,6 +193,9 @@ class MetricsAggregation {
   final MetricStats hybridMs;
   final MetricStats enrichMs;
   final MetricStats boardSearchMs;
+
+  /// 代替案フェーズ（legacy・#327 で廃止）。現行ログでは常に0。旧ログの残差を汚さないため保持。
+  final MetricStats alternativesMs;
   final MetricStats finalizeMs;
 
   /// collapse=1 サブセットの統計（#310 が直接動かすレバー）。
@@ -212,6 +223,7 @@ class MetricsAggregation {
     hybridMs,
     enrichMs,
     boardSearchMs,
+    alternativesMs,
     finalizeMs,
   ].fold(0.0, (a, s) => a + (s.mean ?? 0));
 }
@@ -239,6 +251,7 @@ MetricsAggregation aggregate(List<RouteMetricSample> samples) {
     hybridMs: statsOf([for (final s in samples) s.hybridMs]),
     enrichMs: statsOf([for (final s in samples) s.enrichMs]),
     boardSearchMs: statsOf([for (final s in samples) s.boardSearchMs]),
+    alternativesMs: statsOf([for (final s in samples) s.alternativesMs]),
     finalizeMs: statsOf([for (final s in samples) s.finalizeMs]),
     collapseWalkCalls: statsOf([for (final s in collapsed) s.walkCalls]),
     collapseMatrixCalls: statsOf([for (final s in collapsed) s.matrixCalls]),
@@ -275,6 +288,7 @@ String _phaseBreakdown(MetricsAggregation a) {
     ('hybrid', a.hybridMs),
     ('enrich', a.enrichMs),
     ('boardSearch', a.boardSearchMs),
+    ('alternatives(legacy)', a.alternativesMs),
     ('finalize', a.finalizeMs),
   ]..sort((x, y) => (y.$2.mean ?? 0).compareTo(x.$2.mean ?? 0));
   final b = StringBuffer()..writeln('--- フェーズ別所要（平均・total比／どこで時間を使うか） ---');
