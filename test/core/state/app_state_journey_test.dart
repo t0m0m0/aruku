@@ -34,20 +34,6 @@ class _Clock {
   DateTime now() => value;
 }
 
-final _winnerWithAlternatives = RoutePlan(
-  from: sampleRoutePlan.from,
-  to: sampleRoutePlan.to,
-  totalKm: sampleRoutePlan.totalKm,
-  totalMin: sampleRoutePlan.totalMin,
-  budgetMin: sampleRoutePlan.budgetMin,
-  kcal: sampleRoutePlan.kcal,
-  walkKm: sampleRoutePlan.walkKm,
-  walkRatio: sampleRoutePlan.walkRatio,
-  segments: sampleRoutePlan.segments,
-  timelineNodes: sampleRoutePlan.timelineNodes,
-  alternatives: [sampleAlternativeArrTime, sampleAlternativeTimelineNode],
-);
-
 ProviderContainer _containerWith(RoutePlan plan, {_Clock? clock}) {
   final container = ProviderContainer(
     overrides: [
@@ -177,18 +163,6 @@ void main() {
   });
 
   group('journey のリセット', () {
-    test('selectAlternative で journey をリセットする', () async {
-      final container = _containerWith(_winnerWithAlternatives);
-      final notifier = container.read(appStateProvider.notifier);
-      await notifier.startSearch();
-      notifier.startJourney();
-      expect(container.read(appStateProvider).journey, isNotNull);
-
-      notifier.selectAlternative(0);
-
-      expect(container.read(appStateProvider).journey, isNull);
-    });
-
     test('新規検索成功で前の journey をリセットする', () async {
       final container = _containerWith(sampleRoutePlan);
       final notifier = container.read(appStateProvider.notifier);

@@ -20,8 +20,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../support/route_plan_fixtures.dart';
-
 class _FixedRouteService implements RouteService {
   _FixedRouteService(this.result);
   final RoutePlan result;
@@ -465,57 +463,6 @@ void main() {
     final state = container.read(appStateProvider);
     expect(state.screen, Screen.home);
     expect(state.journey, isNull);
-  });
-
-  testWidgets('外部起動の完了前に代替ルートへ切り替えた場合は別ルートの journey を開始しない', (tester) async {
-    final launchResult = Completer<bool>();
-    final container = _containerFor(
-      plan: sampleRoutePlanWithAlternatives,
-      launcher: (_) => launchResult.future,
-    );
-    final notifier = container.read(appStateProvider.notifier);
-    notifier.setDestination('渋谷ヒカリエ');
-    await notifier.startSearch();
-    await tester.pumpWidget(_wrap(container));
-    await tester.pump();
-
-    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
-    await tester.pump();
-    notifier.selectAlternative(0);
-    launchResult.complete(true);
-    await tester.pump();
-    await tester.pump();
-
-    final state = container.read(appStateProvider);
-    expect(state.route, same(sampleAlternativeArrTime));
-    expect(state.journey, isNull);
-  });
-
-  testWidgets('代替ルートへ切り替えると前ルートの起動失敗バナーを持ち越さない', (tester) async {
-    final container = _containerFor(
-      plan: sampleRoutePlanWithAlternatives,
-      launcher: (_) async => false,
-    );
-    final notifier = container.read(appStateProvider.notifier);
-    notifier.setDestination('渋谷ヒカリエ');
-    await notifier.startSearch();
-    await tester.pumpWidget(_wrap(container));
-    await tester.pump();
-
-    await tester.tap(find.text('Googleマップで徒歩ルートを開く'));
-    await tester.pump();
-    expect(find.text('Google Mapsを開けませんでした'), findsOneWidget);
-
-    notifier.selectAlternative(0);
-    await tester.pump();
-
-    // CTA 文言はモード共通で切替を判別できないため、経路そのもので切替を確認する。
-    expect(
-      container.read(appStateProvider).route,
-      same(sampleAlternativeArrTime),
-    );
-    expect(find.text('Googleマップで徒歩ルートを開く'), findsOneWidget);
-    expect(find.text('Google Mapsを開けませんでした'), findsNothing);
   });
 
   testWidgets('失効した経路の初回タップは launcher を呼ばず経路を無効化する', (tester) async {

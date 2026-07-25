@@ -21,7 +21,6 @@ import '../../shared/widgets/aruku_button.dart';
 import '../../shared/widgets/aruku_card.dart';
 import '../../shared/widgets/aruku_map.dart';
 
-part 'result_alternatives.dart';
 part 'result_totals.dart';
 part 'result_timeline.dart';
 part 'result_leg_cta.dart';
@@ -202,18 +201,14 @@ class ResultScreen extends ConsumerWidget {
                               _WalkRatioRow(route: route),
                               const SizedBox(height: 14),
                               _Timeline(route: route, journey: state.journey),
-                              _AlternativesSection(
-                                alternatives: state.routeAlternatives,
-                                onSelect: notifier.selectAlternative,
-                              ),
                             ],
                           ),
                         ),
                       ),
                       const SizedBox(height: 8),
                       _LegCta(
-                        // 経路または legIndex ごとに State を作り直し、区間進行だけで
-                        // なく代替案の切替でも前経路の起動失敗バナーを持ち越さない。
+                        // 経路または legIndex ごとに State を作り直し、区間進行で
+                        // 前経路の起動失敗バナーを持ち越さない。
                         key: ValueKey((route, currentLegIndex)),
                         leg: currentLeg,
                         onManualAdvance:

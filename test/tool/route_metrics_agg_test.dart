@@ -20,7 +20,6 @@ void main() {
         ..hybridMs = 1500
         ..enrichMs = 42000
         ..boardSearchMs = 3200
-        ..alternativesMs = 8000
         ..finalizeMs = 120
         ..totalMs = 5000;
 
@@ -39,7 +38,6 @@ void main() {
       expect(sample.hybridMs, 1500);
       expect(sample.enrichMs, 42000);
       expect(sample.boardSearchMs, 3200);
-      expect(sample.alternativesMs, 8000);
       expect(sample.finalizeMs, 120);
       expect(sample.totalMs, 5000);
     });
@@ -152,7 +150,7 @@ void main() {
         parseRouteMetricsLine(
           '[route-metrics] collapse=0 boardSearch=0 http=58 guidanceCalls=40 '
           'walkCalls=14 matrixCalls=4 guidanceDupCalls=30 guidanceMs=9000 '
-          'hybridMs=1000 enrichMs=80000 boardSearchMs=0 alternativesMs=15000 '
+          'hybridMs=1000 enrichMs=80000 boardSearchMs=0 '
           'finalizeMs=0 totalMs=105000',
         )!,
       ]);
@@ -167,16 +165,15 @@ void main() {
         parseRouteMetricsLine(
           '[route-metrics] collapse=0 boardSearch=0 http=10 guidanceCalls=5 '
           'walkCalls=3 matrixCalls=2 guidanceMs=6000 hybridMs=10000 '
-          'enrichMs=60000 boardSearchMs=0 alternativesMs=20000 finalizeMs=0 '
+          'enrichMs=60000 boardSearchMs=0 finalizeMs=0 '
           'totalMs=100000',
         )!,
       ]);
       expect(agg.guidanceMs.mean, 6000);
       expect(agg.hybridMs.mean, 10000);
       expect(agg.enrichMs.mean, 60000);
-      expect(agg.alternativesMs.mean, 20000);
-      // 6000+10000+60000+0+20000+0 = 96000、残差 = 100000-96000 = 4000。
-      expect(agg.measuredPhaseMeanSum, 96000);
+      // 6000+10000+60000+0+0 = 76000、残差 = 100000-76000 = 24000。
+      expect(agg.measuredPhaseMeanSum, 76000);
 
       final report = formatAggregation(agg);
       expect(report, contains('フェーズ別所要'));

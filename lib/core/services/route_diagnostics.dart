@@ -31,18 +31,13 @@ class RouteSearchMetrics {
   int hybridMs = 0;
 
   /// 初回の選定＋enrich（実測徒歩・実発車時刻の確定検証）区間の実時間。非崩壊時は見積り
-  /// フロント（勝者母集団＋代替案）の1並列パス先行実測もここに含む（#315）——以降の代替案検証は
-  /// キャッシュ再利用で [alternativesMs] がほぼ0に畳まれる。崩壊時の再選定は [boardSearchMs] に
-  /// 含める（二重計上しない）。
+  /// フロント（勝者＋棄却時のフォールバック候補）の1並列パス先行実測もここに含む（#315）。
+  /// 崩壊時の再選定は [boardSearchMs] に含める（二重計上しない）。
   int enrichMs = 0;
 
   /// board-search フォールバック区間の実時間（起動しなければ 0）。崩壊時の再選定
   /// （board-search 候補を足した再 enrich）もこの区間に含む。
   int boardSearchMs = 0;
-
-  /// 代替案（パレート非劣解）の選出・検証区間の実時間。非崩壊時は winner-phase の先行実測
-  /// （[enrichMs]）を再利用するため純粋計算に畳まれ、ほぼ0になる（#315）。
-  int alternativesMs = 0;
 
   /// 確定候補の駅名確定（`_finalizeStationNames`）に掛かった実時間。
   int finalizeMs = 0;
@@ -76,7 +71,7 @@ class RouteSearchMetrics {
       'guidanceCalls=$guidanceCalls walkCalls=$walkCalls matrixCalls=$matrixCalls '
       'guidanceDupCalls=$guidanceDupCalls '
       'guidanceMs=$guidanceMs hybridMs=$hybridMs enrichMs=$enrichMs '
-      'boardSearchMs=$boardSearchMs alternativesMs=$alternativesMs '
+      'boardSearchMs=$boardSearchMs '
       'finalizeMs=$finalizeMs totalMs=$totalMs';
 }
 
