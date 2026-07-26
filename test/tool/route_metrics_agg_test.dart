@@ -20,7 +20,6 @@ void main() {
         ..hybridMs = 1500
         ..enrichMs = 42000
         ..boardSearchMs = 3200
-        ..alternativesMs = 8000
         ..finalizeMs = 120
         ..totalMs = 5000;
 
@@ -39,9 +38,24 @@ void main() {
       expect(sample.hybridMs, 1500);
       expect(sample.enrichMs, 42000);
       expect(sample.boardSearchMs, 3200);
-      expect(sample.alternativesMs, 8000);
       expect(sample.finalizeMs, 120);
       expect(sample.totalMs, 5000);
+      // 現行 toLogLine は alternativesMs を出さない（#327 で撤去）→ 欠落は0。
+      expect(sample.alternativesMs, 0);
+    });
+
+    test('撤去前の旧ログの alternativesMs は legacy フィールドへ復元する（#327）', () {
+      // 現行アプリは出さないが、撤去前に保存した device.log を解析するとき、この分を
+      // 残差へ誤って積まないようパースは残す（route_metrics_agg のレビュー指摘）。
+      const legacyLine =
+          '[route-metrics] collapse=0 boardSearch=0 http=5 guidanceCalls=1 '
+          'walkCalls=3 matrixCalls=1 guidanceMs=0 hybridMs=0 enrichMs=1 '
+          'boardSearchMs=0 alternativesMs=20000 finalizeMs=0 totalMs=20005';
+
+      final sample = parseRouteMetricsLine(legacyLine);
+
+      expect(sample, isNotNull);
+      expect(sample!.alternativesMs, 20000);
     });
 
     test('flutter run / logcat の前置きが付いた行からもマーカー以降を抽出する', () {
@@ -152,7 +166,7 @@ void main() {
         parseRouteMetricsLine(
           '[route-metrics] collapse=0 boardSearch=0 http=58 guidanceCalls=40 '
           'walkCalls=14 matrixCalls=4 guidanceDupCalls=30 guidanceMs=9000 '
-          'hybridMs=1000 enrichMs=80000 boardSearchMs=0 alternativesMs=15000 '
+          'hybridMs=1000 enrichMs=80000 boardSearchMs=0 '
           'finalizeMs=0 totalMs=105000',
         )!,
       ]);
@@ -161,26 +175,28 @@ void main() {
       expect(formatAggregation(agg), contains('guidance重複率'));
     });
 
-    test('フェーズ別平均と残差を集計する（どこで時間を使うか）', () {
-      // enrich が支配的な検索。フェーズ合計＋残差＝total を保つことを確かめる。
+    test('フェーズ別平均と残差を集計する（legacy alternatives も残差に積まない）', () {
+      // enrich が支配的な旧ログ。撤去済み alternatives 分を残差へ誤って積まず、
+      // フェーズ合計＋残差＝total を保つことを確かめる（#327）。
       final agg = aggregate([
         parseRouteMetricsLine(
           '[route-metrics] collapse=0 boardSearch=0 http=10 guidanceCalls=5 '
           'walkCalls=3 matrixCalls=2 guidanceMs=6000 hybridMs=10000 '
-          'enrichMs=60000 boardSearchMs=0 alternativesMs=20000 finalizeMs=0 '
+          'enrichMs=60000 boardSearchMs=0 alternativesMs=4000 finalizeMs=0 '
           'totalMs=100000',
         )!,
       ]);
       expect(agg.guidanceMs.mean, 6000);
       expect(agg.hybridMs.mean, 10000);
       expect(agg.enrichMs.mean, 60000);
-      expect(agg.alternativesMs.mean, 20000);
-      // 6000+10000+60000+0+20000+0 = 96000、残差 = 100000-96000 = 4000。
-      expect(agg.measuredPhaseMeanSum, 96000);
+      expect(agg.alternativesMs.mean, 4000);
+      // 6000+10000+60000+0+4000+0 = 80000、残差 = 100000-80000 = 20000。
+      expect(agg.measuredPhaseMeanSum, 80000);
 
       final report = formatAggregation(agg);
       expect(report, contains('フェーズ別所要'));
       expect(report, contains('enrich'));
+      expect(report, contains('alternatives(legacy)'));
       expect(report, contains('残差'));
     });
   });

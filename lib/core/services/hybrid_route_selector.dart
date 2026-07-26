@@ -145,59 +145,6 @@ List<RouteCandidate> forwardCandidates(
   return forward.isNotEmpty ? forward : candidates;
 }
 
-/// 確定した [chosen] とは別の「非劣解（実到着 vs 徒歩のパレート最適）」を代替案として
-/// 最大 [maxCount] 件返す（#290）。評価軸は実到着分（[departureAt] 指定時は待ち込みの
-/// [arrivalMinutes]、省略時は [RouteCandidate.totalMin]）と徒歩分 [RouteCandidate.walkMinutes]。
-///
-/// 候補 a が b を支配する＝ a の到着が b 以下**かつ** a の徒歩が b 以上で、少なくとも一方が
-/// 厳密（早着 or 徒歩多）。支配される候補は「あらゆる軸で劣る＝提示価値なし」なので除く。
-/// [chosen] は identical で除き、到着・徒歩が [chosen] と完全同値の候補も除く（ユーザーに
-/// 差分が見えないため）。返却は到着昇順・同着は徒歩多い順・それも同なら乗換少ない順で
-/// 決定的に並べ、同一（到着,徒歩）は1件へ畳む。候補リストの入力順には依存しない。
-List<RouteCandidate> paretoAlternatives({
-  required List<RouteCandidate> candidates,
-  required RouteCandidate chosen,
-  DateTime? departureAt,
-  int maxCount = 3,
-}) {
-  int arrival(RouteCandidate c) => departureAt == null
-      ? c.totalMin
-      : arrivalMinutes(c.segments, departureAt);
-
-  bool dominates(RouteCandidate a, RouteCandidate b) {
-    final betterOrEqual =
-        arrival(a) <= arrival(b) && a.walkMinutes >= b.walkMinutes;
-    final strictly = arrival(a) < arrival(b) || a.walkMinutes > b.walkMinutes;
-    return betterOrEqual && strictly;
-  }
-
-  final chosenArrival = arrival(chosen);
-  final front = <RouteCandidate>[
-    for (final c in candidates)
-      if (!identical(c, chosen) &&
-          !(arrival(c) == chosenArrival &&
-              c.walkMinutes == chosen.walkMinutes) &&
-          !candidates.any((d) => !identical(d, c) && dominates(d, c)))
-        c,
-  ];
-
-  front.sort((a, b) {
-    final byArrival = arrival(a).compareTo(arrival(b));
-    if (byArrival != 0) return byArrival;
-    final byWalk = b.walkMinutes.compareTo(a.walkMinutes);
-    if (byWalk != 0) return byWalk;
-    return a.transferCount.compareTo(b.transferCount);
-  });
-
-  final seen = <String>{};
-  final result = <RouteCandidate>[];
-  for (final c in front) {
-    if (result.length >= maxCount) break;
-    if (seen.add('${arrival(c)}:${c.walkMinutes}')) result.add(c);
-  }
-  return result;
-}
-
 /// 見積り予算内候補を実測する短リスト（#315/#318）。逆戻り除外（[forwardCandidates]）の上で
 /// 見積り実到着（[arrivalMinutes]。[departureAt] で待ち込みの実到着を用いる）が予算内の候補
 /// だけを、徒歩降順→実到着昇順→乗換少ない順で並べて返す（cap は掛けない）。先行実測（Option
@@ -233,15 +180,15 @@ List<RouteCandidate> measureShortlist({
 /// （Option A・#318）。時刻なしハイブリッドは見積りが楽観で実測すると予算超過に転じやすく
 /// （#137）、フロントだけ温めると勝者棄却後に残りを測る2パスが逐次化する（実機 enrichMs ~21s）。
 ///
-/// ハイブリッドが閾値未満の標準乗換中心のルートでは従来どおり見積りフロント（[chosen]＋
-/// パレート代替案 [maxAlternatives] 件）だけを温め、guidance ファンアウトを増やさない
-/// （Option B）。勝者が最上位 tier で即生存する共通ケースで下位候補まで撃たないため。
+/// ハイブリッドが閾値未満の標準乗換中心のルートでは勝者 [chosen] だけを温め、guidance
+/// ファンアウトを増やさない（Option B）。勝者が最上位 tier で即生存する共通ケースで下位
+/// 候補まで撃たないため。勝者が棄却されたときの次候補は winner-phase の tier 実測が改めて測る。
 ///
 /// [hybrids] はハイブリッド候補の identity 集合。件数は cap 前の [shortlist] 全体で数える
 /// ——閾値はルートの reject 起きやすさ（予算内ハイブリッドの多さ）を測る指標で、実測本数の
 /// 上限（[maxMeasureShortlist]）とは別の軸だから。
 ///
-/// [allowSinglePass] を false にすると閾値を満たしても Option A を発火させず見積りフロントへ
+/// [allowSinglePass] を false にすると閾値を満たしても Option A を発火させず勝者のみへ
 /// 抑制する。検索の締切切れ時に呼び出し側が渡す：先行実測の徒歩 enrich は締切を無視する
 /// fail-open（[TransitApiClient]）なので、締切を過ぎたのに短リスト全体（最大
 /// [maxMeasureShortlist] 件）を測ると、使われないかもしれない下位候補へ余計な上流往復を撃つ。
@@ -249,10 +196,8 @@ List<RouteCandidate> measureShortlist({
   required List<RouteCandidate> shortlist,
   required RouteCandidate chosen,
   required Set<RouteCandidate> hybrids,
-  required DateTime departureAt,
   required int singlePassHybridThreshold,
   required int maxMeasureShortlist,
-  int maxAlternatives = 3,
   bool allowSinglePass = true,
 }) {
   final inBudgetHybrids = shortlist.where(hybrids.contains).length;
@@ -262,16 +207,7 @@ List<RouteCandidate> measureShortlist({
         : maxMeasureShortlist;
     return (prewarm: shortlist.sublist(0, cap), singlePass: true);
   }
-  final front = <RouteCandidate>{
-    chosen,
-    ...paretoAlternatives(
-      candidates: shortlist,
-      chosen: chosen,
-      departureAt: departureAt,
-      maxCount: maxAlternatives,
-    ),
-  }.toList();
-  return (prewarm: front, singlePass: false);
+  return (prewarm: [chosen], singlePass: false);
 }
 
 /// 乗車駅探索（docs/notes/walk-max-board-search.md）：乗車駅候補（前半徒歩 t1 の

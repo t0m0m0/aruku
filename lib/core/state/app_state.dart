@@ -136,7 +136,6 @@ class AppState {
     this.todaySteps = 0,
     this.todayKm = 0.0,
     this.todayKcal = 0,
-    this.routeAlternatives = const [],
     this.journey,
     this.journeyManualCompletionAvailable = false,
     this.journeyCurrentLegHandedOff = false,
@@ -168,11 +167,6 @@ class AppState {
   final bool journeyCurrentLegHandedOff;
 
   final LocationState locationState;
-
-  /// [route] と対になるパレート非劣解の代替案（#290）。result 画面の候補切替に使う。
-  /// route を差し替える経路（新規検索成功・リルート成功・失効）では必ず同じ
-  /// copyWith で更新する。リルート後・失効後は stale になるため空へ戻す。
-  final List<RoutePlan> routeAlternatives;
 
   /// isNow（今すぐ出発）経路が前提とする「現在時刻」。確定時に設定し、この時刻から
   /// [kRouteFreshness] を超えて実時間が進むと失効する（#264）。固定出発（isNow=false）
@@ -241,7 +235,6 @@ class AppState {
     int? todaySteps,
     double? todayKm,
     int? todayKcal,
-    List<RoutePlan>? routeAlternatives,
     Object? journey = _sentinel,
     bool? journeyManualCompletionAvailable,
     bool? journeyCurrentLegHandedOff,
@@ -276,7 +269,6 @@ class AppState {
       todaySteps: todaySteps ?? this.todaySteps,
       todayKm: todayKm ?? this.todayKm,
       todayKcal: todayKcal ?? this.todayKcal,
-      routeAlternatives: routeAlternatives ?? this.routeAlternatives,
       journey: identical(journey, _sentinel)
           ? this.journey
           : journey as JourneyProgress?,
@@ -721,7 +713,6 @@ class AppNotifier extends Notifier<AppState> {
         arrival: refreshed.arrival,
         routeErrorKind: null,
         routePhase: null,
-        routeAlternatives: plan.alternatives,
         journey: null,
       );
     } catch (e) {
@@ -1282,24 +1273,6 @@ class AppNotifier extends Notifier<AppState> {
       routeErrorKind: null,
       departure: refreshed.departure,
       arrival: refreshed.arrival,
-      routeAlternatives: const [],
-      journey: null,
-    );
-  }
-
-  /// 結果画面の候補カードから代替案 [index] を選ぶ。確定経路と代替案を入れ替え、
-  /// 何度でも行き来できるようにする（#290）。範囲外 index や経路未確定は no-op。
-  /// 画面遷移はしない（result 画面のまま再描画させる）。
-  void selectAlternative(int index) {
-    final current = state.route;
-    final alternatives = state.routeAlternatives;
-    if (current == null || index < 0 || index >= alternatives.length) return;
-    state = state.copyWith(
-      route: alternatives[index],
-      routeAlternatives: [
-        for (var i = 0; i < alternatives.length; i++)
-          i == index ? current : alternatives[i],
-      ],
       journey: null,
     );
   }

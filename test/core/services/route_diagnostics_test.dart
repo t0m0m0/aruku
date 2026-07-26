@@ -93,7 +93,6 @@ void main() {
         ..hybridMs = 500
         ..enrichMs = 2600
         ..boardSearchMs = 3400
-        ..alternativesMs = 800
         ..finalizeMs = 300
         ..totalMs = 9000;
       expect(
@@ -102,7 +101,7 @@ void main() {
         'guidanceCalls=3 walkCalls=10 matrixCalls=2 '
         'guidanceDupCalls=1 '
         'guidanceMs=1200 hybridMs=500 enrichMs=2600 boardSearchMs=3400 '
-        'alternativesMs=800 finalizeMs=300 totalMs=9000',
+        'finalizeMs=300 totalMs=9000',
       );
     });
 
@@ -117,7 +116,7 @@ void main() {
         'guidanceCalls=1 walkCalls=4 matrixCalls=0 '
         'guidanceDupCalls=0 '
         'guidanceMs=0 hybridMs=0 enrichMs=0 boardSearchMs=0 '
-        'alternativesMs=0 finalizeMs=0 totalMs=0',
+        'finalizeMs=0 totalMs=0',
       );
     });
   });
