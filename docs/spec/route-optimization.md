@@ -156,7 +156,7 @@
   → buildRoutePlan で RoutePlan 構築
 ```
 
-- **往復回数:** guidance(1) + マトリクス(base ごと2並列) + 先行実測／勝者 enrich + 崩壊時の board-search 引き直し。通常ケースは検証が初回で通り、逐次 1〜2 往復で収束（旧方式の最大8+回から削減）。実測の内訳は `RouteSearchMetrics`（§6）で機械集計する。
+- **往復回数:** guidance(1) + マトリクス(base ごと2並列) + 先行実測／勝者 enrich + 崩壊時の board-search 引き直し。通常ケースは検証が初回で通り、逐次 1〜2 往復で収束（旧方式の最大8+回から削減）。実測の内訳は `RouteSearchMetrics`（§3.8）で機械集計する。
 - **base 拡張の増分ゼロ（固定テスト）:** `origin` 発の本命照会は base 数に比例して増えない（`from=origin` の照会は常に1回）。固定テスト「複数 base に広げても guidance/plan 照会は増えない」が、フロントが小さい代表シナリオで origin 発1回・総数≤5 を固定する。
 - **「測ってから選ぶ」の要点:** 直線推定で先に絞り（フロンティア）、**実測してから決定的に選ぶ**。反応的な迂回率学習・割増ヒューリスティック・境界帯を持たないため、座標バリア（川・線路）も直線でなく実測で最初から織り込まれる。採用候補の enrich 検証は「予算内候補がある限り超過を返さない」不変条件（#117/#118）を matrix 失敗時にも保つための少回数の安全網で、通常は1回で確定する。
 
@@ -182,7 +182,7 @@
 
 ### 3.5 バックエンド移管（先送り）
 
-「重いロジックをバックエンドへ」という案があるが、**CPU は軽く本当のボトルネックは外部APIの逐次往復**。measure-first で往復が 1〜2 回に畳まれるため当面不要。着手するなら実機の実測レイテンシ計測（§6 `RouteSearchMetrics`）が前提。`RouteService` 抽象で後から差し替え可能。
+「重いロジックをバックエンドへ」という案があるが、**CPU は軽く本当のボトルネックは外部APIの逐次往復**。measure-first で往復が 1〜2 回に畳まれるため当面不要。着手するなら実機の実測レイテンシ計測（§3.8 `RouteSearchMetrics`）が前提。`RouteService` 抽象で後から差し替え可能。
 
 ### 3.6 乗車駅探索フォールバック（崩壊時のみ・徒歩最大化）
 
@@ -213,8 +213,29 @@
 - **Option B（#315・既定）:** 見積り勝者だけを温める。勝者が最上位徒歩 tier で即生存する標準乗換中心のルートでは、これで1パスに収まり guidance ファンアウトも最小。**勝者以外を投機的に温めない**（#327）——代替案提示を撤去した今、返るのは1本だけで、勝者が生存する共通ケースでは下位候補の実測結果はどこにも使われない。それでも `plan()` は全実測を `await` するため、遅い候補が応答を上流タイムアウトまで引き延ばしレート枠も消費する。棄却時の次候補は winner-phase の tier 実測が改めて測る。
 - **Option A（#318・reject 多発時）:** 見積り予算内ハイブリッドが `_singlePassHybridThreshold`（=3）件以上並ぶルートでは、フロントに限らず**予算内短リスト全体（`measureShortlist` の上位 `_maxMeasureShortlist` 件）**を1パスで先行実測する。時刻なしハイブリッドは見積りが楽観で実測すると予算超過・乗り遅れに転じやすく（§4 #137）、フロントだけ温めると「勝者棄却 → 残りを一括実測」が**2パス逐次**になる（各パスが `enrichWalk`→`resolveBoardingTimes` の ~2 上流ラウンドを持つため `2パス×2ラウンド×上流~5s ≈ 20s` が床。実機 enrichMs ~21s）。短リスト全体を先に温めれば確定選定の tier 実測は全てキャッシュヒットになり、2パス→1パスへ畳まれる。
 - **ヒューリスティックの根拠（#318 の争点）:** 無条件 Option A は共通ケースでも下位候補まで測って guidance ファンアウトを増やす（レート制限 #161: 1検索最大13）。ハイブリッド数はルートの reject 起きやすさの指標で、標準乗換（実ダイヤ由来で reject しにくい）中心のルートを巻き込まない。徒歩 tier の深さでは標準中心ルートと区別できないため、ハイブリッド数を信号に採る。
-- **計測:** 発火有無は `RouteSearchMetrics.singlePassMeasure`（`singlePass=0/1`）で本番ログへ出し、恩恵（enrichMs 短縮）とコスト（ファンアウト増）の割合を機械集計できるようにする（#309）。
+- **計測:** 発火有無は `RouteSearchMetrics.singlePassMeasure`（`singlePass=0/1`・§3.8）で本番ログへ出し、恩恵（enrichMs 短縮）とコスト（ファンアウト増）の割合を機械集計できるようにする（#309）。
 - **cache 整合の不変条件:** 先行実測（Option A）と確定選定の tier 実測は**同一の `measureShortlist`**（同一集合・同一順序）を測る。両者がずれると温めたキャッシュがヒットせず1パスへ畳めないため、短リストの並びは単一実装に集約する。
+
+### 3.8 計測 `RouteSearchMetrics`（#309・レイテンシ判断の一次資料）
+
+1検索分の定量指標を1オブジェクトへ集約し、`grep` で機械集計できる安定した key=value 1行として出す。実装は `lib/core/services/route_diagnostics.dart`（`RouteSearchMetrics` / `RouteDiagnostics.logMetrics`）。**レイテンシ・往復本数の議論はこの実測を根拠にすること**——推測でフェーズの支配要因を語らない。
+
+```
+[route-metrics] collapse=1 boardSearch=1 singlePass=0 http=45
+  guidanceCalls=13 walkCalls=21 matrixCalls=11 guidanceDupCalls=0
+  guidanceMs=10217 hybridMs=7213 enrichMs=5563 boardSearchMs=70334
+  finalizeMs=0 totalMs=93361
+```
+
+| 種別 | フィールド | 意味 |
+|---|---|---|
+| 発火 | `collapse` / `boardSearch` / `singlePass` | 崩壊判定・board-search 起動・Option A 発火（0/1。総数で割れば発火率） |
+| 往復本数 | `guidanceCalls` / `walkCalls` / `matrixCalls` / `http` | 実際に GET を発行した回数（種別ごと＋合計）。締切切れ・キャンセルで発行前に落ちた要求は数えない |
+| 〃 | `guidanceDupCalls` | 同一 guidance URI の重複発行数＝per-search キャッシュで消せる上限。**実測 0%** のため guidance キャッシュは実装前に棄却した |
+| フェーズ所要 | `guidanceMs` / `hybridMs` / `enrichMs` / `boardSearchMs` / `finalizeMs` / `totalMs` | 各区間の実時間。崩壊時の再選定は `boardSearchMs` に含め二重計上しない |
+
+- **出力条件:** 定量指標は `metricsEnabled`（既定 `!kReleaseMode`）＝debug に加え **profile でも出す**。フィールド計測は profile ビルドで行うため、定性ログ（`[route]`・debug 限定）と同じフラグに縛らない。release では抑制する。
+- **フェーズの支配要因は経路依存:** 崩壊時は `boardSearchMs`、通常時は `enrichMs` が支配する。片方の実測だけで「検索が遅い原因」を一般化しない。
 
 ---
 
