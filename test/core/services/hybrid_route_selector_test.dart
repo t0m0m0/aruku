@@ -1000,6 +1000,103 @@ void main() {
     });
   });
 
+  group('maxWalkBoardingIndexWindowed (#332)', () {
+    // 到着=index。境界は budgetMin と一致する。窓を外したときに取りこぼさないことが
+    // この関数の存在理由なので、両方向の外し方を反証する。
+    Future<({int? best, List<int> evaluated})> run({
+      required int count,
+      required int windowLo,
+      required int windowHi,
+      required int budgetMin,
+    }) async {
+      final evaluated = <int>[];
+      final best = await maxWalkBoardingIndexWindowed(
+        count: count,
+        windowLo: windowLo,
+        windowHi: windowHi,
+        budgetMin: budgetMin,
+        fanout: 5,
+        evaluate: (i) async {
+          evaluated.add(i);
+          return i;
+        },
+      );
+      return (best: best, evaluated: evaluated);
+    }
+
+    test('窓の中に境界があれば窓の外を評価しない', () async {
+      final r = await run(
+        count: 124,
+        windowLo: 28,
+        windowHi: 60,
+        budgetMin: 33,
+      );
+      expect(r.best, 33);
+      expect(
+        r.evaluated.every((i) => i >= 28 && i <= 60),
+        isTrue,
+        reason: '窓の外まで評価している: ${r.evaluated}',
+      );
+    });
+
+    test('窓が空振り（下端すら予算外）なら手前を再探索して境界を返す', () async {
+      // 予測が楽観に外れ、真の境界(20)が窓(40..80)より手前にあるケース。
+      final r = await run(
+        count: 124,
+        windowLo: 40,
+        windowHi: 80,
+        budgetMin: 20,
+      );
+      expect(r.best, 20);
+    });
+
+    test('窓の上端まで予算内なら奥を再探索して境界を返す', () async {
+      // 予測が悲観に外れ、真の境界(90)が窓(40..80)より奥にあるケース。
+      final r = await run(
+        count: 124,
+        windowLo: 40,
+        windowHi: 80,
+        budgetMin: 90,
+      );
+      expect(r.best, 90);
+    });
+
+    test('窓より手前も全滅なら null', () async {
+      final r = await run(
+        count: 124,
+        windowLo: 40,
+        windowHi: 80,
+        budgetMin: -1,
+      );
+      expect(r.best, isNull);
+    });
+
+    test('窓が全域なら追加の再探索を起こさない', () async {
+      // 上端が末尾＝奥が無い／下端が0＝手前が無いので、フォールバックの条件は成立しない。
+      final r = await run(count: 40, windowLo: 0, windowHi: 39, budgetMin: 39);
+      expect(r.best, 39);
+      expect(r.evaluated.toSet().length, r.evaluated.length, reason: '重複評価なし');
+    });
+
+    test('締切で打ち切られたら再探索も起こさない', () async {
+      var calls = 0;
+      final best = await maxWalkBoardingIndexWindowed(
+        count: 124,
+        windowLo: 40,
+        windowHi: 80,
+        budgetMin: 20,
+        fanout: 5,
+        shouldContinue: () => false,
+        evaluate: (i) async {
+          calls++;
+          return i;
+        },
+      );
+      expect(best, isNull);
+      expect(calls, 0);
+    });
+  });
+
   group('arrivalFeasiblePrefixCount', () {
     // 残り所要の下界を渡さない（全0）＝到着下界が t1 だけの場合。#317 の挙動。
     int walkOnly(List<int> walk1Min, int budgetMin) =>

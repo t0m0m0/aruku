@@ -127,6 +127,19 @@ class TransitRouteService implements SearchEngine {
   /// 実測し、429 を「予算外」と誤認しない分離を入れてからにすること。
   static const int _boardSearchFanout = 5;
 
+  /// 乗車駅探索の予測窓の幅（分・#332）。base 由来の到着予測が実測に対しこの分数までずれても
+  /// 窓は真の境界を含む。狭めるほどラウンドが減るが窓を外す確率が上がり、外すとフォールバック
+  /// の再探索でかえって遅くなる。予測が乗車待ちを含めていない分（実機で数分〜十数分）を
+  /// 吸収できる幅として置く。
+  static const int _boardSearchWindowMarginMin = 20;
+
+  /// 乗車駅探索の予測窓の最小点数（#332）。`(fanout+1)^2` 点までは2ラウンドで解けるため、
+  /// これ以下へ窓を絞ってもラウンド（＝律速の直列 guidance 段数）は減らず、probe 密度だけが
+  /// 落ちる。密度は非単調コリドーで「評価済みの中の徒歩最大」を拾う解像度そのもの（#137）
+  /// なので、ラウンドを減らさない絞り込みは損にしかならない。
+  static const int _boardSearchMinWindow =
+      (_boardSearchFanout + 1) * (_boardSearchFanout + 1);
+
   /// フロンティア t1 一括実測マトリクスの1コールあたり目的地数の上限（#317 レビュー対応）。
   /// サーバ側 `MATRIX_MAX_ELEMENTS`（`functions/src/index.ts`・25）を超えると 400 で全滅し
   /// 直線推定のみへ縮退するため、目的地をこの数以下ずつに分割して投げる（origins は 1 なので
@@ -1118,7 +1131,13 @@ class TransitRouteService implements SearchEngine {
     // から刈る。ラウンド間直列の guidance 引き直し（律速）を、予算内になり得る手前の点だけに
     // 絞ることでラウンド数を減らす。刈っても予算内候補は落ちない（[arrivalFeasiblePrefixCount]
     // の安全上界）。
-    final scanCount = await _boardSearchScanCount(origin, stops, budgetMin);
+    final walk1Min = await _boardSearchWalk1(origin, stops);
+    final scanCount = arrivalFeasiblePrefixCount(
+      walk1Min: walk1Min,
+      // t1 単独の刈り込みは t2 ≥ 0 だけを根拠にした健全な上界（#317）。
+      minRemainMin: const [],
+      budgetMin: budgetMin,
+    );
     if (scanCount == 0) {
       _diag.log(() => 'board-search: 予算内の乗車駅なし（t1 実測で全点予算外）');
       return const [];
@@ -1172,9 +1191,17 @@ class TransitRouteService implements SearchEngine {
     // k分割並列版（#163）: 各ラウンドで _boardSearchFanout 点を同時評価し、Transit API
     // レイテンシ（1コール2〜10秒）の数珠つなぎを「ラウンド数×最遅1本」へ縮める。
     // 評価点の集合は直列二分探索と異なるため、プールへ足す候補（下の within）も変わり得る。
-    final best = await maxWalkBoardingIndexParallel(
-      // matrix プレ実測で刈った予算内フロンティアまでを探索範囲にする（#317）。
+    final window = _boardSearchWindow(
+      base,
+      stops,
+      walk1Min,
+      budgetMin,
+      scanCount,
+    );
+    final best = await maxWalkBoardingIndexWindowed(
       count: scanCount,
+      windowLo: window.lo,
+      windowHi: window.hi,
       budgetMin: budgetMin,
       fanout: _boardSearchFanout,
       // 締切超過で新ラウンドを起こさない（#300）。[TransitApiClient] の残予算クランプが
@@ -1194,7 +1221,8 @@ class TransitRouteService implements SearchEngine {
     _diag.log(
       () =>
           'board-search: 実測k分割並列探索の境界 best='
-          '${best == null ? 'null(予算内乗車駅なし)' : '$best'} / コリドー点${stops.length}',
+          '${best == null ? 'null(予算内乗車駅なし)' : '$best'} / コリドー点${stops.length} '
+          '窓=[${window.lo},${window.hi}] 上界=${scanCount - 1}',
     );
     // 探索が評価した点（メモ化済み）のうち、予算内の候補を「全部」返す。境界 best 1本だけ
     // でなく全部を返すのは：(1) 到着は実街路で非単調になり得る（後方の停車駅が origin に近い等）
@@ -1210,22 +1238,21 @@ class TransitRouteService implements SearchEngine {
     return within;
   }
 
-  /// コリドー全点の前半徒歩 t1 を matrix 一括実測し、探索を「t1 が予算内の最遠点」まで
-  /// （先頭からの点数）に刈った値を返す（#317）。到着 = t1 + t2(≥0) なので t1 単独で予算外の
-  /// 遠点は確実に予算外——[maxWalkBoardingIndexParallel] のラウンド間直列 guidance をそこへ
-  /// 費やさない。matrix 欠落レッグは直線推定（実徒歩の下限）で埋める：下限すら予算外なら実測
-  /// でも予算外なので刈って安全、下限が予算内なら刈らず探索の街路実測に委ねる。matrix は刈り
-  /// 込み判定にだけ使い、採用候補の徒歩ジオメトリは従来どおり buildAt の街路実測（[_tryWalk]）
-  /// が持つ。matrix 全滅時も直線推定だけで安全に刈れる（追加往復に依存しない）。
+  /// コリドー全点の前半徒歩 t1（分）を matrix 一括実測して返す（#317）。呼び出し側はこれを
+  /// [arrivalFeasiblePrefixCount] に渡して探索範囲を刈る——到着 = t1 + t2(≥0) なので t1 単独で
+  /// 予算外の遠点は確実に予算外で、[maxWalkBoardingIndexParallel] のラウンド間直列 guidance を
+  /// そこへ費やさない。matrix 欠落レッグは直線推定（実徒歩の下限）で埋める：下限すら予算外なら
+  /// 実測でも予算外なので刈って安全、下限が予算内なら刈らず探索の街路実測に委ねる。matrix は
+  /// 刈り込み・窓の判定にだけ使い、採用候補の徒歩ジオメトリは従来どおり buildAt の街路実測
+  /// （[_tryWalk]）が持つ。matrix 全滅時も直線推定だけで安全に刈れる（追加往復に依存しない）。
   ///
   /// 目的地はサーバの `MATRIX_MAX_ELEMENTS`（25）を超えると 400 で全滅する（→直線推定のみへ
   /// 縮退）ため、[_maxScanMatrixDests] 個以下ずつに分割し、チャンクは独立なので**並列**に投げる
   /// （直列だと proxy timeout×チャンク数まで走時計が膨らむ・#317 レビュー対応）。分割レスポンスの
   /// `destinationIndex` はチャンク内 0 起点なので、チャンク先頭を足して大域 index へ戻す。
-  Future<int> _boardSearchScanCount(
+  Future<List<int>> _boardSearchWalk1(
     GeoPoint origin,
     List<_CorridorStop> stops,
-    int budgetMin,
   ) async {
     final walk1 = [
       for (final s in stops)
@@ -1262,11 +1289,96 @@ class TransitRouteService implements SearchEngine {
         walk1[r.start + di] = min;
       }
     }
-    return arrivalFeasiblePrefixCount(
-      walk1Min: walk1,
-      minRemainMin: [for (final _ in stops) 0],
-      budgetMin: budgetMin,
+    return walk1;
+  }
+
+  /// 乗車駅探索を「境界がありそうな index の窓」へ絞る（#332）。全域 `[0, scanCount)` を
+  /// k分割並列で探索するとラウンドが `log_{fanout+1} scanCount` 段（実機のコリドー124点で
+  /// 3段・1段あたり上流 guidance 10〜30秒）積み上がる。到着を base から予測して窓へ絞れば
+  /// 段数が落ちる。
+  ///
+  /// 予測到着は `t1 実測 + t2見積り`（[_corridorRemainMin]）。窓は予測到着が
+  /// `budget ± _boardSearchWindowMarginMin` に入る index 帯——予測が分単位でこの幅までずれても
+  /// 真の境界を含む。**index 幅ではなく分幅で切る**のは、コリドー点の密度が経路ごとに違い
+  /// （実機で 60〜124 点）、同じ index 幅でも表す時間幅が桁で変わるため。
+  ///
+  /// **予測であって下界ではない。** base の「残り乗車＋後続区間＋降車後徒歩」は「base に乗り
+  /// 続ける」1経路の所要＝ X→goal の**上界**で、引き直し `/guidance/plan(X→goal)` はそれより
+  /// 速い便を返し得る（別系統・goal により近い終着駅で降車後徒歩が丸ごと消える等）。よって
+  /// これを刈り込みの下界に使うと予算内候補を落とす。窓は**外れても呼び出し側のフォールバック
+  /// が回収する**前提で使い、健全な上界（t1 単独）だけを [scanCount] に残す。
+  ({int lo, int hi}) _boardSearchWindow(
+    TransitOption base,
+    List<_CorridorStop> stops,
+    List<int> walk1Min,
+    int budgetMin,
+    int scanCount,
+  ) {
+    final remain = _corridorRemainMin(base, stops);
+    int frontier(int budget) => arrivalFeasiblePrefixCount(
+      walk1Min: walk1Min,
+      minRemainMin: remain,
+      budgetMin: budget,
     );
+    final rawLo = frontier(budgetMin - _boardSearchWindowMarginMin) - 1;
+    final rawHi = frontier(budgetMin + _boardSearchWindowMarginMin) - 1;
+    var lo = rawLo.clamp(0, scanCount - 1);
+    var hi = rawHi < lo ? scanCount - 1 : rawHi.clamp(lo, scanCount - 1);
+    // 素直には予測窓をそのまま使いたいが、狭くしても得が無い領域がある: (fanout+1)^2 点までは
+    // 2ラウンドで解けるので、それ以下へ絞ってもラウンドは減らず probe 密度だけが落ちる。密度は
+    // 非単調コリドーで「評価済みの中の徒歩最大」を拾う解像度そのもの（#137）で、落とすと徒歩が
+    // 短くなる。ラウンドを減らさない絞り込みはしない。
+    while (hi - lo + 1 < _boardSearchMinWindow &&
+        (lo > 0 || hi < scanCount - 1)) {
+      if (lo > 0) lo--;
+      if (hi < scanCount - 1) hi++;
+    }
+    return (lo: lo, hi: hi);
+  }
+
+  /// 各コリドー点について「その点で乗車してから goal へ着くまでの残り所要 t2」を [base] だけ
+  /// から見積もる（追加 API ゼロ・#332）。内訳は「点が属する区間の残り乗車 ＋ その区間より
+  /// 後ろの base 全セグメント（乗換徒歩・後続乗車・降車後徒歩）」で、区間内の残り乗車はコリドー
+  /// 折れ線の残り比で按分する。乗車待ちは含めない。
+  ///
+  /// 用途は [_boardSearchWindow] の**予測のみ**。下界ではないので刈り込みには使えない（理由は
+  /// [_boardSearchWindow] のドキュメント）。
+  List<int> _corridorRemainMin(TransitOption base, List<_CorridorStop> stops) {
+    final transitAt = [
+      for (var i = 0; i < base.segments.length; i++)
+        if (base.segments[i].type == SegmentType.train ||
+            base.segments[i].type == SegmentType.bus)
+          i,
+    ];
+    final tailMin = [
+      for (final at in transitAt)
+        base.segments.skip(at + 1).fold<int>(0, (sum, s) => sum + s.minutes),
+    ];
+
+    final out = List<int>.filled(stops.length, 0);
+    var i = 0;
+    while (i < stops.length) {
+      final section = stops[i].section;
+      var end = i;
+      while (end + 1 < stops.length && stops[end + 1].section == section) {
+        end++;
+      }
+      final rideMin = section < transitAt.length
+          ? base.segments[transitAt[section]].minutes
+          : 0;
+      final tail = section < tailMin.length ? tailMin[section] : 0;
+      final totalKm = _railKm(stops, i, end);
+      var doneKm = 0.0;
+      for (var k = i; k <= end; k++) {
+        if (k > i) doneKm += haversineKm(stops[k - 1].coord, stops[k].coord);
+        // 折れ線長 0（区間の全点が同座標）では進捗が測れない。残り乗車を丸ごと残っている
+        // 側へ倒すと窓が奥へずれるので、0＝手前寄りへ落とす（外れてもフォールバックが拾う）。
+        final remainRide = totalKm > 0 ? rideMin * (1 - doneKm / totalKm) : 0.0;
+        out[k] = (remainRide + tail).round();
+      }
+      i = end + 1;
+    }
+    return out;
   }
 
   /// 乗降アクセス徒歩を1回（最大2コール）のマトリクス（Google プロキシ）で一括実測し、

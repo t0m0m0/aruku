@@ -321,6 +321,46 @@ Future<int?> maxWalkBoardingIndexParallel({
   return best;
 }
 
+/// [maxWalkBoardingIndexParallel] を「予測した窓 `[windowLo, windowHi]` を先に探索し、外したら
+/// 回収する」形で回す（#332）。窓の中に境界があれば `[0, count)` 全域より少ないラウンドで
+/// 同じ境界へ届く。ラウンド数が律速（1段＝上流 guidance 1本・9〜30秒）なので、探索空間を
+/// 削ることだけが短縮になる。
+///
+/// **窓は予測であって下界ではない**——外れたときの回収がこの関数の存在理由：
+/// - 窓の中に予算内が皆無（＝予測が楽観に外れ、境界は窓より手前）→ `[0, windowLo)` を再探索
+/// - 窓の上端が予算内（＝予測が悲観に外れ、境界は窓より奥）→ `[windowHi, count)` を再探索
+///
+/// どちらの回収も単調性の仮定の下で正しい。窓の中で境界が確定したときは、それが
+/// `[0, count)` 全域の境界と一致する（窓より手前は単調性より予算内、奥は予算外）。
+/// 戻り値・[shouldContinue]・単調性の仮定は [maxWalkBoardingIndexParallel] と同じ。
+Future<int?> maxWalkBoardingIndexWindowed({
+  required int count,
+  required int windowLo,
+  required int windowHi,
+  required int budgetMin,
+  required Future<int> Function(int index) evaluate,
+  int fanout = 3,
+  bool Function()? shouldContinue,
+}) async {
+  Future<int?> search(int from, int to) => maxWalkBoardingIndexParallel(
+    start: from,
+    count: to + 1,
+    budgetMin: budgetMin,
+    fanout: fanout,
+    shouldContinue: shouldContinue,
+    evaluate: evaluate,
+  );
+
+  final best = await search(windowLo, windowHi);
+  if (best == null && windowLo > 0) {
+    return search(0, windowLo - 1);
+  }
+  if (best == windowHi && windowHi < count - 1) {
+    return await search(windowHi + 1, count - 1) ?? best;
+  }
+  return best;
+}
+
 /// 乗車駅探索の区間を「door-to-door 到着の**下界**が予算内の最遠 index」までへ刈った探索
 /// 点数を返す（#317 / #332）。返り値 `n` は探索を index `[0, n)` に限ってよいことを表す。
 /// 予算内の点が皆無・[walk1Min] が空なら 0。
