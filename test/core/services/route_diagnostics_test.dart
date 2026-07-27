@@ -146,7 +146,10 @@ void main() {
       expect(m.boardSearchBest, 25);
     });
 
-    test('どれか1本でも打ち切られたら truncated（境界を確定値として扱わせない）', () {
+    test('truncated は報告する対と同じ探索から採る', () {
+      // 採用した境界が正常に確定しているなら、別の（短い）探索が打ち切られたことを
+      // 理由に捨ててはいけない。truncated は「この best が信用できるか」の印なので、
+      // best と同じ探索を指していないと有効なサンプルを落とす。
       final m = RouteSearchMetrics()
         ..recordBoardSearches([
           BoardSearchStats()
@@ -159,6 +162,24 @@ void main() {
             ..best = 5
             ..truncated = true,
         ]);
+      expect(m.boardSearchBest, 25);
+      expect(m.boardSearchTruncated, isFalse);
+    });
+
+    test('採用した探索が打ち切られていれば truncated', () {
+      final m = RouteSearchMetrics()
+        ..recordBoardSearches([
+          BoardSearchStats()
+            ..rounds = 3
+            ..scanCount = 63
+            ..best = 25
+            ..truncated = true,
+          BoardSearchStats()
+            ..rounds = 1
+            ..scanCount = 40
+            ..best = 5,
+        ]);
+      expect(m.boardSearchBest, 25);
       expect(m.boardSearchTruncated, isTrue);
     });
 

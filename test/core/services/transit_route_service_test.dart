@@ -1307,15 +1307,103 @@ void main() {
 
       TransitRouteService serviceWith(
         http.Client client,
-        SearchDeadline deadline,
-      ) => TransitRouteService(
+        SearchDeadline deadline, {
+        void Function(RouteSearchMetrics)? onMetrics,
+      }) => TransitRouteService(
         transitClient: client,
         proxyClient: client,
         transitBaseUrl: _transitBase,
         proxyBaseUrl: _proxyBase,
         clock: () => DateTime(2026, 6, 27, 9, 0),
         deadline: deadline,
+        onMetrics: onMetrics,
       );
+
+      test('ラウンド実行中に切れた締切も truncated にする（#332 レビュー）', () async {
+        // shouldContinue は「新しいラウンドを起こす前」にしか呼ばれない。締切が
+        // ラウンド実行中に切れると probe は TIMEOUT →「予算外」と解釈されて区間が尽き、
+        // shouldContinue を再び通らずにループが自然終了する＝打ち切りを取りこぼす。
+        //
+        // それを再現するため、**探索が全ラウンドを回し終えた後**に切れる締切を作る。
+        // 締切なしで同じ検索を1回流して guidance の総本数を数え、その本数に達した
+        // 時点で切らせれば、shouldContinue は一度も false を返さない。この条件で
+        // truncated が立つかどうかが、探索後チェックの有無をそのまま反証する。
+        final baseline = <Uri>[];
+        await serviceWith(
+          inflatedFromMock(guidanceCalls: baseline),
+          const SearchDeadline.none(),
+        ).plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30),
+          origin: origin3,
+          originName: '出発',
+        );
+        expect(baseline.length, greaterThan(1), reason: 'board-search が走る前提');
+
+        final calls = <Uri>[];
+        RouteSearchMetrics? captured;
+        await serviceWith(
+          inflatedFromMock(guidanceCalls: calls),
+          SearchDeadline(
+            const Duration(seconds: 120),
+            elapsed: () => calls.length >= baseline.length
+                ? const Duration(seconds: 120)
+                : Duration.zero,
+          ),
+          onMetrics: (m) => captured = m,
+        ).plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30),
+          origin: origin3,
+          originName: '出発',
+        );
+
+        expect(captured, isNotNull);
+        expect(captured!.boardSearchActivated, isTrue);
+        expect(captured!.boardSearchTruncated, isTrue);
+      });
+
+      test('締切に掛かった探索の境界は truncated として記録する（#332 レビュー）', () async {
+        // 締切が絡んだ探索の境界は「実測で確定した境界」ではなく、締切で手前に
+        // 止まった値であり得る。probe 配置の判断材料（境界位置の分布）へ確定値として
+        // 混ぜないよう、印を残すことを固定する。
+        //
+        // ラウンド実行中に締切が切れた場合、probe は TIMEOUT →「予算外」と解釈されて
+        // 区間が尽き、shouldContinue を再び通らずにループを抜ける。つまり「新ラウンドを
+        // 起こさなかった」判定だけでは取りこぼす——探索後の締切チェックが要る。
+        final calls = <Uri>[];
+        RouteSearchMetrics? captured;
+        final svc = serviceWith(
+          inflatedFromMock(guidanceCalls: calls),
+          // board-search が**起動した後**に予算を使い切る。起動前に切れると探索自体を
+          // 起こさず縮退するので（best=-1 で集計対象外）、再現したい状況と別物になる。
+          // 初期1本＋引き直し1本が出た時点で切らせ、探索の途中で締切に掛からせる。
+          SearchDeadline(
+            const Duration(seconds: 120),
+            elapsed: () => calls.length >= 2
+                ? const Duration(seconds: 120)
+                : Duration.zero,
+          ),
+          onMetrics: (m) => captured = m,
+        );
+
+        await svc.plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30),
+          origin: origin3,
+          originName: '出発',
+        );
+
+        expect(captured, isNotNull);
+        // 締切に掛かった以上、境界を確定値として集計へ流してはならない。
+        expect(captured!.boardSearchTruncated, isTrue);
+      });
 
       test('締切を使い切っても確定経路は返る（引き直しの全滅で失敗させない）', () async {
         final calls = <Uri>[];

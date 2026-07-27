@@ -77,9 +77,14 @@ class RouteSearchMetrics {
   /// 境界だった」と紛れるため番兵に使えない）。
   int boardSearchBest = -1;
 
-  /// 乗車駅探索のいずれかが締切で打ち切られたか（#300）。打ち切られた境界は本来より
-  /// 手前になり得るため、集計側は境界位置の分布から除く。所要・段数の分布には残す
-  /// （打ち切られるほど重かった探索こそ見たいので）。
+  /// [boardSearchBest] を出した探索が締切で打ち切られたか（#300）。打ち切られた境界は
+  /// 本来より手前になり得るため、集計側は境界位置の分布から除く。所要・段数の分布には
+  /// 残す（打ち切られるほど重かった探索こそ見たいので）。
+  ///
+  /// **報告する [boardSearchBest] と同じ探索を指す**（並列に走った別の探索の打ち切りは
+  /// 引き継がない）。この印は「この境界が信用できるか」を意味するので、採用した境界が
+  /// 正常に確定しているなら、短い方が打ち切られたことを理由に有効なサンプルを捨てては
+  /// いけない。
   bool boardSearchTruncated = false;
 
   /// 並列に走った乗車駅探索群（[BoardSearchStats]）を1検索ぶんの指標へ畳む。
@@ -88,14 +93,14 @@ class RouteSearchMetrics {
   /// 直列に積み上がった段数＝クリティカルパスは最も深い1本で決まる。和にすると
   /// 「壁時計に対応する直列段数」という指標の意味そのものが壊れる。
   ///
-  /// [boardSearchScanCount] と [boardSearchBest] は**同一の探索から採る**（対を崩すと
-  /// `best/scanCount` が実在しない比になる）。採るのは段数を決めた探索＝報告する
+  /// [boardSearchScanCount]・[boardSearchBest]・[boardSearchTruncated] は**同一の探索
+  /// から採る**（対を崩すと `best/scanCount` が実在しない比になり、truncated が別の探索を
+  /// 指すと有効なサンプルを捨てる）。採るのは段数を決めた探索＝報告する
   /// [boardSearchRounds] と整合する1本。同点なら走査範囲の広い方。
   void recordBoardSearches(Iterable<BoardSearchStats> searches) {
     BoardSearchStats? dominant;
     for (final s in searches) {
       if (s.rounds > boardSearchRounds) boardSearchRounds = s.rounds;
-      if (s.truncated) boardSearchTruncated = true;
       if (dominant == null ||
           s.rounds > dominant.rounds ||
           (s.rounds == dominant.rounds && s.scanCount > dominant.scanCount)) {
@@ -105,6 +110,7 @@ class RouteSearchMetrics {
     if (dominant == null) return;
     boardSearchScanCount = dominant.scanCount;
     boardSearchBest = dominant.best;
+    boardSearchTruncated = dominant.truncated;
   }
 
   /// 確定候補の駅名確定（`_finalizeStationNames`）に掛かった実時間。

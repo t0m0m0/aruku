@@ -1211,6 +1211,13 @@ class TransitRouteService implements SearchEngine {
             : arrivalMinutes(c.segments, departureAt);
       },
     );
+    // 締切が**ラウンド実行中**に切れた場合、probe は TIMEOUT → `_fetchTransitFrom` が
+    // null → `budgetMin + (1 << 20)`＝「予算外」と解釈されて区間が尽き、shouldContinue を
+    // 再び通らずにループを抜ける。つまり「新ラウンドを起こさなかった」判定だけでは
+    // 打ち切りを取りこぼす——境界を実測でなく締切が決めた、最も記録すべきケースで。
+    // 自然完走の直後に切れた場合も truncated 側へ倒すが、集計は境界位置の分布から
+    // 除くだけなので、取りこぼすより1件捨てる方が安全（#332 レビュー指摘）。
+    if (_deadline.isExpired) stats.truncated = true;
     stats.best = best ?? -1;
     _diag.log(
       () =>
