@@ -2067,7 +2067,7 @@ void main() {
     const goal6 = GeoPoint(35.0, 139.30); // 全徒歩は約340分で予算外
 
     // 始発 firstTrainSecs（05:00）固定。照会時刻が始発前なら始発に張り付き、以降なら
-    // 照会時刻以降の最初の便を返す（実機の NAVITIME/Transit API と同じ正直な挙動）。
+    // 照会時刻以降の最初の便を返す（実機 Transit API と同じ正直な挙動）。
     http.Client nightMock({int firstTrainSecs = 18000, int rideSecs = 1800}) {
       Map<String, dynamic> optionFor(int reqSecs) {
         final dep = reqSecs > firstTrainSecs ? reqSecs : firstTrainSecs;
