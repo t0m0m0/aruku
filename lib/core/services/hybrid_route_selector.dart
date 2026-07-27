@@ -110,8 +110,8 @@ RouteCandidate selectBestRoute({
 ///   発車時刻のみで判定するため、降車駅の時刻を欠く NAVITIME データでも乗り遅れを拾える。
 ///
 /// 該当が無ければ null を返し、呼び出し側は元の全候補へ縮退する。選定中の pool
-/// （[selectBestRoute]）と縮退時の全候補（NaviTimeRouteService）の双方で同じ判定を
-/// 共有するための純粋関数。
+/// （[selectBestRoute]）と best-effort 縮退時の全候補の双方で同じ判定を共有するための
+/// 純粋関数。
 List<RouteCandidate>? reachableWithinBudget(
   List<RouteCandidate> candidates,
   int budgetMin,
