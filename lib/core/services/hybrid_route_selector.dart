@@ -107,11 +107,11 @@ RouteCandidate selectBestRoute({
 ///   （終電後の翌朝始発など「待てば乗れるが今夜は無理」な電車を除く・#121 原因②）。
 /// - 乗り遅れる電車が無い（[firstMissedTransit] == null）。徒歩を延ばして発車後に駅着する
 ///   電車は実際には乗れず、[maxBoardingWait] では待ち0に見えて素通りするため明示的に除く。
-///   発車時刻のみで判定するため、降車駅の時刻を欠く NAVITIME データでも乗り遅れを拾える。
+///   判定は発車時刻のみで行う（乗り遅れは駅着時点で発車済みかの問題で、降車時刻に依らない）。
 ///
 /// 該当が無ければ null を返し、呼び出し側は元の全候補へ縮退する。選定中の pool
-/// （[selectBestRoute]）と縮退時の全候補（NaviTimeRouteService）の双方で同じ判定を
-/// 共有するための純粋関数。
+/// （[selectBestRoute]）と best-effort 縮退時の全候補の双方で同じ判定を共有するための
+/// 純粋関数。
 List<RouteCandidate>? reachableWithinBudget(
   List<RouteCandidate> candidates,
   int budgetMin,
@@ -129,9 +129,9 @@ List<RouteCandidate>? reachableWithinBudget(
 
 /// 出発地より進行方向の後方へ [maxBacktrackRatio] × 直線距離(origin→goal) を超えて戻る
 /// 「逆戻り迂回」候補を除いた前方プールを返す。全候補が逆戻りなら除外せずそのまま返し、
-/// [origin]/[goal] 未指定はフィルタなし。勝者選定（[selectBestRoute]）と代替案選出
-/// （#290・[paretoAlternatives] の母集団）が同じ方向フィルタを共有するための純粋関数——
-/// 選定で意図的に除外した迂回が、生プールからのパレート選出で代替案に再登場するのを防ぐ。
+/// [origin]/[goal] 未指定はフィルタなし。勝者選定（[selectBestRoute]）と実測短リスト
+/// （[measureShortlist]）が同じ方向フィルタを共有するための純粋関数——選定で意図的に
+/// 除外した迂回へ、生プールを見る別経路から実測コストを払わないため。
 List<RouteCandidate> forwardCandidates(
   List<RouteCandidate> candidates,
   GeoPoint? origin,
@@ -210,7 +210,7 @@ List<RouteCandidate> measureShortlist({
   return (prewarm: [chosen], singlePass: false);
 }
 
-/// 乗車駅探索（docs/notes/walk-max-board-search.md）：乗車駅候補（前半徒歩 t1 の
+/// 乗車駅探索（docs/spec/route-optimization.md §3.6）：乗車駅候補（前半徒歩 t1 の
 /// 昇順）について「到着が予算内の最遠 index ＝ 総徒歩最大」を二分探索で返す。
 ///
 /// t1 は index 増で単調増、X→goal の電車所要 t2 は単調減で、door-to-door 到着
@@ -327,11 +327,11 @@ int walkFeasiblePrefixCount(List<int> walk1Min, int budgetMin) {
 /// 徒歩区間は判定しない（目的地へ近づくための短い徒歩を弾かないため）。
 ///
 /// 判定は電車区間 polyline を[両端＋均等サンプリング]した点で行い、生の全頂点は
-/// 使わない（[_sampledForBacktrack]）。stopOrder/NAVITIME の polyline は停車駅座標
-/// で疎（サンプリング上限以下）なので全点がそのまま使われる。一方 Transit API の
+/// 使わない（[_sampledForBacktrack]）。`stopOrder` の polyline は停車駅座標で疎
+/// （サンプリング上限以下）なので全点がそのまま使われる。一方 Transit API の
 /// gtfsShape は線路追従で頂点が密（数百）なため、全頂点を判定すると乗車直後などの
 /// 一過性の後方カーブ頂点1つで正当な経路を誤除外してしまう。サンプリングにより
-/// コリドーの大局的な逆戻りのみを検出する（docs/notes/transit-api-migration.md §4）。
+/// コリドーの大局的な逆戻りのみを検出する（docs/spec/route-optimization.md §2.3）。
 bool _isBacktrackDetour(
   RouteCandidate c,
   GeoPoint origin,
@@ -400,7 +400,7 @@ double _advanceKm(GeoPoint origin, GeoPoint goal, double dog, GeoPoint p) {
 ///
 /// これにより origin→各乗車駅／各降車駅→goal を1回のマトリクスで一括実測する対象を
 /// 要素数課金（片側 ≤ [maxPerSide]）の範囲へ抑えつつ、徒歩最大の乗降候補を取りこぼさない。
-/// Google を呼ばない純粋関数。NAVITIME 版・Transit 版の双方が共有する（データ源非依存）。
+/// Google を呼ばない純粋関数（データ源非依存）。
 ({List<int> boarding, List<int> alighting}) frontierStations(
   List<GeoPoint> stops,
   GeoPoint origin,

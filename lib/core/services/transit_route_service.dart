@@ -21,18 +21,18 @@ import 'transit_plan_parser.dart';
 typedef _Selection = ({RouteCandidate chosen, RouteCandidate enriched});
 
 /// Transit API（`/guidance/plan`）から、予算内で徒歩を最大化するルートを生成する
-/// `RouteService`（#137）。NAVITIME 版（[NaviTimeRouteService]）を置換する。
+/// `RouteService`（#137）。
 ///
 /// 経路取得は Transit API を直叩き（認証不要・CORS）、アクセス徒歩の実測だけは
 /// Google Routes プロキシ（App Check）を介す。選定（measure-first・乗車駅探索・
 /// best-effort 縮退）と純粋関数（[selectBestRoute]/[maxWalkBoardingIndex]/
-/// [frontierStations]/[arrivalMinutes]/[buildRoutePlan]）はデータ源非依存なので流用する。
+/// [frontierStations]/[arrivalMinutes]/[buildRoutePlan]）はデータ源非依存。
 ///
-/// NAVITIME 版との差（docs/notes/transit-api-migration.md）：
-/// - 途中停車駅は `/guidance/plan` の transit polyline（コリドー座標）で代替し、
-///   乗車駅探索はコリドーを間引きサンプリングして `plan(X→goal)` を引き直す（§2.5）。
-/// - 運賃は取得不可のため廃止（§5）。乗り遅れ再照会（#115）は乗車駅探索へ一本化し
-///   廃止（§4）。引き直し便は自己整合なので `firstMissedTransit` が立たない。
+/// データ源の制約が設計を決めている（docs/spec/route-optimization.md §2.2）：
+/// - 途中停車駅を leg が持たないため、transit polyline（コリドー座標）で代替する。
+///   乗車駅探索はコリドーを間引きサンプリングして `plan(X→goal)` を引き直す（§2.3）。
+/// - 運賃は常に null のため表示ごと廃止。乗り遅れ再照会（#115）は乗車駅探索へ
+///   一本化した——引き直し便は自己整合なので `firstMissedTransit` が立たない。
 class TransitRouteService implements SearchEngine {
   TransitRouteService({
     http.Client? transitClient,
@@ -113,13 +113,18 @@ class TransitRouteService implements SearchEngine {
   ///
   /// #317 で 3→5 に拡大。崩壊時 board-search の律速はラウンド間直列 guidance（1コール
   /// 〜10s）で、壁時計 = ラウンド数 × 最遅1本。matrix プレ実測で探索範囲を予算内フロンティア
-  /// （`_boardSearchScanCount`）へ刈った上で fanout を上げると、刈った区間が ~2ラウンドで
-  /// 収束しラウンド直列を半減できる。同時に、刈り込みで減る probe 密度を fanout が補い、
-  /// 非単調コリドーの「評価済み徒歩最大」（#137）の解像度を保つ。上限を欲張らない理由：
-  /// guidance は上流 30 req/min（`functions/src/rate-limiter.ts`）。崩壊時は電車系＋バス系の
-  /// 2 base が並列に走るため、フロンティアへ刈った区間 × fanout=5 × 2 base ＋ 初期照会＋先行実測が
-  /// 30/min に収まる範囲に留める（fanout を 7 まで上げると両 base 発火時に 30 を超え、429→
-  /// null→予算外誤認で境界を実測でなくレート制限で決めてしまう）。
+  /// （`_boardSearchScanCount`）へ刈った上で fanout を上げると、ラウンド直列を縮められる。
+  /// 同時に、刈り込みで減る probe 密度を fanout が補い、非単調コリドーの「評価済み徒歩最大」
+  /// （#137）の解像度を保つ。
+  ///
+  /// 上限を欲張らない理由は**上流の未知のレート制限**。guidance は `AppConfig.transitApiBaseUrl`
+  /// への直叩きで `functions/src/rate-limiter.ts` を通らないため、我々のプロキシの 30 req/min は
+  /// 掛からない（#330。この誤認が長く残っていた）。代わりに効くのは第三者 API 側の制限で、
+  /// 公開されておらず実測でも 429 を観測していない＝**上限が不明**という状態。踏み抜いたときの
+  /// 失敗モードが悪い——429 は `_fetchTransitFrom` の null 縮退を経て「予算外」と解釈され、
+  /// 境界を実測ではなくレート制限が決めてしまう（徒歩が静かに短くなる）。崩壊時は電車系＋バス系
+  /// の 2 base が並列に走るので瞬間同時発行は fanout × 2 になる。上げるなら先に上流の制限を
+  /// 実測し、429 を「予算外」と誤認しない分離を入れてからにすること。
   static const int _boardSearchFanout = 5;
 
   /// フロンティア t1 一括実測マトリクスの1コールあたり目的地数の上限（#317 レビュー対応）。
@@ -743,7 +748,7 @@ class TransitRouteService implements SearchEngine {
   }
 
   /// 候補から決定的に選定し、採用1経路を Google 実測（enrich）で検証する確定ループ。
-  /// NAVITIME 版と違い**乗り遅れ再照会（#115）は行わない**：実在便への差し替えはせず、
+  /// **乗り遅れ再照会（#115）は行わない**：実在便への差し替えはせず、
   /// enrich で (a) 予算超過、または (b) 先頭電車に乗り遅れ（標準乗換のアクセス徒歩が実街路で
   /// 伸び駅着が発車後になる・#137 副次）が判明した候補は除外して乗れる次善へ選び直す。
   /// ハイブリッド／乗車駅探索は引き直しまたは時刻なし距離概算のため `firstMissedTransit` は
@@ -1067,7 +1072,7 @@ class TransitRouteService implements SearchEngine {
     return result;
   }
 
-  /// 乗車駅探索（docs/notes/walk-max-board-search.md / transit-api-migration.md §2.5）。
+  /// 乗車駅探索（docs/spec/route-optimization.md §3.6 / §2.3）。
   /// [base] のコリドー座標を乗車駅候補（前半徒歩 t1 の昇順）とし、各点 X から
   /// `/guidance/plan(X→goal, departureAt+t1)` を引き直して「到着が予算内の最遠＝総徒歩
   /// 最大」を [maxWalkBoardingIndexParallel]（k分割並列探索・#163）で探索する。各ラウンド
@@ -1866,7 +1871,7 @@ class TransitRouteService implements SearchEngine {
     ];
   }
 
-  /// 出発の絶対時刻。dateOffset（isNow→0）で日付を決定する（NAVITIME 版と同基準）。
+  /// 出発の絶対時刻。dateOffset（isNow→0）で日付を決定する。
   DateTime _departureDateTime(TimeValue t) {
     final now = _clock();
     return DateTime(

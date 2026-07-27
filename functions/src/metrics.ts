@@ -12,9 +12,9 @@ import { logger } from "firebase-functions";
 export type RequestStatus = "success" | "failure";
 
 export interface RequestOutcomeParams {
-  /** どのハンドラ／アクションか（例: "placesProxy.autocomplete", "navitimeProxy"）。 */
+  /** どのハンドラ／アクションか（例: "placesProxy.autocomplete", "googleWalkProxy"）。 */
   endpoint: string;
-  /** どの上流 API か（例: "places", "navitime", "routes-walk", "routes-matrix"）。 */
+  /** どの上流 API か（例: "places", "routes-walk", "routes-matrix"）。 */
   upstream: string;
   status: RequestStatus;
   latencyMs: number;

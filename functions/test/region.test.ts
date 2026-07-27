@@ -4,7 +4,6 @@ import type { HttpsFunction } from "firebase-functions/v2/https";
 import {
   googleWalkMatrixProxy,
   googleWalkProxy,
-  navitimeProxy,
   placesProxy,
 } from "../src/index";
 
@@ -22,10 +21,9 @@ function endpoint(
   ).__endpoint;
 }
 
-// setGlobalOptions は後続の全 onRequest に適用されるため、代表 4 プロキシすべてを
-// 検証対象にする（1 つでも定義漏れがあれば気付ける）。
+// setGlobalOptions は後続の全 onRequest に適用されるため、全プロキシを検証対象に
+// する（1 つでも定義漏れがあれば気付ける）。
 const ALL_PROXIES = [
-  ["navitimeProxy", navitimeProxy],
   ["googleWalkProxy", googleWalkProxy],
   ["googleWalkMatrixProxy", googleWalkMatrixProxy],
   ["placesProxy", placesProxy],
@@ -35,7 +33,7 @@ const ALL_PROXIES = [
 const EXPECTED_MAX_INSTANCES = 10;
 
 describe("deploy region", () => {
-  // NAVITIME（日本の公共交通）向けアプリのため、Functions は日本リージョン
+  // 日本の公共交通向けアプリのため、Functions は日本リージョン
   // asia-northeast1 に明示デプロイする。既定の us-central1 は往復遅延が大きい。
   it.each(ALL_PROXIES)("%s は asia-northeast1 にデプロイされる", (_name, fn) => {
     expect(endpoint(fn)?.region).toEqual(["asia-northeast1"]);

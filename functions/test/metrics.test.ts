@@ -29,16 +29,16 @@ describe("logRequestOutcome", () => {
 
   it("成功時は event=search_request で info ログを出す", () => {
     logRequestOutcome({
-      endpoint: "navitimeProxy",
-      upstream: "navitime",
+      endpoint: "googleWalkProxy",
+      upstream: "routes-walk",
       status: "success",
       latencyMs: 123,
       httpStatus: 200,
     });
     expect(infoMock).toHaveBeenCalledWith("search_request", {
       event: "search_request",
-      endpoint: "navitimeProxy",
-      upstream: "navitime",
+      endpoint: "googleWalkProxy",
+      upstream: "routes-walk",
       status: "success",
       latencyMs: 123,
       httpStatus: 200,
@@ -75,8 +75,8 @@ describe("logRequestOutcome", () => {
 
   it("httpStatus=429 のとき rateLimited:true を付与する（429 を判別可能にする契約）", () => {
     logRequestOutcome({
-      endpoint: "navitimeProxy",
-      upstream: "navitime",
+      endpoint: "googleWalkProxy",
+      upstream: "routes-walk",
       status: "failure",
       latencyMs: 10,
       httpStatus: 429,
@@ -90,8 +90,8 @@ describe("logRequestOutcome", () => {
 
   it("httpStatus 未指定（例: 上流ネットワークエラー）でも rateLimited を含めない", () => {
     logRequestOutcome({
-      endpoint: "navitimeProxy",
-      upstream: "navitime",
+      endpoint: "googleWalkProxy",
+      upstream: "routes-walk",
       status: "failure",
       latencyMs: 10,
     });
@@ -102,8 +102,8 @@ describe("logRequestOutcome", () => {
 
   it("semanticFailure=true（200+エラーボディ）は failure ペイロードに含める", () => {
     logRequestOutcome({
-      endpoint: "navitimeProxy",
-      upstream: "navitime",
+      endpoint: "googleWalkProxy",
+      upstream: "routes-walk",
       status: "failure",
       latencyMs: 10,
       httpStatus: 200,
@@ -119,8 +119,8 @@ describe("logRequestOutcome", () => {
 
   it("semanticFailure 未指定なら payload に semanticFailure を含めない", () => {
     logRequestOutcome({
-      endpoint: "navitimeProxy",
-      upstream: "navitime",
+      endpoint: "googleWalkProxy",
+      upstream: "routes-walk",
       status: "success",
       latencyMs: 10,
       httpStatus: 200,
@@ -160,7 +160,7 @@ describe("logRequestLatency", () => {
 
   it("失敗ステータスでも info で出す（レイテンシは情報イベント・Error Reporting を汚さない）", () => {
     logRequestLatency({
-      endpoint: "navitimeProxy",
+      endpoint: "googleWalkProxy",
       totalLatencyMs: 5,
       httpStatus: 502,
     });

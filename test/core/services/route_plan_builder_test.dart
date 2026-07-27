@@ -232,10 +232,9 @@ void main() {
       expect(plan.timelineNodes[2].sub, '徒歩へ');
     });
 
-    test('着時刻が欠落(arr=null)でも発車時刻で待ちを算出する（NAVITIME発車時刻を採用）', () {
-      // 9:00発・徒歩5分で 9:05 駅着 → 発車 9:12（NAVITIME 値）まで7分待ち。着時刻が
-      // 無くても発車時刻があれば「7分待ち」と NAVITIME の実時刻で表示する（乗車時間は
-      // 着時刻欠落のため距離概算18分）。電車の後に徒歩を置き電車ノードの sub を確認する。
+    test('着時刻が欠落(arr=null)でも発車時刻で待ちを算出する', () {
+      // 9:00発・徒歩5分で 9:05 駅着 → 発車 9:12 まで7分待ち。着時刻が無くても発車時刻が
+      // あれば「7分待ち」を実時刻で表示する（乗車時間は着時刻欠落のため距離概算18分）。電車の後に徒歩を置き電車ノードの sub を確認する。
       final segments = [
         const RouteSegment(
           type: SegmentType.walk,
@@ -570,7 +569,7 @@ void main() {
           minutes: 11,
           line: '東急東横線急行',
           depTime: DateTime(2026, 6, 15, 4, 30),
-          // arrTime は NAVITIME が返さない（null）。
+          // arrTime は欠落（null）。
         ),
       ];
 
