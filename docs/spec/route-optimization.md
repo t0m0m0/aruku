@@ -56,11 +56,10 @@
 | `googleWalkProxy` | Google Routes `computeRoutes`(WALK)（基本素通し） |
 | `googleWalkMatrixProxy` | Google Routes `computeRouteMatrix`(WALK)（基本素通し） |
 | `placesProxy` | Google Places API (New) Autocomplete/Details（地点検索・#144/#145） |
-| `navitimeProxy` | NAVITIME route_transit（**現行クライアント未使用**。経路は Transit API 直叩きへ移行済み #137。関数のみ残存） |
 
 - **地点検索（#135 → #144/#145 で改訂）:** POI 検索は `placesProxy` 経由で Google Places API (New) の Autocomplete を叩く（App Check 必須・キーはサーバ側に秘匿）。#135 で一度 Transit API `places/suggest` 直叩きへ寄せたが、駅・地名の typeahead を壊すため #144/#145 で Google Places へ戻した。仕様の正本は [place-search.md](place-search.md)。
 
-- **APIキー秘匿:** Secret Manager（`GOOGLE_MAPS_API_KEY`, `NAVITIME_RAPIDAPI_KEY`）。地図用キーとプロキシ用キーは Cloud Console で分離。
+- **APIキー秘匿:** Secret Manager（`GOOGLE_MAPS_API_KEY`）。地図用キーとプロキシ用キーは Cloud Console で分離。
 - **認証:** App Check トークン必須（`X-Firebase-AppCheck`）。エミュレータは除外。
   - 注意: App Check 保護は `allUsers` invoker を前提とする。invoker 欠落で 403 になりアプリごと弾かれる。
 - **レート制限（IP単位）:** 標準 `30 req/min`、徒歩系 `90 req/min`（1検索のファンアウト対応）。本番は Firestore トランザクション。
@@ -248,7 +247,7 @@
 ### #115 — 乗り遅れ電車の再照会と差し替え
 
 - **不変条件:** 確定しかけた**予算内候補**が予定列車に乗り遅れる（駅到着が発車後）なら、その候補をそのまま確定させてはならない。実在の後続列車で成立させるか、成立しないなら**候補ごと除外**する（乗れない列車を確定しない・安全側）。
-- **現行の実現方法（#137 以降）:** 単区間の時刻表再照会（NAVITIME 版の `_refetchMissedTrain`/`_findRealBoarding`）は**廃止した**。現行データ源は途中駅の時刻・駅名を持たない（§2.2-2）ため同じ方式が成立しない。代わりに**乗車駅探索（§3.6）へ一本化**する——乗車地点 X 発で `/guidance/plan` を引き直すので構成上その候補は自己整合になり、`firstMissedTransit` が立たない。乗り遅れた候補は `_selectAndEnrich` が除外し、次善へ選び直す。
+- **現行の実現方法（#137 以降）:** 乗車駅の時刻表を単区間だけ引き直して実在便へ差し替える旧方式は**廃止した**。現行データ源は途中駅の時刻・駅名を持たない（§2.2-2）ため成立しない。代わりに**乗車駅探索（§3.6）へ一本化**する——乗車地点 X 発で `/guidance/plan` を引き直すので構成上その候補は自己整合になり、`firstMissedTransit` が立たない。乗り遅れた候補は `_selectAndEnrich` が除外し、次善へ選び直す。
 
 ### #116 — 徒歩実測のレッグ単位キャッシュ
 

@@ -28,7 +28,7 @@ export {
 
 initializeApp();
 
-// NAVITIME（日本の公共交通）向けアプリのため日本リージョンへ明示デプロイする。
+// 日本の公共交通向けアプリのため日本リージョンへ明示デプロイする。
 // 既定の us-central1 は日本から遠く往復遅延が大きい。各 onRequest 定義より前に
 // 呼ぶ必要があるため initializeApp 直後に置く。
 //
@@ -40,7 +40,6 @@ initializeApp();
 setGlobalOptions({ region: "asia-northeast1", maxInstances: 10 });
 
 const mapsKeySecret = defineSecret("GOOGLE_MAPS_API_KEY");
-const navitimeKeySecret = defineSecret("NAVITIME_RAPIDAPI_KEY");
 // レート制限のドキュメント ID を不可逆化する HMAC 鍵（#263）。rate-limiter が
 // process.env 経由で読むため、各エンドポイントの secrets 配列へバインドして注入する。
 const rateLimitHmacKeySecret = defineSecret("RATE_LIMIT_HMAC_KEY");
@@ -54,13 +53,6 @@ function getMapsApiKey(): string {
   return mapsKeySecret.value();
 }
 
-function getNavitimeApiKey(): string {
-  if (process.env.FUNCTIONS_EMULATOR === "true") {
-    return process.env.NAVITIME_RAPIDAPI_KEY ?? "";
-  }
-  return navitimeKeySecret.value();
-}
-
 // Google Places API (New)。autocomplete は候補（placeId＋テキスト）のみ返し
 // 座標は含まないため、確定時に details で location を引く2段フローにする。
 const PLACES_AUTOCOMPLETE_NEW_URL =
@@ -71,7 +63,7 @@ const PLACES_DETAILS_NEW_BASE = "https://places.googleapis.com/v1/places";
 const PLACES_BIAS_RADIUS_M = 50000;
 
 // Google Routes API。徒歩ルートの街路追従ジオメトリ（encodedPolyline）と
-// 距離・所要時間を返す。NAVITIME が徒歩 shape を返さないため徒歩線はここから得る。
+// 距離・所要時間を返す。経路 API は徒歩の街路ジオメトリを返さないため徒歩線はここから得る。
 const ROUTES_COMPUTE_URL =
   "https://routes.googleapis.com/directions/v2:computeRoutes";
 // 課金は FieldMask で要求したフィールドに依存する。徒歩線・距離・時間のみ取得。
@@ -91,39 +83,6 @@ const ROUTES_MATRIX_FIELD_MASK =
 // 制御方針と整合）。#118 の設計は片側 ≤10・他方 1 の最大 10 要素のため、グリッド状の
 // 大量要求を弾きつつ正常系に十分な余裕を持たせた値にする。
 export const MATRIX_MAX_ELEMENTS = 25;
-
-const NAVITIME_HOST = "navitime-route-totalnavi.p.rapidapi.com";
-const NAVITIME_ROUTE_URL = `https://${NAVITIME_HOST}/route_transit`;
-
-// クライアントから透過を許可するパラメータ。datum/coord_unit はサーバ固定。
-// options=railway_calling_at で乗車列車の途中停車駅を取得する。
-// shape=true でナビ用の区間ジオメトリ（折れ線座標）を取得する。
-const NAVITIME_ALLOWED_PARAMS = [
-  "start",
-  "goal",
-  "start_time",
-  "term",
-  "limit",
-  "options",
-  "shape",
-];
-
-function buildAllowedUrl(
-  base: string,
-  allowed: string[],
-  query: Record<string, string | undefined>
-): string {
-  const params: Record<string, string> = { datum: "wgs84", coord_unit: "degree" };
-  for (const k of allowed) {
-    const v = query[k];
-    if (typeof v === "string" && v.length > 0) params[k] = v;
-  }
-  return `${base}?${new URLSearchParams(params).toString()}`;
-}
-
-export function buildNavitimeUrl(query: Record<string, string | undefined>): string {
-  return buildAllowedUrl(NAVITIME_ROUTE_URL, NAVITIME_ALLOWED_PARAMS, query);
-}
 
 /** "lat,lng" 形式の座標を Routes API の waypoint へ変換する。不正な値は null。 */
 function parseLatLng(
@@ -319,7 +278,7 @@ export async function verifyAppCheck(
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
 // 受信レスポンスの累積バイト上限。想定外に巨大な応答でメモリを圧迫しないよう、
-// 超過時点で接続を破棄する。上流（Places/Routes/NAVITIME）の正常応答は数百KB
+// 超過時点で接続を破棄する。上流（Places/Routes）の正常応答は数百KB
 // 程度のため、正常系に十分な余裕を持たせた値にする。
 export const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
@@ -543,12 +502,6 @@ function isUpstreamCacheable(
 // 書くと判定が乖離し「ログは成功・クライアントには 502」が再発し得るため、
 // 述語を1箇所に共有して構造的に防ぐ。
 
-// RapidAPI/NAVITIME はエラー時に items を含まず {message:...} 等を返す。
-function isNavitimeSuccessBody(data: unknown): boolean {
-  const record = data as Record<string, unknown> | null;
-  return !(record && record["message"] && !record["items"]);
-}
-
 // Routes API はエラー時 {error:{...}} を返し routes を含まない。
 function isRoutesWalkSuccessBody(data: unknown): boolean {
   const record = data as Record<string, unknown> | null;
@@ -737,63 +690,6 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKey
 
   res.status(400).json({ error: "action must be autocomplete or details" });
 }));
-
-/** NAVITIME route_transit プロキシ（RapidAPI 経由、レスポンスは無加工で返す） */
-export const navitimeProxy = onRequest({ secrets: [navitimeKeySecret, rateLimitHmacKeySecret] }, withRequestLatency("navitimeProxy", async (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Methods", "GET");
-    res.set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck");
-    res.status(204).send("");
-    return;
-  }
-
-  if (!(await verifyAppCheck(req, res, { endpoint: "navitimeProxy" }))) return;
-
-  if (!(await checkRateLimit(clientIp(req)))) {
-    res.status(429).json({ error: "Too many requests" });
-    return;
-  }
-
-  const start = req.query["start"] as string | undefined;
-  const goal = req.query["goal"] as string | undefined;
-  const startTime = req.query["start_time"] as string | undefined;
-
-  if (!start || !goal || !startTime) {
-    res
-      .status(400)
-      .json({ error: "start, goal and start_time are required" });
-    return;
-  }
-
-  const data = await fetchUpstream(
-    res,
-    "navitimeProxy",
-    "navitime",
-    buildNavitimeUrl(req.query as Record<string, string | undefined>),
-    "GET",
-    {
-      "X-RapidAPI-Key": getNavitimeApiKey(),
-      "X-RapidAPI-Host": NAVITIME_HOST,
-    },
-    undefined,
-    isNavitimeSuccessBody
-  );
-  if (data === UPSTREAM_FAILED) return;
-
-  // 認証エラー・クォータ超過と「ルートなし」を区別するため 502 で返す。
-  if (!isNavitimeSuccessBody(data)) {
-    console.error(
-      "[navitimeProxy] NAVITIME API error:",
-      JSON.stringify((data as Record<string, unknown>)["message"])
-    );
-    res.status(502).json(data);
-    return;
-  }
-
-  res.json(data);
-}));
-
 
 /**
  * Google Routes 徒歩プロキシ。start/goal（"lat,lng"）から computeRoutes を
