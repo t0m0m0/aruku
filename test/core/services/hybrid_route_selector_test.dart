@@ -758,7 +758,7 @@ void main() {
       expect(evaluated.toSet().length, evaluated.length, reason: '重複評価なし');
     });
 
-    test('fanout=1 は直列二分探索と同一の挙動（中点1点ずつ）', () async {
+    test('fanout=1 でも境界は直列二分探索と一致する（軌道は打ち切りラウンド分だけ異なる）', () async {
       final evaluated = <int>[];
       final i = await maxWalkBoardingIndexParallel(
         count: totals.length,
@@ -770,8 +770,10 @@ void main() {
         },
       );
       expect(i, 6);
-      // 直列版と同じ二分探索の軌道: mid=4→6→7→(区間枯れ) の順。
-      expect(evaluated, [4, 6, 7]);
+      // 中点 4→6 まで直列版と同一。区間が [7,8]（span=1 <= fanout）へ縮んだ時点で
+      // 内点分割をやめ 7・8 を同一ラウンドで打つ（#332）ため、直列版の [4,6,7] に
+      // 対し 8 が1点多い。境界（予算内の最遠 index）は変わらない。
+      expect(evaluated, [4, 6, 7, 8]);
     });
 
     test('fanout 拡大でラウンド数（直列 guidance の段数）が減る（#317）', () async {
@@ -809,6 +811,61 @@ void main() {
       final r5 = await roundsFor(5);
       expect(r3, 3);
       expect(r5, 2, reason: 'fanout=5 なら同区間が1ラウンド少なく収束する');
+    });
+
+    group('打ち切りラウンド (#332)', () {
+      Future<({int rounds, int? best})> run({
+        required int count,
+        required int budgetMin,
+        int fanout = 5,
+      }) async {
+        final pending = <int, Completer<int>>{};
+        final future = maxWalkBoardingIndexParallel(
+          count: count,
+          budgetMin: budgetMin,
+          fanout: fanout,
+          evaluate: (index) {
+            final c = Completer<int>();
+            pending[index] = c;
+            return c.future;
+          },
+        );
+        await Future<void>.delayed(Duration.zero);
+        var rounds = 0;
+        while (pending.isNotEmpty) {
+          rounds++;
+          final batch = [...pending.entries];
+          pending.clear();
+          for (final e in batch) {
+            e.value.complete(e.key); // 到着=index
+          }
+          await Future<void>.delayed(Duration.zero);
+        }
+        return (rounds: rounds, best: await future);
+      }
+
+      test('区間が fanout 以下なら残り全 index を1ラウンドで打ち切る', () async {
+        // 6点・全点予算内。内点 lo+span*j/(fanout+1) は hi を含まないので、分割を
+        // 続けると末尾 index5 のためだけに2ラウンド目（上流 guidance 1本ぶんの壁時計）
+        // が要る。span(5) <= fanout(5) の区間を全点1ラウンドで打てば1ラウンドで済む。
+        final r = await run(count: 6, budgetMin: 999);
+        expect(r.best, 5);
+        expect(r.rounds, 1);
+      });
+
+      test('打ち切りラウンドでも境界（予算内の最遠 index）は変わらない', () async {
+        // 全点予算内でない区間でも、返す index は「予算内の最遠」のまま。
+        final r = await run(count: 6, budgetMin: 3);
+        expect(r.best, 3);
+      });
+
+      test('区間が fanout より広いラウンドは従来どおり内点分割する', () async {
+        // 36点・境界20 は #317 の軌道（2ラウンド）を保つ＝打ち切りが広い区間の
+        // 分割を壊していないことの反証。
+        final r = await run(count: 36, budgetMin: 20);
+        expect(r.best, 20);
+        expect(r.rounds, 2);
+      });
     });
 
     group('shouldContinue による打ち切り (#300)', () {

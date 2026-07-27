@@ -257,8 +257,13 @@ Future<int?> maxWalkBoardingIndex({
 /// 皆無・count 0 なら null）は直列版と同じ。ただし**評価する index の集合は直列版と
 /// 異なる**：乗車駅探索の呼び出し側は評価済みの予算内候補を全部プールへ足す設計
 /// （[TransitRouteService]・#137）のため、最終選定が直列版と変わり得る（評価点が
-/// 増える分、徒歩最大の解像度はむしろ上がる方向）。`fanout: 1` は直列二分探索と
-/// 同一の軌道になる。同一 index を二度評価しないことは保証する。
+/// 増える分、徒歩最大の解像度はむしろ上がる方向）。同一 index を二度評価しないことは
+/// 保証する。
+///
+/// **残区間が [fanout] 以下になったラウンドは内点分割をやめ、残り全 index を1ラウンドで
+/// 評価する**（#332）。内点は hi を含まないため、分割を続けると末尾のためだけの1本
+/// ラウンドが必ず残るのを避ける。このため `fanout: 1` も直列二分探索と同一の軌道には
+/// **ならない**（末尾区間で2点を同時評価する分だけ評価点が多い）。返す境界は同じ。
 ///
 /// [shouldContinue] が false を返すと**新しいラウンドを起こさず、その時点の境界で
 /// 打ち切る**（#300。呼び出し側は検索の締切を渡す）。探索を尽くさないので境界は
@@ -281,9 +286,15 @@ Future<int?> maxWalkBoardingIndexParallel({
     // 区間 [lo, hi] を (fanout+1) 等分する内分点。区間が狭いと同一点へ縮退する
     // ため Set で重複除去する（probe は必ず区間内にあり、毎ラウンド区間が縮む）。
     final span = hi - lo;
-    final probes = <int>{
-      for (var j = 1; j <= fanout; j++) lo + (span * j) ~/ (fanout + 1),
-    }.toList()..sort();
+    // 素直には全ラウンドを内点分割で揃えたいが、内点 `lo + span*j/(fanout+1)` は hi を
+    // 含まないため、区間が fanout 以下へ縮んでも末尾のためだけにもう1ラウンド（＝上流
+    // guidance 1本ぶんの壁時計）が残る。区間が fanout 以下なら残り全 index を1ラウンドで
+    // 打つ。同時発行は fanout+1 本までしか増えない。#332 参照。
+    final probes = span <= fanout
+        ? [for (var i = lo; i <= hi; i++) i]
+        : (<int>{
+            for (var j = 1; j <= fanout; j++) lo + (span * j) ~/ (fanout + 1),
+          }.toList()..sort());
     final results = await Future.wait([for (final p in probes) evaluate(p)]);
     // 昇順に走査し、予算内なら境界を右へ、最初の予算外で右端を確定して打ち切る
     // （単調性の仮定は直列版と同一。break 後の probe は区間更新に使わない）。
