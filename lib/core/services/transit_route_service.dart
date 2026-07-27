@@ -1218,22 +1218,30 @@ class TransitRouteService implements SearchEngine {
     // 自然完走の直後に切れた場合も truncated 側へ倒すが、集計は境界位置の分布から
     // 除くだけなので、取りこぼすより1件捨てる方が安全（#332 レビュー指摘）。
     if (_deadline.isExpired) stats.truncated = true;
-    stats.best = best ?? -1;
-    _diag.log(
-      () =>
-          'board-search: 実測k分割並列探索の境界 best='
-          '${best == null ? 'null(予算内乗車駅なし)' : '$best'} / コリドー点${stops.length}',
-    );
     // 探索が評価した点（メモ化済み）のうち、予算内の候補を「全部」返す。境界 best 1本だけ
     // でなく全部を返すのは：(1) 到着は実街路で非単調になり得る（後方の停車駅が origin に近い等）
     // ため境界＝徒歩最大とは限らず、(2) 採用前に逆戻りフィルタ・乗り遅れ除外で1本が消えても、
     // 次善の board-search 候補へ落とせるようにするため。選定（[selectBestRoute] /
     // [_selectAndEnrich]）が逆戻り・到着の非単調を込みで「生き残る中の徒歩最大」を決める。
-    final within = [
-      for (final c in built.values)
-        if (c != null && arrivalMinutes(c.segments, departureAt) <= budgetMin)
-          c,
+    final withinEntries = [
+      for (final e in built.entries)
+        if (e.value != null &&
+            arrivalMinutes(e.value!.segments, departureAt) <= budgetMin)
+          e,
     ];
+    // 境界の計上は探索の戻り値ではなく**評価済みの予算内で最遠の index**。探索は最初の
+    // 予算外 probe で結果の走査を打ち切るため、同一ラウンドでそれより奥に評価済みの
+    // 予算内点があっても戻り値には現れない。非単調はここが明示的に扱う前提（上の
+    // withinEntries が全点を返す）なので、指標だけ打ち切り側を採ると「予算内の乗車駅が
+    // 探索範囲のどこに居るか」の分布が手前へ偏り、probe 配置の判断材料が歪む（#332 レビュー）。
+    stats.best = withinEntries.fold(-1, (m, e) => e.key > m ? e.key : m);
+    _diag.log(
+      () =>
+          'board-search: 実測k分割並列探索の境界 best='
+          '${best == null ? 'null(予算内乗車駅なし)' : '$best'} / コリドー点${stops.length}'
+          ' / 予算内最遠=${stats.best}',
+    );
+    final within = [for (final e in withinEntries) e.value!];
     _diag.log(() => 'board-search: 予算内候補 ${within.length}件を返す');
     return within;
   }

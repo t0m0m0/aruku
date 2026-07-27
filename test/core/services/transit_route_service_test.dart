@@ -2029,44 +2029,45 @@ void main() {
       for (final l in lngs) [35.0, l],
     ];
 
-    Map<String, dynamic> baseGuidance() => _guidance([
-      {
-        'journey': {
-          'departureSecs': 32400, // 09:00
-          'arrivalSecs': 33600, // 09:20（標準は速い1本・徒歩最小で大量に余る）
-          'durationSecs': 1200,
-          'accessWalkSecs': 0,
-          'egressWalkSecs': 0,
-          'legs': [
-            _railLeg(
-              route: '基準線A',
-              fromId: 's0',
-              fromName: '始発駅',
-              toId: 'sT',
-              toName: '乗換駅',
-              dep: 32400,
-              arr: 33000,
-            ),
-            _railLeg(
-              route: '基準線B',
-              fromId: 'sT',
-              fromName: '乗換駅',
-              toId: 'sN',
-              toName: '終着駅',
-              dep: 33000,
-              arr: 33600,
-            ),
-          ],
-        },
-        'map': {
-          'points': const [],
-          'segments': [
-            _mapSeg('transit', 's0', 'sT', 'stopOrder', legCoords(leg1Lng)),
-            _mapSeg('transit', 'sT', 'sN', 'stopOrder', legCoords(leg2Lng)),
-          ],
-        },
-      },
-    ]);
+    Map<String, dynamic> baseGuidance([List<double> leg1 = leg1Lng]) =>
+        _guidance([
+          {
+            'journey': {
+              'departureSecs': 32400, // 09:00
+              'arrivalSecs': 33600, // 09:20（標準は速い1本・徒歩最小で大量に余る）
+              'durationSecs': 1200,
+              'accessWalkSecs': 0,
+              'egressWalkSecs': 0,
+              'legs': [
+                _railLeg(
+                  route: '基準線A',
+                  fromId: 's0',
+                  fromName: '始発駅',
+                  toId: 'sT',
+                  toName: '乗換駅',
+                  dep: 32400,
+                  arr: 33000,
+                ),
+                _railLeg(
+                  route: '基準線B',
+                  fromId: 'sT',
+                  fromName: '乗換駅',
+                  toId: 'sN',
+                  toName: '終着駅',
+                  dep: 33000,
+                  arr: 33600,
+                ),
+              ],
+            },
+            'map': {
+              'points': const [],
+              'segments': [
+                _mapSeg('transit', 's0', 'sT', 'stopOrder', legCoords(leg1)),
+                _mapSeg('transit', 'sT', 'sN', 'stopOrder', legCoords(leg2Lng)),
+              ],
+            },
+          },
+        ]);
 
     int secsOf(String hhmm) {
       final p = hhmm.split(':');
@@ -2111,7 +2112,7 @@ void main() {
       ]);
     }
 
-    http.Client mock() => MockClient((req) async {
+    http.Client mock([List<double> leg1 = leg1Lng]) => MockClient((req) async {
       final path = req.url.path;
       if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
       if (path.contains('googleWalkProxy')) return _walkFor(req.url);
@@ -2119,7 +2120,7 @@ void main() {
         final from = req.url.queryParameters['from'] ?? '';
         final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
         final time = req.url.queryParameters['time'] ?? '09:00';
-        if ((lng - 139.0).abs() < 1e-6) return _json(baseGuidance());
+        if ((lng - 139.0).abs() < 1e-6) return _json(baseGuidance(leg1));
         return _json(reentry(lng, time));
       }
       return _json(const {}, 404);
@@ -2142,6 +2143,46 @@ void main() {
       );
       expect(walkMinutesOf(plan), greaterThan(74));
       expect(plan.totalMin, lessThanOrEqualTo(110));
+    });
+
+    test('boardSearchBest は探索の境界でなく評価済み予算内の最遠 index（#332 レビュー）', () async {
+      // 二分探索は「最初の予算外 probe」で結果の走査を打ち切るため、同一ラウンドで
+      // それより奥に評価済みの予算内点があっても戻り値の境界には現れない。非単調は
+      // この呼び出し側が明示的に扱う前提（within は全点を返す）なので、境界位置の指標
+      // だけ打ち切り側の値を採ると分布が手前へ偏る——probe 配置の判断材料が歪む。
+      //
+      // 上の既定コリドーの谷は両側とも予算内で break を挟まないため分岐しない。ここでは
+      // **予算をまたぐ谷**を置く: idx5 を大きく離して予算外にし、idx6 は予算内へ戻す。
+      // ラウンド1の probe {1,2,4,5,6} で idx5 が予算外→走査打ち切り→境界は 4 になるが、
+      // idx6 は評価済みかつ予算内。
+      const crossingValley = [
+        139.01,
+        139.02,
+        139.03,
+        139.04,
+        139.05,
+        139.13, // idx5: 遠すぎて予算外
+        139.06, // idx6: 予算内へ戻る（谷）
+        139.08,
+      ];
+
+      RouteSearchMetrics? captured;
+      await _service(mock(crossingValley), onMetrics: (m) => captured = m).plan(
+        destination: '目的駅',
+        destinationLatLng: goal5,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 50), // 予算110分
+        origin: origin5,
+        originName: '出発',
+      );
+
+      expect(captured, isNotNull);
+      expect(captured!.boardSearchActivated, isTrue);
+      expect(
+        captured!.boardSearchBest,
+        greaterThanOrEqualTo(6),
+        reason: '打ち切り側の境界(4)ではなく、評価済み予算内の最遠(6)を採る',
+      );
     });
   });
 
