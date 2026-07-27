@@ -96,6 +96,7 @@ void main() {
         ..boardSearchRounds = 3
         ..boardSearchScanCount = 63
         ..boardSearchBest = 25
+        ..boardSearchTruncated = true
         ..finalizeMs = 300
         ..totalMs = 9000;
       expect(
@@ -105,8 +106,68 @@ void main() {
         'guidanceDupCalls=1 '
         'guidanceMs=1200 hybridMs=500 enrichMs=2600 boardSearchMs=3400 '
         'boardSearchRounds=3 boardSearchScanCount=63 boardSearchBest=25 '
+        'boardSearchTruncated=1 '
         'finalizeMs=300 totalMs=9000',
       );
+    });
+
+    test('並列に走った探索の rounds は合計でなく最大（＝クリティカルパス）', () {
+      // base（電車）と busBase（バス）は並列に走る（#304）。合計すると「直列に積んだ
+      // 段数」という rounds の意味が壊れ、壁時計と対応しなくなる。
+      final m = RouteSearchMetrics()
+        ..recordBoardSearches([
+          BoardSearchStats()
+            ..rounds = 3
+            ..scanCount = 63
+            ..best = 25,
+          BoardSearchStats()
+            ..rounds = 2
+            ..scanCount = 40
+            ..best = 11,
+        ]);
+      expect(m.boardSearchRounds, 3);
+    });
+
+    test('scanCount と best は同一探索から採り、対を崩さない', () {
+      // 別々の探索の値を混ぜると best/scanCount 比が実在しない値になる。
+      final m = RouteSearchMetrics()
+        ..recordBoardSearches([
+          BoardSearchStats()
+            ..rounds = 2
+            ..scanCount = 40
+            ..best = 11,
+          BoardSearchStats()
+            ..rounds = 3
+            ..scanCount = 63
+            ..best = 25,
+        ]);
+      expect(m.boardSearchRounds, 3);
+      expect(m.boardSearchScanCount, 63, reason: 'rounds 最大の探索の対を採る');
+      expect(m.boardSearchBest, 25);
+    });
+
+    test('どれか1本でも打ち切られたら truncated（境界を確定値として扱わせない）', () {
+      final m = RouteSearchMetrics()
+        ..recordBoardSearches([
+          BoardSearchStats()
+            ..rounds = 3
+            ..scanCount = 63
+            ..best = 25,
+          BoardSearchStats()
+            ..rounds = 1
+            ..scanCount = 40
+            ..best = 5
+            ..truncated = true,
+        ]);
+      expect(m.boardSearchTruncated, isTrue);
+    });
+
+    test('探索が1本も走らなければ既定のまま', () {
+      final m = RouteSearchMetrics()..recordBoardSearches(const []);
+      expect(m.boardSearchRounds, 0);
+      expect(m.boardSearchScanCount, 0);
+      expect(m.boardSearchBest, -1);
+      expect(m.boardSearchTruncated, isFalse);
     });
 
     test('board-search が起動しなければ探索系は 0・境界は -1（未探索の印）', () {
@@ -130,6 +191,7 @@ void main() {
         'guidanceDupCalls=0 '
         'guidanceMs=0 hybridMs=0 enrichMs=0 boardSearchMs=0 '
         'boardSearchRounds=0 boardSearchScanCount=0 boardSearchBest=-1 '
+        'boardSearchTruncated=0 '
         'finalizeMs=0 totalMs=0',
       );
     });

@@ -4,6 +4,26 @@ import '../models/route_plan.dart';
 import 'hybrid_route_selector.dart';
 import 'route_plan_builder.dart';
 
+/// 乗車駅探索**1本**分の計上。1検索に2本立つことがある——電車系（base）とバス系
+/// （busBase）は基準コリドーが独立で、**並列に**走る（#304）。1つの
+/// [RouteSearchMetrics] を両方から直接触ると、[scanCount] と [best] が別々の探索の値で
+/// 上書きされて実在しない対になり、[rounds] は並列に走ったものの和になる。
+/// 探索ごとにこれを持ち、[RouteSearchMetrics.recordBoardSearches] で明示的に畳む。
+class BoardSearchStats {
+  /// この探索が回したラウンド数。
+  int rounds = 0;
+
+  /// この探索が走査した index 数。
+  int scanCount = 0;
+
+  /// この探索が確定した境界 index（予算内皆無なら -1）。
+  int best = -1;
+
+  /// 締切で**新しいラウンドを起こさずに打ち切った**か（#300）。打ち切ると [best] は
+  /// 本来より手前になり得るので、境界位置の分布へ確定値として混ぜてはいけない。
+  bool truncated = false;
+}
+
 /// 1検索分の定量指標（#309）。collapse 発火・board-search 起動・上流 HTTP 往復本数・
 /// フェーズ別所要時間を1オブジェクトに集約し、[toLogLine] で機械集計可能な1行に整形する。
 ///
@@ -57,6 +77,36 @@ class RouteSearchMetrics {
   /// 境界だった」と紛れるため番兵に使えない）。
   int boardSearchBest = -1;
 
+  /// 乗車駅探索のいずれかが締切で打ち切られたか（#300）。打ち切られた境界は本来より
+  /// 手前になり得るため、集計側は境界位置の分布から除く。所要・段数の分布には残す
+  /// （打ち切られるほど重かった探索こそ見たいので）。
+  bool boardSearchTruncated = false;
+
+  /// 並列に走った乗車駅探索群（[BoardSearchStats]）を1検索ぶんの指標へ畳む。
+  ///
+  /// [boardSearchRounds] は**和ではなく最大**——2系統は並列に走る（#304）ので、
+  /// 直列に積み上がった段数＝クリティカルパスは最も深い1本で決まる。和にすると
+  /// 「壁時計に対応する直列段数」という指標の意味そのものが壊れる。
+  ///
+  /// [boardSearchScanCount] と [boardSearchBest] は**同一の探索から採る**（対を崩すと
+  /// `best/scanCount` が実在しない比になる）。採るのは段数を決めた探索＝報告する
+  /// [boardSearchRounds] と整合する1本。同点なら走査範囲の広い方。
+  void recordBoardSearches(Iterable<BoardSearchStats> searches) {
+    BoardSearchStats? dominant;
+    for (final s in searches) {
+      if (s.rounds > boardSearchRounds) boardSearchRounds = s.rounds;
+      if (s.truncated) boardSearchTruncated = true;
+      if (dominant == null ||
+          s.rounds > dominant.rounds ||
+          (s.rounds == dominant.rounds && s.scanCount > dominant.scanCount)) {
+        dominant = s;
+      }
+    }
+    if (dominant == null) return;
+    boardSearchScanCount = dominant.scanCount;
+    boardSearchBest = dominant.best;
+  }
+
   /// 確定候補の駅名確定（`_finalizeStationNames`）に掛かった実時間。
   int finalizeMs = 0;
 
@@ -93,6 +143,7 @@ class RouteSearchMetrics {
       'boardSearchRounds=$boardSearchRounds '
       'boardSearchScanCount=$boardSearchScanCount '
       'boardSearchBest=$boardSearchBest '
+      'boardSearchTruncated=${boardSearchTruncated ? 1 : 0} '
       'finalizeMs=$finalizeMs totalMs=$totalMs';
 }
 

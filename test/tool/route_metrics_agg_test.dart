@@ -23,6 +23,7 @@ void main() {
         ..boardSearchRounds = 3
         ..boardSearchScanCount = 46
         ..boardSearchBest = 21
+        ..boardSearchTruncated = true
         ..finalizeMs = 120
         ..totalMs = 5000;
 
@@ -44,6 +45,7 @@ void main() {
       expect(sample.boardSearchRounds, 3);
       expect(sample.boardSearchScanCount, 46);
       expect(sample.boardSearchBest, 21);
+      expect(sample.boardSearchTruncated, isTrue);
       expect(sample.finalizeMs, 120);
       expect(sample.totalMs, 5000);
       // 現行 toLogLine は alternativesMs を出さない（#327 で撤去）→ 欠落は0。
@@ -63,6 +65,7 @@ void main() {
       expect(sample!.boardSearchBest, -1);
       expect(sample.boardSearchRounds, 0);
       expect(sample.boardSearchScanCount, 0);
+      expect(sample.boardSearchTruncated, isFalse);
     });
 
     test('撤去前の旧ログの alternativesMs は legacy フィールドへ復元する（#327）', () {
