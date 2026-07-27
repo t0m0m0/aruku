@@ -460,11 +460,7 @@ void main() {
         ),
       ];
 
-      final missed = firstMissedTransit(segments, DateTime(2026, 5, 22, 9, 0));
-
-      expect(missed, isNotNull);
-      expect(missed!.index, 1);
-      expect(missed.cumBefore, 20); // 駅着までの実累積分（再照会の start_time 算出に使う）
+      expect(firstMissedTransit(segments, DateTime(2026, 5, 22, 9, 0)), 1);
     });
 
     test('バス区間も発車後に停留所着なら乗り遅れ扱い (#250)', () {
@@ -487,11 +483,7 @@ void main() {
         ),
       ];
 
-      final missed = firstMissedTransit(segments, DateTime(2026, 5, 22, 9, 0));
-
-      expect(missed, isNotNull);
-      expect(missed!.index, 1);
-      expect(missed.cumBefore, 20);
+      expect(firstMissedTransit(segments, DateTime(2026, 5, 22, 9, 0)), 1);
     });
 
     test('発車前に駅着なら乗り遅れなし（null）', () {
@@ -581,10 +573,7 @@ void main() {
         ),
       ];
 
-      final missed = firstMissedTransit(segments, DateTime(2026, 6, 15, 3, 58));
-      expect(missed, isNotNull);
-      expect(missed!.index, 1);
-      expect(missed.cumBefore, 33);
+      expect(firstMissedTransit(segments, DateTime(2026, 6, 15, 3, 58)), 1);
     });
 
     test('発車時刻があり着時刻が欠落でも発車前に駅着なら乗り遅れなし（null）', () {
@@ -613,8 +602,11 @@ void main() {
     });
 
     test('departureAt 起点で先行区間の待ちを吸収した累積で判定する', () {
-      // 1本目: 9:10発・9:25着（待ち含む）。2本目: 駅着9:25 > 発車相対(9:20=20分)で乗り遅れ。
-      final segments = [
+      // 1本目: 9:00発の出発地から 9:10発・9:25着（乗車前待ち10分＋乗車15分）。2本目の
+      // 発車時刻を動かして「S2 着＝累積25分」の境界そのものを固定する——乗車前待ちを
+      // 取りこぼす実装（乗車分だけの累積15分）なら 9:20発でも「間に合う」と誤り、
+      // 逆に待ちを二重計上する実装なら 9:25発ちょうどを乗り遅れにしてしまう。
+      List<RouteSegment> segmentsWithSecondDeparture(DateTime dep) => [
         RouteSegment(
           type: SegmentType.train,
           fromName: 'S1',
@@ -630,16 +622,36 @@ void main() {
           toName: 'S3',
           minutes: 10,
           line: '2号線',
-          depTime: DateTime(2026, 5, 22, 9, 20), // 9:25着より前に発車＝乗り遅れ
-          arrTime: DateTime(2026, 5, 22, 9, 30),
+          depTime: dep,
+          arrTime: DateTime(2026, 5, 22, 9, 40),
         ),
       ];
+      final departureAt = DateTime(2026, 5, 22, 9, 0);
 
-      final missed = firstMissedTransit(segments, DateTime(2026, 5, 22, 9, 0));
-
-      expect(missed, isNotNull);
-      expect(missed!.index, 1);
-      expect(missed.cumBefore, 25); // S2 着までの累積（9:25）
+      // 9:20発（発車相対20分）: 累積25分 > 20 で乗り遅れ。
+      expect(
+        firstMissedTransit(
+          segmentsWithSecondDeparture(DateTime(2026, 5, 22, 9, 20)),
+          departureAt,
+        ),
+        1,
+      );
+      // 9:24発（発車相対24分）: 累積25分 > 24 で、1分の差でも乗り遅れ側に落ちる。
+      expect(
+        firstMissedTransit(
+          segmentsWithSecondDeparture(DateTime(2026, 5, 22, 9, 24)),
+          departureAt,
+        ),
+        1,
+      );
+      // 9:25発（発車相対25分）: 累積25分ちょうど＝待ち0で乗車できる（境界は乗れる側）。
+      expect(
+        firstMissedTransit(
+          segmentsWithSecondDeparture(DateTime(2026, 5, 22, 9, 25)),
+          departureAt,
+        ),
+        isNull,
+      );
     });
   });
 
