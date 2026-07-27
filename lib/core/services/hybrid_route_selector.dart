@@ -315,20 +315,33 @@ Future<int?> maxWalkBoardingIndexParallel({
   return best;
 }
 
-/// 乗車駅探索の区間を「前半徒歩 t1 が予算内の最遠 index」までへ刈った探索点数を返す
-/// （#317・matrix プレ実測による範囲刈り込み）。返り値 `n` は探索を index `[0, n)` に
-/// 限ってよいことを表す。予算内の点が皆無・[walk1Min] が空なら 0。
+/// 乗車駅探索の区間を「door-to-door 到着の**下界**が予算内の最遠 index」までへ刈った探索
+/// 点数を返す（#317 / #332）。返り値 `n` は探索を index `[0, n)` に限ってよいことを表す。
+/// 予算内の点が皆無・[walk1Min] が空なら 0。
 ///
-/// **単調性に依存しない安全上界**：door-to-door 到着 = t1 + t2（t2 = X→goal 電車所要 ≥ 0）
-/// なので、`t1(i) > budgetMin` の点は到着も必ず予算外。よって予算内の最遠 index より先を
-/// 刈っても予算内候補（`arrival ≤ budgetMin`）を1件も落とさない。t1 が index に対し非単調に
-/// dip しても、上界（最遠の予算内 t1）を採るだけなので dip の内側は範囲に残り、guidance
-/// 引き直しの評価に委ねられる（正しさは不変・[maxWalkBoardingIndexParallel] の単調性仮定は
-/// そのまま）。刈るのは「t1 単独で既に予算外」の確実に無駄な引き直しだけ。
-int walkFeasiblePrefixCount(List<int> walk1Min, int budgetMin) {
+/// 到着下界 = [walk1Min]（origin→乗車駅 X の前半徒歩 t1・matrix 実測）＋ [minRemainMin]
+/// （X→goal の残り所要 t2 の下界）。[minRemainMin] が [walk1Min] より短い index は 0 と
+/// して扱う（＝刈らない側へ倒す）。
+///
+/// **単調性に依存しない安全上界**：実到着 ≥ t1 + t2下界 なので、下界が予算外の点は実到着も
+/// 必ず予算外。よって予算内の最遠 index より先を刈っても予算内候補（`arrival ≤ budgetMin`）を
+/// 1件も落とさない。下界が index に対し非単調に dip しても、上界（最遠の予算内 index）を
+/// 採るだけなので dip の内側は範囲に残り、guidance 引き直しの評価に委ねられる（正しさは
+/// 不変・[maxWalkBoardingIndexParallel] の単調性仮定はそのまま）。刈るのは「引き直すまでも
+/// なく確実に予算外」の点だけで、予算内可否の**確定は従来どおり guidance 実測**が行う。
+///
+/// t2 の下界を渡さない（全 0）ときは「t1 単独で予算外の点だけを刈る」#317 の挙動になる。
+/// 崩壊時 board-search は定義上「予算が大きく余っている」ときに起動するため t1 単独では
+/// ほぼ1点も刈れず、t2 下界を足して初めて探索範囲が縮む（#332）。
+int arrivalFeasiblePrefixCount({
+  required List<int> walk1Min,
+  required List<int> minRemainMin,
+  required int budgetMin,
+}) {
   var last = -1;
   for (var i = 0; i < walk1Min.length; i++) {
-    if (walk1Min[i] <= budgetMin) last = i;
+    final remain = i < minRemainMin.length ? minRemainMin[i] : 0;
+    if (walk1Min[i] + remain <= budgetMin) last = i;
   }
   return last + 1;
 }

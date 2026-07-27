@@ -917,32 +917,81 @@ void main() {
     });
   });
 
-  group('walkFeasiblePrefixCount', () {
+  group('arrivalFeasiblePrefixCount', () {
+    // 残り所要の下界を渡さない（全0）＝到着下界が t1 だけの場合。#317 の挙動。
+    int walkOnly(List<int> walk1Min, int budgetMin) =>
+        arrivalFeasiblePrefixCount(
+          walk1Min: walk1Min,
+          minRemainMin: [for (final _ in walk1Min) 0],
+          budgetMin: budgetMin,
+        );
+
     test('全点が予算内なら全長を返す', () {
-      expect(walkFeasiblePrefixCount([10, 30, 60, 90], 100), 4);
+      expect(walkOnly([10, 30, 60, 90], 100), 4);
     });
 
     test('末尾が予算超過なら予算内の最遠 index+1 を返す', () {
       // index 3(120) だけ超過 → 探索は [0,3) の3点。
-      expect(walkFeasiblePrefixCount([10, 40, 80, 120], 100), 3);
+      expect(walkOnly([10, 40, 80, 120], 100), 3);
     });
 
     test('非単調な dip があっても予算内の最遠 index を落とさない', () {
       // index1(200) は超過だが index2(30) は予算内。安全上界は最遠の予算内 index=2
       // → count=3（index1 は範囲に残り評価に委ねる。index3(250) は確実に予算外で刈る）。
-      expect(walkFeasiblePrefixCount([10, 200, 30, 250], 100), 3);
+      expect(walkOnly([10, 200, 30, 250], 100), 3);
     });
 
     test('先頭すら予算超過なら 0（探索しない）', () {
-      expect(walkFeasiblePrefixCount([150, 200], 100), 0);
+      expect(walkOnly([150, 200], 100), 0);
     });
 
     test('空なら 0', () {
-      expect(walkFeasiblePrefixCount(const [], 100), 0);
+      expect(walkOnly(const [], 100), 0);
     });
 
-    test('境界値（walk1 == budget）は予算内に含める', () {
-      expect(walkFeasiblePrefixCount([50, 100, 101], 100), 2);
+    test('境界値（到着下界 == budget）は予算内に含める', () {
+      expect(walkOnly([50, 100, 101], 100), 2);
+    });
+
+    test('残り所要の下界を足すと探索範囲が縮む（#332）', () {
+      // t1 単独では全点が予算内＝1点も刈れない（崩壊時は予算が大きく余っているので
+      // これが常態）。乗車駅から goal までの残り所要 t2 の下界を足せば、t1+t2 で
+      // 確実に予算外の遠点を刈れる。
+      const walk1 = [10, 40, 80, 95];
+      expect(walkOnly(walk1, 100), 4, reason: '前提: t1 単独では刈れない');
+      expect(
+        arrivalFeasiblePrefixCount(
+          walk1Min: walk1,
+          minRemainMin: const [60, 50, 30, 10], // 到着下界 70/90/110/105
+          budgetMin: 100,
+        ),
+        2,
+      );
+    });
+
+    test('真の下界である限り実到着が予算内の点は刈らない', () {
+      // 実際の残り所要は [60,50,30] だが、下界として過小な [20,20,20] を渡した場合。
+      // 実到着は 70/90/110 で予算内の最遠は index1。下界駆動の刈り込みは index1 を
+      // 必ず範囲に残す（過小な下界は刈りが甘くなるだけで、取りこぼしを生まない）。
+      final n = arrivalFeasiblePrefixCount(
+        walk1Min: const [10, 40, 80],
+        minRemainMin: const [20, 20, 20],
+        budgetMin: 100,
+      );
+      expect(n, greaterThan(1));
+    });
+
+    test('下界が欠ける index は 0 として扱う（刈らない側へ倒す）', () {
+      // 下界の算出が一部で失敗しても、その点は「残り所要0」＝刈らない扱いになり
+      // 探索に委ねられる。安全側（取りこぼさない側）への縮退。
+      expect(
+        arrivalFeasiblePrefixCount(
+          walk1Min: const [10, 40, 80],
+          minRemainMin: const [60], // index1,2 は欠落
+          budgetMin: 100,
+        ),
+        3,
+      );
     });
   });
 

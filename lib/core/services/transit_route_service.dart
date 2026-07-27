@@ -1116,8 +1116,8 @@ class TransitRouteService implements SearchEngine {
 
     // #317: 全コリドー点の前半徒歩 t1 を matrix 一括実測し、t1 単独で予算外の遠点を探索範囲
     // から刈る。ラウンド間直列の guidance 引き直し（律速）を、予算内になり得る手前の点だけに
-    // 絞ることでラウンド数を減らす。刈っても予算内候補は落ちない（[walkFeasiblePrefixCount] の
-    // 安全上界）。
+    // 絞ることでラウンド数を減らす。刈っても予算内候補は落ちない（[arrivalFeasiblePrefixCount]
+    // の安全上界）。
     final scanCount = await _boardSearchScanCount(origin, stops, budgetMin);
     if (scanCount == 0) {
       _diag.log(() => 'board-search: 予算内の乗車駅なし（t1 実測で全点予算外）');
@@ -1262,7 +1262,11 @@ class TransitRouteService implements SearchEngine {
         walk1[r.start + di] = min;
       }
     }
-    return walkFeasiblePrefixCount(walk1, budgetMin);
+    return arrivalFeasiblePrefixCount(
+      walk1Min: walk1,
+      minRemainMin: [for (final _ in stops) 0],
+      budgetMin: budgetMin,
+    );
   }
 
   /// 乗降アクセス徒歩を1回（最大2コール）のマトリクス（Google プロキシ）で一括実測し、
