@@ -868,89 +868,6 @@ void main() {
       });
     });
 
-    group('start による探索窓 (#332)', () {
-      test('start より手前の index は評価しない', () async {
-        final evaluated = <int>[];
-        await maxWalkBoardingIndexParallel(
-          count: 36,
-          start: 25,
-          budgetMin: 30,
-          fanout: 5,
-          evaluate: (index) async {
-            evaluated.add(index);
-            return index;
-          },
-        );
-        expect(evaluated, isNotEmpty);
-        expect(evaluated.every((i) => i >= 25), isTrue, reason: '$evaluated');
-      });
-
-      test('窓の中に境界があれば予算内の最遠 index を返す', () async {
-        final i = await maxWalkBoardingIndexParallel(
-          count: 124,
-          start: 28,
-          budgetMin: 33, // 到着=index
-          fanout: 5,
-          evaluate: (index) async => index,
-        );
-        expect(i, 33);
-      });
-
-      test('start 以降がすべて予算外なら null（手前は探索しない）', () async {
-        // 手前へ戻る回収は呼び出し側のフォールバックの責務。探索プリミティブは
-        // 「渡された窓の中の最遠」だけを答える。
-        final i = await maxWalkBoardingIndexParallel(
-          count: 124,
-          start: 40,
-          budgetMin: 33,
-          fanout: 5,
-          evaluate: (index) async => index,
-        );
-        expect(i, isNull);
-      });
-
-      test('窓に絞るとラウンド数（直列 guidance の段数）が減る', () async {
-        // 実機の崩壊ケース（コリドー124点・境界33・fanout=5）は全域探索で3ラウンド。
-        // 予測が境界を挟む窓へ絞れれば、同じ境界へ少ないラウンドで到達する。
-        Future<({int rounds, int? best})> run({
-          required int start,
-          required int count,
-        }) async {
-          final pending = <int, Completer<int>>{};
-          final future = maxWalkBoardingIndexParallel(
-            count: count,
-            start: start,
-            budgetMin: 33,
-            fanout: 5,
-            evaluate: (index) {
-              final c = Completer<int>();
-              pending[index] = c;
-              return c.future;
-            },
-          );
-          await Future<void>.delayed(Duration.zero);
-          var rounds = 0;
-          while (pending.isNotEmpty) {
-            rounds++;
-            final batch = [...pending.entries];
-            pending.clear();
-            for (final e in batch) {
-              e.value.complete(e.key);
-            }
-            await Future<void>.delayed(Duration.zero);
-          }
-          return (rounds: rounds, best: await future);
-        }
-
-        final full = await run(start: 0, count: 124);
-        final windowed = await run(start: 28, count: 40);
-        expect(full.best, 33);
-        expect(windowed.best, 33, reason: '窓に絞っても境界は同じ');
-        expect(full.rounds, 3);
-        expect(windowed.rounds, lessThan(full.rounds));
-      });
-    });
-
     group('shouldContinue による打ち切り (#300)', () {
       test('打ち切り後は新ラウンドを起こさず、既得の境界を返す', () async {
         final evaluated = <int>[];
@@ -1000,155 +917,32 @@ void main() {
     });
   });
 
-  group('maxWalkBoardingIndexFrom (#332)', () {
-    // 到着=index。境界は budgetMin と一致する。開始点の予測を外したときに取りこぼさない
-    // ことがこの関数の存在理由なので、外れ方を反証する。
-    Future<({int? best, List<int> evaluated})> run({
-      required int count,
-      required int startFrom,
-      required int budgetMin,
-    }) async {
-      final evaluated = <int>[];
-      final best = await maxWalkBoardingIndexFrom(
-        count: count,
-        startFrom: startFrom,
-        budgetMin: budgetMin,
-        fanout: 5,
-        evaluate: (i) async {
-          evaluated.add(i);
-          return i;
-        },
-      );
-      return (best: best, evaluated: evaluated);
-    }
-
-    test('開始点より奥に境界があれば手前を評価しない', () async {
-      final r = await run(count: 124, startFrom: 28, budgetMin: 33);
-      expect(r.best, 33);
-      expect(
-        r.evaluated.every((i) => i >= 28),
-        isTrue,
-        reason: '開始点より手前まで評価している: ${r.evaluated}',
-      );
-    });
-
-    test('開始点以降が全滅なら手前を再探索して境界を返す', () async {
-      // 予測が楽観に外れ、真の境界(20)が開始点(40)より手前にあるケース。
-      final r = await run(count: 124, startFrom: 40, budgetMin: 20);
-      expect(r.best, 20);
-    });
-
-    test('手前も全滅なら null', () async {
-      final r = await run(count: 124, startFrom: 40, budgetMin: -1);
-      expect(r.best, isNull);
-    });
-
-    test('上端は削らないので奥の境界へ必ず届く', () async {
-      // 単調性が破れたコリドーで奥にある予算内の谷（#137）を評価する機会を残すため、探索の
-      // 上端は常に count-1。開始点をどこに置いても奥の境界を取りこぼさない。
-      final r = await run(count: 124, startFrom: 10, budgetMin: 123);
-      expect(r.best, 123);
-    });
-
-    test('開始点0なら追加の再探索を起こさない', () async {
-      final r = await run(count: 40, startFrom: 0, budgetMin: 39);
-      expect(r.best, 39);
-      expect(r.evaluated.toSet().length, r.evaluated.length, reason: '重複評価なし');
-    });
-
-    test('締切で打ち切られたら再探索も起こさない', () async {
-      var calls = 0;
-      final best = await maxWalkBoardingIndexFrom(
-        count: 124,
-        startFrom: 40,
-        budgetMin: 20,
-        fanout: 5,
-        shouldContinue: () => false,
-        evaluate: (i) async {
-          calls++;
-          return i;
-        },
-      );
-      expect(best, isNull);
-      expect(calls, 0);
-    });
-  });
-
-  group('arrivalFeasiblePrefixCount', () {
-    // 残り所要の下界を渡さない（全0）＝到着下界が t1 だけの場合。#317 の挙動。
-    int walkOnly(List<int> walk1Min, int budgetMin) =>
-        arrivalFeasiblePrefixCount(
-          walk1Min: walk1Min,
-          minRemainMin: [for (final _ in walk1Min) 0],
-          budgetMin: budgetMin,
-        );
-
+  group('walkFeasiblePrefixCount', () {
     test('全点が予算内なら全長を返す', () {
-      expect(walkOnly([10, 30, 60, 90], 100), 4);
+      expect(walkFeasiblePrefixCount([10, 30, 60, 90], 100), 4);
     });
 
     test('末尾が予算超過なら予算内の最遠 index+1 を返す', () {
       // index 3(120) だけ超過 → 探索は [0,3) の3点。
-      expect(walkOnly([10, 40, 80, 120], 100), 3);
+      expect(walkFeasiblePrefixCount([10, 40, 80, 120], 100), 3);
     });
 
     test('非単調な dip があっても予算内の最遠 index を落とさない', () {
       // index1(200) は超過だが index2(30) は予算内。安全上界は最遠の予算内 index=2
       // → count=3（index1 は範囲に残り評価に委ねる。index3(250) は確実に予算外で刈る）。
-      expect(walkOnly([10, 200, 30, 250], 100), 3);
+      expect(walkFeasiblePrefixCount([10, 200, 30, 250], 100), 3);
     });
 
     test('先頭すら予算超過なら 0（探索しない）', () {
-      expect(walkOnly([150, 200], 100), 0);
+      expect(walkFeasiblePrefixCount([150, 200], 100), 0);
     });
 
     test('空なら 0', () {
-      expect(walkOnly(const [], 100), 0);
+      expect(walkFeasiblePrefixCount(const [], 100), 0);
     });
 
-    test('境界値（到着下界 == budget）は予算内に含める', () {
-      expect(walkOnly([50, 100, 101], 100), 2);
-    });
-
-    test('残り所要の下界を足すと探索範囲が縮む（#332）', () {
-      // t1 単独では全点が予算内＝1点も刈れない（崩壊時は予算が大きく余っているので
-      // これが常態）。乗車駅から goal までの残り所要 t2 の下界を足せば、t1+t2 で
-      // 確実に予算外の遠点を刈れる。
-      const walk1 = [10, 40, 80, 95];
-      expect(walkOnly(walk1, 100), 4, reason: '前提: t1 単独では刈れない');
-      expect(
-        arrivalFeasiblePrefixCount(
-          walk1Min: walk1,
-          minRemainMin: const [60, 50, 30, 10], // 到着下界 70/90/110/105
-          budgetMin: 100,
-        ),
-        2,
-      );
-    });
-
-    test('真の下界である限り実到着が予算内の点は刈らない', () {
-      // 実際の残り所要は [60,50,30] だが、下界として過小な [20,20,20] を渡した場合。
-      // 実到着は 70/90/110 で予算内の最遠は index1。下界駆動の刈り込みは index1 を
-      // 必ず範囲に残す（過小な下界は刈りが甘くなるだけで、取りこぼしを生まない）。
-      final n = arrivalFeasiblePrefixCount(
-        walk1Min: const [10, 40, 80],
-        minRemainMin: const [20, 20, 20],
-        budgetMin: 100,
-      );
-      expect(n, greaterThan(1));
-    });
-
-    test('下界が欠ける index は 0 として扱う（刈らない側へ倒す）', () {
-      // 下界の算出が一部で失敗しても、その点は「残り所要0」＝刈らない扱いになり
-      // 探索に委ねられる。安全側（取りこぼさない側）への縮退。
-      expect(
-        arrivalFeasiblePrefixCount(
-          walk1Min: const [10, 40, 80],
-          minRemainMin: const [60], // index1,2 は欠落
-          budgetMin: 100,
-        ),
-        3,
-      );
+    test('境界値（walk1 == budget）は予算内に含める', () {
+      expect(walkFeasiblePrefixCount([50, 100, 101], 100), 2);
     });
   });
 
