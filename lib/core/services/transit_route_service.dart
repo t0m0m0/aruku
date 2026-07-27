@@ -21,18 +21,18 @@ import 'transit_plan_parser.dart';
 typedef _Selection = ({RouteCandidate chosen, RouteCandidate enriched});
 
 /// Transit API（`/guidance/plan`）から、予算内で徒歩を最大化するルートを生成する
-/// `RouteService`（#137）。NAVITIME 版（[NaviTimeRouteService]）を置換する。
+/// `RouteService`（#137）。
 ///
 /// 経路取得は Transit API を直叩き（認証不要・CORS）、アクセス徒歩の実測だけは
 /// Google Routes プロキシ（App Check）を介す。選定（measure-first・乗車駅探索・
 /// best-effort 縮退）と純粋関数（[selectBestRoute]/[maxWalkBoardingIndex]/
-/// [frontierStations]/[arrivalMinutes]/[buildRoutePlan]）はデータ源非依存なので流用する。
+/// [frontierStations]/[arrivalMinutes]/[buildRoutePlan]）はデータ源非依存。
 ///
-/// NAVITIME 版との差（docs/notes/transit-api-migration.md）：
-/// - 途中停車駅は `/guidance/plan` の transit polyline（コリドー座標）で代替し、
-///   乗車駅探索はコリドーを間引きサンプリングして `plan(X→goal)` を引き直す（§2.5）。
-/// - 運賃は取得不可のため廃止（§5）。乗り遅れ再照会（#115）は乗車駅探索へ一本化し
-///   廃止（§4）。引き直し便は自己整合なので `firstMissedTransit` が立たない。
+/// データ源の制約が設計を決めている（docs/spec/route-optimization.md §2.2）：
+/// - 途中停車駅を leg が持たないため、transit polyline（コリドー座標）で代替する。
+///   乗車駅探索はコリドーを間引きサンプリングして `plan(X→goal)` を引き直す（§2.3）。
+/// - 運賃は常に null のため表示ごと廃止。乗り遅れ再照会（#115）は乗車駅探索へ
+///   一本化した——引き直し便は自己整合なので `firstMissedTransit` が立たない。
 class TransitRouteService implements SearchEngine {
   TransitRouteService({
     http.Client? transitClient,
@@ -1067,7 +1067,7 @@ class TransitRouteService implements SearchEngine {
     return result;
   }
 
-  /// 乗車駅探索（docs/notes/walk-max-board-search.md / transit-api-migration.md §2.5）。
+  /// 乗車駅探索（docs/spec/route-optimization.md §3.6 / §2.3）。
   /// [base] のコリドー座標を乗車駅候補（前半徒歩 t1 の昇順）とし、各点 X から
   /// `/guidance/plan(X→goal, departureAt+t1)` を引き直して「到着が予算内の最遠＝総徒歩
   /// 最大」を [maxWalkBoardingIndexParallel]（k分割並列探索・#163）で探索する。各ラウンド

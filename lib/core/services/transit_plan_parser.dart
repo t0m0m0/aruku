@@ -31,7 +31,7 @@ class TransitOption {
 /// transit 区間（電車・バス問わず。ferry/air は除外済み）の経路コリドー。
 /// `geometrySource` により意味が異なる：`stopOrder` は停車駅座標、`gtfsShape` は
 /// 線路追従の頂点（停車駅とは無関係）。いずれも乗車駅探索ではコリドー上の候補座標
-/// として間引きサンプリングして使う（docs/notes/transit-api-migration.md §2.5）。
+/// として間引きサンプリングして使う（docs/spec/route-optimization.md §2.3）。
 @immutable
 class TransitCorridor {
   const TransitCorridor({

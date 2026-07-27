@@ -124,7 +124,7 @@ class SearchScopedRouteService implements RouteService {
 ///
 /// `[TimeoutHttpClient]` の既定 15 秒を共有していたが、上流 `/guidance/plan` は
 /// 9〜11 秒が正常・裾は 30 秒超（2026-06-27／2026-07-17 実測。
-/// docs/notes/transit-api-migration.md §1.1-5・§8）で、正常時ですら余裕が約4秒
+/// docs/spec/route-optimization.md §2.2-6・§2.4）で、正常時ですら余裕が約4秒
 /// しかなく、実機で経路検索が落ち続けた。実測サンプルの最大 30.8 秒を収める 35 秒
 /// にする。上流は無料・無認証・無 SLA の第三者 API で、遅さは相手の性質＝交渉手段が
 /// 無い。動かせるのは我々側だけという前提で「裾を切る」より「裾を待つ」を選んでいる。

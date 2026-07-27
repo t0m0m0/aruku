@@ -4,7 +4,7 @@
 - **Issue:** #288（徒歩閾値バリエーション照会で候補の路線多様性を確保できるか）。
 - **手法:** `avoidModes` 発見時（#245/#247）と同じ実 API 差分法。使い捨ての curl probe をレスポンス差分で判定。
 - **調査日:** 2026-07-14。API: `https://api.transit.ls8h.com/api/v1/guidance/plan`（認証不要）。
-- **関連:** [optimization-backend-offload.md](optimization-backend-offload.md) 限界2, [transit-api-migration.md](transit-api-migration.md), `project_transit_api_avoid_modes`, `reference_more_walking_paper`。
+- **関連:** [route-optimization.md](../spec/route-optimization.md) §2.2（Transit API の確定した制約）, `project_transit_api_avoid_modes`, `reference_more_walking_paper`。
 
 ---
 
