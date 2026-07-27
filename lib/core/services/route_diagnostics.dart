@@ -39,6 +39,24 @@ class RouteSearchMetrics {
   /// （board-search 候補を足した再 enrich）もこの区間に含む。
   int boardSearchMs = 0;
 
+  /// 乗車駅探索が回したラウンド数（＝直列に積み上がる guidance の段数）。
+  ///
+  /// [boardSearchMs] と別に持つのは、**ms では探索最適化の効き目を判定できない**ため。
+  /// ms は上流のレイテンシばらつき（中央値9〜11秒・裾30秒超）を丸ごと含むので、数回の
+  /// 試行では「ラウンドが減った」のか「上流が空いていた」のか区別がつかない。#332 の
+  /// 実機 A/B では3組とも ms が改善して見えたが、ラウンドが減っていたのは1組だけで、
+  /// 残り2組は上流本数まで完全一致＝差はジッタだった。
+  int boardSearchRounds = 0;
+
+  /// 乗車駅探索が実際に走査した index 数（`walkFeasiblePrefixCount` で刈った後）。
+  /// 境界位置を経路をまたいで比べるときの分母。コリドー点数を分母にすると、#317 の
+  /// プレ実測が刈った量だけ比が歪む（実測で 51〜81% 刈れることがある）。
+  int boardSearchScanCount = 0;
+
+  /// 乗車駅探索が確定した境界 index。**未探索・予算内皆無は -1**（0 は「index 0 が
+  /// 境界だった」と紛れるため番兵に使えない）。
+  int boardSearchBest = -1;
+
   /// 確定候補の駅名確定（`_finalizeStationNames`）に掛かった実時間。
   int finalizeMs = 0;
 
@@ -72,6 +90,9 @@ class RouteSearchMetrics {
       'guidanceDupCalls=$guidanceDupCalls '
       'guidanceMs=$guidanceMs hybridMs=$hybridMs enrichMs=$enrichMs '
       'boardSearchMs=$boardSearchMs '
+      'boardSearchRounds=$boardSearchRounds '
+      'boardSearchScanCount=$boardSearchScanCount '
+      'boardSearchBest=$boardSearchBest '
       'finalizeMs=$finalizeMs totalMs=$totalMs';
 }
 

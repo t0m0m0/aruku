@@ -447,6 +447,7 @@ class TransitRouteService implements SearchEngine {
               budgetMin,
               departureAt,
               walkCache,
+              metrics,
             ),
           if (busBase != null)
             // バス corridor は基準になったのがここが初めてなので、途中乗降ハイブリッドも
@@ -469,6 +470,7 @@ class TransitRouteService implements SearchEngine {
                   budgetMin,
                   departureAt,
                   walkCache,
+                  metrics,
                 ),
               ];
             }(),
@@ -1100,6 +1102,7 @@ class TransitRouteService implements SearchEngine {
     int budgetMin,
     DateTime departureAt,
     _WalkLegCache walkCache,
+    RouteSearchMetrics metrics,
   ) async {
     final stops = _corridorStops(base);
     if (stops.length < 2) return const [];
@@ -1119,6 +1122,7 @@ class TransitRouteService implements SearchEngine {
     // 絞ることでラウンド数を減らす。刈っても予算内候補は落ちない（[walkFeasiblePrefixCount] の
     // 安全上界）。
     final scanCount = await _boardSearchScanCount(origin, stops, budgetMin);
+    metrics.boardSearchScanCount = scanCount;
     if (scanCount == 0) {
       _diag.log(() => 'board-search: 予算内の乗車駅なし（t1 実測で全点予算外）');
       return const [];
@@ -1177,6 +1181,7 @@ class TransitRouteService implements SearchEngine {
       count: scanCount,
       budgetMin: budgetMin,
       fanout: _boardSearchFanout,
+      onRound: () => metrics.boardSearchRounds++,
       // 締切超過で新ラウンドを起こさない（#300）。[TransitApiClient] の残予算クランプが
       // 既に HTTP を止めるので通信量の面では冗長だが、ゲートが無いと探索はラウンドを
       // 回し続け、全 probe が即 TIMEOUT →「予算外」と解釈されて区間を縮める——実測では
@@ -1191,6 +1196,7 @@ class TransitRouteService implements SearchEngine {
             : arrivalMinutes(c.segments, departureAt);
       },
     );
+    metrics.boardSearchBest = best ?? -1;
     _diag.log(
       () =>
           'board-search: 実測k分割並列探索の境界 best='

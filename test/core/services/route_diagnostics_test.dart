@@ -93,6 +93,9 @@ void main() {
         ..hybridMs = 500
         ..enrichMs = 2600
         ..boardSearchMs = 3400
+        ..boardSearchRounds = 3
+        ..boardSearchScanCount = 63
+        ..boardSearchBest = 25
         ..finalizeMs = 300
         ..totalMs = 9000;
       expect(
@@ -101,8 +104,18 @@ void main() {
         'guidanceCalls=3 walkCalls=10 matrixCalls=2 '
         'guidanceDupCalls=1 '
         'guidanceMs=1200 hybridMs=500 enrichMs=2600 boardSearchMs=3400 '
+        'boardSearchRounds=3 boardSearchScanCount=63 boardSearchBest=25 '
         'finalizeMs=300 totalMs=9000',
       );
+    });
+
+    test('board-search が起動しなければ探索系は 0・境界は -1（未探索の印）', () {
+      // 0 は「index 0 が境界だった」と紛れるため、未探索は -1 で表す。集計側が
+      // boardSearch=0 の検索を境界分布へ混ぜないための番兵。
+      final m = RouteSearchMetrics();
+      expect(m.boardSearchRounds, 0);
+      expect(m.boardSearchScanCount, 0);
+      expect(m.boardSearchBest, -1);
     });
 
     test('bool は 0/1・http は本数合計として集計可能', () {
@@ -116,6 +129,7 @@ void main() {
         'guidanceCalls=1 walkCalls=4 matrixCalls=0 '
         'guidanceDupCalls=0 '
         'guidanceMs=0 hybridMs=0 enrichMs=0 boardSearchMs=0 '
+        'boardSearchRounds=0 boardSearchScanCount=0 boardSearchBest=-1 '
         'finalizeMs=0 totalMs=0',
       );
     });

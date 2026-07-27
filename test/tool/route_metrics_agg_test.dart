@@ -20,6 +20,9 @@ void main() {
         ..hybridMs = 1500
         ..enrichMs = 42000
         ..boardSearchMs = 3200
+        ..boardSearchRounds = 3
+        ..boardSearchScanCount = 46
+        ..boardSearchBest = 21
         ..finalizeMs = 120
         ..totalMs = 5000;
 
@@ -38,10 +41,28 @@ void main() {
       expect(sample.hybridMs, 1500);
       expect(sample.enrichMs, 42000);
       expect(sample.boardSearchMs, 3200);
+      expect(sample.boardSearchRounds, 3);
+      expect(sample.boardSearchScanCount, 46);
+      expect(sample.boardSearchBest, 21);
       expect(sample.finalizeMs, 120);
       expect(sample.totalMs, 5000);
       // 現行 toLogLine は alternativesMs を出さない（#327 で撤去）→ 欠落は0。
       expect(sample.alternativesMs, 0);
+    });
+
+    test('boardSearchBest の欠落は -1（未探索）に落ちる（旧ログ互換）', () {
+      // このフィールドが無かった頃のログを読ませても、境界0だったことにしない。
+      const oldLine =
+          '[route-metrics] collapse=1 boardSearch=1 http=9 guidanceCalls=5 '
+          'walkCalls=3 matrixCalls=1 guidanceMs=1 boardSearchMs=1 '
+          'finalizeMs=1 totalMs=1';
+
+      final sample = parseRouteMetricsLine(oldLine);
+
+      expect(sample, isNotNull);
+      expect(sample!.boardSearchBest, -1);
+      expect(sample.boardSearchRounds, 0);
+      expect(sample.boardSearchScanCount, 0);
     });
 
     test('撤去前の旧ログの alternativesMs は legacy フィールドへ復元する（#327）', () {
