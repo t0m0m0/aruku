@@ -127,16 +127,16 @@ class TransitRouteService implements SearchEngine {
   /// 実測し、429 を「予算外」と誤認しない分離を入れてからにすること。
   static const int _boardSearchFanout = 5;
 
-  /// 乗車駅探索の予測窓の幅（分・#332）。base 由来の到着予測が実測に対しこの分数までずれても
-  /// 窓は真の境界を含む。狭めるほどラウンドが減るが窓を外す確率が上がり、外すとフォールバック
-  /// の再探索でかえって遅くなる。予測が乗車待ちを含めていない分（実機で数分〜十数分）を
-  /// 吸収できる幅として置く。
+  /// 乗車駅探索の開始点を予測から下げる余裕（分・#332）。base 由来の到着予測が実測に対し
+  /// この分数まで楽観に外れても、開始点は真の境界より手前に留まる。狭めるほどラウンドが減るが
+  /// 外す確率が上がり、外すとフォールバックの再探索でかえって遅くなる。予測が乗車待ちを
+  /// 含めていない分（実機で数分〜十数分）を吸収できる幅として置く。
   static const int _boardSearchWindowMarginMin = 20;
 
-  /// 乗車駅探索の予測窓の最小点数（#332）。`(fanout+1)^2` 点までは2ラウンドで解けるため、
-  /// これ以下へ窓を絞ってもラウンド（＝律速の直列 guidance 段数）は減らず、probe 密度だけが
-  /// 落ちる。密度は非単調コリドーで「評価済みの中の徒歩最大」を拾う解像度そのもの（#137）
-  /// なので、ラウンドを減らさない絞り込みは損にしかならない。
+  /// 乗車駅探索に残す最小点数（#332）。`(fanout+1)^2` 点までは2ラウンドで解けるため、これ以下
+  /// へ絞ってもラウンド（＝律速の直列 guidance 段数）は減らず、probe 密度だけが落ちる。密度は
+  /// 非単調コリドーで「評価済みの中の徒歩最大」を拾う解像度そのもの（#137）なので、ラウンドを
+  /// 減らさない絞り込みは損にしかならない。
   static const int _boardSearchMinWindow =
       (_boardSearchFanout + 1) * (_boardSearchFanout + 1);
 
@@ -1191,17 +1191,16 @@ class TransitRouteService implements SearchEngine {
     // k分割並列版（#163）: 各ラウンドで _boardSearchFanout 点を同時評価し、Transit API
     // レイテンシ（1コール2〜10秒）の数珠つなぎを「ラウンド数×最遅1本」へ縮める。
     // 評価点の集合は直列二分探索と異なるため、プールへ足す候補（下の within）も変わり得る。
-    final window = _boardSearchWindow(
+    final startFrom = _boardSearchStartIndex(
       base,
       stops,
       walk1Min,
       budgetMin,
       scanCount,
     );
-    final best = await maxWalkBoardingIndexWindowed(
+    final best = await maxWalkBoardingIndexFrom(
       count: scanCount,
-      windowLo: window.lo,
-      windowHi: window.hi,
+      startFrom: startFrom,
       budgetMin: budgetMin,
       fanout: _boardSearchFanout,
       // 締切超過で新ラウンドを起こさない（#300）。[TransitApiClient] の残予算クランプが
@@ -1222,7 +1221,7 @@ class TransitRouteService implements SearchEngine {
       () =>
           'board-search: 実測k分割並列探索の境界 best='
           '${best == null ? 'null(予算内乗車駅なし)' : '$best'} / コリドー点${stops.length} '
-          '窓=[${window.lo},${window.hi}] 上界=${scanCount - 1}',
+          '探索=[$startFrom,${scanCount - 1}]',
     );
     // 探索が評価した点（メモ化済み）のうち、予算内の候補を「全部」返す。境界 best 1本だけ
     // でなく全部を返すのは：(1) 到着は実街路で非単調になり得る（後方の停車駅が origin に近い等）
@@ -1292,48 +1291,43 @@ class TransitRouteService implements SearchEngine {
     return walk1;
   }
 
-  /// 乗車駅探索を「境界がありそうな index の窓」へ絞る（#332）。全域 `[0, scanCount)` を
+  /// 乗車駅探索の開始 index を base 由来の到着予測から決める（#332）。全域 `[0, scanCount)` を
   /// k分割並列で探索するとラウンドが `log_{fanout+1} scanCount` 段（実機のコリドー124点で
-  /// 3段・1段あたり上流 guidance 10〜30秒）積み上がる。到着を base から予測して窓へ絞れば
-  /// 段数が落ちる。
+  /// 3段・1段あたり上流 guidance 10〜30秒）積み上がる。手前を削れば段数が落ちる。
   ///
-  /// 予測到着は `t1 実測 + t2見積り`（[_corridorRemainMin]）。窓は予測到着が
-  /// `budget ± _boardSearchWindowMarginMin` に入る index 帯——予測が分単位でこの幅までずれても
-  /// 真の境界を含む。**index 幅ではなく分幅で切る**のは、コリドー点の密度が経路ごとに違い
-  /// （実機で 60〜124 点）、同じ index 幅でも表す時間幅が桁で変わるため。
+  /// 予測到着は `t1 実測 + t2見積り`（[_corridorRemainMin]）。開始点は予測到着が
+  /// `budget - _boardSearchWindowMarginMin` を満たす最遠 index——予測が分単位でこの幅まで
+  /// 楽観に外れても真の境界より手前に留まる。**index 幅ではなく分幅で切る**のは、コリドー点の
+  /// 密度が経路ごとに違い（実機で 60〜124 点）、同じ index 幅でも表す時間幅が桁で変わるため。
   ///
   /// **予測であって下界ではない。** base の「残り乗車＋後続区間＋降車後徒歩」は「base に乗り
   /// 続ける」1経路の所要＝ X→goal の**上界**で、引き直し `/guidance/plan(X→goal)` はそれより
   /// 速い便を返し得る（別系統・goal により近い終着駅で降車後徒歩が丸ごと消える等）。よって
-  /// これを刈り込みの下界に使うと予算内候補を落とす。窓は**外れても呼び出し側のフォールバック
-  /// が回収する**前提で使い、健全な上界（t1 単独）だけを [scanCount] に残す。
-  ({int lo, int hi}) _boardSearchWindow(
+  /// これを刈り込みの下界に使うと予算内候補を落とす。外れても
+  /// [maxWalkBoardingIndexFrom] が手前を再探索して回収する前提で使い、[scanCount] には
+  /// 健全な上界（t1 単独）だけを残す。
+  ///
+  /// **削るのは手前だけ**（#332 Codex レビュー対応）。奥（徒歩の多い側）を予測で削ると、
+  /// 単調性が破れたコリドーでそこにある予算内の谷を評価する機会が消え、徒歩が静かに短くなる。
+  int _boardSearchStartIndex(
     TransitOption base,
     List<_CorridorStop> stops,
     List<int> walk1Min,
     int budgetMin,
     int scanCount,
   ) {
-    final remain = _corridorRemainMin(base, stops);
-    int frontier(int budget) => arrivalFeasiblePrefixCount(
-      walk1Min: walk1Min,
-      minRemainMin: remain,
-      budgetMin: budget,
-    );
-    final rawLo = frontier(budgetMin - _boardSearchWindowMarginMin) - 1;
-    final rawHi = frontier(budgetMin + _boardSearchWindowMarginMin) - 1;
-    var lo = rawLo.clamp(0, scanCount - 1);
-    var hi = rawHi < lo ? scanCount - 1 : rawHi.clamp(lo, scanCount - 1);
-    // 素直には予測窓をそのまま使いたいが、狭くしても得が無い領域がある: (fanout+1)^2 点までは
-    // 2ラウンドで解けるので、それ以下へ絞ってもラウンドは減らず probe 密度だけが落ちる。密度は
-    // 非単調コリドーで「評価済みの中の徒歩最大」を拾う解像度そのもの（#137）で、落とすと徒歩が
-    // 短くなる。ラウンドを減らさない絞り込みはしない。
-    while (hi - lo + 1 < _boardSearchMinWindow &&
-        (lo > 0 || hi < scanCount - 1)) {
-      if (lo > 0) lo--;
-      if (hi < scanCount - 1) hi++;
-    }
-    return (lo: lo, hi: hi);
+    final predicted =
+        arrivalFeasiblePrefixCount(
+          walk1Min: walk1Min,
+          minRemainMin: _corridorRemainMin(base, stops),
+          budgetMin: budgetMin - _boardSearchWindowMarginMin,
+        ) -
+        1;
+    // 素直には予測点まで丸ごと削りたいが、残りが (fanout+1)^2 点を切ると得が無い: そこまでは
+    // 2ラウンドで解けるのでラウンドは減らず、probe 密度だけが落ちる。密度は非単調コリドーで
+    // 「評価済みの中の徒歩最大」を拾う解像度そのもの（#137）で、落とすと徒歩が短くなる。
+    final maxStart = scanCount - _boardSearchMinWindow;
+    return maxStart <= 0 ? 0 : predicted.clamp(0, maxStart);
   }
 
   /// 各コリドー点について「その点で乗車してから goal へ着くまでの残り所要 t2」を [base] だけ

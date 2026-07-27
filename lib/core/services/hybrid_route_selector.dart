@@ -321,22 +321,26 @@ Future<int?> maxWalkBoardingIndexParallel({
   return best;
 }
 
-/// [maxWalkBoardingIndexParallel] を「予測した窓 `[windowLo, windowHi]` を先に探索し、外したら
-/// 回収する」形で回す（#332）。窓の中に境界があれば `[0, count)` 全域より少ないラウンドで
-/// 同じ境界へ届く。ラウンド数が律速（1段＝上流 guidance 1本・9〜30秒）なので、探索空間を
-/// 削ることだけが短縮になる。
+/// [maxWalkBoardingIndexParallel] を「予測した境界 [startFrom] から上を先に探索し、外したら
+/// 手前を回収する」形で回す（#332）。探索空間が `[0, count)` から `[startFrom, count)` へ
+/// 縮む分ラウンドが減る。ラウンド数が律速（1段＝上流 guidance 1本・9〜30秒）なので、探索
+/// 空間を削ることだけが短縮になる。
 ///
-/// **窓は予測であって下界ではない**——外れたときの回収がこの関数の存在理由：
-/// - 窓の中に予算内が皆無（＝予測が楽観に外れ、境界は窓より手前）→ `[0, windowLo)` を再探索
-/// - 窓の上端が予算内（＝予測が悲観に外れ、境界は窓より奥）→ `[windowHi, count)` を再探索
+/// **[startFrom] は予測であって下界ではない。** 予測が楽観に外れて `[startFrom, count)` に
+/// 予算内が皆無なら、`[0, startFrom)` を再探索して回収する——この回収があるので、予測の
+/// 当たり外れは速さの問題に閉じ、正しさへ波及しない。
 ///
-/// どちらの回収も単調性の仮定の下で正しい。窓の中で境界が確定したときは、それが
-/// `[0, count)` 全域の境界と一致する（窓より手前は単調性より予算内、奥は予算外）。
+/// **上端は削らない（#332 Codex レビュー対応）。** 上端も予測で切ると、単調性が破れた
+/// コリドーで「上端より奥にある予算内の谷」を評価する機会が消える。呼び出し側は評価済みの
+/// 予算内候補を全部プールへ返す設計（#137）で、その谷こそ徒歩最大になり得るため、上端を
+/// 予測で切ると徒歩が静かに短くなり得る。**手前（徒歩の少ない側）を削るのは目的関数
+/// （徒歩最大）に対して安全だが、奥（徒歩の多い側）を削るのは安全でない**——この非対称が
+/// 上端だけ健全な値を要求する理由。
+///
 /// 戻り値・[shouldContinue]・単調性の仮定は [maxWalkBoardingIndexParallel] と同じ。
-Future<int?> maxWalkBoardingIndexWindowed({
+Future<int?> maxWalkBoardingIndexFrom({
   required int count,
-  required int windowLo,
-  required int windowHi,
+  required int startFrom,
   required int budgetMin,
   required Future<int> Function(int index) evaluate,
   int fanout = 3,
@@ -351,12 +355,9 @@ Future<int?> maxWalkBoardingIndexWindowed({
     evaluate: evaluate,
   );
 
-  final best = await search(windowLo, windowHi);
-  if (best == null && windowLo > 0) {
-    return search(0, windowLo - 1);
-  }
-  if (best == windowHi && windowHi < count - 1) {
-    return await search(windowHi + 1, count - 1) ?? best;
+  final best = await search(startFrom, count - 1);
+  if (best == null && startFrom > 0) {
+    return search(0, startFrom - 1);
   }
   return best;
 }

@@ -1000,20 +1000,18 @@ void main() {
     });
   });
 
-  group('maxWalkBoardingIndexWindowed (#332)', () {
-    // 到着=index。境界は budgetMin と一致する。窓を外したときに取りこぼさないことが
-    // この関数の存在理由なので、両方向の外し方を反証する。
+  group('maxWalkBoardingIndexFrom (#332)', () {
+    // 到着=index。境界は budgetMin と一致する。開始点の予測を外したときに取りこぼさない
+    // ことがこの関数の存在理由なので、外れ方を反証する。
     Future<({int? best, List<int> evaluated})> run({
       required int count,
-      required int windowLo,
-      required int windowHi,
+      required int startFrom,
       required int budgetMin,
     }) async {
       final evaluated = <int>[];
-      final best = await maxWalkBoardingIndexWindowed(
+      final best = await maxWalkBoardingIndexFrom(
         count: count,
-        windowLo: windowLo,
-        windowHi: windowHi,
+        startFrom: startFrom,
         budgetMin: budgetMin,
         fanout: 5,
         evaluate: (i) async {
@@ -1024,66 +1022,45 @@ void main() {
       return (best: best, evaluated: evaluated);
     }
 
-    test('窓の中に境界があれば窓の外を評価しない', () async {
-      final r = await run(
-        count: 124,
-        windowLo: 28,
-        windowHi: 60,
-        budgetMin: 33,
-      );
+    test('開始点より奥に境界があれば手前を評価しない', () async {
+      final r = await run(count: 124, startFrom: 28, budgetMin: 33);
       expect(r.best, 33);
       expect(
-        r.evaluated.every((i) => i >= 28 && i <= 60),
+        r.evaluated.every((i) => i >= 28),
         isTrue,
-        reason: '窓の外まで評価している: ${r.evaluated}',
+        reason: '開始点より手前まで評価している: ${r.evaluated}',
       );
     });
 
-    test('窓が空振り（下端すら予算外）なら手前を再探索して境界を返す', () async {
-      // 予測が楽観に外れ、真の境界(20)が窓(40..80)より手前にあるケース。
-      final r = await run(
-        count: 124,
-        windowLo: 40,
-        windowHi: 80,
-        budgetMin: 20,
-      );
+    test('開始点以降が全滅なら手前を再探索して境界を返す', () async {
+      // 予測が楽観に外れ、真の境界(20)が開始点(40)より手前にあるケース。
+      final r = await run(count: 124, startFrom: 40, budgetMin: 20);
       expect(r.best, 20);
     });
 
-    test('窓の上端まで予算内なら奥を再探索して境界を返す', () async {
-      // 予測が悲観に外れ、真の境界(90)が窓(40..80)より奥にあるケース。
-      final r = await run(
-        count: 124,
-        windowLo: 40,
-        windowHi: 80,
-        budgetMin: 90,
-      );
-      expect(r.best, 90);
-    });
-
-    test('窓より手前も全滅なら null', () async {
-      final r = await run(
-        count: 124,
-        windowLo: 40,
-        windowHi: 80,
-        budgetMin: -1,
-      );
+    test('手前も全滅なら null', () async {
+      final r = await run(count: 124, startFrom: 40, budgetMin: -1);
       expect(r.best, isNull);
     });
 
-    test('窓が全域なら追加の再探索を起こさない', () async {
-      // 上端が末尾＝奥が無い／下端が0＝手前が無いので、フォールバックの条件は成立しない。
-      final r = await run(count: 40, windowLo: 0, windowHi: 39, budgetMin: 39);
+    test('上端は削らないので奥の境界へ必ず届く', () async {
+      // 単調性が破れたコリドーで奥にある予算内の谷（#137）を評価する機会を残すため、探索の
+      // 上端は常に count-1。開始点をどこに置いても奥の境界を取りこぼさない。
+      final r = await run(count: 124, startFrom: 10, budgetMin: 123);
+      expect(r.best, 123);
+    });
+
+    test('開始点0なら追加の再探索を起こさない', () async {
+      final r = await run(count: 40, startFrom: 0, budgetMin: 39);
       expect(r.best, 39);
       expect(r.evaluated.toSet().length, r.evaluated.length, reason: '重複評価なし');
     });
 
     test('締切で打ち切られたら再探索も起こさない', () async {
       var calls = 0;
-      final best = await maxWalkBoardingIndexWindowed(
+      final best = await maxWalkBoardingIndexFrom(
         count: 124,
-        windowLo: 40,
-        windowHi: 80,
+        startFrom: 40,
         budgetMin: 20,
         fanout: 5,
         shouldContinue: () => false,

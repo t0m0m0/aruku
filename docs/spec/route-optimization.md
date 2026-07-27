@@ -204,10 +204,11 @@
 - **到着を予測して探索窓へ絞る（#332）:** #317 を入れてなお実機の崩壊は board-search が支配（**75%・70.3s / 総 93.4s**）。締切には当たらず自然完走なので、遅いのは打ち切りではなく探索そのもの。コリドー124点を `fanout=5` で全域探索すると**3ラウンド直列**になる。
   - **fanout は動かせない（飽和）:** ラウンド壁時計は k 並列プローブの `max`。§2.2-6 の実測5サンプル `{10.1, 12.4, 12.8, 21.1, 30.8}` を経験分布にすると `E[max of k]` は k=5 で 27.0s、k=11 でも 29.9s。ラウンドを1つ減らして得るのはたかだか12秒で guidance 本数は +90%、しかも**分布の床が10秒**なので k を減らしても17秒より下がらない。**動かすべきは分母（探索空間）であって分子（並列度）ではない。**
   - **`t1` 単独の刈り込みは崩壊では効かない:** #317 の `t1 ≤ budget` は、board-search の起動条件が崩壊＝「予算が大きく余っている」ことと**背反**する。実機ログでは 124 点中1点も刈れていない（`scanCount ≈ 124`）。
-  - **窓の作り方:** 到着を `t1 実測 + t2見積り` で予測し、予測到着が `budget ± _boardSearchWindowMarginMin`（20分）に入る index 帯を窓にする（`_boardSearchWindow`）。`t2` は base の「その点以降の乗車 ＋ 後続区間 ＋ 降車後徒歩」を折れ線長で按分した値で**追加 API はゼロ**（`_corridorRemainMin`）。**index 幅でなく分幅で切る**のは、コリドー点の密度が経路ごとに 60〜124 点と変わり、同じ index 幅の表す時間幅が桁で違うため。
+  - **絞り方:** 到着を `t1 実測 + t2見積り` で予測し、予測到着が `budget - _boardSearchWindowMarginMin`（20分）を満たす最遠 index を**探索の開始点**にする（`_boardSearchStartIndex`）。`t2` は base の「その点以降の乗車 ＋ 後続区間 ＋ 降車後徒歩」を折れ線長で按分した値で**追加 API はゼロ**（`_corridorRemainMin`）。**index 幅でなく分幅で切る**のは、コリドー点の密度が経路ごとに 60〜124 点と変わり、同じ index 幅の表す時間幅が桁で違うため。
   - **予測は下界ではない（刈り込みに使ってはいけない）:** base の残余は「base に乗り続ける」**1経路**の所要＝ X→goal の**上界**で、引き直し `/guidance/plan(X→goal)` は同じ選択肢を含む再探索なのでより速い便を返し得る（別系統、goal により近い終着駅で降車後徒歩が丸ごと消える等）。これを刈り込みの下界として使うと予算内候補を落とす——**再現済み：予算ちょうどで予算内の乗車駅を刈り、徒歩 62分 → 44分 に劣化**。マージンをいくら大きく取っても直らない（係数の問題ではなく向きの問題）。刈り込み（`count`）には健全な上界である `t1` 単独の条件だけを残す。
-  - **外したら回収する（`maxWalkBoardingIndexWindowed`）:** 窓の中が全滅（予測が楽観に外れ境界は手前）→ `[0, windowLo)` を再探索。窓の上端まで予算内（悲観に外れ境界は奥）→ `[windowHi, count)` を再探索。どちらも単調性の仮定の下で正しく、**予測の当たり外れは速さの問題に閉じて正しさへ波及しない。**
-  - **窓の最小幅 `(fanout+1)²`:** それ以下へ絞ってもラウンドは減らず（2ラウンドで解ける点数だから）、probe 密度だけが落ちる。密度は非単調コリドーで「評価済みの中の徒歩最大」を拾う解像度そのもの（#137）。**この下限が無いと #137 が徒歩 79分 → 68分 に退行する（実際に踏んだ）。**
+  - **外したら回収する（`maxWalkBoardingIndexFrom`）:** 開始点以降が全滅（予測が楽観に外れ、境界は手前）なら `[0, startFrom)` を再探索する。単調性の仮定の下で正しく、**予測の当たり外れは速さの問題に閉じて正しさへ波及しない。**
+  - **削るのは手前だけ・上端は削らない（#332 Codex レビュー対応）:** 探索の上端は常に健全な `scanCount - 1`。上端も予測で切ると、単調性が破れたコリドーで**上端より奥にある予算内の谷**を評価する機会が消える。評価済みの予算内候補を全部プールへ返す設計（#137）ではその谷こそ徒歩最大になり得るため、上端を切ると徒歩が静かに短くなる。**手前（徒歩の少ない側）を削るのは目的関数（徒歩最大）に対して安全だが、奥（徒歩の多い側）を削るのは安全でない**——この非対称が上端に予測を使わない理由。したがって短縮幅は「予測境界より手前をどれだけ削れるか」に限られる。
+  - **残す最小点数 `(fanout+1)²`:** それ以下へ絞ってもラウンドは減らず（2ラウンドで解ける点数だから）、probe 密度だけが落ちる。密度は非単調コリドーで「評価済みの中の徒歩最大」を拾う解像度そのもの（#137）。**この下限が無いと #137 が徒歩 79分 → 68分 に退行する（実際に踏んだ）。**
 - **検索の締切で打ち切る（#300）:** 上流 `/guidance/plan` は 9〜11 秒が正常・裾は 30 秒超で、引き直しの直列ラウンドと積になって最悪待ち時間を膨らませる。探索に締切（`searchDeadlineBudget`・120秒）を張り、**超過後は新しい探索ラウンドを起こさず、評価済みの予算内候補で確定する**（`maxWalkBoardingIndexParallel` の `shouldContinue`）。**締切超過は失敗ではなく縮退**——必須なのは初期 `/guidance/plan` 1本だけで、引き直しは徒歩最大化のための改善だから、改善側だけをゲートできる。**結果として徒歩は最大より短くなり得る**（トレードオフは承知の上）。劣化が問題になるなら締切を伸ばすのではなくラウンド数を減らすこと。
   - **締切は徒歩実測（measure-first）には掛けない（#300 レビュー指摘）:** 締切を掛けてよいのは Transit の引き直し（失敗＝候補が `unverified` で除外される **fail-closed**）だけ。徒歩実測は失敗時に楽観的な見積りが残る **fail-open** で、締切で飛ばすと**予算超過・乗り遅れの経路を「予算内」と偽って確定させる**（本節§4 #254 を破る。再現済み：実際46分の全徒歩を23分として確定）。**実測は探索の改善ではなく確定経路の検証であり、締切より優先する。** 判断基準の正本は §2.4。
 - **#115 との関係:** 乗り遅れ再照会（#115）は基準経路の採用候補1本の救済、本フォールバックは候補生成のやり直し。崩壊時のみ後者が補う。
@@ -328,7 +329,7 @@ Transit API 経路（`transit_route_service.dart`）固有。
 | `forwardCandidates(candidates, origin, goal, {maxBacktrackRatio})` | hybrid_route_selector.dart | 逆戻り迂回を除いた前方プール。全候補が逆戻りなら除外せずそのまま、origin/goal 未指定はフィルタなし。勝者選定（`selectBestRoute`）と先行実測フロント（§3.7・`measureShortlist`）が共有する方向フィルタの単一実装。 |
 | `maxWalkBoardingIndex({count, budgetMin, evaluate})` | hybrid_route_selector.dart | 乗車駅探索（§3.6）。到着が index 単調増の前提で `evaluate(i) ≤ budget` の最大 index（＝総徒歩最大）を二分探索。evaluate を O(log count) 回に抑える。予算内皆無・count 0 は null。 |
 | `maxWalkBoardingIndexParallel({count, budgetMin, evaluate, start, fanout, shouldContinue})` | hybrid_route_selector.dart | 上のk分割並列版（#163）。探索範囲は `[start, count)`（#332）。残区間が `fanout` 以下のラウンドは内点分割をやめ全点を1発で打つ（#332。内点は hi を含まないため末尾に1本ラウンドが残るのを避ける。この結果 `fanout: 1` は直列版と同一軌道に**ならない**）。 |
-| `maxWalkBoardingIndexWindowed({count, windowLo, windowHi, budgetMin, evaluate, fanout, shouldContinue})` | hybrid_route_selector.dart | 予測窓を先に探索し、外したら回収する（§3.6・#332）。窓が全滅→手前を再探索、窓の上端まで予算内→奥を再探索。窓は予測であって下界ではないので、この回収が正しさの担保。 |
+| `maxWalkBoardingIndexFrom({count, startFrom, budgetMin, evaluate, fanout, shouldContinue})` | hybrid_route_selector.dart | 予測した開始点から上を先に探索し、全滅なら `[0, startFrom)` を再探索する（§3.6・#332）。開始点は予測であって下界ではないので、この回収が正しさの担保。**上端は削らない**（奥＝徒歩の多い側を切ると #137 の谷を落とす）。 |
 | `arrivalFeasiblePrefixCount({walk1Min, minRemainMin, budgetMin})` | hybrid_route_selector.dart | 到着の**下界**（`t1 + t2下界`）が予算内の最遠 index までの点数（§3.6・#317/#332）。単調性に依存しない安全上界で、予算内候補を1件も落とさない。`minRemainMin` が短い index は 0＝刈らない側へ倒す。 |
 | `measureShortlist({candidates, budgetMin, departureAt, origin, goal})` | hybrid_route_selector.dart | 逆戻り除外（`forwardCandidates`）→ 見積り実到着（`arrivalMinutes`）が予算内の候補だけを、徒歩降順→実到着昇順→乗換少ない順で並べて返す（cap なし）。先行実測（§3.7 Option A）と確定選定の tier 実測が**同一集合・同一順序**を測るための単一の並び。 |
 | `prewarmFront({shortlist, chosen, hybrids, singlePassHybridThreshold, maxMeasureShortlist})` | hybrid_route_selector.dart | 非崩壊ルートの先行実測対象と single-pass 発火有無を返す（§3.7・#318）。`shortlist`（`measureShortlist` 結果）中の予算内ハイブリッド（`hybrids` の identity 集合）が `singlePassHybridThreshold` 件以上なら短リスト上位 `maxMeasureShortlist` 件全体（`singlePass=true`）、未満なら `chosen` 単独を返す（#327）。 |
@@ -356,8 +357,8 @@ Transit API 経路（`transit_route_service.dart`）固有。
 | `_collapseSlackRatio` | 0.4 | 同上の崩壊判定（症状2・相対）: 確定が予算をこの割合以上余らせている |
 | `_collapseSlackMinutes` | 20 | 同上の崩壊判定（症状2・絶対・#137）: 確定がこの分数以上余らせている。相対比と OR で判定 |
 | `_boardSearchFanout` | 5 | 乗車駅探索のk分割並列探索の並列度（§3.6・#163/#317）。上げても `E[max of k]` が飽和していて効かないので動かさない |
-| `_boardSearchWindowMarginMin` | 20 | 乗車駅探索の予測窓の幅（分・§3.6・#332）。予測がこの分数までずれても窓は真の境界を含む。狭めるほどラウンドが減るが窓を外す確率が上がる |
-| `_boardSearchMinWindow` | 36 = (fanout+1)² | 予測窓の最小点数（§3.6・#332）。これ以下へ絞ってもラウンドは減らず probe 密度＝非単調コリドーの徒歩最大の解像度（#137）だけが落ちる |
+| `_boardSearchWindowMarginMin` | 20 | 乗車駅探索の開始点を予測から下げる余裕（分・§3.6・#332）。予測がこの分数まで楽観に外れても開始点は真の境界より手前に留まる |
+| `_boardSearchMinWindow` | 36 = (fanout+1)² | 乗車駅探索に残す最小点数（§3.6・#332）。これ以下へ絞ってもラウンドは減らず probe 密度＝非単調コリドーの徒歩最大の解像度（#137）だけが落ちる |
 | `_maxCorridorStops` | 60 | 乗車駅探索のコリドー候補点の上限（均等間引き）。密なほど境界解像度が上がり余りが減る。二分探索は実測 walk 駆動で評価は O(log n)（§3.6・#137） |
 | `_maxMeasureShortlist` | 13 | 見積り予算内候補を1並列パスで実測する短リストの本数上限。レート制限（#161: 1検索最大13ファンアウト）に合わせる |
 | `_singlePassHybridThreshold` | 3 | 先行実測を「見積りフロント」から「予算内短リスト全体」へ広げる（§3.7 Option A・#318）発火しきい値。予算内ハイブリッドがこの件数以上並ぶルートを reject 多発とみなす。標準乗換中心（0〜2件）は従来の tier 段階実測を保ちファンアウトを増やさない |
