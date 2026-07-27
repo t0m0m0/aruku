@@ -229,3 +229,50 @@ dart-define**（`PROXY_BASE_URL` 等）で生成されることを確認する�
   `gcloud run services list --region us-central1 --project aruku-app` で確認する。
 - 新リージョン関数で `allUsers` invoker 権限が欠落すると App Check 検証前に 403 になる
   （② の検証参照）。
+
+---
+
+## ⑦ 関数を廃止するときの手順（**本番削除はマージ前に手で行う**）
+
+エンドポイントをソースから消すだけでは**本番の関数は稼働し続ける**。廃止した関数は
+未使用のまま公開され、Secret Manager 経由の上流アクセスも生きたまま残る。
+
+さらに、**CI は関数の削除を自動では行えない。** `.github/workflows/deploy-functions.yml`
+の deploy ジョブは
+
+```
+deploy --only functions,firestore --non-interactive
+```
+
+を `--force` 無しで実行する。ソースから消えた関数の削除には対話確認が要るため、
+`--non-interactive` では**確認できずデプロイごと中断する**。`functions` と `firestore` を
+1コマンドに束ねているので、**ルール・インデックスのデプロイまで巻き添えで止まる**。
+
+`--force` を常設しない理由は、意図しない export の消失がそのまま本番関数の無確認削除に
+なるため。**「削除は失敗して気付く」が既定として正しい**——その代わり、廃止のときだけ
+人が明示的に消す。
+
+### 手順
+
+1. **マージ前**に本番から削除する（`--force` はこのコマンド単体の確認省略）:
+   ```sh
+   npx -y firebase-tools@latest functions:delete <関数名> \
+     --region asia-northeast1 --project aruku-app --force
+   ```
+2. 削除を確認する:
+   ```sh
+   npx -y firebase-tools@latest functions:list --project aruku-app
+   ```
+3. ソース側の PR をマージする。CI の deploy は削除対象が既に無いので確認を求めず通る。
+4. その関数専用の Secret があれば削除する:
+   ```sh
+   gcloud secrets delete <SECRET_NAME> --project aruku-app
+   ```
+5. 2nd gen の実体は Cloud Run なので残骸も確認する:
+   ```sh
+   gcloud run services list --region asia-northeast1 --project aruku-app
+   ```
+
+**順序の注意:** 1 と 3 の間に `functions/**` を触る別の変更が main へ入ると、その
+デプロイが削除済みの関数を**作り直す**（ソースにまだ残っているため）。1 の直後に 3 を
+済ませること。
