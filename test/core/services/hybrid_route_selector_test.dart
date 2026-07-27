@@ -758,7 +758,7 @@ void main() {
       expect(evaluated.toSet().length, evaluated.length, reason: '重複評価なし');
     });
 
-    test('fanout=1 でも境界は直列二分探索と一致する（軌道は打ち切りラウンド分だけ異なる）', () async {
+    test('fanout=1 は直列二分探索と同一の挙動（中点1点ずつ）', () async {
       final evaluated = <int>[];
       final i = await maxWalkBoardingIndexParallel(
         count: totals.length,
@@ -770,10 +770,10 @@ void main() {
         },
       );
       expect(i, 6);
-      // 中点 4→6 まで直列版と同一。区間が [7,8]（span=1 <= fanout）へ縮んだ時点で
-      // 内点分割をやめ 7・8 を同一ラウンドで打つ（#332）ため、直列版の [4,6,7] に
-      // 対し 8 が1点多い。境界（予算内の最遠 index）は変わらない。
-      expect(evaluated, [4, 6, 7, 8]);
+      // 直列版と同じ二分探索の軌道: mid=4→6→7→(区間枯れ) の順。打ち切りラウンド（#332）は
+      // `span < fanout` 条件なので fanout=1 では span=0 のときだけ発火し、そのときの
+      // probe は内点分割と同一点になるため軌道は変わらない。
+      expect(evaluated, [4, 6, 7]);
     });
 
     test('fanout 拡大でラウンド数（直列 guidance の段数）が減る（#317）', () async {
@@ -844,19 +844,53 @@ void main() {
         return (rounds: rounds, best: await future);
       }
 
-      test('区間が fanout 以下なら残り全 index を1ラウンドで打ち切る', () async {
-        // 6点・全点予算内。内点 lo+span*j/(fanout+1) は hi を含まないので、分割を
-        // 続けると末尾 index5 のためだけに2ラウンド目（上流 guidance 1本ぶんの壁時計）
-        // が要る。span(5) <= fanout(5) の区間を全点1ラウンドで打てば1ラウンドで済む。
-        final r = await run(count: 6, budgetMin: 999);
-        expect(r.best, 5);
+      test('残り全 index が fanout 本以内なら1ラウンドで打ち切る', () async {
+        // 5点・全点予算内。内点 lo+span*j/(fanout+1) は hi を含まないので、分割を
+        // 続けると末尾 index4 のためだけに2ラウンド目（上流 guidance 1本ぶんの壁時計）
+        // が要る。全点を1ラウンドで打てば1ラウンドで済む。
+        final r = await run(count: 5, budgetMin: 999);
+        expect(r.best, 4);
         expect(r.rounds, 1);
       });
 
       test('打ち切りラウンドでも境界（予算内の最遠 index）は変わらない', () async {
         // 全点予算内でない区間でも、返す index は「予算内の最遠」のまま。
-        final r = await run(count: 6, budgetMin: 3);
+        final r = await run(count: 5, budgetMin: 3);
         expect(r.best, 3);
+      });
+
+      test('1ラウンドの同時発行は fanout 本を超えない', () async {
+        // 上流のレート制限が未知で、429 は「予算外」と誤認されて徒歩を静かに縮める
+        // （#333）。打ち切りラウンドが fanout+1 本を撃つと、電車系+バス系の2 base 並列で
+        // documented な fanout×2 の上限を破る。
+        final inflight = <int>[];
+        final pending = <int, Completer<int>>{};
+        final future = maxWalkBoardingIndexParallel(
+          count: 40,
+          budgetMin: 999, // 全点予算内＝区間が縮みきるまで回す
+          fanout: 5,
+          evaluate: (index) {
+            final c = Completer<int>();
+            pending[index] = c;
+            return c.future;
+          },
+        );
+        await Future<void>.delayed(Duration.zero);
+        while (pending.isNotEmpty) {
+          inflight.add(pending.length);
+          final batch = [...pending.entries];
+          pending.clear();
+          for (final e in batch) {
+            e.value.complete(e.key);
+          }
+          await Future<void>.delayed(Duration.zero);
+        }
+        await future;
+        expect(
+          inflight.every((n) => n <= 5),
+          isTrue,
+          reason: '同時発行: $inflight',
+        );
       });
 
       test('区間が fanout より広いラウンドは従来どおり内点分割する', () async {
