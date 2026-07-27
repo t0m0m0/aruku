@@ -81,20 +81,22 @@ int arrivalMinutes(List<RouteSegment> segments, DateTime? departureAt) {
 }
 
 /// 徒歩実測を反映した [segments] を出発絶対時刻 [departureAt] で進め、発車時刻を持つ
-/// transit 区間（電車・バス）のうち「予定の便に乗り遅れる」最初の区間を返す（無ければ null）。
+/// transit 区間（電車・バス）のうち「予定の便に乗り遅れる」最初の区間の index を返す
+/// （無ければ null）。
 /// 乗り遅れの基準は [_advance] と同一で、区間到着時点の累積分が発車相対分を超える
 /// （`cum > boardRel`）こと。発車相対分ちょうどに着く場合は乗車できる扱いで対象外。
-/// 返り値の [cumBefore] はその区間に着くまでの実累積分で、乗車駅からの時刻表再照会の
-/// start_time（出発 + cumBefore）を組むのに使う（#115）。
 /// 判定は発車時刻のみで行う：NAVITIME は降車駅の時刻を欠くことがあるが、発車時刻が
 /// あれば「徒歩を延ばしてその便に乗り遅れたか」は確定できる（着時刻があれば発車前着
 /// =不整合データを併せて除外する）。発車時刻が欠落した区間は判定できないため対象外。
 /// バスも電車と同じ基準で判定する（#250。バス限定の緩和は入れない——時刻表を信じる
 /// 決定と「その便が実在するか」の検証は別物）。
-({int index, int cumBefore})? firstMissedTransit(
-  List<RouteSegment> segments,
-  DateTime departureAt,
-) {
+///
+/// かつては駅着までの実累積分 `cumBefore` も返し、乗車駅からの時刻表再照会の start_time
+/// （出発 + cumBefore）を組むのに使っていた（#115）。データ源が Transit API へ移ったとき
+/// この再照会は廃止され、#115 は乗車駅探索（docs/spec/route-optimization.md §3.6）が
+/// 候補側から `/guidance/plan` を引き直して自前で乗車時刻を決める形になったため、
+/// `cumBefore` は誰も読まなくなった（#330 で撤去）。
+int? firstMissedTransit(List<RouteSegment> segments, DateTime departureAt) {
   var cum = 0;
   for (var i = 0; i < segments.length; i++) {
     final seg = segments[i];
@@ -105,9 +107,7 @@ int arrivalMinutes(List<RouteSegment> segments, DateTime? departureAt) {
       // 着時刻があれば発車前着（ride < 0）の不整合データは対象外。乗り遅れは駅着が
       // 発車相対分を超える場合のみ（同時刻は待ち0で乗車できるため除外）。
       final consistent = arr == null || !arr.isBefore(dep);
-      if (consistent && cum > boardRel) {
-        return (index: i, cumBefore: cum);
-      }
+      if (consistent && cum > boardRel) return i;
     }
     cum = _advance(cum, seg, departureAt).cum;
   }

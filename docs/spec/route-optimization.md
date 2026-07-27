@@ -233,7 +233,7 @@ NAVITIME route_transit 照会（1回）
 | `prewarmFront({shortlist, chosen, hybrids, singlePassHybridThreshold, maxMeasureShortlist})` | hybrid_route_selector.dart | 非崩壊ルートの先行実測対象と single-pass 発火有無を返す（§3.7・#318）。`shortlist`（`measureShortlist` 結果）中の予算内ハイブリッド（`hybrids` の identity 集合）が `singlePassHybridThreshold` 件以上なら短リスト上位 `maxMeasureShortlist` 件全体（`singlePass=true`）、未満なら `chosen` 単独を返す（#327）。 |
 | `buildRoutePlan({from, to, segments, departure, budgetMin, departureAt})` | route_plan_builder.dart | segments → RoutePlan（totalKm/walkKm/kcal/walkRatio/totalMin/timelineNodes）。待ち時間込みの到着を計算。 |
 | `arrivalMinutes(segments, departureAt)` | route_plan_builder.dart | 乗車前・乗換待ちを含む実到着分。departureAt 無しは待ち抜き合計。 |
-| `firstMissedTransit(segments, departureAt)` | route_plan_builder.dart | 駅着が発車後になる最初の transit（電車・バス）区間（index, cumBefore）。無ければ null。 |
+| `firstMissedTransit(segments, departureAt)` | route_plan_builder.dart | 駅着が発車後になる最初の transit（電車・バス）区間の index。無ければ null。 |
 | `hasUnverifiedTransit(segments)` | route_plan_builder.dart | 実発車時刻（`depTime`）を確認できていない transit 区間（電車・バス）を含むか。確定経路（§4 #137）の検証に使う判定。 |
 | `maxBoardingWait(segments, departureAt)` | route_plan_builder.dart | 全電車区間の乗車前待ちの最大値。 |
 | `frontierStations(stops, origin, goal, budgetMin, {maxPerSide})` | navitime_route_service.dart | 乗降候補駅を直線徒歩が予算内のものへ絞り、片側 maxPerSide を超えれば均等間引き（両端含む・b<a ペアを保つ）。昇順インデックスで返す。 |
