@@ -45,7 +45,6 @@ import {
   googleWalkMatrixProxy,
   googleWalkProxy,
   MAX_RESPONSE_BYTES,
-  navitimeProxy,
   placesProxy,
   resetRateLimit,
 } from "../src/index";
@@ -254,38 +253,6 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
   afterEach(() => {
     if (original === undefined) delete process.env.FUNCTIONS_EMULATOR;
     else process.env.FUNCTIONS_EMULATOR = original;
-  });
-
-  it("navitimeProxy: message かつ items 無しは 502 で返す", async () => {
-    mockUpstream({ message: "Too many requests" });
-    const res = makeRes();
-    await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
-      res
-    );
-    expect(res.statusCode).toBe(502);
-    expect(res.body).toEqual({ message: "Too many requests" });
-  });
-
-  it("navitimeProxy: items を含む正常応答はそのまま透過する", async () => {
-    const payload = { items: [{ summary: {} }] };
-    mockUpstream(payload);
-    const res = makeRes();
-    await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
-      res
-    );
-    expect(res.statusCode).toBeUndefined();
-    expect(res.body).toEqual(payload);
-  });
-
-  it("navitimeProxy: 必須パラメータ欠落は 400 で上流を呼ばない", async () => {
-    const res = makeRes();
-    await invokeHandler(navitimeProxy, makeReq({ query: { start: "1,1" } }), res);
-    expect(res.statusCode).toBe(400);
-    expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
   it("googleWalkProxy: error かつ routes 無しは 502 で返す", async () => {
@@ -525,9 +492,9 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
     for (let i = 0; i < 30; i++) await checkRateLimit("9.9.9.9");
     const res = makeRes();
     await invokeHandler(
-      navitimeProxy,
+      placesProxy,
       makeReq({
-        query: { start: "1,1", goal: "2,2", start_time: "t" },
+        query: { action: "autocomplete", input: "shibuya" },
         ip: "9.9.9.9",
       }),
       res
@@ -556,8 +523,8 @@ describe("ハンドラ統合（タイムアウト・信頼性ガード / issue #
     mockUpstreamTimeout();
     const res = makeRes();
     await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      placesProxy,
+      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
       res
     );
     const opts = httpsRequestMock.mock.calls[0][1] as { timeout?: number };
@@ -565,11 +532,11 @@ describe("ハンドラ統合（タイムアウト・信頼性ガード / issue #
   });
 
   it("https.request に keepAlive:true の共有 Agent を渡す（issue #307）", async () => {
-    mockUpstream({ items: [{ summary: {} }] });
+    mockUpstream({ suggestions: [] });
     const res = makeRes();
     await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      placesProxy,
+      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
       res
     );
     const opts = httpsRequestMock.mock.calls[0][1] as {
@@ -580,16 +547,16 @@ describe("ハンドラ統合（タイムアウト・信頼性ガード / issue #
   });
 
   it("複数回の呼び出しで同一の Agent インスタンスを再利用する", async () => {
-    mockUpstream({ items: [{ summary: {} }] });
+    mockUpstream({ suggestions: [] });
     await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      placesProxy,
+      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
       makeRes()
     );
-    mockUpstream({ items: [{ summary: {} }] });
+    mockUpstream({ suggestions: [] });
     await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "3,3", goal: "4,4", start_time: "t" } }),
+      placesProxy,
+      makeReq({ query: { action: "autocomplete", input: "shinjuku" } }),
       makeRes()
     );
     const firstAgent = (
@@ -602,25 +569,33 @@ describe("ハンドラ統合（タイムアウト・信頼性ガード / issue #
   });
 
   it("GET かつ再利用ソケットでの生ネットワークエラーは1回だけ再試行して成功させる（issue #307）", async () => {
-    const payload = { items: [{ summary: {} }] };
-    mockUpstreamStaleSocketThenSuccess(payload, true);
+    mockUpstreamStaleSocketThenSuccess(
+      { location: { latitude: 35.658, longitude: 139.701 } },
+      true
+    );
     const res = makeRes();
     await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      placesProxy,
+      makeReq({ query: { action: "details", place_id: "id_x" } }),
       res
     );
     expect(httpsRequestMock).toHaveBeenCalledTimes(2);
     expect(res.statusCode).toBeUndefined();
-    expect(res.body).toEqual(payload);
+    expect(res.body).toEqual({
+      status: "OK",
+      result: { geometry: { location: { lat: 35.658, lng: 139.701 } } },
+    });
   });
 
   it("新規ソケット（reusedSocket=false）での生ネットワークエラーは再試行せず 502 を返す", async () => {
-    mockUpstreamStaleSocketThenSuccess({ items: [{ summary: {} }] }, false);
+    mockUpstreamStaleSocketThenSuccess(
+      { location: { latitude: 35.658, longitude: 139.701 } },
+      false
+    );
     const res = makeRes();
     await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      placesProxy,
+      makeReq({ query: { action: "details", place_id: "id_x" } }),
       res
     );
     expect(httpsRequestMock).toHaveBeenCalledTimes(1);
@@ -643,18 +618,6 @@ describe("ハンドラ統合（タイムアウト・信頼性ガード / issue #
     expect(res.body).toEqual({ error: "upstream error" });
   });
 
-  it("navitimeProxy: 上流無応答（timeout）は 504 を返す", async () => {
-    mockUpstreamTimeout();
-    const res = makeRes();
-    await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
-      res
-    );
-    expect(res.statusCode).toBe(504);
-    expect(res.body).toEqual({ error: "upstream timeout" });
-  });
-
   it("googleWalkProxy: 上流無応答（timeout）は 504 を返す", async () => {
     mockUpstreamTimeout();
     const res = makeRes();
@@ -667,43 +630,32 @@ describe("ハンドラ統合（タイムアウト・信頼性ガード / issue #
     expect(res.body).toEqual({ error: "upstream timeout" });
   });
 
-  it("navitimeProxy: レスポンスサイズ上限超過は破棄して 502 を返す", async () => {
+  it("placesProxy: レスポンスサイズ上限超過は破棄して 502 を返す", async () => {
     mockUpstreamBytes(MAX_RESPONSE_BYTES + 1);
     const res = makeRes();
     await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      placesProxy,
+      makeReq({ query: { action: "details", place_id: "id_x" } }),
       res
     );
     expect(res.statusCode).toBe(502);
     expect(res.body).toEqual({ error: "upstream error" });
   });
 
-  it("navitimeProxy: 上限以内のサイズは破棄しない（正常透過）", async () => {
+  it("placesProxy: 上限以内のサイズは破棄しない（正常処理）", async () => {
     // 上限ちょうどのボディ（有効な JSON）は破棄されず、通常処理される。
-    const payload = { items: [{ summary: {} }] };
-    mockUpstream(payload);
+    mockUpstream({ location: { latitude: 35.658, longitude: 139.701 } });
     const res = makeRes();
     await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      placesProxy,
+      makeReq({ query: { action: "details", place_id: "id_x" } }),
       res
     );
     expect(res.statusCode).toBeUndefined();
-    expect(res.body).toEqual(payload);
-  });
-
-  it("navitimeProxy: 上流が非2xxならボディ形状に依らず 502 で上流ボディを返す", async () => {
-    // RapidAPI が 429（items あり得ない）を返す想定。ステータス一次判定で 502。
-    mockUpstream({ message: "Too many requests" }, 429);
-    const res = makeRes();
-    await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
-      res
-    );
-    expect(res.statusCode).toBe(502);
-    expect(res.body).toEqual({ message: "Too many requests" });
+    expect(res.body).toEqual({
+      status: "OK",
+      result: { geometry: { location: { lat: 35.658, lng: 139.701 } } },
+    });
   });
 
   it("googleWalkProxy: 上流 403（PERMISSION_DENIED）は 502 で返す", async () => {
@@ -754,8 +706,8 @@ describe("ハンドラ統合（App Check 401）", () => {
   it("トークン欠落時は 401 を返し上流を呼ばない", async () => {
     const res = makeRes();
     await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      placesProxy,
+      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
       res
     );
     expect(res.statusCode).toBe(401);
@@ -782,7 +734,7 @@ describe("ハンドラ統合（App Check 401）", () => {
 
 describe("CORS プリフライト（OPTIONS）", () => {
   const handlers: [string, HttpsFunction][] = [
-    ["navitimeProxy", navitimeProxy],
+    ["placesProxy", placesProxy],
     ["googleWalkProxy", googleWalkProxy],
   ];
 
@@ -951,14 +903,14 @@ describe("ハンドラ統合（重複排除 / issue #274）", () => {
     expect(res2.body).toEqual(payload);
   });
 
-  it("navitimeProxy: 重複排除の対象外（同一パラメータでも毎回上流を呼ぶ）", async () => {
-    mockUpstream({ items: [{ summary: {} }] });
-    const q = { start: "1,1", goal: "2,2", start_time: "t" };
+  it("placesProxy: 重複排除の対象外（cacheKey 未指定なので毎回上流を呼ぶ）", async () => {
+    mockUpstream({ suggestions: [] });
+    const q = { action: "autocomplete", input: "shibuya" };
 
     const res1 = makeRes();
-    await invokeHandler(navitimeProxy, makeReq({ query: q }), res1);
+    await invokeHandler(placesProxy, makeReq({ query: q }), res1);
     const res2 = makeRes();
-    await invokeHandler(navitimeProxy, makeReq({ query: q }), res2);
+    await invokeHandler(placesProxy, makeReq({ query: q }), res2);
 
     expect(httpsRequestMock).toHaveBeenCalledTimes(2);
   });

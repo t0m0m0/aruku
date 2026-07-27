@@ -68,7 +68,7 @@ import {
 import {
   googleWalkMatrixProxy,
   googleWalkProxy,
-  navitimeProxy,
+  placesProxy,
   resetRateLimit as resetRateLimitFromIndex,
   verifyAppCheck,
   withRequestLatency,
@@ -190,18 +190,18 @@ describe("search_request イベント配線（fetchUpstream 経由）", () => {
   });
 
   it("上流成功時: endpoint/upstream/status=success/httpStatus/latencyMs を記録する", async () => {
-    mockUpstream({ items: [{ summary: {} }] });
+    mockUpstream({ suggestions: [] });
     const res = makeRes();
     await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      placesProxy,
+      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
       res
     );
     expect(logRequestOutcomeMock).toHaveBeenCalledTimes(1);
     const call = logRequestOutcomeMock.mock.calls[0][0];
     expect(call).toMatchObject({
-      endpoint: "navitimeProxy",
-      upstream: "navitime",
+      endpoint: "placesProxy.autocomplete",
+      upstream: "places",
       status: "success",
       httpStatus: 200,
     });
@@ -209,17 +209,17 @@ describe("search_request イベント配線（fetchUpstream 経由）", () => {
   });
 
   it("上流 429 応答: status=failure かつ httpStatus=429 を記録する（429 判別可能）", async () => {
-    mockUpstream({ message: "Too many requests" }, 429);
+    mockUpstream({ error: "Too many requests" }, 429);
     const res = makeRes();
     await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      placesProxy,
+      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
       res
     );
     expect(logRequestOutcomeMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        endpoint: "navitimeProxy",
-        upstream: "navitime",
+        endpoint: "placesProxy.autocomplete",
+        upstream: "places",
         status: "failure",
         httpStatus: 429,
       })
@@ -265,29 +265,6 @@ describe("search_request イベント配線（fetchUpstream 経由）", () => {
   // 以下3ケースは上流が HTTP 200 でエラー形状のボディを返し、呼び出し側で 502 に
   // 変換されるパス。SLO 上も failure として1回だけ計上されることを固定する
   // （成功として記録される退行は、まさに検出したいクォータ/認証/スキーマ失敗を隠す）。
-  it("navitimeProxy: 200+エラーボディ（message かつ items 無し）は failure(semanticFailure) として記録する", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    mockUpstream({ message: "You have exceeded the rate limit" });
-    const res = makeRes();
-    await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
-      res
-    );
-    expect(res.statusCode).toBe(502);
-    expect(logRequestOutcomeMock).toHaveBeenCalledTimes(1);
-    expect(logRequestOutcomeMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        endpoint: "navitimeProxy",
-        upstream: "navitime",
-        status: "failure",
-        httpStatus: 200,
-        semanticFailure: true,
-      })
-    );
-    vi.restoreAllMocks();
-  });
-
   it("googleWalkProxy: 200+エラーボディ（error かつ routes 無し）は failure(semanticFailure) として記録する", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     mockUpstream({ error: { code: 403, status: "PERMISSION_DENIED" } });
@@ -368,16 +345,16 @@ describe("request_latency イベント配線（ハンドラ全体レイテンシ
   });
 
   it("成功時: endpoint と数値 totalLatencyMs・httpStatus を1回だけ記録する", async () => {
-    mockUpstream({ items: [{ summary: {} }] });
+    mockUpstream({ suggestions: [] });
     const res = makeRes();
     await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: { start: "1,1", goal: "2,2", start_time: "t" } }),
+      placesProxy,
+      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
       res
     );
     expect(logRequestLatencyMock).toHaveBeenCalledTimes(1);
     const call = logRequestLatencyMock.mock.calls[0][0];
-    expect(call.endpoint).toBe("navitimeProxy");
+    expect(call.endpoint).toBe("placesProxy");
     expect(typeof call.totalLatencyMs).toBe("number");
     expect(call.httpStatus).toBe(200);
   });
@@ -388,8 +365,8 @@ describe("request_latency イベント配線（ハンドラ全体レイテンシ
     // 上流呼び出し時しか出ないため、この層が抜け落ちる盲点を埋める）。
     const res = makeRes();
     await invokeHandler(
-      navitimeProxy,
-      makeReq({ query: {} }), // start/goal/start_time 欠落 → 400 早期 return
+      placesProxy,
+      makeReq({ query: {} }), // action 欠落 → 400 早期 return
       res
     );
     expect(res.statusCode).toBe(400);
@@ -400,7 +377,7 @@ describe("request_latency イベント配線（ハンドラ全体レイテンシ
   it("OPTIONS プリフライトは記録しない（ノイズ除外）", async () => {
     const res = makeRes();
     await invokeHandler(
-      navitimeProxy,
+      placesProxy,
       makeReq({ method: "OPTIONS" }),
       res
     );
@@ -411,7 +388,7 @@ describe("request_latency イベント配線（ハンドラ全体レイテンシ
   it("ハンドラが status を書く前に throw したら 500 として記録し例外は伝播する", async () => {
     // status 未書き込みの例外は Express の既定 200 のまま finally に入る。これを 200 と
     // 記録すると失敗が成功に紛れるため、500 に寄せる（プラットフォームの 500 変換に合わせる）。
-    const wrapped = withRequestLatency("navitimeProxy", async () => {
+    const wrapped = withRequestLatency("placesProxy", async () => {
       throw new Error("boom");
     });
     const res = makeRes();
@@ -423,7 +400,7 @@ describe("request_latency イベント配線（ハンドラ全体レイテンシ
   });
 
   it("ハンドラが 4xx/5xx を書いてから throw したらその status を保つ", async () => {
-    const wrapped = withRequestLatency("navitimeProxy", async (_req, res) => {
+    const wrapped = withRequestLatency("placesProxy", async (_req, res) => {
       res.status(502);
       throw new Error("boom after 502");
     });
@@ -485,10 +462,10 @@ describe("app_check_denied イベント配線（verifyAppCheck 経由）", () =>
       makeCheckReq("bad") as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       makeCheckRes() as any,
-      { endpoint: "navitimeProxy" }
+      { endpoint: "placesProxy" }
     );
     expect(logAppCheckDeniedMock).toHaveBeenCalledWith({
-      endpoint: "navitimeProxy",
+      endpoint: "placesProxy",
       reason: "invalid",
     });
   });

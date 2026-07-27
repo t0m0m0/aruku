@@ -208,7 +208,7 @@ class AppState {
 
   /// 経路の出発ノードに表示する出発地名。手動指定の出発地、または位置が確定済みの
   /// 「現在地」を返す。取得中・位置情報なしの過渡値は表示に適さないため null を返し、
-  /// NAVITIME 解析値（フォールバック）へ委ねる。
+  /// 経路解析が持つ出発地名（フォールバック）へ委ねる。
   String? get departureNameForRoute {
     if (origin != null) return origin;
     return switch (locationState) {

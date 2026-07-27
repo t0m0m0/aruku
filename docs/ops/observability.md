@@ -9,7 +9,7 @@
 
 ## 1. 目的と対象範囲
 
-Places / NAVITIME / Google Routes への薄いプロキシ（`placesProxy`, `navitimeProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`、いずれも 2nd gen Cloud Functions・`asia-northeast1`）の可用性・レイテンシ・保護機構（App Check・レート制限）の健全性を、構造化ログから機械的に測定・アラートできる状態にする。あわせて Flutter アプリ側の Crashlytics クラッシュフリー率も対象に含める（同一 PR でアプリに導入）。
+Places / Google Routes への薄いプロキシ（`placesProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`、いずれも 2nd gen Cloud Functions・`asia-northeast1`）の可用性・レイテンシ・保護機構（App Check・レート制限）の健全性を、構造化ログから機械的に測定・アラートできる状態にする。あわせて Flutter アプリ側の Crashlytics クラッシュフリー率も対象に含める（同一 PR でアプリに導入）。
 
 対象外: 個々のユーザー体験としての「ルートが妥当か」（これは [route-optimization.md](../spec/route-optimization.md) の責務）。ここではインフラ・上流 API の可観測性のみを扱う。
 
@@ -21,7 +21,7 @@ Places / NAVITIME / Google Routes への薄いプロキシ（`placesProxy`, `nav
 
 | event | 発火箇所 | 主フィールド | severity |
 |---|---|---|---|
-| `search_request` | `fetchUpstream`（全プロキシ共通） | `endpoint`（例: `placesProxy.autocomplete`, `navitimeProxy`）, `upstream`（`places`\|`navitime`\|`routes-walk`\|`routes-matrix`）, `status`（`success`\|`failure`）, `latencyMs`, `httpStatus`（任意・タイムアウトは504）, `rateLimited`（上流429のときのみ`true`）, `semanticFailure`（上流が2xxでもボディがエラー形状＝クライアントへ502変換される失敗のときのみ`true`。このとき`status="failure"`・`httpStatus`は上流値のまま、通常200） | success→info, failure→error |
+| `search_request` | `fetchUpstream`（全プロキシ共通） | `endpoint`（例: `placesProxy.autocomplete`, `googleWalkProxy`）, `upstream`（`places`\|`routes-walk`\|`routes-matrix`）, `status`（`success`\|`failure`）, `latencyMs`, `httpStatus`（任意・タイムアウトは504）, `rateLimited`（上流429のときのみ`true`）, `semanticFailure`（上流が2xxでもボディがエラー形状＝クライアントへ502変換される失敗のときのみ`true`。このとき`status="failure"`・`httpStatus`は上流値のまま、通常200） | success→info, failure→error |
 | `app_check_denied` | `verifyAppCheck` | `endpoint`, `reason`（`missing`\|`invalid`\|`replayed`） | warn |
 | `rate_limit` | `checkRateLimit` 呼び出し元 | `decision`（`blocked`\|`fail-open`。`allowed`は型上のみ存在し実際には出力されない）, `reason`（`fail-open`のときのみ必ず付く。`config`\|`transient`） | blocked→warn, fail-open→error |
 
@@ -78,10 +78,8 @@ Flutter アプリ側（Firebase Crashlytics、PII フリーのクラッシュ・
 | SLI | 目標 | 測定窓 | 根拠・備考 |
 |---|---|---|---|
 | 検索成功率 — `places` | ≥ 99.5% | ローリング28日 | Google Places は成熟した高可用 API。429除外後の残差はほぼ当方バグかネットワーク |
-| 検索成功率 — `navitime` | ≥ 98.0% | ローリング28日 | RapidAPI 経由の外部 API。応答不安定・タイムアウトの実績を鑑み低めに設定 |
 | 検索成功率 — `routes-walk` / `routes-matrix` | ≥ 99.0% | ローリング28日 | Google Routes。matrix は要素数上限があり呼び出し頻度が低いため大数の法則が弱い点に注意 |
 | p95 レイテンシ — `places` | ≤ 800ms | ローリング7日 | Autocomplete/Details は単純な転送。速いはず |
-| p95 レイテンシ — `navitime` | ≤ 4000ms | ローリング7日 | 経路探索は計算量が大きく上流側が遅い。実測で再チューニング前提 |
 | p95 レイテンシ — `routes-walk` | ≤ 1500ms | ローリング7日 | 単一ルート計算 |
 | p95 レイテンシ — `routes-matrix` | ≤ 2500ms | ローリング7日 | 最大25要素の一括計算のため単一ルートより余裕を持たせる |
 | App Check 拒否件数 | 急増検知のみ（絶対閾値は§5） | 5分 | 定常的な少数拒否は許容。急増をアラート対象とする |
@@ -342,7 +340,7 @@ gcloud alpha monitoring policies create --policy-from-file=policy_app_check_spik
 Cloud Monitoring のコンソールで比率アラート（SLO ベースの burn-rate アラート）として設定するのが最も簡実。手順:
 
 1. Monitoring → SLO → 「SLO を作成」→ 対象メトリクスに `search_request_count`（フィルタ `status="success"`／`rate_limited!="true"` を良好イベント、`status IN ("success","failure")`／`rate_limited!="true"` を全イベントとする比率ベース SLO）を指定
-2. §4 の目標値（例: navitime 98.0%／28日）を入力
+2. §4 の目標値（例: routes-walk 99.0%／28日）を入力
 3. burn-rate アラート（例: 「1時間で28日予算の2%を消費」）をウィザードから作成し、`NOTIFICATION_CHANNEL_ID` を紐付け
 
 コンソール操作が前提な理由は §7 参照（比率条件を `gcloud alpha monitoring policies create` の単一コマンドで表現するのは可読性が低く事故りやすいため、SLO ウィザード経由を推奨する）。
@@ -350,21 +348,21 @@ Cloud Monitoring のコンソールで比率アラート（SLO ベースの burn
 ### 6.4 p95 レイテンシ超過
 
 - **条件:** `search_request_latency` の p95（`upstream` ラベルでフィルタ）が §4 の閾値を 15分間超過
-- 例（navitime, 4000ms）:
+- 例（routes-walk, 1500ms）:
 
 ```yaml
-# policy_latency_navitime.yaml
-displayName: "[P3] navitime p95 latency > 4000ms"
+# policy_latency_routes_walk.yaml
+displayName: "[P3] routes-walk p95 latency > 1500ms"
 combiner: OR
 conditions:
-  - displayName: "p95 latencyMs > 4000 for 15m (upstream=navitime)"
+  - displayName: "p95 latencyMs > 1500 for 15m (upstream=routes-walk)"
     conditionThreshold:
       filter: >-
         resource.type="cloud_run_revision" AND
         metric.type="logging.googleapis.com/user/search_request_latency" AND
-        metric.labels.upstream="navitime"
+        metric.labels.upstream="routes-walk"
       comparison: COMPARISON_GT
-      thresholdValue: 4000
+      thresholdValue: 1500
       duration: 900s
       aggregations:
         - alignmentPeriod: 300s
@@ -374,10 +372,10 @@ notificationChannels:
 ```
 
 ```bash
-gcloud alpha monitoring policies create --policy-from-file=policy_latency_navitime.yaml
+gcloud alpha monitoring policies create --policy-from-file=policy_latency_routes_walk.yaml
 ```
 
-同様に `places`（800ms）、`routes-walk`（1500ms）、`routes-matrix`（2500ms）用に `metric.labels.upstream` と `thresholdValue` だけ差し替えたファイルを複製する。
+同様に `places`（800ms）、`routes-matrix`（2500ms）用に `metric.labels.upstream` と `thresholdValue` だけ差し替えたファイルを複製する。
 
 ---
 

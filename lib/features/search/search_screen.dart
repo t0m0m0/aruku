@@ -66,7 +66,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       latLng = null;
     }
     if (!mounted) return;
-    // NAVITIME route_transit は start/goal ともに座標必須。
+    // 経路照会（/guidance/plan）は from/to ともに座標必須。
     // 座標が取れない候補は確定させず、別候補の再選択を促す。
     if (latLng == null) {
       setState(() {

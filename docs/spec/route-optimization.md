@@ -2,8 +2,8 @@
 
 - **位置づけ:** 本書はルート最適化ロジックの **仕様の正本（source of truth）**。挙動を変える実装・レビュー・再設計は本書を基準に判断し、仕様が変わったら本書を更新する。
 - **最終更新:** 2026-07-25
-- **対象コード:** `lib/core/services/transit_route_service.dart`（現行・Transit API 経路、`routeServiceProvider` が配線）, `lib/core/services/navitime_route_service.dart`（旧・未配線。§2 の表は NAVITIME 前提の歴史的記述を含む。#137 で経路データ源は Transit API へ移行済み — [transit-api-migration.md](../notes/transit-api-migration.md)）, `lib/core/services/hybrid_route_selector.dart`, `lib/core/services/route_plan_builder.dart`, `functions/src/`
-- **関連:** [ADR-001](../adr/ADR-001-route-optimization-architecture.md)（アーキテクチャ決定）, [optimization-backend-offload.md](../notes/optimization-backend-offload.md)（再設計の検討メモ・限界分析）
+- **対象コード:** `lib/core/services/transit_route_service.dart`（`routeServiceProvider` が配線）, `lib/core/services/hybrid_route_selector.dart`, `lib/core/services/route_plan_builder.dart`, `lib/core/services/transit_plan_parser.dart`, `functions/src/`
+- **関連:** [ADR-001](../adr/ADR-001-route-optimization-architecture.md)（アーキテクチャ決定）, [place-search.md](place-search.md)（地点検索の正本）
 - **実装ステータス:** アーキテクチャは反応的「実測ループ」方式から **measure-first（測ってから選ぶ）** へ移行中。§4 の不変条件・§5 の純粋関数契約は実装方式に依存しない恒久的な正本。§3 のアーキテクチャは採用済みの目標設計。かつて併設していた複数候補（代替案・パレート非劣解）提示は #327 で UI・生成とも撤去した。
 
 ---
@@ -40,8 +40,11 @@
 
 | 用途 | データ源 | 制約・理由 |
 |---|---|---|
-| 公共交通経路 | **NAVITIME route_transit**（RapidAPI、プロキシ経由） | Google Routes/Directions API は**日本の公共交通ルートを返さない**ため不可。NAVITIME を正とする。 |
-| 徒歩の所要・距離・街路ジオメトリ | **Google Routes API** `computeRoutes`(WALK) / `computeRouteMatrix`(WALK)（プロキシ経由） | **NAVITIME は徒歩 shape（街路ジオメトリ）を返さない**。停車駅座標(calling_at)のみ取得可。徒歩線・実所要は Google から得る。 |
+| 公共交通経路（door-to-door） | **Transit API** `/guidance/plan`（`https://api.transit.ls8h.com`・**クライアント直叩き**。認証不要・CORS 対応） | Google Routes/Directions API は**日本の公共交通ルートを返さない**ため不可。第三者の無料・無認証 API で SLA は無い（§2.2）。 |
+| 経路コリドー（乗車駅候補の母集合） | 同 API の transit セグメント **polyline 座標**（`geometrySource` 不問） | 途中停車駅は leg に無い（§2.2-2）。polyline を順序付きコリドーとして間引きサンプリングする（§2.3）。 |
+| 発着時刻 | leg の `departureSecs` / `arrivalSecs`（サービス日 0 時起算秒・`>86400` 許容） | §4 #121。 |
+| 徒歩の所要・距離・街路ジオメトリ | **Google Routes API** `computeRoutes`(WALK) / `computeRouteMatrix`(WALK)（プロキシ経由） | Transit API の `osmWalk`/`estimatedWalk` は所要の同等性が未計測。measure-first の精度根拠として Google 実測を維持する。 |
+| 運賃 | **取得不可** | §2.2-3。表示は廃止済み。 |
 | 地図表示 | `google_maps_flutter`（ネイティブ Google Maps SDK） | SDK がアプリ起動時にキーを読み地図タイルを直接取得。**地図用キーはアプリ内に必須**（コードで制御不可）。 |
 
 ### 2.1 バックエンド（Firebase Functions・薄いプロキシ）
@@ -53,15 +56,72 @@
 | `googleWalkProxy` | Google Routes `computeRoutes`(WALK)（基本素通し） |
 | `googleWalkMatrixProxy` | Google Routes `computeRouteMatrix`(WALK)（基本素通し） |
 | `placesProxy` | Google Places API (New) Autocomplete/Details（地点検索・#144/#145） |
-| `navitimeProxy` | NAVITIME route_transit（**現行クライアント未使用**。経路は Transit API 直叩きへ移行済み #137。関数のみ残存） |
 
 - **地点検索（#135 → #144/#145 で改訂）:** POI 検索は `placesProxy` 経由で Google Places API (New) の Autocomplete を叩く（App Check 必須・キーはサーバ側に秘匿）。#135 で一度 Transit API `places/suggest` 直叩きへ寄せたが、駅・地名の typeahead を壊すため #144/#145 で Google Places へ戻した。仕様の正本は [place-search.md](place-search.md)。
 
-- **APIキー秘匿:** Secret Manager（`GOOGLE_MAPS_API_KEY`, `NAVITIME_RAPIDAPI_KEY`）。地図用キーとプロキシ用キーは Cloud Console で分離。
+- **APIキー秘匿:** Secret Manager（`GOOGLE_MAPS_API_KEY`）。地図用キーとプロキシ用キーは Cloud Console で分離。
 - **認証:** App Check トークン必須（`X-Firebase-AppCheck`）。エミュレータは除外。
   - 注意: App Check 保護は `allUsers` invoker を前提とする。invoker 欠落で 403 になりアプリごと弾かれる。
 - **レート制限（IP単位）:** 標準 `30 req/min`、徒歩系 `90 req/min`（1検索のファンアウト対応）。本番は Firestore トランザクション。
+  - **公共交通経路（`/guidance/plan`）はこのレート制限の対象外。** クライアント直叩きでプロキシを通らないため、`functions/src/rate-limiter.ts` の上限は1本も掛からない。guidance のファンアウト設計をこの数値で縛ってはならない（§2.2-6）。
 - **マトリクス要素数上限:** `origins × destinations ≤ 25`（`MATRIX_MAX_ELEMENTS = 25`）。要素数課金の暴発防止。**measure-first のフロンティア絞り込みはこの上限が設計制約**。
+
+### 2.2 Transit API の確定した制約（実機調査 2026-06-27 / 追試 2026-07-17）
+
+`https://api.transit.ls8h.com`（OpenAPI: `/api/openapi.json`）。公開エンドポイントは `/feeds` `/plan` `/guidance/plan` `/locations/suggest` `/places/{suggest,reverse}` `/stations/{id}` `/stations/{id}/departures` `/operators` `/map/3d-scene` `/health` のみ（全 774 フィード）。
+
+1. **生 GTFS のダウンロードは無い。** `/feeds` はメタデータのみで `downloadUrl` は事業者公式 PDF/サイト。`/feeds/{id}` 系・`*.zip` は 404。静的 GTFS をバンドルする設計は成立しない。
+2. **transit leg は途中停車駅を持たない。** leg が持つのは `routeName/mode/color/headsign/tripId/from/to/departureSecs/arrivalSecs`。`/departures` は単一駅の発車のみ、`/stations/{id}.routes` は路線名だけ。途中駅の代替は §2.3 の polyline。
+3. **運賃は取得できない。** `/plan`・`/guidance/plan` とも `journey.fare`・`leg.fare` が**常に null**（OpenAPI に fare スキーマはあるが実データが空）。運賃表示は廃止済み（UI は `seg.fare != null` ガードで安全に非表示）。将来別ソースを得たとき復活できるよう `RouteSegment.fare` は残す。
+4. **`type` パラメータの enum は英語**：`departure`/`arrival`/`first`/`last`（OpenAPI の説明は日本語表記だが値は英語。`type=出発` は 400）。
+5. **`avoidModes`/`allowModes` を受ける。** バス優勢区間で電車候補を確保するための API 側除外に使える（§1.1 ①）。
+6. **レイテンシが大きく、裾が長い。** `/plan` で 5〜8 秒、`/guidance/plan` で **9〜11 秒が中央値**（ペイロードでなくサーバ側経路計算が支配的。`numItineraries=1` でも変わらない）。同一パラメータで 5 回計測 → **10.1 / 12.8 / 30.8 / 21.1 / 12.4 秒**（429 は 0 件、`avoidModes` の有無で有意差なし）。**9〜11 秒は中央値であって上限ではない。** この裾が引き直しの直列ラウンドと積になるため、タイムアウト設計は §2.4 が正本。
+7. **日跨ぎは honest。** `date=20260627&time=01:30&type=departure`（終電後）で `resp.date=20260627`・`dep=17640`(=04:54)＝**同日秒で翌朝始発**を返す。照会時刻に追従する幽霊便は返さない（実測確認済み）。`departureSecs > 86400`（24 時超え表記）は未観測だが 0 時跨ぎ便で起こり得るため実装側で許容する（§4 #121）。
+
+### 2.3 経路コリドーと `geometrySource`（徒歩最大化の母集合）
+
+`/guidance/plan` の `options[].map.segments[]` は `geometrySource` 付き polyline を返す。実測した値は 4 種：
+
+| `geometrySource` | 意味 | 頂点＝停車駅か | 該当フィード例 |
+|---|---|---|---|
+| `stopOrder` | 停車駅を順に結んだ折れ線 | **はい** | JR スクレイプ系（中央/東海道/京浜東北/山手…）、東京メトロ(odpt)、名鉄、阪急/阪神 |
+| `gtfsShape` | 実 GTFS の線路追従 shape | **いいえ**（密な線路頂点） | 東急・小田急・京王（`tokyo-*-rail`） |
+| `osmWalk` | OSM 経路の徒歩線 | （徒歩区間） | — |
+| `estimatedWalk` | 推定徒歩線（端点直線） | （徒歩区間） | — |
+
+- 検証例: 吉祥寺→中野（各停 6 駅）で `stopOrder` 頂点が**ちょうど 6**＝停車駅と一致。京王 新宿→八王子は `gtfsShape` 263 頂点の線路追従で停車駅と無関係。
+- **`gtfsShape` フィードでは途中停車駅がどこにも無い**（`map.points` は乗降・乗換駅のみ、leg にも無い）。東急・小田急・京王という大私鉄が該当するため「停車駅＝polyline 頂点」を全フィードで前提にできない。
+- **設計上の帰結（geometrySource 非依存化）:** 乗車駅候補 X は**厳密に停車駅である必要がない**。X の座標から `plan(X→goal)` を引き直せば API が最寄り駅にスナップして実在便を返すため。よって候補の母集合は **transit polyline 座標を間引きサンプリング**して作る（`_maxCorridorStops`）。これで `stopOrder` / `gtfsShape` の差を吸収できる。サンプリング座標は origin からの距離（≒前半徒歩 t1）で概ね単調に並ぶため、`maxWalkBoardingIndex` の単調性前提（§5）を満たす。
+- **逆戻り判定は生の全頂点を使わない。** `gtfsShape` は密な線路頂点で乗車直後の一過性の後方カーブを含み得るため、全頂点で判定すると正当な経路を誤除外する。判定は leg 端点＋均等サンプリング点で行い、コリドーの大局的な逆戻りのみを検出する（§4 逆戻りフィルタ）。
+
+### 2.4 タイムアウトと締切の3層（#300・確定）
+
+**前提:** 上流 Transit API は第三者の**無料・無認証・匿名**の公開 API で、契約も SLA も交渉手段もない。**遅さは相手の性質であり、動かせるのは我々側だけ。**
+
+| 層 | 値（定数） | 役割 | 根拠 |
+|---|---|---|---|
+| Transit 直叩き1本 | **35 秒**（`transitRequestTimeout`） | ハング検出 | 実測5サンプルの最大 30.8 秒を収める（§2.2-6）。裾を「切る」より「待つ」——上流を速くする手段が無い以上、切れば単に失敗が増える |
+| 徒歩プロキシ1本 | **15 秒**（`proxyRequestTimeout`） | ハング検出 | Cloud Functions 経由の Google Routes は同じ裾を持たない。無応答は本当に異常＝早く縮退した方が良い |
+| 検索の探索（Transit 引き直し） | **120 秒**（`searchDeadlineBudget`） | 体感保証 | 正常時 30〜60 秒の上に裾が数本重なっても引き直しを完走できる幅を残し、最悪をそこで止める |
+
+- **なぜ1本の上限だけでは足りないか:** 引き直しは `on RouteException` → null で縮退するが、**縮退する前に上限いっぱい待つ**。直列ラウンドは初期 guidance → board-search（`O(log n)`）→ 実時刻解決 → 駅名確定でおよそ 6〜9 段あり、最悪待ち時間は「上限 × ラウンド数」で効く。15→35 秒の延長はそのまま最悪 150→350 秒を意味した。**1本の上限（ハング検出）と検索全体の締切（体感保証）は別レイヤーに分ける。**
+- **天井の掛け方:** `SearchDeadline` を `TransitApiClient` に渡し、Transit の各 fetch を `min(1本の上限, 残予算)` でクランプする。新ラウンドを止めるだけでは最悪が「締切＋1本の上限」になる。残予算 0 での照会は HTTP を発行せず即 `TIMEOUT`（必ず打ち切られる照会で無料の上流を叩かない）。
+
+#### 締切を掛けてよい呼び出し／いけない呼び出し（重要）
+
+判断基準は速度ではなく**失敗の向き**：
+
+| 呼び出し | 失敗の向き | 締切 | 理由 |
+|---|---|---|---|
+| Transit 引き直し（`/guidance/plan`） | **fail-closed** | **適用する** | 失敗すると候補が `unverified` として除外され、確証ある候補へ縮退する（§4 #137）。切っても**提示内容は嘘にならない** |
+| 徒歩実測（Google Routes プロキシ） | **fail-open** | **適用しない** | `_enrichWalkGeometry` は取得失敗時に元の見積り（guidance / 直線）を**そのまま残す**。直線は実街路に対し大きく楽観に倒れる（実機で **-36 分・25%**）ため、切ると予算超過・乗り遅れの経路を平然と提示する（§4 #254 を破る） |
+
+**measure-first の実測は探索の「改善」ではなく確定経路の「検証」であり、締切より優先する。**「遅いから諦める」でよいのは探索だけで、検証を諦めると**答えが劣化するのではなく嘘になる**（再現済み：実際 46 分の全徒歩を予算 35 分内として「23 分」で確定）。
+
+- **非対称性が方針を支えている:** 必須なのは初期 `/guidance/plan` **1本だけ**で、引き直しは徒歩最大化のための**改善**。だから締切は改善側だけをゲートし、初期照会は止めない。締切超過は**失敗ではなく縮退**で、既得の候補で確定経路を返す。
+- **結果としての最悪待ち時間:** 探索は 120 秒で頭打ち。その後に走る徒歩実測は確定候補の検証だけで、短リスト（`_maxMeasureShortlist`）を候補**間並列**で測る 1〜2 バッチ（§3.7）で頭打ち。**厳密な 120 秒の天井ではない。** 天井を締めたいなら検証を削るのではなく短リスト上限を下げること。
+- **トレードオフ（承知の上）:** 締切で board-search が打ち切られると徒歩が最大より短くなる＝主目的が静かに劣化する。許容するのは、上流が遅い日に「劣化した経路を 120 秒で返す」方が「正しい経路のために 300 秒待たせる／失敗する」より良いという判断。劣化の頻度が問題になるなら、締切を伸ばすのではなく**ラウンド数を減らす**方向で対処すること——締切を伸ばすのは体感を売るだけで、上流の裾は変わらない。
+- **UI 文言:** `TIMEOUT` は `RouteErrorKind.network` から分離した（`RouteErrorKind.timeout`）。401/429 とタイムアウトを「通信に失敗しました」へ丸めると、障害の切り分けが画面からできない。HTTP ステータス別（401/429）の分離は別 issue。
 
 ---
 
@@ -72,32 +132,38 @@
 ### 3.1 `plan()` のデータフロー
 
 ```
-NAVITIME route_transit 照会（1回）
-  → _parseTransit で各経路を解析（停車駅タイムライン付き）
-  → 基準経路 _baseForHybrid（停車駅2以上で最短）
-  → frontierStations で乗降候補駅を直線フロンティアで上位 K に絞る
-  → _measureAccessWalks: 1回（最大2コール）のマトリクスで
-       origin→{各乗車駅, goal} と {各降車駅}→goal を一括実測
-  → 実測値で候補生成（標準乗換／ハイブリッド／全徒歩）
-  → selectBestRoute で決定的に予算内徒歩最大を選定
-  → 採用候補を enrich（街路実測）で検証：
-       ・乗り遅れがあれば乗車駅の時刻表を再照会し実在列車へ差替え（#115・NAVITIME 版）
-       ・enrich で (a) 予算超過、または (b) 先頭電車に乗り遅れ（標準乗換のアクセス徒歩が
+/guidance/plan 照会（1回・必須。avoidModes でバス除外・#247）
+  → parseGuidancePlan で option 列へ解析（legs＋map.segments の polyline）
+  → 標準乗換候補（door-to-door をそのまま候補化）
+  → basesForHybrid で路線ファミリの異なる base を最大 _maxHybridBases 本選ぶ（#292）
+  → base ごとに _buildCorridorHybrids を並列実行（#163）:
+       ・frontierStations で乗降候補を直線フロンティアで片側 K に絞る
+       ・_measureAccessWalks: 1回（最大2コール）のマトリクスで
+         origin→{各乗車地点, goal} と {各降車地点}→goal を一括実測
+     → mergeHybrids で構造フィンガープリント重複除去（上限 _maxHybridCandidates）
+  → 全徒歩候補を追加
+  → selectBestRoute で見積り勝者を出し、崩壊が見込まれなければ
+     prewarmFront が決めた候補を1パスで先行実測（§3.7・#315/#318）
+  → _selectAndEnrich: 決定的に選定し採用候補を enrich（街路実測）で検証：
+       ・時刻なしハイブリッドは _resolveBoardingTimes で実発車時刻を引き直して検証（#137）
+       ・enrich で (a) 予算超過、または (b) 先頭電車に乗り遅れ（アクセス徒歩が
          実街路で伸び駅着が発車後になる・#137）が判明したら除外して乗れる次善へ選び直す
-       ・除外しきれない（候補が尽きた）ときは確定させず best-effort へ縮退（#254）
+       ・予算内候補が尽き、なお予算外か乗り遅れるならバス last-resort を1回だけ引く（#250）
+       ・除外しきれないときは確定させず best-effort へ縮退（#254）
        ・best-effort の縮退先も enrich 後に乗り遅れを測り直す（#254）
   → 確定が「崩壊」なら乗車駅探索フォールバック（§3.6）→ 候補追加して再選定
+  → _finalizeStationNames でコリドー由来候補の駅名を復元
   → buildRoutePlan で RoutePlan 構築
 ```
 
-- **往復回数:** NAVITIME(1) + マトリクス(2並列) + 勝者 enrich(1) + 任意の再照会。マトリクスが成功した通常ケースは検証が初回で通り、逐次 1〜2 往復で収束（旧方式の最大8+回から削減）。
+- **往復回数:** guidance(1) + マトリクス(base ごと2並列) + 先行実測／勝者 enrich + 崩壊時の board-search 引き直し。通常ケースは検証が初回で通り、逐次 1〜2 往復で収束（旧方式の最大8+回から削減）。実測の内訳は `RouteSearchMetrics`（§3.8）で機械集計する。
 - **base 拡張の増分ゼロ（固定テスト）:** `origin` 発の本命照会は base 数に比例して増えない（`from=origin` の照会は常に1回）。固定テスト「複数 base に広げても guidance/plan 照会は増えない」が、フロントが小さい代表シナリオで origin 発1回・総数≤5 を固定する。
 - **「測ってから選ぶ」の要点:** 直線推定で先に絞り（フロンティア）、**実測してから決定的に選ぶ**。反応的な迂回率学習・割増ヒューリスティック・境界帯を持たないため、座標バリア（川・線路）も直線でなく実測で最初から織り込まれる。採用候補の enrich 検証は「予算内候補がある限り超過を返さない」不変条件（#117/#118）を matrix 失敗時にも保つための少回数の安全網で、通常は1回で確定する。
 
 ### 3.2 候補の種別
 
 1. **全徒歩:** origin→goal。実測（無ければ直線推定にフォールバック）。常に候補。
-2. **標準乗換:** NAVITIME が返した経路そのまま。アクセス徒歩は **NAVITIME 由来（街路ベースで実測相当）のため再測定しない**。
+2. **標準乗換:** `/guidance/plan` が返した door-to-door 経路そのまま。実ダイヤ由来の発着時刻を持つ。アクセス徒歩は採用候補の enrich で Google 実測に置き換える（guidance の徒歩見積りは実街路と乖離し得るため・§4 #254）。
 3. **ハイブリッド:** 基準経路の途中駅で乗降し、アクセス徒歩を実測で割り当てた候補。同一乗車区間（section）内・乗車駅 b より後方の降車駅 a のペアのみ（乗換またぎは単一乗車として表現できないため除外）。**電車区間はコリドー座標由来で発車時刻を持たない**（距離概算 `minutes` のみ）。採用前に実発車時刻を引き直して検証する（§4 #137）。
 
 ### 3.3 フロンティア絞り込み `frontierStations`（設計の肝）
@@ -111,32 +177,32 @@ NAVITIME route_transit 照会（1回）
 旧 `plan()` は反応的方式だった：直線推定で候補を絞り、確定経路を Google 実測し、超過したら迂回率を学習して選び直す **8回ループ**。
 
 - `_finalize` の最大8回ループ、側別迂回率学習（`_learnDetours`/`_inflateWalk`・#117）、境界帯マトリクス（`_measureFrontierBand`・#118）で構成。
-- **撤廃理由（限界2〜5、詳細は[検討メモ](../notes/optimization-backend-offload.md)）:** 候補が最速1本にアンカーされ探索空間が狭い／8回上限で徒歩最大に届かず速い経路へ縮退する品質バグ／迂回率学習が過大に倒れ歩かない側へバイアス／直線前提でバリアに空振り。
+- **撤廃理由（限界2〜5）:** 候補が最速1本にアンカーされ探索空間が狭い／8回上限で徒歩最大に届かず速い経路へ縮退する品質バグ／迂回率学習が過大に倒れ歩かない側へバイアス／直線前提でバリアに空振り。
 - measure-first はこれらを「先に実測して決定的に選ぶ」ことで解消する。#117/#118 が解いていた問題（実測超過・フロンティア取りこぼし）は、**常にマトリクス先行で実測する**ことに一般化・吸収される。#117/#118 の不変条件「予算内候補がある限り超過を返さない／除外は実測の確認時のみ」は、採用候補の enrich 検証ループ（§3.1。学習も帯も持たず通常1回）が引き継ぐ。
 
 ### 3.5 バックエンド移管（先送り）
 
-「重いロジックをバックエンドへ」という案があるが、**CPU は軽く本当のボトルネックは外部APIの逐次往復**。measure-first で往復が 1〜2 回に畳まれるため当面不要。着手するなら実機の実測レイテンシ計測が前提（[検討メモ](../notes/optimization-backend-offload.md)）。`RouteService` 抽象で後から差し替え可能。
+「重いロジックをバックエンドへ」という案があるが、**CPU は軽く本当のボトルネックは外部APIの逐次往復**。measure-first で往復が 1〜2 回に畳まれるため当面不要。着手するなら実機の実測レイテンシ計測（§3.8 `RouteSearchMetrics`）が前提。`RouteService` 抽象で後から差し替え可能。
 
 ### 3.6 乗車駅探索フォールバック（崩壊時のみ・徒歩最大化）
 
-詳細・実機実証は [walk-max-board-search.md](../notes/walk-max-board-search.md)。基準経路（最速1本）に依存する measure-first は、徒歩を増やす＝乗車を遅らせる候補が借用時刻表に乗り遅れ、#115 再アンカーも route_transit のデータ源制約で詰むことがある（蒲田→上野公園で徒歩3分・余裕137分へ縮退）。この**崩壊**時だけ走らせる限定フォールバック：
+基準経路（最速1本）に依存する measure-first は、徒歩を増やす＝乗車を遅らせる候補が借用時刻表に乗り遅れ、#115 の再アンカーもデータ源の制約（途中駅の時刻・駅名が取れない・§2.2-2）で詰むことがある（蒲田→上野公園で徒歩3分・余裕137分へ縮退）。この**崩壊**時だけ走らせる限定フォールバック：
 
 - **起動条件（崩壊判定 `_isCollapse`）:** 確定（enrich 後＝乗れない hybrid 脱落後）が、(1) 予算内標準乗換の最大徒歩を僅少（`_collapseWalkMarginMin`）しか上回らず、(2) 予算を大きく余らせている。両方を満たすときのみ。崩壊でなければ既存のハイブリッド／標準で足り、探索の往復を払わない。
   - **症状(2)の「大きく余る」は相対・絶対のいずれか（#137）:** 余りが予算の `_collapseSlackRatio`（40%）**以上**、または余りが `_collapseSlackMinutes`（20分）**以上**。相対比だけだと予算が大きいとき（例: 予算147分・余り50分）に閾値58.8分へ届かず起動せず、絶対的には大きな余りでも徒歩最大化が silent に不達になっていた。絶対値条件で塞ぐ。
-- **探索（実測駆動の二分探索・#137 で改訂）:** 各駅 X から `route_transit(X→goal, departureAt+t1)` を引き直し（X 発の自己整合な実在便なので構成上 firstMissedTransit が立たない＝再アンカー詰みを回避）、「到着が予算内の最遠の乗車駅＝総徒歩最大」を `maxWalkBoardingIndex`（§5）で二分探索する。**前半徒歩 t1 は Google 実街路で実測して二分探索を駆動する**（`_tryWalk`・`walkCache` 共有）。返す境界はそのまま実測で予算内が保証された最遠の乗車駅で、採用後の enrich でも同一レッグはキャッシュヒットして到着が覆らない。
+- **探索（実測駆動の二分探索・#137 で改訂）:** 各地点 X から `/guidance/plan`(X→goal, `departureAt+t1`) を引き直し（X 発の自己整合な実在便なので構成上 firstMissedTransit が立たない＝再アンカー詰みを回避）、「到着が予算内の最遠の乗車駅＝総徒歩最大」を `maxWalkBoardingIndex`（§5）で二分探索する。**前半徒歩 t1 は Google 実街路で実測して二分探索を駆動する**（`_tryWalk`・`walkCache` 共有）。返す境界はそのまま実測で予算内が保証された最遠の乗車駅で、採用後の enrich でも同一レッグはキャッシュヒットして到着が覆らない。
   - **なぜ直線推定で駆動しないか（旧「二段構え」の撤廃理由）:** 旧実装は (1) 直線推定で二分探索し概略境界を出し、(2) 境界から固定段数 `_boardSearchVerifySteps` だけ手前へ実街路で確定する二段構えだった。直線は実街路に対し大きく楽観に倒れることがあり（実機で **-36分・25%**）、二分探索が目的地寄りの遠い駅へ収束 → 実街路では全部予算超過 → 固定段数の後退では真の境界（ずっと手前）に届かず `null` を返し、徒歩最小の標準乗換へ崩落（**徒歩12分・余り114分**等）していた。実測で二分探索を駆動すれば境界が一発で正しく定まるため、二段構え・`_boardSearchVerifySteps` は不要になり撤廃した。
 - **評価済み予算内候補を「全部」プールへ返す（#137）:** board-search は境界 best の1本でなく、二分探索が実測評価した点（メモ化済み）のうち**予算内の候補を全部**返し、選定（[selectBestRoute] / [_selectAndEnrich]）に委ねる。理由は2つ：
   - **非単調コリドー:** 到着は実街路で非単調になり得る（後方の停車駅が origin に近い。実機: 川崎(徒歩74)より後方の鹿島田(徒歩68)が早着）。境界＝徒歩最大とは限らないので、選定が評価済みの中から徒歩最大を選べるようにする。
   - **下流フィルタとの整合:** 単一の最良1本だけ返すと、それが逆戻りフィルタ（§4）や乗り遅れ除外で消えたとき次善の board-search 候補へ落ちられず徒歩最小へ転落する（実機: 逆戻りの川崎(徒歩74)が弾かれ、逆戻りでない鹿島田(徒歩63)へ落ちず徒歩12へ崩落）。全候補を渡せば、逆戻り・到着の非単調を込みで「生き残る中の徒歩最大」を選定が決められる。
   追加 API は無い（評価済みのみ参照）。特定 OD に依存しない一般の改善で、`maxWalkBoardingIndex` の単調性仮定（§5）の suboptimality を緩和する。
 - **解像度:** コリドー候補点（`_maxCorridorStops`）が疎だと境界の隣接候補が大きく離れ、徒歩を予算ぎりぎりまで詰められず余りが残る（旧値 25 で隣接約30分徒歩・余り30分の実例）。実測駆動でも評価は `O(log n)` のままなので候補点を密に（60）して解像度を上げた。
-- **実機実証（蒲田→上野公園・180分）:** 田町(169)へ寄せ**徒歩6分→154分・余裕11分**を確定。詳細は [walk-max-board-search.md §6.4](../notes/walk-max-board-search.md)。
+- **実機実証（蒲田→上野公園・180分）:** 田町(169)へ寄せ**徒歩6分→154分・余裕11分**を確定。
 - **ラウンド直列の短縮（#317）:** 崩壊時 board-search は実機で支配フェーズ（62%・約39s）。律速は**ラウンド間直列**の `plan(X→goal)` 引き直し（壁時計＝ラウンド数×最遅1本）。二段で縮める：
   - **matrix プレ実測で探索範囲を刈る:** 探索前に全コリドー点の前半徒歩 t1 を**マトリクス1コール**で一括実測し、`walkFeasiblePrefixCount` で「t1 が予算内の最遠点」までを `maxWalkBoardingIndexParallel` の `count` に渡す。到着＝t1＋t2(≥0) なので t1 単独で予算外の遠点は確実に予算外で、引き直しを費やす価値がない（#310 の matrix バッチ化の延長）。マトリクス欠落・全滅時も直線推定（実徒歩の下限）で安全に刈れ、追加往復に依存しない。
-  - **fanout 拡大で刈った区間を ~2ラウンドで収束（3→5）:** 刈り込みで減る probe 密度を fanout が補い、非単調コリドーの「評価済み徒歩最大」の解像度も保つ。fanout を欲張らないのは guidance の上流 **30 req/min** 制約のため——電車系＋バス系の2 base が並列に走るので、フロンティア×fanout×2base＋初期照会＋先行実測が 30/min に収まる範囲に留める（fanout=7 だと両 base 発火時に超過し 429→null→予算外誤認で境界がレート制限駆動に退行する）。
+  - **fanout 拡大でラウンド直列を縮める（3→5）:** 刈り込みで減る probe 密度を fanout が補い、非単調コリドーの「評価済み徒歩最大」の解像度も保つ。fanout を欲張らないのは**上流の未知のレート制限**のため——guidance はプロキシを通らないので我々の 30 req/min は掛からず（§2.1）、効くのは第三者 API 側の非公開の制限。実測でも 429 は観測しておらず上限が不明で、踏み抜くと 429→`null` 縮退→「予算外」誤認となり**境界を実測ではなくレート制限が決める**（徒歩が静かに短くなる）。崩壊時は電車系＋バス系の2 base が並列に走るので瞬間同時発行は fanout×2 になる。上げるなら先に上流の制限を実測し、429 を「予算外」と誤認しない分離を入れてからにすること。
 - **検索の締切で打ち切る（#300）:** 上流 `/guidance/plan` は 9〜11 秒が正常・裾は 30 秒超で、引き直しの直列ラウンドと積になって最悪待ち時間を膨らませる。探索に締切（`searchDeadlineBudget`・120秒）を張り、**超過後は新しい探索ラウンドを起こさず、評価済みの予算内候補で確定する**（`maxWalkBoardingIndexParallel` の `shouldContinue`）。**締切超過は失敗ではなく縮退**——必須なのは初期 `/guidance/plan` 1本だけで、引き直しは徒歩最大化のための改善だから、改善側だけをゲートできる。**結果として徒歩は最大より短くなり得る**（トレードオフは承知の上）。劣化が問題になるなら締切を伸ばすのではなくラウンド数を減らすこと。
-  - **締切は徒歩実測（measure-first）には掛けない（#300 レビュー指摘）:** 締切を掛けてよいのは Transit の引き直し（失敗＝候補が `unverified` で除外される **fail-closed**）だけ。徒歩実測は失敗時に楽観的な見積りが残る **fail-open** で、締切で飛ばすと**予算超過・乗り遅れの経路を「予算内」と偽って確定させる**（本節§4 #254 を破る。再現済み：実際46分の全徒歩を23分として確定）。**実測は探索の改善ではなく確定経路の検証であり、締切より優先する。** 根拠の正本は [transit-api-migration.md §8.1/§8.2](../notes/transit-api-migration.md)。
+  - **締切は徒歩実測（measure-first）には掛けない（#300 レビュー指摘）:** 締切を掛けてよいのは Transit の引き直し（失敗＝候補が `unverified` で除外される **fail-closed**）だけ。徒歩実測は失敗時に楽観的な見積りが残る **fail-open** で、締切で飛ばすと**予算超過・乗り遅れの経路を「予算内」と偽って確定させる**（本節§4 #254 を破る。再現済み：実際46分の全徒歩を23分として確定）。**実測は探索の改善ではなく確定経路の検証であり、締切より優先する。** 判断基準の正本は §2.4。
 - **#115 との関係:** 乗り遅れ再照会（#115）は基準経路の採用候補1本の救済、本フォールバックは候補生成のやり直し。崩壊時のみ後者が補う。
 - **バス corridor への適用（#251）:** 本節の探索・ハイブリッド生成はデータ源非依存で、基準が電車 corridor でもバス corridor でも同じロジックが走る。基準がバスのときは引き直し（`_fetchTransitFrom`）とコリドー由来の地名復元をバス許容モードに揃える（バス停起点でバスを除外して引くと全徒歩に落ちて空振りする）。どの基準を採るかは §1.1 ③ が正本。
 
@@ -147,8 +213,29 @@ NAVITIME route_transit 照会（1回）
 - **Option B（#315・既定）:** 見積り勝者だけを温める。勝者が最上位徒歩 tier で即生存する標準乗換中心のルートでは、これで1パスに収まり guidance ファンアウトも最小。**勝者以外を投機的に温めない**（#327）——代替案提示を撤去した今、返るのは1本だけで、勝者が生存する共通ケースでは下位候補の実測結果はどこにも使われない。それでも `plan()` は全実測を `await` するため、遅い候補が応答を上流タイムアウトまで引き延ばしレート枠も消費する。棄却時の次候補は winner-phase の tier 実測が改めて測る。
 - **Option A（#318・reject 多発時）:** 見積り予算内ハイブリッドが `_singlePassHybridThreshold`（=3）件以上並ぶルートでは、フロントに限らず**予算内短リスト全体（`measureShortlist` の上位 `_maxMeasureShortlist` 件）**を1パスで先行実測する。時刻なしハイブリッドは見積りが楽観で実測すると予算超過・乗り遅れに転じやすく（§4 #137）、フロントだけ温めると「勝者棄却 → 残りを一括実測」が**2パス逐次**になる（各パスが `enrichWalk`→`resolveBoardingTimes` の ~2 上流ラウンドを持つため `2パス×2ラウンド×上流~5s ≈ 20s` が床。実機 enrichMs ~21s）。短リスト全体を先に温めれば確定選定の tier 実測は全てキャッシュヒットになり、2パス→1パスへ畳まれる。
 - **ヒューリスティックの根拠（#318 の争点）:** 無条件 Option A は共通ケースでも下位候補まで測って guidance ファンアウトを増やす（レート制限 #161: 1検索最大13）。ハイブリッド数はルートの reject 起きやすさの指標で、標準乗換（実ダイヤ由来で reject しにくい）中心のルートを巻き込まない。徒歩 tier の深さでは標準中心ルートと区別できないため、ハイブリッド数を信号に採る。
-- **計測:** 発火有無は `RouteSearchMetrics.singlePassMeasure`（`singlePass=0/1`）で本番ログへ出し、恩恵（enrichMs 短縮）とコスト（ファンアウト増）の割合を機械集計できるようにする（#309）。
+- **計測:** 発火有無は `RouteSearchMetrics.singlePassMeasure`（`singlePass=0/1`・§3.8）で本番ログへ出し、恩恵（enrichMs 短縮）とコスト（ファンアウト増）の割合を機械集計できるようにする（#309）。
 - **cache 整合の不変条件:** 先行実測（Option A）と確定選定の tier 実測は**同一の `measureShortlist`**（同一集合・同一順序）を測る。両者がずれると温めたキャッシュがヒットせず1パスへ畳めないため、短リストの並びは単一実装に集約する。
+
+### 3.8 計測 `RouteSearchMetrics`（#309・レイテンシ判断の一次資料）
+
+1検索分の定量指標を1オブジェクトへ集約し、`grep` で機械集計できる安定した key=value 1行として出す。実装は `lib/core/services/route_diagnostics.dart`（`RouteSearchMetrics` / `RouteDiagnostics.logMetrics`）。**レイテンシ・往復本数の議論はこの実測を根拠にすること**——推測でフェーズの支配要因を語らない。
+
+```
+[route-metrics] collapse=1 boardSearch=1 singlePass=0 http=45
+  guidanceCalls=13 walkCalls=21 matrixCalls=11 guidanceDupCalls=0
+  guidanceMs=10217 hybridMs=7213 enrichMs=5563 boardSearchMs=70334
+  finalizeMs=0 totalMs=93361
+```
+
+| 種別 | フィールド | 意味 |
+|---|---|---|
+| 発火 | `collapse` / `boardSearch` / `singlePass` | 崩壊判定・board-search 起動・Option A 発火（0/1。総数で割れば発火率） |
+| 往復本数 | `guidanceCalls` / `walkCalls` / `matrixCalls` / `http` | 実際に GET を発行した回数（種別ごと＋合計）。締切切れ・キャンセルで発行前に落ちた要求は数えない |
+| 〃 | `guidanceDupCalls` | 同一 guidance URI の重複発行数＝per-search キャッシュで消せる上限。**実測 0%** のため guidance キャッシュは実装前に棄却した |
+| フェーズ所要 | `guidanceMs` / `hybridMs` / `enrichMs` / `boardSearchMs` / `finalizeMs` / `totalMs` | 各区間の実時間。崩壊時の再選定は `boardSearchMs` に含め二重計上しない |
+
+- **出力条件:** 定量指標は `metricsEnabled`（既定 `!kReleaseMode`）＝debug に加え **profile でも出す**。フィールド計測は profile ビルドで行うため、定性ログ（`[route]`・debug 限定）と同じフラグに縛らない。release では抑制する。
+- **フェーズの支配要因は経路依存:** 崩壊時は `boardSearchMs`、通常時は `enrichMs` が支配する。片方の実測だけで「検索が遅い原因」を一般化しない。
 
 ---
 
@@ -159,7 +246,8 @@ NAVITIME route_transit 照会（1回）
 ### #65 — 乗車前・乗換待ちをタイムラインに反映
 
 - 電車区間は乗車駅の発車（dep）・降車駅の到着（arr）の**絶対時刻**を持つ。到着時刻は乗車前・乗換の**待ち時間を含めて**算出する。
-- 乗降の絶対時刻は **move セクション直下の `from_time`/`to_time`** を採用する。`calling_at` は途中通過駅のみで乗降駅を含まないため、`calling_at` 先頭/末尾を使うと「乗車駅→1駅目」「最終途中駅→降車駅」のぶん時刻が早まる。move 直下が欠落したときだけ `calling_at` の先頭 dep・末尾 arr へフォールバックする。
+- 乗降の絶対時刻は **leg 自身の `departureSecs`/`arrivalSecs`**（＝乗降駅の発着）を採用し、`transitSecsToJst` で naive JST へ正規化する（§2.2-7・§4 #121）。途中停車駅の時刻は取得できない（§2.2-2）が、タイムラインは乗降駅の発着で足りるので**この不変条件は維持できる**。
+- コリドー座標由来のハイブリッド区間は leg を持たず時刻を欠く。採用前に `_resolveBoardingTimes` が実時刻を引き直して当てる（§4 #137）。当てられない区間は確定させない。
 
 #### タイムライン表示（駅ごとに着/発を分ける・案B / Google マップ準拠）
 
@@ -169,19 +257,22 @@ NAVITIME route_transit 照会（1回）
   - **電車→電車で間に徒歩が無い直結乗換**でも「着」「発」の **2 行**に分ける。着行は `TimelineNode.cardBelow=false`（無表示・カードを挟まない）で、次の発行へ短いコネクタで繋ぐ。
 - 表示時刻は累積分ベース（`formatClock(departure, 累積分+待ち)`）で算出し、乗り遅れ・時刻欠落は駅着時刻へ化す（`_advance` と同基準）。発着時刻はこの左カラムに集約し、**区間カード内には「HH:MM発 → HH:MM着」を重複表示しない**。
 
-### #67 — calling_at の時刻欠落でも停車駅を残す
+### #67 — 時刻を欠く区間でも候補を捨てない
 
-- プロキシ/RapidAPI 由来データは時刻が欠けることがある。**座標があれば停車駅を捨てない**（捨てるとハイブリッド候補が生成されず予算が余る）。
-- 時刻が無い区間の乗車時間は停車駅折れ線長を `trainMetersPerMinute`(=500) で割って概算する。
+- **座標があれば候補点を捨てない**（捨てるとハイブリッド候補が生成されず予算が余る）。現行データ源では途中停車駅そのものが取れない（§2.2-2）ため、コリドー座標を間引きサンプリングした点が候補点になる（§2.3）。「時刻が無い＝使えない」ではない。
+- 時刻が無い区間の乗車時間は折れ線長を `trainMetersPerMinute`(=500) で割って概算する。見積りは**楽観側に倒す**（§1.1 ③・§5）。
+- **ただし概算のまま確定させてはならない。** 時刻を持たない transit 区間は「今夜走っているか」を判定できず、深夜に走っていない便が予算内へ化ける。採用前に実発車時刻を引き直して検証する（§4 #137）。**候補生成では残し、確定では検証する**——この2段構えが #67 と #137 の関係。
 
-### #71 — ハイブリッド運賃の距離按分
+### #71 — ハイブリッド運賃の距離按分（**廃止**）
 
-- 途中駅から短く乗るハイブリッドにセクション全体の運賃をそのまま使うと過大。**セクション運賃を乗車区間の鉄道距離 ÷ セクション全体の鉄道距離で按分**する。運賃が取れない区間は null 許容。
+- **現行データ源は運賃を返さない**（`journey.fare`・`leg.fare` が常に null・§2.2-3）。按分すべき原資が無いため、この不変条件は**失効**した。按分ロジック（`_proratedFare` 系）は実装ごと削除済みで、`fare` はパーサからも一度も代入されない。
+- **再実装しないこと。** 「途中駅から短く乗るハイブリッドにセクション全体の運賃をそのまま使うと過大」という当時の問題意識は正しいが、運賃自体が取れない現状では書く先が無い。
+- `RouteSegment.fare` フィールドと UI の `if (seg.fare != null)` ガードは**意図的に残している**。将来別の運賃ソースを得たときに器を配線するだけで点灯できるようにするため（消さないこと）。
 
 ### #115 — 乗り遅れ電車の再照会と差し替え
 
-- 確定しかけた**予算内候補**が予定列車に乗り遅れる（駅到着が発車後）なら、**乗車駅からの時刻表を NAVITIME に再照会**し、実在の後続列車の発着で当該区間を差し替えて実到着を再判定する。
-- 同一路線・同一降車駅・乗車区間内に限る（MVP）。多区間で下流接続が崩れる場合や実在列車を確認できない場合は**候補ごと除外**する（乗れない列車を確定しない・安全側）。
+- **不変条件:** 確定しかけた**予算内候補**が予定列車に乗り遅れる（駅到着が発車後）なら、その候補をそのまま確定させてはならない。実在の後続列車で成立させるか、成立しないなら**候補ごと除外**する（乗れない列車を確定しない・安全側）。
+- **現行の実現方法（#137 以降）:** 乗車駅の時刻表を単区間だけ引き直して実在便へ差し替える旧方式は**廃止した**。現行データ源は途中駅の時刻・駅名を持たない（§2.2-2）ため成立しない。代わりに**乗車駅探索（§3.6）へ一本化**する——乗車地点 X 発で `/guidance/plan` を引き直すので構成上その候補は自己整合になり、`firstMissedTransit` が立たない。乗り遅れた候補は `_selectAndEnrich` が除外し、次善へ選び直す。
 
 ### #116 — 徒歩実測のレッグ単位キャッシュ
 
@@ -191,13 +282,13 @@ NAVITIME route_transit 照会（1回）
 
 - **①日跨ぎ:** 出発の絶対時刻 `departureAt` は **ユーザー選択の壁時計値そのもの**を持つ naive DateTime（TZ 変換しない）。これを基点に待ち時間を算出するため端末 TZ に依存しない。`dateOffset`（翌日など）を反映。
 - **②終電後の翌朝始発:** 「待てば乗れるが今夜は乗れない」電車を「今夜乗れる」と誤判定しない。best-effort 選定では各電車の**乗車待ち（`maxBoardingWait`）がすべて予算内**かつ**乗り遅れ（`firstMissedTransit`）が無い**候補（全徒歩は待ち0で常に含む）だけを残す（`reachableWithinBudget`）。
-- **TZ 正規化:** NAVITIME の時刻文字列（`+09:00`/`Z` 付き等）は `parseNavitimeJst` で **JST の壁時計値を表す naive DateTime** へ正規化する。これを怠ると JST 以外の端末で乗車待ちが負＝0 に化け、翌朝始発が深夜電車として表示される。
-- **NAVITIME 時刻を信じる（B案）:** 深夜帯の「幽霊便」対策として untimed 電車を時間帯で予算外にする案は**不採用**（始発も消してしまう・#67 と衝突）。NAVITIME が返す発着時刻を正とする。`is_timetable` は判別に使えない。
-- 注意: 出発アンカー（naive）と NAVITIME 時刻（`+09:00`→`DateTime.parse` で UTC）を直接 `difference` すると端末 TZ ぶんずれる。必ず `parseNavitimeJst` で揃える。
+- **TZ 正規化:** 上流の発着時刻は `transitSecsToJst`（`transit_plan_parser.dart`）で **JST の壁時計値を表す naive DateTime** へ正規化する（サービス日 `YYYYMMDD` の 0 時＋`departureSecs`/`arrivalSecs`。`>86400` は `Duration` 加算で翌日へ自然に繰り上がる・§2.2-7）。これを怠ると JST 以外の端末で乗車待ちが負＝0 に化け、翌朝始発が深夜電車として表示される。
+  - 注意: 出発アンカーは naive（ユーザー選択の壁時計値）なので、上流時刻を `isUtc=true` の DateTime にしたまま `difference` を取ると端末 TZ ぶんずれる。**必ず naive で揃える。**
+- **上流の時刻を信じる（B案）:** 深夜帯の「幽霊便」対策として untimed 電車を時間帯で予算外にする案は**不採用**（始発も消してしまう・#67 と衝突）。上流が返す発着時刻を正とする。現行 Transit API は照会時刻に追従する幽霊便を返さない（§2.2-7）。**時刻を持たない**コリドー由来のハイブリッド区間だけが幽霊便の温床で、これは #137 の実発車時刻検証で潰す。
 
 ### #137 — 時刻なしハイブリッドの実発車時刻検証（深夜の幽霊便対策）
 
-詳細は [hybrid-boarding-time-verification.md](../notes/hybrid-boarding-time-verification.md)。Transit API 経路（`transit_route_service.dart`）固有。
+Transit API 経路（`transit_route_service.dart`）固有。
 
 - **背景:** コリドー座標から合成するハイブリッド電車区間は `depTime` を持たない（距離概算 `minutes` のみ）。`depTime == null` だと `_advance` が乗車待ちを 0 とみなし、`maxBoardingWait` も 0 を返すため、深夜・終電後に**走っていない便が「待ち0で今夜乗れる」と誤判定**され予算内候補・best-effort 縮退先へ化ける（実機: 02:41 の京急、23:33 の都立大学0:48発 森91）。現行 Transit API は照会時刻に追従する幽霊便を返さない（honest・実 API で確認済み）ので、これは**API でなくアプリ側ロジックの問題**。
 - **不変条件:** **時刻なし（`depTime == null`）電車区間は、実 `/guidance/plan` 引き直しで実発車時刻を確認できない限り最終ルートに含めない。** 確認できた区間は実発着時刻で乗車待ち・乗車時間を計算する。予算内確定・best-effort の双方に適用。
@@ -228,7 +319,7 @@ NAVITIME route_transit 照会（1回）
 | `selectBestRoute(candidates, budgetMin, {origin, goal, departureAt, maxBacktrackRatio})` | hybrid_route_selector.dart | 逆戻り除外 → 予算内（実到着 ≤ budget）で `walkMinutes` 最大 → 実到着最早 → 乗換最少。予算内皆無なら今夜乗れる範囲の実到着最早（同点は乗換最少）。 |
 | `reachableWithinBudget(candidates, budgetMin, departureAt)` | hybrid_route_selector.dart | 乗車待ちが予算内 かつ 乗り遅れ無しの候補のみ。該当無しは null。 |
 | `forwardCandidates(candidates, origin, goal, {maxBacktrackRatio})` | hybrid_route_selector.dart | 逆戻り迂回を除いた前方プール。全候補が逆戻りなら除外せずそのまま、origin/goal 未指定はフィルタなし。勝者選定（`selectBestRoute`）と先行実測フロント（§3.7・`measureShortlist`）が共有する方向フィルタの単一実装。 |
-| `maxWalkBoardingIndex({count, budgetMin, evaluate})` | hybrid_route_selector.dart | 乗車駅探索（[walk-max-board-search](../notes/walk-max-board-search.md)）。到着が index 単調増の前提で `evaluate(i) ≤ budget` の最大 index（＝総徒歩最大）を二分探索。evaluate を O(log count) 回に抑える。予算内皆無・count 0 は null。 |
+| `maxWalkBoardingIndex({count, budgetMin, evaluate})` | hybrid_route_selector.dart | 乗車駅探索（§3.6）。到着が index 単調増の前提で `evaluate(i) ≤ budget` の最大 index（＝総徒歩最大）を二分探索。evaluate を O(log count) 回に抑える。予算内皆無・count 0 は null。 |
 | `measureShortlist({candidates, budgetMin, departureAt, origin, goal})` | hybrid_route_selector.dart | 逆戻り除外（`forwardCandidates`）→ 見積り実到着（`arrivalMinutes`）が予算内の候補だけを、徒歩降順→実到着昇順→乗換少ない順で並べて返す（cap なし）。先行実測（§3.7 Option A）と確定選定の tier 実測が**同一集合・同一順序**を測るための単一の並び。 |
 | `prewarmFront({shortlist, chosen, hybrids, singlePassHybridThreshold, maxMeasureShortlist})` | hybrid_route_selector.dart | 非崩壊ルートの先行実測対象と single-pass 発火有無を返す（§3.7・#318）。`shortlist`（`measureShortlist` 結果）中の予算内ハイブリッド（`hybrids` の identity 集合）が `singlePassHybridThreshold` 件以上なら短リスト上位 `maxMeasureShortlist` 件全体（`singlePass=true`）、未満なら `chosen` 単独を返す（#327）。 |
 | `buildRoutePlan({from, to, segments, departure, budgetMin, departureAt})` | route_plan_builder.dart | segments → RoutePlan（totalKm/walkKm/kcal/walkRatio/totalMin/timelineNodes）。待ち時間込みの到着を計算。 |
@@ -236,8 +327,8 @@ NAVITIME route_transit 照会（1回）
 | `firstMissedTransit(segments, departureAt)` | route_plan_builder.dart | 駅着が発車後になる最初の transit（電車・バス）区間（index, cumBefore）。無ければ null。 |
 | `hasUnverifiedTransit(segments)` | route_plan_builder.dart | 実発車時刻（`depTime`）を確認できていない transit 区間（電車・バス）を含むか。確定経路（§4 #137）の検証に使う判定。 |
 | `maxBoardingWait(segments, departureAt)` | route_plan_builder.dart | 全電車区間の乗車前待ちの最大値。 |
-| `frontierStations(stops, origin, goal, budgetMin, {maxPerSide})` | navitime_route_service.dart | 乗降候補駅を直線徒歩が予算内のものへ絞り、片側 maxPerSide を超えれば均等間引き（両端含む・b<a ペアを保つ）。昇順インデックスで返す。 |
-| `parseNavitimeJst(raw)` | navitime_route_service.dart | `+09:00`/`Z`/オフセット無しを JST 壁時計の naive DateTime へ正規化。不正・null・空は null。 |
+| `frontierStations(stops, origin, goal, budgetMin, {maxPerSide})` | hybrid_route_selector.dart | 乗降候補駅を直線徒歩が予算内のものへ絞り、片側 maxPerSide を超えれば均等間引き（両端含む・b<a ペアを保つ）。昇順インデックスで返す。 |
+| `transitSecsToJst(date, secs)` | transit_plan_parser.dart | サービス日 `YYYYMMDD` の 0 時＋`secs` 秒を **naive JST** DateTime で返す（`>86400` は翌日へ繰り上がる）。出発アンカーとの `difference` が端末 TZ に依存しないための正規化（§4 #121）。8桁でない・null・解析不能は null。 |
 | `RouteCandidate` | hybrid_route_selector.dart | `walkMinutes`/`walkKm`/`totalKm`/`totalMin` を segments から導出。データ源非依存。 |
 
 ---
@@ -267,4 +358,4 @@ NAVITIME route_transit 照会（1回）
 - **挙動を変える変更は §4 の不変条件を回帰させていないか確認する。** これらは実データのエッジケースへの対応であり、リファクタや再設計で最も壊れやすい。
 - 純粋関数（§5）の契約を変えるときは本書・テスト・[ADR-001](../adr/ADR-001-route-optimization-architecture.md) の整合を取る。
 - 目的関数（§1）は `walkMinutes` を正とする。距離/時間のどちらを最大化するかは設計の根幹なので、変えるなら本書と ADR を更新してから。
-- データ源の制約（§2）— 「公共交通は NAVITIME」「徒歩ジオメトリは Google」「地図キーはアプリ内必須」— は外部 API の仕様由来。transit 不具合はまずこれらの制約を疑う。
+- データ源の制約（§2）— 「公共交通は Transit API 直叩き」「徒歩ジオメトリは Google」「地図キーはアプリ内必須」— は外部 API の仕様由来。transit 不具合はまずこれらの制約を疑う。**制約を引用するときは §2.2〜§2.4 の実測値を根拠にすること**（過去のデータ源の制約を現行へ持ち越さない・#330）。
