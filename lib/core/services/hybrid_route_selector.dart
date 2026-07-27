@@ -260,6 +260,11 @@ Future<int?> maxWalkBoardingIndex({
 /// 増える分、徒歩最大の解像度はむしろ上がる方向）。`fanout: 1` は直列二分探索と
 /// 同一の軌道になる。同一 index を二度評価しないことは保証する。
 ///
+/// **残り全 index が [fanout] 本以内に収まるラウンドは内点分割をやめ、それを1ラウンドで
+/// 評価する**（#332）。内点は hi を含まないため、分割を続けると末尾のためだけの1本
+/// ラウンドが必ず残るのを避ける。1ラウンドの同時発行は [fanout] 本を超えない——上流の
+/// レート制限が未知で、429 が「予算外」と誤認されると徒歩が静かに縮むため（#333）。
+///
 /// [shouldContinue] が false を返すと**新しいラウンドを起こさず、その時点の境界で
 /// 打ち切る**（#300。呼び出し側は検索の締切を渡す）。探索を尽くさないので境界は
 /// 本来より手前＝徒歩は最大より短くなり得るが、返す index は「評価済みの中で予算内の
@@ -281,9 +286,17 @@ Future<int?> maxWalkBoardingIndexParallel({
     // 区間 [lo, hi] を (fanout+1) 等分する内分点。区間が狭いと同一点へ縮退する
     // ため Set で重複除去する（probe は必ず区間内にあり、毎ラウンド区間が縮む）。
     final span = hi - lo;
-    final probes = <int>{
-      for (var j = 1; j <= fanout; j++) lo + (span * j) ~/ (fanout + 1),
-    }.toList()..sort();
+    // 素直には全ラウンドを内点分割で揃えたいが、内点 `lo + span*j/(fanout+1)` は hi を
+    // 含まないため、区間が狭くなっても末尾のためだけにもう1ラウンド（＝上流 guidance
+    // 1本ぶんの壁時計）が残る。残り全 index が fanout 本以内に収まるなら1ラウンドで打つ。
+    // 条件が `span <= fanout` でなく `span < fanout` なのは、同時発行を fanout 本以下に
+    // 保つため——上流のレート制限が未知で、429 は「予算外」と誤認されて徒歩を静かに縮める
+    // （#332 Codex レビュー対応。上限を上げるには先に #333 が要る）。#332 参照。
+    final probes = span < fanout
+        ? [for (var i = lo; i <= hi; i++) i]
+        : (<int>{
+            for (var j = 1; j <= fanout; j++) lo + (span * j) ~/ (fanout + 1),
+          }.toList()..sort());
     final results = await Future.wait([for (final p in probes) evaluate(p)]);
     // 昇順に走査し、予算内なら境界を右へ、最初の予算外で右端を確定して打ち切る
     // （単調性の仮定は直列版と同一。break 後の probe は区間更新に使わない）。
