@@ -868,6 +868,89 @@ void main() {
       });
     });
 
+    group('start による探索窓 (#332)', () {
+      test('start より手前の index は評価しない', () async {
+        final evaluated = <int>[];
+        await maxWalkBoardingIndexParallel(
+          count: 36,
+          start: 25,
+          budgetMin: 30,
+          fanout: 5,
+          evaluate: (index) async {
+            evaluated.add(index);
+            return index;
+          },
+        );
+        expect(evaluated, isNotEmpty);
+        expect(evaluated.every((i) => i >= 25), isTrue, reason: '$evaluated');
+      });
+
+      test('窓の中に境界があれば予算内の最遠 index を返す', () async {
+        final i = await maxWalkBoardingIndexParallel(
+          count: 124,
+          start: 28,
+          budgetMin: 33, // 到着=index
+          fanout: 5,
+          evaluate: (index) async => index,
+        );
+        expect(i, 33);
+      });
+
+      test('start 以降がすべて予算外なら null（手前は探索しない）', () async {
+        // 手前へ戻る回収は呼び出し側のフォールバックの責務。探索プリミティブは
+        // 「渡された窓の中の最遠」だけを答える。
+        final i = await maxWalkBoardingIndexParallel(
+          count: 124,
+          start: 40,
+          budgetMin: 33,
+          fanout: 5,
+          evaluate: (index) async => index,
+        );
+        expect(i, isNull);
+      });
+
+      test('窓に絞るとラウンド数（直列 guidance の段数）が減る', () async {
+        // 実機の崩壊ケース（コリドー124点・境界33・fanout=5）は全域探索で3ラウンド。
+        // 予測が境界を挟む窓へ絞れれば、同じ境界へ少ないラウンドで到達する。
+        Future<({int rounds, int? best})> run({
+          required int start,
+          required int count,
+        }) async {
+          final pending = <int, Completer<int>>{};
+          final future = maxWalkBoardingIndexParallel(
+            count: count,
+            start: start,
+            budgetMin: 33,
+            fanout: 5,
+            evaluate: (index) {
+              final c = Completer<int>();
+              pending[index] = c;
+              return c.future;
+            },
+          );
+          await Future<void>.delayed(Duration.zero);
+          var rounds = 0;
+          while (pending.isNotEmpty) {
+            rounds++;
+            final batch = [...pending.entries];
+            pending.clear();
+            for (final e in batch) {
+              e.value.complete(e.key);
+            }
+            await Future<void>.delayed(Duration.zero);
+          }
+          return (rounds: rounds, best: await future);
+        }
+
+        final full = await run(start: 0, count: 124);
+        final windowed = await run(start: 28, count: 40);
+        expect(full.best, 33);
+        expect(windowed.best, 33, reason: '窓に絞っても境界は同じ');
+        expect(full.rounds, 3);
+        expect(windowed.rounds, lessThan(full.rounds));
+      });
+    });
+
     group('shouldContinue による打ち切り (#300)', () {
       test('打ち切り後は新ラウンドを起こさず、既得の境界を返す', () async {
         final evaluated = <int>[];

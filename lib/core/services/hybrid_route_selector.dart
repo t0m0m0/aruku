@@ -260,6 +260,11 @@ Future<int?> maxWalkBoardingIndex({
 /// 増える分、徒歩最大の解像度はむしろ上がる方向）。同一 index を二度評価しないことは
 /// 保証する。
 ///
+/// 探索範囲は `[start, count)`（[start] 既定 0 で全域・#332）。**[start] より手前は評価も
+/// せず、窓の中に予算内が皆無なら null を返す**——手前へ戻る回収は呼び出し側の責務で、
+/// 予測が外れたときのフォールバックをここに埋め込まない（探索プリミティブは「渡された窓の
+/// 中の最遠」だけを答え、軌道をテストで決定的に固定できる状態に保つ）。
+///
 /// **残区間が [fanout] 以下になったラウンドは内点分割をやめ、残り全 index を1ラウンドで
 /// 評価する**（#332）。内点は hi を含まないため、分割を続けると末尾のためだけの1本
 /// ラウンドが必ず残るのを避ける。このため `fanout: 1` も直列二分探索と同一の軌道には
@@ -275,10 +280,11 @@ Future<int?> maxWalkBoardingIndexParallel({
   required int count,
   required int budgetMin,
   required Future<int> Function(int index) evaluate,
+  int start = 0,
   int fanout = 3,
   bool Function()? shouldContinue,
 }) async {
-  var lo = 0;
+  var lo = start;
   var hi = count - 1;
   int? best;
   while (lo <= hi) {
