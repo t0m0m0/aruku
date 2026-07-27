@@ -748,7 +748,7 @@ class TransitRouteService implements SearchEngine {
   }
 
   /// 候補から決定的に選定し、採用1経路を Google 実測（enrich）で検証する確定ループ。
-  /// NAVITIME 版と違い**乗り遅れ再照会（#115）は行わない**：実在便への差し替えはせず、
+  /// **乗り遅れ再照会（#115）は行わない**：実在便への差し替えはせず、
   /// enrich で (a) 予算超過、または (b) 先頭電車に乗り遅れ（標準乗換のアクセス徒歩が実街路で
   /// 伸び駅着が発車後になる・#137 副次）が判明した候補は除外して乗れる次善へ選び直す。
   /// ハイブリッド／乗車駅探索は引き直しまたは時刻なし距離概算のため `firstMissedTransit` は
@@ -1871,7 +1871,7 @@ class TransitRouteService implements SearchEngine {
     ];
   }
 
-  /// 出発の絶対時刻。dateOffset（isNow→0）で日付を決定する（NAVITIME 版と同基準）。
+  /// 出発の絶対時刻。dateOffset（isNow→0）で日付を決定する。
   DateTime _departureDateTime(TimeValue t) {
     final now = _clock();
     return DateTime(

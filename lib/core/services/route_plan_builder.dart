@@ -41,11 +41,11 @@ String formatClock(TimeValue dep, int addMinutes) {
 }
 
 /// 出発を基点とした経過分 [cum] を、区間 [seg] を経た時点へ進める。
-/// [anchor]（出発の絶対時刻）が与えられ NAVITIME の発車時刻 [RouteSegment.depTime] が
+/// [anchor]（出発の絶対時刻）が与えられ実発車時刻 [RouteSegment.depTime] が
 /// ある電車区間では、駅着から発車までの待ち時間を吸収して進める（乗車前・乗り換え待ちを
 /// 到着時刻に反映する #65）。乗車時間は到着時刻 [RouteSegment.arrTime] があればその差、
-/// 無ければ距離概算 [RouteSegment.minutes] を使う（NAVITIME は降車駅の時刻を欠くことが
-/// あるが、発車時刻があれば「いつ乗れるか」は NAVITIME の実時刻で算出できる）。
+/// 無ければ距離概算 [RouteSegment.minutes] を使う（コリドー由来のハイブリッド区間は
+/// 実時刻検証を通るまで depTime/arrTime を持たない。#137）。
 /// 戻り値の [wait] はこの区間に乗る前に待った分（タイムライン表示用）。
 /// 発車時刻が欠落した区間や [anchor] 無しでは従来どおり所要分を加算し待ちは 0。
 ({int cum, int wait}) _advance(int cum, RouteSegment seg, DateTime? anchor) {
@@ -86,8 +86,8 @@ int arrivalMinutes(List<RouteSegment> segments, DateTime? departureAt) {
 /// （`cum > boardRel`）こと。発車相対分ちょうどに着く場合は乗車できる扱いで対象外。
 /// 返り値の [cumBefore] はその区間に着くまでの実累積分で、乗車駅からの時刻表再照会の
 /// start_time（出発 + cumBefore）を組むのに使う（#115）。
-/// 判定は発車時刻のみで行う：NAVITIME は降車駅の時刻を欠くことがあるが、発車時刻が
-/// あれば「徒歩を延ばしてその便に乗り遅れたか」は確定できる（着時刻があれば発車前着
+/// 判定は発車時刻のみで行う：乗り遅れとは「駅に着いたときその便が既に発車していたか」
+/// であって降車時刻とは無関係だから（着時刻があれば発車前着
 /// =不整合データを併せて除外する）。発車時刻が欠落した区間は判定できないため対象外。
 /// バスも電車と同じ基準で判定する（#250。バス限定の緩和は入れない——時刻表を信じる
 /// 決定と「その便が実在するか」の検証は別物）。
@@ -189,7 +189,7 @@ TimelineNode _boardingNode(
 }
 
 /// 区間列から RoutePlan を構築する（合計距離・徒歩距離・kcal・徒歩比率・
-/// タイムライン）。データ源（Google / NAVITIME）に依存しない純粋関数。
+/// タイムライン）。データ源に依存しない純粋関数。
 /// [departureAt] は出発の絶対時刻（時刻表データとの差で待ち時間を算出する基点）。
 /// 省略時は時刻表を使わず累積所要分でタイムラインを組む。
 RoutePlan buildRoutePlan({

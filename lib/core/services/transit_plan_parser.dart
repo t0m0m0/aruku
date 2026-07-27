@@ -8,7 +8,7 @@ import 'route_plan_builder.dart' show kcalPerKm;
 
 /// Transit API `/guidance/plan` の 1 option を解析した door-to-door 経路（#137）。
 ///
-/// NAVITIME 版の `_TransitParse` 相当だが、データ源非依存の選定ロジック
+/// データ源非依存の選定ロジック
 /// （`selectBestRoute` ほか）へ渡すための `RouteSegment` 列に加え、乗車駅探索の
 /// サンプリング母集合になる transit leg ごとの [TransitCorridor] を持つ。
 @immutable
@@ -319,9 +319,9 @@ final RegExp _romajiSuffix = RegExp(r"[\s　]+[A-Za-zÀ-ɏ][A-Za-zÀ-ɏ\s\-’']
 /// 返す（#137・#121）。`departureSecs`/`arrivalSecs` はサービス日 0 時起算の秒で、
 /// 0 時跨ぎ便では 86400 を超え得る——`Duration` 加算で翌日へ自然に繰り上がる。
 ///
-/// NAVITIME 版の `parseNavitimeJst` と同じく、出発アンカー（ユーザー選択の壁時計値を
-/// 持つ naive DateTime）との `difference` が端末 TZ に依存しないよう naive（isUtc=false）
-/// で返す。[date] が 8 桁でない・[secs] が null・解析不能なら null。
+/// 出発アンカー（ユーザー選択の壁時計値を持つ naive DateTime）との `difference` が端末 TZ
+/// に依存しないよう naive（isUtc=false）で返す。UTC の DateTime を混ぜると JST 以外の端末で
+/// 乗車待ちが負＝0 に化け、翌朝始発が深夜電車として表示される（#121）。[date] が 8 桁でない・[secs] が null・解析不能なら null。
 @visibleForTesting
 DateTime? transitSecsToJst(String? date, int? secs) {
   if (date == null || date.length != 8 || secs == null) return null;
