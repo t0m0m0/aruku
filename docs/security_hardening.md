@@ -204,7 +204,7 @@ dart-define**（`PROXY_BASE_URL` 等）で生成されることを確認する�
    旧 `us-central1` 関数を**手動削除**する:
    ```sh
    npx -y firebase-tools@latest functions:delete \
-     navitimeProxy googleWalkProxy \
+     googleWalkProxy \
      --region us-central1 --project aruku-app
    ```
 
