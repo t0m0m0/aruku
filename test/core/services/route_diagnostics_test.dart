@@ -186,6 +186,48 @@ void main() {
     });
   });
 
+  group('BestEffortLedger', () {
+    test('プール解決とループ再試行を分けて数える', () {
+      final l = BestEffortLedger()
+        ..enter()
+        ..recordPool(candidates: 19, resolveDepth: 2)
+        ..recordRetry()
+        ..recordRetry()
+        ..addMs(41000);
+      expect(l.entries, 1);
+      expect(l.candidates, 19, reason: '短リスト上限に縛られないファンアウト幅');
+      expect(l.resolveDepth, 2);
+      expect(l.retries, 2, reason: 'ループは直列なので段数として効く');
+      expect(l.totalMs, 41000);
+    });
+
+    test('複数回入っても足し合わせる（縮退→バス→再帰で2度通る）', () {
+      final l = BestEffortLedger()
+        ..enter()
+        ..recordPool(candidates: 19, resolveDepth: 1)
+        ..addMs(30000)
+        ..enter()
+        ..recordPool(candidates: 24, resolveDepth: 3)
+        ..recordRetry()
+        ..addMs(12000);
+      expect(l.entries, 2);
+      // 入る回数ぶんは直列に走るので ms と候補数は和、段数は最大。
+      expect(l.candidates, 43);
+      expect(l.totalMs, 42000);
+      expect(l.resolveDepth, 3);
+      expect(l.retries, 1);
+    });
+
+    test('一度も縮退しなければすべて0', () {
+      final l = BestEffortLedger();
+      expect(l.entries, 0);
+      expect(l.candidates, 0);
+      expect(l.resolveDepth, 0);
+      expect(l.retries, 0);
+      expect(l.totalMs, 0);
+    });
+  });
+
   group('RouteSearchMetrics.toLogLine', () {
     test('collapse/board-search/本数/フェーズ時間を安定した key=value 行にする', () {
       final m = RouteSearchMetrics()
@@ -218,6 +260,15 @@ void main() {
             ..record(chainMs: 800, resolveSteps: 0)
             ..record(chainMs: 700, resolveSteps: 0),
         )
+        ..recordBestEffort(
+          BestEffortLedger()
+            ..enter()
+            ..recordPool(candidates: 19, resolveDepth: 2)
+            ..recordRetry()
+            ..recordRetry()
+            ..addMs(41000),
+        )
+        ..busLastResortMs = 20000
         ..finalizeMs = 300
         ..totalMs = 9000;
       expect(
@@ -231,6 +282,9 @@ void main() {
         'boardSearchProbeSerialMs=21000 boardSearchProbeParallelMs=18000 '
         'enrichCriticalMs=19000 enrichPasses=2 enrichResolveDepth=2 '
         'enrichCandidates=7 '
+        'bestEffortMs=41000 bestEffortEntries=1 bestEffortCandidates=19 '
+        'bestEffortResolveDepth=2 bestEffortRetries=2 '
+        'busLastResortMs=20000 '
         'finalizeMs=300 totalMs=9000',
       );
     });
@@ -394,6 +448,9 @@ void main() {
         'boardSearchProbeSerialMs=0 boardSearchProbeParallelMs=0 '
         'enrichCriticalMs=0 enrichPasses=0 enrichResolveDepth=0 '
         'enrichCandidates=0 '
+        'bestEffortMs=0 bestEffortEntries=0 bestEffortCandidates=0 '
+        'bestEffortResolveDepth=0 bestEffortRetries=0 '
+        'busLastResortMs=0 '
         'finalizeMs=0 totalMs=0',
       );
     });

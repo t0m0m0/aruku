@@ -166,6 +166,50 @@ class EnrichLatencyLedger {
   // 「1パスで決まった」最も一般的なケースがまるごと 0 になる。
 }
 
+/// best-effort 縮退（`_bestEffortResolved`）の費用を計上する台帳。
+///
+/// **[EnrichLatencyLedger] と別に持つ理由が実測で判明している。** `enrichCriticalMs` を
+/// 入れて初めて測った1本は `enrichMs=58.2s` に対し臨界パスが 4.9s（8.4%）しかなく、残りは
+/// この経路だった。`_bestEffortResolved` は測定口（`_measureCandidate`）を通らず
+/// `_resolveBoardingTimes` を直に呼ぶため、[EnrichLatencyLedger] からは**構造的に見えない**。
+///
+/// コスト中心が2つあり、分けないと打ち手を選べない：
+/// - **プール全体の並列解決**（幅）: `_maxMeasureShortlist` の上限が効かず候補プール全部を
+///   解決する。[candidates] が幅、[resolveDepth] が1候補の直列段数。
+/// - **`while` の再試行ループ**（段数）: 乗り遅れ候補を1件ずつ外して**直列に** enrich し直す。
+///   [retries] がその段数で、1段ごとに徒歩プロキシ1往復ぶんの壁時計が乗る。
+///
+/// 縮退は1検索で複数回通り得る（縮退 → バス last-resort → `_selectAndEnrich` の再帰 →
+/// 再び縮退）。それらは**直列**に走るので [totalMs]・[candidates]・[retries] は和、
+/// [resolveDepth] だけ最大を採る（「1候補が積んだ段数」という意味を保つため）。
+class BestEffortLedger {
+  /// `_bestEffortResolved` に入った回数。
+  int entries = 0;
+
+  /// 実時刻解決したのべ候補数＝短リスト上限に縛られないファンアウト幅。
+  int candidates = 0;
+
+  /// プール解決で1候補が直列に積んだ引き直しの最大段数。
+  int resolveDepth = 0;
+
+  /// 再試行ループが回った回数（＝直列に積んだ徒歩 enrich の追加段数）。
+  int retries = 0;
+
+  /// 縮退に費やした実時間の合計。`enrichMs` からこれを引いた残りが、なお計上外の区間。
+  int totalMs = 0;
+
+  void enter() => entries++;
+
+  void recordPool({required int candidates, required int resolveDepth}) {
+    this.candidates += candidates;
+    if (resolveDepth > this.resolveDepth) this.resolveDepth = resolveDepth;
+  }
+
+  void recordRetry() => retries++;
+
+  void addMs(int ms) => totalMs += ms;
+}
+
 /// 1検索分の定量指標（#309）。collapse 発火・board-search 起動・上流 HTTP 往復本数・
 /// フェーズ別所要時間を1オブジェクトに集約し、[toLogLine] で機械集計可能な1行に整形する。
 ///
@@ -314,6 +358,36 @@ class RouteSearchMetrics {
     enrichCandidates = ledger.candidates;
   }
 
+  /// best-effort 縮退に費やした実時間。**`enrichMs` の会計を閉じるための項**——
+  /// `enrichMs − enrichCriticalMs − bestEffortMs − busLastResortMs` が、なお計上外の区間。
+  int bestEffortMs = 0;
+
+  /// 縮退へ入った回数（縮退 → バス last-resort → 再帰で複数回通り得る）。
+  int bestEffortEntries = 0;
+
+  /// 縮退が実時刻解決したのべ候補数。**`_maxMeasureShortlist`(13) の上限が効かない幅**で、
+  /// 上流ファンアウトの実際の上限はここで決まる。
+  int bestEffortCandidates = 0;
+
+  /// 縮退のプール解決で1候補が直列に積んだ引き直しの最大段数。
+  int bestEffortResolveDepth = 0;
+
+  /// 縮退の再試行ループが回った回数＝直列に積んだ徒歩 enrich の追加段数。
+  int bestEffortRetries = 0;
+
+  /// バス last-resort 再照会（`_fetchBusOptions`）に掛かった実時間。1検索で高々1回だが
+  /// **完全に直列**（縮退の後・再選定の前）なので、上流1本ぶんがそのまま体感に乗る。
+  int busLastResortMs = 0;
+
+  /// best-effort 台帳を1検索ぶんの指標へ畳む。
+  void recordBestEffort(BestEffortLedger ledger) {
+    bestEffortMs = ledger.totalMs;
+    bestEffortEntries = ledger.entries;
+    bestEffortCandidates = ledger.candidates;
+    bestEffortResolveDepth = ledger.resolveDepth;
+    bestEffortRetries = ledger.retries;
+  }
+
   /// 確定候補の駅名確定（`_finalizeStationNames`）に掛かった実時間。
   int finalizeMs = 0;
 
@@ -357,6 +431,11 @@ class RouteSearchMetrics {
       'enrichCriticalMs=$enrichCriticalMs enrichPasses=$enrichPasses '
       'enrichResolveDepth=$enrichResolveDepth '
       'enrichCandidates=$enrichCandidates '
+      'bestEffortMs=$bestEffortMs bestEffortEntries=$bestEffortEntries '
+      'bestEffortCandidates=$bestEffortCandidates '
+      'bestEffortResolveDepth=$bestEffortResolveDepth '
+      'bestEffortRetries=$bestEffortRetries '
+      'busLastResortMs=$busLastResortMs '
       'finalizeMs=$finalizeMs totalMs=$totalMs';
 }
 
