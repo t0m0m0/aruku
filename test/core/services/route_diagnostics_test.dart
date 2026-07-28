@@ -79,6 +79,65 @@ void main() {
     });
   });
 
+  group('ProbeLatencyLedger', () {
+    test('ラウンド壁時計は「最遅プローブ」で、直列版は walk+guidance を足す', () {
+      final l = ProbeLatencyLedger()
+        ..record(walkMs: 1000, guidanceMs: 9000)
+        ..record(walkMs: 3000, guidanceMs: 8000);
+      // 直列（現状）: max(1000+9000, 3000+8000) = 11000
+      expect(l.serialMs, 11000);
+      // 並列（walk を guidance と同時発行した下限）: max(max(1000,9000), max(3000,8000)) = 9000
+      expect(l.parallelMs, 9000);
+    });
+
+    test('ラウンドは直列に積むので複数ラウンドは和', () {
+      final l = ProbeLatencyLedger()
+        ..record(walkMs: 1000, guidanceMs: 9000)
+        ..endRound()
+        ..record(walkMs: 2000, guidanceMs: 5000);
+      expect(l.serialMs, 10000 + 7000);
+      expect(l.parallelMs, 9000 + 5000);
+    });
+
+    test('プローブの無いラウンドは 0 として無視される', () {
+      // onRound はラウンド**開始時**に呼ばれるため、1本目の endRound は必ず空になる。
+      final l = ProbeLatencyLedger()
+        ..endRound()
+        ..record(walkMs: 1000, guidanceMs: 9000);
+      expect(l.serialMs, 10000);
+      expect(l.parallelMs, 9000);
+    });
+
+    test('末尾の endRound を呼ばなくても進行中ラウンドは含まれる', () {
+      // 締切打ち切り（shouldContinue）は while を break で抜けるため、末尾フラッシュを
+      // 呼び出し側の義務にすると最後のラウンドが静かに落ちる。
+      final l = ProbeLatencyLedger()..record(walkMs: 500, guidanceMs: 4000);
+      expect(l.serialMs, 4500);
+      expect(l.parallelMs, 4000);
+    });
+
+    test('徒歩がキャッシュヒットしたプローブは guidance だけが壁時計', () {
+      final l = ProbeLatencyLedger()..record(walkMs: 0, guidanceMs: 9000);
+      expect(l.serialMs, 9000);
+      expect(l.parallelMs, 9000);
+    });
+
+    test('1件も記録しなければ両方 0', () {
+      final l = ProbeLatencyLedger();
+      expect(l.serialMs, 0);
+      expect(l.parallelMs, 0);
+    });
+
+    test('parallelMs は serialMs を超えない（削減可能量が負にならない）', () {
+      final l = ProbeLatencyLedger()
+        ..record(walkMs: 7000, guidanceMs: 1000)
+        ..record(walkMs: 1000, guidanceMs: 7000)
+        ..endRound()
+        ..record(walkMs: 2500, guidanceMs: 2500);
+      expect(l.parallelMs, lessThanOrEqualTo(l.serialMs));
+    });
+  });
+
   group('RouteSearchMetrics.toLogLine', () {
     test('collapse/board-search/本数/フェーズ時間を安定した key=value 行にする', () {
       final m = RouteSearchMetrics()
@@ -98,6 +157,8 @@ void main() {
         ..boardSearchBest = 25
         ..boardSearchTruncated = true
         ..boardSearchProbeFailed = true
+        ..boardSearchProbeSerialMs = 21000
+        ..boardSearchProbeParallelMs = 18000
         ..finalizeMs = 300
         ..totalMs = 9000;
       expect(
@@ -108,6 +169,7 @@ void main() {
         'guidanceMs=1200 hybridMs=500 enrichMs=2600 boardSearchMs=3400 '
         'boardSearchRounds=3 boardSearchScanCount=63 boardSearchBest=25 '
         'boardSearchTruncated=1 boardSearchProbeFailed=1 '
+        'boardSearchProbeSerialMs=21000 boardSearchProbeParallelMs=18000 '
         'finalizeMs=300 totalMs=9000',
       );
     });
@@ -222,6 +284,28 @@ void main() {
       expect(m.boardSearchBest, -1);
       expect(m.boardSearchTruncated, isFalse);
       expect(m.boardSearchProbeFailed, isFalse);
+      expect(m.boardSearchProbeSerialMs, 0);
+      expect(m.boardSearchProbeParallelMs, 0);
+    });
+
+    test('プローブ内訳も報告する対と同じ探索から採る（並列探索ぶんを足さない）', () {
+      // 2系統は並列に走る（#304）ので和は壁時計と対応しない。serial/parallel を別々の
+      // 探索から採ると差＝削減可能量が実在しない値になるため、対で1本から採る。
+      final m = RouteSearchMetrics()
+        ..recordBoardSearches([
+          BoardSearchStats()
+            ..rounds = 3
+            ..scanCount = 63
+            ..best = 25
+            ..probeLatency.record(walkMs: 2000, guidanceMs: 9000),
+          BoardSearchStats()
+            ..rounds = 1
+            ..scanCount = 40
+            ..best = 5
+            ..probeLatency.record(walkMs: 8000, guidanceMs: 8000),
+        ]);
+      expect(m.boardSearchProbeSerialMs, 11000, reason: 'rounds 最大の探索の対を採る');
+      expect(m.boardSearchProbeParallelMs, 9000);
     });
 
     test('board-search が起動しなければ探索系は 0・境界は -1（未探索の印）', () {
@@ -246,6 +330,7 @@ void main() {
         'guidanceMs=0 hybridMs=0 enrichMs=0 boardSearchMs=0 '
         'boardSearchRounds=0 boardSearchScanCount=0 boardSearchBest=-1 '
         'boardSearchTruncated=0 boardSearchProbeFailed=0 '
+        'boardSearchProbeSerialMs=0 boardSearchProbeParallelMs=0 '
         'finalizeMs=0 totalMs=0',
       );
     });
@@ -277,6 +362,30 @@ void main() {
       const diag = RouteDiagnostics(metricsEnabled: false);
       final lines = capture(() => diag.logMetrics(RouteSearchMetrics()));
       expect(lines, isEmpty);
+    });
+
+    test('guidance キーは指標と同じゲート・別プレフィックスで出す', () {
+      // 別プレフィックスにするのは、1検索1行の [route-metrics] と違い照会1本ごとに出るため。
+      // 混ぜると grep で切り出せない。
+      const diag = RouteDiagnostics(verbose: false, metricsEnabled: true);
+      final lines = capture(() => diag.logGuidanceKey('R', 'C'));
+      expect(lines, ['[guidance-key] raw=R coarse=C']);
+    });
+
+    test('guidance キーも release 相当では出さない', () {
+      const diag = RouteDiagnostics(metricsEnabled: false);
+      final lines = capture(() => diag.logGuidanceKey('R', 'C'));
+      expect(lines, isEmpty);
+    });
+
+    test('metricsEnabled は配線側が整形前に降りられるよう公開する', () {
+      // [logGuidanceKey] は遅延ビルダを取らないため、これを見ずに繋ぐと release でも
+      // キー整形のコストを払う（#164 と同じ罠）。
+      expect(const RouteDiagnostics(metricsEnabled: true).metricsEnabled, true);
+      expect(
+        const RouteDiagnostics(metricsEnabled: false).metricsEnabled,
+        false,
+      );
     });
   });
 

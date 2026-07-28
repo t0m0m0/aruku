@@ -43,6 +43,68 @@ class BoardSearchStats {
   /// [truncated] と原因が違うので別に持つ——締切は我々の予算、こちらは上流の安定性で、
   /// 次に打つ手が変わる。締切由来のタイムアウトでは両方立ち得る。
   bool probeFailed = false;
+
+  /// この探索がプローブ内で払った直列の壁時計と、その直列を解いた下限
+  /// （[ProbeLatencyLedger]）。探索ごとに持つのは [rounds] と同じ理由——2系統は並列に
+  /// 走るので、1つの台帳を両方から触るとラウンド境界が混ざって `max` が別探索のプローブ
+  /// をまたぐ。
+  final ProbeLatencyLedger probeLatency = ProbeLatencyLedger();
+}
+
+/// 乗車駅探索のプローブ内で払っている**直列**の壁時計と、それを並列化したときの下限を
+/// 同一 run から両方計上する台帳。
+///
+/// 現状 `buildAt` は「徒歩実測（walk proxy）→ guidance 引き直し」の順に **await** する
+/// ——後者の照会時刻 `boardAt` が前者の所要で決まるため。だが t1 は
+/// `_boardSearchScanCount` が matrix で全点実測済みで、そちらを `boardAt` に使えば
+/// guidance を即発行でき、徒歩実測はジオメトリ用に並行できる。**その改修が何秒縮めるか**を
+/// 実装前に知るための計上。
+///
+/// ラウンドの壁時計は k 並列プローブの `max` なので、
+/// - [serialMs]   = Σ_rounds max_i(walk_i + guidance_i)  ＝ 現状
+/// - [parallelMs] = Σ_rounds max_i(max(walk_i, guidance_i)) ＝ 直列を解いた下限
+///
+/// 差が削減可能量の上限になる。**別 run の A/B ではなく同一 run 内の反実仮想**なのが要点：
+/// 上流のレイテンシは中央値9〜11秒・裾30秒超（route-optimization.md §2.2-6）で、数試行の
+/// ms 比較では「改善したのか上流が空いていたのか」を区別できない（#332 実測では3組とも ms が
+/// 改善して見えたが、実際に段数が減っていたのは1組だけだった）。同じプローブの実測から両方を
+/// 出せば、上流のばらつきは両者に等しく乗るので差だけを取り出せる。
+class ProbeLatencyLedger {
+  int _closedSerial = 0;
+  int _closedParallel = 0;
+  int _roundSerial = 0;
+  int _roundParallel = 0;
+
+  /// プローブ1本の内訳を現在のラウンドへ記録する。徒歩がレッグキャッシュにヒットした
+  /// プローブは [walkMs] が 0 近傍になり、そのぶん自動的に削減可能量から外れる。
+  ///
+  /// [walkMs] には `_WalkLegCache` の in-flight に相乗りして他プローブの取得を待った時間も
+  /// 含める。待たされた実壁時計こそがユーザーの体感で、除くと削減可能量を過小に見積もる。
+  void record({required int walkMs, required int guidanceMs}) {
+    final serial = walkMs + guidanceMs;
+    final parallel = walkMs > guidanceMs ? walkMs : guidanceMs;
+    if (serial > _roundSerial) _roundSerial = serial;
+    if (parallel > _roundParallel) _roundParallel = parallel;
+  }
+
+  /// 現在のラウンドを締めて累積へ畳む。プローブが無いラウンドは 0 の加算＝実質 no-op
+  /// （`onRound` はラウンド**開始時**に呼ばれるので、1本目の締めは必ず空になる）。
+  void endRound() {
+    _closedSerial += _roundSerial;
+    _closedParallel += _roundParallel;
+    _roundSerial = 0;
+    _roundParallel = 0;
+  }
+
+  /// 現状の壁時計（Σ_rounds 最遅プローブの walk+guidance）。
+  int get serialMs => _closedSerial + _roundSerial;
+
+  /// プローブ内の直列を解いたときの壁時計の下限（Σ_rounds 最遅プローブの max(walk, guidance)）。
+  int get parallelMs => _closedParallel + _roundParallel;
+
+  // 進行中ラウンドをゲッタ側で足すのは、末尾フラッシュを呼び出し側の義務にしないため。
+  // 探索は締切超過（shouldContinue）で while を break で抜けるので、「最後に endRound を
+  // 呼ぶ」規約は最も測りたいケース（打ち切られるほど重かった探索）で静かに破れる。
 }
 
 /// 1検索分の定量指標（#309）。collapse 発火・board-search 起動・上流 HTTP 往復本数・
@@ -122,6 +184,18 @@ class RouteSearchMetrics {
   /// 決まり得るため、集計側は境界位置の分布から除く。
   bool boardSearchProbeFailed = false;
 
+  /// 報告する探索がプローブ内で払った直列の壁時計（[ProbeLatencyLedger.serialMs]）。
+  int boardSearchProbeSerialMs = 0;
+
+  /// 同じ探索で、プローブ内の「徒歩実測 → guidance 引き直し」の直列を解いたときの壁時計の
+  /// 下限（[ProbeLatencyLedger.parallelMs]）。
+  ///
+  /// **[boardSearchProbeSerialMs] との差が、その改修で縮む上限。** 同一 run の同じプローブから
+  /// 両方を出しているので、上流のレイテンシばらつきは両者へ等しく乗り、差だけを取り出せる
+  /// （別 run の A/B では区別できない・#332）。差が小さければ board-search の律速は
+  /// guidance 単体のレイテンシであって直列ではない＝この改修は打つ価値が無いと判定できる。
+  int boardSearchProbeParallelMs = 0;
+
   /// 並列に走った乗車駅探索群（[BoardSearchStats]）を1検索ぶんの指標へ畳む。
   ///
   /// [boardSearchRounds] は**和ではなく最大**——2系統は並列に走る（#304）ので、和にすると
@@ -130,7 +204,8 @@ class RouteSearchMetrics {
   /// フェーズの経過段数を表すわけではない（[boardSearchRounds] のドキュメント参照）。
   ///
   /// [boardSearchScanCount]・[boardSearchBest]・[boardSearchTruncated]・
-  /// [boardSearchProbeFailed] は**同一の探索から採る**（対を崩すと `best/scanCount` が実在しない比になり、truncated が別の探索を
+  /// [boardSearchProbeFailed]・[boardSearchProbeSerialMs]・[boardSearchProbeParallelMs]
+  /// は**同一の探索から採る**（対を崩すと `best/scanCount` が実在しない比になり、truncated が別の探索を
   /// 指すと有効なサンプルを捨てる）。採るのは段数を決めた探索＝報告する
   /// [boardSearchRounds] と整合する1本。同点なら走査範囲の広い方。
   void recordBoardSearches(Iterable<BoardSearchStats> searches) {
@@ -148,6 +223,10 @@ class RouteSearchMetrics {
     boardSearchBest = dominant.best;
     boardSearchTruncated = dominant.truncated;
     boardSearchProbeFailed = dominant.probeFailed;
+    // serial/parallel は**必ず対で**同じ台帳から採る。別探索から拾うと差＝削減可能量が
+    // 実在しない値になり、打つ価値の判定を誤らせる。
+    boardSearchProbeSerialMs = dominant.probeLatency.serialMs;
+    boardSearchProbeParallelMs = dominant.probeLatency.parallelMs;
   }
 
   /// 確定候補の駅名確定（`_finalizeStationNames`）に掛かった実時間。
@@ -188,6 +267,8 @@ class RouteSearchMetrics {
       'boardSearchBest=$boardSearchBest '
       'boardSearchTruncated=${boardSearchTruncated ? 1 : 0} '
       'boardSearchProbeFailed=${boardSearchProbeFailed ? 1 : 0} '
+      'boardSearchProbeSerialMs=$boardSearchProbeSerialMs '
+      'boardSearchProbeParallelMs=$boardSearchProbeParallelMs '
       'finalizeMs=$finalizeMs totalMs=$totalMs';
 }
 
@@ -220,6 +301,13 @@ class RouteDiagnostics {
   final bool _verbose;
   final bool _metricsEnabled;
 
+  /// 定量指標を出す設定か。**呼び出し側が計上そのものを組み立てる前に降りるための述語。**
+  ///
+  /// [logGuidanceKey] は文字列2本を引数に取る（遅延ビルダではない）ので、ゲートの内側で
+  /// 捨てられる release でも呼び出し側が整形コストを払ってしまう。#164 と同じ理由——
+  /// 出さないビルドでは一切払わない——で、配線側がこの述語を見て**そもそも通知を繋がない**。
+  bool get metricsEnabled => _metricsEnabled;
+
   /// 選定ログ1行を `[route]` プレフィックス付きで出す（[_verbose] が真のときのみ）。
   ///
   /// メッセージは遅延ビルダ（`String Function()`）で受け取る。[_verbose] が偽の
@@ -236,6 +324,17 @@ class RouteDiagnostics {
   /// フィールド計測で使う profile で一切出ない・#309 レビュー指摘）。
   void logMetrics(RouteSearchMetrics metrics) {
     if (_metricsEnabled) debugPrint('[route-metrics] ${metrics.toLogLine()}');
+  }
+
+  /// 発行した `/guidance/plan` 1本の識別子を `[guidance-key]` 付きで出す
+  /// （[logMetrics] と同じゲート＝既定では release 以外）。
+  ///
+  /// `RouteSearchMetrics.guidanceDupCalls` が数えるのは1検索内の重複だけなので、**検索間・
+  /// ユーザー間**の重複はこの行を跨いで集計する（`grep '\[guidance-key\]' | sort | uniq -c`）。
+  /// [logMetrics] と別プレフィックスにするのは、あちらが1検索1行なのに対しこちらは照会1本ごとに
+  /// 出るため——同じプレフィックスに混ぜると片方だけを切り出せない。
+  void logGuidanceKey(String raw, String coarse) {
+    if (_metricsEnabled) debugPrint('[guidance-key] raw=$raw coarse=$coarse');
   }
 
   /// 候補の区間構成を `walk12m+蒲12_train33m+walk3m` 形式の短い文字列にする（ログ用）。
