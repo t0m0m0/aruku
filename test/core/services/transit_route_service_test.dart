@@ -2184,6 +2184,43 @@ void main() {
         reason: '打ち切り側の境界(4)ではなく、評価済み予算内の最遠(6)を採る',
       );
     });
+
+    test('引き直しが上流エラーで落ちた探索は境界を確定値扱いしない（#332 レビュー）', () async {
+      // 429/5xx は `_fetchTransitFrom` で null へ縮退し、evaluate は「予算外」と解釈して
+      // 区間を捨てる。つまり境界が上流の不調で決まり得る。締切とは別の原因なので
+      // truncated では拾えず、印を付けないと probe 配置の分布へ確定値として混ざる。
+      final oneProbeFails = MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+        if (path.contains('googleWalkProxy')) return _walkFor(req.url);
+        if (path.contains('guidance/plan')) {
+          final from = req.url.queryParameters['from'] ?? '';
+          final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
+          if ((lng - 139.0).abs() < 1e-6) return _json(baseGuidance());
+          // 引き直しのうち1点だけ上流エラーにする（他は正常に引ける）。
+          if ((lng - 139.05).abs() < 1e-6) return _json(const {}, 500);
+          final time = req.url.queryParameters['time'] ?? '09:00';
+          return _json(reentry(lng, time));
+        }
+        return _json(const {}, 404);
+      });
+
+      RouteSearchMetrics? captured;
+      await _service(oneProbeFails, onMetrics: (m) => captured = m).plan(
+        destination: '目的駅',
+        destinationLatLng: goal5,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 50),
+        origin: origin5,
+        originName: '出発',
+      );
+
+      expect(captured, isNotNull);
+      expect(captured!.boardSearchActivated, isTrue);
+      expect(captured!.boardSearchProbeFailed, isTrue);
+      // 締切には掛かっていない＝原因を取り違えていないこと。
+      expect(captured!.boardSearchTruncated, isFalse);
+    });
   });
 
   group('plan: 時刻なしハイブリッドの実発車時刻検証（approach A・深夜の幽霊便対策）', () {

@@ -97,6 +97,7 @@ void main() {
         ..boardSearchScanCount = 63
         ..boardSearchBest = 25
         ..boardSearchTruncated = true
+        ..boardSearchProbeFailed = true
         ..finalizeMs = 300
         ..totalMs = 9000;
       expect(
@@ -106,7 +107,7 @@ void main() {
         'guidanceDupCalls=1 '
         'guidanceMs=1200 hybridMs=500 enrichMs=2600 boardSearchMs=3400 '
         'boardSearchRounds=3 boardSearchScanCount=63 boardSearchBest=25 '
-        'boardSearchTruncated=1 '
+        'boardSearchTruncated=1 boardSearchProbeFailed=1 '
         'finalizeMs=300 totalMs=9000',
       );
     });
@@ -183,12 +184,44 @@ void main() {
       expect(m.boardSearchTruncated, isTrue);
     });
 
+    test('probeFailed も報告する対と同じ探索から採る', () {
+      // truncated と同じ理由。原因（締切／上流の失敗）は違うが、どちらも「この best が
+      // 信用できるか」の印なので、best と同じ探索を指していないと判断を誤らせる。
+      final m = RouteSearchMetrics()
+        ..recordBoardSearches([
+          BoardSearchStats()
+            ..rounds = 3
+            ..scanCount = 63
+            ..best = 25,
+          BoardSearchStats()
+            ..rounds = 1
+            ..scanCount = 40
+            ..best = 5
+            ..probeFailed = true,
+        ]);
+      expect(m.boardSearchBest, 25);
+      expect(m.boardSearchProbeFailed, isFalse);
+    });
+
+    test('採用した探索で probe が上流失敗していれば probeFailed', () {
+      final m = RouteSearchMetrics()
+        ..recordBoardSearches([
+          BoardSearchStats()
+            ..rounds = 3
+            ..scanCount = 63
+            ..best = 25
+            ..probeFailed = true,
+        ]);
+      expect(m.boardSearchProbeFailed, isTrue);
+    });
+
     test('探索が1本も走らなければ既定のまま', () {
       final m = RouteSearchMetrics()..recordBoardSearches(const []);
       expect(m.boardSearchRounds, 0);
       expect(m.boardSearchScanCount, 0);
       expect(m.boardSearchBest, -1);
       expect(m.boardSearchTruncated, isFalse);
+      expect(m.boardSearchProbeFailed, isFalse);
     });
 
     test('board-search が起動しなければ探索系は 0・境界は -1（未探索の印）', () {
@@ -212,7 +245,7 @@ void main() {
         'guidanceDupCalls=0 '
         'guidanceMs=0 hybridMs=0 enrichMs=0 boardSearchMs=0 '
         'boardSearchRounds=0 boardSearchScanCount=0 boardSearchBest=-1 '
-        'boardSearchTruncated=0 '
+        'boardSearchTruncated=0 boardSearchProbeFailed=0 '
         'finalizeMs=0 totalMs=0',
       );
     });

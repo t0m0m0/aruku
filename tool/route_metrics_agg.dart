@@ -33,6 +33,7 @@ class RouteMetricSample {
     required this.boardSearchScanCount,
     required this.boardSearchBest,
     required this.boardSearchTruncated,
+    required this.boardSearchProbeFailed,
     required this.alternativesMs,
     required this.finalizeMs,
     required this.totalMs,
@@ -66,6 +67,10 @@ class RouteMetricSample {
   /// 締切で打ち切られたか。打ち切られた境界は本来より手前になり得るので、境界位置の
   /// 分布からは除く（段数・範囲の分布には残す）。
   final bool boardSearchTruncated;
+
+  /// 上流の失敗（429・5xx・タイムアウト）で落ちた probe があったか。境界がその地点の
+  /// 実力ではなく上流の不調で決まり得るので、境界位置の分布からは除く。
+  final bool boardSearchProbeFailed;
 
   /// 代替案の選出・検証フェーズの所要（legacy・#290→#327 で廃止）。現行アプリはこの key を
   /// 出さない（=0）が、撤去前に保存した旧ログを解析するとき `totalMs` に含まれるこの分を
@@ -110,6 +115,7 @@ RouteMetricSample? parseRouteMetricsLine(String line) {
     // 0 は「index 0 が境界」と紛れるので、キー欠落（旧ログ）は未探索の -1 に落とす。
     boardSearchBest: fields['boardSearchBest'] ?? -1,
     boardSearchTruncated: at('boardSearchTruncated') == 1,
+    boardSearchProbeFailed: at('boardSearchProbeFailed') == 1,
     alternativesMs: at('alternativesMs'),
     finalizeMs: at('finalizeMs'),
     totalMs: at('totalMs'),
@@ -351,11 +357,14 @@ String? _boardSearchReport(List<RouteMetricSample> samples) {
       if (s.boardSearch && s.boardSearchScanCount > 0) s,
   ];
   if (rows.isEmpty) return null;
-  // 境界位置だけは確定した境界に限る。予算内皆無（-1）は比を作れず、締切で
-  // 打ち切られた境界は本来より手前＝真の境界ではないので混ぜられない。
+  // 境界位置だけは「実測で確定した境界」に限る。予算内皆無(-1)は比を作れず、締切で
+  // 打ち切られた境界／上流の失敗が混ざった境界は、その地点の実力ではなく外的要因で
+  // 決まっている——確定値として扱うと probe 配置の判断材料が手前へ偏る。
   final positions = [
     for (final s in rows)
-      if (s.boardSearchBest >= 0 && !s.boardSearchTruncated)
+      if (s.boardSearchBest >= 0 &&
+          !s.boardSearchTruncated &&
+          !s.boardSearchProbeFailed)
         s.boardSearchBest / s.boardSearchScanCount,
   ]..sort();
   final mean = positions.isEmpty
@@ -379,7 +388,7 @@ String? _boardSearchReport(List<RouteMetricSample> samples) {
           positions.isEmpty
               ? '  best/scanCount(境界位置): 確定した境界なし'
               : '  best/scanCount(境界位置): n=${positions.length} '
-                    '(打ち切り・予算内皆無を除く / 全${rows.length}件中) '
+                    '(打ち切り・上流失敗・予算内皆無を除く / 全${rows.length}件中) '
                     'min=${positions.first.toStringAsFixed(3)} '
                     'max=${positions.last.toStringAsFixed(3)} '
                     'mean=${mean!.toStringAsFixed(3)}',

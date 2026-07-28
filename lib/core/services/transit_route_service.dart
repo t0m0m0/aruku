@@ -1159,6 +1159,7 @@ class TransitRouteService implements SearchEngine {
         goal,
         boardAt,
         allowBus: allowBus,
+        onUpstreamFailure: () => stats.probeFailed = true,
       );
       if (xToGoal == null) {
         _diag.log(
@@ -1779,11 +1780,16 @@ class TransitRouteService implements SearchEngine {
     GeoPoint goal,
     DateTime at, {
     bool allowBus = false,
+    void Function()? onUpstreamFailure,
   }) async {
     final Map<String, dynamic> body;
     try {
       body = await _api.fetchGuidanceAt(x, goal, at, allowBus: allowBus);
     } on RouteException {
+      // 上流の失敗（429・5xx・TIMEOUT）と「引けたが transit 区間が無い」を、呼び出し側は
+      // どちらも null として同じに扱う（縮退の挙動は変えない）。ただし前者は**この地点が
+      // 予算外だった**ことを意味しないので、境界を指標として読むときに区別が要る。
+      onUpstreamFailure?.call();
       return null;
     }
     for (final o in parseGuidancePlan(body)) {

@@ -27,6 +27,14 @@ class BoardSearchStats {
   /// 締切で**新しいラウンドを起こさずに打ち切った**か（#300）。打ち切ると [best] は
   /// 本来より手前になり得るので、境界位置の分布へ確定値として混ぜてはいけない。
   bool truncated = false;
+
+  /// 引き直しが**上流の失敗**（429・5xx・タイムアウト）で落ちた probe があったか。
+  ///
+  /// `_fetchTransitFrom` の null 縮退は「予算外」と解釈され区間を捨てるため、境界が
+  /// その地点の実力ではなく上流の不調で決まり得る（#333 が扱う失敗モード）。[truncated]
+  /// と原因が違うので別に持つ——締切は我々の予算、こちらは上流の安定性で、次に打つ手が
+  /// 変わる。締切由来のタイムアウトでは両方立ち得る。
+  bool probeFailed = false;
 }
 
 /// 1検索分の定量指標（#309）。collapse 発火・board-search 起動・上流 HTTP 往復本数・
@@ -93,14 +101,19 @@ class RouteSearchMetrics {
   /// いけない。
   bool boardSearchTruncated = false;
 
+  /// [boardSearchBest] を出した探索に、上流の失敗（429・5xx・タイムアウト）で落ちた
+  /// probe があったか（[BoardSearchStats.probeFailed]）。境界がその地点の実力ではなく
+  /// 上流の不調で決まり得るため、集計側は境界位置の分布から除く。
+  bool boardSearchProbeFailed = false;
+
   /// 並列に走った乗車駅探索群（[BoardSearchStats]）を1検索ぶんの指標へ畳む。
   ///
   /// [boardSearchRounds] は**和ではなく最大**——2系統は並列に走る（#304）ので、
   /// 直列に積み上がった段数＝クリティカルパスは最も深い1本で決まる。和にすると
   /// 「壁時計に対応する直列段数」という指標の意味そのものが壊れる。
   ///
-  /// [boardSearchScanCount]・[boardSearchBest]・[boardSearchTruncated] は**同一の探索
-  /// から採る**（対を崩すと `best/scanCount` が実在しない比になり、truncated が別の探索を
+  /// [boardSearchScanCount]・[boardSearchBest]・[boardSearchTruncated]・
+  /// [boardSearchProbeFailed] は**同一の探索から採る**（対を崩すと `best/scanCount` が実在しない比になり、truncated が別の探索を
   /// 指すと有効なサンプルを捨てる）。採るのは段数を決めた探索＝報告する
   /// [boardSearchRounds] と整合する1本。同点なら走査範囲の広い方。
   void recordBoardSearches(Iterable<BoardSearchStats> searches) {
@@ -117,6 +130,7 @@ class RouteSearchMetrics {
     boardSearchScanCount = dominant.scanCount;
     boardSearchBest = dominant.best;
     boardSearchTruncated = dominant.truncated;
+    boardSearchProbeFailed = dominant.probeFailed;
   }
 
   /// 確定候補の駅名確定（`_finalizeStationNames`）に掛かった実時間。
@@ -156,6 +170,7 @@ class RouteSearchMetrics {
       'boardSearchScanCount=$boardSearchScanCount '
       'boardSearchBest=$boardSearchBest '
       'boardSearchTruncated=${boardSearchTruncated ? 1 : 0} '
+      'boardSearchProbeFailed=${boardSearchProbeFailed ? 1 : 0} '
       'finalizeMs=$finalizeMs totalMs=$totalMs';
 }
 
