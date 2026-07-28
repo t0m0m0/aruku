@@ -54,8 +54,10 @@ class RouteMetricSample {
   final int enrichMs;
   final int boardSearchMs;
 
-  /// 乗車駅探索が回したラウンド数＝直列 guidance の段数。探索最適化の効き目は ms では
-  /// なくここに出る（ms は上流ジッタを含む）。
+  /// **最も深い1本の**乗車駅探索が回したラウンド数。探索最適化の効き目は ms ではなく
+  /// ここに出る（ms は上流ジッタを含む）。2系統が走るときのフェーズ経過段数ではない
+  /// ——バス系は開始がずれるので、経過の直列深さはこの値を超え得る（壁時計は
+  /// boardSearchMs）。
   final int boardSearchRounds;
 
   /// 乗車駅探索が走査した index 数。境界位置を経路をまたいで比べるときの分母。

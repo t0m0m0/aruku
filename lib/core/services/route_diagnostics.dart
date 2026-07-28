@@ -5,10 +5,14 @@ import 'hybrid_route_selector.dart';
 import 'route_plan_builder.dart';
 
 /// 乗車駅探索**1本**分の計上。1検索に2本立つことがある——電車系（base）とバス系
-/// （busBase）は基準コリドーが独立で、**並列に**走る（#304）。1つの
-/// [RouteSearchMetrics] を両方から直接触ると、[scanCount] と [best] が別々の探索の値で
-/// 上書きされて実在しない対になり、[rounds] は並列に走ったものの和になる。
-/// 探索ごとにこれを持ち、[RouteSearchMetrics.recordBoardSearches] で明示的に畳む。
+/// （busBase）は基準コリドーが独立で、並行して走る（#304）。1つの [RouteSearchMetrics]
+/// を両方から直接触ると、[scanCount] と [best] が別々の探索の値で上書きされて実在しない
+/// 対になり、[rounds] は並行して走ったものの和になる。探索ごとにこれを持ち、
+/// [RouteSearchMetrics.recordBoardSearches] で明示的に畳む。
+///
+/// 2本は**同時に始まらない**：バス系は `_buildCorridorHybrids`（matrix/walk のアクセス
+/// 徒歩実測）を待ってから探索へ入る。だから畳んだ [RouteSearchMetrics.boardSearchRounds]
+/// は「最も深い1本の段数」であって、フェーズの経過段数ではない。
 class BoardSearchStats {
   /// この探索が回したラウンド数。
   int rounds = 0;
@@ -76,7 +80,14 @@ class RouteSearchMetrics {
   /// （board-search 候補を足した再 enrich）もこの区間に含む。
   int boardSearchMs = 0;
 
-  /// 乗車駅探索が回したラウンド数（＝直列に積み上がる guidance の段数）。
+  /// **最も深い1本の**乗車駅探索が回したラウンド数（＝その探索が直列に積んだ guidance の段数）。
+  ///
+  /// **フェーズ全体の経過段数ではない。** 2系統が走るとき、バス系は
+  /// `_buildCorridorHybrids`（matrix/walk のアクセス徒歩実測）を待ってから探索を始めるので
+  /// 開始がずれる——電車系と完全に重なる保証はなく、経過時間の直列深さはこの値を超え得る。
+  /// 壁時計が要るときは [boardSearchMs] を見ること。ここが答えるのは「1本の探索が何段
+  /// 積んだか」で、探索アルゴリズムの比較（fanout・probe 配置・打ち切り）に要るのはこちら。
+  /// 他の board-search 系フィールドと同じく**支配探索1本**を記述する。
   ///
   /// [boardSearchMs] と別に持つのは、**ms では探索最適化の効き目を判定できない**ため。
   /// ms は上流のレイテンシばらつき（中央値9〜11秒・裾30秒超）を丸ごと含むので、数回の
@@ -113,9 +124,10 @@ class RouteSearchMetrics {
 
   /// 並列に走った乗車駅探索群（[BoardSearchStats]）を1検索ぶんの指標へ畳む。
   ///
-  /// [boardSearchRounds] は**和ではなく最大**——2系統は並列に走る（#304）ので、
-  /// 直列に積み上がった段数＝クリティカルパスは最も深い1本で決まる。和にすると
-  /// 「壁時計に対応する直列段数」という指標の意味そのものが壊れる。
+  /// [boardSearchRounds] は**和ではなく最大**——2系統は並列に走る（#304）ので、和にすると
+  /// 「1本の探索が何段積んだか」という意味が壊れ、アルゴリズムの比較に使えなくなる。
+  /// 最大を採るのは、報告する他のフィールドと同じ**支配探索1本**を指すため。
+  /// フェーズの経過段数を表すわけではない（[boardSearchRounds] のドキュメント参照）。
   ///
   /// [boardSearchScanCount]・[boardSearchBest]・[boardSearchTruncated]・
   /// [boardSearchProbeFailed] は**同一の探索から採る**（対を崩すと `best/scanCount` が実在しない比になり、truncated が別の探索を
