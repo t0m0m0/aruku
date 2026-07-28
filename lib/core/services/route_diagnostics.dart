@@ -4,6 +4,47 @@ import '../models/route_plan.dart';
 import 'hybrid_route_selector.dart';
 import 'route_plan_builder.dart';
 
+/// 乗車駅探索**1本**分の計上。1検索に2本立つことがある——電車系（base）とバス系
+/// （busBase）は基準コリドーが独立で、並行して走る（#304）。1つの [RouteSearchMetrics]
+/// を両方から直接触ると、[scanCount] と [best] が別々の探索の値で上書きされて実在しない
+/// 対になり、[rounds] は並行して走ったものの和になる。探索ごとにこれを持ち、
+/// [RouteSearchMetrics.recordBoardSearches] で明示的に畳む。
+///
+/// 2本は**同時に始まらない**：バス系は `_buildCorridorHybrids`（matrix/walk のアクセス
+/// 徒歩実測）を待ってから探索へ入る。だから畳んだ [RouteSearchMetrics.boardSearchRounds]
+/// は「最も深い1本の段数」であって、フェーズの経過段数ではない。
+class BoardSearchStats {
+  /// この探索が回したラウンド数。
+  int rounds = 0;
+
+  /// この探索が走査した index 数。
+  int scanCount = 0;
+
+  /// この探索が**評価済みの中で予算内だった最遠 index**（皆無なら -1）。
+  ///
+  /// 二分探索の戻り値そのものではない。探索は最初の予算外 probe で結果の走査を打ち切る
+  /// ので、同一ラウンドでそれより奥に評価済みの予算内点があっても戻り値には現れない。
+  /// 呼び出し側は非単調を前提に評価済みの予算内候補を全部プールへ足すため（#137）、
+  /// 「どこまで予算内だったか」は評価済み集合から採るのが実態と合う。
+  int best = -1;
+
+  /// 締切で**新しいラウンドを起こさずに打ち切った**か（#300）。打ち切ると [best] は
+  /// 本来より手前になり得るので、境界位置の分布へ確定値として混ぜてはいけない。
+  bool truncated = false;
+
+  /// **入力が劣化したまま評価された probe があったか**（上流の 429・5xx・タイムアウト）。
+  /// 2種類あり、どちらも境界をその地点の実力から引き剥がす:
+  ///
+  /// - **引き直しの失敗**: `_fetchTransitFrom` の null 縮退は「予算外」と解釈され区間を
+  ///   捨てるので、境界が**手前**へ動き得る（#333 が扱う失敗モード）。
+  /// - **徒歩実測の失敗**: `_tryWalk` が落ちると直線推定へ縮退する。直線は実街路に対し
+  ///   大きく楽観に倒れる（#137 実機で -36分・25%）ので、境界が**奥**へ動き得る。
+  ///
+  /// [truncated] と原因が違うので別に持つ——締切は我々の予算、こちらは上流の安定性で、
+  /// 次に打つ手が変わる。締切由来のタイムアウトでは両方立ち得る。
+  bool probeFailed = false;
+}
+
 /// 1検索分の定量指標（#309）。collapse 発火・board-search 起動・上流 HTTP 往復本数・
 /// フェーズ別所要時間を1オブジェクトに集約し、[toLogLine] で機械集計可能な1行に整形する。
 ///
@@ -39,6 +80,76 @@ class RouteSearchMetrics {
   /// （board-search 候補を足した再 enrich）もこの区間に含む。
   int boardSearchMs = 0;
 
+  /// **最も深い1本の**乗車駅探索が回したラウンド数（＝その探索が直列に積んだ guidance の段数）。
+  ///
+  /// **フェーズ全体の経過段数ではない。** 2系統が走るとき、バス系は
+  /// `_buildCorridorHybrids`（matrix/walk のアクセス徒歩実測）を待ってから探索を始めるので
+  /// 開始がずれる——電車系と完全に重なる保証はなく、経過時間の直列深さはこの値を超え得る。
+  /// 壁時計が要るときは [boardSearchMs] を見ること。ここが答えるのは「1本の探索が何段
+  /// 積んだか」で、探索アルゴリズムの比較（fanout・probe 配置・打ち切り）に要るのはこちら。
+  /// 他の board-search 系フィールドと同じく**支配探索1本**を記述する。
+  ///
+  /// [boardSearchMs] と別に持つのは、**ms では探索最適化の効き目を判定できない**ため。
+  /// ms は上流のレイテンシばらつき（中央値9〜11秒・裾30秒超）を丸ごと含むので、数回の
+  /// 試行では「ラウンドが減った」のか「上流が空いていた」のか区別がつかない。#332 の
+  /// 実機 A/B では3組とも ms が改善して見えたが、ラウンドが減っていたのは1組だけで、
+  /// 残り2組は上流本数まで完全一致＝差はジッタだった。
+  int boardSearchRounds = 0;
+
+  /// 乗車駅探索が実際に走査した index 数（`walkFeasiblePrefixCount` で刈った後）。
+  /// 境界位置を経路をまたいで比べるときの分母。コリドー点数を分母にすると、#317 の
+  /// プレ実測が刈った量だけ比が歪む（実測で 51〜81% 刈れることがある）。
+  int boardSearchScanCount = 0;
+
+  /// 乗車駅探索で**評価済みのうち予算内だった最遠 index**（[BoardSearchStats.best] 参照。
+  /// 二分探索の戻り値ではない）。**未探索・予算内皆無は -1**（0 は「index 0 が境界だった」
+  /// と紛れるため番兵に使えない）。
+  int boardSearchBest = -1;
+
+  /// [boardSearchBest] を出した探索が締切で打ち切られたか（#300）。打ち切られた境界は
+  /// 本来より手前になり得るため、集計側は境界位置の分布から除く。所要・段数の分布には
+  /// 残す（打ち切られるほど重かった探索こそ見たいので）。
+  ///
+  /// **報告する [boardSearchBest] と同じ探索を指す**（並列に走った別の探索の打ち切りは
+  /// 引き継がない）。この印は「この境界が信用できるか」を意味するので、採用した境界が
+  /// 正常に確定しているなら、短い方が打ち切られたことを理由に有効なサンプルを捨てては
+  /// いけない。
+  bool boardSearchTruncated = false;
+
+  /// [boardSearchBest] を出した探索に、入力が劣化したまま評価された probe があったか
+  /// （[BoardSearchStats.probeFailed]。引き直しの失敗＝境界が手前へ、徒歩実測の失敗＝
+  /// 直線推定への縮退で境界が奥へ動き得る）。境界がその地点の実力ではなく上流の不調で
+  /// 決まり得るため、集計側は境界位置の分布から除く。
+  bool boardSearchProbeFailed = false;
+
+  /// 並列に走った乗車駅探索群（[BoardSearchStats]）を1検索ぶんの指標へ畳む。
+  ///
+  /// [boardSearchRounds] は**和ではなく最大**——2系統は並列に走る（#304）ので、和にすると
+  /// 「1本の探索が何段積んだか」という意味が壊れ、アルゴリズムの比較に使えなくなる。
+  /// 最大を採るのは、報告する他のフィールドと同じ**支配探索1本**を指すため。
+  /// フェーズの経過段数を表すわけではない（[boardSearchRounds] のドキュメント参照）。
+  ///
+  /// [boardSearchScanCount]・[boardSearchBest]・[boardSearchTruncated]・
+  /// [boardSearchProbeFailed] は**同一の探索から採る**（対を崩すと `best/scanCount` が実在しない比になり、truncated が別の探索を
+  /// 指すと有効なサンプルを捨てる）。採るのは段数を決めた探索＝報告する
+  /// [boardSearchRounds] と整合する1本。同点なら走査範囲の広い方。
+  void recordBoardSearches(Iterable<BoardSearchStats> searches) {
+    BoardSearchStats? dominant;
+    for (final s in searches) {
+      if (s.rounds > boardSearchRounds) boardSearchRounds = s.rounds;
+      if (dominant == null ||
+          s.rounds > dominant.rounds ||
+          (s.rounds == dominant.rounds && s.scanCount > dominant.scanCount)) {
+        dominant = s;
+      }
+    }
+    if (dominant == null) return;
+    boardSearchScanCount = dominant.scanCount;
+    boardSearchBest = dominant.best;
+    boardSearchTruncated = dominant.truncated;
+    boardSearchProbeFailed = dominant.probeFailed;
+  }
+
   /// 確定候補の駅名確定（`_finalizeStationNames`）に掛かった実時間。
   int finalizeMs = 0;
 
@@ -72,6 +183,11 @@ class RouteSearchMetrics {
       'guidanceDupCalls=$guidanceDupCalls '
       'guidanceMs=$guidanceMs hybridMs=$hybridMs enrichMs=$enrichMs '
       'boardSearchMs=$boardSearchMs '
+      'boardSearchRounds=$boardSearchRounds '
+      'boardSearchScanCount=$boardSearchScanCount '
+      'boardSearchBest=$boardSearchBest '
+      'boardSearchTruncated=${boardSearchTruncated ? 1 : 0} '
+      'boardSearchProbeFailed=${boardSearchProbeFailed ? 1 : 0} '
       'finalizeMs=$finalizeMs totalMs=$totalMs';
 }
 

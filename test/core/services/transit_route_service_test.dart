@@ -1307,15 +1307,103 @@ void main() {
 
       TransitRouteService serviceWith(
         http.Client client,
-        SearchDeadline deadline,
-      ) => TransitRouteService(
+        SearchDeadline deadline, {
+        void Function(RouteSearchMetrics)? onMetrics,
+      }) => TransitRouteService(
         transitClient: client,
         proxyClient: client,
         transitBaseUrl: _transitBase,
         proxyBaseUrl: _proxyBase,
         clock: () => DateTime(2026, 6, 27, 9, 0),
         deadline: deadline,
+        onMetrics: onMetrics,
       );
+
+      test('ラウンド実行中に切れた締切も truncated にする（#332 レビュー）', () async {
+        // shouldContinue は「新しいラウンドを起こす前」にしか呼ばれない。締切が
+        // ラウンド実行中に切れると probe は TIMEOUT →「予算外」と解釈されて区間が尽き、
+        // shouldContinue を再び通らずにループが自然終了する＝打ち切りを取りこぼす。
+        //
+        // それを再現するため、**探索が全ラウンドを回し終えた後**に切れる締切を作る。
+        // 締切なしで同じ検索を1回流して guidance の総本数を数え、その本数に達した
+        // 時点で切らせれば、shouldContinue は一度も false を返さない。この条件で
+        // truncated が立つかどうかが、探索後チェックの有無をそのまま反証する。
+        final baseline = <Uri>[];
+        await serviceWith(
+          inflatedFromMock(guidanceCalls: baseline),
+          const SearchDeadline.none(),
+        ).plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30),
+          origin: origin3,
+          originName: '出発',
+        );
+        expect(baseline.length, greaterThan(1), reason: 'board-search が走る前提');
+
+        final calls = <Uri>[];
+        RouteSearchMetrics? captured;
+        await serviceWith(
+          inflatedFromMock(guidanceCalls: calls),
+          SearchDeadline(
+            const Duration(seconds: 120),
+            elapsed: () => calls.length >= baseline.length
+                ? const Duration(seconds: 120)
+                : Duration.zero,
+          ),
+          onMetrics: (m) => captured = m,
+        ).plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30),
+          origin: origin3,
+          originName: '出発',
+        );
+
+        expect(captured, isNotNull);
+        expect(captured!.boardSearchActivated, isTrue);
+        expect(captured!.boardSearchTruncated, isTrue);
+      });
+
+      test('締切に掛かった探索の境界は truncated として記録する（#332 レビュー）', () async {
+        // 締切が絡んだ探索の境界は「実測で確定した境界」ではなく、締切で手前に
+        // 止まった値であり得る。probe 配置の判断材料（境界位置の分布）へ確定値として
+        // 混ぜないよう、印を残すことを固定する。
+        //
+        // ラウンド実行中に締切が切れた場合、probe は TIMEOUT →「予算外」と解釈されて
+        // 区間が尽き、shouldContinue を再び通らずにループを抜ける。つまり「新ラウンドを
+        // 起こさなかった」判定だけでは取りこぼす——探索後の締切チェックが要る。
+        final calls = <Uri>[];
+        RouteSearchMetrics? captured;
+        final svc = serviceWith(
+          inflatedFromMock(guidanceCalls: calls),
+          // board-search が**起動した後**に予算を使い切る。起動前に切れると探索自体を
+          // 起こさず縮退するので（best=-1 で集計対象外）、再現したい状況と別物になる。
+          // 初期1本＋引き直し1本が出た時点で切らせ、探索の途中で締切に掛からせる。
+          SearchDeadline(
+            const Duration(seconds: 120),
+            elapsed: () => calls.length >= 2
+                ? const Duration(seconds: 120)
+                : Duration.zero,
+          ),
+          onMetrics: (m) => captured = m,
+        );
+
+        await svc.plan(
+          destination: '目的駅',
+          destinationLatLng: goal3,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 30),
+          origin: origin3,
+          originName: '出発',
+        );
+
+        expect(captured, isNotNull);
+        // 締切に掛かった以上、境界を確定値として集計へ流してはならない。
+        expect(captured!.boardSearchTruncated, isTrue);
+      });
 
       test('締切を使い切っても確定経路は返る（引き直しの全滅で失敗させない）', () async {
         final calls = <Uri>[];
@@ -1941,44 +2029,45 @@ void main() {
       for (final l in lngs) [35.0, l],
     ];
 
-    Map<String, dynamic> baseGuidance() => _guidance([
-      {
-        'journey': {
-          'departureSecs': 32400, // 09:00
-          'arrivalSecs': 33600, // 09:20（標準は速い1本・徒歩最小で大量に余る）
-          'durationSecs': 1200,
-          'accessWalkSecs': 0,
-          'egressWalkSecs': 0,
-          'legs': [
-            _railLeg(
-              route: '基準線A',
-              fromId: 's0',
-              fromName: '始発駅',
-              toId: 'sT',
-              toName: '乗換駅',
-              dep: 32400,
-              arr: 33000,
-            ),
-            _railLeg(
-              route: '基準線B',
-              fromId: 'sT',
-              fromName: '乗換駅',
-              toId: 'sN',
-              toName: '終着駅',
-              dep: 33000,
-              arr: 33600,
-            ),
-          ],
-        },
-        'map': {
-          'points': const [],
-          'segments': [
-            _mapSeg('transit', 's0', 'sT', 'stopOrder', legCoords(leg1Lng)),
-            _mapSeg('transit', 'sT', 'sN', 'stopOrder', legCoords(leg2Lng)),
-          ],
-        },
-      },
-    ]);
+    Map<String, dynamic> baseGuidance([List<double> leg1 = leg1Lng]) =>
+        _guidance([
+          {
+            'journey': {
+              'departureSecs': 32400, // 09:00
+              'arrivalSecs': 33600, // 09:20（標準は速い1本・徒歩最小で大量に余る）
+              'durationSecs': 1200,
+              'accessWalkSecs': 0,
+              'egressWalkSecs': 0,
+              'legs': [
+                _railLeg(
+                  route: '基準線A',
+                  fromId: 's0',
+                  fromName: '始発駅',
+                  toId: 'sT',
+                  toName: '乗換駅',
+                  dep: 32400,
+                  arr: 33000,
+                ),
+                _railLeg(
+                  route: '基準線B',
+                  fromId: 'sT',
+                  fromName: '乗換駅',
+                  toId: 'sN',
+                  toName: '終着駅',
+                  dep: 33000,
+                  arr: 33600,
+                ),
+              ],
+            },
+            'map': {
+              'points': const [],
+              'segments': [
+                _mapSeg('transit', 's0', 'sT', 'stopOrder', legCoords(leg1)),
+                _mapSeg('transit', 'sT', 'sN', 'stopOrder', legCoords(leg2Lng)),
+              ],
+            },
+          },
+        ]);
 
     int secsOf(String hhmm) {
       final p = hhmm.split(':');
@@ -2023,7 +2112,7 @@ void main() {
       ]);
     }
 
-    http.Client mock() => MockClient((req) async {
+    http.Client mock([List<double> leg1 = leg1Lng]) => MockClient((req) async {
       final path = req.url.path;
       if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
       if (path.contains('googleWalkProxy')) return _walkFor(req.url);
@@ -2031,7 +2120,7 @@ void main() {
         final from = req.url.queryParameters['from'] ?? '';
         final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
         final time = req.url.queryParameters['time'] ?? '09:00';
-        if ((lng - 139.0).abs() < 1e-6) return _json(baseGuidance());
+        if ((lng - 139.0).abs() < 1e-6) return _json(baseGuidance(leg1));
         return _json(reentry(lng, time));
       }
       return _json(const {}, 404);
@@ -2054,6 +2143,118 @@ void main() {
       );
       expect(walkMinutesOf(plan), greaterThan(74));
       expect(plan.totalMin, lessThanOrEqualTo(110));
+    });
+
+    test('boardSearchBest は探索の境界でなく評価済み予算内の最遠 index（#332 レビュー）', () async {
+      // 二分探索は「最初の予算外 probe」で結果の走査を打ち切るため、同一ラウンドで
+      // それより奥に評価済みの予算内点があっても戻り値の境界には現れない。非単調は
+      // この呼び出し側が明示的に扱う前提（within は全点を返す）なので、境界位置の指標
+      // だけ打ち切り側の値を採ると分布が手前へ偏る——probe 配置の判断材料が歪む。
+      //
+      // 上の既定コリドーの谷は両側とも予算内で break を挟まないため分岐しない。ここでは
+      // **予算をまたぐ谷**を置く: idx5 を大きく離して予算外にし、idx6 は予算内へ戻す。
+      // ラウンド1の probe {1,2,4,5,6} で idx5 が予算外→走査打ち切り→境界は 4 になるが、
+      // idx6 は評価済みかつ予算内。
+      const crossingValley = [
+        139.01,
+        139.02,
+        139.03,
+        139.04,
+        139.05,
+        139.13, // idx5: 遠すぎて予算外
+        139.06, // idx6: 予算内へ戻る（谷）
+        139.08,
+      ];
+
+      RouteSearchMetrics? captured;
+      await _service(mock(crossingValley), onMetrics: (m) => captured = m).plan(
+        destination: '目的駅',
+        destinationLatLng: goal5,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 50), // 予算110分
+        origin: origin5,
+        originName: '出発',
+      );
+
+      expect(captured, isNotNull);
+      expect(captured!.boardSearchActivated, isTrue);
+      expect(
+        captured!.boardSearchBest,
+        greaterThanOrEqualTo(6),
+        reason: '打ち切り側の境界(4)ではなく、評価済み予算内の最遠(6)を採る',
+      );
+    });
+
+    test('引き直しが上流エラーで落ちた探索は境界を確定値扱いしない（#332 レビュー）', () async {
+      // 429/5xx は `_fetchTransitFrom` で null へ縮退し、evaluate は「予算外」と解釈して
+      // 区間を捨てる。つまり境界が上流の不調で決まり得る。締切とは別の原因なので
+      // truncated では拾えず、印を付けないと probe 配置の分布へ確定値として混ざる。
+      final oneProbeFails = MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+        if (path.contains('googleWalkProxy')) return _walkFor(req.url);
+        if (path.contains('guidance/plan')) {
+          final from = req.url.queryParameters['from'] ?? '';
+          final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
+          if ((lng - 139.0).abs() < 1e-6) return _json(baseGuidance());
+          // 引き直しのうち1点だけ上流エラーにする（他は正常に引ける）。
+          if ((lng - 139.05).abs() < 1e-6) return _json(const {}, 500);
+          final time = req.url.queryParameters['time'] ?? '09:00';
+          return _json(reentry(lng, time));
+        }
+        return _json(const {}, 404);
+      });
+
+      RouteSearchMetrics? captured;
+      await _service(oneProbeFails, onMetrics: (m) => captured = m).plan(
+        destination: '目的駅',
+        destinationLatLng: goal5,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 50),
+        origin: origin5,
+        originName: '出発',
+      );
+
+      expect(captured, isNotNull);
+      expect(captured!.boardSearchActivated, isTrue);
+      expect(captured!.boardSearchProbeFailed, isTrue);
+      // 締切には掛かっていない＝原因を取り違えていないこと。
+      expect(captured!.boardSearchTruncated, isFalse);
+    });
+
+    test('徒歩実測が落ちて直線推定へ縮退した探索も境界を確定値扱いしない（#332 レビュー）', () async {
+      // `_tryWalk` が落ちると buildAt は黙って `_estimateWalk`（直線推定）へ縮退する。
+      // 直線は実街路に対し大きく楽観に倒れる（#137 実機で -36分・25%）ので、本来
+      // 予算外の遠い点が予算内に見え、境界が実測より奥へ動き得る。transit が成功して
+      // いる限り上流エラーの印は立たないため、徒歩側の縮退も同じ印で拾う必要がある。
+      final walkProxyDown = MockClient((req) async {
+        final path = req.url.path;
+        // matrix は通す（探索範囲の刈り込みは成立させ、徒歩実測だけを落とす）。
+        if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+        if (path.contains('googleWalkProxy')) return _json(const {}, 500);
+        if (path.contains('guidance/plan')) {
+          final from = req.url.queryParameters['from'] ?? '';
+          final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
+          final time = req.url.queryParameters['time'] ?? '09:00';
+          if ((lng - 139.0).abs() < 1e-6) return _json(baseGuidance());
+          return _json(reentry(lng, time));
+        }
+        return _json(const {}, 404);
+      });
+
+      RouteSearchMetrics? captured;
+      await _service(walkProxyDown, onMetrics: (m) => captured = m).plan(
+        destination: '目的駅',
+        destinationLatLng: goal5,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 50),
+        origin: origin5,
+        originName: '出発',
+      );
+
+      expect(captured, isNotNull);
+      expect(captured!.boardSearchActivated, isTrue);
+      expect(captured!.boardSearchProbeFailed, isTrue);
     });
   });
 

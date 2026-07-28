@@ -433,6 +433,11 @@ class TransitRouteService implements SearchEngine {
       // ため、逐次だと壁時計時間が2系統ぶん数珠つなぎになる。共有する [walkCache] に
       // in-flight の共有は足さない——両系統のコリドーは別路線で、レッグキー（5桁丸め）
       // が重なるのは稀・重なっても同一レッグを二重取得するだけで結果は冪等なため。
+      // 2系統は並列に走るので、計上も探索ごとに分ける。1つの [metrics] を両方から
+      // 触ると scanCount/best が別々の探索の値で対を成さなくなり、rounds は並列に
+      // 走ったものの和になる（#332 レビュー指摘）。
+      final trainBoardSearch = BoardSearchStats();
+      final busBoardSearch = BoardSearchStats();
       final extra = [
         for (final built in await Future.wait([
           if (base != null)
@@ -447,6 +452,7 @@ class TransitRouteService implements SearchEngine {
               budgetMin,
               departureAt,
               walkCache,
+              trainBoardSearch,
             ),
           if (busBase != null)
             // バス corridor は基準になったのがここが初めてなので、途中乗降ハイブリッドも
@@ -469,12 +475,17 @@ class TransitRouteService implements SearchEngine {
                   budgetMin,
                   departureAt,
                   walkCache,
+                  busBoardSearch,
                 ),
               ];
             }(),
         ]))
           ...built,
       ];
+      metrics.recordBoardSearches([
+        if (base != null) trainBoardSearch,
+        if (busBase != null) busBoardSearch,
+      ]);
       if (extra.isNotEmpty) {
         _diag.log(() => '徒歩最大化候補: ${extra.length}件をプールへ追加');
         // 既に引いたバス候補（あれば）も再選定のプールへ引き継ぐ。board-search 候補が
@@ -1100,6 +1111,7 @@ class TransitRouteService implements SearchEngine {
     int budgetMin,
     DateTime departureAt,
     _WalkLegCache walkCache,
+    BoardSearchStats stats,
   ) async {
     final stops = _corridorStops(base);
     if (stops.length < 2) return const [];
@@ -1119,6 +1131,7 @@ class TransitRouteService implements SearchEngine {
     // 絞ることでラウンド数を減らす。刈っても予算内候補は落ちない（[walkFeasiblePrefixCount] の
     // 安全上界）。
     final scanCount = await _boardSearchScanCount(origin, stops, budgetMin);
+    stats.scanCount = scanCount;
     if (scanCount == 0) {
       _diag.log(() => 'board-search: 予算内の乗車駅なし（t1 実測で全点予算外）');
       return const [];
@@ -1131,14 +1144,19 @@ class TransitRouteService implements SearchEngine {
       if (built.containsKey(i)) return built[i];
       final x = stops[i];
       // 前半徒歩は実測（失敗時のみ直線推定へフォールバック）。
+      final measured = await _tryWalk(
+        origin,
+        x.coord,
+        fromName: base.from,
+        toName: '',
+        cache: walkCache,
+      );
+      // 実測が落ちたら直線推定へ縮退する（挙動は従来どおり）。ただし直線は実街路に対し
+      // 大きく楽観に倒れるので（#137 実機で -36分・25%）、本来予算外の点が予算内に見えて
+      // 境界が奥へ動き得る。境界を「実測で確定した値」として集計へ流さないよう印を残す。
+      if (measured == null) stats.probeFailed = true;
       final walk1 =
-          await _tryWalk(
-            origin,
-            x.coord,
-            fromName: base.from,
-            toName: '',
-            cache: walkCache,
-          ) ??
+          measured ??
           _estimateWalk(origin, x.coord, fromName: base.from, toName: '');
       final boardAt = departureAt.add(Duration(minutes: walk1.totalMin));
       final xToGoal = await _fetchTransitFrom(
@@ -1146,6 +1164,7 @@ class TransitRouteService implements SearchEngine {
         goal,
         boardAt,
         allowBus: allowBus,
+        onUpstreamFailure: () => stats.probeFailed = true,
       );
       if (xToGoal == null) {
         _diag.log(
@@ -1177,12 +1196,19 @@ class TransitRouteService implements SearchEngine {
       count: scanCount,
       budgetMin: budgetMin,
       fanout: _boardSearchFanout,
+      onRound: () => stats.rounds++,
       // 締切超過で新ラウンドを起こさない（#300）。[TransitApiClient] の残予算クランプが
       // 既に HTTP を止めるので通信量の面では冗長だが、ゲートが無いと探索はラウンドを
       // 回し続け、全 probe が即 TIMEOUT →「予算外」と解釈されて区間を縮める——実測では
       // なく締切で境界を決めることになる。徒歩最大化の判断材料に締切を混ぜないため、
       // 探索そのものを止める。
-      shouldContinue: () => !_deadline.isExpired,
+      // 打ち切りはここでしか起きない（`lo <= hi` ＝まだ探索余地があるときにだけ
+      // 呼ばれる）ので、false を返した時点が「本来もっと探せたのに止めた」瞬間になる。
+      shouldContinue: () {
+        if (!_deadline.isExpired) return true;
+        stats.truncated = true;
+        return false;
+      },
       evaluate: (i) async {
         final c = await buildAt(i);
         // 経路無し（引き直し失敗）は予算外として扱い、手前の駅を探す。
@@ -1191,21 +1217,37 @@ class TransitRouteService implements SearchEngine {
             : arrivalMinutes(c.segments, departureAt);
       },
     );
-    _diag.log(
-      () =>
-          'board-search: 実測k分割並列探索の境界 best='
-          '${best == null ? 'null(予算内乗車駅なし)' : '$best'} / コリドー点${stops.length}',
-    );
+    // 締切が**ラウンド実行中**に切れた場合、probe は TIMEOUT → `_fetchTransitFrom` が
+    // null → `budgetMin + (1 << 20)`＝「予算外」と解釈されて区間が尽き、shouldContinue を
+    // 再び通らずにループを抜ける。つまり「新ラウンドを起こさなかった」判定だけでは
+    // 打ち切りを取りこぼす——境界を実測でなく締切が決めた、最も記録すべきケースで。
+    // 自然完走の直後に切れた場合も truncated 側へ倒すが、集計は境界位置の分布から
+    // 除くだけなので、取りこぼすより1件捨てる方が安全（#332 レビュー指摘）。
+    if (_deadline.isExpired) stats.truncated = true;
     // 探索が評価した点（メモ化済み）のうち、予算内の候補を「全部」返す。境界 best 1本だけ
     // でなく全部を返すのは：(1) 到着は実街路で非単調になり得る（後方の停車駅が origin に近い等）
     // ため境界＝徒歩最大とは限らず、(2) 採用前に逆戻りフィルタ・乗り遅れ除外で1本が消えても、
     // 次善の board-search 候補へ落とせるようにするため。選定（[selectBestRoute] /
     // [_selectAndEnrich]）が逆戻り・到着の非単調を込みで「生き残る中の徒歩最大」を決める。
-    final within = [
-      for (final c in built.values)
-        if (c != null && arrivalMinutes(c.segments, departureAt) <= budgetMin)
-          c,
+    final withinEntries = [
+      for (final e in built.entries)
+        if (e.value != null &&
+            arrivalMinutes(e.value!.segments, departureAt) <= budgetMin)
+          e,
     ];
+    // 境界の計上は探索の戻り値ではなく**評価済みの予算内で最遠の index**。探索は最初の
+    // 予算外 probe で結果の走査を打ち切るため、同一ラウンドでそれより奥に評価済みの
+    // 予算内点があっても戻り値には現れない。非単調はここが明示的に扱う前提（上の
+    // withinEntries が全点を返す）なので、指標だけ打ち切り側を採ると「予算内の乗車駅が
+    // 探索範囲のどこに居るか」の分布が手前へ偏り、probe 配置の判断材料が歪む（#332 レビュー）。
+    stats.best = withinEntries.fold(-1, (m, e) => e.key > m ? e.key : m);
+    _diag.log(
+      () =>
+          'board-search: 実測k分割並列探索の境界 best='
+          '${best == null ? 'null(予算内乗車駅なし)' : '$best'} / コリドー点${stops.length}'
+          ' / 予算内最遠=${stats.best}',
+    );
+    final within = [for (final e in withinEntries) e.value!];
     _diag.log(() => 'board-search: 予算内候補 ${within.length}件を返す');
     return within;
   }
@@ -1743,11 +1785,16 @@ class TransitRouteService implements SearchEngine {
     GeoPoint goal,
     DateTime at, {
     bool allowBus = false,
+    void Function()? onUpstreamFailure,
   }) async {
     final Map<String, dynamic> body;
     try {
       body = await _api.fetchGuidanceAt(x, goal, at, allowBus: allowBus);
     } on RouteException {
+      // 上流の失敗（429・5xx・TIMEOUT）と「引けたが transit 区間が無い」を、呼び出し側は
+      // どちらも null として同じに扱う（縮退の挙動は変えない）。ただし前者は**この地点が
+      // 予算外だった**ことを意味しないので、境界を指標として読むときに区別が要る。
+      onUpstreamFailure?.call();
       return null;
     }
     for (final o in parseGuidancePlan(body)) {

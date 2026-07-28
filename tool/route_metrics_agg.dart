@@ -29,6 +29,11 @@ class RouteMetricSample {
     required this.hybridMs,
     required this.enrichMs,
     required this.boardSearchMs,
+    required this.boardSearchRounds,
+    required this.boardSearchScanCount,
+    required this.boardSearchBest,
+    required this.boardSearchTruncated,
+    required this.boardSearchProbeFailed,
     required this.alternativesMs,
     required this.finalizeMs,
     required this.totalMs,
@@ -48,6 +53,27 @@ class RouteMetricSample {
   final int hybridMs;
   final int enrichMs;
   final int boardSearchMs;
+
+  /// **最も深い1本の**乗車駅探索が回したラウンド数。探索最適化の効き目は ms ではなく
+  /// ここに出る（ms は上流ジッタを含む）。2系統が走るときのフェーズ経過段数ではない
+  /// ——バス系は開始がずれるので、経過の直列深さはこの値を超え得る（壁時計は
+  /// boardSearchMs）。
+  final int boardSearchRounds;
+
+  /// 乗車駅探索が走査した index 数。境界位置を経路をまたいで比べるときの分母。
+  final int boardSearchScanCount;
+
+  /// 乗車駅探索が確定した境界 index。未探索・予算内皆無・旧ログ（キー欠落）は -1。
+  final int boardSearchBest;
+
+  /// 締切で打ち切られたか。打ち切られた境界は本来より手前になり得るので、境界位置の
+  /// 分布からは除く（段数・範囲の分布には残す）。
+  final bool boardSearchTruncated;
+
+  /// 入力が劣化したまま評価された probe があったか（引き直しの失敗＝境界が手前へ、
+  /// 徒歩実測の失敗＝直線推定への縮退で境界が奥へ動き得る）。境界がその地点の実力では
+  /// なく上流の不調で決まり得るので、境界位置の分布からは除く。
+  final bool boardSearchProbeFailed;
 
   /// 代替案の選出・検証フェーズの所要（legacy・#290→#327 で廃止）。現行アプリはこの key を
   /// 出さない（=0）が、撤去前に保存した旧ログを解析するとき `totalMs` に含まれるこの分を
@@ -87,6 +113,12 @@ RouteMetricSample? parseRouteMetricsLine(String line) {
     hybridMs: at('hybridMs'),
     enrichMs: at('enrichMs'),
     boardSearchMs: at('boardSearchMs'),
+    boardSearchRounds: at('boardSearchRounds'),
+    boardSearchScanCount: at('boardSearchScanCount'),
+    // 0 は「index 0 が境界」と紛れるので、キー欠落（旧ログ）は未探索の -1 に落とす。
+    boardSearchBest: fields['boardSearchBest'] ?? -1,
+    boardSearchTruncated: at('boardSearchTruncated') == 1,
+    boardSearchProbeFailed: at('boardSearchProbeFailed') == 1,
     alternativesMs: at('alternativesMs'),
     finalizeMs: at('finalizeMs'),
     totalMs: at('totalMs'),
@@ -312,6 +344,61 @@ String _phaseBreakdown(MetricsAggregation a) {
   return b.toString();
 }
 
+/// 乗車駅探索の直列段数と境界位置のレポート。
+///
+/// **ラウンド数**は探索最適化（fanout・probe 配置・打ち切り）の効き目がそのまま出る量で、
+/// ms と違い上流ジッタに汚されない。**境界位置 `best/scanCount`** は「予算内の乗車駅が
+/// 探索範囲のどこに居るか」で、probe をどこへ置くべきかの唯一の判断材料。#332 の実測では
+/// 経路によって 0.09〜0.46 と大きく振れ、固定比率で寄せる案を支持しなかった——再検討する
+/// なら独立経路を10本以上集めてからにすること。
+String? _boardSearchReport(List<RouteMetricSample> samples) {
+  // 段数・範囲は**起動した探索すべて**から採る。予算内が皆無だった探索・締切で
+  // 打ち切られた探索こそラウンドを浪費しているので、成功したものだけに絞ると
+  // レポートが「速かった検索」へ偏る（#332 レビュー指摘）。
+  final rows = [
+    for (final s in samples)
+      if (s.boardSearch && s.boardSearchScanCount > 0) s,
+  ];
+  if (rows.isEmpty) return null;
+  // 境界位置だけは「実測で確定した境界」に限る。予算内皆無(-1)は比を作れず、締切で
+  // 打ち切られた境界／上流の失敗が混ざった境界は、その地点の実力ではなく外的要因で
+  // 決まっている——確定値として扱うと probe 配置の判断材料が手前へ偏る。
+  final positions = [
+    for (final s in rows)
+      if (s.boardSearchBest >= 0 &&
+          !s.boardSearchTruncated &&
+          !s.boardSearchProbeFailed)
+        s.boardSearchBest / s.boardSearchScanCount,
+  ]..sort();
+  final mean = positions.isEmpty
+      ? null
+      : positions.reduce((a, b) => a + b) / positions.length;
+  return (StringBuffer()
+        ..writeln('--- 乗車駅探索の段数と境界位置（探索最適化の判断材料） ---')
+        ..writeln(
+          _statLine(
+            'rounds(直列段数)',
+            statsOf([for (final s in rows) s.boardSearchRounds]),
+          ),
+        )
+        ..writeln(
+          _statLine(
+            'scanCount(探索範囲)',
+            statsOf([for (final s in rows) s.boardSearchScanCount]),
+          ),
+        )
+        ..write(
+          positions.isEmpty
+              ? '  best/scanCount(境界位置): 確定した境界なし'
+              : '  best/scanCount(境界位置): n=${positions.length} '
+                    '(打ち切り・上流失敗・予算内皆無を除く / 全${rows.length}件中) '
+                    'min=${positions.first.toStringAsFixed(3)} '
+                    'max=${positions.last.toStringAsFixed(3)} '
+                    'mean=${mean!.toStringAsFixed(3)}',
+        ))
+      .toString();
+}
+
 /// 集計結果を人が読めるレポートに整形する。#310 判断の要点（発火率・collapse 時の
 /// walkCalls＝削減余地）を上段に置く。
 String formatAggregation(MetricsAggregation a) {
@@ -363,4 +450,7 @@ Future<void> main(List<String> args) async {
   }
   final samples = parseRouteMetricsLines(lines);
   stdout.writeln(formatAggregation(aggregate(samples)));
+  // 境界位置はサンプル単位の比なので、集約結果ではなく生サンプルから出す。
+  final boardSearch = _boardSearchReport(samples);
+  if (boardSearch != null) stdout.writeln(boardSearch);
 }

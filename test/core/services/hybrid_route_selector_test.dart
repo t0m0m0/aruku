@@ -776,6 +776,33 @@ void main() {
       expect(evaluated, [4, 6, 7]);
     });
 
+    test('onRound はラウンド（＝直列 guidance の段数）ごとに1回だけ呼ばれる', () async {
+      var rounds = 0;
+      final i = await maxWalkBoardingIndexParallel(
+        count: totals.length,
+        budgetMin: 180,
+        onRound: () => rounds++,
+        evaluate: (index) async => totals[index],
+      );
+      expect(i, 6);
+      // 区間0..8を4等分 {2,4,6} が全て予算内→区間7..8、span=1<fanout=3 で末尾を一括。
+      expect(rounds, 2);
+    });
+
+    test('onRound は shouldContinue で打ち切られたラウンドを数えない', () async {
+      // 打ち切りは「新しいラウンドを起こさない」動作なので、起こさなかったものを
+      // 段数に数えると壁時計と対応しなくなる。
+      var rounds = 0;
+      await maxWalkBoardingIndexParallel(
+        count: totals.length,
+        budgetMin: 180,
+        shouldContinue: () => false,
+        onRound: () => rounds++,
+        evaluate: (index) async => totals[index],
+      );
+      expect(rounds, 0);
+    });
+
     test('fanout 拡大でラウンド数（直列 guidance の段数）が減る（#317）', () async {
       // 崩壊時 board-search の律速はラウンド間直列 guidance。壁時計 = ラウンド数 × 最遅1本
       // なのでラウンド数が短縮の的。matrix プレ実測で刈ったフロンティア区間（~36点・境界を
@@ -977,6 +1004,30 @@ void main() {
 
     test('境界値（walk1 == budget）は予算内に含める', () {
       expect(walkFeasiblePrefixCount([50, 100, 101], 100), 2);
+    });
+
+    test('刈り込みの判断材料は t1 だけで、base 由来の乗車残余を混ぜない（#332 棄却①）', () {
+      // 実機で徒歩 62分→44分 に劣化した設計の最小再現。base の「その点以降を乗り通す」
+      // 所要は X→goal の**上界**（引き直しはより速い別系統・より近い終着駅を返し得る）で、
+      // 刈り込みに要るのは下界。向きが逆なので、混ぜると予算内の乗車駅が範囲から消える。
+      const walk1 = [10, 20, 30, 50];
+      const rideRemainFromBase = [80, 70, 65, 60]; // 上界（base に乗り通す1経路）
+      const budgetMin = 100;
+
+      // 棄却された設計を、この場で組み立てて反証する（lib には持ち込まない）。
+      var rejected = 0;
+      for (var i = 0; i < walk1.length; i++) {
+        if (walk1[i] + rideRemainFromBase[i] <= budgetMin) rejected = i + 1;
+      }
+      expect(rejected, 3, reason: '上界を足すと index 3（50+60=110>100）が探索範囲から落ちる');
+
+      // 現行は t1 単独。到着 = t1 + t2 かつ t2 ≥ 0 なので `t1 ≤ 予算` は下界による
+      // 刈り込みで、実到着が予算内になり得る点を落とさない。
+      expect(
+        walkFeasiblePrefixCount(walk1, budgetMin),
+        4,
+        reason: 'index 3 は t1=50 ≤ 100 なので範囲に残り、引き直しの評価に委ねられる',
+      );
     });
   });
 

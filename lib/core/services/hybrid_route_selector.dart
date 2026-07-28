@@ -265,6 +265,12 @@ Future<int?> maxWalkBoardingIndex({
 /// ラウンドが必ず残るのを避ける。1ラウンドの同時発行は [fanout] 本を超えない——上流の
 /// レート制限が未知で、429 が「予算外」と誤認されると徒歩が静かに縮むため（#333）。
 ///
+/// [onRound] はラウンドを起こすたびに1回呼ばれる（打ち切って起こさなかったラウンドは
+/// 数えない）。**壁時計 ms ではなくラウンド数が探索最適化の効き目の正体**——ms は上流の
+/// レイテンシばらつき（中央値9〜11秒・裾30秒超）を丸ごと含むため、数サンプルでは
+/// 「本当にラウンドが減ったのか、上流が空いていただけか」を区別できない（#332 実測: 3組の
+/// A/B のうち ms は3組とも改善して見えたが、ラウンドが減っていたのは1組だけだった）。
+///
 /// [shouldContinue] が false を返すと**新しいラウンドを起こさず、その時点の境界で
 /// 打ち切る**（#300。呼び出し側は検索の締切を渡す）。探索を尽くさないので境界は
 /// 本来より手前＝徒歩は最大より短くなり得るが、返す index は「評価済みの中で予算内の
@@ -277,12 +283,14 @@ Future<int?> maxWalkBoardingIndexParallel({
   required Future<int> Function(int index) evaluate,
   int fanout = 3,
   bool Function()? shouldContinue,
+  void Function()? onRound,
 }) async {
   var lo = 0;
   var hi = count - 1;
   int? best;
   while (lo <= hi) {
     if (shouldContinue != null && !shouldContinue()) break;
+    onRound?.call();
     // 区間 [lo, hi] を (fanout+1) 等分する内分点。区間が狭いと同一点へ縮退する
     // ため Set で重複除去する（probe は必ず区間内にあり、毎ラウンド区間が縮む）。
     final span = hi - lo;

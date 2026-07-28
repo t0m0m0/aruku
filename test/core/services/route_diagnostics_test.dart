@@ -93,6 +93,11 @@ void main() {
         ..hybridMs = 500
         ..enrichMs = 2600
         ..boardSearchMs = 3400
+        ..boardSearchRounds = 3
+        ..boardSearchScanCount = 63
+        ..boardSearchBest = 25
+        ..boardSearchTruncated = true
+        ..boardSearchProbeFailed = true
         ..finalizeMs = 300
         ..totalMs = 9000;
       expect(
@@ -101,8 +106,131 @@ void main() {
         'guidanceCalls=3 walkCalls=10 matrixCalls=2 '
         'guidanceDupCalls=1 '
         'guidanceMs=1200 hybridMs=500 enrichMs=2600 boardSearchMs=3400 '
+        'boardSearchRounds=3 boardSearchScanCount=63 boardSearchBest=25 '
+        'boardSearchTruncated=1 boardSearchProbeFailed=1 '
         'finalizeMs=300 totalMs=9000',
       );
+    });
+
+    test('並列に走った探索の rounds は合計でなく最大（＝クリティカルパス）', () {
+      // base（電車）と busBase（バス）は並列に走る（#304）。合計すると「直列に積んだ
+      // 段数」という rounds の意味が壊れ、壁時計と対応しなくなる。
+      final m = RouteSearchMetrics()
+        ..recordBoardSearches([
+          BoardSearchStats()
+            ..rounds = 3
+            ..scanCount = 63
+            ..best = 25,
+          BoardSearchStats()
+            ..rounds = 2
+            ..scanCount = 40
+            ..best = 11,
+        ]);
+      expect(m.boardSearchRounds, 3);
+    });
+
+    test('scanCount と best は同一探索から採り、対を崩さない', () {
+      // 別々の探索の値を混ぜると best/scanCount 比が実在しない値になる。
+      final m = RouteSearchMetrics()
+        ..recordBoardSearches([
+          BoardSearchStats()
+            ..rounds = 2
+            ..scanCount = 40
+            ..best = 11,
+          BoardSearchStats()
+            ..rounds = 3
+            ..scanCount = 63
+            ..best = 25,
+        ]);
+      expect(m.boardSearchRounds, 3);
+      expect(m.boardSearchScanCount, 63, reason: 'rounds 最大の探索の対を採る');
+      expect(m.boardSearchBest, 25);
+    });
+
+    test('truncated は報告する対と同じ探索から採る', () {
+      // 採用した境界が正常に確定しているなら、別の（短い）探索が打ち切られたことを
+      // 理由に捨ててはいけない。truncated は「この best が信用できるか」の印なので、
+      // best と同じ探索を指していないと有効なサンプルを落とす。
+      final m = RouteSearchMetrics()
+        ..recordBoardSearches([
+          BoardSearchStats()
+            ..rounds = 3
+            ..scanCount = 63
+            ..best = 25,
+          BoardSearchStats()
+            ..rounds = 1
+            ..scanCount = 40
+            ..best = 5
+            ..truncated = true,
+        ]);
+      expect(m.boardSearchBest, 25);
+      expect(m.boardSearchTruncated, isFalse);
+    });
+
+    test('採用した探索が打ち切られていれば truncated', () {
+      final m = RouteSearchMetrics()
+        ..recordBoardSearches([
+          BoardSearchStats()
+            ..rounds = 3
+            ..scanCount = 63
+            ..best = 25
+            ..truncated = true,
+          BoardSearchStats()
+            ..rounds = 1
+            ..scanCount = 40
+            ..best = 5,
+        ]);
+      expect(m.boardSearchBest, 25);
+      expect(m.boardSearchTruncated, isTrue);
+    });
+
+    test('probeFailed も報告する対と同じ探索から採る', () {
+      // truncated と同じ理由。原因（締切／上流の失敗）は違うが、どちらも「この best が
+      // 信用できるか」の印なので、best と同じ探索を指していないと判断を誤らせる。
+      final m = RouteSearchMetrics()
+        ..recordBoardSearches([
+          BoardSearchStats()
+            ..rounds = 3
+            ..scanCount = 63
+            ..best = 25,
+          BoardSearchStats()
+            ..rounds = 1
+            ..scanCount = 40
+            ..best = 5
+            ..probeFailed = true,
+        ]);
+      expect(m.boardSearchBest, 25);
+      expect(m.boardSearchProbeFailed, isFalse);
+    });
+
+    test('採用した探索で probe が上流失敗していれば probeFailed', () {
+      final m = RouteSearchMetrics()
+        ..recordBoardSearches([
+          BoardSearchStats()
+            ..rounds = 3
+            ..scanCount = 63
+            ..best = 25
+            ..probeFailed = true,
+        ]);
+      expect(m.boardSearchProbeFailed, isTrue);
+    });
+
+    test('探索が1本も走らなければ既定のまま', () {
+      final m = RouteSearchMetrics()..recordBoardSearches(const []);
+      expect(m.boardSearchRounds, 0);
+      expect(m.boardSearchScanCount, 0);
+      expect(m.boardSearchBest, -1);
+      expect(m.boardSearchTruncated, isFalse);
+      expect(m.boardSearchProbeFailed, isFalse);
+    });
+
+    test('board-search が起動しなければ探索系は 0・境界は -1（未探索の印）', () {
+      // 0 は「index 0 が境界だった」と紛れるため、未探索は -1 で表す。集計側が
+      // boardSearch=0 の検索を境界分布へ混ぜないための番兵。
+      final m = RouteSearchMetrics();
+      expect(m.boardSearchRounds, 0);
+      expect(m.boardSearchScanCount, 0);
+      expect(m.boardSearchBest, -1);
     });
 
     test('bool は 0/1・http は本数合計として集計可能', () {
@@ -116,6 +244,8 @@ void main() {
         'guidanceCalls=1 walkCalls=4 matrixCalls=0 '
         'guidanceDupCalls=0 '
         'guidanceMs=0 hybridMs=0 enrichMs=0 boardSearchMs=0 '
+        'boardSearchRounds=0 boardSearchScanCount=0 boardSearchBest=-1 '
+        'boardSearchTruncated=0 boardSearchProbeFailed=0 '
         'finalizeMs=0 totalMs=0',
       );
     });
