@@ -1318,6 +1318,18 @@ void main() {
       }
       // 最終徒歩が指標に載る（profile では [route] ログが出ないため必須）。
       expect(m.finalWalkMinutes, greaterThan(0));
+      // 勝者のラウンド由来が引ける。この fixture は board-search 候補が勝つので N≥1。
+      // -1（未起動）でも 0（由来でない/特定不能）でもない値が出ることを固定する。
+      expect(
+        m.boardSearchWinnerRound,
+        greaterThanOrEqualTo(1),
+        reason: '前提: board-search 候補が確定し、同一性で引けている',
+      );
+      expect(
+        m.boardSearchWinnerRound,
+        lessThanOrEqualTo(m.boardSearchRounds),
+        reason: 'ラウンド番号は実際に回した数を超えない',
+      );
     });
 
     test('プローブ内の「徒歩実測→引き直し」の直列を、同一 run の反実仮想として計上する', () async {

@@ -310,6 +310,23 @@ class RouteSearchMetrics {
   /// （[BoardSearchStats.walkByRound]）。**頭打ちの位置＝打ち切ってよいラウンド。**
   List<int> boardSearchWalkByRound = const [];
 
+  /// **確定候補が board-search の何ラウンド目の probe 由来か。**
+  ///
+  /// [boardSearchWalkByRound] だけでは打ち切りを判断できない——あれは「天井（予算内の最大
+  /// 見積り徒歩）が上がったか」しか答えず、天井を作った候補が実測を生き延びるとは限らない。
+  /// 実測でも `67,67` と天井が据え置きなのに最終徒歩が 61分（＜67）になった例がある。
+  /// **「ラウンド N を切ったら答えが変わるか」に答えられるのはこちら。**
+  ///
+  /// 値の意味を3つに分ける（0 が「未起動」と「由来でない」を兼ねると読めなくなるため）:
+  /// - **-1** — board-search が起動しなかった
+  /// - **0** — 起動したが確定候補は board-search 由来でない、**または同一性が切れて特定不能**
+  /// - **N ≥ 1** — そのラウンドの probe が作った候補が勝った
+  ///
+  /// 「特定不能」が混ざるのは best-effort 縮退を経た場合。`_resolveBoardingTimes` が実時刻を
+  /// 当てた**コピー**を作るため参照が切れる（通常の tier 実測は `chosen` にプール要素をその
+  /// まま返すので保たれる）。0 を「board-search は無駄だった」と読んではいけない。
+  int boardSearchWinnerRound = -1;
+
   /// 確定経路の徒歩（分）。未確定は -1。
   ///
   /// 定性ログ（`[route] === FINAL`）は debug 限定なので、**フィールド計測を行う profile
@@ -471,6 +488,7 @@ class RouteSearchMetrics {
       'busLastResortMs=$busLastResortMs '
       'boardSearchWalkByRound='
       '${boardSearchWalkByRound.isEmpty ? '-' : boardSearchWalkByRound.join(',')} '
+      'boardSearchWinnerRound=$boardSearchWinnerRound '
       'finalWalkMinutes=$finalWalkMinutes '
       'finalizeMs=$finalizeMs totalMs=$totalMs';
 }

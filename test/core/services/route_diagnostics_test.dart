@@ -308,6 +308,7 @@ void main() {
             ..addMs(41000),
         )
         ..busLastResortMs = 20000
+        ..boardSearchWinnerRound = 2
         ..finalWalkMinutes = 78
         ..finalizeMs = 300
         ..totalMs = 9000;
@@ -325,7 +326,8 @@ void main() {
         'bestEffortMs=41000 bestEffortEntries=1 bestEffortCandidates=19 '
         'bestEffortResolveDepth=2 bestEffortRetries=2 '
         'busLastResortMs=20000 '
-        'boardSearchWalkByRound=- finalWalkMinutes=78 '
+        'boardSearchWalkByRound=- boardSearchWinnerRound=2 '
+        'finalWalkMinutes=78 '
         'finalizeMs=300 totalMs=9000',
       );
     });
@@ -492,7 +494,8 @@ void main() {
         'bestEffortMs=0 bestEffortEntries=0 bestEffortCandidates=0 '
         'bestEffortResolveDepth=0 bestEffortRetries=0 '
         'busLastResortMs=0 '
-        'boardSearchWalkByRound=- finalWalkMinutes=-1 '
+        'boardSearchWalkByRound=- boardSearchWinnerRound=-1 '
+        'finalWalkMinutes=-1 '
         'finalizeMs=0 totalMs=0',
       );
     });

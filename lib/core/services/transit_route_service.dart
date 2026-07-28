@@ -484,6 +484,8 @@ class TransitRouteService implements SearchEngine {
       // 走ったものの和になる（#332 レビュー指摘）。
       final trainBoardSearch = BoardSearchStats();
       final busBoardSearch = BoardSearchStats();
+      // 確定候補が board-search の何ラウンド由来かを引くための同一性マップ（両系統で共有）。
+      final boardSearchRoundOf = <RouteCandidate, int>{};
       final extra = [
         for (final built in await Future.wait([
           if (base != null)
@@ -499,6 +501,7 @@ class TransitRouteService implements SearchEngine {
               departureAt,
               walkCache,
               trainBoardSearch,
+              boardSearchRoundOf,
             ),
           if (busBase != null)
             // バス corridor は基準になったのがここが初めてなので、途中乗降ハイブリッドも
@@ -522,6 +525,7 @@ class TransitRouteService implements SearchEngine {
                   departureAt,
                   walkCache,
                   busBoardSearch,
+                  boardSearchRoundOf,
                 ),
               ];
             }(),
@@ -564,6 +568,11 @@ class TransitRouteService implements SearchEngine {
       } else {
         _diag.log(() => '徒歩最大化候補: なし');
       }
+      // 確定候補が board-search 由来かを同一性で引く。tier 実測は `chosen` にプール要素を
+      // そのまま返すので保たれるが、best-effort 縮退は実時刻を当てたコピーを作るため切れる
+      // ——その場合の 0 は「board-search が無駄だった」ではなく「特定不能」である
+      // （[RouteSearchMetrics.boardSearchWinnerRound] の番兵定義を参照）。
+      metrics.boardSearchWinnerRound = boardSearchRoundOf[selected.chosen] ?? 0;
       metrics.boardSearchMs = boardSw.elapsedMilliseconds;
     } else if (base != null || busBase != null) {
       _diag.log(() => 'collapse=false → フォールバック起動せず');
@@ -1242,6 +1251,7 @@ class TransitRouteService implements SearchEngine {
     DateTime departureAt,
     _WalkLegCache walkCache,
     BoardSearchStats stats,
+    Map<RouteCandidate, int> roundOf,
   ) async {
     final stops = _corridorStops(base);
     if (stops.length < 2) return const [];
@@ -1284,8 +1294,13 @@ class TransitRouteService implements SearchEngine {
       return best;
     }
 
+    // index → 何ラウンド目の probe が作ったか。`onRound` がラウンド開始時に rounds を
+    // 進めるので、probe の**開始時点**の値がそのラウンド番号になる（同一ラウンドの probe は
+    // Future.wait で揃ってから次のラウンドへ進むため、途中で繰り上がらない）。
+    final builtInRound = <int, int>{};
     Future<RouteCandidate?> buildAt(int i) async {
       if (built.containsKey(i)) return built[i];
+      builtInRound[i] = stats.rounds;
       final x = stops[i];
       // 前半徒歩は実測（失敗時のみ直線推定へフォールバック）。
       final walkSw = Stopwatch()..start();
@@ -1414,6 +1429,11 @@ class TransitRouteService implements SearchEngine {
           ' / 予算内最遠=${stats.best}',
     );
     final within = [for (final e in withinEntries) e.value!];
+    // 確定候補がどのラウンド由来かを後から引けるようにする。RouteCandidate は == を
+    // 上書きしないので Map は同一インスタンス単位で引ける（`_busBaseFor` と同じ手口）。
+    for (final e in withinEntries) {
+      roundOf[e.value!] = builtInRound[e.key] ?? 0;
+    }
     _diag.log(() => 'board-search: 予算内候補 ${within.length}件を返す');
     return within;
   }
