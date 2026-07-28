@@ -438,7 +438,11 @@ class TransitRouteService implements SearchEngine {
       lastResortBus: lastResortBus,
       prefetchBus: prefetchBus,
     );
-    metrics.enrichMs = enrichSw.elapsedMilliseconds;
+    // 崩壊後の再選定でも enrich は走り、その費用は同じ台帳（[enrichLedger] /
+    // [bestEffortLedger]）へ積まれる。ここで時計を止めっぱなしにすると、台帳が覆う区間より
+    // [enrichMs] が短くなり `enrichMs − enrichCriticalMs − bestEffortMs`（計上外の残り）が
+    // 負に化ける。再選定の区間だけ時計を再開し、両者の区間を一致させる（#309 レビュー指摘）。
+    enrichSw.stop();
 
     _diag.log(
       () =>
@@ -534,6 +538,10 @@ class TransitRouteService implements SearchEngine {
         // 逆戻り・乗り遅れ・幽霊便で全滅したとき、last-resort で見つけた予算内のバスへ
         // 戻れるようにするため（引き継がないと予算外の best-effort へ落ちる）。徒歩最大化
         // の観点では乗り通しのバスは徒歩が短いので、生き残る候補があればそちらが勝つ。
+        // 再選定の enrich は [boardSearchMs] の内側で払うが、台帳の区間としては enrich
+        // なので [enrichMs] にも計上する（重なりは意図的。フェーズの分割より
+        // 「台帳と時計が同じ区間を覆う」ことを優先する）。
+        enrichSw.start();
         selected = await _selectAndEnrich(
           [...candidates, ...?busCandidates, ...extra],
           budgetMin,
@@ -547,6 +555,7 @@ class TransitRouteService implements SearchEngine {
           lastResortBus: lastResortBus,
           prefetchBus: prefetchBus,
         );
+        enrichSw.stop();
         _diag.log(
           () =>
               'selected(after board-search): '
@@ -561,7 +570,9 @@ class TransitRouteService implements SearchEngine {
     }
 
     // 崩壊後の再選定も同じ台帳へ積むので、畳むのは board-search を抜けた後。
+    // [enrichMs] も同じ区間（初回選定＋再選定）を覆うよう再開・停止してある。
     metrics
+      ..enrichMs = enrichSw.elapsedMilliseconds
       ..recordEnrich(enrichLedger)
       ..recordBestEffort(bestEffortLedger);
 
@@ -789,14 +800,26 @@ class TransitRouteService implements SearchEngine {
     if (hit != null) return hit;
     final sw = Stopwatch()..start();
     var steps = 0;
-    final e = await _resolveBoardingTimes(
-      await _enrichWalkGeometry(c, walkCache),
-      departureAt,
-      onRedraw: () => steps++,
-    );
-    sw.stop();
-    ledger.record(chainMs: sw.elapsedMilliseconds, resolveSteps: steps);
-    return enrichedCache[c] = e;
+    try {
+      final e = await _resolveBoardingTimes(
+        await _enrichWalkGeometry(c, walkCache),
+        departureAt,
+        onRedraw: () => steps++,
+      );
+      sw.stop();
+      ledger.record(chainMs: sw.elapsedMilliseconds, resolveSteps: steps);
+      return enrichedCache[c] = e;
+    } on SearchCanceledException {
+      // 離脱した検索の計上は無意味（[metrics] ごと捨てる）。
+      rethrow;
+    } catch (_) {
+      // 壊れた応答で落ちる候補（[_measureOrDrop] が null にする）も、そこまでの壁時計は
+      // 並列パスの待ち時間として払っている。計上しないと**上流が壊れているときほど
+      // 臨界パスが小さく出る**という逆向きの歪みが入り、障害時ほど実態が読めなくなる。
+      sw.stop();
+      ledger.record(chainMs: sw.elapsedMilliseconds, resolveSteps: steps);
+      rethrow;
+    }
   }
 
   /// 候補**間**並列（#315）の実測を候補単位で隔離する。壊れた応答（parse 不能・プロキシ

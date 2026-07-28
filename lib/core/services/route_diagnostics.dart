@@ -236,9 +236,14 @@ class RouteSearchMetrics {
   /// ハイブリッド候補生成（コリドー実測マトリクス＋候補構築）区間の実時間。
   int hybridMs = 0;
 
-  /// 初回の選定＋enrich（実測徒歩・実発車時刻の確定検証）区間の実時間。非崩壊時は見積り
+  /// 選定＋enrich（実測徒歩・実発車時刻の確定検証）区間の実時間。非崩壊時は見積り
   /// フロント（勝者＋棄却時のフォールバック候補）の1並列パス先行実測もここに含む（#315）。
-  /// 崩壊時の再選定は [boardSearchMs] に含める（二重計上しない）。
+  ///
+  /// **崩壊時の再選定ぶんも含む。** 台帳（[enrichCriticalMs] / [bestEffortMs]）が再選定の
+  /// enrich も積む以上、時計だけ board-search 突入時点で止めると計上外の残り
+  /// （`enrichMs − enrichCriticalMs − bestEffortMs − busLastResortMs`）が負に化ける。
+  /// その区間は [boardSearchMs] にも含まれる——フェーズの分割より「台帳と時計が同じ区間を
+  /// 覆う」ことを優先した意図的な重なりなので、フェーズ所要を足し上げるときは注意する。
   int enrichMs = 0;
 
   /// board-search フォールバック区間の実時間（起動しなければ 0）。崩壊時の再選定
@@ -375,8 +380,10 @@ class RouteSearchMetrics {
   /// 縮退の再試行ループが回った回数＝直列に積んだ徒歩 enrich の追加段数。
   int bestEffortRetries = 0;
 
-  /// バス last-resort 再照会（`_fetchBusOptions`）に掛かった実時間。1検索で高々1回だが
-  /// **完全に直列**（縮退の後・再選定の前）なので、上流1本ぶんがそのまま体感に乗る。
+  /// バス last-resort 再照会（`_fetchBusOptions`）で**なお直列に待った**時間。照会は
+  /// best-effort 縮退と並行して投機発行するので、これは発行〜完了の全体ではなく
+  /// **投機で覆えなかった残りの待ち**。並行に隠れたぶんは縮退側（[bestEffortMs]）の
+  /// 壁時計に含まれる。0 に近いほど投機が効いている＝この最適化の効き目そのもの。
   int busLastResortMs = 0;
 
   /// best-effort 台帳を1検索ぶんの指標へ畳む。

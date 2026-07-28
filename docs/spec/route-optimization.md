@@ -213,8 +213,10 @@
 | 発火 | `collapse` / `boardSearch` / `singlePass` | 崩壊判定・board-search 起動・Option A 発火（0/1。総数で割れば発火率） |
 | 往復本数 | `guidanceCalls` / `walkCalls` / `matrixCalls` / `http` | 実際に GET を発行した回数（種別ごと＋合計）。締切切れ・キャンセルで発行前に落ちた要求は数えない |
 | 〃 | `guidanceDupCalls` | 同一 guidance URI の重複発行数＝per-search キャッシュで消せる上限 |
-| フェーズ所要 | `guidanceMs` / `hybridMs` / `enrichMs` / `boardSearchMs` / `finalizeMs` / `totalMs` | 各区間の実時間。崩壊時の再選定は `boardSearchMs` に含め二重計上しない |
-| enrich 内訳 | `enrichCriticalMs` / `enrichPasses` / `enrichResolveDepth` / `enrichCandidates` | 測定口 `_measureCandidate` を通る臨界パスの所要・パス数・区間解決の段数・測った候補数。**縮退パス（`_bestEffortResolved`・バス last-resort・再帰）はここを通らない** |
+| フェーズ所要 | `guidanceMs` / `hybridMs` / `enrichMs` / `boardSearchMs` / `finalizeMs` / `totalMs` | 各区間の実時間。**崩壊時の再選定は `boardSearchMs` と `enrichMs` の両方に入る**——台帳（下2行）が再選定の enrich も積むので、時計だけ board-search 突入で止めると計上外の残りが負に化ける。意図的な重なりなので、フェーズを足し上げるときは注意する |
+| enrich 内訳 | `enrichCriticalMs` / `enrichPasses` / `enrichResolveDepth` / `enrichCandidates` | 測定口 `_measureCandidate` を通る臨界パスの所要・パス数・区間解決の段数・測った候補数。壊れた応答で落ちた候補も**払った壁時計ごと計上する**（障害時ほど小さく出る歪みを避ける）。**縮退パス（`_bestEffortResolved`・バス last-resort・再帰）はここを通らない** |
+| 縮退内訳 | `bestEffortMs` / `bestEffortEntries` / `bestEffortCandidates` / `bestEffortResolveDepth` / `bestEffortRetries` | best-effort 縮退の所要・突入回数・解決したのべ候補数（`_maxMeasureShortlist` の上限が効かない幅）・1候補の直列段数・乗り遅れ除外の再試行段数 |
+| 〃 | `busLastResortMs` | バス last-resort で**なお直列に待った**時間。照会は縮退と並行して投機発行するので発行〜完了の全体ではなく残りの待ちで、0 に近いほど投機が効いている |
 | 探索 | `boardSearchRounds` / `boardSearchScanCount` / `boardSearchBest` / `truncated` / `probeFailed` | ラウンド数・走査対象の点数・評価済み予算内で最遠の index・締切打ち切り・プローブ失敗 |
 | probe 内訳 | `boardSearchProbeSerialMs` / `boardSearchProbeParallelMs` | probe 内で払った直列の壁時計（Σ_rounds max(walk+guidance)）と、その直列を解いた下限（Σ_rounds max(max(walk, guidance))）。同一 run の同じ probe から両方出すので、上流のばらつきは両者へ等しく乗り差だけが残る |
 
