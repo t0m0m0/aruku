@@ -214,7 +214,10 @@
     - **(b) 当たっても現在のループでは安全でない。** ループは最初の予算外 probe で `nextHi` をその手前へ落とし、**それより奥の未探索区間を捨てる**。probe を予測近傍へ寄せると捨てられる中間区間が広がり、そこにある予算内の谷を落とし得る（棄却②と同じ失敗）。「両端を撃つからカバレッジは保たれる」は成り立たない。実装するなら**未探索区間を保持する走査（区間キューなど）とセット**にすること。
     - **境界位置の実測分布（上の予測誤差とは別計測）**: 同日に `[route]` ログから n=8／**独立3経路**（下北沢×6・新宿・足立六町）を抽出した `best/scanCount` は 0.365, 0.365, 0.397, 0.413, 0.435, 0.460, 0.460 と **0.093**（新宿・`best=4`/`scanCount=43`）で、**0.09〜0.46** と経路で大きく振れる。固定比率で寄せる案もこれで支持されない。7/8 が [0.365, 0.460] に集中して見えるが、独立経路は3本しかない（実効 n≈3）ので分布として扱えない——再検討するなら独立経路を10本以上集めてから。
       - **この数値は旧定義で測っている。** 抽出元の `境界 best=` は当時**探索の戻り値**＝「最初の予算外 probe で走査を打ち切った境界」で、本 PR 以降の `boardSearchBest`（評価済みの予算内で最遠）とは別物。新定義は同じか大きくなるので、`boardSearchBest`/`boardSearchScanCount` で取り直すと分布は**上へずれ得る**。比較するときは版を揃えること。
-  - **結論: board-search 内に「毎回効く」短縮手段は無い。** fanout は飽和、`count` は範囲を削れず（棄却①②）、probe 配置は当てる材料が無い（棄却③）。狙うなら board-search の外（我々所有の walk/matrix proxy のコールドスタート＝#319、または体感の作り替え）。
+  - **結論: board-search の「探索空間」を削る手は無い。** fanout は飽和、`count` は範囲を削れず（棄却①②）、probe 配置は当てる材料が無い（棄却③）。狙うなら board-search の外（我々所有の walk/matrix proxy のコールドスタート＝#319、または体感の作り替え）。
+  - **未判定として1件残っている: probe 内の直列。** `buildAt` は「徒歩実測（walk proxy）→ guidance 引き直し」を **await で直列**に積む——後者の照会時刻 `boardAt` が前者の所要で決まるため。ところが t1 は `_boardSearchScanCount` が matrix で**全点実測済み**で、prefix count だけ返して値を捨てている。matrix の t1 で `boardAt` を組めば guidance を即発行でき、徒歩実測はジオメトリ用に並行できる。これは探索空間の話ではなく1 probe の**臨界パス**の話なので、上の棄却①〜③には当たらない。
+    - **効き目は未計測。** ラウンド壁時計は 70.3s/3 = 23.4s で `E[max of 5]≈27.0s` のモデルとほぼ整合するため、walk ぶんは小さい可能性が高い。判定材料は `boardSearchProbeSerialMs` − `boardSearchProbeParallelMs`（§3.8）で、**同一 run の反実仮想**として出す——別 run の A/B では上流のばらつきと区別できない（#332 の教訓）。**差が小さければ打たない。**
+    - **やるときの注意:** matrix の duration（`computeRouteMatrix`）と街路実測（`computeRoutes`）がずれると、`boardAt` と最終区間の t1 が食い違う。matrix が短い側へずれると乗れない便を引くが、board-search 候補は実 `depTime` を持つので `firstMissedTransit` が fail-closed で弾く（安全側・ただし無駄な probe になる）。同一 API なので差は小さいはずだが、実装するならログで差分を確認すること。
 - **検索の締切で打ち切る（#300）:** 上流 `/guidance/plan` は 9〜11 秒が正常・裾は 30 秒超で、引き直しの直列ラウンドと積になって最悪待ち時間を膨らませる。探索に締切（`searchDeadlineBudget`・120秒）を張り、**超過後は新しい探索ラウンドを起こさず、評価済みの予算内候補で確定する**（`maxWalkBoardingIndexParallel` の `shouldContinue`）。**締切超過は失敗ではなく縮退**——必須なのは初期 `/guidance/plan` 1本だけで、引き直しは徒歩最大化のための改善だから、改善側だけをゲートできる。**結果として徒歩は最大より短くなり得る**（トレードオフは承知の上）。劣化が問題になるなら締切を伸ばすのではなくラウンド数を減らすこと。
   - **締切は徒歩実測（measure-first）には掛けない（#300 レビュー指摘）:** 締切を掛けてよいのは Transit の引き直し（失敗＝候補が `unverified` で除外される **fail-closed**）だけ。徒歩実測は失敗時に楽観的な見積りが残る **fail-open** で、締切で飛ばすと**予算超過・乗り遅れの経路を「予算内」と偽って確定させる**（本節§4 #254 を破る。再現済み：実際46分の全徒歩を23分として確定）。**実測は探索の改善ではなく確定経路の検証であり、締切より優先する。** 判断基準の正本は §2.4。
 - **#115 との関係:** 乗り遅れ再照会（#115）は基準経路の採用候補1本の救済、本フォールバックは候補生成のやり直し。崩壊時のみ後者が補う。
@@ -238,18 +241,37 @@
 [route-metrics] collapse=1 boardSearch=1 singlePass=0 http=45
   guidanceCalls=13 walkCalls=21 matrixCalls=11 guidanceDupCalls=0
   guidanceMs=10217 hybridMs=7213 enrichMs=5563 boardSearchMs=70334
+  boardSearchProbeSerialMs=… boardSearchProbeParallelMs=…
   finalizeMs=0 totalMs=93361
 ```
+
+（上の実機1本は `boardSearchProbe*Ms` の導入前に採ったもので、その2フィールドは未計測。）
 
 | 種別 | フィールド | 意味 |
 |---|---|---|
 | 発火 | `collapse` / `boardSearch` / `singlePass` | 崩壊判定・board-search 起動・Option A 発火（0/1。総数で割れば発火率） |
 | 往復本数 | `guidanceCalls` / `walkCalls` / `matrixCalls` / `http` | 実際に GET を発行した回数（種別ごと＋合計）。締切切れ・キャンセルで発行前に落ちた要求は数えない |
-| 〃 | `guidanceDupCalls` | 同一 guidance URI の重複発行数＝per-search キャッシュで消せる上限。**実測 0%** のため guidance キャッシュは実装前に棄却した |
+| 〃 | `guidanceDupCalls` | 同一 guidance URI の重複発行数＝**per-search** キャッシュで消せる上限。**実測 0%** のため per-search キャッシュは実装前に棄却した。**検索間・ユーザー間の重複はこれでは見えない**（下の `[guidance-key]`） |
 | フェーズ所要 | `guidanceMs` / `hybridMs` / `enrichMs` / `boardSearchMs` / `finalizeMs` / `totalMs` | 各区間の実時間。崩壊時の再選定は `boardSearchMs` に含め二重計上しない |
+| probe 内訳 | `boardSearchProbeSerialMs` / `boardSearchProbeParallelMs` | 報告する探索が probe 内で払った直列の壁時計（Σ_rounds max(walk+guidance)）と、その直列を解いた下限（Σ_rounds max(max(walk, guidance))）。**差が §3.6 の「probe 内の直列」改修で縮む上限。** 同一 run の同じ probe から両方出すので、上流のばらつきは両者へ等しく乗り差だけが残る |
 
 - **出力条件:** 定量指標は `metricsEnabled`（既定 `!kReleaseMode`）＝debug に加え **profile でも出す**。フィールド計測は profile ビルドで行うため、定性ログ（`[route]`・debug 限定）と同じフラグに縛らない。release では抑制する。
 - **フェーズの支配要因は経路依存:** 崩壊時は `boardSearchMs`、通常時は `enrichMs` が支配する。片方の実測だけで「検索が遅い原因」を一般化しない。
+- **`ms` だけで最適化の効き目を判定しない（#332 の教訓）:** 上流は中央値9〜11秒・裾30秒超（§2.2-6）なので、数試行の `ms` 比較では「改善したのか上流が空いていたのか」が区別できない（実機 A/B 3組で `ms` は3組とも改善して見えたが、段数が減っていたのは1組だけ）。判定には**同一 run 内で比較できる量**（`boardSearchRounds`、`boardSearchProbeSerialMs` vs `boardSearchProbeParallelMs`）を使うこと。
+
+#### `[guidance-key]`（検索**間**の guidance 重複を測る）
+
+`guidanceDupCalls` はクライアントが検索1回で作り捨て（#259）のため**1検索内**しか見ていない。検索間・ユーザー間のヒット率は照会1本ごとのキーをログ越しに集計する。
+
+```
+[guidance-key] raw=35.123456,139.234567|35.300000,139.400000|20260627|09:07|train
+               coarse=35.1235,139.2346|35.3000,139.4000|20260627|09:00|train
+```
+
+- `raw` は座標6桁・分単位、`coarse` は座標4桁（~11m）・時刻10分バケット（切り下げ）。**両方出すのは、キーをどこまで丸めればヒットが増えるかがキャッシュ実装の可否そのものだから**——`boardAt = departureAt + t1` で分がばらつく board-search の引き直しは、バケットに落とさないと束ならない。
+- 集計: `grep '\[guidance-key\]' | grep -o 'coarse=[^ ]*' | sort | uniq -c | sort -rn`。**複数検索ぶんのログが必要**（1検索では `guidanceDupCalls` と同じ結論しか出ない）。
+- **キャッシュするなら guidance をプロキシ経由へ移す必要がある**（今はクライアント直叩き・§2.1）。「`/guidance/plan` はレート制限対象外」（§2.1）という前提が変わるので、ヒット率が十分でない限り着手しないこと。
+- 発行が確定した照会だけ出す（`guidanceCalls` と同じ境界）。キャンセル・締切切れで往復しなかった要求を混ぜるとヒット率の分母が上流負荷とずれる。
 
 ---
 
