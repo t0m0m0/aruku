@@ -35,7 +35,6 @@ class TransitApiClient {
     String? proxyBaseUrl,
     this.cancellation,
     this.deadline = const SearchDeadline.none(),
-    this.onGuidanceIssued,
   }) : _transit = transitClient ?? http.Client(),
        _proxy = proxyClient ?? http.Client(),
        _transitBaseUrl = (transitBaseUrl ?? AppConfig.transitApiBaseUrl)
@@ -55,19 +54,6 @@ class TransitApiClient {
 
   /// 検索1回分の締切（#300）。既定（[SearchDeadline.none]）は無期限。
   final SearchDeadline deadline;
-
-  /// 実際に発行した guidance 照会の識別子を `(厳密, 粗い)` の対で渡す口。
-  ///
-  /// [guidanceDupCalls] が数えるのは**1検索内**の重複だけ——クライアントは検索1回ごとに
-  /// 作り捨て（#259）なので、検索間・ユーザー間で同一照会がどれだけ再発行されているかは
-  /// この口から出したキーをログ越しに集計するしかない。board-search の引き直しは
-  /// `コリドー点 → goal` で、コリドー点は base 経路の polyline 由来＝同じ base を通る検索なら
-  /// 同じ座標列になるため、検索間のヒットは原理的に起こり得る（未計測）。
-  ///
-  /// 呼ぶのは [_getOrTimeout] が発行を確定した瞬間だけ（[guidanceCalls] と同じ境界）。
-  /// キャンセル・締切切れで往復しなかった要求を出すと、ヒット率の分母が実際の上流負荷と
-  /// ずれる。
-  final void Function(String raw, String coarse)? onGuidanceIssued;
 
   /// `/guidance/plan` で取得する候補数。
   static const int _numItineraries = 5;
@@ -143,20 +129,6 @@ class TransitApiClient {
       onIssued: () {
         _guidanceCalls++;
         if (!_guidanceKeys.add(key)) _guidanceDupCalls++;
-        final notify = onGuidanceIssued;
-        if (notify != null) {
-          notify(
-            _guidanceIdentity(start, goal, at, allowBus),
-            _guidanceIdentity(
-              start,
-              goal,
-              at,
-              allowBus,
-              coordDigits: 4,
-              timeBucketMin: 10,
-            ),
-          );
-        }
       },
     );
     if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
@@ -289,34 +261,6 @@ class TransitApiClient {
   void close() {
     _transit.close();
     _proxy.close();
-  }
-
-  /// 照会1本を表す安定した識別子。`from|to|date|time|mode` で、URI そのものを使わない
-  /// （`numItineraries`・`avoidModes` の綴りといった、照会の同一性に関係しない差分を混ぜない）。
-  ///
-  /// [coordDigits] と [timeBucketMin] を緩めた版を併記できるようにしてあるのは、**キャッシュ
-  /// キーをどこまで丸めるとヒットが増えるか**が、キャッシュを実装する価値そのものだから。
-  /// 座標を丸めれば近傍の別 GPS 由来の照会が同一視され、時刻をバケットへ落とせば
-  /// `boardAt = departureAt + t1` で分がばらつく board-search の引き直しが束ねられる。
-  /// バケットは切り下げ（境界を跨ぐ照会が同じ枠へ落ちる保証のため。四捨五入だと隣接する
-  /// 2本が別枠へ分かれ得る）。
-  String _guidanceIdentity(
-    GeoPoint start,
-    GeoPoint goal,
-    DateTime at,
-    bool allowBus, {
-    int coordDigits = 6,
-    int timeBucketMin = 1,
-  }) {
-    String coord(GeoPoint p) =>
-        '${p.lat.toStringAsFixed(coordDigits)},'
-        '${p.lng.toStringAsFixed(coordDigits)}';
-    final minute = at.minute - at.minute % timeBucketMin;
-    final time =
-        '${at.hour.toString().padLeft(2, '0')}:'
-        '${minute.toString().padLeft(2, '0')}';
-    return '${coord(start)}|${coord(goal)}|${_formatDate(at)}|$time|'
-        '${allowBus ? 'bus' : 'train'}';
   }
 
   String _formatDate(DateTime dt) =>

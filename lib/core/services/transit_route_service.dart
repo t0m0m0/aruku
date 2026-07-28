@@ -50,9 +50,6 @@ class TransitRouteService implements SearchEngine {
          proxyBaseUrl: proxyBaseUrl,
          cancellation: cancellation,
          deadline: deadline,
-         // release では繋がない。キーの整形（座標・時刻の文字列化 ×2）は照会ごとに走るので、
-         // ログを出さないビルドで払う理由がない（#164 の遅延ビルダと同じ理由）。
-         onGuidanceIssued: _diag.metricsEnabled ? _diag.logGuidanceKey : null,
        ),
        _deadline = deadline,
        _clock = clock ?? DateTime.now,
@@ -72,11 +69,7 @@ class TransitRouteService implements SearchEngine {
   final SearchDeadline _deadline;
 
   /// 選定の診断ログ整形（#169）。`verbose` は既定で [kDebugMode]。
-  ///
-  /// static なのは、[TransitApiClient] の `onGuidanceIssued` へ初期化子リストで渡すため
-  /// （インスタンスフィールドは初期化子リストから参照できない）。インスタンスごとの
-  /// 差し替えは元々していないので振る舞いは変わらない。
-  static const RouteDiagnostics _diag = RouteDiagnostics();
+  final RouteDiagnostics _diag = const RouteDiagnostics();
 
   /// 1検索分の定量指標（#309）の受け取り口。既定 null（本番は [_diag] のログ出力のみ）。
   /// テストが発火率・本数を debugPrint パースなしで検証するための注入点（[plan] 完了時に

@@ -266,7 +266,7 @@
 |---|---|---|
 | 発火 | `collapse` / `boardSearch` / `singlePass` | 崩壊判定・board-search 起動・Option A 発火（0/1。総数で割れば発火率） |
 | 往復本数 | `guidanceCalls` / `walkCalls` / `matrixCalls` / `http` | 実際に GET を発行した回数（種別ごと＋合計）。締切切れ・キャンセルで発行前に落ちた要求は数えない |
-| 〃 | `guidanceDupCalls` | 同一 guidance URI の重複発行数＝**per-search** キャッシュで消せる上限。**実測 0%** のため per-search キャッシュは実装前に棄却した。**検索間・ユーザー間の重複はこれでは見えない**（下の `[guidance-key]`） |
+| 〃 | `guidanceDupCalls` | 同一 guidance URI の重複発行数＝**per-search** キャッシュで消せる上限。電車が勝つ検索では**実測 0%**（棄却根拠）。ただし**バス door-to-door 勝者では 0 でない疑い**がある（下の「guidance キャッシュ」参照） |
 | フェーズ所要 | `guidanceMs` / `hybridMs` / `enrichMs` / `boardSearchMs` / `finalizeMs` / `totalMs` | 各区間の実時間。崩壊時の再選定は `boardSearchMs` に含め二重計上しない |
 | probe 内訳 | `boardSearchProbeSerialMs` / `boardSearchProbeParallelMs` | 報告する探索が probe 内で払った直列の壁時計（Σ_rounds max(walk+guidance)）と、その直列を解いた下限（Σ_rounds max(max(walk, guidance))）。**差が §3.6 の「probe 内の直列」改修で縮む上限。** 同一 run の同じ probe から両方出すので、上流のばらつきは両者へ等しく乗り差だけが残る |
 
@@ -283,19 +283,14 @@
   - **バケットを広げて買うことはできない。** 座標の丸め（11m）は無害だが、**時刻は列車を選ぶ意味を持つ**ので粗くすると答えが変わる。したがってヒットが得られるのは「同一 OD をバケット内に連続検索した」ときだけ＝キャンセル→即再検索のバースト窓に限られ、それは `functions/src/upstream-cache.ts` が徒歩プロキシで既に扱っている領域。**guidance をプロキシ経由へ移す（§2.1 の「レート制限対象外」という前提を壊す）代償に見合わない。**
 - **`ms` だけで最適化の効き目を判定しない（#332 の教訓）:** 上流は中央値9〜11秒・裾30秒超（§2.2-6）なので、数試行の `ms` 比較では「改善したのか上流が空いていたのか」が区別できない（実機 A/B 3組で `ms` は3組とも改善して見えたが、段数が減っていたのは1組だけ）。判定には**同一 run 内で比較できる量**（`boardSearchRounds`、`boardSearchProbeSerialMs` vs `boardSearchProbeParallelMs`）を使うこと。
 
-#### `[guidance-key]`（検索**間**の guidance 重複を測る）
+#### guidance キャッシュ（検索内・検索間とも棄却済み・2026-07-28）
 
-`guidanceDupCalls` はクライアントが検索1回で作り捨て（#259）のため**1検索内**しか見ていない。検索間・ユーザー間のヒット率は照会1本ごとのキーをログ越しに集計する。
+一度だけ `[guidance-key]`（照会ごとの正規化キーを出すログ）を仕込んで測り、**結論が出たので撤去した**。再検討する前にここを読むこと。
 
-```
-[guidance-key] raw=35.123456,139.234567|35.300000,139.400000|20260627|09:07|train
-               coarse=35.1235,139.2346|35.3000,139.4000|20260627|09:00|train
-```
-
-- `raw` は座標6桁・分単位、`coarse` は座標4桁（~11m）・時刻10分バケット（切り下げ）。**両方出すのは、キーをどこまで丸めればヒットが増えるかがキャッシュ実装の可否そのものだから**——`boardAt = departureAt + t1` で分がばらつく board-search の引き直しは、バケットに落とさないと束ならない。
-- 集計: `grep '\[guidance-key\]' | grep -o 'coarse=[^ ]*' | sort | uniq -c | sort -rn`。**複数検索ぶんのログが必要**（1検索では `guidanceDupCalls` と同じ結論しか出ない）。
-- **キャッシュするなら guidance をプロキシ経由へ移す必要がある**（今はクライアント直叩き・§2.1）。「`/guidance/plan` はレート制限対象外」（§2.1）という前提が変わるので、ヒット率が十分でない限り着手しないこと。
-- 発行が確定した照会だけ出す（`guidanceCalls` と同じ境界）。キャンセル・締切切れで往復しなかった要求を混ぜるとヒット率の分母が上流負荷とずれる。
+- **検索内は重複ゼロ。** `guidanceDupCalls=0` に加え、キーを緩めても（座標4桁≒11m・時刻10分バケット）**61照会すべてユニーク**だった。引き直しは `コリドー点 → goal` で、点どうしが数百m離れているため座標を丸めても束ならない。
+- **検索間は座標が重複しても時刻が重複しない。** 同一 OD を11分あけて2本走らせると、座標（例 `35.595658,139.732468`）は共有するのに `time` が `10:49` と `11:00` でバケットを跨ぎ、一致は raw/coarse とも **0件**だった。
+- **バケットを広げて買うことはできない。** 座標の丸めは無害だが、**時刻は列車を選ぶ意味を持つ**ので粗くすると答えが変わる。よってヒットが得られるのは「同一 OD をバケット内に連続検索した」バースト窓だけで、それは `functions/src/upstream-cache.ts` が徒歩プロキシで既に扱っている領域。**guidance をプロキシ経由へ移して §2.1 の「レート制限対象外」という前提を壊す代償に見合わない。**
+- **ただし例外の疑いが1つ残っている（未確認）。** door-to-door のバスが last-resort で勝つ経路では、`last-resort(origin→goal@出発時刻)` と勝者バス区間の `_resolveBoardingTimes` / `_finalizeStationNames` の引き直しが**同一 URI になり得る**。テスト fixture では `guidanceDupCalls=4 / guidanceCalls=7` まで出た。実機5サンプルはすべて 0 だったが、どれもバス door-to-door 勝者ではなかった。同一 URI になる条件（バス区間の polyline 端点が origin/goal と一致・アクセス徒歩0分）が実機で成立するかは未確認。**バス勝者の実機ログで `guidanceDupCalls` を確認してから、この経路だけの重複排除を検討する余地はある。**
 
 ---
 

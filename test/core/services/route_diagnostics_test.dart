@@ -483,30 +483,6 @@ void main() {
       final lines = capture(() => diag.logMetrics(RouteSearchMetrics()));
       expect(lines, isEmpty);
     });
-
-    test('guidance キーは指標と同じゲート・別プレフィックスで出す', () {
-      // 別プレフィックスにするのは、1検索1行の [route-metrics] と違い照会1本ごとに出るため。
-      // 混ぜると grep で切り出せない。
-      const diag = RouteDiagnostics(verbose: false, metricsEnabled: true);
-      final lines = capture(() => diag.logGuidanceKey('R', 'C'));
-      expect(lines, ['[guidance-key] raw=R coarse=C']);
-    });
-
-    test('guidance キーも release 相当では出さない', () {
-      const diag = RouteDiagnostics(metricsEnabled: false);
-      final lines = capture(() => diag.logGuidanceKey('R', 'C'));
-      expect(lines, isEmpty);
-    });
-
-    test('metricsEnabled は配線側が整形前に降りられるよう公開する', () {
-      // [logGuidanceKey] は遅延ビルダを取らないため、これを見ずに繋ぐと release でも
-      // キー整形のコストを払う（#164 と同じ罠）。
-      expect(const RouteDiagnostics(metricsEnabled: true).metricsEnabled, true);
-      expect(
-        const RouteDiagnostics(metricsEnabled: false).metricsEnabled,
-        false,
-      );
-    });
   });
 
   group('boardingStationOf', () {

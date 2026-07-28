@@ -468,13 +468,6 @@ class RouteDiagnostics {
   final bool _verbose;
   final bool _metricsEnabled;
 
-  /// 定量指標を出す設定か。**呼び出し側が計上そのものを組み立てる前に降りるための述語。**
-  ///
-  /// [logGuidanceKey] は文字列2本を引数に取る（遅延ビルダではない）ので、ゲートの内側で
-  /// 捨てられる release でも呼び出し側が整形コストを払ってしまう。#164 と同じ理由——
-  /// 出さないビルドでは一切払わない——で、配線側がこの述語を見て**そもそも通知を繋がない**。
-  bool get metricsEnabled => _metricsEnabled;
-
   /// 選定ログ1行を `[route]` プレフィックス付きで出す（[_verbose] が真のときのみ）。
   ///
   /// メッセージは遅延ビルダ（`String Function()`）で受け取る。[_verbose] が偽の
@@ -491,17 +484,6 @@ class RouteDiagnostics {
   /// フィールド計測で使う profile で一切出ない・#309 レビュー指摘）。
   void logMetrics(RouteSearchMetrics metrics) {
     if (_metricsEnabled) debugPrint('[route-metrics] ${metrics.toLogLine()}');
-  }
-
-  /// 発行した `/guidance/plan` 1本の識別子を `[guidance-key]` 付きで出す
-  /// （[logMetrics] と同じゲート＝既定では release 以外）。
-  ///
-  /// `RouteSearchMetrics.guidanceDupCalls` が数えるのは1検索内の重複だけなので、**検索間・
-  /// ユーザー間**の重複はこの行を跨いで集計する（`grep '\[guidance-key\]' | sort | uniq -c`）。
-  /// [logMetrics] と別プレフィックスにするのは、あちらが1検索1行なのに対しこちらは照会1本ごとに
-  /// 出るため——同じプレフィックスに混ぜると片方だけを切り出せない。
-  void logGuidanceKey(String raw, String coarse) {
-    if (_metricsEnabled) debugPrint('[guidance-key] raw=$raw coarse=$coarse');
   }
 
   /// 候補の区間構成を `walk12m+蒲12_train33m+walk3m` 形式の短い文字列にする（ログ用）。
