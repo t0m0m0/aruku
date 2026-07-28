@@ -1,9 +1,9 @@
 # ルート最適化 仕様（正本）
 
 - **位置づけ:** 本書はルート最適化ロジックの **仕様の正本（source of truth）**。挙動を変える実装・レビュー・再設計は本書を基準に判断し、仕様が変わったら本書を更新する。
-- **最終更新:** 2026-07-25
+- **最終更新:** 2026-07-28
 - **対象コード:** `lib/core/services/transit_route_service.dart`（`routeServiceProvider` が配線）, `lib/core/services/hybrid_route_selector.dart`, `lib/core/services/route_plan_builder.dart`, `lib/core/services/transit_plan_parser.dart`, `functions/src/`
-- **関連:** [ADR-001](../adr/ADR-001-route-optimization-architecture.md)（アーキテクチャ決定）, [place-search.md](place-search.md)（地点検索の正本）
+- **関連:** [ADR-001](../adr/ADR-001-route-optimization-architecture.md)（アーキテクチャ決定）, [place-search.md](place-search.md)（地点検索の正本）, **[glossary.md](glossary.md)（用語集・本書で使う語の定義を1枚に集めた索引）**
 - **実装ステータス:** アーキテクチャは反応的「実測ループ」方式から **measure-first（測ってから選ぶ）** へ移行中。§4 の不変条件・§5 の純粋関数契約は実装方式に依存しない恒久的な正本。§3 のアーキテクチャは採用済みの目標設計。かつて併設していた複数候補（代替案・パレート非劣解）提示は #327 で UI・生成とも撤去した。
 
 ---
