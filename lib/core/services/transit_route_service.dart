@@ -323,17 +323,39 @@ class TransitRouteService implements SearchEngine {
     );
     _diag.log(() => 'total candidates: ${candidates.length}');
 
-    // last-resort のバス再照会は高々1回。予算内候補が出ないときにだけ発火するので、
-    // 電車で間に合う通常時は Transit API への追加コールが増えない（#250）。
+    // last-resort のバス再照会は高々1回。**採用**されるのは予算内候補が出ないときだけなので、
+    // 電車で間に合う通常時はバスが候補プールに混ざらない（#250）。
     List<TransitOption>? busOptions;
     List<RouteCandidate>? busCandidates;
+    Future<List<TransitOption>>? busFetch;
+
+    // 照会だけ先に始める（投機）。`giveUp` は best-effort の実測結果が出るまで採用の可否を
+    // 決められないが、**照会自体はその結果に依存しない**。直列に置くと上流1本ぶんの段が
+    // 丸ごと体感へ乗る（実機 12.6s）ので、判断を待たずに発行して段を重ねる。
+    //
+    // **ここで `busOptions` を埋めてはいけない。** `_isCollapse` の比較集合
+    // （`collapseOptions`）と `_busBaseFor` は `busOptions` の非 null を「バスが土俵に
+    // 乗ったか」の判定に使っている。投機で埋めると、バスが勝っていない検索でも比較集合が
+    // 膨らんで `bestStandardWalk` が上がり、崩壊が不成立になって board-search が静かに
+    // 抑制され得る（＝徒歩最大化の劣化）。採用は `lastResortBus` を実際に await した
+    // ときだけに限る。
+    void prefetchBus() {
+      if (busCandidates != null || busFetch != null) return;
+      busFetch = _fetchBusOptions(origin, goal, departureAt);
+      // 捨てる経路（best-effort が予算内で終わる）で未処理例外にしないための番人。
+      // Future は複数のリスナを持てるので、後から await する経路の例外伝播は妨げない
+      // ——キャンセル（[SearchCanceledException]）を握り潰さないために必要な性質。
+      busFetch!.ignore();
+    }
+
     Future<List<RouteCandidate>> lastResortBus() async {
       if (busCandidates != null) return busCandidates!;
-      // メモ化されるので1検索1回。だが縮退の後・再選定の前に**完全に直列**で入るため、
-      // 上流1本ぶんがそのまま体感に乗る。enrichMs の会計を閉じるために計上する。
-      final busSw = Stopwatch()..start();
-      busOptions = await _fetchBusOptions(origin, goal, departureAt);
-      metrics.busLastResortMs = busSw.elapsedMilliseconds;
+      prefetchBus();
+      // 計上するのは**投機で覆えなかった残りの直列待ち**（発行から完了までの全体ではない）。
+      // 先行発行が間に合っていれば 0 に近づき、それがこの最適化の効き目そのものになる。
+      final waitSw = Stopwatch()..start();
+      busOptions = await busFetch!;
+      metrics.busLastResortMs = waitSw.elapsedMilliseconds;
       return busCandidates = [
         for (final o in busOptions!)
           RouteCandidate(from: o.from, to: o.to, segments: o.segments),
@@ -421,6 +443,7 @@ class TransitRouteService implements SearchEngine {
       enrichLedger: enrichLedger,
       bestEffortLedger: bestEffortLedger,
       lastResortBus: lastResortBus,
+      prefetchBus: prefetchBus,
     );
     metrics.enrichMs = enrichSw.elapsedMilliseconds;
 
@@ -529,6 +552,7 @@ class TransitRouteService implements SearchEngine {
           enrichLedger: enrichLedger,
           bestEffortLedger: bestEffortLedger,
           lastResortBus: lastResortBus,
+          prefetchBus: prefetchBus,
         );
         _diag.log(
           () =>
@@ -836,6 +860,7 @@ class TransitRouteService implements SearchEngine {
     required EnrichLatencyLedger enrichLedger,
     required BestEffortLedger bestEffortLedger,
     Future<List<RouteCandidate>> Function()? lastResortBus,
+    void Function()? prefetchBus,
   }) async {
     /// 縮退。まず従来どおり best-effort を求め、それでも予算外ならバス許容の再照会を
     /// 一度だけ試して候補を足し、選定をやり直す（#250）。
@@ -850,6 +875,10 @@ class TransitRouteService implements SearchEngine {
     /// 駅着する経路が予算内に見えてしまう。それを予算内と誤認するとバスを引かず、実際には
     /// 乗れない電車を確定してしまう（#250 レビュー指摘）。
     Future<_Selection> giveUp() async {
+      // バス照会は best-effort の結果に依存しない（依存するのは採用の可否だけ）ので、
+      // 判断を待たずに発行して直列の段を重ねる。予算内で終われば結果は捨てる——対価は
+      // 「すでに予算内候補が実測で全滅した」縮退パスに限った guidance 1本。
+      prefetchBus?.call();
       final fallback = await _bestEffortResolved(
         candidates,
         budgetMin,

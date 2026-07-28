@@ -2835,6 +2835,8 @@ void main() {
       Map<String, dynamic>? originOption,
       Map<String, dynamic> Function(double lng)? corridorOption,
       List<Uri>? log,
+      Duration busDelay = Duration.zero,
+      Duration corridorDelay = Duration.zero,
     }) => MockClient((req) async {
       log?.add(req.url);
       final path = req.url.path;
@@ -2846,6 +2848,15 @@ void main() {
         final from = req.url.queryParameters['from'] ?? '';
         final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
         final fromOrigin = (lng - 139.0).abs() < 1e-6;
+        // バス照会と縮退プールの引き直しに別々の遅延を入れられるようにする。投機発行の
+        // 効き目は「バス応答が縮退プールの解決中に返り切るか」なので、両者の遅延差でしか
+        // 決定的に固定できない。
+        if (allowsBus && busDelay > Duration.zero) {
+          await Future<void>.delayed(busDelay);
+        }
+        if (!allowsBus && !fromOrigin && corridorDelay > Duration.zero) {
+          await Future<void>.delayed(corridorDelay);
+        }
         final body = allowsBus
             ? _guidance([busOption])
             : _guidance([
@@ -2858,6 +2869,40 @@ void main() {
         return _json(body);
       }
       return _json(const {}, 404);
+    });
+
+    test('バス照会を縮退プール解決と並行に発行し、直列の段を消す', () async {
+      // giveUp は best-effort の結果が出るまで採用の可否を決められないが、照会自体はその
+      // 結果に依存しない。直列に置くと上流1本ぶんの段が丸ごと体感に乗る（実機 12.6s）。
+      // busLastResortMs は**投機で覆えなかった残りの待ち**を測るので、バス応答(60ms)が
+      // プール解決(200ms)の最中に返り切れば 0 に近づく。直列なら 60ms がそのまま残る。
+      RouteSearchMetrics? captured;
+      final svc = _service(
+        busMock(
+          busOption: busOption(),
+          originOption: missedTrainOption(),
+          busDelay: const Duration(milliseconds: 60),
+          corridorDelay: const Duration(milliseconds: 200),
+        ),
+        onMetrics: (m) => captured = m,
+      );
+      final plan = await svc.plan(
+        destination: '目的地',
+        destinationLatLng: busGoal,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0),
+        origin: busOrigin,
+      );
+      expect(
+        plan.segments.where((s) => s.type == SegmentType.bus),
+        isNotEmpty,
+        reason: '前提: バスが採用される（lastResortBus が await される）',
+      );
+      expect(
+        captured!.busLastResortMs,
+        lessThan(30),
+        reason: '投機発行が間に合っていれば残りの直列待ちはほぼ 0（直列なら 60ms 前後）',
+      );
     });
 
     test('電車が予算内なら バス許容照会は一度も発行しない（速度不変）', () async {
