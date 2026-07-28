@@ -1223,6 +1223,43 @@ void main() {
       },
     );
 
+    test('enrich を「パス本数」と「1候補の直列段数」に分けて計上する', () async {
+      // #318 Option A が潰すのは本数、潰せないのは段数。1つの ms に混ぜると、
+      // 「Option A が効いているのに enrich が重い」を説明できず削る対象を取り違える。
+      RouteSearchMetrics? captured;
+      // 遅延ゼロのモックだと1候補の連鎖が 1ms 未満に収まり criticalMs が 0 になる
+      // （配線の有無と区別できない）。上流に最低限の遅延を入れて決定的にする。
+      final svc = _service(
+        inflatedFromMock(
+          walkDelay: const Duration(milliseconds: 10),
+          guidanceDelay: const Duration(milliseconds: 20),
+        ),
+        onMetrics: (m) => captured = m,
+      );
+      await svc.plan(
+        destination: '目的駅',
+        destinationLatLng: goal3,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 30),
+        origin: origin3,
+        originName: '出発',
+      );
+      final m = captured!;
+      // 引き直し便が実 depTime を持つこの fixture では段数は 0（＝正しい値）。段数が
+      // 立つ経路の固定は approach A のテスト群が持つ。
+      expect(m.enrichResolveDepth, 0);
+      expect(m.enrichPasses, greaterThan(0));
+      expect(m.enrichCandidates, greaterThanOrEqualTo(m.enrichPasses));
+      // 臨界パスはフェーズ全体を超えない。**0 でも正しい**——この fixture の測定候補は
+      // 徒歩がレッグキャッシュに当たり引き直しも0段なので上流 I/O をまったく払わない。
+      // 「実測したら必ず >0」は成り立たず、それを固定するのは I/O が走る approach A 側。
+      expect(
+        m.enrichCriticalMs,
+        lessThanOrEqualTo(m.enrichMs + m.boardSearchMs),
+        reason: '崩壊時の再選定は boardSearchMs 側に計上されるため両方を上界に採る',
+      );
+    });
+
     test('プローブ内の「徒歩実測→引き直し」の直列を、同一 run の反実仮想として計上する', () async {
       // 直列を解く改修（matrix が既に測った t1 で boardAt を組み、徒歩実測をジオメトリ用に
       // 並行させる）が何秒縮めるかを、実装前に判定するための計上。上流のばらつきは
@@ -2405,6 +2442,33 @@ void main() {
       expect(train.depTime!.hour, 5, reason: '02:00出発でも始発05:00より前には乗れない');
       // 02:00出発で05:00乗車＝最低180分の乗車待ちが到着に反映される。
       expect(plan.totalMin, greaterThanOrEqualTo(180));
+    });
+
+    test('時刻なし区間の引き直しを enrichResolveDepth が段数として数える', () async {
+      // 段数は「1候補が _resolveBoardingTimes で直列に積んだ guidance の本数」。
+      // 実 depTime を持つ候補では 0 のままなので、引き直しが実際に走るこの経路で固定する
+      // （既存の崩壊 fixture は引き直し便が実時刻付きで返るため 0 になり、配線の退行を
+      // 検出できない）。
+      RouteSearchMetrics? captured;
+      await TransitRouteService(
+        transitClient: nightMock(),
+        proxyClient: nightMock(),
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        clock: () => DateTime(2026, 6, 27, 2, 0),
+        onMetrics: (m) => captured = m,
+      ).plan(
+        destination: '終着駅',
+        destinationLatLng: goal6,
+        departure: const TimeValue(h: 2, m: 0),
+        arrival: const TimeValue(h: 7, m: 0),
+        origin: origin6,
+        originName: '出発',
+      );
+      expect(captured!.enrichResolveDepth, greaterThan(0));
+      expect(captured!.enrichCandidates, greaterThan(0));
+      // 段数が立つ＝引き直しの上流 I/O を実際に払っているので、臨界パスも積まれる。
+      expect(captured!.enrichCriticalMs, greaterThan(0));
     });
 
     test('予算外で best-effort へ落ちても始発前の幻バス便を提示しない', () async {

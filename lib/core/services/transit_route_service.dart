@@ -245,6 +245,10 @@ class TransitRouteService implements SearchEngine {
           'options=${options.length} ===',
     );
     final walkCache = _WalkLegCache();
+    // enrich の臨界パスを「パス本数」と「1候補の直列段数」に分けて計上する（#318 の
+    // Option A はどちらに効いているのかを実測で分けるため）。検索に1つで、先行実測・
+    // tier 実測・崩壊後の再選定を通して同じ台帳へ積む。
+    final enrichLedger = EnrichLatencyLedger();
     final measured = <String, int>{};
     // 候補の実測（enrich 徒歩＋実発車時刻解決）を identity で畳むキャッシュ。winner-phase の
     // 並列一括実測と非崩壊時の先行実測が同じ候補を二度測らないための単一の測定口（#315）。
@@ -390,8 +394,15 @@ class TransitRouteService implements SearchEngine {
       // （#316: cancellation.dart のキャンセル境界を並列パスでも守る）。
       await Future.wait([
         for (final c in prewarm)
-          _measureOrDrop(c, departureAt, walkCache, enrichedCache),
+          _measureOrDrop(
+            c,
+            departureAt,
+            walkCache,
+            enrichedCache,
+            enrichLedger,
+          ),
       ]);
+      enrichLedger.endPass();
     }
     var selected = await _selectAndEnrich(
       candidates,
@@ -401,6 +412,7 @@ class TransitRouteService implements SearchEngine {
       goal: goal,
       walkCache: walkCache,
       enrichedCache: enrichedCache,
+      enrichLedger: enrichLedger,
       lastResortBus: lastResortBus,
     );
     metrics.enrichMs = enrichSw.elapsedMilliseconds;
@@ -507,6 +519,7 @@ class TransitRouteService implements SearchEngine {
           goal: goal,
           walkCache: walkCache,
           enrichedCache: enrichedCache,
+          enrichLedger: enrichLedger,
           lastResortBus: lastResortBus,
         );
         _diag.log(
@@ -521,6 +534,9 @@ class TransitRouteService implements SearchEngine {
     } else if (base != null || busBase != null) {
       _diag.log(() => 'collapse=false → フォールバック起動せず');
     }
+
+    // 崩壊後の再選定も同じ台帳へ積むので、畳むのは board-search を抜けた後。
+    metrics.recordEnrich(enrichLedger);
 
     final finalizeSw = Stopwatch()..start();
     final named = await _finalizeStationNames(selected.enriched, departureAt);
@@ -668,8 +684,9 @@ class TransitRouteService implements SearchEngine {
   /// 電車と同じ基準で幽霊便として弾けるようにする。
   Future<RouteCandidate> _resolveBoardingTimes(
     RouteCandidate cand,
-    DateTime departureAt,
-  ) async {
+    DateTime departureAt, {
+    void Function()? onRedraw,
+  }) async {
     final segs = [...cand.segments];
     var changed = false;
     for (var i = 0; i < segs.length; i++) {
@@ -681,6 +698,8 @@ class TransitRouteService implements SearchEngine {
       final boardAt = departureAt.add(Duration(minutes: cumBefore));
       // 区間間は並列化しない（#163 対象外）: 後続区間の boardAt（cumBefore）が前区間で
       // 解決した実乗車時間・乗車待ちに依存するため、直列でないと照会時刻がずれる。
+      // この直列段数が enrich の壁時計を決めるので計上する（[EnrichLatencyLedger]）。
+      onRedraw?.call();
       final ep = await _fetchTransitEndpoints(
         seg.polyline.first,
         seg.polyline.last,
@@ -735,13 +754,21 @@ class TransitRouteService implements SearchEngine {
     DateTime departureAt,
     _WalkLegCache walkCache,
     Map<RouteCandidate, RouteCandidate> enrichedCache,
+    EnrichLatencyLedger ledger,
   ) async {
     final hit = enrichedCache[c];
+    // キャッシュヒットは壁時計を払っていないので台帳へ入れない。入れると「本数×段数」の
+    // 分母が水増しされ、ファンアウトの実コストを読み違える。
     if (hit != null) return hit;
+    final sw = Stopwatch()..start();
+    var steps = 0;
     final e = await _resolveBoardingTimes(
       await _enrichWalkGeometry(c, walkCache),
       departureAt,
+      onRedraw: () => steps++,
     );
+    sw.stop();
+    ledger.record(chainMs: sw.elapsedMilliseconds, resolveSteps: steps);
     return enrichedCache[c] = e;
   }
 
@@ -755,9 +782,16 @@ class TransitRouteService implements SearchEngine {
     DateTime departureAt,
     _WalkLegCache walkCache,
     Map<RouteCandidate, RouteCandidate> enrichedCache,
+    EnrichLatencyLedger ledger,
   ) async {
     try {
-      return await _measureCandidate(c, departureAt, walkCache, enrichedCache);
+      return await _measureCandidate(
+        c,
+        departureAt,
+        walkCache,
+        enrichedCache,
+        ledger,
+      );
     } on SearchCanceledException {
       rethrow;
     } catch (_) {
@@ -789,6 +823,7 @@ class TransitRouteService implements SearchEngine {
     required GeoPoint goal,
     required _WalkLegCache walkCache,
     required Map<RouteCandidate, RouteCandidate> enrichedCache,
+    required EnrichLatencyLedger enrichLedger,
     Future<List<RouteCandidate>> Function()? lastResortBus,
   }) async {
     /// 縮退。まず従来どおり best-effort を求め、それでも予算外ならバス許容の再照会を
@@ -844,6 +879,7 @@ class TransitRouteService implements SearchEngine {
         goal: goal,
         walkCache: walkCache,
         enrichedCache: enrichedCache,
+        enrichLedger: enrichLedger,
       );
     }
 
@@ -896,8 +932,18 @@ class TransitRouteService implements SearchEngine {
       // _measureOrDrop が伝播させ、await ごと上へ抜ける（#316）。
       final enriched = await Future.wait([
         for (final c in batch)
-          _measureOrDrop(c, departureAt, walkCache, enrichedCache),
+          _measureOrDrop(
+            c,
+            departureAt,
+            walkCache,
+            enrichedCache,
+            enrichLedger,
+          ),
       ]);
+      // tier バッチは直列に降りるので、バッチ境界＝パス境界。先行実測が温めた候補は
+      // キャッシュヒットで record されないため、1パスに畳めた検索ではここが空パスになり
+      // 本数に数えられない（それが Option A の恩恵の見え方）。
+      enrichLedger.endPass();
       int? winnerIdx;
       for (var k = 0; k < batch.length; k++) {
         final e = enriched[k];
