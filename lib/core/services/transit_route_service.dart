@@ -249,6 +249,8 @@ class TransitRouteService implements SearchEngine {
     // Option A はどちらに効いているのかを実測で分けるため）。検索に1つで、先行実測・
     // tier 実測・崩壊後の再選定を通して同じ台帳へ積む。
     final enrichLedger = EnrichLatencyLedger();
+    // 縮退は測定口を通らないので別台帳。実測では enrichMs の9割がここだった。
+    final bestEffortLedger = BestEffortLedger();
     final measured = <String, int>{};
     // 候補の実測（enrich 徒歩＋実発車時刻解決）を identity で畳むキャッシュ。winner-phase の
     // 並列一括実測と非崩壊時の先行実測が同じ候補を二度測らないための単一の測定口（#315）。
@@ -327,7 +329,11 @@ class TransitRouteService implements SearchEngine {
     List<RouteCandidate>? busCandidates;
     Future<List<RouteCandidate>> lastResortBus() async {
       if (busCandidates != null) return busCandidates!;
+      // メモ化されるので1検索1回。だが縮退の後・再選定の前に**完全に直列**で入るため、
+      // 上流1本ぶんがそのまま体感に乗る。enrichMs の会計を閉じるために計上する。
+      final busSw = Stopwatch()..start();
       busOptions = await _fetchBusOptions(origin, goal, departureAt);
+      metrics.busLastResortMs = busSw.elapsedMilliseconds;
       return busCandidates = [
         for (final o in busOptions!)
           RouteCandidate(from: o.from, to: o.to, segments: o.segments),
@@ -413,6 +419,7 @@ class TransitRouteService implements SearchEngine {
       walkCache: walkCache,
       enrichedCache: enrichedCache,
       enrichLedger: enrichLedger,
+      bestEffortLedger: bestEffortLedger,
       lastResortBus: lastResortBus,
     );
     metrics.enrichMs = enrichSw.elapsedMilliseconds;
@@ -520,6 +527,7 @@ class TransitRouteService implements SearchEngine {
           walkCache: walkCache,
           enrichedCache: enrichedCache,
           enrichLedger: enrichLedger,
+          bestEffortLedger: bestEffortLedger,
           lastResortBus: lastResortBus,
         );
         _diag.log(
@@ -536,7 +544,9 @@ class TransitRouteService implements SearchEngine {
     }
 
     // 崩壊後の再選定も同じ台帳へ積むので、畳むのは board-search を抜けた後。
-    metrics.recordEnrich(enrichLedger);
+    metrics
+      ..recordEnrich(enrichLedger)
+      ..recordBestEffort(bestEffortLedger);
 
     final finalizeSw = Stopwatch()..start();
     final named = await _finalizeStationNames(selected.enriched, departureAt);
@@ -824,6 +834,7 @@ class TransitRouteService implements SearchEngine {
     required _WalkLegCache walkCache,
     required Map<RouteCandidate, RouteCandidate> enrichedCache,
     required EnrichLatencyLedger enrichLedger,
+    required BestEffortLedger bestEffortLedger,
     Future<List<RouteCandidate>> Function()? lastResortBus,
   }) async {
     /// 縮退。まず従来どおり best-effort を求め、それでも予算外ならバス許容の再照会を
@@ -844,6 +855,7 @@ class TransitRouteService implements SearchEngine {
         budgetMin,
         departureAt,
         walkCache,
+        bestEffortLedger,
       );
       final segs = fallback.enriched.segments;
       final arrival = arrivalMinutes(segs, departureAt);
@@ -880,6 +892,7 @@ class TransitRouteService implements SearchEngine {
         walkCache: walkCache,
         enrichedCache: enrichedCache,
         enrichLedger: enrichLedger,
+        bestEffortLedger: bestEffortLedger,
       );
     }
 
@@ -1028,12 +1041,26 @@ class TransitRouteService implements SearchEngine {
     int budgetMin,
     DateTime departureAt,
     _WalkLegCache walkCache,
+    BestEffortLedger ledger,
   ) async {
+    ledger.enter();
+    final sw = Stopwatch()..start();
     // 候補ごとの実時刻解決は互いに独立なので並列に投げる（#163）。候補内の区間ループは
     // 後続区間の boardAt が前区間の解決済み実乗車時間に依存するため直列のまま。
+    // 段数は候補ごとに数え、最大を採る（このパスの臨界パスは最遅1候補で決まる）。
+    final depths = List<int>.filled(candidates.length, 0);
     final resolved = await Future.wait([
-      for (final c in candidates) _resolveBoardingTimes(c, departureAt),
+      for (var i = 0; i < candidates.length; i++)
+        _resolveBoardingTimes(
+          candidates[i],
+          departureAt,
+          onRedraw: () => depths[i]++,
+        ),
     ]);
+    ledger.recordPool(
+      candidates: candidates.length,
+      resolveDepth: depths.isEmpty ? 0 : depths.reduce((a, b) => a > b ? a : b),
+    );
     final verified = [
       for (final c in resolved)
         if (!hasUnverifiedTransit(c.segments)) c,
@@ -1053,6 +1080,7 @@ class TransitRouteService implements SearchEngine {
                 'そのまま縮退: ${_diag.candLine(enriched, budgetMin, departureAt)}',
           );
         }
+        ledger.addMs(sw.elapsedMilliseconds);
         return (chosen: fallback, enriched: enriched);
       }
       _diag.log(
@@ -1060,6 +1088,7 @@ class TransitRouteService implements SearchEngine {
             '  → best-effort: enrich実測で乗り遅れ→除外して選び直し: '
             '${_diag.candLine(enriched, budgetMin, departureAt)}',
       );
+      ledger.recordRetry();
       pool = pool.where((c) => !identical(c, fallback)).toList();
     }
   }

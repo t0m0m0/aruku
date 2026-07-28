@@ -2444,6 +2444,32 @@ void main() {
       expect(plan.totalMin, greaterThanOrEqualTo(180));
     });
 
+    test('縮退はプール全体を解決し、それを bestEffort* が計上する（測定口の外）', () async {
+      // enrichCriticalMs は _measureCandidate しか見ないので、この経路は構造的に見えない。
+      // 実機では enrichMs 58.2s のうち 4.9s しか臨界パスに現れず、残りがここだった。
+      RouteSearchMetrics? captured;
+      await TransitRouteService(
+        transitClient: nightMock(),
+        proxyClient: nightMock(),
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        clock: () => DateTime(2026, 6, 27, 2, 0),
+        onMetrics: (m) => captured = m,
+      ).plan(
+        destination: '終着駅',
+        destinationLatLng: goal6,
+        departure: const TimeValue(h: 2, m: 0),
+        arrival: const TimeValue(h: 2, m: 50), // 予算50分＝予算内皆無で縮退へ落ちる
+        origin: origin6,
+        originName: '出発',
+      );
+      final m = captured!;
+      expect(m.bestEffortEntries, greaterThan(0), reason: '前提: 縮退へ落ちる');
+      // 短リスト上限（13）ではなく候補プール全体を解決するため、幅はそれを超え得る。
+      expect(m.bestEffortCandidates, greaterThan(0));
+      expect(m.bestEffortMs, greaterThan(0));
+    });
+
     test('時刻なし区間の引き直しを enrichResolveDepth が段数として数える', () async {
       // 段数は「1候補が _resolveBoardingTimes で直列に積んだ guidance の本数」。
       // 実 depTime を持つ候補では 0 のままなので、引き直しが実際に走るこの経路で固定する
