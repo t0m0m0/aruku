@@ -50,6 +50,9 @@ class TransitRouteService implements SearchEngine {
          proxyBaseUrl: proxyBaseUrl,
          cancellation: cancellation,
          deadline: deadline,
+         // release では繋がない。キーの整形（座標・時刻の文字列化 ×2）は照会ごとに走るので、
+         // ログを出さないビルドで払う理由がない（#164 の遅延ビルダと同じ理由）。
+         onGuidanceIssued: _diag.metricsEnabled ? _diag.logGuidanceKey : null,
        ),
        _deadline = deadline,
        _clock = clock ?? DateTime.now,
@@ -69,7 +72,11 @@ class TransitRouteService implements SearchEngine {
   final SearchDeadline _deadline;
 
   /// 選定の診断ログ整形（#169）。`verbose` は既定で [kDebugMode]。
-  final RouteDiagnostics _diag = const RouteDiagnostics();
+  ///
+  /// static なのは、[TransitApiClient] の `onGuidanceIssued` へ初期化子リストで渡すため
+  /// （インスタンスフィールドは初期化子リストから参照できない）。インスタンスごとの
+  /// 差し替えは元々していないので振る舞いは変わらない。
+  static const RouteDiagnostics _diag = RouteDiagnostics();
 
   /// 1検索分の定量指標（#309）の受け取り口。既定 null（本番は [_diag] のログ出力のみ）。
   /// テストが発火率・本数を debugPrint パースなしで検証するための注入点（[plan] 完了時に
@@ -1144,6 +1151,7 @@ class TransitRouteService implements SearchEngine {
       if (built.containsKey(i)) return built[i];
       final x = stops[i];
       // 前半徒歩は実測（失敗時のみ直線推定へフォールバック）。
+      final walkSw = Stopwatch()..start();
       final measured = await _tryWalk(
         origin,
         x.coord,
@@ -1151,6 +1159,7 @@ class TransitRouteService implements SearchEngine {
         toName: '',
         cache: walkCache,
       );
+      walkSw.stop();
       // 実測が落ちたら直線推定へ縮退する（挙動は従来どおり）。ただし直線は実街路に対し
       // 大きく楽観に倒れるので（#137 実機で -36分・25%）、本来予算外の点が予算内に見えて
       // 境界が奥へ動き得る。境界を「実測で確定した値」として集計へ流さないよう印を残す。
@@ -1159,12 +1168,20 @@ class TransitRouteService implements SearchEngine {
           measured ??
           _estimateWalk(origin, x.coord, fromName: base.from, toName: '');
       final boardAt = departureAt.add(Duration(minutes: walk1.totalMin));
+      final guidanceSw = Stopwatch()..start();
       final xToGoal = await _fetchTransitFrom(
         x.coord,
         goal,
         boardAt,
         allowBus: allowBus,
         onUpstreamFailure: () => stats.probeFailed = true,
+      );
+      guidanceSw.stop();
+      // 引き直しが失敗した probe も計上する——照会は発行され、壁時計は払っている。
+      // 成否で計上を分けると「遅かったラウンド」が指標から抜け落ちる。
+      stats.probeLatency.record(
+        walkMs: walkSw.elapsedMilliseconds,
+        guidanceMs: guidanceSw.elapsedMilliseconds,
       );
       if (xToGoal == null) {
         _diag.log(
@@ -1196,7 +1213,13 @@ class TransitRouteService implements SearchEngine {
       count: scanCount,
       budgetMin: budgetMin,
       fanout: _boardSearchFanout,
-      onRound: () => stats.rounds++,
+      // ラウンド境界で台帳を締める。onRound はラウンド**開始時**に呼ばれるので、ここでの
+      // endRound は直前のラウンドを畳む（1本目は空＝no-op）。最終ラウンドは締めない——
+      // [ProbeLatencyLedger] のゲッタが進行中ぶんを含むため、締切 break でも落ちない。
+      onRound: () {
+        stats.rounds++;
+        stats.probeLatency.endRound();
+      },
       // 締切超過で新ラウンドを起こさない（#300）。[TransitApiClient] の残予算クランプが
       // 既に HTTP を止めるので通信量の面では冗長だが、ゲートが無いと探索はラウンドを
       // 回し続け、全 probe が即 TIMEOUT →「予算外」と解釈されて区間を縮める——実測では

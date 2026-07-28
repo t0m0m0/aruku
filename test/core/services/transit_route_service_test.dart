@@ -1077,6 +1077,8 @@ void main() {
       List<Uri>? guidanceCalls,
       List<int>? matrixDests,
       bool enforceMatrixLimit = false,
+      Duration walkDelay = Duration.zero,
+      Duration guidanceDelay = Duration.zero,
     }) {
       List<GeoPoint> parse(String? raw) =>
           (raw ?? '').split(';').where((s) => s.isNotEmpty).map(_pt).toList();
@@ -1116,9 +1118,18 @@ void main() {
       return MockClient((req) async {
         final path = req.url.path;
         if (path.contains('googleWalkMatrixProxy')) return matrix(req.url);
-        if (path.contains('googleWalkProxy')) return walk(req.url);
+        if (path.contains('googleWalkProxy')) {
+          // 種別ごとに異なる遅延を入れられるようにする。プローブ内訳の計上
+          // （[ProbeLatencyLedger]）は「どちらが何ミリ秒だったか」を分けて測るので、
+          // 遅延ゼロのモックでは両方 0 になり配線ミスを検出できない。
+          if (walkDelay > Duration.zero) await Future<void>.delayed(walkDelay);
+          return walk(req.url);
+        }
         if (path.contains('guidance/plan')) {
           guidanceCalls?.add(req.url);
+          if (guidanceDelay > Duration.zero) {
+            await Future<void>.delayed(guidanceDelay);
+          }
           final from = req.url.queryParameters['from'] ?? '';
           final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
           final time = req.url.queryParameters['time'] ?? '09:00';
@@ -1211,6 +1222,43 @@ void main() {
         );
       },
     );
+
+    test('プローブ内の「徒歩実測→引き直し」の直列を、同一 run の反実仮想として計上する', () async {
+      // 直列を解く改修（matrix が既に測った t1 で boardAt を組み、徒歩実測をジオメトリ用に
+      // 並行させる）が何秒縮めるかを、実装前に判定するための計上。上流のばらつきは
+      // serial/parallel の両方へ等しく乗るので、同一 run の差だけを見れば別 run の A/B が
+      // 抱える識別不能（#332）を避けられる。
+      RouteSearchMetrics? captured;
+      final svc = _service(
+        inflatedFromMock(
+          walkDelay: const Duration(milliseconds: 30),
+          guidanceDelay: const Duration(milliseconds: 60),
+        ),
+        onMetrics: (m) => captured = m,
+      );
+      await svc.plan(
+        destination: '目的駅',
+        destinationLatLng: goal3,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 30), // 予算90分（崩壊→board-search 起動）
+        origin: origin3,
+        originName: '出発',
+      );
+      final m = captured!;
+      expect(m.boardSearchActivated, isTrue, reason: '前提: board-search が走る');
+      // 徒歩ぶんが serial にだけ乗る＝改修で消える上限が正の値として現れる。両方を同じ
+      // 台帳から採らないとこの差は意味を持たない。
+      expect(
+        m.boardSearchProbeSerialMs,
+        greaterThan(m.boardSearchProbeParallelMs),
+      );
+      // ラウンドは直列に積むので、各ラウンドの最遅プローブ（≥30+60ms）の和以上になる。
+      // endRound の配線を落とすと1ラウンドぶんしか出ず、ここが落ちる。
+      expect(
+        m.boardSearchProbeSerialMs,
+        greaterThanOrEqualTo(m.boardSearchRounds * 90),
+      );
+    });
 
     test('matrix プレ実測のチャンクを並列に投げる（#317 レビュー）', () async {
       // コリドー60点 → scan は 25/25/10 の3チャンク。>11 の2チャンクが互いの到達まで
