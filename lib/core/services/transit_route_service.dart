@@ -579,6 +579,9 @@ class TransitRouteService implements SearchEngine {
     final finalizeSw = Stopwatch()..start();
     final named = await _finalizeStationNames(selected.enriched, departureAt);
     metrics.finalizeMs = finalizeSw.elapsedMilliseconds;
+    // 定性ログ（上の FINAL）は debug 限定なので、profile の計測では最終徒歩が読めない。
+    // 打ち切り判断は boardSearchWalkByRound と突き合わせて行うため、同じ1行に載せる。
+    metrics.finalWalkMinutes = named.walkMinutes;
     _diag.log(
       () => '=== FINAL: ${_diag.candLine(named, budgetMin, departureAt)} ===',
     );
@@ -1267,6 +1270,20 @@ class TransitRouteService implements SearchEngine {
     // 探索が同じ index を再評価しても引き直さないようメモ化する。同一ラウンド内の
     // 評価点は重複除去済み（[maxWalkBoardingIndexParallel]）なので同時実行は衝突しない。
     final built = <int, RouteCandidate?>{};
+
+    /// 評価済みで予算内だった候補の最大徒歩（見積り・分）。皆無なら 0。
+    /// ラウンド境界で [BoardSearchStats.walkByRound] へ積み、「どこで頭打ちになるか」＝
+    /// 打ち切ってよいラウンドを読めるようにする。
+    int bestWalkSoFar() {
+      var best = 0;
+      for (final c in built.values) {
+        if (c == null) continue;
+        if (arrivalMinutes(c.segments, departureAt) > budgetMin) continue;
+        if (c.walkMinutes > best) best = c.walkMinutes;
+      }
+      return best;
+    }
+
     Future<RouteCandidate?> buildAt(int i) async {
       if (built.containsKey(i)) return built[i];
       final x = stops[i];
@@ -1336,7 +1353,10 @@ class TransitRouteService implements SearchEngine {
       // ラウンド境界で台帳を締める。onRound はラウンド**開始時**に呼ばれるので、ここでの
       // endRound は直前のラウンドを畳む（1本目は空＝no-op）。最終ラウンドは締めない——
       // [ProbeLatencyLedger] のゲッタが進行中ぶんを含むため、締切 break でも落ちない。
+      // ラウンド**開始時**に呼ばれるので、ここでの記録は直前のラウンドを締める。
+      // 1本目は空（徒歩0）になるため、その1件は積まない。
       onRound: () {
+        if (stats.rounds > 0) stats.walkByRound.add(bestWalkSoFar());
         stats.rounds++;
         stats.probeLatency.endRound();
       },
@@ -1367,6 +1387,9 @@ class TransitRouteService implements SearchEngine {
     // 自然完走の直後に切れた場合も truncated 側へ倒すが、集計は境界位置の分布から
     // 除くだけなので、取りこぼすより1件捨てる方が安全（#332 レビュー指摘）。
     if (_deadline.isExpired) stats.truncated = true;
+    // 最終ラウンドぶんを締める。ここを呼び出し側の義務にすると、締切 break で抜けた
+    // ——最も測りたい重い探索——で系列が1つ短くなる。
+    if (stats.rounds > 0) stats.walkByRound.add(bestWalkSoFar());
     // 探索が評価した点（メモ化済み）のうち、予算内の候補を「全部」返す。境界 best 1本だけ
     // でなく全部を返すのは：(1) 到着は実街路で非単調になり得る（後方の停車駅が origin に近い等）
     // ため境界＝徒歩最大とは限らず、(2) 採用前に逆戻りフィルタ・乗り遅れ除外で1本が消えても、

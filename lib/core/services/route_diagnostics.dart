@@ -44,6 +44,20 @@ class BoardSearchStats {
   /// 次に打つ手が変わる。締切由来のタイムアウトでは両方立ち得る。
   bool probeFailed = false;
 
+  /// **ラウンドを1つ終えるごとの「評価済みで予算内だった最大徒歩（見積り・分）」**。
+  ///
+  /// 「ラウンド N で打ち切ったら徒歩が短くなるのか」を直接読むための系列。単調非減少なので、
+  /// 頭打ちになった位置がそのまま**打ち切ってよいラウンド**を意味する（`23,72,72` なら
+  /// 3ラウンド目は徒歩を1分も増やしていない）。
+  ///
+  /// [best]（境界 index）では代用できない——index が奥へ進んでも徒歩が伸びるとは限らず、
+  /// 実測でも `best` が 12→21 と動いて最終徒歩は 78分のまま一致した例がある。**判断したいのは
+  /// 目的関数そのもの（徒歩）であって、探索の進み具合ではない。**
+  ///
+  /// 見積り徒歩で記録する。確定値は enrich 後にしか出ないが、それを待つとラウンド境界で
+  /// 記録できない。系列の**形（どこで頭打ちか）**が目的なので、一貫して見積りで採る。
+  final List<int> walkByRound = [];
+
   /// この探索がプローブ内で払った直列の壁時計と、その直列を解いた下限
   /// （[ProbeLatencyLedger]）。探索ごとに持つのは [rounds] と同じ理由——2系統は並列に
   /// 走るので、1つの台帳を両方から触るとラウンド境界が混ざって `max` が別探索のプローブ
@@ -292,6 +306,17 @@ class RouteSearchMetrics {
   /// 決まり得るため、集計側は境界位置の分布から除く。
   bool boardSearchProbeFailed = false;
 
+  /// 報告する探索の、ラウンドごとの「予算内の最大徒歩（見積り・分）」の推移
+  /// （[BoardSearchStats.walkByRound]）。**頭打ちの位置＝打ち切ってよいラウンド。**
+  List<int> boardSearchWalkByRound = const [];
+
+  /// 確定経路の徒歩（分）。未確定は -1。
+  ///
+  /// 定性ログ（`[route] === FINAL`）は debug 限定なので、**フィールド計測を行う profile
+  /// ビルドでは最終徒歩がどこにも出ない**。[boardSearchWalkByRound] と突き合わせて
+  /// 「探索を打ち切ったら答えが劣化するか」を集計するには、同じ1行に無いと使えない。
+  int finalWalkMinutes = -1;
+
   /// 報告する探索がプローブ内で払った直列の壁時計（[ProbeLatencyLedger.serialMs]）。
   int boardSearchProbeSerialMs = 0;
 
@@ -333,6 +358,7 @@ class RouteSearchMetrics {
     boardSearchProbeFailed = dominant.probeFailed;
     // serial/parallel は**必ず対で**同じ台帳から採る。別探索から拾うと差＝削減可能量が
     // 実在しない値になり、打つ価値の判定を誤らせる。
+    boardSearchWalkByRound = List.unmodifiable(dominant.walkByRound);
     boardSearchProbeSerialMs = dominant.probeLatency.serialMs;
     boardSearchProbeParallelMs = dominant.probeLatency.parallelMs;
   }
@@ -443,6 +469,9 @@ class RouteSearchMetrics {
       'bestEffortResolveDepth=$bestEffortResolveDepth '
       'bestEffortRetries=$bestEffortRetries '
       'busLastResortMs=$busLastResortMs '
+      'boardSearchWalkByRound='
+      '${boardSearchWalkByRound.isEmpty ? '-' : boardSearchWalkByRound.join(',')} '
+      'finalWalkMinutes=$finalWalkMinutes '
       'finalizeMs=$finalizeMs totalMs=$totalMs';
 }
 

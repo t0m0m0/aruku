@@ -228,6 +228,45 @@ void main() {
     });
   });
 
+  group('board-search の徒歩推移（打ち切り判断の材料）', () {
+    test('ラウンドごとの「予算内の最大徒歩」を推移として畳む', () {
+      // 「ラウンド N で止めたら徒歩が短くなるか」を直接読むための系列。頭打ちの位置が
+      // そのまま打ち切ってよいラウンドになる。
+      final m = RouteSearchMetrics()
+        ..recordBoardSearches([
+          BoardSearchStats()
+            ..rounds = 3
+            ..scanCount = 57
+            ..best = 37
+            ..walkByRound.addAll([23, 72, 72]),
+        ]);
+      expect(m.boardSearchWalkByRound, [23, 72, 72]);
+    });
+
+    test('推移も報告する対と同じ探索から採る', () {
+      // 別探索の系列を混ぜると、rounds と長さが合わない実在しない推移になる。
+      final m = RouteSearchMetrics()
+        ..recordBoardSearches([
+          BoardSearchStats()
+            ..rounds = 1
+            ..scanCount = 10
+            ..best = 2
+            ..walkByRound.addAll([9]),
+          BoardSearchStats()
+            ..rounds = 3
+            ..scanCount = 57
+            ..best = 37
+            ..walkByRound.addAll([23, 72, 72]),
+        ]);
+      expect(m.boardSearchRounds, 3);
+      expect(m.boardSearchWalkByRound, [23, 72, 72]);
+    });
+
+    test('board-search が走らなければ空', () {
+      expect(RouteSearchMetrics().boardSearchWalkByRound, isEmpty);
+    });
+  });
+
   group('RouteSearchMetrics.toLogLine', () {
     test('collapse/board-search/本数/フェーズ時間を安定した key=value 行にする', () {
       final m = RouteSearchMetrics()
@@ -269,6 +308,7 @@ void main() {
             ..addMs(41000),
         )
         ..busLastResortMs = 20000
+        ..finalWalkMinutes = 78
         ..finalizeMs = 300
         ..totalMs = 9000;
       expect(
@@ -285,6 +325,7 @@ void main() {
         'bestEffortMs=41000 bestEffortEntries=1 bestEffortCandidates=19 '
         'bestEffortResolveDepth=2 bestEffortRetries=2 '
         'busLastResortMs=20000 '
+        'boardSearchWalkByRound=- finalWalkMinutes=78 '
         'finalizeMs=300 totalMs=9000',
       );
     });
@@ -451,6 +492,7 @@ void main() {
         'bestEffortMs=0 bestEffortEntries=0 bestEffortCandidates=0 '
         'bestEffortResolveDepth=0 bestEffortRetries=0 '
         'busLastResortMs=0 '
+        'boardSearchWalkByRound=- finalWalkMinutes=-1 '
         'finalizeMs=0 totalMs=0',
       );
     });
