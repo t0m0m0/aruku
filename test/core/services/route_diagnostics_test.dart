@@ -138,6 +138,54 @@ void main() {
     });
   });
 
+  group('EnrichLatencyLedger', () {
+    test('パスは直列・候補は並列なので、パスごとの最遅候補を足す', () {
+      final l = EnrichLatencyLedger()
+        ..record(chainMs: 20000, resolveSteps: 1)
+        ..record(chainMs: 38000, resolveSteps: 2)
+        ..endPass()
+        ..record(chainMs: 19000, resolveSteps: 1);
+      expect(l.criticalPathMs, 38000 + 19000);
+      expect(l.passes, 2);
+      expect(l.candidates, 3);
+      // 段数は「1候補が直列に積んだ guidance の最大」——パスをまたいで足さない。
+      expect(l.resolveDepth, 2);
+    });
+
+    test('候補の無いパスは本数に数えない', () {
+      // 先行実測が発火しない検索では endPass だけが先に来る。
+      final l = EnrichLatencyLedger()
+        ..endPass()
+        ..record(chainMs: 5000, resolveSteps: 0);
+      expect(l.passes, 1);
+      expect(l.criticalPathMs, 5000);
+    });
+
+    test('末尾の endPass を呼ばなくても進行中パスは含まれる', () {
+      final l = EnrichLatencyLedger()..record(chainMs: 7000, resolveSteps: 3);
+      expect(l.criticalPathMs, 7000);
+      expect(l.passes, 1);
+      expect(l.resolveDepth, 3);
+    });
+
+    test('引き直し0段（標準乗換のみ）でも候補と時間は数える', () {
+      // 実 depTime を持つ候補は _resolveBoardingTimes が即抜けるので段数0。
+      // それでも徒歩 enrich の時間は払っているため chain は残る。
+      final l = EnrichLatencyLedger()..record(chainMs: 1500, resolveSteps: 0);
+      expect(l.resolveDepth, 0);
+      expect(l.criticalPathMs, 1500);
+      expect(l.candidates, 1);
+    });
+
+    test('1件も測らなければすべて0', () {
+      final l = EnrichLatencyLedger();
+      expect(l.criticalPathMs, 0);
+      expect(l.passes, 0);
+      expect(l.candidates, 0);
+      expect(l.resolveDepth, 0);
+    });
+  });
+
   group('RouteSearchMetrics.toLogLine', () {
     test('collapse/board-search/本数/フェーズ時間を安定した key=value 行にする', () {
       final m = RouteSearchMetrics()
@@ -159,6 +207,17 @@ void main() {
         ..boardSearchProbeFailed = true
         ..boardSearchProbeSerialMs = 21000
         ..boardSearchProbeParallelMs = 18000
+        ..recordEnrich(
+          EnrichLatencyLedger()
+            ..record(chainMs: 12000, resolveSteps: 2)
+            ..endPass()
+            ..record(chainMs: 7000, resolveSteps: 1)
+            ..record(chainMs: 3000, resolveSteps: 1)
+            ..record(chainMs: 1000, resolveSteps: 0)
+            ..record(chainMs: 900, resolveSteps: 0)
+            ..record(chainMs: 800, resolveSteps: 0)
+            ..record(chainMs: 700, resolveSteps: 0),
+        )
         ..finalizeMs = 300
         ..totalMs = 9000;
       expect(
@@ -170,6 +229,8 @@ void main() {
         'boardSearchRounds=3 boardSearchScanCount=63 boardSearchBest=25 '
         'boardSearchTruncated=1 boardSearchProbeFailed=1 '
         'boardSearchProbeSerialMs=21000 boardSearchProbeParallelMs=18000 '
+        'enrichCriticalMs=19000 enrichPasses=2 enrichResolveDepth=2 '
+        'enrichCandidates=7 '
         'finalizeMs=300 totalMs=9000',
       );
     });
@@ -331,6 +392,8 @@ void main() {
         'boardSearchRounds=0 boardSearchScanCount=0 boardSearchBest=-1 '
         'boardSearchTruncated=0 boardSearchProbeFailed=0 '
         'boardSearchProbeSerialMs=0 boardSearchProbeParallelMs=0 '
+        'enrichCriticalMs=0 enrichPasses=0 enrichResolveDepth=0 '
+        'enrichCandidates=0 '
         'finalizeMs=0 totalMs=0',
       );
     });

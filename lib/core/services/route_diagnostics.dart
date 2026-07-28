@@ -107,6 +107,65 @@ class ProbeLatencyLedger {
   // 呼ぶ」規約は最も測りたいケース（打ち切られるほど重かった探索）で静かに破れる。
 }
 
+/// enrich フェーズの臨界パスを「パスの本数」と「1候補の直列段数」に分けて計上する台帳。
+///
+/// enrich は board-search と同じ形をしている——**パスは直列・候補は並列**：
+/// 1パス＝`Future.wait(候補ごと)`、1候補＝`_enrichWalkGeometry`（徒歩は並列）→
+/// `_resolveBoardingTimes`（transit 区間ごとに guidance を**直列**）。よって
+/// [criticalPathMs] = Σ_passes max_candidate(1候補の連鎖) が壁時計の本体になる。
+///
+/// **本数と段数を分けるのが目的。** §3.7 の Option A（#318）はパスの**本数**を 2→1 へ
+/// 潰す最適化だが、1パスの中に残る**段数**（時刻なし transit 区間の数だけ積む guidance）
+/// には効かない。両者を別々に出さないと「Option A が効いているのに enrich が重い」を
+/// 説明できず、次に削るべき対象を取り違える。
+///
+/// **計上するのは [TransitRouteService] の単一測定口（`_measureCandidate`）を通った
+/// 候補だけ。** キャッシュヒットは壁時計を払っていないので数えない。best-effort 縮退
+/// （`_bestEffortResolved`）は測定口を通さず `_resolveBoardingTimes` を直に呼ぶため
+/// 含まれない——`enrichMs` との差はそこにも出る。
+class EnrichLatencyLedger {
+  int _closedCritical = 0;
+  int _passCritical = 0;
+  int _passes = 0;
+  bool _passHasCandidate = false;
+
+  /// 実測した候補数（キャッシュヒットを除く）＝上流ファンアウトの幅。
+  int candidates = 0;
+
+  /// 1候補が `_resolveBoardingTimes` で直列に積んだ guidance の最大段数。
+  int resolveDepth = 0;
+
+  /// 候補1件の実測を現在のパスへ記録する。[chainMs] は徒歩 enrich と引き直しを合わせた
+  /// その候補の連鎖の壁時計、[resolveSteps] はそのうち直列に積んだ guidance の本数。
+  void record({required int chainMs, required int resolveSteps}) {
+    candidates++;
+    _passHasCandidate = true;
+    if (chainMs > _passCritical) _passCritical = chainMs;
+    if (resolveSteps > resolveDepth) resolveDepth = resolveSteps;
+  }
+
+  /// 現在のパスを締めて累積へ畳む。候補が1件も無いパスは本数に数えない——先行実測が
+  /// 発火しない検索では空の締めが先に来るため。
+  void endPass() {
+    if (!_passHasCandidate) return;
+    _closedCritical += _passCritical;
+    _passes++;
+    _passCritical = 0;
+    _passHasCandidate = false;
+  }
+
+  /// 直列に積んだパスの壁時計の合計（Σ_passes 最遅候補）。
+  int get criticalPathMs =>
+      _closedCritical + (_passHasCandidate ? _passCritical : 0);
+
+  /// 直列に走ったパスの本数。
+  int get passes => _passes + (_passHasCandidate ? 1 : 0);
+
+  // 進行中パスをゲッタ側で足すのは [ProbeLatencyLedger] と同じ理由——勝者が見つかった
+  // 時点で tier ループを return で抜けるため、末尾の締めを呼び出し側の義務にすると
+  // 「1パスで決まった」最も一般的なケースがまるごと 0 になる。
+}
+
 /// 1検索分の定量指標（#309）。collapse 発火・board-search 起動・上流 HTTP 往復本数・
 /// フェーズ別所要時間を1オブジェクトに集約し、[toLogLine] で機械集計可能な1行に整形する。
 ///
@@ -229,6 +288,32 @@ class RouteSearchMetrics {
     boardSearchProbeParallelMs = dominant.probeLatency.parallelMs;
   }
 
+  /// enrich の臨界パス（Σ_passes 最遅候補）。[enrichMs] との差が、単一測定口を通らない
+  /// 区間（best-effort 縮退の実時刻解決・選定の純粋計算）と計装の取りこぼしを表す。
+  int enrichCriticalMs = 0;
+
+  /// enrich が直列に走らせたパスの本数。**§3.7 Option A が潰そうとしている量。**
+  int enrichPasses = 0;
+
+  /// 1候補が `_resolveBoardingTimes` で直列に積んだ guidance の最大段数。
+  /// **Option A が潰せない量**——1パスに畳んでも、時刻なし transit 区間の数だけ
+  /// 上流1本ぶんの壁時計が残る。[enrichPasses] と分けて持つのは、両者を足した1つの数では
+  /// 「本数を減らすべきか段数を減らすべきか」を判断できないため。
+  int enrichResolveDepth = 0;
+
+  /// 実測した候補数（キャッシュヒットを除く）＝上流ファンアウトの幅。Option A は
+  /// [enrichPasses] を減らす代わりにこれを増やすので、恩恵と対価をこの対で読む（#318）。
+  int enrichCandidates = 0;
+
+  /// 並列に走った enrich 台帳を1検索ぶんの指標へ畳む。board-search（[recordBoardSearches]）と
+  /// 違い**台帳は検索に1つ**なので、支配探索を選ぶ必要がない。
+  void recordEnrich(EnrichLatencyLedger ledger) {
+    enrichCriticalMs = ledger.criticalPathMs;
+    enrichPasses = ledger.passes;
+    enrichResolveDepth = ledger.resolveDepth;
+    enrichCandidates = ledger.candidates;
+  }
+
   /// 確定候補の駅名確定（`_finalizeStationNames`）に掛かった実時間。
   int finalizeMs = 0;
 
@@ -269,6 +354,9 @@ class RouteSearchMetrics {
       'boardSearchProbeFailed=${boardSearchProbeFailed ? 1 : 0} '
       'boardSearchProbeSerialMs=$boardSearchProbeSerialMs '
       'boardSearchProbeParallelMs=$boardSearchProbeParallelMs '
+      'enrichCriticalMs=$enrichCriticalMs enrichPasses=$enrichPasses '
+      'enrichResolveDepth=$enrichResolveDepth '
+      'enrichCandidates=$enrichCandidates '
       'finalizeMs=$finalizeMs totalMs=$totalMs';
 }
 
