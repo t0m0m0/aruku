@@ -2221,6 +2221,41 @@ void main() {
       // 締切には掛かっていない＝原因を取り違えていないこと。
       expect(captured!.boardSearchTruncated, isFalse);
     });
+
+    test('徒歩実測が落ちて直線推定へ縮退した探索も境界を確定値扱いしない（#332 レビュー）', () async {
+      // `_tryWalk` が落ちると buildAt は黙って `_estimateWalk`（直線推定）へ縮退する。
+      // 直線は実街路に対し大きく楽観に倒れる（#137 実機で -36分・25%）ので、本来
+      // 予算外の遠い点が予算内に見え、境界が実測より奥へ動き得る。transit が成功して
+      // いる限り上流エラーの印は立たないため、徒歩側の縮退も同じ印で拾う必要がある。
+      final walkProxyDown = MockClient((req) async {
+        final path = req.url.path;
+        // matrix は通す（探索範囲の刈り込みは成立させ、徒歩実測だけを落とす）。
+        if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+        if (path.contains('googleWalkProxy')) return _json(const {}, 500);
+        if (path.contains('guidance/plan')) {
+          final from = req.url.queryParameters['from'] ?? '';
+          final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
+          final time = req.url.queryParameters['time'] ?? '09:00';
+          if ((lng - 139.0).abs() < 1e-6) return _json(baseGuidance());
+          return _json(reentry(lng, time));
+        }
+        return _json(const {}, 404);
+      });
+
+      RouteSearchMetrics? captured;
+      await _service(walkProxyDown, onMetrics: (m) => captured = m).plan(
+        destination: '目的駅',
+        destinationLatLng: goal5,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 50),
+        origin: origin5,
+        originName: '出発',
+      );
+
+      expect(captured, isNotNull);
+      expect(captured!.boardSearchActivated, isTrue);
+      expect(captured!.boardSearchProbeFailed, isTrue);
+    });
   });
 
   group('plan: 時刻なしハイブリッドの実発車時刻検証（approach A・深夜の幽霊便対策）', () {

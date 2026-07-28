@@ -1144,14 +1144,19 @@ class TransitRouteService implements SearchEngine {
       if (built.containsKey(i)) return built[i];
       final x = stops[i];
       // 前半徒歩は実測（失敗時のみ直線推定へフォールバック）。
+      final measured = await _tryWalk(
+        origin,
+        x.coord,
+        fromName: base.from,
+        toName: '',
+        cache: walkCache,
+      );
+      // 実測が落ちたら直線推定へ縮退する（挙動は従来どおり）。ただし直線は実街路に対し
+      // 大きく楽観に倒れるので（#137 実機で -36分・25%）、本来予算外の点が予算内に見えて
+      // 境界が奥へ動き得る。境界を「実測で確定した値」として集計へ流さないよう印を残す。
+      if (measured == null) stats.probeFailed = true;
       final walk1 =
-          await _tryWalk(
-            origin,
-            x.coord,
-            fromName: base.from,
-            toName: '',
-            cache: walkCache,
-          ) ??
+          measured ??
           _estimateWalk(origin, x.coord, fromName: base.from, toName: '');
       final boardAt = departureAt.add(Duration(minutes: walk1.totalMin));
       final xToGoal = await _fetchTransitFrom(
