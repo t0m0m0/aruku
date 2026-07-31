@@ -263,7 +263,18 @@ Future<int?> maxWalkBoardingIndex({
 /// **残り全 index が [fanout] 本以内に収まるラウンドは内点分割をやめ、それを1ラウンドで
 /// 評価する**（#332）。内点は hi を含まないため、分割を続けると末尾のためだけの1本
 /// ラウンドが必ず残るのを避ける。1ラウンドの同時発行は [fanout] 本を超えない——上流の
-/// レート制限が未知で、429 が「予算外」と誤認されると徒歩が静かに縮むため（#333）。
+/// レート制限が未知で、踏み抜けば未評価が増えて探索が浅くなるため。
+///
+/// **[evaluate] が null を返した index は「未評価」**——到着が予算内かを判定できなかった
+/// （上流の 429・タイムアウト等）ことを表し、**境界の更新に一切使わない**（予算内側へも
+/// 予算外側へも動かさず、走査も打ち切らない）。同一ラウンドの他 probe の結果だけで区間を
+/// 更新する。「その地点から予算内で行けない」は境界の情報だが、「その地点を評価できなかった」
+/// は情報が無いだけで、後者を予算外として扱うと単調性の仮定によりその先すべてが探索対象から
+/// 外れる＝境界を実測ではなく上流の調子が決めてしまう（#333）。
+///
+/// **ラウンドの probe が全て未評価なら探索を打ち切る**（既得の境界を返す）。未評価は区間を
+/// 縮めないので、続ければ同じ probe を評価し続けて終わらない。呼び出し側が評価をメモ化して
+/// いれば上流も叩かず無限に回る。
 ///
 /// [onRound] はラウンドを起こすたびに1回呼ばれる（打ち切って起こさなかったラウンドは
 /// 数えない）。**壁時計 ms ではなくラウンド数が探索最適化の効き目の正体**——ms は上流の
@@ -280,7 +291,7 @@ Future<int?> maxWalkBoardingIndex({
 Future<int?> maxWalkBoardingIndexParallel({
   required int count,
   required int budgetMin,
-  required Future<int> Function(int index) evaluate,
+  required Future<int?> Function(int index) evaluate,
   int fanout = 3,
   bool Function()? shouldContinue,
   void Function()? onRound,
@@ -310,8 +321,12 @@ Future<int?> maxWalkBoardingIndexParallel({
     // （単調性の仮定は直列版と同一。break 後の probe は区間更新に使わない）。
     var nextLo = lo;
     var nextHi = hi;
+    var evaluated = false;
     for (var j = 0; j < probes.length; j++) {
-      if (results[j] <= budgetMin) {
+      final arrival = results[j];
+      if (arrival == null) continue; // 未評価は境界の情報ではない（#333）
+      evaluated = true;
+      if (arrival <= budgetMin) {
         if (best == null || probes[j] > best) best = probes[j];
         nextLo = probes[j] + 1;
       } else {
@@ -319,6 +334,10 @@ Future<int?> maxWalkBoardingIndexParallel({
         break;
       }
     }
+    // 評価できた probe が1つも無いラウンドは区間を縮められない。同じ probe を
+    // 評価し直すだけなので打ち切る（判定できた probe が1つでもあれば lo か hi の
+    // どちらかは必ず動くので、区間は毎ラウンド縮む）。
+    if (!evaluated) break;
     lo = nextLo;
     hi = nextHi;
   }

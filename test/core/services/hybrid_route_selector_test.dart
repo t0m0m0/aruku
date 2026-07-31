@@ -976,6 +976,64 @@ void main() {
         expect(calls, 0);
       });
     });
+
+    group('未評価 probe の分離 (#333)', () {
+      // 「その地点から予算内で行けない」と「その地点を評価できなかった」は別物。
+      // 後者（上流の 429/TIMEOUT）を予算外として扱うと、単調性を仮定した探索は
+      // その先すべてを対象から外す＝境界を実測ではなく上流の調子が決める。
+      test('未評価 probe は境界を手前へ動かさない', () async {
+        // 区間0..8の4等分点 {2,4,6} のうち index2 が未評価。残る 4/6 は予算内なので
+        // 境界は評価できた点だけで奥（6）まで伸びる。予算外扱いなら index2 で走査が
+        // 打ち切られて区間が 0..1 へ畳まれ、境界は 1 まで落ちる。
+        final i = await maxWalkBoardingIndexParallel(
+          count: totals.length,
+          budgetMin: 180,
+          evaluate: (index) async => index == 2 ? null : totals[index],
+        );
+        expect(i, 6);
+      });
+
+      test('未評価が混ざっても予算外 probe は従来どおり境界を確定する', () async {
+        // 退行の反証: 未評価を無視する変更が「予算外も無視」に化けていないこと。
+        // budget=130 で index4(140) は予算外。index2 が未評価でも境界は 3 に決まる。
+        final i = await maxWalkBoardingIndexParallel(
+          count: totals.length,
+          budgetMin: 130,
+          evaluate: (index) async => index == 2 ? null : totals[index],
+        );
+        expect(i, 3);
+      });
+
+      test('ラウンドの probe が全て未評価なら探索を打ち切る', () async {
+        // 未評価は区間を1ミリも縮めないので、打ち切らないと同じ点を再評価し続ける
+        // （呼び出し側はメモ化しているので上流も叩かず永久に回る）。
+        final evaluated = <int>[];
+        final i = await maxWalkBoardingIndexParallel(
+          count: totals.length,
+          budgetMin: 180,
+          evaluate: (index) async {
+            evaluated.add(index);
+            if (evaluated.length > 50) {
+              throw StateError('全未評価で打ち切っていない: $evaluated');
+            }
+            return null;
+          },
+        );
+        expect(i, isNull, reason: '境界の情報が1つも得られていない');
+        expect(evaluated, [2, 4, 6], reason: '1ラウンドだけ評価して抜ける');
+      });
+
+      test('全未評価で打ち切っても既得の境界は返す', () async {
+        // 1ラウンド目で境界6を得たあと、2ラウンド目が全滅するケース。打ち切りは
+        // 「そこから先を探さない」であって、確定済みの境界を捨てることではない。
+        final i = await maxWalkBoardingIndexParallel(
+          count: totals.length,
+          budgetMin: 999, // 全点予算内＝打ち切らなければ末尾8まで伸びる
+          evaluate: (index) async => index >= 7 ? null : totals[index],
+        );
+        expect(i, 6);
+      });
+    });
   });
 
   group('walkFeasiblePrefixCount', () {
