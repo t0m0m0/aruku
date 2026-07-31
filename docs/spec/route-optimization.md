@@ -2,7 +2,7 @@
 
 - **位置づけ:** 本書はルート最適化ロジックの **仕様の正本（source of truth）**。挙動を変える実装・レビュー・再設計は本書を基準に判断し、仕様が変わったら本書を更新する。
 - **記述範囲:** **現行ロジックの仕様のみ**を書く。設計に至った経緯・棄却した案・過去の実測ログは本書に置かず、commit ログと issue を参照する。
-- **最終更新:** 2026-07-28
+- **最終更新:** 2026-07-31
 - **対象コード:** `lib/core/services/transit_route_service.dart`（`routeServiceProvider` が配線）, `lib/core/services/hybrid_route_selector.dart`, `lib/core/services/route_plan_builder.dart`, `lib/core/services/transit_plan_parser.dart`, `functions/src/`
 - **関連:** [ADR-001](../adr/ADR-001-route-optimization-architecture.md)（アーキテクチャ決定）, [place-search.md](place-search.md)（地点検索の正本）, **[glossary.md](glossary.md)（用語集）**
 - **節番号:** §番号はコード内コメントの参照先なので固定する。欠番は削除した節の跡で、繰り上げない。
@@ -183,7 +183,11 @@
 
   追加 API は無い（評価済みのみ参照）。`maxWalkBoardingIndex` の単調性仮定（§5）の suboptimality も緩和する。
 - **解像度:** コリドー候補点（`_maxCorridorStops`=60）が疎だと境界の隣接候補が大きく離れ、徒歩を予算ぎりぎりまで詰められず余りが残る。実測駆動でも評価は `O(log n)` なので密に取る。
-- **並列度:** 1ラウンドで `_boardSearchFanout`(=5) 本まで同時発行する。上げないのは**上流の未知のレート制限**のため——guidance はプロキシを通らないので我々の 30 req/min は掛からず（§2.1）、効くのは第三者 API 側の非公開の制限。踏み抜くと 429→`null` 縮退→「予算外」誤認となり**境界を実測ではなくレート制限が決める**。崩壊時は電車系＋バス系の2 base が並列に走るので瞬間同時発行は fanout×2 になる。上げるなら先に上流の制限を実測し、429 を「予算外」と誤認しない分離を入れること。
+- **上流失敗は「未評価」として境界に使わない:** 引き直しが**上流の失敗**（429・5xx・TIMEOUT）で落ちた点は、`evaluate` が `null`（未評価）を返して**境界の更新から外す**（予算内側へも予算外側へも動かさない）。「引けたが経路が無い」点だけを従来どおり予算外として扱う。**「その地点から予算内で行けない」は境界の情報だが、「その地点を評価できなかった」は情報が無いだけ**——後者を予算外に化けさせると、単調性の仮定によりその先すべてが探索対象から外れ、徒歩最大化の境界を実測ではなくレート制限やネットワークの調子が決めてしまう。失敗は例外にならず UI にも出ないので、劣化は静かに起きる。
+  - **ラウンドの probe が全て未評価なら探索を打ち切る**（既得の境界で確定）。未評価は区間を縮めないので、続けても同じ点を評価し直すだけで終わらない。締切切れの全 probe TIMEOUT もこの経路で止まる。
+  - **分離しても徒歩が短くなること自体は防げない。** 未評価の点は候補プールに載らず、ラウンド全滅なら探索はそこで止まるので、上流が不調な run は健全な run より浅くしか探索できず徒歩が短くなり得る。防げるのは**誤った境界の確定**——「実測で予算外だった」と「評価できなかった」の取り違え——であって、上流失敗が結果に響かなくなるわけではない。この劣化も UI には出ない（`BoardSearchStats.probeFailed` と診断ログにのみ残る）。
+  - 未評価が起きたことは `BoardSearchStats.probeFailed` と診断ログ（理由を書き分ける）に残す。
+- **並列度:** 1ラウンドで `_boardSearchFanout`(=5) 本まで同時発行する。上げないのは**上流の未知のレート制限**のため——guidance はプロキシを通らないので我々の 30 req/min は掛からず（§2.1）、効くのは第三者 API 側の非公開の制限。踏み抜くと probe ぶんの候補を失い、ラウンドが全滅すれば探索はそこで打ち切られる＝**徒歩は無失敗時より短くなり得る**（上記のとおり未評価分離が防ぐのは境界の誤確定だけ）。崩壊時は電車系＋バス系の2 base が並列に走るので瞬間同時発行は fanout×2 になる。上げるなら先に上流の制限を実測すること。
 - **締切:** 探索が `searchDeadlineBudget`（120秒）を超えたら**新しい探索ラウンドを起こさず、評価済みの予算内候補で確定する**（`maxWalkBoardingIndexParallel` の `shouldContinue`）。締切は Transit の引き直しにだけ掛け、徒歩実測には掛けない（§2.4）。
 - **#115 との関係:** 乗り遅れ再照会（§4 #115）は基準経路の採用候補1本の救済、本フォールバックは候補生成のやり直し。崩壊時のみ後者が補う。
 - **バス corridor への適用:** 本節の探索・ハイブリッド生成はデータ源非依存で、基準が電車 corridor でもバス corridor でも同じロジックが走る。基準がバスのときは引き直し（`_fetchTransitFrom`）とコリドー由来の地名復元をバス許容モードに揃える（バス停起点でバスを除外して引くと全徒歩に落ちて空振りする）。どの基準を採るかは §1.1 ③ が正本。
@@ -311,7 +315,7 @@ Transit API 経路（`transit_route_service.dart`）固有。
 | `reachableWithinBudget(candidates, budgetMin, departureAt)` | hybrid_route_selector.dart | 乗車待ちが予算内 かつ 乗り遅れ無しの候補のみ。該当無しは null。 |
 | `forwardCandidates(candidates, origin, goal, {maxBacktrackRatio})` | hybrid_route_selector.dart | 逆戻り迂回を除いた前方プール。全候補が逆戻りなら除外せずそのまま、origin/goal 未指定はフィルタなし。勝者選定（`selectBestRoute`）と先行実測フロント（§3.7・`measureShortlist`）が共有する方向フィルタの単一実装。 |
 | `maxWalkBoardingIndex({count, budgetMin, evaluate})` | hybrid_route_selector.dart | 乗車駅探索（§3.6）。到着が index 単調増の前提で `evaluate(i) ≤ budget` の最大 index（＝総徒歩最大）を二分探索。evaluate を O(log count) 回に抑える。予算内皆無・count 0 は null。 |
-| `maxWalkBoardingIndexParallel({count, budgetMin, evaluate, fanout, shouldContinue})` | hybrid_route_selector.dart | 上のk分割並列版。残り全 index が `fanout` 本以内に収まるラウンドは内点分割をやめ1発で打つ（内点は hi を含まないため末尾に1本ラウンドが残るのを避ける）。同時発行は `fanout` 本を超えない（上流のレート制限が未知）。 |
+| `maxWalkBoardingIndexParallel({count, budgetMin, evaluate, fanout, shouldContinue})` | hybrid_route_selector.dart | 上のk分割並列版。残り全 index が `fanout` 本以内に収まるラウンドは内点分割をやめ1発で打つ（内点は hi を含まないため末尾に1本ラウンドが残るのを避ける）。同時発行は `fanout` 本を超えない（上流のレート制限が未知）。**`evaluate` が `null` を返した点は「未評価」で境界の更新に使わない**（§3.6）。ラウンドの probe が全て未評価なら既得の境界で打ち切る。 |
 | `walkFeasiblePrefixCount(walk1Min, budgetMin)` | hybrid_route_selector.dart | 前半徒歩 t1 が予算内の最遠 index までの点数（§3.6）。到着 = t1 + t2(≥0) を根拠にした単調性非依存の安全上界で、予算内候補を1件も落とさない。**先頭から連続して残す prefix であることが安全性の根拠。** |
 | `measureShortlist({candidates, budgetMin, departureAt, origin, goal})` | hybrid_route_selector.dart | 逆戻り除外（`forwardCandidates`）→ 見積り実到着（`arrivalMinutes`）が予算内の候補だけを、徒歩降順→実到着昇順→乗換少ない順で並べて返す（cap なし）。先行実測（§3.7 Option A）と確定選定の tier 実測が**同一集合・同一順序**を測るための単一の並び。 |
 | `prewarmFront({shortlist, chosen, hybrids, singlePassHybridThreshold, maxMeasureShortlist})` | hybrid_route_selector.dart | 非崩壊ルートの先行実測対象と single-pass 発火有無を返す（§3.7）。`shortlist`（`measureShortlist` 結果）中の予算内ハイブリッド（`hybrids` の identity 集合）が `singlePassHybridThreshold` 件以上なら短リスト上位 `maxMeasureShortlist` 件全体（`singlePass=true`）、未満なら `chosen` 単独を返す。 |
