@@ -810,7 +810,7 @@ void main() {
     }
 
     // 徒歩を直線の3倍で返すモック（実街路の迂回を模す）。guidance 呼び出しを記録する。
-    http.Client inflatedMock(List<Uri> guidanceCalls) {
+    http.Client inflatedMock(List<Uri> guidanceCalls, {Duration? delay}) {
       List<GeoPoint> parse(String? raw) =>
           (raw ?? '').split(';').where((s) => s.isNotEmpty).map(_pt).toList();
       http.Response matrix(Uri url) {
@@ -843,6 +843,9 @@ void main() {
 
       final transit = collapseGuidance();
       return MockClient((req) async {
+        // 壁時計を測るテストは、遅延ゼロだと Stopwatch が 1ms 未満を切り捨てて 0 になり
+        // 配線の有無を区別できない。上流1本ぶんを決定的に払わせる。
+        if (delay != null) await Future<void>.delayed(delay);
         final path = req.url.path;
         if (path.contains('googleWalkMatrixProxy')) return matrix(req.url);
         if (path.contains('googleWalkProxy')) return walk(req.url);
@@ -893,6 +896,32 @@ void main() {
       // 初回 + 引き直しで guidance は複数本。合計 http は種別合計に一致する。
       expect(m.guidanceCalls, greaterThan(1));
       expect(m.httpRoundTrips, m.guidanceCalls + m.walkCalls + m.matrixCalls);
+    });
+
+    test('崩壊後の再選定で払った enrich も enrichMs が覆う (#309)', () async {
+      // enrich 台帳は崩壊後の再選定ぶんも積む。enrichMs が board-search 突入時点で
+      // 止まったままだと、臨界パスが「覆っている区間」を超えて enrichMs より大きくなり、
+      // `enrichMs − enrichCriticalMs − bestEffortMs`（計上外の残り）が負に化ける。
+      RouteSearchMetrics? captured;
+      await _service(
+        inflatedMock(<Uri>[], delay: const Duration(milliseconds: 2)),
+        onMetrics: (m) => captured = m,
+      ).plan(
+        destination: '降車駅',
+        destinationLatLng: goal2,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0),
+        origin: origin2,
+        originName: '出発',
+      );
+      final m = captured!;
+      expect(m.collapseFired, isTrue, reason: '前提: 崩壊して再選定へ入る');
+      expect(m.enrichCriticalMs, greaterThan(0), reason: '前提: 実測を払っている');
+      expect(
+        m.enrichCriticalMs,
+        lessThanOrEqualTo(m.enrichMs),
+        reason: '臨界パスは enrichMs が覆う区間の部分集合',
+      );
     });
 
     test('コリドー由来の確定経路でも乗降駅名を復元しタイムラインに出す', () async {
@@ -1077,6 +1106,8 @@ void main() {
       List<Uri>? guidanceCalls,
       List<int>? matrixDests,
       bool enforceMatrixLimit = false,
+      Duration walkDelay = Duration.zero,
+      Duration guidanceDelay = Duration.zero,
     }) {
       List<GeoPoint> parse(String? raw) =>
           (raw ?? '').split(';').where((s) => s.isNotEmpty).map(_pt).toList();
@@ -1116,9 +1147,18 @@ void main() {
       return MockClient((req) async {
         final path = req.url.path;
         if (path.contains('googleWalkMatrixProxy')) return matrix(req.url);
-        if (path.contains('googleWalkProxy')) return walk(req.url);
+        if (path.contains('googleWalkProxy')) {
+          // 種別ごとに異なる遅延を入れられるようにする。プローブ内訳の計上
+          // （[ProbeLatencyLedger]）は「どちらが何ミリ秒だったか」を分けて測るので、
+          // 遅延ゼロのモックでは両方 0 になり配線ミスを検出できない。
+          if (walkDelay > Duration.zero) await Future<void>.delayed(walkDelay);
+          return walk(req.url);
+        }
         if (path.contains('guidance/plan')) {
           guidanceCalls?.add(req.url);
+          if (guidanceDelay > Duration.zero) {
+            await Future<void>.delayed(guidanceDelay);
+          }
           final from = req.url.queryParameters['from'] ?? '';
           final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
           final time = req.url.queryParameters['time'] ?? '09:00';
@@ -1211,6 +1251,80 @@ void main() {
         );
       },
     );
+
+    test('enrich を「パス本数」と「1候補の直列段数」に分けて計上する', () async {
+      // #318 Option A が潰すのは本数、潰せないのは段数。1つの ms に混ぜると、
+      // 「Option A が効いているのに enrich が重い」を説明できず削る対象を取り違える。
+      RouteSearchMetrics? captured;
+      // 遅延ゼロのモックだと1候補の連鎖が 1ms 未満に収まり criticalMs が 0 になる
+      // （配線の有無と区別できない）。上流に最低限の遅延を入れて決定的にする。
+      final svc = _service(
+        inflatedFromMock(
+          walkDelay: const Duration(milliseconds: 10),
+          guidanceDelay: const Duration(milliseconds: 20),
+        ),
+        onMetrics: (m) => captured = m,
+      );
+      await svc.plan(
+        destination: '目的駅',
+        destinationLatLng: goal3,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 30),
+        origin: origin3,
+        originName: '出発',
+      );
+      final m = captured!;
+      // 引き直し便が実 depTime を持つこの fixture では段数は 0（＝正しい値）。段数が
+      // 立つ経路の固定は approach A のテスト群が持つ。
+      expect(m.enrichResolveDepth, 0);
+      expect(m.enrichPasses, greaterThan(0));
+      expect(m.enrichCandidates, greaterThanOrEqualTo(m.enrichPasses));
+      // 臨界パスはフェーズ全体を超えない。**0 でも正しい**——この fixture の測定候補は
+      // 徒歩がレッグキャッシュに当たり引き直しも0段なので上流 I/O をまったく払わない。
+      // 「実測したら必ず >0」は成り立たず、それを固定するのは I/O が走る approach A 側。
+      expect(
+        m.enrichCriticalMs,
+        lessThanOrEqualTo(m.enrichMs + m.boardSearchMs),
+        reason: '崩壊時の再選定は boardSearchMs 側に計上されるため両方を上界に採る',
+      );
+    });
+
+    test('プローブ内の「徒歩実測→引き直し」の直列を、同一 run の反実仮想として計上する', () async {
+      // 直列を解く改修（matrix が既に測った t1 で boardAt を組み、徒歩実測をジオメトリ用に
+      // 並行させる）が何秒縮めるかを、実装前に判定するための計上。上流のばらつきは
+      // serial/parallel の両方へ等しく乗るので、同一 run の差だけを見れば別 run の A/B が
+      // 抱える識別不能（#332）を避けられる。
+      RouteSearchMetrics? captured;
+      final svc = _service(
+        inflatedFromMock(
+          walkDelay: const Duration(milliseconds: 30),
+          guidanceDelay: const Duration(milliseconds: 60),
+        ),
+        onMetrics: (m) => captured = m,
+      );
+      await svc.plan(
+        destination: '目的駅',
+        destinationLatLng: goal3,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 30), // 予算90分（崩壊→board-search 起動）
+        origin: origin3,
+        originName: '出発',
+      );
+      final m = captured!;
+      expect(m.boardSearchActivated, isTrue, reason: '前提: board-search が走る');
+      // 徒歩ぶんが serial にだけ乗る＝改修で消える上限が正の値として現れる。両方を同じ
+      // 台帳から採らないとこの差は意味を持たない。
+      expect(
+        m.boardSearchProbeSerialMs,
+        greaterThan(m.boardSearchProbeParallelMs),
+      );
+      // ラウンドは直列に積むので、各ラウンドの最遅プローブ（≥30+60ms）の和以上になる。
+      // endRound の配線を落とすと1ラウンドぶんしか出ず、ここが落ちる。
+      expect(
+        m.boardSearchProbeSerialMs,
+        greaterThanOrEqualTo(m.boardSearchRounds * 90),
+      );
+    });
 
     test('matrix プレ実測のチャンクを並列に投げる（#317 レビュー）', () async {
       // コリドー60点 → scan は 25/25/10 の3チャンク。>11 の2チャンクが互いの到達まで
@@ -2269,7 +2383,12 @@ void main() {
 
     // 始発 firstTrainSecs（05:00）固定。照会時刻が始発前なら始発に張り付き、以降なら
     // 照会時刻以降の最初の便を返す（実機 Transit API と同じ正直な挙動）。
-    http.Client nightMock({int firstTrainSecs = 18000, int rideSecs = 1800}) {
+    http.Client nightMock({
+      int firstTrainSecs = 18000,
+      int rideSecs = 1800,
+      Duration? delay,
+      bool Function(Uri url)? breakWalk,
+    }) {
       Map<String, dynamic> optionFor(int reqSecs) {
         final dep = reqSecs > firstTrainSecs ? reqSecs : firstTrainSecs;
         final arr = dep + rideSecs;
@@ -2317,9 +2436,18 @@ void main() {
       }
 
       return MockClient((req) async {
+        // 遅延ゼロだと Stopwatch が 1ms 未満を切り捨てて 0 になり、壁時計の配線を
+        // 「測っていない」と区別できない。上流1本ぶんを決定的に払わせる。
+        if (delay != null) await Future<void>.delayed(delay);
         final path = req.url.path;
         if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
-        if (path.contains('googleWalkProxy')) return _walkFor(req.url);
+        if (path.contains('googleWalkProxy')) {
+          // 型違いの応答＝パースで例外。上流の壊れた応答を候補単位で落とす経路を作る。
+          if (breakWalk?.call(req.url) ?? false) {
+            return _json(const {'routes': 3});
+          }
+          return _walkFor(req.url);
+        }
         if (path.contains('guidance/plan')) {
           final time = req.url.queryParameters['time'] ?? '00:00';
           final hm = time.split(':');
@@ -2357,6 +2485,115 @@ void main() {
       expect(train.depTime!.hour, 5, reason: '02:00出発でも始発05:00より前には乗れない');
       // 02:00出発で05:00乗車＝最低180分の乗車待ちが到着に反映される。
       expect(plan.totalMin, greaterThanOrEqualTo(180));
+    });
+
+    test('縮退はプール全体を解決し、それを bestEffort* が計上する（測定口の外）', () async {
+      // enrichCriticalMs は _measureCandidate しか見ないので、この経路は構造的に見えない。
+      // 実機では enrichMs 58.2s のうち 4.9s しか臨界パスに現れず、残りがここだった。
+      RouteSearchMetrics? captured;
+      final client = nightMock(delay: const Duration(milliseconds: 2));
+      await TransitRouteService(
+        transitClient: client,
+        proxyClient: client,
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        clock: () => DateTime(2026, 6, 27, 2, 0),
+        onMetrics: (m) => captured = m,
+      ).plan(
+        destination: '終着駅',
+        destinationLatLng: goal6,
+        departure: const TimeValue(h: 2, m: 0),
+        arrival: const TimeValue(h: 2, m: 50), // 予算50分＝予算内皆無で縮退へ落ちる
+        origin: origin6,
+        originName: '出発',
+      );
+      final m = captured!;
+      expect(m.bestEffortEntries, greaterThan(0), reason: '前提: 縮退へ落ちる');
+      // 短リスト上限（13）ではなく候補プール全体を解決するため、幅はそれを超え得る。
+      expect(m.bestEffortCandidates, greaterThan(0));
+      // 遅延を注入したモックなので、配線されていれば必ず 1ms 以上が乗る。
+      expect(m.bestEffortMs, greaterThan(0));
+    });
+
+    test('実測が例外で落ちた候補も enrich 台帳へ計上する (#309)', () async {
+      // 壊れた応答で落ちた候補も、await した壁時計は払っている。計上しないと
+      // 「上流が壊れているときほど臨界パスが小さく出る」逆向きの歪みが入る。
+      // 健全な対照と同じ幅になることで、落ちた候補が数えられていると分かる。
+      Future<RouteSearchMetrics> run({
+        bool Function(Uri url)? breakWalk,
+      }) async {
+        RouteSearchMetrics? captured;
+        final client = nightMock(
+          delay: const Duration(milliseconds: 2),
+          breakWalk: breakWalk,
+        );
+        await TransitRouteService(
+          transitClient: client,
+          proxyClient: client,
+          transitBaseUrl: _transitBase,
+          proxyBaseUrl: _proxyBase,
+          clock: () => DateTime(2026, 6, 27, 2, 0),
+          onMetrics: (m) => captured = m,
+        ).plan(
+          destination: '終着駅',
+          destinationLatLng: goal6,
+          departure: const TimeValue(h: 2, m: 0),
+          arrival: const TimeValue(h: 7, m: 0),
+          origin: origin6,
+          originName: '出発',
+        );
+        return captured!;
+      }
+
+      final healthy = await run();
+      // コリドー途中点に触る徒歩だけ壊す（全徒歩の縮退先は健全に残すので plan は完走する）。
+      final broken = await run(
+        breakWalk: (url) {
+          final legs = [
+            url.queryParameters['start'] ?? '',
+            url.queryParameters['goal'] ?? '',
+          ].join(' ');
+          return legs.contains('139.075') || legs.contains('139.15');
+        },
+      );
+      expect(healthy.enrichCandidates, greaterThan(0), reason: '前提: 実測している');
+      // 壊れた側は同じ短リストを測ったうえで、落ちたぶん次善候補まで測り足す。
+      // 落ちた候補を数えないと逆に健全な対照より小さくなる（修正前は 4 < 11）。
+      expect(
+        broken.enrichCandidates,
+        greaterThanOrEqualTo(healthy.enrichCandidates),
+        reason: '例外で落ちた候補も測定の幅に数える',
+      );
+      expect(broken.enrichCriticalMs, greaterThan(0), reason: '払った壁時計を計上する');
+    });
+
+    test('時刻なし区間の引き直しを enrichResolveDepth が段数として数える', () async {
+      // 段数は「1候補が _resolveBoardingTimes で直列に積んだ guidance の本数」。
+      // 実 depTime を持つ候補では 0 のままなので、引き直しが実際に走るこの経路で固定する
+      // （既存の崩壊 fixture は引き直し便が実時刻付きで返るため 0 になり、配線の退行を
+      // 検出できない）。
+      RouteSearchMetrics? captured;
+      final client = nightMock(delay: const Duration(milliseconds: 2));
+      await TransitRouteService(
+        transitClient: client,
+        proxyClient: client,
+        transitBaseUrl: _transitBase,
+        proxyBaseUrl: _proxyBase,
+        clock: () => DateTime(2026, 6, 27, 2, 0),
+        onMetrics: (m) => captured = m,
+      ).plan(
+        destination: '終着駅',
+        destinationLatLng: goal6,
+        departure: const TimeValue(h: 2, m: 0),
+        arrival: const TimeValue(h: 7, m: 0),
+        origin: origin6,
+        originName: '出発',
+      );
+      expect(captured!.enrichResolveDepth, greaterThan(0));
+      expect(captured!.enrichCandidates, greaterThan(0));
+      // 段数が立つ＝引き直しの上流 I/O を実際に払っているので、臨界パスも積まれる
+      // （遅延注入により 1ms 未満の切り捨てに依存しない）。
+      expect(captured!.enrichCriticalMs, greaterThan(0));
     });
 
     test('予算外で best-effort へ落ちても始発前の幻バス便を提示しない', () async {
@@ -2697,6 +2934,8 @@ void main() {
       Map<String, dynamic>? originOption,
       Map<String, dynamic> Function(double lng)? corridorOption,
       List<Uri>? log,
+      Duration busDelay = Duration.zero,
+      Duration corridorDelay = Duration.zero,
     }) => MockClient((req) async {
       log?.add(req.url);
       final path = req.url.path;
@@ -2708,6 +2947,15 @@ void main() {
         final from = req.url.queryParameters['from'] ?? '';
         final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
         final fromOrigin = (lng - 139.0).abs() < 1e-6;
+        // バス照会と縮退プールの引き直しに別々の遅延を入れられるようにする。投機発行の
+        // 効き目は「バス応答が縮退プールの解決中に返り切るか」なので、両者の遅延差でしか
+        // 決定的に固定できない。
+        if (allowsBus && busDelay > Duration.zero) {
+          await Future<void>.delayed(busDelay);
+        }
+        if (!allowsBus && !fromOrigin && corridorDelay > Duration.zero) {
+          await Future<void>.delayed(corridorDelay);
+        }
         final body = allowsBus
             ? _guidance([busOption])
             : _guidance([
@@ -2720,6 +2968,40 @@ void main() {
         return _json(body);
       }
       return _json(const {}, 404);
+    });
+
+    test('バス照会を縮退プール解決と並行に発行し、直列の段を消す', () async {
+      // giveUp は best-effort の結果が出るまで採用の可否を決められないが、照会自体はその
+      // 結果に依存しない。直列に置くと上流1本ぶんの段が丸ごと体感に乗る（実機 12.6s）。
+      // busLastResortMs は**投機で覆えなかった残りの待ち**を測るので、バス応答(60ms)が
+      // プール解決(200ms)の最中に返り切れば 0 に近づく。直列なら 60ms がそのまま残る。
+      RouteSearchMetrics? captured;
+      final svc = _service(
+        busMock(
+          busOption: busOption(),
+          originOption: missedTrainOption(),
+          busDelay: const Duration(milliseconds: 60),
+          corridorDelay: const Duration(milliseconds: 200),
+        ),
+        onMetrics: (m) => captured = m,
+      );
+      final plan = await svc.plan(
+        destination: '目的地',
+        destinationLatLng: busGoal,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 0),
+        origin: busOrigin,
+      );
+      expect(
+        plan.segments.where((s) => s.type == SegmentType.bus),
+        isNotEmpty,
+        reason: '前提: バスが採用される（lastResortBus が await される）',
+      );
+      expect(
+        captured!.busLastResortMs,
+        lessThan(30),
+        reason: '投機発行が間に合っていれば残りの直列待ちはほぼ 0（直列なら 60ms 前後）',
+      );
     });
 
     test('電車が予算内なら バス許容照会は一度も発行しない（速度不変）', () async {

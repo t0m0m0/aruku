@@ -43,6 +43,171 @@ class BoardSearchStats {
   /// [truncated] と原因が違うので別に持つ——締切は我々の予算、こちらは上流の安定性で、
   /// 次に打つ手が変わる。締切由来のタイムアウトでは両方立ち得る。
   bool probeFailed = false;
+
+  /// この探索がプローブ内で払った直列の壁時計と、その直列を解いた下限
+  /// （[ProbeLatencyLedger]）。探索ごとに持つのは [rounds] と同じ理由——2系統は並列に
+  /// 走るので、1つの台帳を両方から触るとラウンド境界が混ざって `max` が別探索のプローブ
+  /// をまたぐ。
+  final ProbeLatencyLedger probeLatency = ProbeLatencyLedger();
+}
+
+/// 乗車駅探索のプローブ内で払っている**直列**の壁時計と、それを並列化したときの下限を
+/// 同一 run から両方計上する台帳。
+///
+/// 現状 `buildAt` は「徒歩実測（walk proxy）→ guidance 引き直し」の順に **await** する
+/// ——後者の照会時刻 `boardAt` が前者の所要で決まるため。だが t1 は
+/// `_boardSearchScanCount` が matrix で全点実測済みで、そちらを `boardAt` に使えば
+/// guidance を即発行でき、徒歩実測はジオメトリ用に並行できる。**その改修が何秒縮めるか**を
+/// 実装前に知るための計上。
+///
+/// ラウンドの壁時計は k 並列プローブの `max` なので、
+/// - [serialMs]   = Σ_rounds max_i(walk_i + guidance_i)  ＝ 現状
+/// - [parallelMs] = Σ_rounds max_i(max(walk_i, guidance_i)) ＝ 直列を解いた下限
+///
+/// 差が削減可能量の上限になる。**別 run の A/B ではなく同一 run 内の反実仮想**なのが要点：
+/// 上流のレイテンシは中央値9〜11秒・裾30秒超（route-optimization.md §2.2-6）で、数試行の
+/// ms 比較では「改善したのか上流が空いていたのか」を区別できない（#332 実測では3組とも ms が
+/// 改善して見えたが、実際に段数が減っていたのは1組だけだった）。同じプローブの実測から両方を
+/// 出せば、上流のばらつきは両者に等しく乗るので差だけを取り出せる。
+class ProbeLatencyLedger {
+  int _closedSerial = 0;
+  int _closedParallel = 0;
+  int _roundSerial = 0;
+  int _roundParallel = 0;
+
+  /// プローブ1本の内訳を現在のラウンドへ記録する。徒歩がレッグキャッシュにヒットした
+  /// プローブは [walkMs] が 0 近傍になり、そのぶん自動的に削減可能量から外れる。
+  ///
+  /// [walkMs] には `_WalkLegCache` の in-flight に相乗りして他プローブの取得を待った時間も
+  /// 含める。待たされた実壁時計こそがユーザーの体感で、除くと削減可能量を過小に見積もる。
+  void record({required int walkMs, required int guidanceMs}) {
+    final serial = walkMs + guidanceMs;
+    final parallel = walkMs > guidanceMs ? walkMs : guidanceMs;
+    if (serial > _roundSerial) _roundSerial = serial;
+    if (parallel > _roundParallel) _roundParallel = parallel;
+  }
+
+  /// 現在のラウンドを締めて累積へ畳む。プローブが無いラウンドは 0 の加算＝実質 no-op
+  /// （`onRound` はラウンド**開始時**に呼ばれるので、1本目の締めは必ず空になる）。
+  void endRound() {
+    _closedSerial += _roundSerial;
+    _closedParallel += _roundParallel;
+    _roundSerial = 0;
+    _roundParallel = 0;
+  }
+
+  /// 現状の壁時計（Σ_rounds 最遅プローブの walk+guidance）。
+  int get serialMs => _closedSerial + _roundSerial;
+
+  /// プローブ内の直列を解いたときの壁時計の下限（Σ_rounds 最遅プローブの max(walk, guidance)）。
+  int get parallelMs => _closedParallel + _roundParallel;
+
+  // 進行中ラウンドをゲッタ側で足すのは、末尾フラッシュを呼び出し側の義務にしないため。
+  // 探索は締切超過（shouldContinue）で while を break で抜けるので、「最後に endRound を
+  // 呼ぶ」規約は最も測りたいケース（打ち切られるほど重かった探索）で静かに破れる。
+}
+
+/// enrich フェーズの臨界パスを「パスの本数」と「1候補の直列段数」に分けて計上する台帳。
+///
+/// enrich は board-search と同じ形をしている——**パスは直列・候補は並列**：
+/// 1パス＝`Future.wait(候補ごと)`、1候補＝`_enrichWalkGeometry`（徒歩は並列）→
+/// `_resolveBoardingTimes`（transit 区間ごとに guidance を**直列**）。よって
+/// [criticalPathMs] = Σ_passes max_candidate(1候補の連鎖) が壁時計の本体になる。
+///
+/// **本数と段数を分けるのが目的。** §3.7 の Option A（#318）はパスの**本数**を 2→1 へ
+/// 潰す最適化だが、1パスの中に残る**段数**（時刻なし transit 区間の数だけ積む guidance）
+/// には効かない。両者を別々に出さないと「Option A が効いているのに enrich が重い」を
+/// 説明できず、次に削るべき対象を取り違える。
+///
+/// **計上するのは [TransitRouteService] の単一測定口（`_measureCandidate`）を通った
+/// 候補だけ。** キャッシュヒットは壁時計を払っていないので数えない。best-effort 縮退
+/// （`_bestEffortResolved`）は測定口を通さず `_resolveBoardingTimes` を直に呼ぶため
+/// 含まれない——`enrichMs` との差はそこにも出る。
+class EnrichLatencyLedger {
+  int _closedCritical = 0;
+  int _passCritical = 0;
+  int _passes = 0;
+  bool _passHasCandidate = false;
+
+  /// 実測した候補数（キャッシュヒットを除く）＝上流ファンアウトの幅。
+  int candidates = 0;
+
+  /// 1候補が `_resolveBoardingTimes` で直列に積んだ guidance の最大段数。
+  int resolveDepth = 0;
+
+  /// 候補1件の実測を現在のパスへ記録する。[chainMs] は徒歩 enrich と引き直しを合わせた
+  /// その候補の連鎖の壁時計、[resolveSteps] はそのうち直列に積んだ guidance の本数。
+  void record({required int chainMs, required int resolveSteps}) {
+    candidates++;
+    _passHasCandidate = true;
+    if (chainMs > _passCritical) _passCritical = chainMs;
+    if (resolveSteps > resolveDepth) resolveDepth = resolveSteps;
+  }
+
+  /// 現在のパスを締めて累積へ畳む。候補が1件も無いパスは本数に数えない——先行実測が
+  /// 発火しない検索では空の締めが先に来るため。
+  void endPass() {
+    if (!_passHasCandidate) return;
+    _closedCritical += _passCritical;
+    _passes++;
+    _passCritical = 0;
+    _passHasCandidate = false;
+  }
+
+  /// 直列に積んだパスの壁時計の合計（Σ_passes 最遅候補）。
+  int get criticalPathMs =>
+      _closedCritical + (_passHasCandidate ? _passCritical : 0);
+
+  /// 直列に走ったパスの本数。
+  int get passes => _passes + (_passHasCandidate ? 1 : 0);
+
+  // 進行中パスをゲッタ側で足すのは [ProbeLatencyLedger] と同じ理由——勝者が見つかった
+  // 時点で tier ループを return で抜けるため、末尾の締めを呼び出し側の義務にすると
+  // 「1パスで決まった」最も一般的なケースがまるごと 0 になる。
+}
+
+/// best-effort 縮退（`_bestEffortResolved`）の費用を計上する台帳。
+///
+/// **[EnrichLatencyLedger] と別に持つ理由が実測で判明している。** `enrichCriticalMs` を
+/// 入れて初めて測った1本は `enrichMs=58.2s` に対し臨界パスが 4.9s（8.4%）しかなく、残りは
+/// この経路だった。`_bestEffortResolved` は測定口（`_measureCandidate`）を通らず
+/// `_resolveBoardingTimes` を直に呼ぶため、[EnrichLatencyLedger] からは**構造的に見えない**。
+///
+/// コスト中心が2つあり、分けないと打ち手を選べない：
+/// - **プール全体の並列解決**（幅）: `_maxMeasureShortlist` の上限が効かず候補プール全部を
+///   解決する。[candidates] が幅、[resolveDepth] が1候補の直列段数。
+/// - **`while` の再試行ループ**（段数）: 乗り遅れ候補を1件ずつ外して**直列に** enrich し直す。
+///   [retries] がその段数で、1段ごとに徒歩プロキシ1往復ぶんの壁時計が乗る。
+///
+/// 縮退は1検索で複数回通り得る（縮退 → バス last-resort → `_selectAndEnrich` の再帰 →
+/// 再び縮退）。それらは**直列**に走るので [totalMs]・[candidates]・[retries] は和、
+/// [resolveDepth] だけ最大を採る（「1候補が積んだ段数」という意味を保つため）。
+class BestEffortLedger {
+  /// `_bestEffortResolved` に入った回数。
+  int entries = 0;
+
+  /// 実時刻解決したのべ候補数＝短リスト上限に縛られないファンアウト幅。
+  int candidates = 0;
+
+  /// プール解決で1候補が直列に積んだ引き直しの最大段数。
+  int resolveDepth = 0;
+
+  /// 再試行ループが回った回数（＝直列に積んだ徒歩 enrich の追加段数）。
+  int retries = 0;
+
+  /// 縮退に費やした実時間の合計。`enrichMs` からこれを引いた残りが、なお計上外の区間。
+  int totalMs = 0;
+
+  void enter() => entries++;
+
+  void recordPool({required int candidates, required int resolveDepth}) {
+    this.candidates += candidates;
+    if (resolveDepth > this.resolveDepth) this.resolveDepth = resolveDepth;
+  }
+
+  void recordRetry() => retries++;
+
+  void addMs(int ms) => totalMs += ms;
 }
 
 /// 1検索分の定量指標（#309）。collapse 発火・board-search 起動・上流 HTTP 往復本数・
@@ -71,9 +236,14 @@ class RouteSearchMetrics {
   /// ハイブリッド候補生成（コリドー実測マトリクス＋候補構築）区間の実時間。
   int hybridMs = 0;
 
-  /// 初回の選定＋enrich（実測徒歩・実発車時刻の確定検証）区間の実時間。非崩壊時は見積り
+  /// 選定＋enrich（実測徒歩・実発車時刻の確定検証）区間の実時間。非崩壊時は見積り
   /// フロント（勝者＋棄却時のフォールバック候補）の1並列パス先行実測もここに含む（#315）。
-  /// 崩壊時の再選定は [boardSearchMs] に含める（二重計上しない）。
+  ///
+  /// **崩壊時の再選定ぶんも含む。** 台帳（[enrichCriticalMs] / [bestEffortMs]）が再選定の
+  /// enrich も積む以上、時計だけ board-search 突入時点で止めると計上外の残り
+  /// （`enrichMs − enrichCriticalMs − bestEffortMs − busLastResortMs`）が負に化ける。
+  /// その区間は [boardSearchMs] にも含まれる——フェーズの分割より「台帳と時計が同じ区間を
+  /// 覆う」ことを優先した意図的な重なりなので、フェーズ所要を足し上げるときは注意する。
   int enrichMs = 0;
 
   /// board-search フォールバック区間の実時間（起動しなければ 0）。崩壊時の再選定
@@ -122,6 +292,18 @@ class RouteSearchMetrics {
   /// 決まり得るため、集計側は境界位置の分布から除く。
   bool boardSearchProbeFailed = false;
 
+  /// 報告する探索がプローブ内で払った直列の壁時計（[ProbeLatencyLedger.serialMs]）。
+  int boardSearchProbeSerialMs = 0;
+
+  /// 同じ探索で、プローブ内の「徒歩実測 → guidance 引き直し」の直列を解いたときの壁時計の
+  /// 下限（[ProbeLatencyLedger.parallelMs]）。
+  ///
+  /// **[boardSearchProbeSerialMs] との差が、その改修で縮む上限。** 同一 run の同じプローブから
+  /// 両方を出しているので、上流のレイテンシばらつきは両者へ等しく乗り、差だけを取り出せる
+  /// （別 run の A/B では区別できない・#332）。差が小さければ board-search の律速は
+  /// guidance 単体のレイテンシであって直列ではない＝この改修は打つ価値が無いと判定できる。
+  int boardSearchProbeParallelMs = 0;
+
   /// 並列に走った乗車駅探索群（[BoardSearchStats]）を1検索ぶんの指標へ畳む。
   ///
   /// [boardSearchRounds] は**和ではなく最大**——2系統は並列に走る（#304）ので、和にすると
@@ -130,7 +312,8 @@ class RouteSearchMetrics {
   /// フェーズの経過段数を表すわけではない（[boardSearchRounds] のドキュメント参照）。
   ///
   /// [boardSearchScanCount]・[boardSearchBest]・[boardSearchTruncated]・
-  /// [boardSearchProbeFailed] は**同一の探索から採る**（対を崩すと `best/scanCount` が実在しない比になり、truncated が別の探索を
+  /// [boardSearchProbeFailed]・[boardSearchProbeSerialMs]・[boardSearchProbeParallelMs]
+  /// は**同一の探索から採る**（対を崩すと `best/scanCount` が実在しない比になり、truncated が別の探索を
   /// 指すと有効なサンプルを捨てる）。採るのは段数を決めた探索＝報告する
   /// [boardSearchRounds] と整合する1本。同点なら走査範囲の広い方。
   void recordBoardSearches(Iterable<BoardSearchStats> searches) {
@@ -148,6 +331,68 @@ class RouteSearchMetrics {
     boardSearchBest = dominant.best;
     boardSearchTruncated = dominant.truncated;
     boardSearchProbeFailed = dominant.probeFailed;
+    // serial/parallel は**必ず対で**同じ台帳から採る。別探索から拾うと差＝削減可能量が
+    // 実在しない値になり、打つ価値の判定を誤らせる。
+    boardSearchProbeSerialMs = dominant.probeLatency.serialMs;
+    boardSearchProbeParallelMs = dominant.probeLatency.parallelMs;
+  }
+
+  /// enrich の臨界パス（Σ_passes 最遅候補）。[enrichMs] との差が、単一測定口を通らない
+  /// 区間（best-effort 縮退の実時刻解決・選定の純粋計算）と計装の取りこぼしを表す。
+  int enrichCriticalMs = 0;
+
+  /// enrich が直列に走らせたパスの本数。**§3.7 Option A が潰そうとしている量。**
+  int enrichPasses = 0;
+
+  /// 1候補が `_resolveBoardingTimes` で直列に積んだ guidance の最大段数。
+  /// **Option A が潰せない量**——1パスに畳んでも、時刻なし transit 区間の数だけ
+  /// 上流1本ぶんの壁時計が残る。[enrichPasses] と分けて持つのは、両者を足した1つの数では
+  /// 「本数を減らすべきか段数を減らすべきか」を判断できないため。
+  int enrichResolveDepth = 0;
+
+  /// 実測した候補数（キャッシュヒットを除く）＝上流ファンアウトの幅。Option A は
+  /// [enrichPasses] を減らす代わりにこれを増やすので、恩恵と対価をこの対で読む（#318）。
+  int enrichCandidates = 0;
+
+  /// 並列に走った enrich 台帳を1検索ぶんの指標へ畳む。board-search（[recordBoardSearches]）と
+  /// 違い**台帳は検索に1つ**なので、支配探索を選ぶ必要がない。
+  void recordEnrich(EnrichLatencyLedger ledger) {
+    enrichCriticalMs = ledger.criticalPathMs;
+    enrichPasses = ledger.passes;
+    enrichResolveDepth = ledger.resolveDepth;
+    enrichCandidates = ledger.candidates;
+  }
+
+  /// best-effort 縮退に費やした実時間。**`enrichMs` の会計を閉じるための項**——
+  /// `enrichMs − enrichCriticalMs − bestEffortMs − busLastResortMs` が、なお計上外の区間。
+  int bestEffortMs = 0;
+
+  /// 縮退へ入った回数（縮退 → バス last-resort → 再帰で複数回通り得る）。
+  int bestEffortEntries = 0;
+
+  /// 縮退が実時刻解決したのべ候補数。**`_maxMeasureShortlist`(13) の上限が効かない幅**で、
+  /// 上流ファンアウトの実際の上限はここで決まる。
+  int bestEffortCandidates = 0;
+
+  /// 縮退のプール解決で1候補が直列に積んだ引き直しの最大段数。
+  int bestEffortResolveDepth = 0;
+
+  /// 縮退の再試行ループが回った回数＝直列に積んだ徒歩 enrich の追加段数。
+  int bestEffortRetries = 0;
+
+  /// バス last-resort 再照会（`_fetchBusOptions`）で**なお直列に待った**時間。照会は
+  /// best-effort 縮退と並行して投機発行するので、これは発行〜完了の全体ではなく
+  /// **投機で覆えなかった残りの待ち**。並行に隠れたぶんは縮退側（[bestEffortMs]）の
+  /// 壁時計に含まれる。0 に近いほど投機が効いている＝この最適化の効き目そのもの。
+  int busLastResortMs = 0;
+
+  /// best-effort 台帳を1検索ぶんの指標へ畳む。
+  void recordBestEffort(BestEffortLedger ledger) {
+    bestEffortMs = ledger.totalMs;
+    bestEffortEntries = ledger.entries;
+    bestEffortCandidates = ledger.candidates;
+    bestEffortResolveDepth = ledger.resolveDepth;
+    bestEffortRetries = ledger.retries;
   }
 
   /// 確定候補の駅名確定（`_finalizeStationNames`）に掛かった実時間。
@@ -188,6 +433,16 @@ class RouteSearchMetrics {
       'boardSearchBest=$boardSearchBest '
       'boardSearchTruncated=${boardSearchTruncated ? 1 : 0} '
       'boardSearchProbeFailed=${boardSearchProbeFailed ? 1 : 0} '
+      'boardSearchProbeSerialMs=$boardSearchProbeSerialMs '
+      'boardSearchProbeParallelMs=$boardSearchProbeParallelMs '
+      'enrichCriticalMs=$enrichCriticalMs enrichPasses=$enrichPasses '
+      'enrichResolveDepth=$enrichResolveDepth '
+      'enrichCandidates=$enrichCandidates '
+      'bestEffortMs=$bestEffortMs bestEffortEntries=$bestEffortEntries '
+      'bestEffortCandidates=$bestEffortCandidates '
+      'bestEffortResolveDepth=$bestEffortResolveDepth '
+      'bestEffortRetries=$bestEffortRetries '
+      'busLastResortMs=$busLastResortMs '
       'finalizeMs=$finalizeMs totalMs=$totalMs';
 }
 

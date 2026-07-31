@@ -79,6 +79,155 @@ void main() {
     });
   });
 
+  group('ProbeLatencyLedger', () {
+    test('ラウンド壁時計は「最遅プローブ」で、直列版は walk+guidance を足す', () {
+      final l = ProbeLatencyLedger()
+        ..record(walkMs: 1000, guidanceMs: 9000)
+        ..record(walkMs: 3000, guidanceMs: 8000);
+      // 直列（現状）: max(1000+9000, 3000+8000) = 11000
+      expect(l.serialMs, 11000);
+      // 並列（walk を guidance と同時発行した下限）: max(max(1000,9000), max(3000,8000)) = 9000
+      expect(l.parallelMs, 9000);
+    });
+
+    test('ラウンドは直列に積むので複数ラウンドは和', () {
+      final l = ProbeLatencyLedger()
+        ..record(walkMs: 1000, guidanceMs: 9000)
+        ..endRound()
+        ..record(walkMs: 2000, guidanceMs: 5000);
+      expect(l.serialMs, 10000 + 7000);
+      expect(l.parallelMs, 9000 + 5000);
+    });
+
+    test('プローブの無いラウンドは 0 として無視される', () {
+      // onRound はラウンド**開始時**に呼ばれるため、1本目の endRound は必ず空になる。
+      final l = ProbeLatencyLedger()
+        ..endRound()
+        ..record(walkMs: 1000, guidanceMs: 9000);
+      expect(l.serialMs, 10000);
+      expect(l.parallelMs, 9000);
+    });
+
+    test('末尾の endRound を呼ばなくても進行中ラウンドは含まれる', () {
+      // 締切打ち切り（shouldContinue）は while を break で抜けるため、末尾フラッシュを
+      // 呼び出し側の義務にすると最後のラウンドが静かに落ちる。
+      final l = ProbeLatencyLedger()..record(walkMs: 500, guidanceMs: 4000);
+      expect(l.serialMs, 4500);
+      expect(l.parallelMs, 4000);
+    });
+
+    test('徒歩がキャッシュヒットしたプローブは guidance だけが壁時計', () {
+      final l = ProbeLatencyLedger()..record(walkMs: 0, guidanceMs: 9000);
+      expect(l.serialMs, 9000);
+      expect(l.parallelMs, 9000);
+    });
+
+    test('1件も記録しなければ両方 0', () {
+      final l = ProbeLatencyLedger();
+      expect(l.serialMs, 0);
+      expect(l.parallelMs, 0);
+    });
+
+    test('parallelMs は serialMs を超えない（削減可能量が負にならない）', () {
+      final l = ProbeLatencyLedger()
+        ..record(walkMs: 7000, guidanceMs: 1000)
+        ..record(walkMs: 1000, guidanceMs: 7000)
+        ..endRound()
+        ..record(walkMs: 2500, guidanceMs: 2500);
+      expect(l.parallelMs, lessThanOrEqualTo(l.serialMs));
+    });
+  });
+
+  group('EnrichLatencyLedger', () {
+    test('パスは直列・候補は並列なので、パスごとの最遅候補を足す', () {
+      final l = EnrichLatencyLedger()
+        ..record(chainMs: 20000, resolveSteps: 1)
+        ..record(chainMs: 38000, resolveSteps: 2)
+        ..endPass()
+        ..record(chainMs: 19000, resolveSteps: 1);
+      expect(l.criticalPathMs, 38000 + 19000);
+      expect(l.passes, 2);
+      expect(l.candidates, 3);
+      // 段数は「1候補が直列に積んだ guidance の最大」——パスをまたいで足さない。
+      expect(l.resolveDepth, 2);
+    });
+
+    test('候補の無いパスは本数に数えない', () {
+      // 先行実測が発火しない検索では endPass だけが先に来る。
+      final l = EnrichLatencyLedger()
+        ..endPass()
+        ..record(chainMs: 5000, resolveSteps: 0);
+      expect(l.passes, 1);
+      expect(l.criticalPathMs, 5000);
+    });
+
+    test('末尾の endPass を呼ばなくても進行中パスは含まれる', () {
+      final l = EnrichLatencyLedger()..record(chainMs: 7000, resolveSteps: 3);
+      expect(l.criticalPathMs, 7000);
+      expect(l.passes, 1);
+      expect(l.resolveDepth, 3);
+    });
+
+    test('引き直し0段（標準乗換のみ）でも候補と時間は数える', () {
+      // 実 depTime を持つ候補は _resolveBoardingTimes が即抜けるので段数0。
+      // それでも徒歩 enrich の時間は払っているため chain は残る。
+      final l = EnrichLatencyLedger()..record(chainMs: 1500, resolveSteps: 0);
+      expect(l.resolveDepth, 0);
+      expect(l.criticalPathMs, 1500);
+      expect(l.candidates, 1);
+    });
+
+    test('1件も測らなければすべて0', () {
+      final l = EnrichLatencyLedger();
+      expect(l.criticalPathMs, 0);
+      expect(l.passes, 0);
+      expect(l.candidates, 0);
+      expect(l.resolveDepth, 0);
+    });
+  });
+
+  group('BestEffortLedger', () {
+    test('プール解決とループ再試行を分けて数える', () {
+      final l = BestEffortLedger()
+        ..enter()
+        ..recordPool(candidates: 19, resolveDepth: 2)
+        ..recordRetry()
+        ..recordRetry()
+        ..addMs(41000);
+      expect(l.entries, 1);
+      expect(l.candidates, 19, reason: '短リスト上限に縛られないファンアウト幅');
+      expect(l.resolveDepth, 2);
+      expect(l.retries, 2, reason: 'ループは直列なので段数として効く');
+      expect(l.totalMs, 41000);
+    });
+
+    test('複数回入っても足し合わせる（縮退→バス→再帰で2度通る）', () {
+      final l = BestEffortLedger()
+        ..enter()
+        ..recordPool(candidates: 19, resolveDepth: 1)
+        ..addMs(30000)
+        ..enter()
+        ..recordPool(candidates: 24, resolveDepth: 3)
+        ..recordRetry()
+        ..addMs(12000);
+      expect(l.entries, 2);
+      // 入る回数ぶんは直列に走るので ms と候補数は和、段数は最大。
+      expect(l.candidates, 43);
+      expect(l.totalMs, 42000);
+      expect(l.resolveDepth, 3);
+      expect(l.retries, 1);
+    });
+
+    test('一度も縮退しなければすべて0', () {
+      final l = BestEffortLedger();
+      expect(l.entries, 0);
+      expect(l.candidates, 0);
+      expect(l.resolveDepth, 0);
+      expect(l.retries, 0);
+      expect(l.totalMs, 0);
+    });
+  });
+
   group('RouteSearchMetrics.toLogLine', () {
     test('collapse/board-search/本数/フェーズ時間を安定した key=value 行にする', () {
       final m = RouteSearchMetrics()
@@ -98,6 +247,28 @@ void main() {
         ..boardSearchBest = 25
         ..boardSearchTruncated = true
         ..boardSearchProbeFailed = true
+        ..boardSearchProbeSerialMs = 21000
+        ..boardSearchProbeParallelMs = 18000
+        ..recordEnrich(
+          EnrichLatencyLedger()
+            ..record(chainMs: 12000, resolveSteps: 2)
+            ..endPass()
+            ..record(chainMs: 7000, resolveSteps: 1)
+            ..record(chainMs: 3000, resolveSteps: 1)
+            ..record(chainMs: 1000, resolveSteps: 0)
+            ..record(chainMs: 900, resolveSteps: 0)
+            ..record(chainMs: 800, resolveSteps: 0)
+            ..record(chainMs: 700, resolveSteps: 0),
+        )
+        ..recordBestEffort(
+          BestEffortLedger()
+            ..enter()
+            ..recordPool(candidates: 19, resolveDepth: 2)
+            ..recordRetry()
+            ..recordRetry()
+            ..addMs(41000),
+        )
+        ..busLastResortMs = 20000
         ..finalizeMs = 300
         ..totalMs = 9000;
       expect(
@@ -108,6 +279,12 @@ void main() {
         'guidanceMs=1200 hybridMs=500 enrichMs=2600 boardSearchMs=3400 '
         'boardSearchRounds=3 boardSearchScanCount=63 boardSearchBest=25 '
         'boardSearchTruncated=1 boardSearchProbeFailed=1 '
+        'boardSearchProbeSerialMs=21000 boardSearchProbeParallelMs=18000 '
+        'enrichCriticalMs=19000 enrichPasses=2 enrichResolveDepth=2 '
+        'enrichCandidates=7 '
+        'bestEffortMs=41000 bestEffortEntries=1 bestEffortCandidates=19 '
+        'bestEffortResolveDepth=2 bestEffortRetries=2 '
+        'busLastResortMs=20000 '
         'finalizeMs=300 totalMs=9000',
       );
     });
@@ -222,6 +399,28 @@ void main() {
       expect(m.boardSearchBest, -1);
       expect(m.boardSearchTruncated, isFalse);
       expect(m.boardSearchProbeFailed, isFalse);
+      expect(m.boardSearchProbeSerialMs, 0);
+      expect(m.boardSearchProbeParallelMs, 0);
+    });
+
+    test('プローブ内訳も報告する対と同じ探索から採る（並列探索ぶんを足さない）', () {
+      // 2系統は並列に走る（#304）ので和は壁時計と対応しない。serial/parallel を別々の
+      // 探索から採ると差＝削減可能量が実在しない値になるため、対で1本から採る。
+      final m = RouteSearchMetrics()
+        ..recordBoardSearches([
+          BoardSearchStats()
+            ..rounds = 3
+            ..scanCount = 63
+            ..best = 25
+            ..probeLatency.record(walkMs: 2000, guidanceMs: 9000),
+          BoardSearchStats()
+            ..rounds = 1
+            ..scanCount = 40
+            ..best = 5
+            ..probeLatency.record(walkMs: 8000, guidanceMs: 8000),
+        ]);
+      expect(m.boardSearchProbeSerialMs, 11000, reason: 'rounds 最大の探索の対を採る');
+      expect(m.boardSearchProbeParallelMs, 9000);
     });
 
     test('board-search が起動しなければ探索系は 0・境界は -1（未探索の印）', () {
@@ -246,6 +445,12 @@ void main() {
         'guidanceMs=0 hybridMs=0 enrichMs=0 boardSearchMs=0 '
         'boardSearchRounds=0 boardSearchScanCount=0 boardSearchBest=-1 '
         'boardSearchTruncated=0 boardSearchProbeFailed=0 '
+        'boardSearchProbeSerialMs=0 boardSearchProbeParallelMs=0 '
+        'enrichCriticalMs=0 enrichPasses=0 enrichResolveDepth=0 '
+        'enrichCandidates=0 '
+        'bestEffortMs=0 bestEffortEntries=0 bestEffortCandidates=0 '
+        'bestEffortResolveDepth=0 bestEffortRetries=0 '
+        'busLastResortMs=0 '
         'finalizeMs=0 totalMs=0',
       );
     });
