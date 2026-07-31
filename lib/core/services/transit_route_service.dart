@@ -120,11 +120,10 @@ class TransitRouteService implements SearchEngine {
   /// 上限を欲張らない理由は**上流の未知のレート制限**。guidance は `AppConfig.transitApiBaseUrl`
   /// への直叩きで `functions/src/rate-limiter.ts` を通らないため、我々のプロキシの 30 req/min は
   /// 掛からない（#330。この誤認が長く残っていた）。代わりに効くのは第三者 API 側の制限で、
-  /// 公開されておらず実測でも 429 を観測していない＝**上限が不明**という状態。踏み抜いたときの
-  /// 失敗モードが悪い——429 は `_fetchTransitFrom` の null 縮退を経て「予算外」と解釈され、
-  /// 境界を実測ではなくレート制限が決めてしまう（徒歩が静かに短くなる）。崩壊時は電車系＋バス系
-  /// の 2 base が並列に走るので瞬間同時発行は fanout × 2 になる。上げるなら先に上流の制限を
-  /// 実測し、429 を「予算外」と誤認しない分離を入れてからにすること。
+  /// 公開されておらず実測でも 429 を観測していない＝**上限が不明**という状態。踏み抜いても
+  /// 徒歩最大化が静かに劣化することはない——429 は「未評価」として境界の更新から外れる
+  /// （#333）——が、その probe ぶんの候補と探索の深さは失う。崩壊時は電車系＋バス系の 2 base が
+  /// 並列に走るので瞬間同時発行は fanout × 2 になる。上げるなら先に上流の制限を実測すること。
   static const int _boardSearchFanout = 5;
 
   /// フロンティア t1 一括実測マトリクスの1コールあたり目的地数の上限（#317 レビュー対応）。
@@ -1267,6 +1266,10 @@ class TransitRouteService implements SearchEngine {
     // 探索が同じ index を再評価しても引き直さないようメモ化する。同一ラウンド内の
     // 評価点は重複除去済み（[maxWalkBoardingIndexParallel]）なので同時実行は衝突しない。
     final built = <int, RouteCandidate?>{};
+    // 引き直しが**上流の失敗**（429・5xx・TIMEOUT）で落ちた index。`built` の null は
+    // 「経路が無い」と「評価できなかった」の両方になるが、探索に対する意味は正反対
+    // （前者は境界の情報・後者は情報が無いだけ）なので別に持つ（#333）。
+    final unevaluated = <int>{};
     Future<RouteCandidate?> buildAt(int i) async {
       if (built.containsKey(i)) return built[i];
       final x = stops[i];
@@ -1294,7 +1297,10 @@ class TransitRouteService implements SearchEngine {
         goal,
         boardAt,
         allowBus: allowBus,
-        onUpstreamFailure: () => stats.probeFailed = true,
+        onUpstreamFailure: () {
+          stats.probeFailed = true;
+          unevaluated.add(i);
+        },
       );
       guidanceSw.stop();
       // 引き直しが失敗した probe も計上する——照会は発行され、壁時計は払っている。
@@ -1305,7 +1311,9 @@ class TransitRouteService implements SearchEngine {
       );
       if (xToGoal == null) {
         _diag.log(
-          () => 'board-search i=$i walk1=${walk1.totalMin}m guidance失敗',
+          () =>
+              'board-search i=$i walk1=${walk1.totalMin}m guidance失敗'
+              '(${unevaluated.contains(i) ? '上流エラー→未評価' : '経路なし→予算外扱い'})',
         );
         return built[i] = null;
       }
@@ -1354,15 +1362,17 @@ class TransitRouteService implements SearchEngine {
       },
       evaluate: (i) async {
         final c = await buildAt(i);
-        // 経路無し（引き直し失敗）は予算外として扱い、手前の駅を探す。
-        return c == null
-            ? budgetMin + (1 << 20)
-            : arrivalMinutes(c.segments, departureAt);
+        if (c != null) return arrivalMinutes(c.segments, departureAt);
+        // 引けたが経路が無い点は予算外として扱い、手前の駅を探す。上流エラーで
+        // 引けなかった点は「予算外」を意味しないので未評価（null）を返す——予算外に
+        // 化けさせると単調性の仮定でその先すべてが探索から外れ、境界を実測ではなく
+        // レート制限が決めてしまう（#333）。
+        return unevaluated.contains(i) ? null : budgetMin + (1 << 20);
       },
     );
-    // 締切が**ラウンド実行中**に切れた場合、probe は TIMEOUT → `_fetchTransitFrom` が
-    // null → `budgetMin + (1 << 20)`＝「予算外」と解釈されて区間が尽き、shouldContinue を
-    // 再び通らずにループを抜ける。つまり「新ラウンドを起こさなかった」判定だけでは
+    // 締切が**ラウンド実行中**に切れた場合、probe は TIMEOUT → 全 probe が未評価 →
+    // [maxWalkBoardingIndexParallel] がそのラウンドで打ち切り、shouldContinue を再び
+    // 通らずにループを抜ける。つまり「新ラウンドを起こさなかった」判定だけでは
     // 打ち切りを取りこぼす——境界を実測でなく締切が決めた、最も記録すべきケースで。
     // 自然完走の直後に切れた場合も truncated 側へ倒すが、集計は境界位置の分布から
     // 除くだけなので、取りこぼすより1件捨てる方が安全（#332 レビュー指摘）。

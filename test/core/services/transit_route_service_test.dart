@@ -1108,6 +1108,7 @@ void main() {
       bool enforceMatrixLimit = false,
       Duration walkDelay = Duration.zero,
       Duration guidanceDelay = Duration.zero,
+      bool Function(double lng)? rateLimitFrom,
     }) {
       List<GeoPoint> parse(String? raw) =>
           (raw ?? '').split(';').where((s) => s.isNotEmpty).map(_pt).toList();
@@ -1165,6 +1166,9 @@ void main() {
           if ((lng - 139.0).abs() < 1e-6) {
             return _json(baseGuidance(aArr: aArr, bArr: bArr));
           }
+          if (rateLimitFrom?.call(lng) ?? false) {
+            return _json(const {'error': 'rate limited'}, 429);
+          }
           return _json(reentry(lng, time));
         }
         return _json(const {}, 404);
@@ -1189,6 +1193,43 @@ void main() {
       // 崩落しない。直線推定駆動だと遠い駅へ収束→実街路全滅→null→標準へ崩落し徒歩~0。
       expect(walkMinutesOf(plan), greaterThan(50));
       expect(plan.totalMin, lessThanOrEqualTo(90));
+    });
+
+    test('引き直しが 429 で落ちた点は予算外扱いにせず、徒歩最大化を縮めない（#333）', () async {
+      // コリドー手前の1点（139.00266）への引き直しだけが 429 で落ちる状況。予算外として
+      // 扱うと、単調性の仮定によりその点より奥が探索区間から丸ごと外れる（実測ログでは
+      // 区間が 0..1 へ畳まれ、より遠い＝徒歩の長い乗車駅に一度も到達しない）——境界を実測
+      // ではなくレート制限が決めることになる。未評価として扱えば、同一ラウンドの他 probe が
+      // 区間を右へ送るので探索は奥まで届く。
+      //
+      // 判定は「429 の有無で結論が変わらないこと」。閾値ではなく無失敗時の実測と突き合わせる
+      // ——被害はラウンド内では出ず「探索されなかった先」に出るので、固定閾値だと
+      // 同一ラウンドで既に評価済みの候補（#137 の全件返し）に隠れて偽陽性になる。
+      Future<int> walkWith(bool Function(double lng)? rateLimit) async {
+        final plan = await _service(inflatedFromMock(rateLimitFrom: rateLimit))
+            .plan(
+              destination: '目的駅',
+              destinationLatLng: goal3,
+              departure: const TimeValue(h: 9, m: 0),
+              arrival: const TimeValue(h: 10, m: 30), // 予算90分
+              origin: origin3,
+              originName: '出発',
+            );
+        expect(plan.totalMin, lessThanOrEqualTo(90));
+        return walkMinutesOf(plan);
+      }
+
+      var rateLimited = 0;
+      final withFailure = await walkWith((lng) {
+        final hit = lng > 139.0022 && lng < 139.0031;
+        if (hit) rateLimited++;
+        return hit;
+      });
+      final healthy = await walkWith(null);
+
+      expect(rateLimited, greaterThan(0), reason: '前提: 429 の点が実際に probe されている');
+      expect(healthy, greaterThan(50), reason: '前提: 無失敗なら徒歩最大化が効いている');
+      expect(withFailure, healthy, reason: '429 が徒歩最大化の境界を決めてしまっている');
     });
 
     test('絶対値の余りが大きければ相対閾値未満でも崩壊として乗車駅探索を起動する', () async {
