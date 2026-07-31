@@ -1330,6 +1330,49 @@ void main() {
       );
     });
 
+    test('ラウンドごとの徒歩推移を記録し、最終徒歩と突き合わせられるようにする', () async {
+      // 「63秒かける価値があるか」＝「ラウンド N で止めたら徒歩が短くなるか」を判定する材料。
+      // 系列は単調非減少で、頭打ちの位置が打ち切ってよいラウンドを意味する。
+      RouteSearchMetrics? captured;
+      final svc = _service(inflatedFromMock(), onMetrics: (m) => captured = m);
+      await svc.plan(
+        destination: '目的駅',
+        destinationLatLng: goal3,
+        departure: const TimeValue(h: 9, m: 0),
+        arrival: const TimeValue(h: 10, m: 30),
+        origin: origin3,
+        originName: '出発',
+      );
+      final m = captured!;
+      expect(m.boardSearchActivated, isTrue, reason: '前提: board-search が走る');
+      expect(
+        m.boardSearchWalkByRound.length,
+        m.boardSearchRounds,
+        reason: 'ラウンド数と系列長は一致する（最終ラウンドも締める）',
+      );
+      // 単調非減少：評価済みの最大なので下がることはない。下がるなら畳み方が壊れている。
+      for (var i = 1; i < m.boardSearchWalkByRound.length; i++) {
+        expect(
+          m.boardSearchWalkByRound[i],
+          greaterThanOrEqualTo(m.boardSearchWalkByRound[i - 1]),
+        );
+      }
+      // 最終徒歩が指標に載る（profile では [route] ログが出ないため必須）。
+      expect(m.finalWalkMinutes, greaterThan(0));
+      // 勝者のラウンド由来が引ける。この fixture は board-search 候補が勝つので N≥1。
+      // -1（未起動）でも 0（由来でない/特定不能）でもない値が出ることを固定する。
+      expect(
+        m.boardSearchWinnerRound,
+        greaterThanOrEqualTo(1),
+        reason: '前提: board-search 候補が確定し、同一性で引けている',
+      );
+      expect(
+        m.boardSearchWinnerRound,
+        lessThanOrEqualTo(m.boardSearchRounds),
+        reason: 'ラウンド番号は実際に回した数を超えない',
+      );
+    });
+
     test('プローブ内の「徒歩実測→引き直し」の直列を、同一 run の反実仮想として計上する', () async {
       // 直列を解く改修（matrix が既に測った t1 で boardAt を組み、徒歩実測をジオメトリ用に
       // 並行させる）が何秒縮めるかを、実装前に判定するための計上。上流のばらつきは
