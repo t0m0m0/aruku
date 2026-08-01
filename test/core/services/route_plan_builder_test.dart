@@ -548,6 +548,61 @@ void main() {
       expect(plan.segments.single.polyline, [a, b, c]);
     });
 
+    test('末尾の徒歩が geometry を欠くなら統合後の polyline を空にする', () {
+      // 連結すると中間点 X で終わる polyline になり、legEndPoint が「歩き終える地点」
+      // ではなく X を返す＝引き継ぎ先も到着自動判定も X に化ける。終点を偽るくらいなら
+      // 座標不明（空）にして #323 のフォールバックへ委ねる。
+      const a = GeoPoint(35.5614, 139.7161);
+      const x = GeoPoint(35.5680, 139.6900);
+      final plan = planOf([
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '現在地',
+          toName: '',
+          minutes: 40,
+          km: 2.9,
+          kcal: 163,
+          polyline: [a, x],
+        ),
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '',
+          toName: '久が原',
+          minutes: 12,
+          km: 0.8,
+          kcal: 46,
+        ),
+      ], to: '久が原');
+
+      expect(plan.segments.single.polyline, isEmpty);
+    });
+
+    test('先頭の徒歩が geometry を欠いても末尾の終点座標は保つ', () {
+      const y = GeoPoint(35.5680, 139.6900);
+      const z = GeoPoint(35.5750, 139.6810);
+      final plan = planOf([
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '現在地',
+          toName: '',
+          minutes: 40,
+          km: 2.9,
+          kcal: 163,
+        ),
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '',
+          toName: '久が原',
+          minutes: 12,
+          km: 0.8,
+          kcal: 46,
+          polyline: [y, z],
+        ),
+      ], to: '久が原');
+
+      expect(plan.segments.single.polyline, [y, z]);
+    });
+
     test('徒歩→電車→徒歩 のように連続していない徒歩は統合しない', () {
       final plan = planOf([
         const RouteSegment(

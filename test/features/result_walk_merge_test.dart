@@ -56,6 +56,7 @@ const _walkCtaLabel = 'Googleマップで徒歩ルートを開く';
 const _origin = GeoPoint(35.5614, 139.7161);
 const _midway = GeoPoint(35.5680, 139.6900);
 const _kugahara = GeoPoint(35.5750, 139.6810);
+const _ikegami = GeoPoint(35.5810, 139.7020);
 
 /// #337 の実例（現在地 → 久が原）。乗車駅探索の継ぎ目で徒歩が 3 本並び、うち 1 本は
 /// 端点名が空。`buildRoutePlan` を通して組むことで統合の有無が表示へ出る。
@@ -88,6 +89,46 @@ RoutePlan _consecutiveWalkPlan() => buildRoutePlan(
       minutes: 10,
       km: 2.0,
       line: '東急池上線',
+      depTime: DateTime(2026, 7, 24, 15, 51),
+      arrTime: DateTime(2026, 7, 24, 16, 1),
+    ),
+  ],
+  departure: const TimeValue(h: 14, m: 51),
+  budgetMin: 90,
+  departureAt: DateTime(2026, 7, 24, 14, 51),
+);
+
+/// 末尾の徒歩が geometry を欠く経路（#322/#323 と同じ欠落）。統合後に先頭の
+/// geometry だけを残すと、引き継ぎ先が「歩き終える地点」ではなく継ぎ目の中間点に化ける。
+RoutePlan _geometrylessTailWalkPlan() => buildRoutePlan(
+  from: '現在地',
+  to: '池上',
+  segments: [
+    const RouteSegment(
+      type: SegmentType.walk,
+      fromName: '現在地',
+      toName: '',
+      minutes: 40,
+      km: 2.9,
+      kcal: 163,
+      polyline: [_origin, _midway],
+    ),
+    const RouteSegment(
+      type: SegmentType.walk,
+      fromName: '',
+      toName: '久が原',
+      minutes: 12,
+      km: 0.8,
+      kcal: 46,
+    ),
+    RouteSegment(
+      type: SegmentType.train,
+      fromName: '久が原',
+      toName: '池上',
+      minutes: 10,
+      km: 2.0,
+      line: '東急池上線',
+      polyline: const [_kugahara, _ikegami],
       depTime: DateTime(2026, 7, 24, 15, 51),
       arrTime: DateTime(2026, 7, 24, 16, 1),
     ),
@@ -161,6 +202,18 @@ void main() {
     await tester.pump();
 
     expect(launched, hasLength(1));
+    expect(launched.single.queryParameters['destination'], '35.575,139.681');
+  });
+
+  testWidgets('末尾の徒歩が geometry を欠いても引き継ぎ先が継ぎ目の中間点に化けない', (tester) async {
+    final launched = await _pumpResult(tester, _geometrylessTailWalkPlan());
+
+    await tester.tap(find.text(_walkCtaLabel));
+    await tester.pump();
+
+    expect(launched, hasLength(1));
+    // 座標不明として次区間（乗車駅）の始点へフォールバックする。中間点 35.568,139.69
+    // へ案内すると、その地点で徒歩レッグ全体が完了扱いになる。
     expect(launched.single.queryParameters['destination'], '35.575,139.681');
   });
 }

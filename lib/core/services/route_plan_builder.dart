@@ -194,6 +194,12 @@ bool _isUntimedWalk(RouteSegment seg) =>
 /// 隣り合う徒歩 [a] [b] を 1 本へ畳む。所要・距離・kcal は子の合計をそのまま持つ。
 /// 距離から kcal を引き直さないのは、丸め差で合計が動くため（163+46+14=223 に対し
 /// 3.9km×[kcalPerKm]=222）。polyline は順に連結し、継ぎ目が同一座標なら重複を落とす。
+///
+/// [b] が geometry を欠くときは連結せず空にする。`polyline.last` は `legEndPoint` 経由で
+/// 引き継ぎ先（#323）と到着自動判定（#305）の両方が「この区間の終点」として読む契約なので、
+/// [a] の座標だけを残すと継ぎ目の中間点を終点と偽ることになる（Google マップを歩き終える
+/// 手前へ案内し、その地点で徒歩レッグ全体を完了扱いにする）。空にすれば座標不明として扱われ、
+/// 次区間の始点・区間名へのフォールバックが働く。
 RouteSegment _joinWalks(RouteSegment a, RouteSegment b) => RouteSegment(
   type: SegmentType.walk,
   fromName: a.fromName,
@@ -201,14 +207,12 @@ RouteSegment _joinWalks(RouteSegment a, RouteSegment b) => RouteSegment(
   minutes: a.minutes + b.minutes,
   km: a.km == null && b.km == null ? null : (a.km ?? 0) + (b.km ?? 0),
   kcal: a.kcal == null && b.kcal == null ? null : (a.kcal ?? 0) + (b.kcal ?? 0),
-  polyline: [
-    ...a.polyline,
-    ...b.polyline.skip(
-      a.polyline.isNotEmpty && a.polyline.last == b.polyline.firstOrNull
-          ? 1
-          : 0,
-    ),
-  ],
+  polyline: b.polyline.isEmpty
+      ? const []
+      : [
+          ...a.polyline,
+          ...b.polyline.skip(a.polyline.lastOrNull == b.polyline.first ? 1 : 0),
+        ],
 );
 
 /// 連続する徒歩区間を 1 本へ畳む（#337）。乗車駅探索（#332）は `出発地 → 候補停留所 X`
