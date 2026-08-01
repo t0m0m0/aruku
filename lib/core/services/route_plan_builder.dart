@@ -187,6 +187,50 @@ TimelineNode _boardingNode(
   );
 }
 
+/// 時刻表を持たない徒歩区間か。統合（[_mergeConsecutiveWalks]）の可否判定に使う。
+bool _isUntimedWalk(RouteSegment seg) =>
+    seg.type == SegmentType.walk && seg.depTime == null && seg.arrTime == null;
+
+/// 隣り合う徒歩 [a] [b] を 1 本へ畳む。所要・距離・kcal は子の合計をそのまま持つ。
+/// 距離から kcal を引き直さないのは、丸め差で合計が動くため（163+46+14=223 に対し
+/// 3.9km×[kcalPerKm]=222）。polyline は順に連結し、継ぎ目が同一座標なら重複を落とす。
+RouteSegment _joinWalks(RouteSegment a, RouteSegment b) => RouteSegment(
+  type: SegmentType.walk,
+  fromName: a.fromName,
+  toName: b.toName,
+  minutes: a.minutes + b.minutes,
+  km: a.km == null && b.km == null ? null : (a.km ?? 0) + (b.km ?? 0),
+  kcal: a.kcal == null && b.kcal == null ? null : (a.kcal ?? 0) + (b.kcal ?? 0),
+  polyline: [
+    ...a.polyline,
+    ...b.polyline.skip(
+      a.polyline.isNotEmpty && a.polyline.last == b.polyline.firstOrNull
+          ? 1
+          : 0,
+    ),
+  ],
+);
+
+/// 連続する徒歩区間を 1 本へ畳む（#337）。乗車駅探索（#332）は `出発地 → 候補停留所 X`
+/// の徒歩に `X → 目的地` の引き直しを継ぎ足すため、徒歩レッグが 2 本以上並ぶ。継ぎ目の
+/// X は corridor 上の任意点で乗り換えも起きず、名前も持たない（`toName` が空文字のまま
+/// 残る #322/#323 と同根）ため、通過点として描くと中身の無い行になる。
+///
+/// 畳むのは時刻を持たない徒歩どうしに限る。[RouteSegment.depTime] を持つ区間は
+/// [_advance] が発車待ちを吸収して進むので、畳むとその待ちが消えて到着時刻がずれる。
+List<RouteSegment> _mergeConsecutiveWalks(List<RouteSegment> segments) {
+  final merged = <RouteSegment>[];
+  for (final seg in segments) {
+    final prev = merged.isEmpty ? null : merged.last;
+    if (prev != null && _isUntimedWalk(prev) && _isUntimedWalk(seg)) {
+      merged[merged.length - 1] = _joinWalks(prev, seg);
+    } else {
+      merged.add(seg);
+    }
+  }
+  return merged;
+}
+
 /// 区間列から RoutePlan を構築する（合計距離・徒歩距離・kcal・徒歩比率・
 /// タイムライン）。データ源に依存しない純粋関数。
 /// [departureAt] は出発の絶対時刻（時刻表データとの差で待ち時間を算出する基点）。
@@ -202,7 +246,10 @@ RoutePlan buildRoutePlan({
   // 距離・所要ともに実質ゼロの徒歩レッグ（同駅乗換など #225）はノイズなので除外する。
   // segments と timelineNodes の 1:1 対応を保つため、ノード生成前にここで落とす。全データ源が
   // 通る共有関数なので、parser 側で漏れても表示前に確実に取り除く保険になる。
-  segments = segments.where((s) => !s.isZeroWalk).toList();
+  // 統合（#337）より先に落とすのは、0値徒歩に分断されていた徒歩どうしも 1 本に畳むため。
+  segments = _mergeConsecutiveWalks(
+    segments.where((s) => !s.isZeroWalk).toList(),
+  );
 
   final totalKm = segments.fold<double>(0, (a, s) => a + (s.km ?? 0));
   final walkKm = segments

@@ -1,3 +1,4 @@
+import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/route_plan_builder.dart';
@@ -436,6 +437,180 @@ void main() {
       expect(plan.timelineNodes[1].sub, '');
       expect(plan.timelineNodes[1].cardBelow, isFalse);
       expect(plan.timelineNodes[2].sub, '2号線');
+    });
+  });
+
+  group('buildRoutePlan 連続徒歩の統合', () {
+    // #337 の実例（現在地 → 久が原）。乗車駅探索の継ぎ目で徒歩が 3 本並び、
+    // うち 1 本は端点名が空。利用者から見れば「久が原まで 55 分歩く」だけの行程。
+    List<RouteSegment> consecutiveWalks() => [
+      const RouteSegment(
+        type: SegmentType.walk,
+        fromName: '現在地',
+        toName: '',
+        minutes: 40,
+        km: 2.9,
+        kcal: 163,
+      ),
+      const RouteSegment(
+        type: SegmentType.walk,
+        fromName: '',
+        toName: '久が原',
+        minutes: 12,
+        km: 0.8,
+        kcal: 46,
+      ),
+      const RouteSegment(
+        type: SegmentType.walk,
+        fromName: '久が原',
+        toName: '久が原',
+        minutes: 3,
+        km: 0.2,
+        kcal: 14,
+      ),
+    ];
+
+    RouteSegment ikegamiLine() => RouteSegment(
+      type: SegmentType.train,
+      fromName: '久が原',
+      toName: '池上',
+      minutes: 10,
+      km: 2.0,
+      line: '東急池上線',
+      depTime: DateTime(2026, 7, 24, 15, 51),
+      arrTime: DateTime(2026, 7, 24, 16, 1),
+    );
+
+    RoutePlan planOf(List<RouteSegment> segments, {String to = '池上'}) =>
+        buildRoutePlan(
+          from: '現在地',
+          to: to,
+          segments: segments,
+          departure: const TimeValue(h: 14, m: 51),
+          budgetMin: 90,
+          departureAt: DateTime(2026, 7, 24, 14, 51),
+        );
+
+    test('連続する徒歩は1区間へ統合され中間の通過ノードが生成されない', () {
+      final plan = planOf([...consecutiveWalks(), ikegamiLine()]);
+
+      expect(plan.segments, hasLength(2));
+      expect(plan.segments.first.type, SegmentType.walk);
+      expect(plan.segments.first.fromName, '現在地');
+      expect(plan.segments.first.toName, '久が原');
+      // 出発 → 乗車駅（発車時刻）→ 到着 の 3 行だけ。徒歩が続いただけの行は出さない。
+      expect(
+        plan.timelineNodes.map((n) => '${n.time} ${n.place} ${n.sub}').toList(),
+        ['14:51 現在地 出発', '15:51 久が原 東急池上線', '16:01 池上 到着 · 制限内 ✓'],
+      );
+    });
+
+    test('統合しても所要・距離・kcal・到着時刻は子の合計と一致する', () {
+      final plan = planOf([...consecutiveWalks(), ikegamiLine()]);
+
+      expect(plan.segments.first.minutes, 55);
+      expect(plan.segments.first.km, closeTo(3.9, 1e-9));
+      // kcal は距離から引き直さない（3.9km×57 = 222 に化けて合計が 1 ずれる）。
+      expect(plan.segments.first.kcal, 223);
+      expect(plan.kcal, 223);
+      expect(plan.walkKm, closeTo(3.9, 1e-9));
+      expect(plan.totalKm, closeTo(5.9, 1e-9));
+      // 徒歩 55 分で 15:46 着 → 15:51 発 → 16:01 着。統合前と 1 分もずらさない。
+      expect(plan.totalMin, 70);
+      expect(plan.timelineNodes.last.time, '16:01');
+    });
+
+    test('統合後の polyline は子を順に連結し継ぎ目の重複点を持たない', () {
+      const a = GeoPoint(35.5614, 139.7161);
+      const b = GeoPoint(35.5680, 139.6900);
+      const c = GeoPoint(35.5750, 139.6810);
+      final plan = planOf([
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '現在地',
+          toName: '',
+          minutes: 20,
+          km: 1.5,
+          kcal: 86,
+          polyline: [a, b],
+        ),
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '',
+          toName: '久が原',
+          minutes: 10,
+          km: 0.7,
+          kcal: 40,
+          polyline: [b, c],
+        ),
+      ], to: '久が原');
+
+      expect(plan.segments.single.polyline, [a, b, c]);
+    });
+
+    test('徒歩→電車→徒歩 のように連続していない徒歩は統合しない', () {
+      final plan = planOf([
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '現在地',
+          toName: '久が原',
+          minutes: 40,
+          km: 2.9,
+          kcal: 163,
+        ),
+        ikegamiLine(),
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '池上',
+          toName: '目的地',
+          minutes: 5,
+          km: 0.4,
+          kcal: 23,
+        ),
+      ], to: '目的地');
+
+      expect(plan.segments, hasLength(3));
+      expect(plan.timelineNodes.map((n) => n.place).toList(), [
+        '現在地',
+        '久が原',
+        '池上',
+        '目的地',
+      ]);
+    });
+
+    test('端点名が空の徒歩を含んでも空欄のまま描かれるノードが残らない', () {
+      final plan = planOf([...consecutiveWalks(), ikegamiLine()]);
+
+      expect(plan.timelineNodes.every((n) => n.place.isNotEmpty), isTrue);
+    });
+
+    test('発着時刻を持つ徒歩は統合せず到着時刻を保つ', () {
+      // 統合すると所要の単純合計（10+10=20分）で 15:11 着に化ける。時刻を持つ区間は
+      // _advance が待ちを吸収するため、畳んだ瞬間に到着時刻がずれる。
+      final plan = planOf([
+        const RouteSegment(
+          type: SegmentType.walk,
+          fromName: '現在地',
+          toName: '中間点',
+          minutes: 10,
+          km: 0.7,
+          kcal: 40,
+        ),
+        RouteSegment(
+          type: SegmentType.walk,
+          fromName: '中間点',
+          toName: '久が原',
+          minutes: 10,
+          km: 0.7,
+          kcal: 40,
+          depTime: DateTime(2026, 7, 24, 15, 11),
+          arrTime: DateTime(2026, 7, 24, 15, 21),
+        ),
+      ], to: '久が原');
+
+      expect(plan.segments, hasLength(2));
+      expect(plan.totalMin, 30);
+      expect(plan.timelineNodes.last.time, '15:21');
     });
   });
 
