@@ -72,11 +72,6 @@ class _LegCtaState extends State<_LegCta> {
         : (isWalk
               ? l10n.resultCtaWalkToDestination
               : l10n.resultCtaTransitToDestination);
-    // バス専用アイコンは未デザインのため、タイムラインカード（#249）と同じく
-    // 電車アイコンを流用する。区別は下の modeCaption（路線名/バス表記）で付ける。
-    final modeIcon = isWalk
-        ? Ic.walk(size: 18, color: c.ink2)
-        : Ic.train(size: 18, color: c.ink2);
     final modeCaption = isWalk
         ? null
         : (leg.line ??
@@ -110,41 +105,24 @@ class _LegCtaState extends State<_LegCta> {
               ],
             ),
           ),
-        Row(
-          children: [
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: c.paper,
-                border: Border.all(color: c.hairline),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Center(child: modeIcon),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: ArukuButton(
-                label: label,
-                onPressed: _handleTap,
-                icon: Ic.arrowUp(size: 18, color: c.ivory),
-                iconGap: 8,
-                shadow: const [
-                  BoxShadow(
-                    color: ArukuTokens.shadowCtaResult,
-                    blurRadius: 20,
-                    offset: Offset(0, 8),
-                  ),
-                ],
-                textStyle: jpStyle(
-                  size: 16,
-                  weight: FontWeight.w800,
-                  color: c.ivory,
-                  letterSpacing: 0.06 * 16,
-                ),
-              ),
+        ArukuButton(
+          label: label,
+          onPressed: _handleTap,
+          icon: Ic.arrowUp(size: 18, color: c.ivory),
+          iconGap: 8,
+          shadow: const [
+            BoxShadow(
+              color: ArukuTokens.shadowCtaResult,
+              blurRadius: 20,
+              offset: Offset(0, 8),
             ),
           ],
+          textStyle: jpStyle(
+            size: 16,
+            weight: FontWeight.w800,
+            color: c.ivory,
+            letterSpacing: 0.06 * 16,
+          ),
         ),
         if (widget.onManualAdvance != null)
           Align(
