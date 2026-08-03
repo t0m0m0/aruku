@@ -112,21 +112,28 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 | 3 | App Check デバッグトークン | `dart_defines.json` ＋ Firebase Console への登録 |
 
 **① `PROXY_BASE_URL` を決める。** 値は**アプリを動かす場所から見たホストのアドレス**で、
-実行先ごとに違います。エミュレータの `127.0.0.1` はエミュレータ自身を指すため、
-Android でそのまま使うとプロキシに届きません。
+実行先ごとに違います。対応するのは iOS / Android の 2 プラットフォームです
+（macOS・Web は `lib/firebase_options.dart` が `UnsupportedError` を投げるため動きません）。
 
-| アプリの実行先 | Functions エミュレータを叩く場合 |
-|---|---|
-| iOS シミュレータ / macOS | `http://127.0.0.1:5001/{projectId}/asia-northeast1` |
-| Android エミュレータ | `http://10.0.2.2:5001/{projectId}/asia-northeast1`（`10.0.2.2` がホストの別名）|
-| 実機（同一 LAN） | `http://{開発機のLAN IP}:5001/{projectId}/asia-northeast1`<br>または `adb reverse tcp:5001 tcp:5001` して `127.0.0.1` を使う |
+| アプリの実行先 | ローカルの Functions エミュレータを叩く | デプロイ済みプロキシを叩く |
+|---|---|---|
+| iOS シミュレータ | `http://127.0.0.1:5001/{projectId}/asia-northeast1` | ✅ |
+| iOS 実機（同一 LAN） | `http://{開発機のLAN IP}:5001/{projectId}/asia-northeast1` | ✅ |
+| Android エミュレータ・実機 | **不可**（下記） | ✅ |
 
-デプロイ済みプロキシを叩く場合は実行先を問わず
+デプロイ済みプロキシの URL は実行先を問わず
 `https://asia-northeast1-{projectId}.cloudfunctions.net` です。
+
+> **Android からローカルの Functions エミュレータへは現状つながりません。**
+> `targetSdk` は 36（Android 9+ の既定で平文 HTTP が不許可）で、`AndroidManifest.xml` にも
+> `usesCleartextTraffic` / `networkSecurityConfig` の指定がありません。ホストの別名 `10.0.2.2` も
+> `adb reverse` 経由の `127.0.0.1` も**同じく平文なのでブロックされます**（`adb reverse` は
+> 到達性の問題を解くだけで、平文の可否には効きません）。
+> Android で地点検索・徒歩実測を試す場合は**デプロイ済みプロキシ**を指してください。
+> debug ビルド限定で平文を許可する対応は [#349](https://github.com/t0m0m0/aruku/issues/349) で扱います。
 
 **② Functions エミュレータを起動する。** `package.json` の `main` は `lib/index.js`
 （tsc の出力・gitignore 済み）なので、**ビルドしないとエミュレータは読み込む関数が無い状態で起動します**。
-`serve` スクリプトが `npm run build` を前置きするので、これを使ってください。
 
 ```sh
 # 別ターミナルで実行し、起動したままにする
