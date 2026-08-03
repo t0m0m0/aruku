@@ -8,8 +8,10 @@
 **平文キーは絶対にコミットしないでください**（`secrets.properties` /
 `ios/Flutter/Secrets.xcconfig` は `.gitignore` 済み）。
 
-**この節（1〜4）で動くのは地図表示までです。** 地点検索と徒歩実測は Cloud Functions プロキシ
+**この節（1〜5）で動くのは地図表示までです。** 地点検索と徒歩実測は Cloud Functions プロキシ
 経由のため、別途「[プロキシを動かす](#プロキシを動かす地点検索徒歩実測)」の設定が要ります。
+
+### 1. API キーの発行
 
 [Google Cloud Console](https://console.cloud.google.com/) で以下を有効化し、
 API キーを 1 つ発行します（Android / iOS 共通の単一キーを使用）。
@@ -59,21 +61,37 @@ cp ios/Flutter/Secrets.xcconfig.example ios/Flutter/Secrets.xcconfig
 >   echo "MAPS_API_KEY = $MAPS_API_KEY" > ios/Flutter/Secrets.xcconfig
 >   ```
 
-### 3. ビルド・実行
+### 3. dart-define ファイルの用意（**起動に必須**）
+
+アプリは Firebase を初期化するため、`FIREBASE_ANDROID_API_KEY` / `FIREBASE_IOS_API_KEY` を
+dart-define で受け取ります。**未設定だと debug ビルドは起動時に `StateError` で落ちます**
+（`lib/main.dart` の `_assertFirebaseKeyPresent`）。地図表示だけを試す場合でも必要です。
+
+```sh
+cp dart_defines.example.json dart_defines.json
+#   FIREBASE_ANDROID_API_KEY / FIREBASE_IOS_API_KEY に実キーを設定
+#   （Firebase Console → プロジェクトの設定 → マイアプリ）
+```
+
+`dart_defines.json` は gitignore 済みです。**コミットしないでください。**
+
+### 4. ビルド・実行
 
 ```sh
 flutter pub get
-flutter run
+flutter run --dart-define-from-file=dart_defines.json
 ```
 
-キー未設定でもアプリは起動し、地図はスタイライズド・プレースホルダで描画されます。
+VS Code の `.vscode/launch.json` は同ファイルを自動で読むため、F5 実行ならオプションは不要です。
 
-### 4. 実地図（GoogleMap）の表示
+Maps のキーが未設定でもアプリは起動し、地図はスタイライズド・プレースホルダで描画されます。
+
+### 5. 実地図（GoogleMap）の表示
 
 キー設定後、`USE_REAL_MAP` フラグを付けると実地図が表示されます。
 
 ```sh
-flutter run --dart-define=USE_REAL_MAP=true
+flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
 ```
 
 （既定では実地図を有効化しません。地図 UI の本格統合・テーマ適用は別 ISSUE で対応します）
@@ -89,24 +107,40 @@ flutter run --dart-define=USE_REAL_MAP=true
 
 | # | 設定 | 置き場所 |
 |---|---|---|
-| 1 | `PROXY_BASE_URL` | `dart_defines.json`（`dart_defines.example.json` をコピー） |
-| 2 | サーバー側の Google キー `GOOGLE_MAPS_API_KEY`（Routes API + Places API (New) を有効化） | エミュレータは `process.env` / 本番は Secret Manager |
+| 1 | `PROXY_BASE_URL` | `dart_defines.json`（セットアップ 3 で作成済み） |
+| 2 | サーバー側の Google キー `GOOGLE_MAPS_API_KEY`（Routes API + Places API (New) を有効化） | エミュレータは環境変数 / 本番は Secret Manager |
 | 3 | App Check デバッグトークン | `dart_defines.json` ＋ Firebase Console への登録 |
 
+**① `PROXY_BASE_URL` を決める。** 値は**アプリを動かす場所から見たホストのアドレス**で、
+実行先ごとに違います。エミュレータの `127.0.0.1` はエミュレータ自身を指すため、
+Android でそのまま使うとプロキシに届きません。
+
+| アプリの実行先 | Functions エミュレータを叩く場合 |
+|---|---|
+| iOS シミュレータ / macOS | `http://127.0.0.1:5001/{projectId}/asia-northeast1` |
+| Android エミュレータ | `http://10.0.2.2:5001/{projectId}/asia-northeast1`（`10.0.2.2` がホストの別名）|
+| 実機（同一 LAN） | `http://{開発機のLAN IP}:5001/{projectId}/asia-northeast1`<br>または `adb reverse tcp:5001 tcp:5001` して `127.0.0.1` を使う |
+
+デプロイ済みプロキシを叩く場合は実行先を問わず
+`https://asia-northeast1-{projectId}.cloudfunctions.net` です。
+
+**② Functions エミュレータを起動する。** `package.json` の `main` は `lib/index.js`
+（tsc の出力・gitignore 済み）なので、**ビルドしないとエミュレータは読み込む関数が無い状態で起動します**。
+`serve` スクリプトが `npm run build` を前置きするので、これを使ってください。
+
 ```sh
-# 1. dart-define をテンプレートから用意し、PROXY_BASE_URL を設定する
-cp dart_defines.example.json dart_defines.json
+# 別ターミナルで実行し、起動したままにする
+cd functions
+npm install
+GOOGLE_MAPS_API_KEY=<サーバー側キー> npm run serve
+```
 
-#    ローカル（Functions エミュレータ）を叩く場合:
-#      "PROXY_BASE_URL": "http://127.0.0.1:5001/{projectId}/asia-northeast1"
-#    デプロイ済みを叩く場合:
-#      "PROXY_BASE_URL": "https://asia-northeast1-{projectId}.cloudfunctions.net"
+> macOS で Keychain にキーを登録済みなら、代わりに `npm run dev` がキーの取り出しまで行います。
 
-# 2. Functions エミュレータを起動（サーバー側キーは環境変数から読む）
-cd functions && npm install
-GOOGLE_MAPS_API_KEY=<サーバー側キー> npx -y firebase-tools@latest emulators:start --only functions
+**③ アプリを起動する。** リポジトリのルートで実行します（上のブロックで `cd functions`
+しているので、同じターミナルを使うなら先に `cd ..` してください）。
 
-# 3. アプリを起動（VS Code の launch.json は同ファイルを自動で読む）
+```sh
 flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
 ```
 
@@ -115,7 +149,6 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 - 実機のデバッグビルドから**デプロイ済み**プロキシを叩く場合は App Check が必須です。
   `dart_defines.json` のデバッグトークンと同じ値を Firebase Console → App Check → デバッグトークン
   に登録してください。未登録だと 401 になります。
-- `dart_defines.json` は gitignore 済みです。**コミットしないでください。**
 
 ## リリースビルド（Android 署名）
 
