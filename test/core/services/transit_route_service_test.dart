@@ -2606,9 +2606,88 @@ void main() {
       };
     }
 
+    /// goal 手前 139.165 で降りて歩く便。到着は [throughOption] より遅いが予算内に収まり、
+    /// 徒歩は多い（徒歩最大化の目的関数ではこちらが上位）。
+    Map<String, dynamic> walkierOption(double lng, String time) {
+      const alight = GeoPoint(35.0, 139.165);
+      final dep = secsOf(time);
+      final ride = (haversineKm(GeoPoint(35.0, lng), alight) * 1000 / 500)
+          .round();
+      final arr = dep + ride * 60;
+      final egress = (haversineKm(alight, goal7) * 1000 / walkMetersPerMinute)
+          .round();
+      return {
+        'journey': {
+          'departureSecs': dep,
+          'arrivalSecs': arr,
+          'durationSecs': arr - dep + egress * 60,
+          'accessWalkSecs': 0,
+          'egressWalkSecs': egress * 60,
+          'legs': [
+            _railLeg(
+              route: '各停',
+              fromId: 'bx',
+              fromName: '乗車駅',
+              toId: 'wx',
+              toName: '手前駅',
+              dep: dep,
+              arr: arr,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('transit', 'bx', 'wx', 'stopOrder', [
+              [35.0, lng],
+              [alight.lat, alight.lng],
+            ]),
+            _mapSeg('walk', 'wx', 'destination', 'estimatedWalk', [
+              [alight.lat, alight.lng],
+              [goal7.lat, goal7.lng],
+            ]),
+          ],
+        },
+      };
+    }
+
+    /// 発着時刻を欠く便（幽霊便）。`arrivalMinutes` は時刻の無い区間の乗車待ちを0と見なす
+    /// ので、到着だけで比べると**常に最速に見える**。
+    Map<String, dynamic> timelessOption(double lng) => {
+      'journey': {
+        'durationSecs': 600,
+        'accessWalkSecs': 0,
+        'egressWalkSecs': 0,
+        'legs': [
+          {
+            'kind': 'transit',
+            'mode': 'rail',
+            'routeName': '時刻なし線',
+            'from': _station('bx', '時刻なし乗車駅'),
+            'to': _station('gx', '目的駅'),
+          },
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('transit', 'bx', 'gx', 'stopOrder', [
+            [35.0, lng],
+            [35.0, 139.20],
+          ]),
+        ],
+      },
+    };
+
     /// [poisonLng] の地点だけ「悪い便が先頭・正常な便が後続」の2本を返す。
-    /// null なら全地点で正常な便を1本だけ返す（上流が1本しか返さない条件）。
-    http.Client mock({double? poisonLng}) => MockClient((req) async {
+    /// [walkier] を立てると全地点で「乗り通し（到着最早）＋手前で降りて歩く便」を返す。
+    /// [timelessFrom] 以遠の地点は「時刻なし便が先頭」になる。
+    /// いずれも無指定なら全地点で正常な便を1本だけ返す（上流が1本しか返さない条件）。
+    http.Client mock({
+      double? poisonLng,
+      bool walkier = false,
+      double? timelessFrom,
+    }) => MockClient((req) async {
       final path = req.url.path;
       if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
       if (path.contains('googleWalkProxy')) return _walkFor(req.url);
@@ -2621,7 +2700,10 @@ void main() {
         return _json(
           _guidance([
             if (poisoned) strandedOption(lng, time),
+            if (timelessFrom != null && lng >= timelessFrom - 1e-6)
+              timelessOption(lng),
             throughOption(lng, time),
+            if (walkier) walkierOption(lng, time),
           ]),
         );
       }
@@ -2635,11 +2717,12 @@ void main() {
     Future<RoutePlan> planWith(
       http.Client client, {
       void Function(RouteSearchMetrics)? onMetrics,
+      TimeValue arrival = const TimeValue(h: 10, m: 50), // 予算110分
     }) => _service(client, onMetrics: onMetrics).plan(
       destination: '目的駅',
       destinationLatLng: goal7,
       departure: const TimeValue(h: 9, m: 0),
-      arrival: const TimeValue(h: 10, m: 50), // 予算110分
+      arrival: arrival,
       origin: origin7,
       originName: '出発',
     );
@@ -2790,6 +2873,35 @@ void main() {
       expect(train.depTime, isNotNull);
       expect(train.depTime!.hour, 5);
       expect(train.depTime!.minute, 0, reason: '30分後発の遅い便の時刻を貼らない');
+    });
+
+    test('予算内に収まる範囲では到着最早でなく徒歩の多い便を候補にする（レビュー指摘）', () async {
+      // 到着最早は「この地点が予算内か」の判定基準としては正しいが、プールへ渡す候補まで
+      // それで決めると、予算内に収まる**歩く便**を捨てる。乗車地点が同じでも option ごとに
+      // 降車地点は違い、手前で降りれば徒歩は増える——目的関数はそちらを採るべき。
+      final plan = await planWith(
+        mock(walkier: true),
+        arrival: const TimeValue(h: 11, m: 20), // 予算140分
+      );
+      expect(
+        walkMinutesOf(plan),
+        greaterThan(100),
+        reason: '到着最早で潰すと乗り通し（徒歩91分以下）で確定してしまう',
+      );
+      expect(plan.totalMin, lessThanOrEqualTo(140));
+    });
+
+    test('時刻を欠く便は到着最早の比較で最速に化けさせない（レビュー指摘）', () async {
+      // 時刻なし区間は `arrivalMinutes` が乗車待ちを0と見なすため、到着だけで比べると
+      // 必ず勝つ。掴んだ候補は幽霊便として確定から除外されるので、同じ地点にあった
+      // **実時刻付きの便**もろとも失う。
+      final plan = await planWith(mock(timelessFrom: 139.06));
+      expect(
+        walkMinutesOf(plan),
+        greaterThan(74),
+        reason: '時刻なし便を採ると奥の地点が確定できず手前へ落ちる',
+      );
+      expect(plan.totalMin, lessThanOrEqualTo(110));
     });
 
     test('上流が1本しか返さない地点でも従来どおり徒歩最大へ収束する', () async {
@@ -3740,6 +3852,59 @@ void main() {
       };
     }
 
+    /// バス許容照会が返す「電車＋バス」の混合便。バスだけの便より早く着く。
+    /// バス許容 (`allowBus`) の照会は電車も許すので、上流はこういう option も返し得る。
+    Map<String, dynamic> trainThenBusFrom(
+      GeoPoint from,
+      GeoPoint to,
+      DateTime at,
+    ) {
+      final atSecs = at.hour * 3600 + at.minute * 60;
+      final mid = GeoPoint(from.lat, (from.lng + to.lng) / 2);
+      return {
+        'journey': {
+          'departureSecs': atSecs,
+          'arrivalSecs': atSecs + 300,
+          'durationSecs': 300,
+          'accessWalkSecs': 0,
+          'egressWalkSecs': 0,
+          'legs': [
+            _railLeg(
+              route: '特急線',
+              fromId: 'mx:0',
+              fromName: 'P駅',
+              toId: 'mx:1',
+              toName: 'Q駅',
+              dep: atSecs,
+              arr: atSecs + 120,
+            ),
+            {
+              'kind': 'transit',
+              'mode': 'bus',
+              'routeName': 'バス09',
+              'from': _station('bs:m', 'M停留所'),
+              'to': _station('bs:n', 'N停留所'),
+              'departureSecs': atSecs + 180,
+              'arrivalSecs': atSecs + 300,
+            },
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('transit', 'mx:0', 'mx:1', 'stopOrder', [
+              [from.lat, from.lng],
+              [mid.lat, mid.lng],
+            ]),
+            _mapSeg('transit', 'bs:m', 'bs:n', 'gtfsShape', [
+              [mid.lat, mid.lng],
+              [to.lat, to.lng],
+            ]),
+          ],
+        },
+      };
+    }
+
     /// all-walk のみ（電車のみ照会をコリドー点から引いたとき＝引き直し失敗の表現）。
     Map<String, dynamic> walkOnlyOption() => {
       'journey': {
@@ -3763,9 +3928,12 @@ void main() {
 
     /// [withDetourBus] を立てると last-resort が [detourBus] も返す（勝者でない最短 option）。
     /// [busSpeed] は引き直し便の実ダイヤ速度（既定は見積りと同速）。
+    /// [withMixedTrainBus] を立てると、区間内（goal 以外）へのバス許容照会が「電車＋バス」の
+    /// 早着便も返す——バス1区間の時刻・停留所名を復元する照会に混合便が混ざる条件。
     http.Client corridorMock({
       List<Uri>? log,
       bool withDetourBus = false,
+      bool withMixedTrainBus = false,
       double? busSpeed,
     }) => MockClient((req) async {
       log?.add(req.url);
@@ -3788,8 +3956,11 @@ void main() {
             if (fromOrigin) ...[
               busDoorToDoor(),
               if (withDetourBus) detourBus(),
-            ] else
-              busLegFrom(from, to, at, busSpeed: busSpeed)
+            ] else ...[
+              if (withMixedTrainBus && (to.lng - busGoal.lng).abs() > 1e-9)
+                trainThenBusFrom(from, to, at),
+              busLegFrom(from, to, at, busSpeed: busSpeed),
+            ]
           else if (fromOrigin)
             slowTrainOption()
           else
@@ -3816,6 +3987,18 @@ void main() {
       arrival: const TimeValue(h: 10, m: 5), // 予算65分
       origin: busOrigin,
     );
+
+    test('バス区間の引き直しは電車混じりの早着便から時刻・停留所名を採らない（レビュー指摘）', () async {
+      // `type == bus` の照会は `allowBus` ＝電車も許すので、電車＋バスの混合便が返り得る。
+      // 到着最早だけで選ぶとそれが勝ち、そこからバス leg だけ抜いた時刻・停留所名を
+      // **バス1区間ぶんとして**貼ることになる——電車部分が消え、乗車地点も所要も別物になる。
+      final plan = await runPlan(corridorMock(withMixedTrainBus: true));
+      final bus = plan.segments.firstWhere((s) => s.type == SegmentType.bus);
+
+      expect(bus.fromName, 'X停留所', reason: '混合便のバス停名（M停留所）を貼ってはならない');
+      expect(bus.depTime, isNotNull, reason: 'バスのみの便から実発車時刻が当たるべき');
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+    });
 
     test('バスが last-resort で勝つとき、手前のバス停で降りて歩く候補を選ぶ', () async {
       // door-to-door のバス（徒歩14分・到着36分）は予算65分に対し29分も余らせる。

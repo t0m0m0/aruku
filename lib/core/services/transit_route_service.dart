@@ -759,10 +759,18 @@ class TransitRouteService implements SearchEngine {
     } on RouteException {
       return null;
     }
+    // 拾う option は「[type] の区間**だけ**で goal まで行くもの」に限る。返す値は1区間ぶんの
+    // 乗降地名と実発着時刻として使われるので、他種の区間を挟む option を採ると、そこから
+    // [type] の leg だけ抜いた値を区間全体へ貼ることになる——間の電車が消え、乗車地点も
+    // 所要も別物になる。バス照会（`allowBus`）は電車も許すので、混合便は実際に返り得る。
     final best = _earliestArrival(
-      parseGuidancePlan(
-        body,
-      ).where((o) => o.segments.any((s) => s.type == type)),
+      parseGuidancePlan(body).where(
+        (o) =>
+            o.segments.any((s) => s.type == type) &&
+            o.segments.every(
+              (s) => s.type == type || s.type == SegmentType.walk,
+            ),
+      ),
       at,
     );
     if (best == null) return null;
@@ -1385,7 +1393,7 @@ class TransitRouteService implements SearchEngine {
           _estimateWalk(origin, x.coord, fromName: base.from, toName: '');
       final boardAt = departureAt.add(Duration(minutes: walk1.totalMin));
       final guidanceSw = Stopwatch()..start();
-      final xToGoal = await _fetchTransitFrom(
+      final options = await _fetchTransitOptionsFrom(
         x.coord,
         goal,
         boardAt,
@@ -1402,7 +1410,7 @@ class TransitRouteService implements SearchEngine {
         walkMs: walkSw.elapsedMilliseconds,
         guidanceMs: guidanceSw.elapsedMilliseconds,
       );
-      if (xToGoal == null) {
+      if (options.isEmpty) {
         _diag.log(
           () =>
               'board-search i=$i walk1=${walk1.totalMin}m guidance失敗'
@@ -1411,15 +1419,41 @@ class TransitRouteService implements SearchEngine {
         return built[i] = null;
       }
       final walk1Seg = walk1.segments.first;
-      final cand = RouteCandidate(
-        from: base.from,
-        to: xToGoal.to,
-        segments: [if (walk1Seg.minutes > 0) walk1Seg, ...xToGoal.segments],
-      );
+      final cands = [
+        for (final o in options)
+          RouteCandidate(
+            from: base.from,
+            to: o.to,
+            segments: [if (walk1Seg.minutes > 0) walk1Seg, ...o.segments],
+          ),
+      ];
+      // 予算内に収まる便が複数あるなら**徒歩最大**を採る（目的関数）。予算内が皆無なら
+      // **到着最早**を採る——この地点が予算外かの判定は最速便で決めなければ、悪い1本で
+      // 探索範囲を切り捨てることになる（#343）。両者を1本に兼ねさせると、到着最早が
+      // 予算内の歩く便を潰す（#343 レビュー）。
+      //
+      // 予算内の便を全部プールへ足す形は採らない。同一地点の option は前半徒歩 t1 を共有
+      // するので徒歩の差は降車以降だけに出る一方、プールに載せた候補はそれぞれ enrich の
+      // 実測を呼ぶ（#315）。徒歩最大の1本が下流で落ちたときの受け皿は、同じ地点の次善では
+      // なく隣の評価済み地点（[withinEntries] が全部返す）に任せる。
+      final within = [
+        for (final c in cands)
+          if (arrivalMinutes(c.segments, departureAt) <= budgetMin) c,
+      ];
+      final cand = within.isEmpty
+          ? cands.reduce(
+              (a, b) =>
+                  arrivalMinutes(b.segments, departureAt) <
+                      arrivalMinutes(a.segments, departureAt)
+                  ? b
+                  : a,
+            )
+          : within.reduce((a, b) => b.walkMinutes > a.walkMinutes ? b : a);
       _diag.log(
         () =>
             'board-search i=$i walk1=${walk1.totalMin}m '
             '乗車駅=${_diag.boardingStationOf(cand)} '
+            '候補${cands.length}本(予算内${within.length}) '
             '${_diag.candLine(cand, budgetMin, departureAt)}',
       );
       return built[i] = cand;
@@ -2038,11 +2072,27 @@ class TransitRouteService implements SearchEngine {
 
   // ---- Transit API（[TransitApiClient] 経由の引き直し） ----
 
+  /// 実発車時刻を確認できた option だけへ絞る。皆無なら [options] をそのまま返す。
+  ///
+  /// 到着で比べる前に必ず通す。[arrivalMinutes] は時刻を欠く transit 区間の乗車待ちを 0 と
+  /// 見なすため、**時刻なしの便は到着比較で必ず勝つ**。掴んだ候補は幻便として確定から
+  /// 除外される（[hasUnverifiedTransit]・#137）ので、同じ応答にあった実時刻付きの便まで
+  /// 一緒に失う。除外ではなく劣後にするのは、時刻なししか返らない地点で従来どおり1本を
+  /// 返すため——上流が何本返したかで縮退の挙動を変えない。
+  List<TransitOption> _verifiedFirst(Iterable<TransitOption> options) {
+    final all = options.toList();
+    final verified = [
+      for (final o in all)
+        if (!hasUnverifiedTransit(o.segments)) o,
+    ];
+    return verified.isNotEmpty ? verified : all;
+  }
+
   /// 引き直しの応答から、[at] 発で**到着が最も早い** option を選ぶ（同着は上流の並び順）。
   /// 該当が無ければ null。
   ///
   /// 素直には応答の先頭を採りたいが、`numItineraries` 本の並びは所要順である保証が無く、
-  /// 実測では乗り換えを失って降車後166分歩く経路が先頭に来た（#343）。乗車駅探索の評価は
+  /// 実測では乗り換えを失って降車後166分歩く経路が先頭に来た（#343）。引き直しが答えるのは
   /// 「この地点から時間内に着けるか」なので、悪い1本を掴んだ地点は予算外と誤判定され、
   /// 単調性を仮定した二分探索がそこから奥を丸ごと切り捨てる（実測で探索範囲の85%）。
   /// 判定と同じ尺度（[arrivalMinutes]）で選べば、採る候補は必ず先頭採用時と同じか良い。
@@ -2052,7 +2102,7 @@ class TransitRouteService implements SearchEngine {
   ) {
     TransitOption? best;
     var bestArr = 0;
-    for (final o in options) {
+    for (final o in _verifiedFirst(options)) {
       final arr = arrivalMinutes(o.segments, at);
       if (best == null || arr < bestArr) {
         best = o;
@@ -2062,12 +2112,18 @@ class TransitRouteService implements SearchEngine {
     return best;
   }
 
-  /// 乗車駅候補 X から goal への経路を引き直し、transit 区間を含む option のうち到着最早を
-  /// [RouteCandidate] で返す（乗車駅探索の評価関数）。全徒歩しか返らなければ null。
+  /// 乗車駅候補 X から goal への経路を引き直し、transit 区間を含む option を**全部**返す
+  /// （実時刻を確認できた便を優先し、その中は上流の並び順）。全徒歩しか返らない・上流が
+  /// 失敗したときは空。
+  ///
+  /// 1本に畳まずに返すのは、探索が option へ二つの別々の問いを投げるため（#343 レビュー）：
+  /// 「この地点は予算内か」は到着最早で決まるが、プールへ渡す候補は**予算内の中で徒歩最大**
+  /// でなければならない。同じ乗車地点でも option ごとに降車地点は違い、手前で降りる便ほど
+  /// 徒歩は増える。1本に畳むとどちらか一方の問いにしか答えられない。
   ///
   /// [allowBus] は基準コリドーの種別に揃える（#251）。バス corridor の乗車駅探索でバスを
   /// 除外して引くと、バス停 X からの経路が全徒歩に落ちて探索が空振りする。
-  Future<RouteCandidate?> _fetchTransitFrom(
+  Future<List<TransitOption>> _fetchTransitOptionsFrom(
     GeoPoint x,
     GeoPoint goal,
     DateTime at, {
@@ -2079,28 +2135,15 @@ class TransitRouteService implements SearchEngine {
       body = await _api.fetchGuidanceAt(x, goal, at, allowBus: allowBus);
     } on RouteException {
       // 上流の失敗（429・5xx・TIMEOUT）と「引けたが transit 区間が無い」を、呼び出し側は
-      // どちらも null として同じに扱う（縮退の挙動は変えない）。ただし前者は**この地点が
+      // どちらも空として同じに扱う（縮退の挙動は変えない）。ただし前者は**この地点が
       // 予算外だった**ことを意味しないので、境界を指標として読むときに区別が要る。
       onUpstreamFailure?.call();
-      return null;
+      return const [];
     }
-    final options = parseGuidancePlan(
-      body,
-    ).where((o) => o.segments.any((s) => s.type != SegmentType.walk)).toList();
-    final best = _earliestArrival(options, at);
-    if (best == null) return null;
-    if (options.length > 1) {
-      _diag.log(
-        () =>
-            '引き直し候補 ${options.length}本 到着='
-            '${options.map((o) => '${arrivalMinutes(o.segments, at)}m').join(',')}'
-            ' → 到着最早 ${arrivalMinutes(best.segments, at)}m を採用',
-      );
-    }
-    return RouteCandidate(
-      from: best.from,
-      to: best.to,
-      segments: best.segments,
+    return _verifiedFirst(
+      parseGuidancePlan(
+        body,
+      ).where((o) => o.segments.any((s) => s.type != SegmentType.walk)),
     );
   }
 
