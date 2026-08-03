@@ -124,6 +124,11 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 デプロイ済みプロキシの URL は実行先を問わず
 `https://asia-northeast1-{projectId}.cloudfunctions.net` です。
 
+> iOS の URL は `localhost` ではなく **IP リテラル（`127.0.0.1`）で書く**こと。ATS は IP アドレスへの
+> 接続には適用されない（iOS 10 以降は常に許可）が、`localhost` や `*.local` は**ホスト名なので ATS の
+> 対象**になり、`NSAllowsLocalNetworking` を足さないと平文が弾かれる。本プロジェクトは
+> `Info.plist` に ATS 例外を持たない（デプロイ target は iOS 15.0）。
+
 > **Android からローカルの Functions エミュレータへは現状つながりません。**
 > `targetSdk` は 36（Android 9+ の既定で平文 HTTP が不許可）で、`AndroidManifest.xml` にも
 > `usesCleartextTraffic` / `networkSecurityConfig` の指定がありません。ホストの別名 `10.0.2.2` も
