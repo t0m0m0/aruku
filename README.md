@@ -132,10 +132,14 @@ Android でそのまま使うとプロキシに届きません。
 # 別ターミナルで実行し、起動したままにする
 cd functions
 npm install
-GOOGLE_MAPS_API_KEY=<サーバー側キー> npm run serve
+npm run build
+GOOGLE_MAPS_API_KEY=<サーバー側キー> npx -y firebase-tools@latest emulators:start --only functions
 ```
 
-> macOS で Keychain にキーを登録済みなら、代わりに `npm run dev` がキーの取り出しまで行います。
+> `firebase` CLI をグローバルに入れている場合は、`npm run build` と起動をまとめた
+> `GOOGLE_MAPS_API_KEY=<キー> npm run serve` で代用できます（`firebase-tools` は
+> devDependency に含めていないため、未インストールなら上記の `npx` 版を使ってください）。
+> macOS で Keychain にキーを登録済みなら `npm run dev` がキーの取り出しまで行います。
 
 **③ アプリを起動する。** リポジトリのルートで実行します（上のブロックで `cd functions`
 しているので、同じターミナルを使うなら先に `cd ..` してください）。
