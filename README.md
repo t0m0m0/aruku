@@ -15,7 +15,14 @@ API キーを 1 つ発行します（Android / iOS 共通の単一キーを使�
 
 - Maps SDK for Android
 - Maps SDK for iOS
-- （後続機能用に Directions API / Places API も同時に有効化推奨）
+- Routes API（徒歩の所要・距離・街路ジオメトリ。`googleWalkProxy` / `googleWalkMatrixProxy` が使用）
+- Places API (New)（地点検索。`placesProxy` が使用）
+
+公共交通の経路は Google ではなく Transit API（`https://api.transit.ls8h.com`・認証不要）を
+クライアントから直接呼ぶため、キーも API 有効化も要りません（[ルート最適化 仕様](docs/spec/route-optimization.md) §2）。
+
+> 本番では地図表示用キーとプロキシ用キーを分離します（[docs/security_hardening.md](docs/security_hardening.md) ①）。
+> 下記の手順は開発用に単一キーを使う場合の最短手順です。
 
 ### 2. キーファイルの配置
 
