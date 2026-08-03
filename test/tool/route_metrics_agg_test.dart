@@ -25,6 +25,8 @@ void main() {
         ..boardSearchBest = 21
         ..boardSearchTruncated = true
         ..boardSearchProbeFailed = true
+        ..boardSearchSpeculated = true
+        ..recordSpeculationWaste(BoardSearchStats()..probes = 4)
         ..finalizeMs = 120
         ..totalMs = 5000;
 
@@ -48,6 +50,9 @@ void main() {
       expect(sample.boardSearchBest, 21);
       expect(sample.boardSearchTruncated, isTrue);
       expect(sample.boardSearchProbeFailed, isTrue);
+      expect(sample.speculated, isTrue);
+      expect(sample.speculationWasted, isTrue);
+      expect(sample.speculationProbes, 4);
       expect(sample.finalizeMs, 120);
       expect(sample.totalMs, 5000);
       // 現行 toLogLine は alternativesMs を出さない（#327 で撤去）→ 欠落は0。
@@ -155,6 +160,54 @@ void main() {
       expect(agg.singlePassCount, 1);
       expect(agg.singlePassRate, closeTo(1 / 3, 1e-9));
       expect(formatAggregation(agg), contains('singlePass発火'));
+    });
+
+    test('投機 board-search の発火率・空振り率・空振り往復本数を出す (#341)', () {
+      // 投機（preCollapse で board-search を enrich と並行起動）は縮退する検索でだけ
+      // 効き、collapse が偽なら丸ごと無駄撃ちになる。効果と対価は同じ1画面で読めないと
+      // 判断できないので、発火率と並べて空振り率・空振り probe 本数を出す。
+      final agg = aggregate(
+        samplesOf(const [
+          // 投機して当たった（collapse=1）。
+          '[route-metrics] collapse=1 boardSearch=1 http=9 guidanceCalls=5 '
+              'walkCalls=2 matrixCalls=2 guidanceMs=1 boardSearchMs=1 '
+              'boardSearchSpeculated=1 boardSearchSpeculationWasted=0 '
+              'boardSearchSpeculationProbes=0 finalizeMs=1 totalMs=1',
+          // 投機したが崩壊しなかった＝空振り。probe 4本を上流へ捨てている。
+          '[route-metrics] collapse=0 boardSearch=0 http=9 guidanceCalls=5 '
+              'walkCalls=2 matrixCalls=2 guidanceMs=1 boardSearchMs=0 '
+              'boardSearchSpeculated=1 boardSearchSpeculationWasted=1 '
+              'boardSearchSpeculationProbes=4 finalizeMs=1 totalMs=1',
+          // 投機キー欠落の旧ログは 0 扱いで壊れない（後方互換）。
+          '[route-metrics] collapse=0 boardSearch=0 http=3 guidanceCalls=1 '
+              'walkCalls=0 matrixCalls=2 guidanceMs=1 boardSearchMs=0 '
+              'finalizeMs=1 totalMs=1',
+        ]),
+      );
+
+      expect(agg.speculatedCount, 2);
+      expect(agg.speculationWastedCount, 1);
+      expect(agg.speculationRate, closeTo(2 / 3, 1e-9));
+      // 空振り率の分母は総検索数ではなく**投機した検索数**。総数で割ると、投機が
+      // 起きないルートを混ぜたぶんだけ「よく当たっている」ように見える。
+      expect(agg.speculationWasteRate, closeTo(1 / 2, 1e-9));
+      // 対価の分布は空振りサンプルだけから採る（当たった検索の probe は無駄ではない）。
+      expect(agg.speculationWastedProbes.count, 1);
+      expect(agg.speculationWastedProbes.mean, 4);
+      expect(formatAggregation(agg), contains('投機board-search'));
+    });
+
+    test('投機が1件も無ければ空振り率は 0（0除算しない）', () {
+      final agg = aggregate(
+        samplesOf(const [
+          '[route-metrics] collapse=0 boardSearch=0 http=3 guidanceCalls=1 '
+              'walkCalls=0 matrixCalls=2 guidanceMs=1 boardSearchMs=0 '
+              'finalizeMs=1 totalMs=1',
+        ]),
+      );
+      expect(agg.speculationRate, 0.0);
+      expect(agg.speculationWasteRate, 0.0);
+      expect(agg.speculationWastedProbes.count, 0);
     });
 
     test('collapse サブセットの walkCalls 統計＝#310 で削減できる往復本数の的', () {

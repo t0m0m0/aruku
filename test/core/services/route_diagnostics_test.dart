@@ -288,6 +288,8 @@ void main() {
         ..boardSearchProbeFailed = true
         ..boardSearchProbeSerialMs = 21000
         ..boardSearchProbeParallelMs = 18000
+        ..boardSearchSpeculated = true
+        ..recordSpeculationWaste(BoardSearchStats()..probes = 7)
         ..recordEnrich(
           EnrichLatencyLedger()
             ..record(chainMs: 12000, resolveSteps: 2)
@@ -321,6 +323,8 @@ void main() {
         'boardSearchRounds=3 boardSearchScanCount=63 boardSearchBest=25 '
         'boardSearchTruncated=1 boardSearchProbeFailed=1 '
         'boardSearchProbeSerialMs=21000 boardSearchProbeParallelMs=18000 '
+        'boardSearchSpeculated=1 boardSearchSpeculationWasted=1 '
+        'boardSearchSpeculationProbes=7 '
         'enrichCriticalMs=19000 enrichPasses=2 enrichResolveDepth=2 '
         'enrichCandidates=7 '
         'bestEffortMs=41000 bestEffortEntries=1 bestEffortCandidates=19 '
@@ -489,6 +493,8 @@ void main() {
         'boardSearchRounds=0 boardSearchScanCount=0 boardSearchBest=-1 '
         'boardSearchTruncated=0 boardSearchProbeFailed=0 '
         'boardSearchProbeSerialMs=0 boardSearchProbeParallelMs=0 '
+        'boardSearchSpeculated=0 boardSearchSpeculationWasted=0 '
+        'boardSearchSpeculationProbes=0 '
         'enrichCriticalMs=0 enrichPasses=0 enrichResolveDepth=0 '
         'enrichCandidates=0 '
         'bestEffortMs=0 bestEffortEntries=0 bestEffortCandidates=0 '
@@ -498,6 +504,35 @@ void main() {
         'finalWalkMinutes=-1 '
         'finalizeMs=0 totalMs=0',
       );
+    });
+  });
+
+  group('RouteSearchMetrics: 投機 board-search の空振り計上 (#341)', () {
+    test('空振りの対価は壁時計ではなく打ち上げた probe 本数で計上する', () {
+      // 投機は enrich と並行に走るので、捨てた探索がユーザーに払わせた壁時計はほぼ 0。
+      // 実際に消えるのは上流（第三者 API・§2.1）の枠なので、対価の単位は往復本数になる。
+      final m = RouteSearchMetrics()
+        ..boardSearchSpeculated = true
+        ..recordSpeculationWaste(BoardSearchStats()..probes = 5);
+      expect(m.boardSearchSpeculationWasted, isTrue);
+      expect(m.boardSearchSpeculationProbes, 5);
+    });
+
+    test('投機しただけで空振りしていなければ wasted は立たない', () {
+      final m = RouteSearchMetrics()..boardSearchSpeculated = true;
+      expect(m.boardSearchSpeculationWasted, isFalse);
+      expect(m.boardSearchSpeculationProbes, 0);
+    });
+
+    test('投機していない検索は3フィールドとも既定のまま', () {
+      final m = RouteSearchMetrics();
+      expect(m.boardSearchSpeculated, isFalse);
+      expect(m.boardSearchSpeculationWasted, isFalse);
+      expect(m.boardSearchSpeculationProbes, 0);
+    });
+
+    test('BoardSearchStats.probes の既定は 0', () {
+      expect(BoardSearchStats().probes, 0);
     });
   });
 
