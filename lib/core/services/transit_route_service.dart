@@ -2033,7 +2033,31 @@ class TransitRouteService implements SearchEngine {
 
   // ---- Transit API（[TransitApiClient] 経由の引き直し） ----
 
-  /// 乗車駅候補 X から goal への経路を引き直し、最初に transit 区間を含む option を
+  /// 引き直しの応答から、[at] 発で**到着が最も早い** option を選ぶ（同着は上流の並び順）。
+  /// 該当が無ければ null。
+  ///
+  /// 素直には応答の先頭を採りたいが、`numItineraries` 本の並びは所要順である保証が無く、
+  /// 実測では乗り換えを失って降車後166分歩く経路が先頭に来た（#343）。乗車駅探索の評価は
+  /// 「この地点から時間内に着けるか」なので、悪い1本を掴んだ地点は予算外と誤判定され、
+  /// 単調性を仮定した二分探索がそこから奥を丸ごと切り捨てる（実測で探索範囲の85%）。
+  /// 判定と同じ尺度（[arrivalMinutes]）で選べば、採る候補は必ず先頭採用時と同じか良い。
+  TransitOption? _earliestArrival(
+    Iterable<TransitOption> options,
+    DateTime at,
+  ) {
+    TransitOption? best;
+    var bestArr = 0;
+    for (final o in options) {
+      final arr = arrivalMinutes(o.segments, at);
+      if (best == null || arr < bestArr) {
+        best = o;
+        bestArr = arr;
+      }
+    }
+    return best;
+  }
+
+  /// 乗車駅候補 X から goal への経路を引き直し、transit 区間を含む option のうち到着最早を
   /// [RouteCandidate] で返す（乗車駅探索の評価関数）。全徒歩しか返らなければ null。
   ///
   /// [allowBus] は基準コリドーの種別に揃える（#251）。バス corridor の乗車駅探索でバスを
@@ -2055,12 +2079,24 @@ class TransitRouteService implements SearchEngine {
       onUpstreamFailure?.call();
       return null;
     }
-    for (final o in parseGuidancePlan(body)) {
-      if (o.segments.any((s) => s.type != SegmentType.walk)) {
-        return RouteCandidate(from: o.from, to: o.to, segments: o.segments);
-      }
+    final options = parseGuidancePlan(
+      body,
+    ).where((o) => o.segments.any((s) => s.type != SegmentType.walk)).toList();
+    final best = _earliestArrival(options, at);
+    if (best == null) return null;
+    if (options.length > 1) {
+      _diag.log(
+        () =>
+            '引き直し候補 ${options.length}本 到着='
+            '${options.map((o) => '${arrivalMinutes(o.segments, at)}m').join(',')}'
+            ' → 到着最早 ${arrivalMinutes(best.segments, at)}m を採用',
+      );
     }
-    return null;
+    return RouteCandidate(
+      from: best.from,
+      to: best.to,
+      segments: best.segments,
+    );
   }
 
   // ---- Google Routes（[TransitApiClient] 経由の徒歩実測をドメイン候補へ変換） ----

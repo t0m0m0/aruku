@@ -2454,6 +2454,228 @@ void main() {
     });
   });
 
+  group('plan: 引き直しは候補群から到着最早を採る（#343）', () {
+    // 上流は `numItineraries` で最大5本返すが、先頭が最速とは限らない。引き直しが「最初に
+    // transit を含む1本」を無条件に採ると、悪い1本を掴んだ地点だけが「予算外」と判定され、
+    // 単調性を仮定した二分探索は break でそれより奥を丸ごと捨てる（#343 実機: 探索48点の
+    // index 5 で打ち切り・予算139分中55分の使い残し）。
+    const origin7 = GeoPoint(35.0, 139.0);
+    const goal7 = GeoPoint(35.0, 139.20);
+
+    // 乗車順に単調なコリドー（0.005度 ≒ 前半徒歩6分）。区間2は前半徒歩が予算外なので、
+    // 探索範囲は区間1の15点＋区間2の起点に刈られる。
+    const leg1Lng = [
+      139.01,
+      139.015,
+      139.02,
+      139.025,
+      139.03,
+      139.035,
+      139.04,
+      139.045,
+      139.05,
+      139.055,
+      139.06,
+      139.065,
+      139.07,
+      139.075,
+      139.08,
+    ];
+    const leg2Lng = [139.08, 139.12, 139.16, 139.20];
+
+    List<List<double>> legCoords(List<double> lngs) => [
+      for (final l in lngs) [35.0, l],
+    ];
+
+    Map<String, dynamic> baseGuidance() => _guidance([
+      {
+        'journey': {
+          'departureSecs': 32400, // 09:00
+          'arrivalSecs': 33600, // 09:20（標準は速い1本・徒歩最小で大量に余る＝崩壊）
+          'durationSecs': 1200,
+          'accessWalkSecs': 0,
+          'egressWalkSecs': 0,
+          'legs': [
+            _railLeg(
+              route: '基準線A',
+              fromId: 's0',
+              fromName: '基準駅',
+              toId: 'sT',
+              toName: '基準乗換駅',
+              dep: 32400,
+              arr: 33000,
+            ),
+            _railLeg(
+              route: '基準線B',
+              fromId: 'sT',
+              fromName: '基準乗換駅',
+              toId: 'sN',
+              toName: '基準終着駅',
+              dep: 33000,
+              arr: 33600,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('transit', 's0', 'sT', 'stopOrder', legCoords(leg1Lng)),
+            _mapSeg('transit', 'sT', 'sN', 'stopOrder', legCoords(leg2Lng)),
+          ],
+        },
+      },
+    ]);
+
+    int secsOf(String hhmm) {
+      final p = hhmm.split(':');
+      return int.parse(p[0]) * 3600 + int.parse(p[1]) * 60;
+    }
+
+    /// 乗車駅 X から goal まで乗り通す正常な便（乗車待ち0・残距離を 500m/分 で概算）。
+    Map<String, dynamic> throughOption(double lng, String time) {
+      final dep = secsOf(time);
+      final t = (haversineKm(GeoPoint(35.0, lng), goal7) * 1000 / 500).round();
+      final arr = dep + t * 60;
+      return {
+        'journey': {
+          'departureSecs': dep,
+          'arrivalSecs': arr,
+          'durationSecs': arr - dep,
+          'accessWalkSecs': 0,
+          'egressWalkSecs': 0,
+          'legs': [
+            _railLeg(
+              route: '快速',
+              fromId: 'bx',
+              fromName: '乗車駅',
+              toId: 'gx',
+              toName: '目的駅',
+              dep: dep,
+              arr: arr,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('transit', 'bx', 'gx', 'stopOrder', [
+              [35.0, lng],
+              [35.0, 139.20],
+            ]),
+          ],
+        },
+      };
+    }
+
+    /// #343 実測の「悪い便」: 乗り換えを失い、手前で降りて長時間歩く（到着は予算外）。
+    Map<String, dynamic> strandedOption(double lng, String time) {
+      final dep = secsOf(time);
+      final arr = dep + 600; // 10分だけ乗る
+      return {
+        'journey': {
+          'departureSecs': dep,
+          'arrivalSecs': arr,
+          'durationSecs': arr - dep + 9960,
+          'accessWalkSecs': 0,
+          'egressWalkSecs': 9960, // 降車後166分徒歩
+          'legs': [
+            _railLeg(
+              route: '各停',
+              fromId: 'bx',
+              fromName: '乗車駅',
+              toId: 'mx',
+              toName: '取り残し駅',
+              dep: dep,
+              arr: arr,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('transit', 'bx', 'mx', 'stopOrder', [
+              [35.0, lng],
+              [35.0, 139.10],
+            ]),
+            _mapSeg('walk', 'mx', 'destination', 'estimatedWalk', const [
+              [35.0, 139.10],
+              [35.0, 139.20],
+            ]),
+          ],
+        },
+      };
+    }
+
+    /// [poisonLng] の地点だけ「悪い便が先頭・正常な便が後続」の2本を返す。
+    /// null なら全地点で正常な便を1本だけ返す（上流が1本しか返さない条件）。
+    http.Client mock({double? poisonLng}) => MockClient((req) async {
+      final path = req.url.path;
+      if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+      if (path.contains('googleWalkProxy')) return _walkFor(req.url);
+      if (path.contains('guidance/plan')) {
+        final from = req.url.queryParameters['from'] ?? '';
+        final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
+        if ((lng - 139.0).abs() < 1e-6) return _json(baseGuidance());
+        final time = req.url.queryParameters['time'] ?? '09:00';
+        final poisoned = poisonLng != null && (lng - poisonLng).abs() < 1e-6;
+        return _json(
+          _guidance([
+            if (poisoned) strandedOption(lng, time),
+            throughOption(lng, time),
+          ]),
+        );
+      }
+      return _json(const {}, 404);
+    });
+
+    int walkMinutesOf(RoutePlan plan) => plan.segments
+        .where((s) => s.type == SegmentType.walk)
+        .fold(0, (a, s) => a + s.minutes);
+
+    Future<RoutePlan> planWith(
+      http.Client client, {
+      void Function(RouteSearchMetrics)? onMetrics,
+    }) => _service(client, onMetrics: onMetrics).plan(
+      destination: '目的駅',
+      destinationLatLng: goal7,
+      departure: const TimeValue(h: 9, m: 0),
+      arrival: const TimeValue(h: 10, m: 50), // 予算110分
+      origin: origin7,
+      originName: '出発',
+    );
+
+    test('悪い便が先頭に来た地点でも探索を打ち切らず、奥の乗車駅まで歩く', () async {
+      // 139.07 はラウンド1の**最も奥の probe**。ここを予算外と判定すると `nextHi` が
+      // その手前へ動き、まだ一度も評価していない奥の3点がラウンド2ごと消える
+      // （同一ラウンドで並列に評価済みの点はプールへ残るので、未探索領域を殺す位置
+      // でなければ切り捨ての実害は出ない）。
+      RouteSearchMetrics? captured;
+      final plan = await planWith(
+        mock(poisonLng: 139.07),
+        onMetrics: (m) => captured = m,
+      );
+
+      expect(captured!.boardSearchActivated, isTrue);
+      expect(
+        captured!.boardSearchBest,
+        greaterThanOrEqualTo(13),
+        reason: '打ち切られると index 11 で頭打ちになり、奥の3点は評価されない',
+      );
+      expect(
+        walkMinutesOf(plan),
+        greaterThan(74),
+        reason: '奥を切り捨てると徒歩は74分で頭打ちになる',
+      );
+      expect(plan.totalMin, lessThanOrEqualTo(110));
+    });
+
+    test('上流が1本しか返さない地点でも従来どおり徒歩最大へ収束する', () async {
+      final plan = await planWith(mock());
+      expect(walkMinutesOf(plan), greaterThan(74));
+      expect(plan.totalMin, lessThanOrEqualTo(110));
+    });
+  });
+
   group('plan: 時刻なしハイブリッドの実発車時刻検証（approach A・深夜の幽霊便対策）', () {
     // ハイブリッド電車区間はコリドー座標を距離で割った概算 minutes だけを持ち depTime を
     // 欠く。すると _advance が乗車待ちを 0 にし、運行時間外（終電後・始発前）でも「待ち0で
