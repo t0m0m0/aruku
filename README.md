@@ -8,14 +8,34 @@
 **平文キーは絶対にコミットしないでください**（`secrets.properties` /
 `ios/Flutter/Secrets.xcconfig` は `.gitignore` 済み）。
 
+**この節（1〜5）で動くのは地図表示までです。** 地点検索と徒歩実測は Cloud Functions プロキシ
+経由のため、別途「[プロキシを動かす](#プロキシを動かす地点検索徒歩実測)」の設定が要ります。
+
 ### 1. API キーの発行
 
-[Google Cloud Console](https://console.cloud.google.com/) で以下を有効化し、
-API キーを 1 つ発行します（Android / iOS 共通の単一キーを使用）。
+[Google Cloud Console](https://console.cloud.google.com/) で必要な API を有効化し、
+キーを発行します。
 
-- Maps SDK for Android
-- Maps SDK for iOS
-- （後続機能用に Directions API / Places API も同時に有効化推奨）
+| 用途 | API | 呼び出し元 | キーの置き場所 |
+|---|---|---|---|
+| 地図表示（Android） | Maps SDK for Android | アプリ（ネイティブ SDK） | `secrets.properties` |
+| 地図表示（iOS） | Maps SDK for iOS | アプリ（ネイティブ SDK） | `ios/Flutter/Secrets.xcconfig` |
+| 徒歩の所要・距離・街路ジオメトリ | Routes API | `googleWalkProxy` / `googleWalkMatrixProxy` | Secret Manager `GOOGLE_MAPS_API_KEY` |
+| 地点検索 | Places API (New) | `placesProxy` | Secret Manager `GOOGLE_MAPS_API_KEY` |
+| 公共交通の経路 | — （Transit API・認証不要） | アプリから直接 | 不要 |
+
+**本番では地図表示用キーを Android 用・iOS 用に分け、プロキシ用と合わせて 3 本にします。**
+Google の API キーは**アプリケーション制限を 1 種類しか持てない**ため、1 本のキーに
+Android パッケージ名と iOS Bundle ID の両方を掛けることはできません（[Google の
+セキュリティ ガイダンス](https://developers.google.com/maps/api-security-best-practices)）。
+`secrets.properties` と `Secrets.xcconfig` は別ファイルなので、値を分けるだけで対応できます。
+制限の掛け方は [docs/security_hardening.md](docs/security_hardening.md) ① が正本です。
+
+> 開発中は制限なしのキー 1 本を両プラットフォームで使い回しても動きます。分離が要るのは
+> アプリケーション制限を掛ける本番前です。
+
+公共交通だけは Google ではなく Transit API（`https://api.transit.ls8h.com`）をクライアントから
+直接呼ぶため、キーも API 有効化も要りません（[ルート最適化 仕様](docs/spec/route-optimization.md) §2）。
 
 ### 2. キーファイルの配置
 
@@ -26,7 +46,8 @@ cp secrets.properties.example secrets.properties
 cp ios/Flutter/Secrets.xcconfig.example ios/Flutter/Secrets.xcconfig
 ```
 
-両ファイルの `MAPS_API_KEY` に **同じキー** を設定します。
+両ファイルの `MAPS_API_KEY` にキーを設定します。開発中は同じキーで構いません。
+本番では §1 のとおり Android 用・iOS 用に別のキーを入れます。
 
 - `secrets.properties` … Android（Gradle がビルド時に AndroidManifest へ注入）
 - `ios/Flutter/Secrets.xcconfig` … iOS（xcconfig → Info.plist `GMSApiKey` 経由で読込）
@@ -45,24 +66,113 @@ cp ios/Flutter/Secrets.xcconfig.example ios/Flutter/Secrets.xcconfig
 >   echo "MAPS_API_KEY = $MAPS_API_KEY" > ios/Flutter/Secrets.xcconfig
 >   ```
 
-### 3. ビルド・実行
+### 3. dart-define ファイルの用意（**起動に必須**）
+
+アプリは Firebase を初期化するため、`FIREBASE_ANDROID_API_KEY` / `FIREBASE_IOS_API_KEY` を
+dart-define で受け取ります。**未設定だと debug ビルドは起動時に `StateError` で落ちます**
+（`lib/main.dart` の `_assertFirebaseKeyPresent`）。地図表示だけを試す場合でも必要です。
+
+```sh
+cp dart_defines.example.json dart_defines.json
+#   FIREBASE_ANDROID_API_KEY / FIREBASE_IOS_API_KEY に実キーを設定
+#   （Firebase Console → プロジェクトの設定 → マイアプリ）
+```
+
+`dart_defines.json` は gitignore 済みです。**コミットしないでください。**
+
+### 4. ビルド・実行
 
 ```sh
 flutter pub get
-flutter run
+flutter run --dart-define-from-file=dart_defines.json
 ```
 
-キー未設定でもアプリは起動し、地図はスタイライズド・プレースホルダで描画されます。
+VS Code の `.vscode/launch.json` は同ファイルを自動で読むため、F5 実行ならオプションは不要です。
 
-### 4. 実地図（GoogleMap）の表示
+Maps のキーが未設定でもアプリは起動し、地図はスタイライズド・プレースホルダで描画されます。
+
+### 5. 実地図（GoogleMap）の表示
 
 キー設定後、`USE_REAL_MAP` フラグを付けると実地図が表示されます。
 
 ```sh
-flutter run --dart-define=USE_REAL_MAP=true
+flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
 ```
 
 （既定では実地図を有効化しません。地図 UI の本格統合・テーマ適用は別 ISSUE で対応します）
+
+## プロキシを動かす（地点検索・徒歩実測）
+
+**地点検索と徒歩実測は上記のキー設定だけでは動きません。** どちらも Cloud Functions
+プロキシ経由で、アプリはプロキシの URL を `PROXY_BASE_URL`（dart-define）から読みます。
+未設定のとき `GooglePlacesService` は**例外ではなく空リストを返す**ため、
+「検索しても候補が0件」という**エラーに見えない形**で失敗します（`lib/core/services/places_service.dart`）。
+
+必要なものは3つ。
+
+| # | 設定 | 置き場所 |
+|---|---|---|
+| 1 | `PROXY_BASE_URL` | `dart_defines.json`（セットアップ 3 で作成済み） |
+| 2 | サーバー側の Google キー `GOOGLE_MAPS_API_KEY`（Routes API + Places API (New) を有効化） | エミュレータは環境変数 / 本番は Secret Manager |
+| 3 | App Check デバッグトークン | `dart_defines.json` ＋ Firebase Console への登録 |
+
+**① `PROXY_BASE_URL` を決める。** 値は**アプリを動かす場所から見たホストのアドレス**で、
+実行先ごとに違います。対応するのは iOS / Android の 2 プラットフォームです
+（macOS・Web は `lib/firebase_options.dart` が `UnsupportedError` を投げるため動きません）。
+
+**ローカルの Functions エミュレータを叩けるのは iOS シミュレータだけです。**
+実機と Android はプラットフォーム側の制約で塞がっているため、デプロイ済みプロキシを使います。
+
+| アプリの実行先 | ローカルの Functions エミュレータを叩く | デプロイ済みプロキシを叩く |
+|---|---|---|
+| iOS シミュレータ | `http://127.0.0.1:5001/{projectId}/asia-northeast1` | ✅ |
+| iOS 実機 | **不可** — iOS 14+ のローカルネットワークプライバシー。LAN 上の IP へ繋ぐには `Info.plist` に `NSLocalNetworkUsageDescription` が要るが、開発専用の用途で全ユーザーに権限要求を出したくないため入れていない | ✅ |
+| Android エミュレータ・実機 | **不可** — 平文 HTTP が不許可（下記） | ✅ |
+
+デプロイ済みプロキシの URL は実行先を問わず
+`https://asia-northeast1-{projectId}.cloudfunctions.net` です。
+
+> iOS の URL は `localhost` ではなく **IP リテラル（`127.0.0.1`）で書く**こと。ATS は IP アドレスへの
+> 接続には適用されない（iOS 10 以降は常に許可）が、`localhost` や `*.local` は**ホスト名なので ATS の
+> 対象**になり、`NSAllowsLocalNetworking` を足さないと平文が弾かれる。本プロジェクトは
+> `Info.plist` に ATS 例外を持たない（デプロイ target は iOS 15.0）。
+
+> **Android からローカルの Functions エミュレータへは現状つながりません。**
+> `targetSdk` は 36（Android 9+ の既定で平文 HTTP が不許可）で、`AndroidManifest.xml` にも
+> `usesCleartextTraffic` / `networkSecurityConfig` の指定がありません。ホストの別名 `10.0.2.2` も
+> `adb reverse` 経由の `127.0.0.1` も**同じく平文なのでブロックされます**（`adb reverse` は
+> 到達性の問題を解くだけで、平文の可否には効きません）。
+> Android で地点検索・徒歩実測を試す場合は**デプロイ済みプロキシ**を指してください。
+> debug ビルド限定で平文を許可する対応は [#349](https://github.com/t0m0m0/aruku/issues/349) で扱います。
+
+**② Functions エミュレータを起動する。** `package.json` の `main` は `lib/index.js`
+（tsc の出力・gitignore 済み）なので、**ビルドしないとエミュレータは読み込む関数が無い状態で起動します**。
+
+```sh
+# 別ターミナルで実行し、起動したままにする
+cd functions
+npm install
+npm run build
+GOOGLE_MAPS_API_KEY='ここにサーバー側キー' npx -y firebase-tools@latest emulators:start --only functions
+```
+
+> `firebase` CLI をグローバルに入れている場合は、`npm run build` と起動をまとめた
+> `GOOGLE_MAPS_API_KEY='ここにサーバー側キー' npm run serve` で代用できます（`firebase-tools` は
+> devDependency に含めていないため、未インストールなら上記の `npx` 版を使ってください）。
+> macOS で Keychain にキーを登録済みなら `npm run dev` がキーの取り出しまで行います。
+
+**③ アプリを起動する。** リポジトリのルートで実行します（上のブロックで `cd functions`
+しているので、同じターミナルを使うなら先に `cd ..` してください）。
+
+```sh
+flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
+```
+
+- エミュレータ実行時は App Check 検証とレート制限の Firestore 依存が外れるため、
+  Firestore エミュレータは不要です（レート制限はインメモリ実装へフォールバック）。
+- 実機のデバッグビルドから**デプロイ済み**プロキシを叩く場合は App Check が必須です。
+  `dart_defines.json` のデバッグトークンと同じ値を Firebase Console → App Check → デバッグトークン
+  に登録してください。未登録だと 401 になります。
 
 ## リリースビルド（Android 署名）
 

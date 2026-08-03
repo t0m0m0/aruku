@@ -34,9 +34,10 @@ initializeApp();
 //
 // maxInstances（issue #160）: 既定ではインスタンスが実質無制限にスケールするため、
 // 悪意あるトラフィックや予期しない急増時に課金が暴発し得る。全ハンドラ共通の安全弁
-// として上限を設ける。値は各関数ごとの上限（4 関数 × 10 = 最大 40 インスタンス）で、
-// レート制限（ADR-001）の後段に位置する二重の課金ガード。実測トラフィックを見て調整
-// する前提の保守的な初期値。
+// として上限を設ける。値は各関数ごとの上限で、公開 HTTP 関数は placesProxy /
+// googleWalkProxy / googleWalkMatrixProxy の 3 つ（3 関数 × 10 = 最大 30 インスタンス）。
+// レート制限（docs/spec/route-optimization.md §2.1）の後段に位置する二重の課金ガード。
+// 実測トラフィックを見て調整する前提の保守的な初期値。
 setGlobalOptions({ region: "asia-northeast1", maxInstances: 10 });
 
 const mapsKeySecret = defineSecret("GOOGLE_MAPS_API_KEY");
@@ -60,6 +61,7 @@ const PLACES_AUTOCOMPLETE_NEW_URL =
 const PLACES_DETAILS_NEW_BASE = "https://places.googleapis.com/v1/places";
 // locationBias の円半径（メートル）。Places API の許容上限は 50000m。
 // 現在地を中心にこの円内を優先（soft bias）し、近隣 POI を上位へ寄せる。
+// 距離昇順は保証しない（それは origin + クライアント再ソートの担当・#146）。
 const PLACES_BIAS_RADIUS_M = 50000;
 
 // Google Routes API。徒歩ルートの街路追従ジオメトリ（encodedPolyline）と
@@ -79,9 +81,9 @@ const ROUTES_MATRIX_URL =
 const ROUTES_MATRIX_FIELD_MASK =
   "originIndex,destinationIndex,duration,distanceMeters";
 // computeRouteMatrix は要素数（origins × destinations）課金。クライアント不具合や
-// 悪用での課金暴発を防ぐため、プロキシ側でも要素数上限を強制する（ADR-001 のレート
-// 制御方針と整合）。#118 の設計は片側 ≤10・他方 1 の最大 10 要素のため、グリッド状の
-// 大量要求を弾きつつ正常系に十分な余裕を持たせた値にする。
+// 悪用での課金暴発を防ぐため、プロキシ側でも要素数上限を強制する（レート制限と同じく
+// 課金ガード。docs/spec/route-optimization.md §2.1）。#118 の設計は片側 ≤10・他方 1 の
+// 最大 10 要素のため、グリッド状の大量要求を弾きつつ正常系に十分な余裕を持たせた値にする。
 export const MATRIX_MAX_ELEMENTS = 25;
 
 /** "lat,lng" 形式の座標を Routes API の waypoint へ変換する。不正な値は null。 */
@@ -631,7 +633,8 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKey
       .filter((c) => c.length > 0);
 
     // 現在地（lat/lon）が渡されていれば locationBias（円）で近隣を優先する。
-    // これが #144 の主目的：位置バイアスで「近い順」の候補を返す。
+    // locationBias は soft bias で並び順は関連度のまま＝「近い順」にはならない（#146 実測）。
+    // 距離順が要るときは下の origin が付ける distanceMeters をクライアントが再ソートに使う。
     const locationBias = buildLocationBias(
       req.query as Record<string, string | undefined>
     );

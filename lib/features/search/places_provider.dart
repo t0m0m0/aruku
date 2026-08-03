@@ -103,9 +103,14 @@ class PlacesNotifier extends Notifier<SearchState> {
     List<PlacePrediction> raw,
   ) => (nearby && location != null) ? _sortByDistance(raw) : raw;
 
-  /// 「近くの店」モードの切替。距離は通常検索でも各候補に付いているため、取得済みの
-  /// 候補をその場で並べ替えるだけで再フェッチしない（課金リクエストと 400ms 待ちを省く）。
+  /// 「近くの店」モードの切替。取得済みの候補をその場で並べ替えるだけで再フェッチしない
+  /// （課金リクエストと 400ms 待ちを省く）。
   /// まだ結果が無い／取得中はフラグだけ更新し、進行中の _fetch 完了時に正しい並びで反映する。
+  ///
+  /// 距離は取得時に origin を送って初めて候補へ付くため、取得時点で現在地が未確定だった
+  /// 候補は後から現在地が届いても並べ替えられない（トグルが無反応に見える）。再フェッチで
+  /// 埋めることは可能だが、切替のたびに課金リクエストが増えるため採らない。仕様上の
+  /// 既知の限界として place-search.md §6 に記載。
   void setNearby(bool value) {
     if (state.nearby == value) return;
     if (state.status != SearchStatus.success) {
