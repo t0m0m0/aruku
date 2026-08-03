@@ -140,8 +140,10 @@
          origin→{各乗車地点, goal} と {各降車地点}→goal を一括実測
      → mergeHybrids で構造フィンガープリント重複除去（上限 _maxHybridCandidates）
   → 全徒歩候補を追加
-  → selectBestRoute で見積り勝者を出し、崩壊が見込まれなければ
-     prewarmFront が決めた候補を1パスで先行実測（§3.7）
+  → selectBestRoute で見積り勝者を出し、
+       ・崩壊が見込まれなければ prewarmFront が決めた候補を1パスで先行実測（§3.7）
+       ・崩壊が見込まれる（preCollapse）なら電車系 board-search を投機起動し、
+         以降の enrich と並行に走らせる（§3.6・#341）
   → _selectAndEnrich: 決定的に選定し採用候補を enrich（街路実測）で検証：
        ・時刻なしハイブリッドは _resolveBoardingTimes で実発車時刻を引き直して検証（#137）
        ・enrich で (a) 予算超過、または (b) 先頭電車に乗り遅れ（アクセス徒歩が
@@ -149,7 +151,8 @@
        ・予算内候補が尽きたら、best-effort 縮退とバス last-resort 照会を並行開始
        ・best-effort の縮退先も enrich 後に乗り遅れを測り直す（#254）
        ・best-effort がなお予算外か乗り遅れるときだけ、投機取得したバスを足して再選定
-  → 確定が「崩壊」なら乗車駅探索フォールバック（§3.6）→ 候補追加して再選定
+  → 確定が「崩壊」なら乗車駅探索フォールバック（§3.6。電車系は投機起動済みならそれを待つ・
+     バス系はここで起こす）→ 候補追加して再選定。崩壊しなければ投機を打ち切って捨てる
   → _finalizeStationNames でコリドー由来候補の駅名を復元
   → buildRoutePlan で RoutePlan 構築
 ```
@@ -191,6 +194,15 @@
   - 未評価が起きたことは `BoardSearchStats.probeFailed` と診断ログ（理由を書き分ける）に残す。
 - **並列度:** 1ラウンドで `_boardSearchFanout`(=5) 本まで同時発行する。上げないのは**上流の未知のレート制限**のため——guidance はプロキシを通らないので我々の 30 req/min は掛からず（§2.1）、効くのは第三者 API 側の非公開の制限。踏み抜くと probe ぶんの候補を失い、ラウンドが全滅すれば探索はそこで打ち切られる＝**徒歩は無失敗時より短くなり得る**（上記のとおり未評価分離が防ぐのは境界の誤確定だけ）。崩壊時は電車系＋バス系の2 base が並列に走るので瞬間同時発行は fanout×2 になる。上げるなら先に上流の制限を実測すること。
 - **締切:** 探索が `searchDeadlineBudget`（120秒）を超えたら**新しい探索ラウンドを起こさず、評価済みの予算内候補で確定する**（`maxWalkBoardingIndexParallel` の `shouldContinue`）。締切は Transit の引き直しにだけ掛け、徒歩実測には掛けない（§2.4）。
+- **起動タイミング（電車系のみ前倒し・#341）:** 電車系（`base`）の探索は**崩壊の確定を待たず、`preCollapse` が真の時点で enrich と並行に起動する**。
+  - **根拠は依存関係。** `base` は `basesForHybrid` が guidance の `map.segments` だけから決めるので、enrich（徒歩実測・実発車時刻解決）の出力を一切読まない。勝者確定を待っていたのは依存ではなく順序の惰性で、待つと上流1本ぶんの床（実機 26.5s）が丸ごと体感へ乗る。**並列度ではなく直列段数を1つ減らす**のが利得の源で、fanout を上げる方向は §3.6 の棄却①〜④のとおり使えない。
+  - **バス系（`busBase`）は前倒ししない。** あちらは確定勝者（`selected.chosen`）から決まる＝enrich の出力に依存するので、勝者未確定の時点では基準コリドーがまだ存在しない。
+  - **起動判断に `preCollapse`（見積り基準）を使うのは既存の作法と対称。** コードは既にこの信号を信頼して先行実測を抑制している（§3.7）。同じ信号を「起こす」側にも使う。
+  - **効くのは縮退する検索だけ。** 中央値はほとんど動かない。判断は発火率（`boardSearchSpeculated`）と空振り率（`boardSearchSpeculationWasted`）の対で行う（§3.8）。
+  - **空振り（`collapse` が偽）なら結果を捨て、新ラウンドを起こさせない**（`shouldContinue`）。走らせ続けると、捨てると決めた探索が第三者 API の未知のレート枠（§2.1）を焼き、同じ枠を使う次の検索の board-search が浅くなる＝徒歩が静かに短くなる。**進行中のラウンドまでは止められない**が、`plan()` を抜けた直後に検索スコープのクライアントが閉じて in-flight は切れる（#259）。打ち切りが効くのはその手前——確定経路の駅名復元（上流1往復）が走る窓。
+  - **空振りの対価は `ms` ではなく probe 本数で数える**（`boardSearchSpeculationProbes`）。投機は enrich と並行に走るので、捨てた探索がユーザーへ払わせた壁時計はほぼ 0。実際に消費するのは上流の往復枠。
+  - **キャンセルを握り潰さない。** 投機の Future は捨てる経路で未処理例外にしないため `ignore()` するが、崩壊時は同じ Future を `await` するので `SearchCanceledException` はそのまま上へ抜ける（`prefetchBus` と同型・#316）。**投機の結果を捨てる `catch` を足すときは、キャンセルまで一緒に飲まないこと。**
+  - **前提だった #333。** 縮退プール解決（実測で候補47件の guidance を1パス）と probe が重なり瞬間同時発行が 50 本超になるため、上流失敗を「予算外」と誤認する #333 を先に修理してある。誤認が残っていると、境界を実測ではなくレート制限が決める。
 - **#115 との関係:** 乗り遅れ再照会（§4 #115）は基準経路の採用候補1本の救済、本フォールバックは候補生成のやり直し。崩壊時のみ後者が補う。
 - **バス corridor への適用:** 本節の探索・ハイブリッド生成はデータ源非依存で、基準が電車 corridor でもバス corridor でも同じロジックが走る。基準がバスのときは引き直し（`_fetchTransitFrom`）とコリドー由来の地名復元をバス許容モードに揃える（バス停起点でバスを除外して引くと全徒歩に落ちて空振りする）。どの基準を採るかは §1.1 ③ が正本。
 
@@ -217,9 +229,11 @@
 | 種別 | フィールド | 意味 |
 |---|---|---|
 | 発火 | `collapse` / `boardSearch` / `singlePass` | 崩壊判定・board-search 起動・Option A 発火（0/1。総数で割れば発火率） |
+| 〃 | `boardSearchSpeculated` / `boardSearchSpeculationWasted` / `boardSearchSpeculationProbes` | 電車系 board-search の投機起動（§3.6・#341）・その空振り・空振りが上流へ捨てた probe 本数。**空振り率の分母は総検索数ではなく投機件数**（総数で割ると、投機の起きないルートを混ぜたぶんだけ当たって見える）。`boardSearch` とは別に持つ——空振りは候補をプールへ1件も足しておらず、同じ印にすると board-search 本体の起動率が読めなくなる |
 | 往復本数 | `guidanceCalls` / `walkCalls` / `matrixCalls` / `http` | 実際に GET を発行した回数（種別ごと＋合計）。締切切れ・キャンセルで発行前に落ちた要求は数えない |
 | 〃 | `guidanceDupCalls` | 同一 guidance URI の重複発行数＝per-search キャッシュで消せる上限 |
 | フェーズ所要 | `guidanceMs` / `hybridMs` / `enrichMs` / `boardSearchMs` / `finalizeMs` / `totalMs` | 各区間の実時間。**崩壊時の再選定は `boardSearchMs` と `enrichMs` の両方に入る**——台帳（下2行）が再選定の enrich も積むので、時計だけ board-search 突入で止めると計上外の残りが負に化ける。意図的な重なりなので、フェーズを足し上げるときは注意する |
+| 〃 | `boardSearchMs` の読み方（#341 以降） | **電車系 board-search で「なお直列に待った」残りの時間**であって、探索が始まってから終わるまでの全体ではない（`busLastResortMs` と同じ語法）。投機起動（§3.6）が enrich と並行に走るぶん `totalMs` への寄与が減り、投機が完全に間に合えば電車系の寄与は 0 に近づく——それがこの最適化の効き目そのもの。**したがって #341 前後で `boardSearchMs` を直接比較してはいけない**（縮んだのは段であって探索ではない）。探索そのものの重さは `boardSearchRounds` と `boardSearchProbeSerialMs` で見る。区間には依然としてバス系の探索と崩壊後の再選定が含まれる |
 | enrich 内訳 | `enrichCriticalMs` / `enrichPasses` / `enrichResolveDepth` / `enrichCandidates` | 測定口 `_measureCandidate` を通る臨界パスの所要・パス数・区間解決の段数・測った候補数。壊れた応答で落ちた候補も**払った壁時計ごと計上する**（障害時ほど小さく出る歪みを避ける）。**縮退パス（`_bestEffortResolved`・バス last-resort・再帰）はここを通らない** |
 | 縮退内訳 | `bestEffortMs` / `bestEffortEntries` / `bestEffortCandidates` / `bestEffortResolveDepth` / `bestEffortRetries` | best-effort 縮退の所要・突入回数・解決したのべ候補数（`_maxMeasureShortlist` の上限が効かない幅）・1候補の直列段数・乗り遅れ除外の再試行段数 |
 | 〃 | `busLastResortMs` | バス last-resort で**なお直列に待った**時間。照会は縮退と並行して投機発行するので発行〜完了の全体ではなく残りの待ちで、0 に近いほど投機が効いている |
