@@ -4,7 +4,7 @@
 - **記述範囲:** **現行ロジックの仕様のみ**を書く。設計に至った経緯・棄却した案・過去の実測ログは本書に置かず、commit ログと issue を参照する。
 - **最終更新:** 2026-07-31
 - **対象コード:** `lib/core/services/transit_route_service.dart`（`routeServiceProvider` が配線）, `lib/core/services/hybrid_route_selector.dart`, `lib/core/services/route_plan_builder.dart`, `lib/core/services/transit_plan_parser.dart`, `functions/src/`
-- **関連:** [ADR-001](../adr/ADR-001-route-optimization-architecture.md)（アーキテクチャ決定）, [place-search.md](place-search.md)（地点検索の正本）, **[glossary.md](glossary.md)（用語集）**
+- **関連:** [ADR-001](../adr/ADR-001-route-optimization-architecture.md)（アーキテクチャ決定の**履歴**・Superseded。API 構成は本書が正本）, [place-search.md](place-search.md)（地点検索の正本）, **[glossary.md](glossary.md)（用語集）**
 - **節番号:** §番号はコード内コメントの参照先なので固定する。欠番は削除した節の跡で、繰り上げない。
 
 ---
@@ -16,7 +16,7 @@
 - **目的関数:** 到着時刻 ≤ 締切（予算）を**制約**に、**徒歩時間 `walkMinutes`（分）を最大化**する。
   - 選定順: `walkMinutes` 最大 → **実到着が早い** → **乗換回数が少ない**候補を選ぶ。
   - kcal は徒歩距離から算出（`kcal = walkKm × kcalPerKm`、`kcalPerKm = 57`）。表示用で選定には使わない。
-- **`walkKm` ではなく `walkMinutes` が正:** 選定は徒歩の**時間**を最大化する。[ADR-001](../adr/ADR-001-route-optimization-architecture.md) の `walkKm` 表記より本書が優先する。
+- **`walkKm` ではなく `walkMinutes` が正:** 選定は徒歩の**時間**を最大化する。[ADR-001](../adr/ADR-001-route-optimization-architecture.md)（Superseded）の `walkKm` 表記より本書が優先する。
 - **予算内候補が無いとき（best-effort）:** 最長（全徒歩）ではなく**実到着が最早**の候補へ縮退する（UI バナーの「最短を表示」と整合）。ただし「今夜は乗れない」電車（終電後の翌朝始発など）は後回しにする（§4 #121②）。時刻なしハイブリッドは実発車時刻を確認できない限り縮退先にも含めない（§4 #137）。**実測徒歩で乗り遅れる経路は縮退先にも確定にも出さない**（§4 #254）。
 - **確定経路は1本:** 選定順（`walkMinutes` 最大 → 実到着最早 → 乗換最少）はこの1本の決定に働く。代替案・パレート非劣解の併設提示は行わない。
 
@@ -123,7 +123,9 @@
 
 ## 3. アーキテクチャ（measure-first）
 
-[ADR-001](../adr/ADR-001-route-optimization-architecture.md) の方式A'（ハイブリッド）：**地図はクライアント／外部APIはプロキシ経由／最適化ロジックは端末側 Dart**。`RouteService` 抽象（`lib/core/services/route_service.dart`）で方式を差し替え可能。
+骨格は [ADR-001](../adr/ADR-001-route-optimization-architecture.md)（Superseded）の方式A'（ハイブリッド）を引き継ぐ：**地図はクライアント／外部APIはプロキシ経由／最適化ロジックは端末側 Dart**。`RouteService` 抽象（`lib/core/services/route_service.dart`）で方式を差し替え可能。
+
+ただし**公共交通経路（Transit API `/guidance/plan`）だけは例外でクライアント直叩き**（§2・§2.1）。ADR-001 が想定した「全 REST API をプロキシ経由」からのこの逸脱は、レート制限・App Check・キー秘匿がいずれも掛からないことを意味する（Transit API は認証不要のため秘匿すべきキーが無い）。徒歩実測（Google Routes）と地点検索（Places）はプロキシ経由のまま。
 
 ### 3.1 `plan()` のデータフロー
 
@@ -357,7 +359,7 @@ Transit API 経路（`transit_route_service.dart`）固有。
 ## 7. 変更時の指針
 
 - **挙動を変える変更は §4 の不変条件を回帰させていないか確認する。** これらは実データのエッジケースへの対応であり、リファクタや再設計で最も壊れやすい。
-- 純粋関数（§5）の契約を変えるときは本書・テスト・[ADR-001](../adr/ADR-001-route-optimization-architecture.md) の整合を取る。
-- 目的関数（§1）は `walkMinutes` を正とする。距離/時間のどちらを最大化するかは設計の根幹なので、変えるなら本書と ADR を更新してから。
+- 純粋関数（§5）の契約を変えるときは本書とテストの整合を取る。[ADR-001](../adr/ADR-001-route-optimization-architecture.md) は Superseded の決定記録なので、追従更新の対象ではない（当時の決定を覆すときだけ、後継として新しい ADR を起こす）。
+- 目的関数（§1）は `walkMinutes` を正とする。距離/時間のどちらを最大化するかは設計の根幹なので、変えるなら本書を更新してから。
 - データ源の制約（§2）— 「公共交通は Transit API 直叩き」「徒歩ジオメトリは Google」「地図キーはアプリ内必須」— は外部 API の仕様由来。transit 不具合はまずこれらの制約を疑う。**制約を引用するときは §2.2〜§2.4 を根拠にすること。**
 - レイテンシ・往復本数の議論は §3.8 の実測（`RouteSearchMetrics`）を根拠にする。**推測でフェーズの支配要因を語らない。**

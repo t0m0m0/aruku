@@ -1,8 +1,26 @@
 # ADR-001: ルート最適化アーキテクチャ比較・方式決定
 
-- **ステータス:** 決定済み
+- **ステータス:** **Superseded**（2026-08-03・#339）
 - **日付:** 2026-05-16
 - **関連 Issue:** #6（調査）, #7（RouteService定義）, #8（最適化ロジック実装）
+- **後継:** [ルート最適化 仕様（正本）](../spec/route-optimization.md) / [地点検索 仕様（正本）](../spec/place-search.md)
+
+---
+
+> **本書は 2026-05-16 時点の決定記録であり、現行構成の説明ではない。**
+> 採用した骨格（**地図はクライアント／外部 REST API はプロキシ経由／最適化ロジックは端末側 Dart**）は今も有効だが、
+> **どの API をどこから叩くか**は以降の実装で変わった。API 構成・アルゴリズムを知りたい場合は上記の正本を読むこと。
+> 本書に残る Directions API 前提の記述は、当時の比較検討の材料としてのみ読む。
+
+### 現行構成（2026-08-03 時点・詳細は正本）
+
+| 用途 | 現行 | 本 ADR 当時の想定 |
+|---|---|---|
+| 公共交通経路 | **Transit API** `/api/v1/guidance/plan` を**クライアントから直叩き**（プロキシを通らない） | Directions API `mode=transit` をプロキシ経由 |
+| 徒歩の所要・距離・街路ジオメトリ | **Google Routes API** `computeRoutes` / `computeRouteMatrix`(WALK) を `googleWalkProxy` / `googleWalkMatrixProxy` 経由 | Directions API `mode=walking` をプロキシ経由 |
+| 地点検索 | **Google Places API (New)** を `placesProxy` 経由 | Places API（当時はクライアント直叩き。プロキシ化が宿題だった） |
+| 最適化 | 端末側 Dart の **measure-first**（推定で shortlist → Google 徒歩実測で確定）。目的関数は**予算内で徒歩時間 `walkMinutes` 最大**、予算内候補が無ければ**実到着が最早**の候補へ縮退（best-effort） | 端末側 Dart で `totalMin ≤ budgetMin` を満たす候補から選択 |
+| 公開 HTTP 関数 | `placesProxy` / `googleWalkProxy` / `googleWalkMatrixProxy` の3つ | Directions / Places プロキシ |
 
 ---
 
@@ -40,6 +58,10 @@
 
 ## 最適化アルゴリズムの実現方法（方式A'）
 
+> **この節は当時の想定であり、現行アルゴリズムではない。** 現行は measure-first（推定で shortlist を作り、
+> Google 徒歩実測を経て確定）で、公共交通は Transit API の `/guidance/plan` を1回引いた結果を母集合にする。
+> 実際のフロー・不変条件は [route-optimization.md](../spec/route-optimization.md) §3 が正本。
+
 「時間内で最大限歩く」は、バックエンドプロキシ経由で Directions API を呼びつつ、**最適化ロジック自体は端末側 Dart で実行**する：
 
 1. **徒歩ルートを取得**（プロキシ経由で Directions API `mode=walking`）→ 総所要時間・徒歩距離を確認
@@ -50,7 +72,8 @@
    - 候補ごとに `totalMin ≤ budgetMin` を満たしつつ **`walkMinutes`（徒歩時間）が最大** となるものを選択（実装 `selectBestRoute` と一致。当初 `walkKm` と記したが、運動時間の最大化として徒歩「分」を正とする。詳細は [ルート最適化 仕様（正本）](../spec/route-optimization.md) §1）
 4. **指標算出**（walkRatio, kcal, segments, timelineNodes）を Dart で計算
 
-API コール数は1ルート探索あたり最大2〜5回程度。
+API コール数は1ルート探索あたり最大2〜5回程度（当時の見積り。measure-first では徒歩実測のファンアウトが加わり
+この規模には収まらない。現行の往復本数は [route-optimization.md](../spec/route-optimization.md) §3.8 の実測が正本）。
 
 ---
 
@@ -70,7 +93,9 @@ API コール数は1ルート探索あたり最大2〜5回程度。
 | キー | API制限 | アプリ制限 | 置き場所 |
 |---|---|---|---|
 | 地図表示用 | Maps SDK for iOS / Maps SDK for Android のみ | バンドルID / パッケージ名+SHA-1 | `Info.plist` / `AndroidManifest.xml` |
-| Directions/Places 用 | Directions API / Places API のみ | サーバーIPアドレス | バックエンド環境変数のみ |
+| プロキシ用 | Directions API / Places API のみ（**現行は Routes API / Places API (New)**） | サーバーIPアドレス | バックエンド環境変数のみ（**現行は Secret Manager の `GOOGLE_MAPS_API_KEY`**） |
+
+キー分離の現行手順は [security_hardening.md](../security_hardening.md) ① が正本。
 
 ---
 
@@ -92,9 +117,13 @@ API コール数は1ルート探索あたり最大2〜5回程度。
 - 従量課金で固定費ゼロ（無料枠: 200万呼び出し/月）
 - Flutter との親和性が高い
 
-## 新規追加が必要な作業
+## 新規追加が必要な作業（当時。**すべて対応済み**）
 
-- Firebase プロジェクト初期化・Functions のセットアップ
-- Directions API / Places API プロキシ関数の実装
-- Google Cloud Console でのキー分離設定（地図用・プロキシ用を別キーに）
-- `places_service.dart` の呼び出し先をプロキシに変更（現状はクライアントから直接 Places API を叩いている）
+> これは 2026-05-16 時点の宿題リストであり、未着手の予定ではない。現在の到達点を右欄に付す。
+
+| 当時の作業 | 現在 |
+|---|---|
+| Firebase プロジェクト初期化・Functions のセットアップ | 完了（`functions/`・`asia-northeast1`） |
+| Directions API / Places API プロキシ関数の実装 | 完了。ただし実装されたのは `placesProxy` と Google **Routes** の `googleWalkProxy` / `googleWalkMatrixProxy`。公共交通は Directions ではなく Transit API のクライアント直叩きになった |
+| Google Cloud Console でのキー分離設定（地図用・プロキシ用を別キーに） | 完了（[security_hardening.md](../security_hardening.md) ①） |
+| `places_service.dart` の呼び出し先をプロキシに変更 | 完了（#144。`placesProxy` + App Check 経由） |
