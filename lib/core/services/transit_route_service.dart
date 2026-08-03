@@ -376,6 +376,38 @@ class TransitRouteService implements SearchEngine {
         estWithin &&
         _isCollapse(estWinner, options, budgetMin, departureAt);
 
+    // 崩壊が見込まれるなら、電車系 board-search を enrich と**並行に**起動する（#341）。
+    // 前倒しできる根拠は依存関係にある: [base] は guidance の map セグメントだけから決まり、
+    // enrich（徒歩実測・実発車時刻解決）の出力を一切読まない。勝者確定を待っていたのは依存
+    // ではなく順序の惰性で、待つと上流1本ぶんの床（実測 26.5s）が丸ごと体感へ乗る。
+    //
+    // **バス系（busBase）は前倒ししない。** あちらは `selected.chosen` から決まる＝enrich の
+    // 出力に依存するので、勝者未確定の時点では基準コリドーがまだ存在しない。
+    final trainBoardSearch = BoardSearchStats();
+    // 確定候補が board-search の何ラウンド由来かを引くための同一性マップ（両系統で共有）。
+    final boardSearchRoundOf = <RouteCandidate, int>{};
+    var speculationAbandoned = false;
+    Future<List<RouteCandidate>>? trainBoardSearchFuture;
+    if (base != null && preCollapse) {
+      _diag.log(() => 'preCollapse=true → 電車系 board-search を enrich と並行に投機起動');
+      metrics.boardSearchSpeculated = true;
+      trainBoardSearchFuture = _buildBoardSearchCandidate(
+        base,
+        origin,
+        goal,
+        budgetMin,
+        departureAt,
+        walkCache,
+        trainBoardSearch,
+        boardSearchRoundOf,
+        abandoned: () => speculationAbandoned,
+      );
+      // 捨てる経路（collapse=false）で未処理例外にしないための番人。Future は複数のリスナを
+      // 持てるので、崩壊時に await する経路の例外伝播は妨げない——キャンセル
+      // （[SearchCanceledException]）を握り潰さないために必要な性質（`prefetchBus` と同型）。
+      trainBoardSearchFuture.ignore();
+    }
+
     final enrichSw = Stopwatch()..start();
     if (estWithin && !preCollapse) {
       // 先行実測の対象は [prewarmFront] が決める：予算内ハイブリッドが多い reject 多発ルートは
@@ -482,10 +514,7 @@ class TransitRouteService implements SearchEngine {
       // 2系統は並列に走るので、計上も探索ごとに分ける。1つの [metrics] を両方から
       // 触ると scanCount/best が別々の探索の値で対を成さなくなり、rounds は並列に
       // 走ったものの和になる（#332 レビュー指摘）。
-      final trainBoardSearch = BoardSearchStats();
       final busBoardSearch = BoardSearchStats();
-      // 確定候補が board-search の何ラウンド由来かを引くための同一性マップ（両系統で共有）。
-      final boardSearchRoundOf = <RouteCandidate, int>{};
       final extra = [
         for (final built in await Future.wait([
           if (base != null)
@@ -493,16 +522,20 @@ class TransitRouteService implements SearchEngine {
             // 「予算外**または乗り遅れ**」（#250）なので、door-to-door では乗り遅れた電車も、
             // より手前の駅から引き直せば後続便で予算内に入ることがある。電車が全滅する状況なら
             // 予算内候補は0件で [extra] に何も足さない＝プールも選定結果も変わらない。
-            _buildBoardSearchCandidate(
-              base,
-              origin,
-              goal,
-              budgetMin,
-              departureAt,
-              walkCache,
-              trainBoardSearch,
-              boardSearchRoundOf,
-            ),
+            //
+            // 投機起動済み（#341）ならその Future をそのまま待つ。ここで起こし直すと同じ
+            // 探索を二重に走らせて上流本数が倍になる。
+            trainBoardSearchFuture ??
+                _buildBoardSearchCandidate(
+                  base,
+                  origin,
+                  goal,
+                  budgetMin,
+                  departureAt,
+                  walkCache,
+                  trainBoardSearch,
+                  boardSearchRoundOf,
+                ),
           if (busBase != null)
             // バス corridor は基準になったのがここが初めてなので、途中乗降ハイブリッドも
             // ここで作る（通常照会の base と違い、事前に作る機会がなかった）。
@@ -576,6 +609,19 @@ class TransitRouteService implements SearchEngine {
       metrics.boardSearchMs = boardSw.elapsedMilliseconds;
     } else if (base != null || busBase != null) {
       _diag.log(() => 'collapse=false → フォールバック起動せず');
+    }
+    if (trainBoardSearchFuture != null && !collapse) {
+      // 見込みが外れた（#341）。結果は誰も使わないので新ラウンドを止め、対価を計上する。
+      // 進行中のラウンドまでは止められないが、`plan()` を抜けた直後に検索スコープの
+      // クライアントが閉じられて in-flight は切れる（#259・[SearchScopedRouteService]）。
+      // この打ち切りが効くのはその手前——確定経路の駅名復元（上流1往復）が走る窓。
+      speculationAbandoned = true;
+      metrics.recordSpeculationWaste(trainBoardSearch);
+      _diag.log(
+        () =>
+            '投機 board-search 空振り: collapse=false '
+            '（probe ${trainBoardSearch.probes}本を上流へ捨てた）',
+      );
     }
 
     // 崩壊後の再選定も同じ台帳へ積むので、畳むのは board-search を抜けた後。
@@ -1251,8 +1297,9 @@ class TransitRouteService implements SearchEngine {
     DateTime departureAt,
     _WalkLegCache walkCache,
     BoardSearchStats stats,
-    Map<RouteCandidate, int> roundOf,
-  ) async {
+    Map<RouteCandidate, int> roundOf, {
+    bool Function()? abandoned,
+  }) async {
     final stops = _corridorStops(base);
     if (stops.length < 2) return const [];
     // 締切切れなら scan/probe を一切起こさず縮退する（#317 レビュー対応）。この先の探索は
@@ -1305,6 +1352,9 @@ class TransitRouteService implements SearchEngine {
     Future<RouteCandidate?> buildAt(int i) async {
       if (built.containsKey(i)) return built[i];
       builtInRound[i] = stats.rounds;
+      // 発行時点で数える。完了時に数えると、締切・キャンセル・投機の打ち切りで捨てた
+      // probe が本数から漏れ、上流へ実際に払った往復を過小に見積もる。
+      stats.probes++;
       final x = stops[i];
       // 前半徒歩は実測（失敗時のみ直線推定へフォールバック）。
       final walkSw = Stopwatch()..start();
@@ -1392,6 +1442,12 @@ class TransitRouteService implements SearchEngine {
       // 打ち切りはここでしか起きない（`lo <= hi` ＝まだ探索余地があるときにだけ
       // 呼ばれる）ので、false を返した時点が「本来もっと探せたのに止めた」瞬間になる。
       shouldContinue: () {
+        // 投機起動の見込みが外れた（#341）。結果は誰も使わないので新ラウンドを起こさない
+        // ——捨てると決めた探索に第三者 API の未知のレート枠（§2.1）を焼かせ続けると、
+        // 同じ枠を使う次の検索の board-search が浅くなる＝徒歩が静かに短くなる。
+        // [BoardSearchStats.truncated] は立てない。あれは「報告する境界が本来より手前
+        // かもしれない」印だが、捨てる探索の境界はそもそも報告されない。
+        if (abandoned?.call() ?? false) return false;
         if (!_deadline.isExpired) return true;
         stats.truncated = true;
         return false;
