@@ -730,14 +730,17 @@ class TransitRouteService implements SearchEngine {
     return RouteCandidate(from: chosen.from, to: chosen.to, segments: segs);
   }
 
-  /// 乗車座標 [board]→降車座標 [alight] を [at] 発で引き直し、最初に [type] の区間を含む
-  /// option の、先頭 [type] 区間の乗車地名・実発車時刻と、末尾 [type] 区間の降車地名・実到着
-  /// 時刻を返す。該当 option が無い・取得失敗なら null。コリドー由来候補の駅名復元
-  /// （[_finalizeStationNames]）と実時刻検証（[_resolveBoardingTimes]・approach A）で共有する。
+  /// 乗車座標 [board]→降車座標 [alight] を [at] 発で引き直し、[type] の区間を含む option の
+  /// うち到着最早（[_earliestArrival]）の、先頭 [type] 区間の乗車地名・実発車時刻と、末尾
+  /// [type] 区間の降車地名・実到着時刻を返す。該当 option が無い・取得失敗なら null。
+  /// コリドー由来候補の駅名復元（[_finalizeStationNames]）と実時刻検証
+  /// （[_resolveBoardingTimes]・approach A）で共有する。
   ///
   /// 照会モードと拾う leg の型は必ず [type] で揃える（#250）。バス区間の検証に電車のみの
   /// 照会（既定の `avoidModes=bus,...`）を使うと、返ってきた電車の駅名・時刻をバス区間へ
-  /// 貼り付けてしまう。
+  /// 貼り付けてしまう。同じ理由で、応答の中の**どの option を採るか**も揃える必要がある
+  /// （#343）：先頭1本を無条件に採ると、遅い便の時刻をこの区間の実時刻として貼り、乗れる
+  /// 候補が乗り遅れ・予算超過に見える。
   Future<({String from, String to, DateTime? dep, DateTime? arr})?>
   _fetchTransitEndpoints(
     GeoPoint board,
@@ -756,18 +759,20 @@ class TransitRouteService implements SearchEngine {
     } on RouteException {
       return null;
     }
-    for (final o in parseGuidancePlan(body)) {
-      final legs = o.segments.where((s) => s.type == type).toList();
-      if (legs.isNotEmpty) {
-        return (
-          from: legs.first.fromName,
-          to: legs.last.toName,
-          dep: legs.first.depTime,
-          arr: legs.last.arrTime,
-        );
-      }
-    }
-    return null;
+    final best = _earliestArrival(
+      parseGuidancePlan(
+        body,
+      ).where((o) => o.segments.any((s) => s.type == type)),
+      at,
+    );
+    if (best == null) return null;
+    final legs = best.segments.where((s) => s.type == type).toList();
+    return (
+      from: legs.first.fromName,
+      to: legs.last.toName,
+      dep: legs.first.depTime,
+      arr: legs.last.arrTime,
+    );
   }
 
   /// approach A（時刻なしハイブリッドの実時刻検証）。コリドー由来の電車区間は距離概算の
