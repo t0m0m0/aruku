@@ -117,13 +117,15 @@ API コール数は1ルート探索あたり最大2〜5回程度（当時の見�
 - 従量課金で固定費ゼロ（無料枠: 200万呼び出し/月）
 - Flutter との親和性が高い
 
-## 新規追加が必要な作業（当時。**すべて対応済み**）
+## 新規追加が必要な作業（当時）
 
-> これは 2026-05-16 時点の宿題リストであり、未着手の予定ではない。現在の到達点を右欄に付す。
+> これは 2026-05-16 時点の宿題リストであり、**このリストが現在の残作業を表しているわけではない**。
+> 現在の到達点を右欄に付す。**運用作業の進捗の正本は本書ではなく
+> [security_hardening.md](../security_hardening.md) のチェックリスト**なので、本番前の可否判断はそちらで行う。
 
 | 当時の作業 | 現在 |
 |---|---|
 | Firebase プロジェクト初期化・Functions のセットアップ | 完了（`functions/`・`asia-northeast1`） |
 | Directions API / Places API プロキシ関数の実装 | 完了。ただし実装されたのは `placesProxy` と Google **Routes** の `googleWalkProxy` / `googleWalkMatrixProxy`。公共交通は Directions ではなく Transit API のクライアント直叩きになった |
-| Google Cloud Console でのキー分離設定（地図用・プロキシ用を別キーに） | 完了（[security_hardening.md](../security_hardening.md) ①） |
+| Google Cloud Console でのキー分離設定（地図用・プロキシ用を別キーに） | **未完了。** プロキシ側へのキー隔離（アプリから Google の REST API を呼ばない）は済んでいるが、Console でのキー制限（アプリ制限・API 制限）は手動作業で**未実施**。状態の正本は [security_hardening.md](../security_hardening.md) ① のチェックリスト |
 | `places_service.dart` の呼び出し先をプロキシに変更 | 完了（#144。`placesProxy` + App Check 経由） |

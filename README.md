@@ -8,21 +8,28 @@
 **平文キーは絶対にコミットしないでください**（`secrets.properties` /
 `ios/Flutter/Secrets.xcconfig` は `.gitignore` 済み）。
 
-### 1. API キーの発行
+**この節（1〜4）で動くのは地図表示までです。** 地点検索と徒歩実測は Cloud Functions プロキシ
+経由のため、別途「[プロキシを動かす](#プロキシを動かす地点検索徒歩実測)」の設定が要ります。
 
 [Google Cloud Console](https://console.cloud.google.com/) で以下を有効化し、
 API キーを 1 つ発行します（Android / iOS 共通の単一キーを使用）。
 
 - Maps SDK for Android
 - Maps SDK for iOS
-- Routes API（徒歩の所要・距離・街路ジオメトリ。`googleWalkProxy` / `googleWalkMatrixProxy` が使用）
-- Places API (New)（地点検索。`placesProxy` が使用）
 
-公共交通の経路は Google ではなく Transit API（`https://api.transit.ls8h.com`・認証不要）を
-クライアントから直接呼ぶため、キーも API 有効化も要りません（[ルート最適化 仕様](docs/spec/route-optimization.md) §2）。
+このキーは**アプリに埋め込まれる地図表示専用**です。Google の他の API はアプリからは呼ばず、
+Cloud Functions プロキシが**サーバー側の別キー**で呼びます（下記）。本番では両者を必ず分離
+します（[docs/security_hardening.md](docs/security_hardening.md) ①）。
 
-> 本番では地図表示用キーとプロキシ用キーを分離します（[docs/security_hardening.md](docs/security_hardening.md) ①）。
-> 下記の手順は開発用に単一キーを使う場合の最短手順です。
+| 用途 | API | 呼び出し元 | キーの置き場所 |
+|---|---|---|---|
+| 地図表示 | Maps SDK for Android / iOS | アプリ（ネイティブ SDK） | `secrets.properties` / `Secrets.xcconfig` |
+| 徒歩の所要・距離・街路ジオメトリ | Routes API | `googleWalkProxy` / `googleWalkMatrixProxy` | Secret Manager `GOOGLE_MAPS_API_KEY` |
+| 地点検索 | Places API (New) | `placesProxy` | Secret Manager `GOOGLE_MAPS_API_KEY` |
+| 公共交通の経路 | — （Transit API・認証不要） | アプリから直接 | 不要 |
+
+公共交通だけは Google ではなく Transit API（`https://api.transit.ls8h.com`）をクライアントから
+直接呼ぶため、キーも API 有効化も要りません（[ルート最適化 仕様](docs/spec/route-optimization.md) §2）。
 
 ### 2. キーファイルの配置
 
@@ -70,6 +77,45 @@ flutter run --dart-define=USE_REAL_MAP=true
 ```
 
 （既定では実地図を有効化しません。地図 UI の本格統合・テーマ適用は別 ISSUE で対応します）
+
+## プロキシを動かす（地点検索・徒歩実測）
+
+**地点検索と徒歩実測は上記のキー設定だけでは動きません。** どちらも Cloud Functions
+プロキシ経由で、アプリはプロキシの URL を `PROXY_BASE_URL`（dart-define）から読みます。
+未設定のとき `GooglePlacesService` は**例外ではなく空リストを返す**ため、
+「検索しても候補が0件」という**エラーに見えない形**で失敗します（`lib/core/services/places_service.dart`）。
+
+必要なものは3つ。
+
+| # | 設定 | 置き場所 |
+|---|---|---|
+| 1 | `PROXY_BASE_URL` | `dart_defines.json`（`dart_defines.example.json` をコピー） |
+| 2 | サーバー側の Google キー `GOOGLE_MAPS_API_KEY`（Routes API + Places API (New) を有効化） | エミュレータは `process.env` / 本番は Secret Manager |
+| 3 | App Check デバッグトークン | `dart_defines.json` ＋ Firebase Console への登録 |
+
+```sh
+# 1. dart-define をテンプレートから用意し、PROXY_BASE_URL を設定する
+cp dart_defines.example.json dart_defines.json
+
+#    ローカル（Functions エミュレータ）を叩く場合:
+#      "PROXY_BASE_URL": "http://127.0.0.1:5001/{projectId}/asia-northeast1"
+#    デプロイ済みを叩く場合:
+#      "PROXY_BASE_URL": "https://asia-northeast1-{projectId}.cloudfunctions.net"
+
+# 2. Functions エミュレータを起動（サーバー側キーは環境変数から読む）
+cd functions && npm install
+GOOGLE_MAPS_API_KEY=<サーバー側キー> npx -y firebase-tools@latest emulators:start --only functions
+
+# 3. アプリを起動（VS Code の launch.json は同ファイルを自動で読む）
+flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
+```
+
+- エミュレータ実行時は App Check 検証とレート制限の Firestore 依存が外れるため、
+  Firestore エミュレータは不要です（レート制限はインメモリ実装へフォールバック）。
+- 実機のデバッグビルドから**デプロイ済み**プロキシを叩く場合は App Check が必須です。
+  `dart_defines.json` のデバッグトークンと同じ値を Firebase Console → App Check → デバッグトークン
+  に登録してください。未登録だと 401 になります。
+- `dart_defines.json` は gitignore 済みです。**コミットしないでください。**
 
 ## リリースビルド（Android 署名）
 
