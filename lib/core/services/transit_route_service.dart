@@ -611,17 +611,12 @@ class TransitRouteService implements SearchEngine {
       _diag.log(() => 'collapse=false → フォールバック起動せず');
     }
     if (trainBoardSearchFuture != null && !collapse) {
-      // 見込みが外れた（#341）。結果は誰も使わないので新ラウンドを止め、対価を計上する。
+      // 見込みが外れた（#341）。結果は誰も使わないので新ラウンドを起こさせない。
       // 進行中のラウンドまでは止められないが、`plan()` を抜けた直後に検索スコープの
       // クライアントが閉じられて in-flight は切れる（#259・[SearchScopedRouteService]）。
       // この打ち切りが効くのはその手前——確定経路の駅名復元（上流1往復）が走る窓。
       speculationAbandoned = true;
-      metrics.recordSpeculationWaste(trainBoardSearch);
-      _diag.log(
-        () =>
-            '投機 board-search 空振り: collapse=false '
-            '（probe ${trainBoardSearch.probes}本を上流へ捨てた）',
-      );
+      _diag.log(() => '投機 board-search 空振り: collapse=false → 打ち切り');
     }
 
     // 崩壊後の再選定も同じ台帳へ積むので、畳むのは board-search を抜けた後。
@@ -637,6 +632,16 @@ class TransitRouteService implements SearchEngine {
     // 定性ログ（上の FINAL）は debug 限定なので、profile の計測では最終徒歩が読めない。
     // 打ち切り判断は boardSearchWalkByRound と突き合わせて行うため、同じ1行に載せる。
     metrics.finalWalkMinutes = named.walkMinutes;
+    // 空振りの対価は**最後に読む**（#341）。打ち切りは新ラウンドを止めるだけなので、
+    // 打ち切り時点で進行中だったラウンドの probe は駅名復元の裏で発行され終える。
+    // 判断が出た瞬間に読むと、その1ラウンドぶん（最大 [_boardSearchFanout] 本）を
+    // 取りこぼし、投機の費用を過小に見積もる。
+    if (speculationAbandoned) {
+      metrics.recordSpeculationWaste(trainBoardSearch);
+      _diag.log(
+        () => '投機 board-search 空振りの対価: probe ${trainBoardSearch.probes}本',
+      );
+    }
     _diag.log(
       () => '=== FINAL: ${_diag.candLine(named, budgetMin, departureAt)} ===',
     );
