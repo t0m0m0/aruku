@@ -28,26 +28,35 @@
 
 ### 手順
 
-**キーは2本ある。制限の掛け方が違うので、混ぜないこと。**
+**キーは3本に分ける。制限の掛け方が違うので、混ぜないこと。**
 
-| キー | 使う主体 | アプリケーションの制限 | API の制限 |
-|---|---|---|---|
-| 地図表示用 | アプリ（ネイティブ Maps SDK） | Android パッケージ名 + SHA-1 / iOS Bundle ID | **Maps SDK for Android / iOS のみ** |
-| プロキシ用（`GOOGLE_MAPS_API_KEY`） | Cloud Functions | **なし**（下記） | **Places API (New) + Routes API のみ** |
+**1本のキーにアプリケーション制限は1種類しか設定できない**（Android アプリ制限と iOS アプリ制限を
+同じキーに併記することはできない）ため、地図表示用キーはプラットフォームごとに分ける必要がある。
+これは Google の[セキュリティ ガイダンス](https://developers.google.com/maps/api-security-best-practices)
+が示すベストプラクティスでもある。
+
+| キー | 使う主体 | 置き場所 | アプリケーションの制限 | API の制限 |
+|---|---|---|---|---|
+| 地図表示用（Android） | アプリ（Maps SDK） | `secrets.properties` | Android: パッケージ名 + SHA-1 | **Maps SDK for Android のみ** |
+| 地図表示用（iOS） | アプリ（Maps SDK） | `ios/Flutter/Secrets.xcconfig` | iOS: Bundle ID | **Maps SDK for iOS のみ** |
+| プロキシ用（`GOOGLE_MAPS_API_KEY`） | Cloud Functions | Secret Manager | **なし**（下記） | **Places API (New) + Routes API のみ** |
 
 1. [GCP Console > API とサービス > 認証情報](https://console.cloud.google.com/apis/credentials) を開く。
-2. **地図表示用キー**を選択し、次を設定する。
-   - **アプリケーションの制限**
-     - **Android アプリ**: パッケージ名 `com.aruku.aruku` と **本番署名鍵の SHA-1** を登録。
-       SHA-1 は本番 keystore から取得する:
-       ```sh
-       keytool -list -v -keystore ~/aruku-release.jks -alias aruku
-       # 表示される SHA1: の値を登録（debug 用ではなく release 用を使うこと）
-       ```
-     - **iOS アプリ**: Bundle ID を登録。
-   - **API の制限**: 「キーを制限」→ **Maps SDK for Android / iOS のみ**。
-     このキーはアプリバイナリから抽出できる前提なので、地図タイル取得以外に転用させない。
-3. **プロキシ用キー**を選択し、次を設定する。
+2. **地図表示用キー（Android）** を選択し、次を設定する。
+   - **アプリケーションの制限**: 「Android アプリ」→ パッケージ名 `com.aruku.aruku` と
+     **本番署名鍵の SHA-1** を登録。SHA-1 は本番 keystore から取得する:
+     ```sh
+     keytool -list -v -keystore ~/aruku-release.jks -alias aruku
+     # 表示される SHA1: の値を登録（debug 用ではなく release 用を使うこと）
+     ```
+   - **API の制限**: 「キーを制限」→ **Maps SDK for Android のみ**。
+   - このキーは `secrets.properties` に入れる。
+3. **地図表示用キー（iOS）** を選択し、次を設定する。
+   - **アプリケーションの制限**: 「iOS アプリ」→ Bundle ID を登録。
+   - **API の制限**: 「キーを制限」→ **Maps SDK for iOS のみ**。
+   - このキーは `ios/Flutter/Secrets.xcconfig` に入れる。
+   - 地図表示用キーはいずれもアプリバイナリから抽出できる前提なので、地図タイル取得以外に転用させない。
+4. **プロキシ用キー**を選択し、次を設定する。
    - **アプリケーションの制限**: **設定しない**。
      - Android/iOS アプリ制限は使えない（呼び出し元は Cloud Functions でありアプリではない）。
      - **IP アドレス制限も使えない。** プロキシは 2nd gen Cloud Functions（Cloud Run）で、
@@ -59,11 +68,13 @@
      アプリケーション制限を掛けられない分、**このキーの防御は API 制限が主**になる。
    - 併せて働く保護: キー自体は Secret Manager にありアプリへ出ない、プロキシは App Check 必須（②）、
      IP 単位のレート制限（README）。
-4. 保存後、本番ビルドで地図・各機能が正常動作することを確認する。
+5. 保存後、本番ビルドで地図・各機能が正常動作することを確認する。
 
 ### 検証
 
 - **地図表示用キー**: 登録外のパッケージ/Bundle ID からの呼び出しが拒否されること（別アプリでキーを使うと 403）。
+  **Android 用キーと iOS 用キーを取り違えていないこと**も確認する（取り違えるとそのプラットフォームで
+  地図だけが出ない。制限が効いている状態と区別がつきにくい）。
 - **プロキシ用キー**: 制限後も `placesProxy` / `googleWalkProxy` / `googleWalkMatrixProxy` が 200 を返すこと。
   API 制限を絞りすぎると上流が 403 を返すが、プロキシはこれを **502** に変換して上流ボディを素通しする
   （`functions/src/index.ts` の `UPSTREAM_FAILED` 経路）。アプリ側からは「検索できない」としか見えず

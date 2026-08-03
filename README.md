@@ -13,22 +13,26 @@
 
 ### 1. API キーの発行
 
-[Google Cloud Console](https://console.cloud.google.com/) で以下を有効化し、
-API キーを 1 つ発行します（Android / iOS 共通の単一キーを使用）。
-
-- Maps SDK for Android
-- Maps SDK for iOS
-
-このキーは**アプリに埋め込まれる地図表示専用**です。Google の他の API はアプリからは呼ばず、
-Cloud Functions プロキシが**サーバー側の別キー**で呼びます（下記）。本番では両者を必ず分離
-します（[docs/security_hardening.md](docs/security_hardening.md) ①）。
+[Google Cloud Console](https://console.cloud.google.com/) で必要な API を有効化し、
+キーを発行します。
 
 | 用途 | API | 呼び出し元 | キーの置き場所 |
 |---|---|---|---|
-| 地図表示 | Maps SDK for Android / iOS | アプリ（ネイティブ SDK） | `secrets.properties` / `Secrets.xcconfig` |
+| 地図表示（Android） | Maps SDK for Android | アプリ（ネイティブ SDK） | `secrets.properties` |
+| 地図表示（iOS） | Maps SDK for iOS | アプリ（ネイティブ SDK） | `ios/Flutter/Secrets.xcconfig` |
 | 徒歩の所要・距離・街路ジオメトリ | Routes API | `googleWalkProxy` / `googleWalkMatrixProxy` | Secret Manager `GOOGLE_MAPS_API_KEY` |
 | 地点検索 | Places API (New) | `placesProxy` | Secret Manager `GOOGLE_MAPS_API_KEY` |
 | 公共交通の経路 | — （Transit API・認証不要） | アプリから直接 | 不要 |
+
+**本番では地図表示用キーを Android 用・iOS 用に分け、プロキシ用と合わせて 3 本にします。**
+Google の API キーは**アプリケーション制限を 1 種類しか持てない**ため、1 本のキーに
+Android パッケージ名と iOS Bundle ID の両方を掛けることはできません（[Google の
+セキュリティ ガイダンス](https://developers.google.com/maps/api-security-best-practices)）。
+`secrets.properties` と `Secrets.xcconfig` は別ファイルなので、値を分けるだけで対応できます。
+制限の掛け方は [docs/security_hardening.md](docs/security_hardening.md) ① が正本です。
+
+> 開発中は制限なしのキー 1 本を両プラットフォームで使い回しても動きます。分離が要るのは
+> アプリケーション制限を掛ける本番前です。
 
 公共交通だけは Google ではなく Transit API（`https://api.transit.ls8h.com`）をクライアントから
 直接呼ぶため、キーも API 有効化も要りません（[ルート最適化 仕様](docs/spec/route-optimization.md) §2）。
@@ -42,7 +46,8 @@ cp secrets.properties.example secrets.properties
 cp ios/Flutter/Secrets.xcconfig.example ios/Flutter/Secrets.xcconfig
 ```
 
-両ファイルの `MAPS_API_KEY` に **同じキー** を設定します。
+両ファイルの `MAPS_API_KEY` にキーを設定します。開発中は同じキーで構いません。
+本番では §1 のとおり Android 用・iOS 用に別のキーを入れます。
 
 - `secrets.properties` … Android（Gradle がビルド時に AndroidManifest へ注入）
 - `ios/Flutter/Secrets.xcconfig` … iOS（xcconfig → Info.plist `GMSApiKey` 経由で読込）
@@ -115,11 +120,14 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 実行先ごとに違います。対応するのは iOS / Android の 2 プラットフォームです
 （macOS・Web は `lib/firebase_options.dart` が `UnsupportedError` を投げるため動きません）。
 
+**ローカルの Functions エミュレータを叩けるのは iOS シミュレータだけです。**
+実機と Android はプラットフォーム側の制約で塞がっているため、デプロイ済みプロキシを使います。
+
 | アプリの実行先 | ローカルの Functions エミュレータを叩く | デプロイ済みプロキシを叩く |
 |---|---|---|
 | iOS シミュレータ | `http://127.0.0.1:5001/{projectId}/asia-northeast1` | ✅ |
-| iOS 実機（同一 LAN） | `http://{開発機のLAN IP}:5001/{projectId}/asia-northeast1` | ✅ |
-| Android エミュレータ・実機 | **不可**（下記） | ✅ |
+| iOS 実機 | **不可** — iOS 14+ のローカルネットワークプライバシー。LAN 上の IP へ繋ぐには `Info.plist` に `NSLocalNetworkUsageDescription` が要るが、開発専用の用途で全ユーザーに権限要求を出したくないため入れていない | ✅ |
+| Android エミュレータ・実機 | **不可** — 平文 HTTP が不許可（下記） | ✅ |
 
 デプロイ済みプロキシの URL は実行先を問わず
 `https://asia-northeast1-{projectId}.cloudfunctions.net` です。
