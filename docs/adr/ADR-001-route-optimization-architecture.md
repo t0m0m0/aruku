@@ -93,7 +93,12 @@ API コール数は1ルート探索あたり最大2〜5回程度（当時の見�
 | キー | API制限 | アプリ制限 | 置き場所 |
 |---|---|---|---|
 | 地図表示用 | Maps SDK for iOS / Maps SDK for Android のみ | バンドルID / パッケージ名+SHA-1 | `Info.plist` / `AndroidManifest.xml` |
-| プロキシ用 | Directions API / Places API のみ（**現行は Routes API / Places API (New)**） | サーバーIPアドレス | バックエンド環境変数のみ（**現行は Secret Manager の `GOOGLE_MAPS_API_KEY`**） |
+| プロキシ用 | Directions API / Places API のみ（**現行は Routes API / Places API (New)**） | サーバーIPアドレス（**現行は掛けられない**・下記） | バックエンド環境変数のみ（**現行は Secret Manager の `GOOGLE_MAPS_API_KEY`**） |
+
+> **「サーバーIPアドレス」制限は現行構成では実施できない。** プロキシは 2nd gen Cloud Functions（Cloud Run）で、
+> VPC 下り + Cloud NAT を構成しない限り下り IP が固定されない。この表のとおりに IP 許可リストを設定すると
+> Places / Routes の呼び出しが落ちる。現行のプロキシ用キーはアプリケーション制限を持たず、API 制限と
+> App Check・レート制限・Secret Manager で守る。
 
 キー分離の現行手順は [security_hardening.md](../security_hardening.md) ① が正本。
 

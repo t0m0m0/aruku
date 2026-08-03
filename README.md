@@ -145,11 +145,11 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 cd functions
 npm install
 npm run build
-GOOGLE_MAPS_API_KEY=<サーバー側キー> npx -y firebase-tools@latest emulators:start --only functions
+GOOGLE_MAPS_API_KEY='ここにサーバー側キー' npx -y firebase-tools@latest emulators:start --only functions
 ```
 
 > `firebase` CLI をグローバルに入れている場合は、`npm run build` と起動をまとめた
-> `GOOGLE_MAPS_API_KEY=<キー> npm run serve` で代用できます（`firebase-tools` は
+> `GOOGLE_MAPS_API_KEY='ここにサーバー側キー' npm run serve` で代用できます（`firebase-tools` は
 > devDependency に含めていないため、未インストールなら上記の `npx` 版を使ってください）。
 > macOS で Keychain にキーを登録済みなら `npm run dev` がキーの取り出しまで行います。
 

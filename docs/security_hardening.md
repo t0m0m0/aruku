@@ -28,24 +28,47 @@
 
 ### 手順
 
+**キーは2本ある。制限の掛け方が違うので、混ぜないこと。**
+
+| キー | 使う主体 | アプリケーションの制限 | API の制限 |
+|---|---|---|---|
+| 地図表示用 | アプリ（ネイティブ Maps SDK） | Android パッケージ名 + SHA-1 / iOS Bundle ID | **Maps SDK for Android / iOS のみ** |
+| プロキシ用（`GOOGLE_MAPS_API_KEY`） | Cloud Functions | **なし**（下記） | **Places API (New) + Routes API のみ** |
+
 1. [GCP Console > API とサービス > 認証情報](https://console.cloud.google.com/apis/credentials) を開く。
-2. 対象 API キーを選択する。
-3. **アプリケーションの制限** を設定:
-   - **Android アプリ**: パッケージ名 `com.aruku.aruku` と **本番署名鍵の SHA-1** を登録。
-     SHA-1 は本番 keystore から取得する:
-     ```sh
-     keytool -list -v -keystore ~/aruku-release.jks -alias aruku
-     # 表示される SHA1: の値を登録（debug 用ではなく release 用を使うこと）
-     ```
-   - **iOS アプリ**: Bundle ID を登録。
-4. **API の制限** を設定:
-   - 「キーを制限」を選び、**実際に使用する API のみ**を許可
-     （Maps SDK for Android / iOS, Places API, Routes API など。未使用 API は外す）。
-5. 保存後、本番ビルドで地図・各機能が正常動作することを確認する。
+2. **地図表示用キー**を選択し、次を設定する。
+   - **アプリケーションの制限**
+     - **Android アプリ**: パッケージ名 `com.aruku.aruku` と **本番署名鍵の SHA-1** を登録。
+       SHA-1 は本番 keystore から取得する:
+       ```sh
+       keytool -list -v -keystore ~/aruku-release.jks -alias aruku
+       # 表示される SHA1: の値を登録（debug 用ではなく release 用を使うこと）
+       ```
+     - **iOS アプリ**: Bundle ID を登録。
+   - **API の制限**: 「キーを制限」→ **Maps SDK for Android / iOS のみ**。
+     このキーはアプリバイナリから抽出できる前提なので、地図タイル取得以外に転用させない。
+3. **プロキシ用キー**を選択し、次を設定する。
+   - **アプリケーションの制限**: **設定しない**。
+     - Android/iOS アプリ制限は使えない（呼び出し元は Cloud Functions でありアプリではない）。
+     - **IP アドレス制限も使えない。** プロキシは 2nd gen Cloud Functions（Cloud Run）で、
+       VPC 下り + Cloud NAT を構成しない限り**下り IP が固定されない**。本リポジトリはその構成を
+       持たないため、IP を許可リストに入れると Places / Routes の呼び出しが落ちる。
+     - 固定 IP で縛りたい場合は、先に VPC 下り + Cloud NAT を構成して静的 IP を用意する必要がある
+       （インフラ追加の判断であり、本手順の範囲外）。
+   - **API の制限**: 「キーを制限」→ **Places API (New) + Routes API のみ**。
+     アプリケーション制限を掛けられない分、**このキーの防御は API 制限が主**になる。
+   - 併せて働く保護: キー自体は Secret Manager にありアプリへ出ない、プロキシは App Check 必須（②）、
+     IP 単位のレート制限（README）。
+4. 保存後、本番ビルドで地図・各機能が正常動作することを確認する。
 
 ### 検証
 
-- 制限後、登録外のパッケージ/Bundle ID からの呼び出しが拒否されること（別アプリでキーを使うと 403）。
+- **地図表示用キー**: 登録外のパッケージ/Bundle ID からの呼び出しが拒否されること（別アプリでキーを使うと 403）。
+- **プロキシ用キー**: 制限後も `placesProxy` / `googleWalkProxy` / `googleWalkMatrixProxy` が 200 を返すこと。
+  API 制限を絞りすぎると上流が 403 を返すが、プロキシはこれを **502** に変換して上流ボディを素通しする
+  （`functions/src/index.ts` の `UPSTREAM_FAILED` 経路）。アプリ側からは「検索できない」としか見えず
+  原因が読めないため、構造化ログの `search_request`（`status="failure"`・`httpStatus=403`）で確認する
+  （`docs/ops/observability.md` §2）。
 - 正規アプリからの地図表示・ルート検索が引き続き動作すること。
 
 ---
