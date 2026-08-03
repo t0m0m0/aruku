@@ -34,6 +34,9 @@ class RouteMetricSample {
     required this.boardSearchBest,
     required this.boardSearchTruncated,
     required this.boardSearchProbeFailed,
+    required this.speculated,
+    required this.speculationWasted,
+    required this.speculationProbes,
     required this.alternativesMs,
     required this.finalizeMs,
     required this.totalMs,
@@ -74,6 +77,15 @@ class RouteMetricSample {
   /// 徒歩実測の失敗＝直線推定への縮退で境界が奥へ動き得る）。境界がその地点の実力では
   /// なく上流の不調で決まり得るので、境界位置の分布からは除く。
   final bool boardSearchProbeFailed;
+
+  /// 電車系 board-search を enrich と並行に投機起動したか（#341）。
+  final bool speculated;
+
+  /// その投機が `collapse=0` で捨てられたか（＝無駄撃ち）。
+  final bool speculationWasted;
+
+  /// 空振りした投機が上流へ打ち上げた probe 本数（対価）。当たった検索は 0。
+  final int speculationProbes;
 
   /// 代替案の選出・検証フェーズの所要（legacy・#290→#327 で廃止）。現行アプリはこの key を
   /// 出さない（=0）が、撤去前に保存した旧ログを解析するとき `totalMs` に含まれるこの分を
@@ -119,6 +131,9 @@ RouteMetricSample? parseRouteMetricsLine(String line) {
     boardSearchBest: fields['boardSearchBest'] ?? -1,
     boardSearchTruncated: at('boardSearchTruncated') == 1,
     boardSearchProbeFailed: at('boardSearchProbeFailed') == 1,
+    speculated: at('boardSearchSpeculated') == 1,
+    speculationWasted: at('boardSearchSpeculationWasted') == 1,
+    speculationProbes: at('boardSearchSpeculationProbes'),
     alternativesMs: at('alternativesMs'),
     finalizeMs: at('finalizeMs'),
     totalMs: at('totalMs'),
@@ -188,6 +203,9 @@ class MetricsAggregation {
     required this.collapseCount,
     required this.boardSearchCount,
     required this.singlePassCount,
+    required this.speculatedCount,
+    required this.speculationWastedCount,
+    required this.speculationWastedProbes,
     required this.http,
     required this.guidanceCalls,
     required this.guidanceDupCalls,
@@ -211,6 +229,16 @@ class MetricsAggregation {
 
   /// 非崩壊時に Option A（予算内短リスト全体の1パス先行実測・#318）が発火した件数。
   final int singlePassCount;
+
+  /// 電車系 board-search を enrich と並行に投機起動した件数（#341）。
+  final int speculatedCount;
+
+  /// そのうち `collapse=0` で捨てた件数（＝無駄撃ち）。
+  final int speculationWastedCount;
+
+  /// 空振りした投機が上流へ打ち上げた probe 本数の分布（対価）。当たった検索は
+  /// 無駄を出していないので分母から外す。
+  final MetricStats speculationWastedProbes;
 
   final MetricStats http;
   final MetricStats guidanceCalls;
@@ -241,6 +269,16 @@ class MetricsAggregation {
   /// Option A（#318）の発火率。恩恵（enrichMs 短縮）とコスト（guidance ファンアウト増）が
   /// これで決まるため、collapse/boardSearch と同じく発火率を上段に出す。
   double get singlePassRate => count == 0 ? 0.0 : singlePassCount / count;
+
+  /// 投機 board-search（#341）の発火率。効くのは縮退する検索だけなので、中央値ではなく
+  /// これと [speculationWasteRate] の対で費用対効果を読む。
+  double get speculationRate => count == 0 ? 0.0 : speculatedCount / count;
+
+  /// 投機の空振り率。**分母は総検索数ではなく投機した件数**——総数で割ると、投機が
+  /// 起きないルートを混ぜたぶんだけ当たっているように見え、`preCollapse` を起動条件に
+  /// 使う判断を誤らせる。
+  double get speculationWasteRate =>
+      speculatedCount == 0 ? 0.0 : speculationWastedCount / speculatedCount;
 
   /// guidance 重複率＝重複本数 ÷ 総 guidance 本数（平均ベース）。guidance キャッシュを
   /// 噛ませたら消せる往復の割合の見込み。enrich 削減の費用対効果の一次指標。
@@ -273,6 +311,12 @@ MetricsAggregation aggregate(List<RouteMetricSample> samples) {
     collapseCount: collapsed.length,
     boardSearchCount: samples.where((s) => s.boardSearch).length,
     singlePassCount: samples.where((s) => s.singlePass).length,
+    speculatedCount: samples.where((s) => s.speculated).length,
+    speculationWastedCount: samples.where((s) => s.speculationWasted).length,
+    speculationWastedProbes: statsOf([
+      for (final s in samples)
+        if (s.speculationWasted) s.speculationProbes,
+    ]),
     http: statsOf([for (final s in samples) s.http]),
     guidanceCalls: statsOf([for (final s in samples) s.guidanceCalls]),
     guidanceDupCalls: statsOf([for (final s in samples) s.guidanceDupCalls]),
@@ -415,6 +459,15 @@ String formatAggregation(MetricsAggregation a) {
     ..writeln(
       'singlePass発火(Option A・#318): ${a.singlePassCount}/${a.count} '
       '(${_pct(a.singlePassRate)})',
+    )
+    // 発火と空振りは必ず並べて出す。効果（縮退時に段が1つ減る）と対価（空振りぶんの
+    // 上流往復）は別々に見ても投機の可否を判断できない。
+    ..writeln(
+      '投機board-search発火(#341): ${a.speculatedCount}/${a.count} '
+      '(${_pct(a.speculationRate)}) / '
+      '空振り ${a.speculationWastedCount}/${a.speculatedCount} '
+      '(${_pct(a.speculationWasteRate)}) '
+      '空振りprobe mean=${a.speculationWastedProbes.mean?.toStringAsFixed(1) ?? '-'}',
     )
     ..writeln('--- 全体分布 ---')
     ..writeln(_statLine('http往復', a.http))

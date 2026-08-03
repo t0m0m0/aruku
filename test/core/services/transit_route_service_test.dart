@@ -188,6 +188,57 @@ http.Client _mock({
   return _json(const {}, 404);
 });
 
+/// 崩壊（徒歩最大化の不達）を再現する door-to-door 応答。origin(35.0,139.0) →
+/// goal(35.0,139.5)、コリドー3点。ハイブリッドは乗車時間が長く予算外になるので、予算内
+/// 候補は徒歩の短い標準乗換だけ＝崩壊状況になる。
+///
+/// 乗車駅は origin から直線3分（実街路3倍で9分）。09:10 発なので実測徒歩でも間に合う。
+/// 乗車駅を遠く（直線11分＝実測33分）に置くと、09:10 発には物理的に乗れない経路になり、
+/// 確定境界の乗り遅れ再判定（#254）で全徒歩へ縮退して崩壊判定まで到達しない。
+Map<String, dynamic> _collapseGuidance() {
+  const stops = [
+    [35.0, 139.003],
+    [35.0, 139.25],
+    [35.0, 139.49],
+  ];
+  return _guidance([
+    {
+      'journey': {
+        'departureSecs': 33000, // 09:10
+        'arrivalSecs': 33900, // 09:25（乗車15分）
+        'durationSecs': 1500,
+        'accessWalkSecs': 300, // guidance 見積り 5分
+        'egressWalkSecs': 300, // guidance 見積り 5分
+        'legs': [
+          _railLeg(
+            route: '快速',
+            fromId: 'jr:board',
+            fromName: '乗車駅',
+            toId: 'jr:alight',
+            toName: '降車駅',
+            dep: 33000,
+            arr: 33900,
+          ),
+        ],
+      },
+      'map': {
+        'points': const [],
+        'segments': [
+          _mapSeg('walk', 'origin', 'jr:board', 'osmWalk', const [
+            [35.0, 139.0],
+            [35.0, 139.003],
+          ]),
+          _mapSeg('transit', 'jr:board', 'jr:alight', 'stopOrder', stops),
+          _mapSeg('walk', 'jr:alight', 'destination', 'estimatedWalk', const [
+            [35.0, 139.49],
+            [35.0, 139.5],
+          ]),
+        ],
+      },
+    },
+  ]);
+}
+
 TransitRouteService _service(
   http.Client client, {
   void Function(RouteSearchMetrics)? onMetrics,
@@ -756,59 +807,6 @@ void main() {
     const origin2 = GeoPoint(35.0, 139.0);
     const goal2 = GeoPoint(35.0, 139.5);
 
-    // 乗車駅は origin から直線3分（実街路3倍で9分）。09:10 発なので実測徒歩でも間に合う。
-    // 乗車駅を遠く（直線11分＝実測33分）に置くと、09:10 発には物理的に乗れない経路になり、
-    // 確定境界の乗り遅れ再判定（#254）で全徒歩へ縮退して崩壊判定まで到達しない。
-    Map<String, dynamic> collapseGuidance() {
-      const stops = [
-        [35.0, 139.003],
-        [35.0, 139.25],
-        [35.0, 139.49],
-      ];
-      return _guidance([
-        {
-          'journey': {
-            'departureSecs': 33000, // 09:10
-            'arrivalSecs': 33900, // 09:25（乗車15分）
-            'durationSecs': 1500,
-            'accessWalkSecs': 300, // guidance 見積り 5分
-            'egressWalkSecs': 300, // guidance 見積り 5分
-            'legs': [
-              _railLeg(
-                route: '快速',
-                fromId: 'jr:board',
-                fromName: '乗車駅',
-                toId: 'jr:alight',
-                toName: '降車駅',
-                dep: 33000,
-                arr: 33900,
-              ),
-            ],
-          },
-          'map': {
-            'points': const [],
-            'segments': [
-              _mapSeg('walk', 'origin', 'jr:board', 'osmWalk', const [
-                [35.0, 139.0],
-                [35.0, 139.003],
-              ]),
-              _mapSeg('transit', 'jr:board', 'jr:alight', 'stopOrder', stops),
-              _mapSeg(
-                'walk',
-                'jr:alight',
-                'destination',
-                'estimatedWalk',
-                const [
-                  [35.0, 139.49],
-                  [35.0, 139.5],
-                ],
-              ),
-            ],
-          },
-        },
-      ]);
-    }
-
     // 徒歩を直線の3倍で返すモック（実街路の迂回を模す）。guidance 呼び出しを記録する。
     http.Client inflatedMock(List<Uri> guidanceCalls, {Duration? delay}) {
       List<GeoPoint> parse(String? raw) =>
@@ -841,7 +839,7 @@ void main() {
         });
       }
 
-      final transit = collapseGuidance();
+      final transit = _collapseGuidance();
       return MockClient((req) async {
         // 壁時計を測るテストは、遅延ゼロだと Stopwatch が 1ms 未満を切り捨てて 0 になり
         // 配線の有無を区別できない。上流1本ぶんを決定的に払わせる。
@@ -3724,6 +3722,185 @@ void main() {
   // **両方**到達するまでどちらの応答も返さない」——で並行到達を検証する。逐次実装は
   // 先行の応答を待ったまま後続を発行できずデッドロック（テストは timeout で fail）し、
   // 並列実装でのみ完走する。タイミング依存の sleep を使わない決定的な検証。
+  group('plan: 崩壊見込みの board-search を enrich と並行に起動する (#341)', () {
+    const origin4 = GeoPoint(35.0, 139.0);
+    const goal4 = GeoPoint(35.0, 139.5);
+
+    GeoPoint geoOf(String? raw) => _pt((raw ?? '0,0').replaceFirst('geo:', ''));
+    bool same(GeoPoint a, GeoPoint b) =>
+        (a.lat - b.lat).abs() < 1e-6 && (a.lng - b.lng).abs() < 1e-6;
+
+    /// 徒歩・マトリクスを直線の3倍で返す（実街路の迂回を模す）。[onEnrichWalk] は
+    /// **origin 起点でない**徒歩実測でだけ呼ぶ——board-search の probe 徒歩は必ず
+    /// origin 起点なので、これで enrich の egress 実測だけを掴める。[onBoardProbe] は
+    /// コリドー点→goal の引き直し＝board-search の probe でだけ呼ぶ（`_finalizeStationNames`
+    /// の引き直しは乗車座標→降車座標なので to で弾ける）。
+    http.Client trackingMock({
+      Future<void> Function()? onEnrichWalk,
+      Future<void> Function(Uri url)? onBoardProbe,
+      double walkFactor = 3,
+    }) {
+      List<GeoPoint> parse(String? raw) =>
+          (raw ?? '').split(';').where((s) => s.isNotEmpty).map(_pt).toList();
+      final transit = _collapseGuidance();
+      return MockClient((req) async {
+        final path = req.url.path;
+        final q = req.url.queryParameters;
+        if (path.contains('googleWalkMatrixProxy')) {
+          final os = parse(q['origins']);
+          final ds = parse(q['destinations']);
+          return _json([
+            for (var i = 0; i < os.length; i++)
+              for (var j = 0; j < ds.length; j++)
+                {
+                  'originIndex': i,
+                  'destinationIndex': j,
+                  'duration': '${_walkMin(os[i], ds[j]) * 3 * 60}s',
+                  'distanceMeters': (haversineKm(os[i], ds[j]) * 1000).round(),
+                },
+          ]);
+        }
+        if (path.contains('googleWalkProxy')) {
+          if (!same(_pt(q['start'] ?? '0,0'), origin4) &&
+              onEnrichWalk != null) {
+            await onEnrichWalk();
+          }
+          return _walkFor(req.url, factor: walkFactor);
+        }
+        if (!path.contains('guidance/plan')) return _json(const {}, 404);
+        if (!same(geoOf(q['from']), origin4) &&
+            same(geoOf(q['to']), goal4) &&
+            onBoardProbe != null) {
+          await onBoardProbe(req.url);
+        }
+        return _json(transit);
+      });
+    }
+
+    Future<RoutePlan> planWith(
+      http.Client client, {
+      void Function(RouteSearchMetrics)? onMetrics,
+    }) => _service(client, onMetrics: onMetrics).plan(
+      destination: '降車駅',
+      destinationLatLng: goal4,
+      departure: const TimeValue(h: 9, m: 0),
+      arrival: const TimeValue(h: 10, m: 0), // 予算60分
+      origin: origin4,
+      originName: '出発',
+    );
+
+    test('board-search の引き直しと enrich の徒歩実測が同時に上流へ到達する', () async {
+      // board-search を勝者確定後に置く逐次実装では、enrich が終わるまで引き直しが1本も
+      // 出ない＝両者は同時に到達できない。到達を相互待ちにすると逐次実装はデッドロックし、
+      // タイムアウトで落ちる（#304 の2系統並列テストと同じ手口）。
+      final enrichWalk = Completer<void>();
+      final boardProbe = Completer<void>();
+      Future<void> barrier() =>
+          Future.wait([enrichWalk.future, boardProbe.future]);
+      final earlyRedraws = <Uri>[];
+
+      await planWith(
+        trackingMock(
+          onEnrichWalk: () {
+            if (!enrichWalk.isCompleted) enrichWalk.complete();
+            return barrier();
+          },
+          onBoardProbe: (url) {
+            earlyRedraws.add(url);
+            if (!boardProbe.isCompleted) boardProbe.complete();
+            return barrier();
+          },
+        ),
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => fail('board-search の引き直しが enrich の完了を待っている（直列）'),
+      );
+
+      expect(enrichWalk.isCompleted, isTrue, reason: '前提: enrich の徒歩実測が走る');
+      expect(boardProbe.isCompleted, isTrue, reason: '前提: board-search が引き直す');
+      // 前倒しするのは電車系だけ。バス許容の引き直しが並行して出ていたら、勝者未確定＝
+      // 基準コリドーが決まらないバス系まで投機したことになる。
+      for (final u in earlyRedraws) {
+        expect(
+          u.queryParameters['avoidModes'] ?? '',
+          contains('bus'),
+          reason: 'バス系 board-search は勝者確定後のまま（busBase は enrich 依存）',
+        );
+      }
+    });
+
+    test('崩壊すれば投機の結果を使い、徒歩最大化は実測の境界で決まる', () async {
+      // 受け入れ条件の反証側: 前倒ししても board-search の候補がプールへ入り、境界が
+      // 実測（probeFailed=0）で決まっていること。probeFailed が立つ＝直線推定への縮退か
+      // 上流失敗で、境界がその地点の実力から引き剥がされている印。
+      RouteSearchMetrics? captured;
+      final plan = await planWith(
+        trackingMock(),
+        onMetrics: (m) => captured = m,
+      );
+      final m = captured!;
+      expect(m.boardSearchSpeculated, isTrue, reason: '前提: 投機経路を通っている');
+      expect(m.collapseFired, isTrue, reason: '前提: 崩壊して board-search を使う');
+      expect(m.boardSearchActivated, isTrue);
+      expect(m.boardSearchSpeculationWasted, isFalse, reason: '当たった投機は空振りでない');
+      expect(m.boardSearchProbeFailed, isFalse, reason: '境界が実測で決まっていない');
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+    });
+
+    test('崩壊しなければ結果を捨て、空振りを probe 本数で計上する', () async {
+      // 見積りでは予算内・崩壊ぎみ（→投機起動）だが、実測徒歩が20倍に膨らんで先頭電車に
+      // 乗り遅れ、確定は予算外の best-effort へ縮退する＝ collapse は成立しない。投機は
+      // 丸ごと無駄撃ちになるので、発火と対価を計上できていること。
+      //
+      // enrich 側を「最初の probe が出るまで」待たせるのは、probe 本数の観測を決定的に
+      // するため（sleep で待つとロードの高い CI で揺れる）。一方向のゲートなので、
+      // 投機が実装されていなければここで詰まってタイムアウトする。
+      final firstProbe = Completer<void>();
+      RouteSearchMetrics? captured;
+      await planWith(
+        trackingMock(
+          walkFactor: 20,
+          onEnrichWalk: () => firstProbe.future,
+          onBoardProbe: (_) async {
+            if (!firstProbe.isCompleted) firstProbe.complete();
+          },
+        ),
+        onMetrics: (m) => captured = m,
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => fail('崩壊が見込まれるのに board-search を投機起動していない'),
+      );
+
+      final m = captured!;
+      expect(m.boardSearchSpeculated, isTrue, reason: '前提: 見積りでは崩壊が見込まれる');
+      expect(m.collapseFired, isFalse, reason: '前提: 実測後は崩壊が成立しない');
+      expect(
+        m.boardSearchActivated,
+        isFalse,
+        reason: '捨てた投機を board-search 起動に数えると本体の発火率が読めなくなる',
+      );
+      expect(m.boardSearchSpeculationWasted, isTrue);
+      expect(
+        m.boardSearchSpeculationProbes,
+        greaterThan(0),
+        reason: '空振りの対価（上流へ打ち上げた往復本数）が計上されていない',
+      );
+    });
+
+    test('投機中のキャンセルを握り潰さず plan ごと落とす', () async {
+      // 並行ファンアウトの結果を捨てる経路（`ignore` / catch）を足すとき、キャンセルまで
+      // 一緒に飲みやすい。飲むと離脱後も勝者だけで完走してしまう（#316・cancellation.dart）。
+      await expectLater(
+        planWith(
+          trackingMock(
+            onBoardProbe: (_) async => throw const SearchCanceledException(),
+          ),
+        ),
+        throwsA(isA<SearchCanceledException>()),
+      );
+    });
+  });
+
   group('plan: 独立IOの並列化 (#304)', () {
     test('崩壊時の電車/バス2系統 board-search は並列に照会する', () async {
       // #250/#251 と同型の状況: 電車は予算外 → バス last-resort が勝つ → 崩壊判定が立ち、

@@ -20,6 +20,14 @@ class BoardSearchStats {
   /// この探索が走査した index 数。
   int scanCount = 0;
 
+  /// この探索が実際に打ち上げた probe 本数（上流失敗ぶんも含む）。
+  ///
+  /// [rounds] では代用できない——1ラウンドは `_boardSearchFanout` 本**まで**で、残り
+  /// index が少ないラウンドはそれより細る。**上流へ払った往復本数**を知りたいときの単位で、
+  /// 投機起動（#341）が空振りしたときの対価はこれで測る（壁時計は enrich と重なって
+  /// ほぼ 0 になるので、捨てた探索の費用を表さない）。
+  int probes = 0;
+
   /// この探索が**評価済みの中で予算内だった最遠 index**（皆無なら -1）。
   ///
   /// 二分探索の戻り値そのものではない。探索は最初の予算外 probe で結果の走査を打ち切る
@@ -346,6 +354,31 @@ class RouteSearchMetrics {
   /// guidance 単体のレイテンシであって直列ではない＝この改修は打つ価値が無いと判定できる。
   int boardSearchProbeParallelMs = 0;
 
+  /// 電車系 board-search を `preCollapse` の見込みで enrich と**並行に**起動したか（#341）。
+  /// 発火率の分子。効くのは縮退する検索だけなので、中央値ではなくこの率と
+  /// [boardSearchSpeculationWasted] の対で費用対効果を読む。
+  bool boardSearchSpeculated = false;
+
+  /// 投機起動したが `collapse` が偽で結果を捨てたか（＝無駄撃ち）。
+  ///
+  /// [boardSearchActivated] とは別に持つ。あちらは「board-search の候補を実際に使ったか」で、
+  /// 空振りの投機はプールへ1件も足していない——同じ印にすると、起動率の分母が投機ぶんだけ
+  /// 膨らんで board-search 本体の発火率が読めなくなる。
+  bool boardSearchSpeculationWasted = false;
+
+  /// 空振りした投機が上流へ打ち上げた probe 本数（[BoardSearchStats.probes]）。
+  ///
+  /// **対価の単位は ms ではない。** 投機は enrich と並行に走るので、捨てた探索が
+  /// ユーザーへ払わせた壁時計はほぼ 0。実際に消費するのは第三者 API の未知のレート枠
+  /// （§2.1・§3.6）なので、往復本数で数える。
+  int boardSearchSpeculationProbes = 0;
+
+  /// 空振りした投機の対価を計上する（#341）。発火（[boardSearchSpeculated]）と対で読む。
+  void recordSpeculationWaste(BoardSearchStats stats) {
+    boardSearchSpeculationWasted = true;
+    boardSearchSpeculationProbes = stats.probes;
+  }
+
   /// 並列に走った乗車駅探索群（[BoardSearchStats]）を1検索ぶんの指標へ畳む。
   ///
   /// [boardSearchRounds] は**和ではなく最大**——2系統は並列に走る（#304）ので、和にすると
@@ -478,6 +511,9 @@ class RouteSearchMetrics {
       'boardSearchProbeFailed=${boardSearchProbeFailed ? 1 : 0} '
       'boardSearchProbeSerialMs=$boardSearchProbeSerialMs '
       'boardSearchProbeParallelMs=$boardSearchProbeParallelMs '
+      'boardSearchSpeculated=${boardSearchSpeculated ? 1 : 0} '
+      'boardSearchSpeculationWasted=${boardSearchSpeculationWasted ? 1 : 0} '
+      'boardSearchSpeculationProbes=$boardSearchSpeculationProbes '
       'enrichCriticalMs=$enrichCriticalMs enrichPasses=$enrichPasses '
       'enrichResolveDepth=$enrichResolveDepth '
       'enrichCandidates=$enrichCandidates '
