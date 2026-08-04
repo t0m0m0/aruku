@@ -2567,6 +2567,78 @@ void main() {
       };
     }
 
+    /// 到着が発車より前の壊れた便。パーサは所要を負の分数に落とし、`arrivalMinutes` は
+    /// その負値で累積を進めるので、到着が**手前へ戻って**比較に勝つ。
+    Map<String, dynamic> reversedOption(double lng, String time) {
+      final dep = secsOf(time) + 600;
+      final arr = dep - 300; // 発車の5分前に到着（不整合データ）
+      return {
+        'journey': {
+          'departureSecs': dep,
+          'arrivalSecs': arr,
+          'durationSecs': 300,
+          'accessWalkSecs': 0,
+          'egressWalkSecs': 0,
+          'legs': [
+            _railLeg(
+              route: '不整合線',
+              fromId: 'bx',
+              fromName: '乗車駅',
+              toId: 'gx',
+              toName: '目的駅',
+              dep: dep,
+              arr: arr,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('transit', 'bx', 'gx', 'stopOrder', [
+              [35.0, lng],
+              [35.0, 139.20],
+            ]),
+          ],
+        },
+      };
+    }
+
+    /// 照会時刻より前に出てしまっている便。`arrivalMinutes` は過去発の待ちを0へ丸めるので
+    /// 「待ち無しで乗れる速い便」に見えるが、実際には乗れない。
+    Map<String, dynamic> staleOption(double lng, String time) {
+      final dep = secsOf(time) - 3600; // 1時間前に発車済み
+      final arr = dep + 600;
+      return {
+        'journey': {
+          'departureSecs': dep,
+          'arrivalSecs': arr,
+          'durationSecs': arr - dep,
+          'accessWalkSecs': 0,
+          'egressWalkSecs': 0,
+          'legs': [
+            _railLeg(
+              route: '発車済線',
+              fromId: 'bx',
+              fromName: '乗車駅',
+              toId: 'gx',
+              toName: '目的駅',
+              dep: dep,
+              arr: arr,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('transit', 'bx', 'gx', 'stopOrder', [
+              [35.0, lng],
+              [35.0, 139.20],
+            ]),
+          ],
+        },
+      };
+    }
+
     /// #343 実測の「悪い便」: 乗り換えを失い、手前で降りて長時間歩く（到着は予算外）。
     Map<String, dynamic> strandedOption(double lng, String time) {
       final dep = secsOf(time);
@@ -2758,6 +2830,8 @@ void main() {
     /// [timelessFrom] 以遠の地点は「時刻なし便が先頭」になる。
     /// [laterTwinFirst] を立てると全地点で「徒歩は同じで発車が遅い便」が先頭に来る。
     /// [partialTimes] を立てると全地点で「発車だけあり到着を欠く便」が先頭に来る。
+    /// [reversedFirst] は「到着が発車より前の便」、[staleFrom] 以遠は「発車済みの便」が
+    /// 先頭に来る。
     /// いずれも無指定なら全地点で正常な便を1本だけ返す（上流が1本しか返さない条件）。
     http.Client mock({
       double? poisonLng,
@@ -2765,6 +2839,8 @@ void main() {
       double? timelessFrom,
       bool laterTwinFirst = false,
       bool partialTimes = false,
+      bool reversedFirst = false,
+      double? staleFrom,
     }) => MockClient((req) async {
       final path = req.url.path;
       if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
@@ -2782,6 +2858,9 @@ void main() {
               timelessOption(lng),
             if (laterTwinFirst) laterTwinOption(lng, time),
             if (partialTimes) partialTimeOption(lng, time),
+            if (reversedFirst) reversedOption(lng, time),
+            if (staleFrom != null && lng >= staleFrom - 1e-6)
+              staleOption(lng, time),
             throughOption(lng, time),
             if (walkier) walkierOption(lng, time),
           ]),
@@ -2955,6 +3034,127 @@ void main() {
       expect(train.depTime!.minute, 0, reason: '30分後発の遅い便の時刻を貼らない');
     });
 
+    test('区間の引き直しは、歩いて別駅へ回る便から時刻・駅名を採らない（レビュー指摘）', () async {
+      // 返す値は「この区間の乗降地名と実発着時刻」なので、徒歩で別駅へ回る便を採ると
+      // その徒歩は捨てられ、区間の所要から丸ごと消える。乗車駅も区間ジオメトリの起点と
+      // 食い違う。到着最早だけで選ぶと、歩いて速い電車へ回る便がしばしば勝ってしまう。
+      const goalNight = GeoPoint(35.0, 139.30);
+      const stops = [
+        [35.0, 139.0],
+        [35.0, 139.075],
+        [35.0, 139.15],
+        [35.0, 139.225],
+        [35.0, 139.30],
+      ];
+
+      Map<String, dynamic> nightOption({
+        required int dep,
+        required int arr,
+        required String route,
+        required String boardName,
+        required int accessWalkSecs,
+      }) => {
+        'journey': {
+          'departureSecs': dep,
+          'arrivalSecs': arr,
+          'durationSecs': arr - dep + accessWalkSecs + 60,
+          'accessWalkSecs': accessWalkSecs,
+          'egressWalkSecs': 60,
+          'legs': [
+            _railLeg(
+              route: route,
+              fromId: 's0',
+              fromName: boardName,
+              toId: 's1',
+              toName: '$boardName-降車',
+              dep: dep,
+              arr: arr,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('walk', 'origin', 's0', 'osmWalk', const [
+              [35.0, 139.0],
+              [35.0, 139.0],
+            ]),
+            _mapSeg('transit', 's0', 's1', 'stopOrder', stops),
+            _mapSeg('walk', 's1', 'destination', 'estimatedWalk', const [
+              [35.0, 139.30],
+              [35.0, 139.30],
+            ]),
+          ],
+        },
+      };
+
+      final client = MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+        if (path.contains('googleWalkProxy')) return _walkFor(req.url);
+        if (path.contains('guidance/plan')) {
+          final time = req.url.queryParameters['time'] ?? '00:00';
+          final hm = time.split(':');
+          final secs = int.parse(hm[0]) * 3600 + int.parse(hm[1]) * 60;
+          final dep = secs > 18000 ? secs : 18000; // 始発05:00
+          final from = req.url.queryParameters['from'] ?? '';
+          final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
+          final body = (lng - 139.0).abs() < 1e-6
+              ? _guidance([
+                  nightOption(
+                    dep: dep,
+                    arr: dep + 1800,
+                    route: '夜行線',
+                    boardName: '基準駅',
+                    accessWalkSecs: 60,
+                  ),
+                ])
+              // 先頭は20分歩いて別駅から速い電車に乗る便。徒歩を含めても到着は早い。
+              : _guidance([
+                  nightOption(
+                    dep: dep,
+                    arr: dep + 600,
+                    route: '迂回快速',
+                    boardName: '迂回駅',
+                    accessWalkSecs: 1200,
+                  ),
+                  nightOption(
+                    dep: dep,
+                    arr: dep + 1800,
+                    route: '各停',
+                    boardName: '区間の駅',
+                    accessWalkSecs: 60,
+                  ),
+                ]);
+          body['date'] = req.url.queryParameters['date'];
+          return _json(body);
+        }
+        return _json(const {}, 404);
+      });
+
+      final plan =
+          await TransitRouteService(
+            transitClient: client,
+            proxyClient: client,
+            transitBaseUrl: _transitBase,
+            proxyBaseUrl: _proxyBase,
+            clock: () => DateTime(2026, 6, 27, 2, 0),
+          ).plan(
+            destination: '終着駅',
+            destinationLatLng: goalNight,
+            departure: const TimeValue(h: 2, m: 0),
+            arrival: const TimeValue(h: 7, m: 0), // 予算300分
+            origin: origin7,
+            originName: '出発',
+          );
+
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.fromName, '区間の駅', reason: '迂回便の駅名を貼らない');
+      expect(train.minutes, 30, reason: '迂回便の乗車10分を貼ると、捨てた徒歩20分が所要から消える');
+    });
+
     test('予算内に収まる範囲では到着最早でなく徒歩の多い便を候補にする（レビュー指摘）', () async {
       // 到着最早は「この地点が予算内か」の判定基準としては正しいが、プールへ渡す候補まで
       // それで決めると、予算内に収まる**歩く便**を捨てる。乗車地点が同じでも option ごとに
@@ -3009,6 +3209,35 @@ void main() {
 
       expect(train.arrTime, isNotNull, reason: '到着時刻の無い便を確定してはならない');
       expect(train.minutes, greaterThan(0), reason: '所要0分の便を採ると乗車時間が到着へ入らない');
+      expect(plan.totalMin, lessThanOrEqualTo(110));
+    });
+
+    test('到着が発車より前の壊れた便を比較に混ぜない（レビュー指摘）', () async {
+      // パーサは所要を負の分数にし、`arrivalMinutes` はその負値で累積を進める。つまり
+      // 到着が手前へ戻るので必ず比較に勝つ。`depTime` はあるので幻便判定も通る。
+      final plan = await planWith(mock(reversedFirst: true));
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+
+      expect(train.minutes, greaterThan(0), reason: '所要が負の便を確定してはならない');
+      expect(
+        plan.totalMin,
+        greaterThanOrEqualTo(walkMinutesOf(plan)),
+        reason: '到着が徒歩の合計を下回るのは時間が巻き戻っている',
+      );
+    });
+
+    test('照会時刻より前に発車済みの便を比較に混ぜない（レビュー指摘）', () async {
+      // 過去発の便は `arrivalMinutes` が待ちを0へ丸めるので「待ち無しで乗れる速い便」に
+      // 見える。実際には乗れないので下流（乗り遅れ除外・`_resolveBoardingTimes` の
+      // `dep.isBefore(boardAt)`）が捨てるが、そのとき同じ応答にあった乗れる便はもう無い。
+      final plan = await planWith(mock(staleFrom: 139.06));
+      expect(
+        walkMinutesOf(plan),
+        greaterThan(74),
+        reason: '発車済みの便を掴むと奥の地点が確定できず手前へ落ちる',
+      );
       expect(plan.totalMin, lessThanOrEqualTo(110));
     });
 

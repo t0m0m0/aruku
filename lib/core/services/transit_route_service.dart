@@ -763,14 +763,24 @@ class TransitRouteService implements SearchEngine {
     // 乗降地名と実発着時刻として使われるので、他種の区間を挟む option を採ると、そこから
     // [type] の leg だけ抜いた値を区間全体へ貼ることになる——間の電車が消え、乗車地点も
     // 所要も別物になる。バス照会（`allowBus`）は電車も許すので、混合便は実際に返り得る。
+    final candidates = parseGuidancePlan(body).where(
+      (o) =>
+          o.segments.any((s) => s.type == type) &&
+          o.segments.every((s) => s.type == type || s.type == SegmentType.walk),
+    );
+    // 同じ理由で、**徒歩の少ない option を先に見る**。徒歩で別駅へ回る便を採ると、その
+    // 徒歩も返り値から落ちて区間の所要から消え、乗車地名が区間ジオメトリの起点と食い違う。
+    // 徒歩0を要求せず最小を採るのは、照会の端点がコリドー座標＝実駅とわずかにずれるため
+    // 上流が数分の access/egress を必ず付けるから（そこで弾くと駅名復元ごと失う）。
+    int walkMinutesOf(TransitOption o) => o.segments
+        .where((s) => s.type == SegmentType.walk)
+        .fold(0, (a, s) => a + s.minutes);
+    final leastWalk = candidates.fold<int?>(
+      null,
+      (m, o) => m == null || walkMinutesOf(o) < m ? walkMinutesOf(o) : m,
+    );
     final best = _earliestArrival(
-      parseGuidancePlan(body).where(
-        (o) =>
-            o.segments.any((s) => s.type == type) &&
-            o.segments.every(
-              (s) => s.type == type || s.type == SegmentType.walk,
-            ),
-      ),
+      candidates.where((o) => walkMinutesOf(o) == leastWalk),
       at,
     );
     if (best == null) return null;
@@ -2080,31 +2090,47 @@ class TransitRouteService implements SearchEngine {
 
   // ---- Transit API（[TransitApiClient] 経由の引き直し） ----
 
-  /// 実発車時刻を確認できた option だけへ絞る。皆無なら [options] をそのまま返す。
+  /// [at] 発として**到着を信じて比べられる** option だけへ絞る。皆無なら [options] を
+  /// そのまま返す。
   ///
-  /// 到着で比べる前に必ず通す。[arrivalMinutes] は時刻の欠けた transit 区間を**待ち0・
-  /// 所要0**として進めるため、**時刻の穴は到着比較で必ず勝つ**。掴んだ候補は同じ応答に
-  /// あった実時刻付きの便を追い出す。
+  /// 到着で比べる前に必ず通す。[arrivalMinutes] は時刻の穴・不整合を**待ち0や負の所要**
+  /// として黙って進めるため、壊れた便ほど速く見える——掴んだ候補は同じ応答にあった
+  /// まともな便を追い出す。弾くのは3種：
+  ///
+  /// - **発着のどちらかを欠く。** パーサの所要は片側欠落を 0 分にする（`_diffMin`）ので、
+  ///   乗った瞬間に着く便になる。
+  /// - **到着が発車より前。** パーサの所要が負になり、[arrivalMinutes] はその負値で累積を
+  ///   進める（`_advance` は `ride < 0` を所要へフォールバックする）＝到着が手前へ戻る。
+  /// - **[at] より前に発車済み。** 待ちが 0 へ丸められて「待ち無しで乗れる速い便」に見える
+  ///   が実際には乗れない。下流（`_resolveBoardingTimes` の `dep.isBefore(boardAt)` 判定・
+  ///   乗り遅れ除外）が捨てる便を先に選んでしまうと、**捨てた時点で代わりはもう無い。**
   ///
   /// 判定に [hasUnverifiedTransit] を使わないのは、あれが「その便が走っているか」だけを
-  /// 問う（`depTime` のみ見る）から。発車だけあり到着を欠く leg は幻便判定を通るが、
-  /// パーサの所要は 0 分（`_diffMin` は片側欠落を 0 にする）で、乗った瞬間に着く便として
-  /// 最速に化ける。**到着を比べるには発着の両方が要る。**
+  /// 問う（`depTime` のみ見る）から。上の後ろ2種は発車時刻を持つので幻便判定を通り、
+  /// 確定まで残ってしまう。**必要なのは実在の確認ではなく、到着を計算できることの確認。**
   ///
-  /// 除外ではなく劣後にするのは、時刻の揃った便が1本も無い地点で従来どおり1本を返すため
+  /// 除外ではなく劣後にするのは、条件を満たす便が1本も無い地点で従来どおり1本を返すため
   /// ——上流が何を返したかで縮退の挙動を変えない。
-  List<TransitOption> _verifiedFirst(Iterable<TransitOption> options) {
+  List<TransitOption> _comparableFrom(
+    Iterable<TransitOption> options,
+    DateTime at,
+  ) {
     final all = options.toList();
     final comparable = [
       for (final o in all)
-        if (o.segments.every(
-          (s) =>
-              s.type == SegmentType.walk ||
-              (s.depTime != null && s.arrTime != null),
-        ))
-          o,
+        if (o.segments.every((s) => _hasUsableTimes(s, at))) o,
     ];
     return comparable.isNotEmpty ? comparable : all;
+  }
+
+  bool _hasUsableTimes(RouteSegment s, DateTime at) {
+    if (s.type == SegmentType.walk) return true;
+    final dep = s.depTime;
+    final arr = s.arrTime;
+    return dep != null &&
+        arr != null &&
+        !arr.isBefore(dep) &&
+        !dep.isBefore(at);
   }
 
   /// 引き直しの応答から、[at] 発で**到着が最も早い** option を選ぶ（同着は上流の並び順）。
@@ -2121,7 +2147,7 @@ class TransitRouteService implements SearchEngine {
   ) {
     TransitOption? best;
     var bestArr = 0;
-    for (final o in _verifiedFirst(options)) {
+    for (final o in _comparableFrom(options, at)) {
       final arr = arrivalMinutes(o.segments, at);
       if (best == null || arr < bestArr) {
         best = o;
@@ -2159,10 +2185,11 @@ class TransitRouteService implements SearchEngine {
       onUpstreamFailure?.call();
       return const [];
     }
-    return _verifiedFirst(
+    return _comparableFrom(
       parseGuidancePlan(
         body,
       ).where((o) => o.segments.any((s) => s.type != SegmentType.walk)),
+      at,
     );
   }
 
