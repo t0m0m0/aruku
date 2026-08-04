@@ -818,6 +818,11 @@ class TransitRouteService implements SearchEngine {
         if (walkMinutesOf(o) == leastWalk) o,
     ];
     // 駅名が目的の呼び出しでは、**欠けている側を埋められる**便を先に見る（無ければ絞らない）。
+    //
+    // 徒歩最小より**後**に適用するのは意図的。この照会の option はすべて同じ座標から始まる
+    // ので、access が余分にある便は**別の駅から乗る**便＝その乗車地名は区間ジオメトリの
+    // 起点の駅名ではない。名前を埋めたいからと徒歩最小より先に名前で絞ると、「名前が無い」
+    // を「別の駅の名前が入っている」に置き換えることになる。**空欄より誤りの方が悪い。**
     bool fillsNeeded(TransitOption o) {
       final leg = o.segments.firstWhere((s) => s.type == type);
       return (!needFrom || leg.fromName.isNotEmpty) &&
