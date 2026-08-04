@@ -2180,7 +2180,11 @@ class TransitRouteService implements SearchEngine {
             firstMissedTransit(o.segments, at) == null)
           o,
     ];
-    return comparable.isNotEmpty ? comparable : all;
+    if (comparable.isNotEmpty) return comparable;
+    // 1本も無いときは**先頭だけ**返す（従来の挙動）。全部返して呼び出し側に選ばせると、
+    // 到着を信じられないと判定した便をその到着で順位付けすることになり、負の所要で到着が
+    // 手前へ戻る便が勝つ——「必ず現状以上」（#343）の保証が破れる。
+    return all.isEmpty ? all : [all.first];
   }
 
   bool _hasUsableTimes(RouteSegment s) {

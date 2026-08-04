@@ -2995,6 +2995,7 @@ void main() {
       double? negativeTransferFrom,
       bool unnamedEarliest = false,
       bool oneSidedNames = false,
+      double? allMalformedFrom,
     }) => MockClient((req) async {
       final path = req.url.path;
       if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
@@ -3005,6 +3006,13 @@ void main() {
         if ((lng - 139.0).abs() < 1e-6) return _json(baseGuidance());
         final time = req.url.queryParameters['time'] ?? '09:00';
         final poisoned = poisonLng != null && (lng - poisonLng).abs() < 1e-6;
+        // 壊れた便しか返らない地点。先頭は発車済み便、2本目は到着が発車より前の便で、
+        // 到着で比べると2本目（負の所要で到着が手前へ戻る）が勝つ。
+        if (allMalformedFrom != null && lng >= allMalformedFrom - 1e-6) {
+          return _json(
+            _guidance([staleOption(lng, time), reversedOption(lng, time)]),
+          );
+        }
         return _json(
           _guidance([
             if (poisoned) strandedOption(lng, time),
@@ -3889,6 +3897,19 @@ void main() {
 
       expect(train.fromName, '名前つき乗車駅', reason: '欠けている乗車地名を埋められる便を採るべき');
       expect(train.toName, '着駅A', reason: '既に埋まっている側は上書きしない');
+    });
+
+    test('壊れた便しか無い地点では、それらを並べて選び直さない（レビュー指摘）', () async {
+      // 到着を信じられないと判定した便を、その到着で順位付けしては筋が通らない。
+      // 縮退の約束は「従来どおり1本を返す」＝上流の先頭であって、「壊れた候補群から
+      // 到着最早を選ぶ」ではない。並べて選ぶと、負の所要で到着が手前へ戻る便が勝ち、
+      // 修正前より悪い結果（この PR が保証する「必ず現状以上」の破れ）になる。
+      final plan = await planWith(mock(allMalformedFrom: 139.06));
+      expect(
+        plan.segments.every((s) => s.minutes >= 0),
+        isTrue,
+        reason: '壊れた候補群を到着で並べ替えると負の所要の便が勝つ',
+      );
     });
 
     test('上流が1本しか返さない地点でも従来どおり徒歩最大へ収束する', () async {
