@@ -120,14 +120,15 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 実行先ごとに違います。対応するのは iOS / Android の 2 プラットフォームです
 （macOS・Web は `lib/firebase_options.dart` が `UnsupportedError` を投げるため動きません）。
 
-**ローカルの Functions エミュレータを叩けるのは iOS シミュレータだけです。**
-実機と Android はプラットフォーム側の制約で塞がっているため、デプロイ済みプロキシを使います。
+**ローカルの Functions エミュレータを叩けるのは iOS シミュレータと Android です。**
+塞がっているのは iOS 実機だけで、その場合はデプロイ済みプロキシを使います。
 
 | アプリの実行先 | ローカルの Functions エミュレータを叩く | デプロイ済みプロキシを叩く |
 |---|---|---|
 | iOS シミュレータ | `http://127.0.0.1:5001/{projectId}/asia-northeast1` | ✅ |
 | iOS 実機 | **不可** — iOS 14+ のローカルネットワークプライバシー。LAN 上の IP へ繋ぐには `Info.plist` に `NSLocalNetworkUsageDescription` が要るが、開発専用の用途で全ユーザーに権限要求を出したくないため入れていない | ✅ |
-| Android エミュレータ・実機 | **不可** — 平文 HTTP が不許可（下記） | ✅ |
+| Android エミュレータ | `http://10.0.2.2:5001/{projectId}/asia-northeast1`（`10.0.2.2` はエミュレータから見たホストの別名） | ✅ |
+| Android 実機 | `adb reverse tcp:5001 tcp:5001` してから `http://127.0.0.1:5001/{projectId}/asia-northeast1` | ✅ |
 
 デプロイ済みプロキシの URL は実行先を問わず
 `https://asia-northeast1-{projectId}.cloudfunctions.net` です。
@@ -137,13 +138,12 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 > 対象**になり、`NSAllowsLocalNetworking` を足さないと平文が弾かれる。本プロジェクトは
 > `Info.plist` に ATS 例外を持たない（デプロイ target は iOS 15.0）。
 
-> **Android からローカルの Functions エミュレータへは現状つながりません。**
-> `targetSdk` は 36（Android 9+ の既定で平文 HTTP が不許可）で、`AndroidManifest.xml` にも
-> `usesCleartextTraffic` / `networkSecurityConfig` の指定がありません。ホストの別名 `10.0.2.2` も
-> `adb reverse` 経由の `127.0.0.1` も**同じく平文なのでブロックされます**（`adb reverse` は
-> 到達性の問題を解くだけで、平文の可否には効きません）。
-> Android で地点検索・徒歩実測を試す場合は**デプロイ済みプロキシ**を指してください。
-> debug ビルド限定で平文を許可する対応は [#349](https://github.com/t0m0m0/aruku/issues/349) で扱います。
+> Android は `targetSdk` が 36 で、`AndroidManifest.xml` に `usesCleartextTraffic` も
+> `networkSecurityConfig` もありません。それでも**平文 HTTP は通ります**。Android 9+ の平文禁止は
+> `NetworkSecurityPolicy` を**参照するライブラリ**（OkHttp・`HttpURLConnection`・Cronet・WebView）
+> にしか効かないためです。本アプリの通信は `package:http` → `dart:io` の `HttpClient` で、
+> Dart VM が生ソケット上に持つ独自スタックなのでこのポリシーを通りません。
+> **マニフェストに平文許可を足す必要はなく、足しても挙動は変わりません**（#349 で実測確認）。
 
 **② Functions エミュレータを起動する。** `package.json` の `main` は `lib/index.js`
 （tsc の出力・gitignore 済み）なので、**ビルドしないとエミュレータは読み込む関数が無い状態で起動します**。
