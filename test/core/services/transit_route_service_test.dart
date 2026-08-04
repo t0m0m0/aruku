@@ -2659,6 +2659,8 @@ void main() {
       String fromName = '',
       String toName = '',
       int delayMin = 0,
+      String route = '快速',
+      bool omitArrival = false,
     }) {
       final dep = secsOf(time) + delayMin * 60;
       final t = (haversineKm(GeoPoint(35.0, lng), goal7) * 1000 / 500).round();
@@ -2674,9 +2676,9 @@ void main() {
             {
               'kind': 'transit',
               'mode': 'rail',
-              'routeName': '快速',
+              'routeName': route,
               'departureSecs': dep,
-              'arrivalSecs': arr,
+              if (!omitArrival) 'arrivalSecs': arr,
               if (fromName.isNotEmpty) 'from': _station('bx', fromName),
               if (toName.isNotEmpty) 'to': _station('gx', toName),
             },
@@ -2996,6 +2998,7 @@ void main() {
       bool unnamedEarliest = false,
       bool oneSidedNames = false,
       double? allMalformedFrom,
+      bool namedSameLineHasNoArrival = false,
     }) => MockClient((req) async {
       final path = req.url.path;
       if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
@@ -3011,6 +3014,31 @@ void main() {
         if (allMalformedFrom != null && lng >= allMalformedFrom - 1e-6) {
           return _json(
             _guidance([staleOption(lng, time), reversedOption(lng, time)]),
+          );
+        }
+        // 駅名を持つのは「同一路線だが到着時刻を欠く便」だけ。時刻の揃った便は
+        // 名前が無い（乗り通し）か、別路線。駅名復元がどれを採るかを見る。
+        if (namedSameLineHasNoArrival) {
+          return _json(
+            _guidance([
+              partialNameOption(lng, time),
+              partialNameOption(
+                lng,
+                time,
+                fromName: '同一路線の駅',
+                toName: '同一路線の降車駅',
+                delayMin: 5,
+                omitArrival: true,
+              ),
+              partialNameOption(
+                lng,
+                time,
+                fromName: '別路線の駅',
+                toName: '別路線の降車駅',
+                delayMin: 10,
+                route: '別路線',
+              ),
+            ]),
           );
         }
         return _json(
@@ -3910,6 +3938,23 @@ void main() {
         isTrue,
         reason: '壊れた候補群を到着で並べ替えると負の所要の便が勝つ',
       );
+    });
+
+    test('駅名復元は時刻の欠落で候補を捨てない（レビュー指摘）', () async {
+      // 駅名復元は `dep`/`arr` を一切読まない。時刻の妥当性で絞ると、**名前は正しいが
+      // 時刻を欠く同一路線の便**が落ち、別路線の便や名前の無い便しか残らない。
+      // 時刻が要るのは実時刻検証の側だけ。
+      final plan = await planWith(mock(namedSameLineHasNoArrival: true));
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+
+      expect(
+        train.fromName,
+        '同一路線の駅',
+        reason: '時刻を欠くだけの同一路線の便を、駅名の候補から外してはならない',
+      );
+      expect(train.arrTime, isNotNull, reason: '駅名を借りても、区間の時刻は時刻の揃った便のまま');
     });
 
     test('上流が1本しか返さない地点でも従来どおり徒歩最大へ収束する', () async {

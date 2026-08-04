@@ -718,6 +718,8 @@ class TransitRouteService implements SearchEngine {
           line: segs[i].line,
           needFrom: segs[i].fromName.isEmpty,
           needTo: segs[i].toName.isEmpty,
+          // 読むのは駅名だけ。時刻の妥当性で絞ると名前の候補が減るだけになる。
+          requireTimetable: false,
         ),
     ]);
     for (var k = 0; k < targets.length; k++) {
@@ -756,6 +758,13 @@ class TransitRouteService implements SearchEngine {
   /// しまう。実時刻検証（[_resolveBoardingTimes]）はどちらも立てない：あちらの目的は時刻で、
   /// 名前のために遅い便を選ぶと到着が実際より遅く出る。名前が空のまま残った区間は
   /// [_finalizeStationNames] が後段で拾い直す。
+  ///
+  /// [requireTimetable] は返り値の時刻を使う呼び出しだけで立てる（既定）。駅名復元は
+  /// `dep`/`arr` を一切読まないので、そこで時刻の妥当性（[_comparableFrom]）を要求すると
+  /// **名前は正しいが時刻を欠く便**を落とすだけになり、別路線の便や名前の無い便しか
+  /// 残らない。落としても名前の質は上がらない。なお最後の到着順位付け（[_earliestArrival]）は
+  /// 内部で [_comparableFrom] を通すので、**同条件で並んだときは時刻の揃った便が優先**される
+  /// ——「要求はしないが優先はする」という強さになる。
   Future<({String from, String to, DateTime? dep, DateTime? arr})?>
   _fetchTransitEndpoints(
     GeoPoint board,
@@ -765,6 +774,7 @@ class TransitRouteService implements SearchEngine {
     String? line,
     bool needFrom = false,
     bool needTo = false,
+    bool requireTimetable = true,
   }) async {
     final Map<String, dynamic> body;
     try {
@@ -793,7 +803,9 @@ class TransitRouteService implements SearchEngine {
     // 時刻の妥当性は**徒歩で絞る前に**見る。順序が逆だと、壊れた便が最小徒歩を占めた
     // ときにまともな便が先に消え、残った壊れた便を [_comparableFrom] の「1本も無ければ
     // そのまま返す」縮退が拾ってしまう。
-    final comparable = _comparableFrom(direct, at);
+    final comparable = requireTimetable
+        ? _comparableFrom(direct, at)
+        : direct.toList();
     // 元区間と同じ路線の便を優先する（[line]）。一致が無ければ絞らない。
     final sameLine = [
       for (final o in comparable)
