@@ -3155,6 +3155,298 @@ void main() {
       expect(train.minutes, 30, reason: '迂回便の乗車10分を貼ると、捨てた徒歩20分が所要から消える');
     });
 
+    test('区間の引き直しは、徒歩最小より先に時刻の使えない便を落とす（レビュー指摘）', () async {
+      // 徒歩最小で絞ってから時刻の妥当性を見ると、壊れた便が最小徒歩を占めたときに
+      // まともな便が先に消える。残るのは壊れた便だけなので「1本も無いならそのまま返す」
+      // 縮退が働き、結局その壊れた値を貼ってしまう。順序が逆でなければならない。
+      const goalNight = GeoPoint(35.0, 139.30);
+      const stops = [
+        [35.0, 139.0],
+        [35.0, 139.075],
+        [35.0, 139.15],
+        [35.0, 139.225],
+        [35.0, 139.30],
+      ];
+
+      Map<String, dynamic> nightOption({
+        required int dep,
+        required int arr,
+        required String route,
+        required String boardName,
+        required int accessWalkSecs,
+      }) => {
+        'journey': {
+          'departureSecs': dep,
+          'arrivalSecs': arr,
+          'durationSecs': 1800 + accessWalkSecs + 60,
+          'accessWalkSecs': accessWalkSecs,
+          'egressWalkSecs': 60,
+          'legs': [
+            _railLeg(
+              route: route,
+              fromId: 's0',
+              fromName: boardName,
+              toId: 's1',
+              toName: '$boardName-降車',
+              dep: dep,
+              arr: arr,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('walk', 'origin', 's0', 'osmWalk', const [
+              [35.0, 139.0],
+              [35.0, 139.0],
+            ]),
+            _mapSeg('transit', 's0', 's1', 'stopOrder', stops),
+            _mapSeg('walk', 's1', 'destination', 'estimatedWalk', const [
+              [35.0, 139.30],
+              [35.0, 139.30],
+            ]),
+          ],
+        },
+      };
+
+      final client = MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+        if (path.contains('googleWalkProxy')) return _walkFor(req.url);
+        if (path.contains('guidance/plan')) {
+          final time = req.url.queryParameters['time'] ?? '00:00';
+          final hm = time.split(':');
+          final secs = int.parse(hm[0]) * 3600 + int.parse(hm[1]) * 60;
+          final dep = secs > 18000 ? secs : 18000; // 始発05:00
+          final from = req.url.queryParameters['from'] ?? '';
+          final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
+          final body = (lng - 139.0).abs() < 1e-6
+              ? _guidance([
+                  nightOption(
+                    dep: dep,
+                    arr: dep + 1800,
+                    route: '夜行線',
+                    boardName: '基準駅',
+                    accessWalkSecs: 60,
+                  ),
+                ])
+              // 徒歩最小（access 1分）の便は到着が発車より前の不整合データ。
+              // 徒歩3分の便だけが時刻として使える。
+              : _guidance([
+                  nightOption(
+                    dep: dep,
+                    arr: dep - 300,
+                    route: '不整合線',
+                    boardName: '不整合駅',
+                    accessWalkSecs: 60,
+                  ),
+                  nightOption(
+                    dep: dep,
+                    arr: dep + 1800,
+                    route: '各停',
+                    boardName: '整合駅',
+                    accessWalkSecs: 180,
+                  ),
+                ]);
+          body['date'] = req.url.queryParameters['date'];
+          return _json(body);
+        }
+        return _json(const {}, 404);
+      });
+
+      final plan =
+          await TransitRouteService(
+            transitClient: client,
+            proxyClient: client,
+            transitBaseUrl: _transitBase,
+            proxyBaseUrl: _proxyBase,
+            clock: () => DateTime(2026, 6, 27, 2, 0),
+          ).plan(
+            destination: '終着駅',
+            destinationLatLng: goalNight,
+            departure: const TimeValue(h: 2, m: 0),
+            arrival: const TimeValue(h: 7, m: 0),
+            origin: origin7,
+            originName: '出発',
+          );
+
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.fromName, '整合駅', reason: '徒歩最小でも時刻が使えない便は採らない');
+      expect(train.depTime, isNotNull);
+      expect(
+        train.arrTime!.isBefore(train.depTime!),
+        isFalse,
+        reason: '到着が発車より前の時刻を区間へ貼ってはならない',
+      );
+    });
+
+    test('区間の引き直しは、乗換を含む便を直通の1区間として貼らない（レビュー指摘）', () async {
+      // 同種別の leg が2本ある便（A→C→B）は「その種別だけで行く」条件を満たしてしまう。
+      // 先頭の発車と末尾の到着を1区間へ貼ると、乗換待ちと2本目の乗車を含んだ時間が
+      // 「元の路線を直通で乗った」ように見える。区間の line もジオメトリも1本のまま。
+      const goalNight = GeoPoint(35.0, 139.30);
+      const stops = [
+        [35.0, 139.0],
+        [35.0, 139.075],
+        [35.0, 139.15],
+        [35.0, 139.225],
+        [35.0, 139.30],
+      ];
+
+      Map<String, dynamic> baseSegs() => {
+        'points': const [],
+        'segments': [
+          _mapSeg('walk', 'origin', 's0', 'osmWalk', const [
+            [35.0, 139.0],
+            [35.0, 139.0],
+          ]),
+          _mapSeg('transit', 's0', 's1', 'stopOrder', stops),
+          _mapSeg('walk', 's1', 'destination', 'estimatedWalk', const [
+            [35.0, 139.30],
+            [35.0, 139.30],
+          ]),
+        ],
+      };
+
+      Map<String, dynamic> singleLeg({
+        required int dep,
+        required int arr,
+        required String route,
+        required String boardName,
+      }) => {
+        'journey': {
+          'departureSecs': dep,
+          'arrivalSecs': arr,
+          'durationSecs': arr - dep + 120,
+          'accessWalkSecs': 60,
+          'egressWalkSecs': 60,
+          'legs': [
+            _railLeg(
+              route: route,
+              fromId: 's0',
+              fromName: boardName,
+              toId: 's1',
+              toName: '$boardName-降車',
+              dep: dep,
+              arr: arr,
+            ),
+          ],
+        },
+        'map': baseSegs(),
+      };
+
+      /// A→C→B の乗換便。徒歩は直通便と同じで、到着だけ早い。
+      Map<String, dynamic> twoLegs(int dep) => {
+        'journey': {
+          'departureSecs': dep,
+          'arrivalSecs': dep + 1200,
+          'durationSecs': 1320,
+          'accessWalkSecs': 60,
+          'egressWalkSecs': 60,
+          'legs': [
+            _railLeg(
+              route: '乗換線1',
+              fromId: 's0',
+              fromName: '乗換便の駅',
+              toId: 'sc',
+              toName: '中間駅',
+              dep: dep,
+              arr: dep + 600,
+            ),
+            _railLeg(
+              route: '乗換線2',
+              fromId: 'sc',
+              fromName: '中間駅',
+              toId: 's1',
+              toName: '乗換便の降車駅',
+              dep: dep + 600,
+              arr: dep + 1200,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('walk', 'origin', 's0', 'osmWalk', const [
+              [35.0, 139.0],
+              [35.0, 139.0],
+            ]),
+            _mapSeg('transit', 's0', 'sc', 'stopOrder', const [
+              [35.0, 139.0],
+              [35.0, 139.15],
+            ]),
+            _mapSeg('transit', 'sc', 's1', 'stopOrder', const [
+              [35.0, 139.15],
+              [35.0, 139.30],
+            ]),
+            _mapSeg('walk', 's1', 'destination', 'estimatedWalk', const [
+              [35.0, 139.30],
+              [35.0, 139.30],
+            ]),
+          ],
+        },
+      };
+
+      final client = MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+        if (path.contains('googleWalkProxy')) return _walkFor(req.url);
+        if (path.contains('guidance/plan')) {
+          final time = req.url.queryParameters['time'] ?? '00:00';
+          final hm = time.split(':');
+          final secs = int.parse(hm[0]) * 3600 + int.parse(hm[1]) * 60;
+          final dep = secs > 18000 ? secs : 18000; // 始発05:00
+          final from = req.url.queryParameters['from'] ?? '';
+          final lng = double.parse(from.replaceFirst('geo:', '').split(',')[1]);
+          final body = (lng - 139.0).abs() < 1e-6
+              ? _guidance([
+                  singleLeg(
+                    dep: dep,
+                    arr: dep + 1800,
+                    route: '夜行線',
+                    boardName: '基準駅',
+                  ),
+                ])
+              : _guidance([
+                  twoLegs(dep),
+                  singleLeg(
+                    dep: dep,
+                    arr: dep + 1800,
+                    route: '各停',
+                    boardName: '直通の駅',
+                  ),
+                ]);
+          body['date'] = req.url.queryParameters['date'];
+          return _json(body);
+        }
+        return _json(const {}, 404);
+      });
+
+      final plan =
+          await TransitRouteService(
+            transitClient: client,
+            proxyClient: client,
+            transitBaseUrl: _transitBase,
+            proxyBaseUrl: _proxyBase,
+            clock: () => DateTime(2026, 6, 27, 2, 0),
+          ).plan(
+            destination: '終着駅',
+            destinationLatLng: goalNight,
+            departure: const TimeValue(h: 2, m: 0),
+            arrival: const TimeValue(h: 7, m: 0),
+            origin: origin7,
+            originName: '出発',
+          );
+
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+      expect(train.fromName, '直通の駅', reason: '乗換便の乗車駅を直通区間へ貼らない');
+      expect(train.minutes, 30, reason: '乗換待ちと2本目の乗車を含む20分を直通の所要として貼らない');
+    });
+
     test('予算内に収まる範囲では到着最早でなく徒歩の多い便を候補にする（レビュー指摘）', () async {
       // 到着最早は「この地点が予算内か」の判定基準としては正しいが、プールへ渡す候補まで
       // それで決めると、予算内に収まる**歩く便**を捨てる。乗車地点が同じでも option ごとに

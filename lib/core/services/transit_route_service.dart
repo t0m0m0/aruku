@@ -759,19 +759,27 @@ class TransitRouteService implements SearchEngine {
     } on RouteException {
       return null;
     }
-    // 拾う option は「[type] の区間**だけ**で goal まで行くもの」に限る。返す値は1区間ぶんの
-    // 乗降地名と実発着時刻として使われるので、他種の区間を挟む option を採ると、そこから
-    // [type] の leg だけ抜いた値を区間全体へ貼ることになる——間の電車が消え、乗車地点も
-    // 所要も別物になる。バス照会（`allowBus`）は電車も許すので、混合便は実際に返り得る。
-    final candidates = parseGuidancePlan(body).where(
+    // 拾う option は「[type] の区間**1本だけ**で goal まで行くもの」に限る。返す値は1区間
+    // ぶんの乗降地名と実発着時刻として使われるので、それ以外を採ると**返り値に写らない
+    // 区間の時間が消える**：
+    // - 他種の区間を挟む便（バス照会は `allowBus` ＝電車も許すので混合便は返り得る）は、
+    //   [type] の leg だけ抜いた値を貼ることになり、間の電車が消える。
+    // - 同種別の leg が2本ある便（A→C→B）は、先頭の発車と末尾の到着を1区間へ貼ると、
+    //   乗換待ちと2本目の乗車を含んだ時間が「元の路線を直通で乗った」ように見える
+    //   （区間の `line` もジオメトリも1本のまま）。
+    final direct = parseGuidancePlan(body).where(
       (o) =>
-          o.segments.any((s) => s.type == type) &&
+          o.segments.where((s) => s.type == type).length == 1 &&
           o.segments.every((s) => s.type == type || s.type == SegmentType.walk),
     );
-    // 同じ理由で、**徒歩の少ない option を先に見る**。徒歩で別駅へ回る便を採ると、その
-    // 徒歩も返り値から落ちて区間の所要から消え、乗車地名が区間ジオメトリの起点と食い違う。
-    // 徒歩0を要求せず最小を採るのは、照会の端点がコリドー座標＝実駅とわずかにずれるため
-    // 上流が数分の access/egress を必ず付けるから（そこで弾くと駅名復元ごと失う）。
+    // 時刻の妥当性は**徒歩で絞る前に**見る。順序が逆だと、壊れた便が最小徒歩を占めた
+    // ときにまともな便が先に消え、残った壊れた便を [_comparableFrom] の「1本も無ければ
+    // そのまま返す」縮退が拾ってしまう。
+    final candidates = _comparableFrom(direct, at);
+    // 徒歩で別駅へ回る便を採ると、その徒歩も返り値から落ちて区間の所要から消え、乗車地名が
+    // 区間ジオメトリの起点と食い違う。徒歩0を要求せず最小を採るのは、照会の端点がコリドー
+    // 座標＝実駅とわずかにずれるため上流が数分の access/egress を必ず付けるから（そこで
+    // 弾くと駅名復元ごと失う）。
     int walkMinutesOf(TransitOption o) => o.segments
         .where((s) => s.type == SegmentType.walk)
         .fold(0, (a, s) => a + s.minutes);
@@ -784,12 +792,12 @@ class TransitRouteService implements SearchEngine {
       at,
     );
     if (best == null) return null;
-    final legs = best.segments.where((s) => s.type == type).toList();
+    final leg = best.segments.firstWhere((s) => s.type == type);
     return (
-      from: legs.first.fromName,
-      to: legs.last.toName,
-      dep: legs.first.depTime,
-      arr: legs.last.arrTime,
+      from: leg.fromName,
+      to: leg.toName,
+      dep: leg.depTime,
+      arr: leg.arrTime,
     );
   }
 
