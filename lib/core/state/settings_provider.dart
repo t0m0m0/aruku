@@ -4,7 +4,6 @@ import '../models/app_settings.dart';
 import '../services/crash_reporter.dart';
 import '../services/notification_service.dart';
 import '../services/settings_repository.dart';
-import '../services/sync_meta_repository.dart';
 
 /// アプリ設定を保持し、変更を永続化するノーティファイア。
 class SettingsNotifier extends AsyncNotifier<AppSettings> {
@@ -58,9 +57,6 @@ class SettingsNotifier extends AsyncNotifier<AppSettings> {
     final next = change(state.value ?? AppSettings.defaults);
     await repo.save(next);
     state = AsyncData(next);
-    // クラウド同期の last-write-wins 用にローカル変更時刻を更新する。
-    final meta = await ref.read(syncMetaRepositoryProvider.future);
-    await meta.markLocalChanged();
   }
 }
 
