@@ -818,6 +818,11 @@ class TransitRouteService implements SearchEngine {
     // 区間ジオメトリの起点と食い違う。徒歩0を要求せず最小を採るのは、照会の端点がコリドー
     // 座標＝実駅とわずかにずれるため上流が数分の access/egress を必ず付けるから（そこで
     // 弾くと駅名復元ごと失う）。
+    //
+    // 分へ丸めた値で比べる（パーサが `(secs / 60).round()` する）。秒や km で割り直しは
+    // しない——同じ丸め分に並ぶ便どうしの徒歩差は定義上60秒未満で、駅間ではなく同一駅の
+    // 出入口ぶんの距離しかない。予算判定も到着も分単位（[arrivalMinutes]）なので、ここだけ
+    // 秒精度にしても下流で丸め直され、単位の不一致が残るだけになる。
     int walkMinutesOf(TransitOption o) => o.segments
         .where((s) => s.type == SegmentType.walk)
         .fold(0, (a, s) => a + s.minutes);
