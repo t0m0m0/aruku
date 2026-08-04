@@ -2082,18 +2082,29 @@ class TransitRouteService implements SearchEngine {
 
   /// 実発車時刻を確認できた option だけへ絞る。皆無なら [options] をそのまま返す。
   ///
-  /// 到着で比べる前に必ず通す。[arrivalMinutes] は時刻を欠く transit 区間の乗車待ちを 0 と
-  /// 見なすため、**時刻なしの便は到着比較で必ず勝つ**。掴んだ候補は幻便として確定から
-  /// 除外される（[hasUnverifiedTransit]・#137）ので、同じ応答にあった実時刻付きの便まで
-  /// 一緒に失う。除外ではなく劣後にするのは、時刻なししか返らない地点で従来どおり1本を
-  /// 返すため——上流が何本返したかで縮退の挙動を変えない。
+  /// 到着で比べる前に必ず通す。[arrivalMinutes] は時刻の欠けた transit 区間を**待ち0・
+  /// 所要0**として進めるため、**時刻の穴は到着比較で必ず勝つ**。掴んだ候補は同じ応答に
+  /// あった実時刻付きの便を追い出す。
+  ///
+  /// 判定に [hasUnverifiedTransit] を使わないのは、あれが「その便が走っているか」だけを
+  /// 問う（`depTime` のみ見る）から。発車だけあり到着を欠く leg は幻便判定を通るが、
+  /// パーサの所要は 0 分（`_diffMin` は片側欠落を 0 にする）で、乗った瞬間に着く便として
+  /// 最速に化ける。**到着を比べるには発着の両方が要る。**
+  ///
+  /// 除外ではなく劣後にするのは、時刻の揃った便が1本も無い地点で従来どおり1本を返すため
+  /// ——上流が何を返したかで縮退の挙動を変えない。
   List<TransitOption> _verifiedFirst(Iterable<TransitOption> options) {
     final all = options.toList();
-    final verified = [
+    final comparable = [
       for (final o in all)
-        if (!hasUnverifiedTransit(o.segments)) o,
+        if (o.segments.every(
+          (s) =>
+              s.type == SegmentType.walk ||
+              (s.depTime != null && s.arrTime != null),
+        ))
+          o,
     ];
-    return verified.isNotEmpty ? verified : all;
+    return comparable.isNotEmpty ? comparable : all;
   }
 
   /// 引き直しの応答から、[at] 発で**到着が最も早い** option を選ぶ（同着は上流の並び順）。

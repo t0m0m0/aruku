@@ -2606,6 +2606,39 @@ void main() {
       };
     }
 
+    /// 発車時刻だけあり到着時刻を欠く便。パーサは所要を0分に落とすので、到着で比べると
+    /// 「乗った瞬間に着く」便として最速に化ける。`depTime` はあるので幻便判定は素通りする。
+    Map<String, dynamic> partialTimeOption(double lng, String time) {
+      final dep = secsOf(time);
+      return {
+        'journey': {
+          'departureSecs': dep,
+          'durationSecs': 600,
+          'accessWalkSecs': 0,
+          'egressWalkSecs': 0,
+          'legs': [
+            {
+              'kind': 'transit',
+              'mode': 'rail',
+              'routeName': '到着時刻なし線',
+              'from': _station('bx', '乗車駅'),
+              'to': _station('gx', '目的駅'),
+              'departureSecs': dep,
+            },
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('transit', 'bx', 'gx', 'stopOrder', [
+              [35.0, lng],
+              [35.0, 139.20],
+            ]),
+          ],
+        },
+      };
+    }
+
     /// [throughOption] と徒歩量が同じで、発車だけ [delayMin] 分遅い双子の便。
     /// 徒歩で並んだときにどちらを採るかを見るために使う。
     Map<String, dynamic> laterTwinOption(
@@ -2724,12 +2757,14 @@ void main() {
     /// [walkier] を立てると全地点で「乗り通し（到着最早）＋手前で降りて歩く便」を返す。
     /// [timelessFrom] 以遠の地点は「時刻なし便が先頭」になる。
     /// [laterTwinFirst] を立てると全地点で「徒歩は同じで発車が遅い便」が先頭に来る。
+    /// [partialTimes] を立てると全地点で「発車だけあり到着を欠く便」が先頭に来る。
     /// いずれも無指定なら全地点で正常な便を1本だけ返す（上流が1本しか返さない条件）。
     http.Client mock({
       double? poisonLng,
       bool walkier = false,
       double? timelessFrom,
       bool laterTwinFirst = false,
+      bool partialTimes = false,
     }) => MockClient((req) async {
       final path = req.url.path;
       if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
@@ -2746,6 +2781,7 @@ void main() {
             if (timelessFrom != null && lng >= timelessFrom - 1e-6)
               timelessOption(lng),
             if (laterTwinFirst) laterTwinOption(lng, time),
+            if (partialTimes) partialTimeOption(lng, time),
             throughOption(lng, time),
             if (walkier) walkierOption(lng, time),
           ]),
@@ -2961,6 +2997,19 @@ void main() {
         lessThan(120),
         reason: '上流順で残すと10分後発の双子が確定し、到着がその分遅れる',
       );
+    });
+
+    test('到着時刻を欠く便も到着最早の比較で最速に化けさせない（レビュー指摘）', () async {
+      // 発車だけある便はパーサが所要0分に落とすため「乗った瞬間に着く」便になる。
+      // `depTime` はあるので幻便判定（`hasUnverifiedTransit`）を素通りし、確定まで残る。
+      final plan = await planWith(mock(partialTimes: true));
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+
+      expect(train.arrTime, isNotNull, reason: '到着時刻の無い便を確定してはならない');
+      expect(train.minutes, greaterThan(0), reason: '所要0分の便を採ると乗車時間が到着へ入らない');
+      expect(plan.totalMin, lessThanOrEqualTo(110));
     });
 
     test('上流が1本しか返さない地点でも従来どおり徒歩最大へ収束する', () async {
