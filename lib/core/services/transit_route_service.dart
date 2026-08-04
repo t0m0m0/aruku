@@ -716,7 +716,8 @@ class TransitRouteService implements SearchEngine {
           departureAt,
           type: segs[i].type,
           line: segs[i].line,
-          preferNamed: true,
+          needFrom: segs[i].fromName.isEmpty,
+          needTo: segs[i].toName.isEmpty,
         ),
     ]);
     for (var k = 0; k < targets.length; k++) {
@@ -748,11 +749,13 @@ class TransitRouteService implements SearchEngine {
   /// ジオメトリを残すため、**路線名は元のまま・時刻と所要だけ別路線のもの**という表示に
   /// なる。一致する便が無ければ絞らない（駅名復元ごと失うより、時刻が付く方を採る）。
   ///
-  /// [preferNamed] は**駅名の復元が目的の呼び出し**だけで立てる。上流は乗降地名を欠いた
-  /// option も返し（パーサは空文字にする）、到着最早だけで選ぶとそれを掴んで空文字を
-  /// 書き戻す＝駅名が付かないまま確定する。実時刻検証（[_resolveBoardingTimes]）では
-  /// 立てない——あちらの目的は時刻で、名前のために遅い便を選ぶと到着が実際より遅く出る。
-  /// 名前が空のまま残った区間は [_finalizeStationNames] が後段で拾い直す。
+  /// [needFrom]・[needTo] には**駅名の復元が目的の呼び出し**で「実際に欠けている側」を
+  /// 渡す。上流は乗降地名を欠いた option も返し（パーサは空文字にする）、到着最早だけで
+  /// 選ぶとそれを掴んで空文字を書き戻す＝駅名が付かないまま確定する。**両側とも名前を
+  /// 持つことを要求してはならない**——片側だけ欠けた区間で、必要な側だけを持つ便を捨てて
+  /// しまう。実時刻検証（[_resolveBoardingTimes]）はどちらも立てない：あちらの目的は時刻で、
+  /// 名前のために遅い便を選ぶと到着が実際より遅く出る。名前が空のまま残った区間は
+  /// [_finalizeStationNames] が後段で拾い直す。
   Future<({String from, String to, DateTime? dep, DateTime? arr})?>
   _fetchTransitEndpoints(
     GeoPoint board,
@@ -760,7 +763,8 @@ class TransitRouteService implements SearchEngine {
     DateTime at, {
     SegmentType type = SegmentType.train,
     String? line,
-    bool preferNamed = false,
+    bool needFrom = false,
+    bool needTo = false,
   }) async {
     final Map<String, dynamic> body;
     try {
@@ -813,20 +817,18 @@ class TransitRouteService implements SearchEngine {
       for (final o in candidates)
         if (walkMinutesOf(o) == leastWalk) o,
     ];
-    // 駅名が目的の呼び出しでは、名前を持つ便を先に見る（無ければ絞らない）。
-    bool hasNames(TransitOption o) {
+    // 駅名が目的の呼び出しでは、**欠けている側を埋められる**便を先に見る（無ければ絞らない）。
+    bool fillsNeeded(TransitOption o) {
       final leg = o.segments.firstWhere((s) => s.type == type);
-      return leg.fromName.isNotEmpty && leg.toName.isNotEmpty;
+      return (!needFrom || leg.fromName.isNotEmpty) &&
+          (!needTo || leg.toName.isNotEmpty);
     }
 
     final named = [
       for (final o in shortest)
-        if (hasNames(o)) o,
+        if (fillsNeeded(o)) o,
     ];
-    final best = _earliestArrival(
-      preferNamed && named.isNotEmpty ? named : shortest,
-      at,
-    );
+    final best = _earliestArrival(named.isNotEmpty ? named : shortest, at);
     if (best == null) return null;
     final leg = best.segments.firstWhere((s) => s.type == type);
     return (

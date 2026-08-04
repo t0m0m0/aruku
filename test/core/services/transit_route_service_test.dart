@@ -2651,9 +2651,16 @@ void main() {
       };
     }
 
-    /// 駅名を持たない乗り通し便（上流が `from`/`to` を欠く応答）。パーサは空文字にする。
-    Map<String, dynamic> unnamedThroughOption(double lng, String time) {
-      final dep = secsOf(time);
+    /// 乗降地名を部分的にしか持たない乗り通し便。上流が `from`/`to` を欠くと
+    /// パーサは空文字にする。空文字を渡した側はキーごと落とす。
+    Map<String, dynamic> partialNameOption(
+      double lng,
+      String time, {
+      String fromName = '',
+      String toName = '',
+      int delayMin = 0,
+    }) {
+      final dep = secsOf(time) + delayMin * 60;
       final t = (haversineKm(GeoPoint(35.0, lng), goal7) * 1000 / 500).round();
       final arr = dep + t * 60;
       return {
@@ -2670,43 +2677,9 @@ void main() {
               'routeName': '快速',
               'departureSecs': dep,
               'arrivalSecs': arr,
+              if (fromName.isNotEmpty) 'from': _station('bx', fromName),
+              if (toName.isNotEmpty) 'to': _station('gx', toName),
             },
-          ],
-        },
-        'map': {
-          'points': const [],
-          'segments': [
-            _mapSeg('transit', 'bx', 'gx', 'stopOrder', [
-              [35.0, lng],
-              [35.0, 139.20],
-            ]),
-          ],
-        },
-      };
-    }
-
-    /// 駅名を持つが5分後発の乗り通し便。[unnamedThroughOption] より到着は遅い。
-    Map<String, dynamic> namedLaterOption(double lng, String time) {
-      final dep = secsOf(time) + 300;
-      final t = (haversineKm(GeoPoint(35.0, lng), goal7) * 1000 / 500).round();
-      final arr = dep + t * 60;
-      return {
-        'journey': {
-          'departureSecs': dep,
-          'arrivalSecs': arr,
-          'durationSecs': arr - dep,
-          'accessWalkSecs': 0,
-          'egressWalkSecs': 0,
-          'legs': [
-            _railLeg(
-              route: '快速',
-              fromId: 'bx',
-              fromName: '名前つき乗車駅',
-              toId: 'gx',
-              toName: '名前つき目的駅',
-              dep: dep,
-              arr: arr,
-            ),
           ],
         },
         'map': {
@@ -3021,6 +2994,7 @@ void main() {
       double? brokenConnectionFrom,
       double? negativeTransferFrom,
       bool unnamedEarliest = false,
+      bool oneSidedNames = false,
     }) => MockClient((req) async {
       final path = req.url.path;
       if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
@@ -3048,8 +3022,18 @@ void main() {
                 lng >= negativeTransferFrom - 1e-6)
               negativeTransferOption(lng, time),
             if (unnamedEarliest) ...[
-              unnamedThroughOption(lng, time),
-              namedLaterOption(lng, time),
+              partialNameOption(lng, time),
+              partialNameOption(
+                lng,
+                time,
+                fromName: '名前つき乗車駅',
+                toName: '名前つき目的駅',
+                delayMin: 5,
+              ),
+            ] else if (oneSidedNames) ...[
+              // 最早便は降車地名だけ持つ（乗車地名が空）。5分後発の便は逆に乗車地名だけ。
+              partialNameOption(lng, time, toName: '着駅A'),
+              partialNameOption(lng, time, fromName: '名前つき乗車駅', delayMin: 5),
             ] else
               throughOption(lng, time),
             if (walkier) walkierOption(lng, time),
@@ -3893,6 +3877,18 @@ void main() {
 
       expect(train.fromName, '名前つき乗車駅', reason: '名前の無い便を採ると駅名が空のまま残る');
       expect(plan.totalMin, lessThanOrEqualTo(110));
+    });
+
+    test('駅名復元は、欠けている側を埋められる便を採る（レビュー指摘）', () async {
+      // 片側だけ欠けた区間に「両側とも名前を持つ便」を要求すると、必要な側だけを持つ便を
+      // 捨ててしまう。捨てた結果、必要な側が空のままの便が最早として勝ち、駅名は埋まらない。
+      final plan = await planWith(mock(oneSidedNames: true));
+      final train = plan.segments.firstWhere(
+        (s) => s.type == SegmentType.train,
+      );
+
+      expect(train.fromName, '名前つき乗車駅', reason: '欠けている乗車地名を埋められる便を採るべき');
+      expect(train.toName, '着駅A', reason: '既に埋まっている側は上書きしない');
     });
 
     test('上流が1本しか返さない地点でも従来どおり徒歩最大へ収束する', () async {
