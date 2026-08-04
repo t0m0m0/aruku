@@ -715,6 +715,7 @@ class TransitRouteService implements SearchEngine {
           segs[i].polyline.last,
           departureAt,
           type: segs[i].type,
+          line: segs[i].line,
         ),
     ]);
     for (var k = 0; k < targets.length; k++) {
@@ -730,23 +731,28 @@ class TransitRouteService implements SearchEngine {
     return RouteCandidate(from: chosen.from, to: chosen.to, segments: segs);
   }
 
-  /// 乗車座標 [board]→降車座標 [alight] を [at] 発で引き直し、[type] の区間を含む option の
-  /// うち到着最早（[_earliestArrival]）の、先頭 [type] 区間の乗車地名・実発車時刻と、末尾
-  /// [type] 区間の降車地名・実到着時刻を返す。該当 option が無い・取得失敗なら null。
-  /// コリドー由来候補の駅名復元（[_finalizeStationNames]）と実時刻検証
-  /// （[_resolveBoardingTimes]・approach A）で共有する。
+  /// 乗車座標 [board]→降車座標 [alight] を [at] 発で引き直し、その区間を1本で結ぶ option の
+  /// 乗降地名・実発着時刻を返す。該当 option が無い・取得失敗なら null。コリドー由来候補の
+  /// 駅名復元（[_finalizeStationNames]）と実時刻検証（[_resolveBoardingTimes]・approach A）
+  /// で共有する。
   ///
   /// 照会モードと拾う leg の型は必ず [type] で揃える（#250）。バス区間の検証に電車のみの
   /// 照会（既定の `avoidModes=bus,...`）を使うと、返ってきた電車の駅名・時刻をバス区間へ
   /// 貼り付けてしまう。同じ理由で、応答の中の**どの option を採るか**も揃える必要がある
   /// （#343）：先頭1本を無条件に採ると、遅い便の時刻をこの区間の実時刻として貼り、乗れる
   /// 候補が乗り遅れ・予算超過に見える。
+  ///
+  /// [line] には元区間の路線名を渡す。同じ駅間を複数の路線が走ることは珍しくないので、
+  /// 種別だけで絞ると速い別路線の便が勝つ——呼び出し側の `copyWith` は区間の `line` と
+  /// ジオメトリを残すため、**路線名は元のまま・時刻と所要だけ別路線のもの**という表示に
+  /// なる。一致する便が無ければ絞らない（駅名復元ごと失うより、時刻が付く方を採る）。
   Future<({String from, String to, DateTime? dep, DateTime? arr})?>
   _fetchTransitEndpoints(
     GeoPoint board,
     GeoPoint alight,
     DateTime at, {
     SegmentType type = SegmentType.train,
+    String? line,
   }) async {
     final Map<String, dynamic> body;
     try {
@@ -775,7 +781,15 @@ class TransitRouteService implements SearchEngine {
     // 時刻の妥当性は**徒歩で絞る前に**見る。順序が逆だと、壊れた便が最小徒歩を占めた
     // ときにまともな便が先に消え、残った壊れた便を [_comparableFrom] の「1本も無ければ
     // そのまま返す」縮退が拾ってしまう。
-    final candidates = _comparableFrom(direct, at);
+    final comparable = _comparableFrom(direct, at);
+    // 元区間と同じ路線の便を優先する（[line]）。一致が無ければ絞らない。
+    final sameLine = [
+      for (final o in comparable)
+        if (o.segments.firstWhere((s) => s.type == type).line == line) o,
+    ];
+    final candidates = (line == null || line.isEmpty || sameLine.isEmpty)
+        ? comparable
+        : sameLine;
     // 徒歩で別駅へ回る便を採ると、その徒歩も返り値から落ちて区間の所要から消え、乗車地名が
     // 区間ジオメトリの起点と食い違う。徒歩0を要求せず最小を採るのは、照会の端点がコリドー
     // 座標＝実駅とわずかにずれるため上流が数分の access/egress を必ず付けるから（そこで
@@ -837,6 +851,7 @@ class TransitRouteService implements SearchEngine {
         seg.polyline.last,
         boardAt,
         type: seg.type,
+        line: seg.line,
       );
       if (ep == null || ep.dep == null || ep.dep!.isBefore(boardAt)) continue;
       final ride = (ep.arr != null && !ep.arr!.isBefore(ep.dep!))
@@ -2103,18 +2118,21 @@ class TransitRouteService implements SearchEngine {
   ///
   /// 到着で比べる前に必ず通す。[arrivalMinutes] は時刻の穴・不整合を**待ち0や負の所要**
   /// として黙って進めるため、壊れた便ほど速く見える——掴んだ候補は同じ応答にあった
-  /// まともな便を追い出す。弾くのは3種：
+  /// まともな便を追い出す。条件は2つ：
   ///
-  /// - **発着のどちらかを欠く。** パーサの所要は片側欠落を 0 分にする（`_diffMin`）ので、
-  ///   乗った瞬間に着く便になる。
-  /// - **到着が発車より前。** パーサの所要が負になり、[arrivalMinutes] はその負値で累積を
-  ///   進める（`_advance` は `ride < 0` を所要へフォールバックする）＝到着が手前へ戻る。
-  /// - **[at] より前に発車済み。** 待ちが 0 へ丸められて「待ち無しで乗れる速い便」に見える
-  ///   が実際には乗れない。下流（`_resolveBoardingTimes` の `dep.isBefore(boardAt)` 判定・
-  ///   乗り遅れ除外）が捨てる便を先に選んでしまうと、**捨てた時点で代わりはもう無い。**
+  /// - **各 transit 区間に発着が揃い、到着が発車以降であること。** 片側欠落は所要 0 分
+  ///   （`_diffMin`）＝乗った瞬間に着く便になり、到着＜発車は所要が負になって
+  ///   [arrivalMinutes] の累積を**手前へ戻す**（`_advance` は `ride < 0` を所要へ
+  ///   フォールバックする）。
+  /// - **[at] 発で行程が成立すること**（[firstMissedTransit] が立たない）。乗れない便
+  ///   （[at] より前に発車済み・前の区間の到着前に次が発車）は待ちが 0 へ丸められて
+  ///   「待ち無しで乗れる速い便」に見える。**下流が捨てる便を先に選ぶと、捨てた時点で
+  ///   代わりはもう無い**（`_resolveBoardingTimes` の `dep.isBefore(boardAt)` 判定・
+  ///   確定境界の乗り遅れ再判定 #254）。区間ごとに時刻を見るだけでは足りない——各 leg が
+  ///   単体で整合していても、接続が間に合わない行程は作れる。
   ///
   /// 判定に [hasUnverifiedTransit] を使わないのは、あれが「その便が走っているか」だけを
-  /// 問う（`depTime` のみ見る）から。上の後ろ2種は発車時刻を持つので幻便判定を通り、
+  /// 問う（`depTime` のみ見る）から。上の不整合はどれも発車時刻を持つので幻便判定を通り、
   /// 確定まで残ってしまう。**必要なのは実在の確認ではなく、到着を計算できることの確認。**
   ///
   /// 除外ではなく劣後にするのは、条件を満たす便が1本も無い地点で従来どおり1本を返すため
@@ -2126,19 +2144,18 @@ class TransitRouteService implements SearchEngine {
     final all = options.toList();
     final comparable = [
       for (final o in all)
-        if (o.segments.every((s) => _hasUsableTimes(s, at))) o,
+        if (o.segments.every(_hasUsableTimes) &&
+            firstMissedTransit(o.segments, at) == null)
+          o,
     ];
     return comparable.isNotEmpty ? comparable : all;
   }
 
-  bool _hasUsableTimes(RouteSegment s, DateTime at) {
+  bool _hasUsableTimes(RouteSegment s) {
     if (s.type == SegmentType.walk) return true;
     final dep = s.depTime;
     final arr = s.arrTime;
-    return dep != null &&
-        arr != null &&
-        !arr.isBefore(dep) &&
-        !dep.isBefore(at);
+    return dep != null && arr != null && !arr.isBefore(dep);
   }
 
   /// 引き直しの応答から、[at] 発で**到着が最も早い** option を選ぶ（同着は上流の並び順）。
