@@ -2651,6 +2651,65 @@ void main() {
       };
     }
 
+    /// 乗換徒歩の到着が発車より前になっている便。パーサは所要を負の分数に落とすので、
+    /// 累積が手前へ戻り、乗換が間に合わないはずの行程が成立して見える。
+    Map<String, dynamic> negativeTransferOption(double lng, String time) {
+      final dep = secsOf(time);
+      return {
+        'journey': {
+          'departureSecs': dep,
+          'arrivalSecs': dep + 600,
+          'durationSecs': 600,
+          'accessWalkSecs': 0,
+          'egressWalkSecs': 0,
+          'legs': [
+            _railLeg(
+              route: '負乗換線1',
+              fromId: 'bx',
+              fromName: '乗車駅',
+              toId: 'cx',
+              toName: '中間駅',
+              dep: dep,
+              arr: dep + 300,
+            ),
+            {
+              'kind': 'walk',
+              'from': _station('cx', '中間駅'),
+              'to': _station('cy', '中間駅2'),
+              'departureSecs': dep + 300,
+              'arrivalSecs': dep + 120, // 出発より前に着く乗換徒歩＝所要が負
+            },
+            _railLeg(
+              route: '負乗換線2',
+              fromId: 'cy',
+              fromName: '中間駅2',
+              toId: 'gx',
+              toName: '目的駅',
+              dep: dep + 360,
+              arr: dep + 600,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('transit', 'bx', 'cx', 'stopOrder', [
+              [35.0, lng],
+              [35.0, 139.15],
+            ]),
+            _mapSeg('walk', 'cx', 'cy', 'osmWalk', const [
+              [35.0, 139.15],
+              [35.0, 139.16],
+            ]),
+            _mapSeg('transit', 'cy', 'gx', 'stopOrder', const [
+              [35.0, 139.16],
+              [35.0, 139.20],
+            ]),
+          ],
+        },
+      };
+    }
+
     /// 照会時刻より前に出てしまっている便。`arrivalMinutes` は過去発の待ちを0へ丸めるので
     /// 「待ち無しで乗れる速い便」に見えるが、実際には乗れない。
     Map<String, dynamic> staleOption(double lng, String time) {
@@ -2890,6 +2949,7 @@ void main() {
       bool reversedFirst = false,
       double? staleFrom,
       double? brokenConnectionFrom,
+      double? negativeTransferFrom,
     }) => MockClient((req) async {
       final path = req.url.path;
       if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
@@ -2913,6 +2973,9 @@ void main() {
             if (brokenConnectionFrom != null &&
                 lng >= brokenConnectionFrom - 1e-6)
               brokenConnectionOption(lng, time),
+            if (negativeTransferFrom != null &&
+                lng >= negativeTransferFrom - 1e-6)
+              negativeTransferOption(lng, time),
             throughOption(lng, time),
             if (walkier) walkierOption(lng, time),
           ]),
@@ -3717,6 +3780,32 @@ void main() {
         isNull,
         reason: '乗り継げない便を確定してはならない',
       );
+    });
+
+    test('乗換徒歩の所要が負の便を比較に混ぜない（レビュー指摘）', () async {
+      // transit の時刻だけ検証しても、乗換徒歩が負の所要なら累積は手前へ戻る。
+      // index 14/15（139.08）は乗り通し便なら到着113分＝予算外だが、負の乗換を持つ便を
+      // 置くと到着101分に見え、**予算外の地点が予算内に化けて**境界が奥へ動く。
+      //
+      // 確定経路には出ない——徒歩実測（enrich）が乗換徒歩を測り直して負を潰すため。
+      // ただし徒歩実測は fail-open（§2.4）なので、上流が落ちた run では潰れずに残る。
+      // ここで測るのは、実測に救われる前の**探索境界そのもの**が汚れていないこと。
+      RouteSearchMetrics? captured;
+      final plan = await planWith(
+        mock(negativeTransferFrom: 139.08),
+        onMetrics: (m) => captured = m,
+      );
+      expect(
+        captured!.boardSearchBest,
+        13,
+        reason: '予算外の 14/15 を予算内と誤判定すると境界が 15 まで伸びる',
+      );
+      expect(
+        plan.segments.every((s) => s.minutes >= 0),
+        isTrue,
+        reason: '所要が負の区間を確定経路に出してはならない',
+      );
+      expect(plan.totalMin, lessThanOrEqualTo(110));
     });
 
     test('上流が1本しか返さない地点でも従来どおり徒歩最大へ収束する', () async {

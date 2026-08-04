@@ -2120,10 +2120,13 @@ class TransitRouteService implements SearchEngine {
   /// として黙って進めるため、壊れた便ほど速く見える——掴んだ候補は同じ応答にあった
   /// まともな便を追い出す。条件は2つ：
   ///
-  /// - **各 transit 区間に発着が揃い、到着が発車以降であること。** 片側欠落は所要 0 分
-  ///   （`_diffMin`）＝乗った瞬間に着く便になり、到着＜発車は所要が負になって
-  ///   [arrivalMinutes] の累積を**手前へ戻す**（`_advance` は `ride < 0` を所要へ
-  ///   フォールバックする）。
+  /// - **各区間の所要が前へ進むこと。** transit は発着が揃い到着が発車以降であること
+  ///   ——片側欠落は所要 0 分（`_diffMin`）＝乗った瞬間に着く便になり、到着＜発車は所要が
+  ///   負になって [arrivalMinutes] の累積を**手前へ戻す**（`_advance` は `ride < 0` を所要へ
+  ///   フォールバックする）。乗換徒歩も同じで、負の所要は累積を戻し、間に合わないはずの
+  ///   乗換を成立させてしまう（徒歩は時刻を持たないので、見るのは所要の符号だけ）。
+  ///   なお**所要0分の徒歩は弾かない**——数十秒の乗換は正当に0分へ丸まるので、時刻欠落
+  ///   由来の0分と区別できない（同駅乗換の0分徒歩はパーサが落とす・#225）。
   /// - **[at] 発で行程が成立すること**（[firstMissedTransit] が立たない）。乗れない便
   ///   （[at] より前に発車済み・前の区間の到着前に次が発車）は待ちが 0 へ丸められて
   ///   「待ち無しで乗れる速い便」に見える。**下流が捨てる便を先に選ぶと、捨てた時点で
@@ -2152,7 +2155,7 @@ class TransitRouteService implements SearchEngine {
   }
 
   bool _hasUsableTimes(RouteSegment s) {
-    if (s.type == SegmentType.walk) return true;
+    if (s.type == SegmentType.walk) return s.minutes >= 0;
     final dep = s.depTime;
     final arr = s.arrTime;
     return dep != null && arr != null && !arr.isBefore(dep);
