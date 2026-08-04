@@ -2606,6 +2606,47 @@ void main() {
       };
     }
 
+    /// [throughOption] と徒歩量が同じで、発車だけ [delayMin] 分遅い双子の便。
+    /// 徒歩で並んだときにどちらを採るかを見るために使う。
+    Map<String, dynamic> laterTwinOption(
+      double lng,
+      String time, {
+      int delayMin = 10,
+    }) {
+      final dep = secsOf(time) + delayMin * 60;
+      final t = (haversineKm(GeoPoint(35.0, lng), goal7) * 1000 / 500).round();
+      final arr = dep + t * 60;
+      return {
+        'journey': {
+          'departureSecs': dep,
+          'arrivalSecs': arr,
+          'durationSecs': arr - dep,
+          'accessWalkSecs': 0,
+          'egressWalkSecs': 0,
+          'legs': [
+            _railLeg(
+              route: '後続',
+              fromId: 'bx',
+              fromName: '乗車駅',
+              toId: 'gx',
+              toName: '目的駅',
+              dep: dep,
+              arr: arr,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('transit', 'bx', 'gx', 'stopOrder', [
+              [35.0, lng],
+              [35.0, 139.20],
+            ]),
+          ],
+        },
+      };
+    }
+
     /// goal 手前 139.165 で降りて歩く便。到着は [throughOption] より遅いが予算内に収まり、
     /// 徒歩は多い（徒歩最大化の目的関数ではこちらが上位）。
     Map<String, dynamic> walkierOption(double lng, String time) {
@@ -2682,11 +2723,13 @@ void main() {
     /// [poisonLng] の地点だけ「悪い便が先頭・正常な便が後続」の2本を返す。
     /// [walkier] を立てると全地点で「乗り通し（到着最早）＋手前で降りて歩く便」を返す。
     /// [timelessFrom] 以遠の地点は「時刻なし便が先頭」になる。
+    /// [laterTwinFirst] を立てると全地点で「徒歩は同じで発車が遅い便」が先頭に来る。
     /// いずれも無指定なら全地点で正常な便を1本だけ返す（上流が1本しか返さない条件）。
     http.Client mock({
       double? poisonLng,
       bool walkier = false,
       double? timelessFrom,
+      bool laterTwinFirst = false,
     }) => MockClient((req) async {
       final path = req.url.path;
       if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
@@ -2702,6 +2745,7 @@ void main() {
             if (poisoned) strandedOption(lng, time),
             if (timelessFrom != null && lng >= timelessFrom - 1e-6)
               timelessOption(lng),
+            if (laterTwinFirst) laterTwinOption(lng, time),
             throughOption(lng, time),
             if (walkier) walkierOption(lng, time),
           ]),
@@ -2902,6 +2946,21 @@ void main() {
         reason: '時刻なし便を採ると奥の地点が確定できず手前へ落ちる',
       );
       expect(plan.totalMin, lessThanOrEqualTo(110));
+    });
+
+    test('徒歩が並んだ便は上流の並び順でなく到着最早で決める（レビュー指摘）', () async {
+      // 徒歩最大で選ぶとき、同点の扱いを決めないと「上流が先に返した方」が残る。
+      // それは並び順に意味があるという前提そのもので、この issue が否定したもの。
+      // 下流の `selectBestRoute` は同徒歩なら到着最早を採るので、probe 側でも揃える。
+      final plan = await planWith(
+        mock(laterTwinFirst: true),
+        arrival: const TimeValue(h: 11, m: 20), // 予算140分
+      );
+      expect(
+        plan.totalMin,
+        lessThan(120),
+        reason: '上流順で残すと10分後発の双子が確定し、到着がその分遅れる',
+      );
     });
 
     test('上流が1本しか返さない地点でも従来どおり徒歩最大へ収束する', () async {

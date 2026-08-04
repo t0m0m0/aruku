@@ -1440,15 +1440,23 @@ class TransitRouteService implements SearchEngine {
         for (final c in cands)
           if (arrivalMinutes(c.segments, departureAt) <= budgetMin) c,
       ];
+      RouteCandidate earlier(RouteCandidate a, RouteCandidate b) {
+        final arrivalA = arrivalMinutes(a.segments, departureAt);
+        final arrivalB = arrivalMinutes(b.segments, departureAt);
+        if (arrivalA != arrivalB) return arrivalA < arrivalB ? a : b;
+        return a.transferCount <= b.transferCount ? a : b;
+      }
+
+      // 徒歩が並んだら到着最早・乗換少で割る（[selectBestRoute] と同じ順位付け）。同点を
+      // 上流の並び順に委ねると、この issue が否定した「先頭が最良」を裏口から信じることに
+      // なる。ここで落とした option は下流へ届かないので、選定と別の順位付けにはできない。
       final cand = within.isEmpty
-          ? cands.reduce(
-              (a, b) =>
-                  arrivalMinutes(b.segments, departureAt) <
-                      arrivalMinutes(a.segments, departureAt)
-                  ? b
-                  : a,
-            )
-          : within.reduce((a, b) => b.walkMinutes > a.walkMinutes ? b : a);
+          ? cands.reduce(earlier)
+          : within.reduce(
+              (a, b) => a.walkMinutes != b.walkMinutes
+                  ? (a.walkMinutes > b.walkMinutes ? a : b)
+                  : earlier(a, b),
+            );
       _diag.log(
         () =>
             'board-search i=$i walk1=${walk1.totalMin}m '
