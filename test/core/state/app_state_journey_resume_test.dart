@@ -422,6 +422,7 @@ void main() {
       StreamController<ActivitySnapshot> activity,
       _FakeHealthService health,
       _Clock clock,
+      Future<void> Function() releaseHistory,
     })
   >
   makeHarness({
@@ -429,9 +430,10 @@ void main() {
     LocationState location = const LocationDenied(),
     bool healthKitEnabled = false,
     DateTime? start,
-    // 履歴ロードを遅延させ、ロード完了前に行程を開始する状況を再現する（基準歩数
-    // ガードのテスト用）。null なら即時（実運用の通常起動）。
-    Duration? historyLoadDelay,
+    // 履歴ロードの完了を差し止め、ロード完了前に行程を開始する状況を再現する
+    // （基準歩数ガードのテスト用）。完了させるには返り値の releaseHistory() を
+    // 呼ぶ。false なら即時（実運用の通常起動）。
+    bool deferHistoryLoad = false,
     int recordedTodaySteps = 0,
   }) async {
     final clock = _Clock(start ?? DateTime(2026, 7, 18, 9, 0));
@@ -442,8 +444,11 @@ void main() {
         'healthKitEnabled': healthKitEnabled,
       }),
     });
+    // ロード完了のタイミングをテストが握るためのゲート。実時間タイマーと競争
+    // させず「まだ完了していない」を順序で表現する。
+    final historyGate = Completer<void>();
     ActivityLogRepository? seededRepo;
-    if (historyLoadDelay != null) {
+    if (deferHistoryLoad) {
       final prefs = await SharedPreferences.getInstance();
       seededRepo = ActivityLogRepository(prefs);
       if (recordedTodaySteps > 0) {
@@ -465,9 +470,9 @@ void main() {
         healthServiceProvider.overrideWithValue(health),
         onboardingCompletedProvider.overrideWithValue(true),
         nowProvider.overrideWithValue(clock.now),
-        if (historyLoadDelay != null)
+        if (deferHistoryLoad)
           activityLogRepositoryProvider.overrideWith((ref) async {
-            await Future<void>.delayed(historyLoadDelay);
+            await historyGate.future;
             return seededRepo!;
           }),
       ],
@@ -481,6 +486,11 @@ void main() {
       activity: activity,
       health: health,
       clock: clock,
+      // 履歴ロードを完了させ、保留中の計測が反映されるまで待つ。
+      releaseHistory: () async {
+        if (!historyGate.isCompleted) historyGate.complete();
+        await settle();
+      },
     );
   }
 
@@ -1967,12 +1977,12 @@ void main() {
       final h = await makeHarness(
         plan: _singleWalkPlan,
         healthKitEnabled: true,
-        historyLoadDelay: const Duration(milliseconds: 30),
+        deferHistoryLoad: true,
         recordedTodaySteps: 1000,
       );
       final notifier = h.container.read(appStateProvider.notifier);
-      // 履歴ロード（30ms）未完了のうちに検索・行程開始する。startSearch の await は
-      // マイクロタスクだけを回すので 30ms タイマーはまだ発火しない。
+      // releaseHistory() を呼ぶまで履歴ロードは完了しない。ロード未完了のまま
+      // 検索・行程開始する状況を、経過時間ではなく順序で表現している。
       await settle();
       await notifier.startSearch();
       notifier.startJourney();
@@ -1983,7 +1993,8 @@ void main() {
 
       // セッション歩数が届き、ロード完了後に基準 1000 が乗る（累積が過大になる）。
       h.activity.add(ActivitySnapshot.fromSteps(500));
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await settle();
+      await h.releaseHistory();
 
       notifier.advanceToLeg(_singleWalkPlan.segments.length);
       await settle();
