@@ -215,10 +215,9 @@ void main() {
       expect(client.guidanceCalls, 0);
       expect(client.walkCalls, 0);
       expect(client.matrixCalls, 0);
-      expect(client.roundTrips, 0);
     });
 
-    test('種別ごとに本数を数え、roundTrips は合計になる', () async {
+    test('種別ごとに本数を数える', () async {
       final client = _client(
         MockClient((req) async {
           if (req.url.path == '/googleWalkMatrixProxy') {
@@ -258,7 +257,6 @@ void main() {
       expect(client.guidanceCalls, 2);
       expect(client.walkCalls, 1);
       expect(client.matrixCalls, 1);
-      expect(client.roundTrips, 4);
     });
 
     // マトリクスは失敗を null へ握り潰す口だが、HTTP は実際に往復しているので計上する

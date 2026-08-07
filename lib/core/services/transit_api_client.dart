@@ -85,9 +85,6 @@ class TransitApiClient {
   /// Google 徒歩マトリクスの実 HTTP 往復本数。
   int get matrixCalls => _matrixCalls;
 
-  /// 全種別の実 HTTP 往復本数の合計（1検索あたりの上流負荷の実測）。
-  int get roundTrips => _guidanceCalls + _walkCalls + _matrixCalls;
-
   /// 正規化済みの Transit API ベース URL（テスト・観測用）。
   String get transitBaseUrl => _transitBaseUrl;
 

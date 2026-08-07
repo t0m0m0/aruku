@@ -1,6 +1,6 @@
-import '../geo/geo_math.dart';
 import '../models/geo_point.dart';
 import '../models/route_plan.dart';
+import '../services/hybrid_route_selector.dart' show haversineKm;
 
 /// [leg] の終点座標。polyline が空（時刻表データが揃わない区間など）の場合は
 /// 終点が特定できないため null を返す。
@@ -91,7 +91,7 @@ bool isLegArrived({
 }) {
   final endPoint = legEndPoint(leg);
   if (endPoint == null) return false;
-  return metersBetween(current, endPoint) <= thresholdKm * 1000;
+  return haversineKm(current, endPoint) <= thresholdKm;
 }
 
 /// [route] の [index] 番目の区間。範囲外は null。

@@ -35,8 +35,6 @@ class Ic extends StatelessWidget {
       Ic._(size: size, painter: _IconPainter(_settings, color));
   static Widget compass({double size = 20, required Color color}) =>
       Ic._(size: size, painter: _IconPainter(_compass, color));
-  static Widget swap({double size = 20, required Color color}) =>
-      Ic._(size: size, painter: _IconPainter(_swap, color));
   static Widget clock({double size = 20, required Color color}) =>
       Ic._(size: size, painter: _IconPainter(_clock, color));
   static Widget chevron({
@@ -48,24 +46,10 @@ class Ic extends StatelessWidget {
       Ic._(size: size, painter: _IconPainter(_routes, color));
   static Widget close({double size = 20, required Color color}) =>
       Ic._(size: size, painter: _IconPainter(_close, color));
-  static Widget flag({double size = 20, required Color color}) =>
-      Ic._(size: size, painter: _IconPainter(_flag, color));
   static Widget search({double size = 20, required Color color}) =>
       Ic._(size: size, painter: _IconPainter(_search, color));
-  static Widget history({double size = 20, required Color color}) =>
-      Ic._(size: size, painter: _IconPainter(_history, color));
-  static Widget leaf({double size = 20, required Color color}) =>
-      Ic._(size: size, painter: _IconPainter(_leaf, color));
-  static Widget sparkle({double size = 20, required Color color}) =>
-      Ic._(size: size, painter: _IconPainter(_sparkle, color, filled: true));
   static Widget arrowUp({double size = 20, required Color color}) =>
       Ic._(size: size, painter: _IconPainter(_arrowUp, color));
-  static Widget layers({double size = 20, required Color color}) =>
-      Ic._(size: size, painter: _IconPainter(_layers, color));
-  static Widget pause({double size = 20, required Color color}) =>
-      Ic._(size: size, painter: _IconPainter(_pause, color, filled: true));
-  static Widget locate({double size = 20, required Color color}) =>
-      Ic._(size: size, painter: _IconPainter(_locate, color));
   static Widget share({double size = 20, required Color color}) =>
       Ic._(size: size, painter: _IconPainter(_share, color));
 }
@@ -237,21 +221,6 @@ void _compass(Canvas c, Paint p, double s) {
   c.drawPath(needle, p);
 }
 
-void _swap(Canvas c, Paint p, double s) {
-  c.drawLine(Offset(7 * s, 8 * s), Offset(17 * s, 8 * s), p);
-  final left = Path()
-    ..moveTo(10 * s, 5 * s)
-    ..lineTo(7 * s, 8 * s)
-    ..lineTo(10 * s, 11 * s);
-  c.drawPath(left, p);
-  c.drawLine(Offset(7 * s, 16 * s), Offset(17 * s, 16 * s), p);
-  final right = Path()
-    ..moveTo(14 * s, 13 * s)
-    ..lineTo(17 * s, 16 * s)
-    ..lineTo(14 * s, 19 * s);
-  c.drawPath(right, p);
-}
-
 void _clock(Canvas c, Paint p, double s) {
   c.drawCircle(Offset(12 * s, 12 * s), 9 * s, p);
   final hands = Path()
@@ -276,67 +245,9 @@ void _close(Canvas c, Paint p, double s) {
   c.drawLine(Offset(17 * s, 7 * s), Offset(7 * s, 17 * s), p);
 }
 
-void _flag(Canvas c, Paint p, double s) {
-  c.drawLine(Offset(6 * s, 4 * s), Offset(6 * s, 22 * s), p);
-  final flag = Path()
-    ..moveTo(6 * s, 5 * s)
-    ..lineTo(18 * s, 5 * s)
-    ..lineTo(15 * s, 9 * s)
-    ..lineTo(18 * s, 13 * s)
-    ..lineTo(6 * s, 13 * s)
-    ..close();
-  c.drawPath(flag, p);
-}
-
 void _search(Canvas c, Paint p, double s) {
   c.drawCircle(Offset(11 * s, 11 * s), 6 * s, p);
   c.drawLine(Offset(15.5 * s, 15.5 * s), Offset(20 * s, 20 * s), p);
-}
-
-void _history(Canvas c, Paint p, double s) {
-  c.drawArc(
-    Rect.fromCircle(center: Offset(12 * s, 12 * s), radius: 8 * s),
-    -0.4,
-    5.6,
-    false,
-    p,
-  );
-  final arrow = Path()
-    ..moveTo(4 * s, 7 * s)
-    ..lineTo(4 * s, 11 * s)
-    ..lineTo(8 * s, 11 * s);
-  c.drawPath(arrow, p);
-  final hands = Path()
-    ..moveTo(12 * s, 8 * s)
-    ..lineTo(12 * s, 12 * s)
-    ..lineTo(15 * s, 14 * s);
-  c.drawPath(hands, p);
-}
-
-void _leaf(Canvas c, Paint p, double s) {
-  final leaf = Path()
-    ..moveTo(20 * s, 4 * s)
-    ..cubicTo(20 * s, 4 * s, 12 * s, 4 * s, 8 * s, 8 * s)
-    ..cubicTo(4 * s, 12 * s, 4 * s, 20 * s, 4 * s, 20 * s)
-    ..cubicTo(4 * s, 20 * s, 12 * s, 20 * s, 16 * s, 16 * s)
-    ..cubicTo(20 * s, 12 * s, 20 * s, 4 * s, 20 * s, 4 * s)
-    ..close();
-  c.drawPath(leaf, p);
-  c.drawLine(Offset(4 * s, 20 * s), Offset(14 * s, 10 * s), p);
-}
-
-void _sparkle(Canvas c, Paint p, double s) {
-  final star = Path()
-    ..moveTo(12 * s, 3 * s)
-    ..lineTo(14 * s, 10 * s)
-    ..lineTo(21 * s, 12 * s)
-    ..lineTo(14 * s, 14 * s)
-    ..lineTo(12 * s, 21 * s)
-    ..lineTo(10 * s, 14 * s)
-    ..lineTo(3 * s, 12 * s)
-    ..lineTo(10 * s, 10 * s)
-    ..close();
-  c.drawPath(star, p);
 }
 
 void _arrowUp(Canvas c, Paint p, double s) {
@@ -348,34 +259,6 @@ void _arrowUp(Canvas c, Paint p, double s) {
   c.drawPath(head, p);
 }
 
-void _layers(Canvas c, Paint p, double s) {
-  final l1 = Path()
-    ..moveTo(12 * s, 3 * s)
-    ..lineTo(21 * s, 8 * s)
-    ..lineTo(12 * s, 13 * s)
-    ..lineTo(3 * s, 8 * s)
-    ..close();
-  c.drawPath(l1, p);
-  final l2 = Path()
-    ..moveTo(3 * s, 12 * s)
-    ..lineTo(12 * s, 17 * s)
-    ..lineTo(21 * s, 12 * s);
-  c.drawPath(l2, p);
-  final l3 = Path()
-    ..moveTo(3 * s, 16 * s)
-    ..lineTo(12 * s, 21 * s)
-    ..lineTo(21 * s, 16 * s);
-  c.drawPath(l3, p);
-}
-
-void _locate(Canvas c, Paint p, double s) {
-  c.drawCircle(Offset(12 * s, 12 * s), 3 * s, p);
-  c.drawLine(Offset(12 * s, 2 * s), Offset(12 * s, 6 * s), p);
-  c.drawLine(Offset(12 * s, 18 * s), Offset(12 * s, 22 * s), p);
-  c.drawLine(Offset(2 * s, 12 * s), Offset(6 * s, 12 * s), p);
-  c.drawLine(Offset(18 * s, 12 * s), Offset(22 * s, 12 * s), p);
-}
-
 void _share(Canvas c, Paint p, double s) {
   // 3ノードを2本の線でつなぐ定番の共有アイコン。
   const r = 2.2;
@@ -384,21 +267,4 @@ void _share(Canvas c, Paint p, double s) {
   c.drawCircle(Offset(7 * s, 12 * s), r * s, p);
   c.drawCircle(Offset(17 * s, 6 * s), r * s, p);
   c.drawCircle(Offset(17 * s, 18 * s), r * s, p);
-}
-
-void _pause(Canvas c, Paint p, double s) {
-  c.drawRRect(
-    RRect.fromRectAndRadius(
-      Rect.fromLTWH(7 * s, 5 * s, 3 * s, 14 * s),
-      Radius.circular(1 * s),
-    ),
-    p,
-  );
-  c.drawRRect(
-    RRect.fromRectAndRadius(
-      Rect.fromLTWH(14 * s, 5 * s, 3 * s, 14 * s),
-      Radius.circular(1 * s),
-    ),
-    p,
-  );
 }
