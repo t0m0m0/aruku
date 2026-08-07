@@ -45,7 +45,6 @@ app.*.map.json
 /android/app/release
 
 /design_handoff_aruku_mvp
-CLAUDE.md
 # .claude/: 共有設定だけ追跡し、個人ローカル設定とworktreeは除外する
 .claude/*
 !.claude/settings.json
