@@ -151,11 +151,15 @@ void main() {
 
   test('履歴ロード完了前に届いたセッション歩数も基準歩数へ正しく加算される', () async {
     final repo = await seedRepo([DailyActivity(date: daysAgo(0), steps: 1000)]);
-    // 履歴ロードを遅延させ、購読確立後・ロード完了前に計測が届く状況を作る。
+    // 履歴ロードの完了をテスト側のゲートで握り、「購読確立後・ロード完了前に計測が
+    // 届く」順序を時間ではなく制御フローで固定する。
+    // なぜ時間で遅延させないか: 負荷次第でロードが先に完了し、保留バッファを通らない
+    // まま同じ期待値(1500)で緑になる＝検証対象の経路を静かに素通りするため。
+    final historyLoadGate = Completer<void>();
     final container = ProviderContainer(
       overrides: [
         activityLogRepositoryProvider.overrideWith((ref) async {
-          await Future<void>.delayed(const Duration(milliseconds: 20));
+          await historyLoadGate.future;
           return repo;
         }),
         activityServiceProvider.overrideWithValue(
@@ -167,16 +171,22 @@ void main() {
     addTearDown(container.dispose);
 
     container.read(appStateProvider);
-    // 購読は確立済み、履歴ロードはまだ遅延中。
+    // 購読は確立済み、履歴ロードはゲート待ちで未完了。
     await Future<void>.delayed(Duration.zero);
     await Future<void>.delayed(Duration.zero);
 
-    // ロード完了前にセッション歩数が届く。
+    // ロード完了前にセッション歩数が届く（保留バッファへ退避されるはず）。
     controller.add(ActivitySnapshot.fromSteps(500));
     await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    // 基準歩数の確定前は反映しない。ここが 500 なら保留せず即時反映しており、
+    // 最終値が偶然一致しても仕様を満たしていない。
+    expect(container.read(appStateProvider).todaySteps, 0);
 
-    // ロード完了後に基準歩数(1000)へ加算されているはず（500 で上書きしない）。
-    await Future<void>.delayed(const Duration(milliseconds: 30));
+    // ここで初めてロードを完了させる。基準歩数(1000)へ加算される（500 で上書きしない）。
+    historyLoadGate.complete();
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
 
     expect(container.read(appStateProvider).todaySteps, 1500);
   });
