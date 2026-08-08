@@ -31,8 +31,10 @@ typedef _Selection = ({RouteCandidate chosen, RouteCandidate enriched});
 /// データ源の制約が設計を決めている（docs/spec/route-optimization.md §2.2）：
 /// - 途中停車駅を leg が持たないため、transit polyline（コリドー座標）で代替する。
 ///   乗車駅探索はコリドーを間引きサンプリングして `plan(X→goal)` を引き直す（§2.3）。
-/// - 運賃は常に null のため表示ごと廃止。乗り遅れ再照会（#115）は乗車駅探索へ
-///   一本化した——引き直し便は自己整合なので `firstMissedTransit` が立たない。
+/// - 運賃は上流が返さないため常に null（§2.2-3）。[RouteSegment.fare] を埋める経路は
+///   無く、表示側の null ガードは不発のまま残してある（§4 #71・result_timeline.dart）。
+/// - 乗り遅れ再照会（#115）は乗車駅探索へ一本化した——引き直し便は自己整合なので
+///   `firstMissedTransit` が立たない。
 class TransitRouteService implements SearchEngine {
   TransitRouteService({
     http.Client? transitClient,
@@ -1785,7 +1787,7 @@ class TransitRouteService implements SearchEngine {
 
   /// フロンティアの乗車駅 b → 降車駅 a（同一コリドー・b より後方）の分割を、実測アクセス
   /// 徒歩で候補化する。コリドー座標は時刻を持たないため乗車時間は折れ線長から距離概算
-  /// （#67 と同じ untimed 経路）、運賃は取得不可のため null（§5）。
+  /// （#67 と同じ untimed 経路）、運賃は取得不可のため null（§2.2-3）。
   List<RouteCandidate> _buildMeasuredHybrids(
     TransitOption base,
     List<_CorridorStop> stops,
@@ -2398,7 +2400,7 @@ class TransitRouteService implements SearchEngine {
 }
 
 /// 乗車駅探索・ハイブリッドの候補点。コリドー座標（停車駅 or 線路点）から作る。
-/// 時刻・運賃は持たない（Transit API では取得不可・§5）。
+/// 時刻・運賃は持たない（Transit API では取得不可・§2.2-3）。
 class _CorridorStop {
   const _CorridorStop({
     required this.coord,

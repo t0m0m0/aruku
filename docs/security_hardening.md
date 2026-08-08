@@ -182,13 +182,27 @@ dart-define**（`PROXY_BASE_URL` 等）で生成されることを確認する�
 
 ## ⑥ Firestore クラウド同期のセキュリティ（ルール デプロイ）
 
-**目的:** Issue #19 のクラウド同期で、クライアント SDK が `userSync/{uid}` ドキュメントを
-直接読み書きするようになった。**本人以外がアクセスできない**ことを保証し、公開前に
-セキュリティルールをデプロイする。
+> **ステータス: ルールのみ先行整備・クライアント未実装（2026-08-08 確認）。**
+> Issue #19 のクラウド同期はアプリ側が存在しない — `cloud_firestore` は `pubspec.yaml` の
+> 依存にすら入っておらず、`userSync/{uid}` を読み書きするコードは `lib/` に無い
+> （最後の残骸だった `sync_meta_repository.dart` は #353 で撤去）。**同期機能そのものの
+> 公開前チェックとしては未着手**で、いま効いているのは全面拒否の既定だけ。
+>
+> `userSync` ルールを実装まで残すか撤去するかは別判断（本節では扱わない）。
 
-> アプリ側は `FirestoreSyncService`（`lib/core/services/sync_service.dart`）が
-> `userSync/{uid}` 1 ドキュメントに同期する。`firestore.rules` は既定で全面拒否を維持しつつ、
-> `userSync/{uid}` のみ `request.auth.uid == uid` の本人に read/write を許可済み。
+**目的:** クライアント SDK が `userSync/{uid}` を直接読み書きするようになったとき、
+**本人以外がアクセスできない**ことを保証する。ルールとそのテストは先行して用意済みなので、
+同期を実装する際はこの節の検証を満たしてから公開する。
+
+> `firestore.rules` は既定で全面拒否を維持しつつ、`userSync/{uid}` のみ
+> `request.auth.uid == uid` の本人に read/write を許可する。書き込みは `isValidSyncData`
+> がトップレベルのキー集合・型・リスト長を検証する。ルールのテストは
+> `functions/test/firestore-rules.test.ts`（`npm run test:rules`・JDK21 必須）。
+>
+> 検証対象のうち `settings` だけは `AppSettings.toJson()`
+> （`lib/core/models/app_settings.dart`）という実在の送出元と対になっている。残りのキー
+> （`updatedAt` / `recents` / `recentOrigins` / `activity`）に対応するクライアント側の型は
+> まだ無く、ルールテストの fixture が唯一の定義になっている。
 
 ### 手順
 
