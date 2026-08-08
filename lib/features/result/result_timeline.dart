@@ -313,8 +313,10 @@ class _TimelineSegmentRow extends StatelessWidget {
                                 color: c.ink2,
                               ),
                             ),
-                            // 運賃はハイブリッド区間などで欠落し得る。null のときは
-                            // 区切りと運賃を出さず「¥null」表示を防ぐ。
+                            // [RouteSegment.fare] を埋める経路は現状どこにも無く、この
+                            // 分岐は常に不発（docs/spec/route-optimization.md §4 #71）。
+                            // それでも器ごと消さないのは、別の運賃ソースを得たときに
+                            // パーサの配線だけで点灯できるようにするため（同 §4 #71 の決定）。
                             if (seg.fare != null) ...[
                               const SizedBox(width: 8),
                               Text(
