@@ -136,7 +136,7 @@ class TransitRouteService implements SearchEngine {
   static const int _maxScanMatrixDests = 25;
 
   /// 乗車駅探索のコリドー候補点の上限。gtfsShape は線路追従で頂点が密（数百）なため、
-  /// 均等間引きでこの数へ絞る（§2.5）。二分探索は実測 walk で駆動するので評価回数は
+  /// 均等間引きでこの数へ絞る（§2.3）。二分探索は実測 walk で駆動するので評価回数は
   /// O(log n) のまま、候補点が密なほど境界の解像度が上がり余りが小さくなる（#137）。
   /// 旧値 25 では隣接候補が約30分徒歩も離れ、境界で徒歩を予算ぎりぎりまで詰められず
   /// 余りが残っていたため引き上げた。
@@ -2121,7 +2121,7 @@ class TransitRouteService implements SearchEngine {
   }
 
   /// [base] の全コリドー座標を origin→goal 方向に連結し、乗車駅候補（[_CorridorStop]）へ
-  /// 変換する。gtfsShape は頂点が密なため均等間引きで [_maxCorridorStops] 以下へ絞る（§2.5）。
+  /// 変換する。gtfsShape は頂点が密なため均等間引きで [_maxCorridorStops] 以下へ絞る（§2.3）。
   /// section は transit leg（電車・バス問わず）番号、line/type は対応するセグメントの
   /// 路線名・種別。`TransitCorridor.legIndex` は全 transit leg の通し番号のため、対応する
   /// セグメント列も train に絞らず transit 全体（電車・バス）で揃える（#249: train のみに
