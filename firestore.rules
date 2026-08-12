@@ -9,7 +9,11 @@ rules_version = '2';
 // userSync/{uid} ドキュメントのみ、認証済みの本人による読み書きを許可する。
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 同期スナップショット（SyncData.toJson 相当）のスキーマ・サイズ検証。
+    // 同期スナップショットのスキーマ・サイズ検証。#19 のクラウド同期はクライアント側が
+    // 未実装だが、要素の形の正本はここではなく既存の serializer
+    // （`RecentPlace.toJson()` / `DailyActivity.toJson()` / `AppSettings.toJson()`）にある
+    // ——ルールはリスト長と型しか見ないので、ここを正本と読むと「受理はされるが
+    // fromJson が読めない」データを通す（docs/security_hardening.md ⑥）。
     // 匿名サインインを許可しているため、本人一致だけでは巨大ドキュメントの
     // 濫用（ストレージ課金・不正データ流入）を防げない。トップレベルの
     // キー集合・型・リスト長を制限する。

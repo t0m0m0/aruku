@@ -212,8 +212,8 @@ class _HandoffUnavailableNotice extends StatelessWidget {
   }
 }
 
-/// 全区間完了時の最小表示。walkSummary/complete 画面への接続はコミット4以降の
-/// スコープ外（#305）。
+/// 全区間完了時の最小表示。完了は結果ハブ内で示し切り、専用の完了画面へは遷移しない
+/// （#312 で `/home/complete` ごと撤去済み。`lib/core/navigation/app_router.dart`）。
 class _JourneyCompleteRow extends StatelessWidget {
   const _JourneyCompleteRow({required this.message});
   final String message;

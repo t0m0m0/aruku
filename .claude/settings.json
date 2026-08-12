@@ -19,6 +19,21 @@
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/bash_guard.py\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/doc_consistency.py\"",
+            "if": "Bash(git commit*)",
+            "timeout": 30,
+            "statusMessage": "コメント・ドキュメントの取り残しを検査中"
+          },
+          {
+            "type": "agent",
+            "prompt": "次の条件が成り立つことを確認する。成り立てば合格。\n\n**条件:** 「実行されるコマンドが git のコミットではない」か、または「コミットであって、その staged diff に対しコメント・ドキュメントの具体的な食い違いが見つからない」。\n\nコミットでない場合は、何も調べずに直ちに合格とすること（このフックはコミット時のみを対象とする）。\n\nコミットの場合の調べ方:\n1. `git diff --cached` で staged diff を読む。\n2. 変更されたコードの**周辺コメント**（同じ関数・クラス・定数の doc comment、直上の行コメント）が、変更後の挙動と食い違っていないか確認する。\n3. その挙動を説明している**ドキュメント**（docs/spec/route-optimization.md、docs/security_hardening.md、docs/ops/、README.md、CLAUDE.md）が古くなっていないか確認する。変更されたシンボル名で grep すると見つかる。\n\n**不合格にしてよいのは、食い違いを `file:line` と「コメントは X と言うが、コードは Y になった」の形で具体的に示せるときだけ。** 判断がつかない・推測に留まる場合は合格とする——ここで止めるコストは高く、誤検知はフックごと無視される原因になる。\n\n以下は不合格の理由にしない:\n- 消えたシンボルへの参照・存在しないファイルパス・存在しない §番号（直前の決定的な検査が済ませている）。\n- コメントが**意図的に**「なぜそうしていないか」を述べている場合（CLAUDE.md の Why not 方針）。\n\n入力: $ARGUMENTS",
+            "if": "Bash(git commit*)",
+            "model": "claude-sonnet-5",
+            "timeout": 180,
+            "statusMessage": "コメントとコードの整合を確認中"
           }
         ]
       }
