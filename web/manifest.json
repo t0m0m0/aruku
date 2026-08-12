@@ -1,0 +1,35 @@
+{
+    "name": "aruku",
+    "short_name": "aruku",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#FBFCEC",
+    "theme_color": "#4F9527",
+    "description": "「電車に乗らず、時間内で最大限歩く」ルート案内アプリ",
+    "orientation": "portrait-primary",
+    "prefer_related_applications": false,
+    "icons": [
+        {
+            "src": "icons/Icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-maskable-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "icons/Icon-maskable-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}
