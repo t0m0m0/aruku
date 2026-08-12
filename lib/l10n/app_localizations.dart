@@ -771,6 +771,12 @@ abstract class AppLocalizations {
   /// **'1週間の目標距離'**
   String get settingsWeeklyGoalLabel;
 
+  /// No description provided for @settingsWeeklyGoalUnsupported.
+  ///
+  /// In ja, this message translates to:
+  /// **'この環境では歩数を計測できないため、目標を設定できません'**
+  String get settingsWeeklyGoalUnsupported;
+
   /// No description provided for @settingsWeeklyGoalValue.
   ///
   /// In ja, this message translates to:

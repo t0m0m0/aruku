@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/config/platform_capabilities.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/models/app_settings.dart';
+import '../../core/services/activity_service.dart';
 import '../../core/services/notification_service.dart';
 import '../../core/services/url_launcher.dart';
 import '../../core/state/app_state.dart';
@@ -148,13 +149,21 @@ class SettingsScreen extends ConsumerWidget {
                   _SettingsSection(
                     title: l10n.settingsWeeklyGoalSection,
                     children: [
-                      _GoalPresetRow(
-                        label: l10n.settingsWeeklyGoalLabel,
-                        selectedKm: settings.weeklyGoalKm,
-                        onSelected: (km) => guardSave(
-                          () => settingsNotifier.setWeeklyGoalKm(km),
+                      // 目標は歩数由来の距離でしか進まない。選ばせると永久に
+                      // 到達しない目標を設定できてしまう。
+                      if (ref.watch(stepCountingSupportedProvider))
+                        _GoalPresetRow(
+                          label: l10n.settingsWeeklyGoalLabel,
+                          selectedKm: settings.weeklyGoalKm,
+                          onSelected: (km) => guardSave(
+                            () => settingsNotifier.setWeeklyGoalKm(km),
+                          ),
+                        )
+                      else
+                        _SettingsNote(
+                          key: const Key('settings-weekly-goal-unsupported'),
+                          text: l10n.settingsWeeklyGoalUnsupported,
                         ),
-                      ),
                     ],
                   ),
                   const SizedBox(height: 16),

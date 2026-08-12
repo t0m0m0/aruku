@@ -77,12 +77,16 @@ void main() {
     // 「0 歩 / 0 kcal」を計測結果として並べると、非対応と計測済みの 0 が
     // 画面から区別できない（#359 Phase 2 の無音の縮退）。
     expect(find.byKey(const Key('home-today-line')), findsNothing);
+    // 週間目標も歩数由来の距離でしか進まない。達成度リングと目標距離を残すと
+    // 「永久に 0% の進捗計」になる。
+    expect(find.byKey(const Key('home-weekly-progress')), findsNothing);
   });
 
-  testWidgets('対応環境では実績行を出し、非対応の断り書きは出さない', (tester) async {
+  testWidgets('対応環境では実績行と週間目標の進捗を出す', (tester) async {
     await _pumpHome(tester, stepCountingSupported: true);
 
     expect(find.byKey(const Key('home-today-line')), findsOneWidget);
+    expect(find.byKey(const Key('home-weekly-progress')), findsOneWidget);
     expect(find.byKey(const Key('home-activity-unsupported')), findsNothing);
   });
 }

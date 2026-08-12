@@ -375,6 +375,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsWeeklyGoalLabel => '1週間の目標距離';
 
   @override
+  String get settingsWeeklyGoalUnsupported => 'この環境では歩数を計測できないため、目標を設定できません';
+
+  @override
   String settingsWeeklyGoalValue(String km) {
     return '${km}km';
   }

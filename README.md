@@ -140,7 +140,7 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 | iOS 実機 | **不可** — iOS 14+ のローカルネットワークプライバシー。LAN 上の IP へ繋ぐには `Info.plist` に `NSLocalNetworkUsageDescription` が要るが、開発専用の用途で全ユーザーに権限要求を出したくないため入れていない | ✅ |
 | Android エミュレータ | `http://10.0.2.2:5001/{projectId}/asia-northeast1`（`10.0.2.2` はエミュレータから見たホストの別名） | ✅ |
 | Android 実機 | `adb reverse tcp:5001 tcp:5001` してから `http://127.0.0.1:5001/{projectId}/asia-northeast1` | ✅ |
-| Web | `http://127.0.0.1:5001/{projectId}/asia-northeast1` | **不可** — 下記 |
+| Web | `http://127.0.0.1:5001/{projectId}/asia-northeast1` | ✅ ただし **App Check の設定が前提**（下記） |
 
 デプロイ済みプロキシの URL は実行先を問わず
 `https://asia-northeast1-{projectId}.cloudfunctions.net` です。
@@ -172,15 +172,10 @@ throw してアプリが起動しなくなるためで、この場合プロキ�
 つまり Web のローカル開発は Phase 1 を待たずに完結します。ページを `http` で配信して
 いれば `http://127.0.0.1:5001` への呼び出しも混在コンテンツになりません。
 
-手順は2つ。まず `functions/` でエミュレータを起動します（`npm run dev` が
-`GOOGLE_MAPS_API_KEY` をキーチェーンから読んで渡します）。
-
-```sh
-cd functions && npm run dev
-```
-
+手順は下の **② Functions エミュレータを起動する**（`npm run build` が必須。
+ビルドしないと読み込む関数が無い状態で起動します）と同じです。そのうえで
 `dart_defines.json` の `PROXY_BASE_URL` を
-`http://127.0.0.1:5001/{projectId}/asia-northeast1` にしてから起動します。
+`http://127.0.0.1:5001/{projectId}/asia-northeast1` にして起動します。
 
 ```sh
 flutter run -d chrome --dart-define-from-file=dart_defines.json

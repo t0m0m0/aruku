@@ -31,6 +31,7 @@ Future<void> _pumpSettings(
   WidgetTester tester, {
   bool notificationsSupported = true,
   bool osSettingsAvailable = true,
+  bool stepCountingSupported = true,
 }) async {
   final prefs = await SharedPreferences.getInstance();
   final container = ProviderContainer(
@@ -43,6 +44,7 @@ Future<void> _pumpSettings(
         notificationsSupported,
       ),
       canOpenOsSettingsProvider.overrideWithValue(osSettingsAvailable),
+      stepCountingSupportedProvider.overrideWithValue(stepCountingSupported),
     ],
   );
   addTearDown(container.dispose);
@@ -99,6 +101,28 @@ void main() {
     );
     // 押しても無反応の導線を残すと、権限を変えられない理由が画面から復元できない。
     expect(find.text('端末設定を開く'), findsNothing);
+  });
+
+  testWidgets('歩数計測が非対応なら週間目標は編集させない', (tester) async {
+    await _pumpSettings(tester, stepCountingSupported: false);
+
+    expect(
+      find.byKey(const Key('settings-weekly-goal-unsupported')),
+      findsOneWidget,
+    );
+    // 目標は歩数由来の距離でしか進まない。選ばせると永久に 0% の目標を
+    // 設定できてしまう（#359 Phase 2）。
+    expect(find.text('1週間の目標距離'), findsNothing);
+  });
+
+  testWidgets('歩数計測が対応なら週間目標を編集できる', (tester) async {
+    await _pumpSettings(tester, stepCountingSupported: true);
+
+    expect(find.text('1週間の目標距離'), findsOneWidget);
+    expect(
+      find.byKey(const Key('settings-weekly-goal-unsupported')),
+      findsNothing,
+    );
   });
 
   testWidgets('OS 設定を開ける環境では権限の導線を出す', (tester) async {
