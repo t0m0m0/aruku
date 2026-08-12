@@ -27,8 +27,10 @@ jobs:
             # base を渡さないとその2つが無効になり、main への直 push が素通りする。
             # 初回 push / force push では before が空コミットを指すため素の検査へ落とす。
             BASE="${{ github.event.before }}"
+            # 旧 tip と新 tip を直接比べる（--two-dot）。三点だと force push で
+            # 巻き戻された削除が共通祖先の側に隠れて見えない。
             if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-              python3 .claude/doc_consistency.py --ci --base "$BASE"
+              python3 .claude/doc_consistency.py --ci --base "$BASE" --two-dot
             else
               python3 .claude/doc_consistency.py --ci
             fi

@@ -18,6 +18,7 @@
 
 import argparse
 import json
+import posixpath
 import re
 import shlex
 import subprocess
@@ -28,8 +29,15 @@ import sys
 # `:(glob)` マジックを付けるのは、既定の pathspec だと `lib/**/*.dart` が
 # `lib/main.dart` のような直下のファイルに当たらないため（`**` が1階層以上を要求する）。
 # 付け忘れると検査対象から静かに漏れる。
-CODE_GLOBS = [":(glob)lib/**/*.dart", ":(glob)functions/src/**/*.ts"]
-DOC_GLOBS = [":(glob)docs/**/*.md", ":(glob)*.md", "firestore.rules"]
+CODE_GLOBS = [
+    ":(glob)lib/**/*.dart",
+    ":(glob)functions/src/**/*.ts",
+    # テストのコメントも同じ規約の対象。生存判定にも効く——テストがまだ呼んでいる
+    # シンボルは撤去されていない。
+    ":(glob)test/**/*.dart",
+    ":(glob)functions/test/**/*.ts",
+]
+DOC_GLOBS = [":(glob)docs/**/*.md", ":(glob)test/**/*.md", ":(glob)*.md", "firestore.rules"]
 EXCLUDE_RE = re.compile(r"(^lib/l10n/|^lib/firebase_options\.dart$|^functions/lib/)")
 
 # 意図的に残す参照の抑制マーカー。撤去の経緯を書いた記述など、消すほうが損な参照がある。
@@ -48,8 +56,13 @@ PATH_RE = re.compile(
 # lib/functions のコメント内 §N は docs/spec/route-optimization.md を指す慣習。
 # .md は各自の節番号を持つため対象外（docs/ops/observability.md の §6.1 など）。
 SPEC_PATH = "docs/spec/route-optimization.md"
-SECTION_REF_RE = re.compile(r"§(\d+(?:\.\d+)*)")
+# `§2.2-6` の `-6` は節内の番号付き項目。base だけ見て切ると、消えた項目や打ち間違いを通す。
+SECTION_REF_RE = re.compile(r"§(\d+(?:\.\d+)*)(?:-(\d+))?")
 SECTION_HEADING_RE = re.compile(r"^#{2,4}\s+(\d+(?:\.\d+)*)[.\s]")
+SECTION_ITEM_RE = re.compile(r"^(\d+)\.\s")
+
+# Markdown の相対リンク（`[spec](../spec/foo.md)`）。参照元からの相対で解決する。
+MD_LINK_RE = re.compile(r"\]\(([^)>\s#]+)")
 
 # 文を宣言と読み違えないための先頭トークン。`return foo(x)` から `foo` を
 # 「消えた宣言」として拾うと、無関係なコミットを止める。
@@ -68,7 +81,8 @@ DECL_RES = [
     # Dart のフィールド・定数。`static const _pageCount = 3` のような型推論も拾う。
     re.compile(rf"^\s*(?:static\s+)?(?:const|final|late|var)\s+(?:{TYPE}\s+)?(\w+)\s*[=;]"),
     # Dart のメソッド・getter。戻り値型を必須にし、文の先頭語を除いて文と分ける。
-    re.compile(rf"^\s*(?:@\w+\s+)*(?:static\s+)?(?!(?:{STATEMENT_KEYWORDS})\b)(?:{TYPE})\s+(?:get\s+)?(\w+)\s*[({{=]"),
+    # record 戻り値（`({int cum, int wait}) _advance(...)`）はこのリポジトリで実際に使う。
+    re.compile(rf"^\s*(?:@\w+\s+)*(?:static\s+)?(?!(?:{STATEMENT_KEYWORDS})\b)(?:{TYPE}|\([^)]*\)\??)\s+(?:get\s+)?(\w+)\s*[({{=]"),
 ]
 
 # 宣言とみなす最大インデント。コメントが参照するのはトップレベル（0）と
@@ -114,6 +128,21 @@ def run(args):
     return subprocess.run(args, capture_output=True, text=True).stdout
 
 
+def gone_paths(scope):
+    """このコミットで消えるパス。改名（`git mv`）の**旧側**も含める。
+
+    `--diff-filter=D` だけでは改名を取りこぼす。git は改名を R として報告するので、
+    旧パスへの参照が残っていても検出できない。
+    """
+    out = run(["git", "diff", *scope, "--name-status", "--diff-filter=DR"])
+    paths = []
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 2 and parts[0][:1] in ("D", "R"):
+            paths.append(parts[1])
+    return paths
+
+
 def _commit_takes_worktree(rest):
     """`git commit` の引数が、index に無い内容まで取り込むか。
 
@@ -127,9 +156,11 @@ def _commit_takes_worktree(rest):
             return j + 1 < len(rest)
         if not tok.startswith("-"):
             return True  # pathspec
-        if tok in ("-a", "--all", "-i", "--include"):
+        # `-p` / `--interactive` はコミット時に対話で index を組み立てるので、
+        # フックが見た index とコミット内容が一致しない。
+        if tok in ("-a", "--all", "-i", "--include", "-p", "--patch", "--interactive"):
             return True
-        if re.fullmatch(r"-[a-zA-Z]{2,}", tok) and "a" in tok[1:]:
+        if re.fullmatch(r"-[a-zA-Z]{2,}", tok) and set("ap") & set(tok[1:]):
             return True  # `-am` のような短縮の束ね
         base = tok.split("=", 1)[0]
         takes_value = base in COMMIT_VALUE_OPTS and "=" not in tok and len(tok) <= 2 or (
@@ -322,27 +353,63 @@ def check_deleted_files(snap, deleted, findings):
 
 
 def check_dangling_paths(snap, targets, findings):
-    """コメント・ドキュメントが指すリポジトリ相対パスが実在するか。"""
+    """コメント・ドキュメントが指すパスが実在するか。
+
+    ルート相対の記述（`lib/core/foo.dart`）と、Markdown の相対リンク
+    （`[spec](../spec/foo.md)`）の両方を見る。後者は参照元からの相対で解決する。
+    """
     for path, line, text in snap.prose(targets):
-        for m in PATH_RE.finditer(text):
-            if not snap.exists(m.group(1)):
-                findings.append((path, line, f"存在しないパス `{m.group(1)}` を参照している"))
+        refs = {m.group(1) for m in PATH_RE.finditer(text)}
+        if path.endswith(".md"):
+            for m in MD_LINK_RE.finditer(text):
+                target = m.group(1)
+                if re.match(r"[a-z]+:", target) or target.startswith("/"):
+                    continue  # 外部 URL・絶対パスは対象外
+                refs.add(posixpath.normpath(posixpath.join(posixpath.dirname(path), target)))
+        for ref in sorted(refs):
+            if not snap.exists(ref):
+                findings.append((path, line, f"存在しないパス `{ref}` を参照している"))
+
+
+def spec_index(spec):
+    """節番号 → その節の番号付き項目の集合。`§2.2-6` の `-6` を検証するため。"""
+    sections, current = {}, None
+    for raw in spec.splitlines():
+        heading = SECTION_HEADING_RE.match(raw)
+        if heading:
+            current = heading.group(1)
+            sections.setdefault(current, set())
+            continue
+        item = SECTION_ITEM_RE.match(raw)
+        if item and current:
+            sections[current].add(item.group(1))
+    return sections
 
 
 def check_dangling_sections(snap, targets, findings):
-    """lib/functions のコメント内 §N が route-optimization.md に実在するか。"""
+    """コメント内 §N が route-optimization.md に実在するか。
+
+    Markdown は各自の節番号を持つため既定では対象外だが、同じ行から仕様書へ
+    リンクしている引用（ADR・運用ドキュメントで実際に使う形）は仕様書の節を指す。
+    """
     if SPEC_PATH not in snap.tracked:
         return
-    spec = snap.text(SPEC_PATH)
     # 見出しが1つも番号を持たない場合も検査する。番号付き見出しを廃した改訂では
     # 既存の §N が全部宙に浮くので、ここで打ち切るとフェイルオープンになる。
-    valid = {m.group(1) for m in (SECTION_HEADING_RE.match(l) for l in spec.splitlines()) if m}
-    code_targets = [p for p in targets if p.startswith(("lib/", "functions/src/"))]
-    for path, line, text in snap.prose(code_targets):
+    sections = spec_index(snap.text(SPEC_PATH))
+    spec_name = posixpath.basename(SPEC_PATH)
+    for path, line, text in snap.prose(targets):
+        is_code = path.startswith(("lib/", "functions/src/", "test/"))
+        if not is_code and spec_name not in text:
+            continue
         for m in SECTION_REF_RE.finditer(text):
-            if m.group(1) not in valid:
+            section, item = m.group(1), m.group(2)
+            ref = f"§{section}" + (f"-{item}" if item else "")
+            if section not in sections:
+                findings.append((path, line, f"{SPEC_PATH} に存在しない {ref} を参照している"))
+            elif item and item not in sections[section]:
                 findings.append(
-                    (path, line, f"{SPEC_PATH} に存在しない §{m.group(1)} を参照している")
+                    (path, line, f"{SPEC_PATH} の §{section} に項目 {item} が無い（{ref}）")
                 )
 
 
@@ -375,15 +442,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ci", action="store_true", help="追跡ファイル全体を検査して exit 1")
     ap.add_argument("--base", default="", help="CI で差分駆動の検査に使う基準 ref")
+    ap.add_argument(
+        "--two-dot",
+        action="store_true",
+        help="base..HEAD で比べる。push（特に force push）は旧 tip と新 tip を"
+        "直接比べたい——三点だと共通祖先との比較になり、巻き戻された削除を見落とす",
+    )
     args = ap.parse_args()
 
     if args.ci:
         snap = Snapshot(staged=False)
-        diff = run(["git", "diff", f"{args.base}...HEAD"]) if args.base else ""
-        deleted = (
-            run(["git", "diff", "--name-only", "--diff-filter=D", f"{args.base}...HEAD"]).splitlines()
-            if args.base else []
-        )
+        span = f"{args.base}..HEAD" if args.two_dot else f"{args.base}...HEAD"
+        diff = run(["git", "diff", span]) if args.base else ""
+        deleted = gone_paths([span]) if args.base else []
         targets = snap.code_paths + snap.doc_paths
         section_targets = targets
     else:
@@ -400,7 +471,7 @@ def main():
         scope = ["HEAD"] if takes_worktree else ["--cached"]
         snap = Snapshot(staged=not takes_worktree)
         diff = run(["git", "diff", *scope])
-        deleted = run(["git", "diff", *scope, "--name-only", "--diff-filter=D"]).splitlines()
+        deleted = gone_paths(scope)
         changed = set(run(["git", "diff", *scope, "--name-only", "--diff-filter=d"]).splitlines())
         # ツリー全体の検査は、このコミットが触ったファイルに絞る。無関係な既存の
         # 腐りでコミットを止めると、フックごと無視されるようになるため。

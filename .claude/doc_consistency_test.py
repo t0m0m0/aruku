@@ -128,6 +128,14 @@ class RemovedDeclarationsTest(unittest.TestCase):
         self.assertEqual(dc.removed_declarations("-const files = 1;"), set())
         self.assertIn("roundTrips", dc.removed_declarations("-  int get roundTrips => 1;"))
 
+    def test_picks_up_a_record_returning_declaration(self):
+        """`({int cum, int wait}) _advance(...)` はこのリポジトリで実際に使う形。"""
+        self.assertIn("_advance", dc.removed_declarations("-({int cum, int wait}) _advance(int x) {"))
+        self.assertIn(
+            "prewarmFront",
+            dc.removed_declarations("-({List<int> prewarm, bool singlePass}) prewarmFront({"),
+        )
+
     def test_does_not_mistake_statements_for_declarations(self):
         for line in [
             "-    return calculateRoute(input);",
@@ -185,7 +193,10 @@ class GitCommandTest(unittest.TestCase):
                 self.assertFalse(dc.parse_git_commit(cmd)[0])
 
     def test_flags_commits_that_pull_in_unstaged_content(self):
-        for cmd in ["git commit -a -m x", "git commit -am x", "git commit --all", "git commit lib/a.dart"]:
+        for cmd in [
+            "git commit -a -m x", "git commit -am x", "git commit --all",
+            "git commit lib/a.dart", "git commit -p", "git commit --interactive",
+        ]:
             with self.subTest(cmd=cmd):
                 self.assertEqual(dc.parse_git_commit(cmd), (True, True))
 
@@ -347,6 +358,82 @@ class HookTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 2)
             self.assertIn("§2.3", result.stderr)
+
+    def test_treats_the_old_side_of_a_rename_as_a_deleted_path(self):
+        """`git mv` は R として報告されるので、削除フィルタだけでは旧パスを取り逃す。"""
+        with Repo() as repo:
+            write(repo.path, "lib/user.dart", "/// 詳細は lib/probe.dart を見る。\nclass User {}\n")
+            repo.commit("cite probe path")
+            git(repo.path, "mv", "lib/probe.dart", "lib/renamed.dart")
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("lib/probe.dart", result.stderr)
+
+    def test_resolves_a_relative_markdown_link_before_checking_it(self):
+        with Repo() as repo:
+            write(repo.path, "docs/adr/a.md", "詳細は [spec](../spec/gone.md) を見る。\n")
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("docs/spec/gone.md", result.stderr)
+
+    def test_checks_a_spec_section_cited_from_markdown_that_links_to_it(self):
+        with Repo() as repo:
+            write(
+                repo.path,
+                "docs/adr/a.md",
+                "[spec](../spec/route-optimization.md) §9.9 が正本。\n",
+            )
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("§9.9", result.stderr)
+
+    def test_leaves_a_documents_own_section_numbers_alone(self):
+        with Repo() as repo:
+            write(repo.path, "docs/ops/o.md", "## 6.1 アラート\n\n詳細は §6.1 を見る。\n")
+            repo.stage_all()
+
+            self.assertEqual(run_hook(repo.path).returncode, 0)
+
+    def test_rejects_a_section_item_that_does_not_exist(self):
+        with Repo() as repo:
+            write(repo.path, "lib/user.dart", "/// 詳細は §2.3-99 を見る。\nclass User {}\n")
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("2.3", result.stderr)
+
+    def test_accepts_a_section_item_that_exists(self):
+        with Repo() as repo:
+            write(
+                repo.path,
+                "docs/spec/route-optimization.md",
+                "## 1. 目的\n\n## 2. データ源\n\n### 2.3 コリドー\n\n1. 一つ目\n2. 二つ目\n",
+            )
+            write(repo.path, "lib/user.dart", "/// 詳細は §2.3-2 を見る。\nclass User {}\n")
+            repo.stage_all()
+
+            self.assertEqual(run_hook(repo.path).returncode, 0)
+
+    def test_checks_comments_in_test_sources_too(self):
+        with Repo() as repo:
+            write(repo.path, "test/a_test.dart", "// See lib/missing.dart\nvoid main() {}\n")
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("lib/missing.dart", result.stderr)
 
     def test_stays_out_of_the_way_of_bash_commands_that_are_not_commits(self):
         with Repo() as repo:
