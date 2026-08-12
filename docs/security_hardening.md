@@ -186,9 +186,13 @@ dart-define**（`PROXY_BASE_URL` 等）で生成されることを確認する�
 > Issue #19 のクラウド同期はアプリ側が存在しない — `cloud_firestore` は `pubspec.yaml` の
 > 依存にすら入っておらず、`userSync/{uid}` を読み書きするコードは `lib/` に無い
 > （最後の残骸だった `sync_meta_repository.dart` は #353 で撤去）。**同期機能そのものの
-> 公開前チェックとしては未着手**で、いま効いているのは全面拒否の既定だけ。
+> 公開前チェックとしては未着手。**
 >
-> `userSync` ルールを実装まで残すか撤去するかは別判断（本節では扱わない）。
+> ただし**この例外ルール自体は生きている**。ルールをデプロイした環境では、認証済み
+> （匿名サインインを含む）ユーザーが自分の `userSync/{uid}` を read / create / update /
+> delete できる（`firestore.rules` の `match /userSync/{uid}`）。公式クライアントがその
+> 経路を使っていないだけで、コレクションが到達不能なわけではない。実装まで残すか
+> 撤去するかは別判断（本節では扱わない）。
 
 **目的:** クライアント SDK が `userSync/{uid}` を直接読み書きするようになったとき、
 **本人以外がアクセスできない**ことを保証する。ルールとそのテストは先行して用意済みなので、
@@ -199,10 +203,20 @@ dart-define**（`PROXY_BASE_URL` 等）で生成されることを確認する�
 > がトップレベルのキー集合・型・リスト長を検証する。ルールのテストは
 > `functions/test/firestore-rules.test.ts`（`npm run test:rules`・JDK21 必須）。
 >
-> 検証対象のうち `settings` だけは `AppSettings.toJson()`
-> （`lib/core/models/app_settings.dart`）という実在の送出元と対になっている。残りのキー
-> （`updatedAt` / `recents` / `recentOrigins` / `activity`）に対応するクライアント側の型は
-> まだ無く、ルールテストの fixture が唯一の定義になっている。
+> **要素の schema はルールではなくモデル側が正本。** ルールはリスト長と型しか見ないため、
+> 各要素の形を決めているのは既存の serializer のほう:
+>
+> | キー | 正本 |
+> | --- | --- |
+> | `settings` | `AppSettings.toJson()`（`lib/core/models/app_settings.dart`） |
+> | `recents` / `recentOrigins` | `RecentPlace.toJson()`（`lib/core/models/recent_place.dart`） |
+> | `activity` | `DailyActivity.toJson()`（`lib/core/models/daily_activity.dart`） |
+> | `updatedAt` | 送出元は未定（同期を実装するときに決める） |
+>
+> 同期を実装するときは、ルールテストの fixture ではなく上の serializer に合わせること。
+> fixture はルールを通すだけの緩い形で、そちらを正本と取り違えると、受理はされるのに
+> `fromJson` が読めないデータを書き込む。適用先は各リポジトリの `replaceAll`
+> （`recents_repository.dart` / `activity_log_repository.dart`）。
 
 ### 手順
 
