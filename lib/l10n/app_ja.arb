@@ -88,6 +88,8 @@
   "@homeToday": {},
   "homeStepsUnit": "歩 ·",
   "@homeStepsUnit": {},
+  "homeActivityUnsupported": "この環境では歩数を計測できません",
+  "@homeActivityUnsupported": {},
   "homeStreakDays": "{days}日連続",
   "@homeStreakDays": {
     "placeholders": {

@@ -71,6 +71,13 @@ void main() {
     });
   });
 
+  group('supportsStepCounting', () {
+    test('ネイティブでは計測できる / Web ではできない', () {
+      expect(supportsStepCounting(isWeb: false), isTrue);
+      expect(supportsStepCounting(isWeb: true), isFalse);
+    });
+  });
+
   group('useCrashHandlers', () {
     test('release のネイティブでのみ登録する', () {
       expect(useCrashHandlers(isWeb: false, isRelease: true), isTrue);

@@ -45,3 +45,9 @@ class PedometerActivityService implements ActivityService {
 final activityServiceProvider = Provider<ActivityService>(
   (_) => PedometerActivityService(),
 );
+
+/// この環境で歩数を計測できるか。プロバイダにしているのは kIsWeb を直接読むと
+/// 非対応時の挙動を Web でしか検証できなくなるため（テストで上書きして反証する）。
+final stepCountingSupportedProvider = Provider<bool>(
+  (_) => supportsStepCounting(isWeb: kIsWeb),
+);

@@ -136,6 +136,7 @@ class AppState {
     this.todaySteps = 0,
     this.todayKm = 0.0,
     this.todayKcal = 0,
+    this.activityTrackingSupported = true,
     this.journey,
     this.journeyManualCompletionAvailable = false,
     this.journeyCurrentLegHandedOff = false,
@@ -193,6 +194,10 @@ class AppState {
   final double todayKm;
   final int todayKcal;
 
+  /// この環境で歩数を計測できるか。false のとき上の実績値はすべて 0 に留まる。
+  /// UI が「計測結果としての 0」と区別して理由を出せるように状態として持つ。
+  final bool activityTrackingSupported;
+
   /// 出発〜到着の時間予算（分）。日跨ぎ（dateOffset / isNow）を考慮する。
   int get budgetMinutes => planner.budgetMinutes(departure, arrival);
 
@@ -235,6 +240,7 @@ class AppState {
     int? todaySteps,
     double? todayKm,
     int? todayKcal,
+    bool? activityTrackingSupported,
     Object? journey = _sentinel,
     bool? journeyManualCompletionAvailable,
     bool? journeyCurrentLegHandedOff,
@@ -269,6 +275,8 @@ class AppState {
       todaySteps: todaySteps ?? this.todaySteps,
       todayKm: todayKm ?? this.todayKm,
       todayKcal: todayKcal ?? this.todayKcal,
+      activityTrackingSupported:
+          activityTrackingSupported ?? this.activityTrackingSupported,
       journey: identical(journey, _sentinel)
           ? this.journey
           : journey as JourneyProgress?,
@@ -389,6 +397,7 @@ class AppNotifier extends Notifier<AppState> {
     final arrivalTotal = depH * 60 + depM + kInitialBudgetMinutes;
     return AppState.initial.copyWith(
       screen: initialScreen,
+      activityTrackingSupported: ref.read(stepCountingSupportedProvider),
       departure: TimeValue(h: depH, m: depM, isNow: true),
       arrival: TimeValue(
         h: (arrivalTotal ~/ 60) % 24,
@@ -420,10 +429,13 @@ class AppNotifier extends Notifier<AppState> {
   }
 
   /// 永続化された活動履歴を読み込み、ストリーク/週次/当日の集計を反映する。
-  /// 並行して歩数センサーを購読し、セッション歩数を当日累計へ積む。
+  /// 歩数センサーを計測できる環境なら並行して購読し、セッション歩数を当日累計へ積む。
   /// 履歴ロードの I/O で購読確立を遅らせない（初回計測を取りこぼさない）。
   Future<void> _startActivityTracking() async {
     unawaited(_loadActivityHistory());
+    // 非対応環境で購読を試すと MissingPluginException が下の catch(_) に飲まれ、
+    // 「例外は出ないが歩数が一生 0」という理由の残らない縮退になる。
+    if (!ref.read(stepCountingSupportedProvider)) return;
     try {
       final crashReporter = ref.read(crashReporterProvider);
       final service = ref.read(activityServiceProvider);

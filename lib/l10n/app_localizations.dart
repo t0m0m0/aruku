@@ -316,6 +316,12 @@ abstract class AppLocalizations {
   /// **'歩 ·'**
   String get homeStepsUnit;
 
+  /// No description provided for @homeActivityUnsupported.
+  ///
+  /// In ja, this message translates to:
+  /// **'この環境では歩数を計測できません'**
+  String get homeActivityUnsupported;
+
   /// No description provided for @homeStreakDays.
   ///
   /// In ja, this message translates to:

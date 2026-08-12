@@ -124,6 +124,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get homeStepsUnit => '歩 ·';
 
   @override
+  String get homeActivityUnsupported => 'この環境では歩数を計測できません';
+
+  @override
   String homeStreakDays(int days) {
     return '$days日連続';
   }

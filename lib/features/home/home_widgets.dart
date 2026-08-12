@@ -303,6 +303,7 @@ class _WeeklyGoalCard extends StatelessWidget {
     required this.todaySteps,
     required this.todayKcal,
     required this.streakDays,
+    required this.activityTrackingSupported,
   });
 
   /// ユーザーが設定した週間目標距離（km）。
@@ -312,6 +313,7 @@ class _WeeklyGoalCard extends StatelessWidget {
   final int todaySteps;
   final int todayKcal;
   final int streakDays;
+  final bool activityTrackingSupported;
 
   @override
   Widget build(BuildContext context) {
@@ -399,12 +401,15 @@ class _WeeklyGoalCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 3),
-                _TodayLine(
-                  todayKm: todayKm,
-                  todaySteps: todaySteps,
-                  todayKcal: todayKcal,
-                  streakDays: streakDays,
-                ),
+                if (activityTrackingSupported)
+                  _TodayLine(
+                    todayKm: todayKm,
+                    todaySteps: todaySteps,
+                    todayKcal: todayKcal,
+                    streakDays: streakDays,
+                  )
+                else
+                  const _ActivityUnsupportedNote(),
               ],
             ),
           ),
@@ -446,6 +451,7 @@ class _TodayLine extends StatelessWidget {
         Text(s, style: number ? numberStyle : labelStyle);
 
     return Wrap(
+      key: const Key('home-today-line'),
       spacing: 4,
       runSpacing: 2,
       crossAxisAlignment: WrapCrossAlignment.center,
@@ -469,6 +475,24 @@ class _TodayLine extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+/// 歩数を計測できない環境で、実績行の代わりに理由を示す行。
+///
+/// 0 の実績値を並べる代わりに置き換えるのは、「0 歩・0 kcal」を計測結果として
+/// 出すと非対応と本当に歩いていない状態が画面から区別できないため。
+class _ActivityUnsupportedNote extends StatelessWidget {
+  const _ActivityUnsupportedNote();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Text(
+      key: const Key('home-activity-unsupported'),
+      AppLocalizations.of(context).homeActivityUnsupported,
+      style: jpStyle(size: 13, weight: FontWeight.w600, color: c.ink2),
     );
   }
 }

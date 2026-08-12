@@ -255,6 +255,8 @@ class HomeScreen extends ConsumerWidget {
                         todaySteps: state.todaySteps,
                         todayKcal: state.todayKcal,
                         streakDays: state.streakDays,
+                        activityTrackingSupported:
+                            state.activityTrackingSupported,
                       ),
                     ),
 

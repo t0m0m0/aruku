@@ -17,6 +17,13 @@ bool useLocalNotifications({
   required bool Function() isAndroid,
 }) => !isWeb && (isIOS() || isAndroid());
 
+/// 歩数センサーを購読できるか。pedometer は Web をプラグイン対象に含めていない。
+///
+/// 「購読して失敗させる」ではなく事前に諦めるのは、失敗が
+/// MissingPluginException として例外側へ出るだけで、歩数が一生 0 のまま理由を
+/// 残さないから。非対応を値として持てば UI が理由を出せる（#359 Phase 2）。
+bool supportsStepCounting({required bool isWeb}) => !isWeb;
+
 /// 未捕捉エラーを Crashlytics へ流すハンドラを登録するか。
 ///
 /// Web を外すのは Crashlytics に Web 実装が無いから、では足りない。登録すると
