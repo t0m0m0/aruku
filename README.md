@@ -128,12 +128,10 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 | 3 | App Check デバッグトークン | `dart_defines.json` ＋ Firebase Console への登録 |
 
 **① `PROXY_BASE_URL` を決める。** 値は**アプリを動かす場所から見たホストのアドレス**で、
-実行先ごとに違います。プロキシ経由の機能が使えるのは iOS / Android の 2 プラットフォームです
-（macOS は `lib/firebase_options.dart` が `UnsupportedError` を投げるため動きません。
-Web は起動しますが、App Check の Web プロバイダが未設定のためプロキシが 401 を返します。
-#359 Phase 1 で対応予定）。
+実行先ごとに違います（macOS は `lib/firebase_options.dart` が `UnsupportedError` を
+投げるため動きません）。
 
-**ローカルの Functions エミュレータを叩けるのは iOS シミュレータと Android です。**
+**ローカルの Functions エミュレータを叩けるのは iOS シミュレータ・Android・Web です。**
 塞がっているのは iOS 実機だけで、その場合はデプロイ済みプロキシを使います。
 
 | アプリの実行先 | ローカルの Functions エミュレータを叩く | デプロイ済みプロキシを叩く |
@@ -142,9 +140,25 @@ Web は起動しますが、App Check の Web プロバイダが未設定のた�
 | iOS 実機 | **不可** — iOS 14+ のローカルネットワークプライバシー。LAN 上の IP へ繋ぐには `Info.plist` に `NSLocalNetworkUsageDescription` が要るが、開発専用の用途で全ユーザーに権限要求を出したくないため入れていない | ✅ |
 | Android エミュレータ | `http://10.0.2.2:5001/{projectId}/asia-northeast1`（`10.0.2.2` はエミュレータから見たホストの別名） | ✅ |
 | Android 実機 | `adb reverse tcp:5001 tcp:5001` してから `http://127.0.0.1:5001/{projectId}/asia-northeast1` | ✅ |
+| Web | `http://127.0.0.1:5001/{projectId}/asia-northeast1` | **不可** — 下記 |
 
 デプロイ済みプロキシの URL は実行先を問わず
 `https://asia-northeast1-{projectId}.cloudfunctions.net` です。
+
+**Web だけデプロイ済みプロキシを叩けません。** App Check の Web プロバイダ
+（`ReCaptchaV3Provider`）が未設定で、`lib/main.dart` は Web での `activate` 自体を
+スキップするためトークンを送れず、プロキシは 401 を返します（#359 Phase 1 で対応予定）。
+
+**ローカルのエミュレータなら Web でも動きます。** `functions/src/index.ts` の
+`verifyAppCheck` は `FUNCTIONS_EMULATOR` が立っているとき検証ごとスキップし、
+プロキシは `Access-Control-Allow-Origin: *` とプリフライトに対応済みです。
+つまり Web のローカル開発は Phase 1 を待たずに完結します。ページを `http` で配信して
+いれば `http://127.0.0.1:5001` への呼び出しも混在コンテンツになりません。
+
+> **Web の現在地取得はブラウザの許可が要ります。** `http://localhost` は secure context
+> なので geolocation API 自体は使えますが、許可を拒否すると `LocationDenied` になり
+> 「位置情報なし」と表示されます（アプリ側の失敗ではありません）。一度拒否すると
+> プロンプトは再表示されないため、サイト設定から許可し直してください。
 
 > iOS の URL は `localhost` ではなく **IP リテラル（`127.0.0.1`）で書く**こと。ATS は IP アドレスへの
 > 接続には適用されない（iOS 10 以降は常に許可）が、`localhost` や `*.local` は**ホスト名なので ATS の
