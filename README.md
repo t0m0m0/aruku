@@ -70,13 +70,19 @@ cp ios/Flutter/Secrets.xcconfig.example ios/Flutter/Secrets.xcconfig
 
 アプリは Firebase を初期化するため、`FIREBASE_ANDROID_API_KEY` / `FIREBASE_IOS_API_KEY` を
 dart-define で受け取ります。**未設定だと debug ビルドは起動時に `StateError` で落ちます**
-（`lib/main.dart` の `_assertFirebaseKeyPresent`）。地図表示だけを試す場合でも必要です。
+（`lib/main.dart` の `_assertFirebaseOptionsComplete`）。地図表示だけを試す場合でも必要です。
 
 ```sh
 cp dart_defines.example.json dart_defines.json
 #   FIREBASE_ANDROID_API_KEY / FIREBASE_IOS_API_KEY に実キーを設定
 #   （Firebase Console → プロジェクトの設定 → マイアプリ）
 ```
+
+Web で動かす場合は `FIREBASE_WEB_API_KEY` と `FIREBASE_WEB_APP_ID` も設定します。
+Web の `appId` は android / ios と違いコードに焼いていないため、
+**Firebase Console で Web アプリを登録してから値を取得**してください
+（`lib/firebase_options.dart` の `web`）。両方とも同じ検査に掛かるので、
+片方でも空なら debug ビルドは起動時に落ちます。
 
 `dart_defines.json` は gitignore 済みです。**コミットしないでください。**
 
@@ -117,8 +123,10 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 | 3 | App Check デバッグトークン | `dart_defines.json` ＋ Firebase Console への登録 |
 
 **① `PROXY_BASE_URL` を決める。** 値は**アプリを動かす場所から見たホストのアドレス**で、
-実行先ごとに違います。対応するのは iOS / Android の 2 プラットフォームです
-（macOS・Web は `lib/firebase_options.dart` が `UnsupportedError` を投げるため動きません）。
+実行先ごとに違います。プロキシ経由の機能が使えるのは iOS / Android の 2 プラットフォームです
+（macOS は `lib/firebase_options.dart` が `UnsupportedError` を投げるため動きません。
+Web は起動しますが、App Check の Web プロバイダが未設定のためプロキシが 401 を返します。
+#359 Phase 1 で対応予定）。
 
 **ローカルの Functions エミュレータを叩けるのは iOS シミュレータと Android です。**
 塞がっているのは iOS 実機だけで、その場合はデプロイ済みプロキシを使います。

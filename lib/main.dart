@@ -12,6 +12,7 @@ import 'package:timezone/timezone.dart' as tz;
 
 import 'core/config/app_check_provider.dart';
 import 'core/config/app_config.dart';
+import 'core/config/firebase_options_check.dart';
 import 'core/navigation/app_router.dart';
 import 'core/services/crash_reporter.dart';
 import 'core/services/health_service.dart';
@@ -27,7 +28,7 @@ import 'l10n/app_localizations.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  _assertFirebaseKeyPresent();
+  _assertFirebaseOptionsComplete();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await _activateAppCheck();
   const crashReporter = FirebaseCrashReporter();
@@ -93,15 +94,18 @@ void _installCrashHandlers(CrashReporter crashReporter) {
   };
 }
 
-// API キーは --dart-define-from-file=dart_defines.json で注入する。渡し忘れると
-// String.fromEnvironment は空文字を返し、Firebase 初期化が分かりにくく失敗する。
-// debug ビルドのみ早期に検出してセットアップ漏れを明示する（release では assert
-// は除去され、本番ビルドは CI 等で確実にキーを注入する前提）。
-void _assertFirebaseKeyPresent() {
+// API キーと Web の appId は --dart-define-from-file=dart_defines.json で注入する。
+// 渡し忘れると String.fromEnvironment は空文字を返し、Firebase 初期化が分かりにくく
+// 失敗する。debug ビルドのみ早期に検出してセットアップ漏れを明示する（release では
+// assert は除去され、本番ビルドは CI 等で確実に注入する前提）。
+void _assertFirebaseOptionsComplete() {
   assert(() {
-    if (DefaultFirebaseOptions.currentPlatform.apiKey.isEmpty) {
+    final missing = missingFirebaseOptionFields(
+      DefaultFirebaseOptions.currentPlatform,
+    );
+    if (missing.isNotEmpty) {
       throw StateError(
-        'Firebase API キーが空です。'
+        'Firebase の ${missing.join(' / ')} が空です。'
         '--dart-define-from-file=dart_defines.json を付けて起動してください'
         '（dart_defines.example.json 参照）。',
       );
