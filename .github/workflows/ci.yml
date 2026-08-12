@@ -11,6 +11,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          # doc-consistency の差分駆動の検査が base との共通祖先を要る（#357）。
+          fetch-depth: 0
+
+      # Flutter より先に置く。python3 だけで走り、コメント・ドキュメントの
+      # 取り残しは早く落ちたほうが直しやすい。
+      - name: Doc/comment consistency
+        run: |
+          python3 .claude/doc_consistency_test.py
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python3 .claude/doc_consistency.py --ci --base "origin/${{ github.base_ref }}"
+          else
+            python3 .claude/doc_consistency.py --ci
+          fi
 
       - uses: subosito/flutter-action@v2
         with:
