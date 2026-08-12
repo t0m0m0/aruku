@@ -5,5 +5,7 @@
   "FIREBASE_WEB_APP_ID": "1:174669528481:web:your-web-app-id-suffix",
   "ANDROID_APP_CHECK_DEBUG_TOKEN": "your-android-app-check-debug-token",
   "APPLE_APP_CHECK_DEBUG_TOKEN": "your-ios-app-check-debug-token",
+  "WEB_APP_CHECK_DEBUG_TOKEN": "your-web-app-check-debug-token",
+  "RECAPTCHA_SITE_KEY": "your-recaptcha-v3-site-key",
   "PROXY_BASE_URL": "http://127.0.0.1:5001/your-project-id/asia-northeast1"
 }

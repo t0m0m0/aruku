@@ -145,9 +145,26 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 デプロイ済みプロキシの URL は実行先を問わず
 `https://asia-northeast1-{projectId}.cloudfunctions.net` です。
 
-**Web だけデプロイ済みプロキシを叩けません。** App Check の Web プロバイダ
-（`ReCaptchaV3Provider`）が未設定で、`lib/main.dart` は Web での `activate` 自体を
-スキップするためトークンを送れず、プロキシは 401 を返します（#359 Phase 1 で対応予定）。
+**Web からデプロイ済みプロキシを叩くには App Check の設定が要ります。**
+`RECAPTCHA_SITE_KEY`（reCAPTCHA v3 サイトキー）を dart-define で渡すと
+`ReCaptchaV3Provider` で有効化します。debug / profile ビルドは
+`WEB_APP_CHECK_DEBUG_TOKEN`（未設定でも可）で `WebDebugProvider` を使います。
+
+どちらも無い release Web ビルドでは `activate` を呼びません
+（`canActivateWebAppCheck`）。`providerWeb` を渡さない `activate` は同期的に
+throw してアプリが起動しなくなるためで、この場合プロキシは 401 を返します。
+
+準備するもの:
+
+1. Google Cloud / reCAPTCHA コンソールで **reCAPTCHA v3 サイトキー**を発行し、
+   配信するドメインを登録する
+2. Firebase Console → App Check → アプリ（Web）で reCAPTCHA v3 を有効化し、
+   同じサイトキーを登録する
+3. `dart_defines.json` に `RECAPTCHA_SITE_KEY` を追記する
+
+> debug ビルドで `WebDebugProvider` を使う場合、トークンを渡さなければ Firebase JS
+> SDK が自動生成してブラウザのコンソールへ出力します。その値を Firebase Console の
+> デバッグトークンに登録してください。
 
 **ローカルのエミュレータなら Web でも動きます。** `functions/src/index.ts` の
 `verifyAppCheck` は `FUNCTIONS_EMULATOR` が立っているとき検証ごとスキップし、

@@ -80,4 +80,43 @@ void main() {
       );
     });
   });
+
+  group('canActivateWebAppCheck', () {
+    test('サイトキーがあれば有効化できる', () {
+      expect(
+        canActivateWebAppCheck(
+          usesDebugProvider: false,
+          recaptchaSiteKey: 'site-key',
+        ),
+        isTrue,
+      );
+    });
+
+    test('デバッグプロバイダを使うならサイトキー無しでも有効化できる', () {
+      // WebDebugProvider はトークン未指定でも JS SDK 側が自動生成する。
+      expect(
+        canActivateWebAppCheck(usesDebugProvider: true, recaptchaSiteKey: ''),
+        isTrue,
+      );
+    });
+
+    test('サイトキーも無くデバッグでもないなら有効化しない', () {
+      // providerWeb を渡さない activate は同期的に throw し、await 先で未捕捉に
+      // なってアプリが起動しない（#359）。
+      expect(
+        canActivateWebAppCheck(usesDebugProvider: false, recaptchaSiteKey: ''),
+        isFalse,
+      );
+    });
+
+    test('空白のみのサイトキーは未設定として扱う', () {
+      expect(
+        canActivateWebAppCheck(
+          usesDebugProvider: false,
+          recaptchaSiteKey: '   ',
+        ),
+        isFalse,
+      );
+    });
+  });
 }

@@ -31,14 +31,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _assertFirebaseOptionsComplete();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  // Web には providerWeb（ReCaptchaV3Provider 等）を渡していないため activate は
-  // 'No attestation provider was specified' で同期的に throw し、await 先で未捕捉に
-  // なってアプリが起動しない。try/catch で黙らせるとトークン無しのまま起動して
-  // 「原因不明の 401」になるため、スキップであることを分岐として残す。
-  // Web からプロキシを叩くには providerWeb が必要（#359 Phase 1）。
-  if (!kIsWeb) {
-    await _activateAppCheck();
-  }
+  await _activateAppCheck();
   const crashReporter = FirebaseCrashReporter();
   if (useCrashHandlers(isWeb: kIsWeb, isRelease: kReleaseMode)) {
     _installCrashHandlers(crashReporter);
@@ -137,6 +130,8 @@ void _assertFirebaseOptionsComplete() {
 Future<void> _activateAppCheck() {
   const androidToken = AppConfig.androidAppCheckDebugToken;
   const appleToken = AppConfig.appleAppCheckDebugToken;
+  const webToken = AppConfig.webAppCheckDebugToken;
+  const siteKey = AppConfig.recaptchaSiteKey;
 
   final androidUsesDebug = useDebugAppCheckProvider(
     isDebugBuild: kDebugMode,
@@ -148,6 +143,22 @@ Future<void> _activateAppCheck() {
     isProfileBuild: kProfileMode,
     debugToken: appleToken,
   );
+  final webUsesDebug = useDebugAppCheckProvider(
+    isDebugBuild: kDebugMode,
+    isProfileBuild: kProfileMode,
+    debugToken: webToken,
+  );
+
+  // Web は providerWeb を渡せないと activate 自体が throw するため、有効化できる
+  // 条件が揃わないときは呼ばずに戻る。try/catch で黙らせるとトークン無しのまま
+  // 起動して「原因不明の 401」になる。
+  if (kIsWeb &&
+      !canActivateWebAppCheck(
+        usesDebugProvider: webUsesDebug,
+        recaptchaSiteKey: siteKey,
+      )) {
+    return Future.value();
+  }
 
   return FirebaseAppCheck.instance.activate(
     providerAndroid: androidUsesDebug
@@ -158,6 +169,11 @@ Future<void> _activateAppCheck() {
     providerApple: appleUsesDebug
         ? AppleDebugProvider(debugToken: appleToken.isEmpty ? null : appleToken)
         : const AppleAppAttestProvider(),
+    // ネイティブでは providerWeb は無視される。Web で release かつサイトキーが
+    // 空になる組み合わせは上のガードで弾いているため、ここへは来ない。
+    providerWeb: webUsesDebug
+        ? WebDebugProvider(debugToken: webToken.isEmpty ? null : webToken)
+        : ReCaptchaV3Provider(siteKey.trim()),
   );
 }
 
