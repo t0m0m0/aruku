@@ -17,6 +17,15 @@ bool useLocalNotifications({
   required bool Function() isAndroid,
 }) => !isWeb && (isIOS() || isAndroid());
 
+/// 未捕捉エラーを Crashlytics へ流すハンドラを登録するか。
+///
+/// Web を外すのは Crashlytics に Web 実装が無いから、では足りない。登録すると
+/// `PlatformDispatcher.onError` が true（処理済み）を返してブラウザ既定の未捕捉
+/// エラー報告を抑止する一方、報告先の future は失敗して呼び出し側の `.ignore()` に
+/// 飲まれる。結果として記録も表示も残らない。既定の報告経路に任せる方がまだ見える。
+bool useCrashHandlers({required bool isWeb, required bool isRelease}) =>
+    isRelease && !isWeb;
+
 /// 歩数計測にランタイムの権限要求が必要か。
 ///
 /// iOS の CMPedometer は NSMotionUsageDescription を元に初回利用時へ自動でプロンプト

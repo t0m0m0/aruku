@@ -40,7 +40,7 @@ Future<void> main() async {
     await _activateAppCheck();
   }
   const crashReporter = FirebaseCrashReporter();
-  if (kReleaseMode) {
+  if (useCrashHandlers(isWeb: kIsWeb, isRelease: kReleaseMode)) {
     _installCrashHandlers(crashReporter);
   }
   SystemChrome.setSystemUIOverlayStyle(

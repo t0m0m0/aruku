@@ -71,6 +71,20 @@ void main() {
     });
   });
 
+  group('useCrashHandlers', () {
+    test('release のネイティブでのみ登録する', () {
+      expect(useCrashHandlers(isWeb: false, isRelease: true), isTrue);
+      expect(useCrashHandlers(isWeb: false, isRelease: false), isFalse);
+    });
+
+    test('release Web では登録しない', () {
+      // 登録すると PlatformDispatcher.onError が true を返してブラウザ既定の
+      // 未捕捉エラー報告を抑止する一方、Crashlytics には Web 実装が無く報告も
+      // 残らない。記録も表示も消える無音化になる（#359）。
+      expect(useCrashHandlers(isWeb: true, isRelease: true), isFalse);
+    });
+  });
+
   group('requiresActivityRecognitionPermission', () {
     test('Android のみランタイム要求が必要', () {
       expect(

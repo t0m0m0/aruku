@@ -21,7 +21,11 @@ class FirebaseCrashReporter implements CrashReporter {
     String? context,
     bool fatal = false,
   }) async {
-    if (!kReleaseMode) {
+    // Web を debug と同じ経路へ落とすのは、firebase_crashlytics が web を
+    // プラグイン対象に含めていない（android / ios / macos のみ）ため。Crashlytics を
+    // 呼ぶと MissingPluginException になり、呼び出し側は結果を .ignore() で捨てるので
+    // 記録も表示も残らない。#359 参照。
+    if (!kReleaseMode || kIsWeb) {
       debugPrint('${context ?? 'app'} error: $error');
       return;
     }
