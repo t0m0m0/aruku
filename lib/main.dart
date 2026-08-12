@@ -13,6 +13,7 @@ import 'package:timezone/timezone.dart' as tz;
 import 'core/config/app_check_provider.dart';
 import 'core/config/app_config.dart';
 import 'core/config/firebase_options_check.dart';
+import 'core/config/platform_capabilities.dart';
 import 'core/navigation/app_router.dart';
 import 'core/services/crash_reporter.dart';
 import 'core/services/health_service.dart';
@@ -30,7 +31,14 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   _assertFirebaseOptionsComplete();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  await _activateAppCheck();
+  // Web には providerWeb（ReCaptchaV3Provider 等）を渡していないため activate は
+  // 'No attestation provider was specified' で同期的に throw し、await 先で未捕捉に
+  // なってアプリが起動しない。try/catch で黙らせるとトークン無しのまま起動して
+  // 「原因不明の 401」になるため、スキップであることを分岐として残す。
+  // Web からプロキシを叩くには providerWeb が必要（#359 Phase 1）。
+  if (!kIsWeb) {
+    await _activateAppCheck();
+  }
   const crashReporter = FirebaseCrashReporter();
   if (kReleaseMode) {
     _installCrashHandlers(crashReporter);
@@ -60,11 +68,15 @@ Future<void> main() async {
         ),
         // HealthKit は iOS 専用。iOS でのみ実体を注入し、他プラットフォームは
         // 既定の NoopHealthService（無害な no-op）のままにする。
-        if (Platform.isIOS)
+        if (useHealthKit(isWeb: kIsWeb, isIOS: () => Platform.isIOS))
           healthServiceProvider.overrideWithValue(HealthKitService()),
         // ローカル通知は iOS / Android の実機のみ。他は既定の
         // NoopNotificationService（無害な no-op）のままにする。
-        if (Platform.isIOS || Platform.isAndroid)
+        if (useLocalNotifications(
+          isWeb: kIsWeb,
+          isIOS: () => Platform.isIOS,
+          isAndroid: () => Platform.isAndroid,
+        ))
           notificationServiceProvider.overrideWithValue(
             LocalNotificationService(),
           ),
