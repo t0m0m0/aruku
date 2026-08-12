@@ -4,7 +4,8 @@
 二つの呼ばれ方をする:
 
 - フック（既定）: PreToolUse/Bash から stdin の JSON を読み、`git commit` のときだけ
-  index（staged）を検査して exit 2 でブロックする。
+  検査して exit 2 でブロックする。見るのは通常 index（staged）だが、`git commit -a` の
+  ように index に無い変更まで取り込む形では作業ツリーと HEAD を比べる。
 - CI（`--ci`）: 追跡ファイル全体を検査して exit 1 で落とす。差分駆動の検査は
   `--base <ref>` からの差分を見る。
 
@@ -18,6 +19,7 @@
 import argparse
 import json
 import re
+import shlex
 import subprocess
 import sys
 
@@ -60,8 +62,8 @@ TYPE = r"[A-Za-z_][\w<>,?.\[\]]*"
 DECL_RES = [
     # Dart の型宣言。`sealed class` / `abstract interface class` のような修飾子付きを含む。
     re.compile(r"^\s*(?:(?:abstract|sealed|base|final|interface|mixin)\s+)*(?:class|enum|mixin|extension|typedef)\s+(\w+)"),
-    # TypeScript の宣言。
-    re.compile(r"^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:function|interface|type|class|enum)\s+(\w+)"),
+    # TypeScript の宣言。`export async function` はこのリポジトリで実際に使っている。
+    re.compile(r"^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:async\s+)?(?:function\*?|interface|type|class|enum)\s+(\w+)"),
     re.compile(r"^\s*(?:export\s+)?(?:const|let)\s+(\w+)\s*[:=]"),
     # Dart のフィールド・定数。`static const _pageCount = 3` のような型推論も拾う。
     re.compile(rf"^\s*(?:static\s+)?(?:const|final|late|var)\s+(?:{TYPE}\s+)?(\w+)\s*[=;]"),
@@ -94,19 +96,101 @@ def _is_symbol_like(name):
     return name.startswith("_") or any(c.isupper() for c in bare) or len(bare) >= 8
 
 
+# `git <ここ> commit` に置ける、値を1つ取るグローバルオプション。値を取らないもの
+# （`--no-pager` など）と区別しないと、`commit` を値として食って検出が外れる。
+GIT_VALUE_OPTS = {
+    "-C", "-c", "--git-dir", "--work-tree", "--namespace",
+    "--exec-path", "--super-prefix", "--config-env",
+}
+# `git commit <ここ>` の、値を1つ取るオプション。値を pathspec と取り違えないため。
+COMMIT_VALUE_OPTS = {
+    "-m", "--message", "-F", "--file", "--author", "--date", "-C", "--reuse-message",
+    "-c", "--reedit-message", "--fixup", "--squash", "-S", "--gpg-sign", "-t",
+    "--template", "--cleanup", "-u", "--untracked-files", "--trailer",
+}
+
+
 def run(args):
     return subprocess.run(args, capture_output=True, text=True).stdout
+
+
+def _commit_takes_worktree(rest):
+    """`git commit` の引数が、index に無い内容まで取り込むか。
+
+    `-a` / `--include` / pathspec 付きの commit は、フックが走る時点の index に
+    無い変更をコミットする。index だけ見ると素通りする（PR #358 レビュー）。
+    """
+    j = 0
+    while j < len(rest):
+        tok = rest[j]
+        if tok == "--":
+            return j + 1 < len(rest)
+        if not tok.startswith("-"):
+            return True  # pathspec
+        if tok in ("-a", "--all", "-i", "--include"):
+            return True
+        if re.fullmatch(r"-[a-zA-Z]{2,}", tok) and "a" in tok[1:]:
+            return True  # `-am` のような短縮の束ね
+        base = tok.split("=", 1)[0]
+        takes_value = base in COMMIT_VALUE_OPTS and "=" not in tok and len(tok) <= 2 or (
+            base in COMMIT_VALUE_OPTS and "=" not in tok and tok.startswith("--")
+        )
+        j += 2 if takes_value else 1
+    return False
+
+
+def parse_git_commit(command):
+    """(commit か, 作業ツリーの内容を取り込むか) を返す。"""
+    for segment in re.split(r"&&|\|\||;|\||\n", command):
+        try:
+            toks = shlex.split(segment)
+        except ValueError:
+            toks = segment.split()
+        if not toks or toks[0].split("/")[-1] != "git":
+            continue
+        i = 1
+        while i < len(toks) and toks[i].startswith("-"):
+            base = toks[i].split("=", 1)[0]
+            i += 2 if base in GIT_VALUE_OPTS and "=" not in toks[i] else 1
+        if i < len(toks) and toks[i] == "commit":
+            return True, _commit_takes_worktree(toks[i + 1 :])
+    return False, False
 
 
 def word_re(name):
     return re.compile(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])")
 
 
+def split_inline_comment(line):
+    """行を (コード部, コメント部) に割る。コメントが無ければ (行, None)。
+
+    引用符の中の `//`（`'https://…'`）はコメントにしない。
+    """
+    quote = None
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if quote:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in "\"'":
+            quote = ch
+        elif ch == "/" and line[i + 1 : i + 2] == "/":
+            return line[:i], line[i:]
+        i += 1
+    return line, None
+
+
 def split_lines(text, path):
     """(散文行, コード行) を返す。散文＝コメントと Markdown 本文。
 
     分離が検査の土台になる。コード行はシンボルの生存判定に、散文行は取り残しの
-    検出に使い、互いを混ぜない。
+    検出に使い、互いを混ぜない。行末コメントは**コード部から取り除く**——残すと
+    `final x = 1; // 旧 Foo を参照` のコード行が「Foo はまだ在る」判定に当たり、
+    監査したいコメント自身が自分の検出を握り潰す（PR #358 レビュー）。
     """
     prose, code = [], []
     if path.endswith(".md"):
@@ -124,11 +208,10 @@ def split_lines(text, path):
         elif s.startswith("//") or s.startswith("#"):
             prose.append((i, s))
         else:
-            code.append((i, line))
-            # 行末コメントは散文としても見る（`final x = 1; // 旧 Foo を参照`）。
-            m = re.search(r"//(?!.*[\"'])(.*)$", line)
-            if m:
-                prose.append((i, m.group(0)))
+            body, comment = split_inline_comment(line)
+            code.append((i, body))
+            if comment:
+                prose.append((i, comment))
     return prose, code
 
 
@@ -248,12 +331,12 @@ def check_dangling_paths(snap, targets, findings):
 
 def check_dangling_sections(snap, targets, findings):
     """lib/functions のコメント内 §N が route-optimization.md に実在するか。"""
+    if SPEC_PATH not in snap.tracked:
+        return
     spec = snap.text(SPEC_PATH)
-    if not spec:
-        return
+    # 見出しが1つも番号を持たない場合も検査する。番号付き見出しを廃した改訂では
+    # 既存の §N が全部宙に浮くので、ここで打ち切るとフェイルオープンになる。
     valid = {m.group(1) for m in (SECTION_HEADING_RE.match(l) for l in spec.splitlines()) if m}
-    if not valid:
-        return
     code_targets = [p for p in targets if p.startswith(("lib/", "functions/src/"))]
     for path, line, text in snap.prose(code_targets):
         for m in SECTION_REF_RE.finditer(text):
@@ -309,12 +392,16 @@ def main():
         except (json.JSONDecodeError, ValueError):
             sys.exit(0)
         command = payload.get("tool_input", {}).get("command", "")
-        if not re.search(r"\bgit\s+(?:-\S+\s+\S+\s+)*commit\b", command):
+        is_commit, takes_worktree = parse_git_commit(command)
+        if not is_commit:
             sys.exit(0)
-        snap = Snapshot(staged=True)
-        diff = run(["git", "diff", "--cached"])
-        deleted = run(["git", "diff", "--cached", "--name-only", "--diff-filter=D"]).splitlines()
-        changed = set(run(["git", "diff", "--cached", "--name-only", "--diff-filter=d"]).splitlines())
+        # `git commit -a` などは index に無い変更まで取り込む。その場合は index では
+        # なく作業ツリーを HEAD と比べる（PR #358 レビュー）。
+        scope = ["HEAD"] if takes_worktree else ["--cached"]
+        snap = Snapshot(staged=not takes_worktree)
+        diff = run(["git", "diff", *scope])
+        deleted = run(["git", "diff", *scope, "--name-only", "--diff-filter=D"]).splitlines()
+        changed = set(run(["git", "diff", *scope, "--name-only", "--diff-filter=d"]).splitlines())
         # ツリー全体の検査は、このコミットが触ったファイルに絞る。無関係な既存の
         # 腐りでコミットを止めると、フックごと無視されるようになるため。
         all_paths = snap.code_paths + snap.doc_paths

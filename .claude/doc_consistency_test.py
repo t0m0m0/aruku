@@ -153,6 +153,46 @@ class LineSplitTest(unittest.TestCase):
         self.assertEqual(code, [])
 
 
+class InlineCommentTest(unittest.TestCase):
+    def test_keeps_a_trailing_comment_out_of_the_code_line(self):
+        """コード行にコメントが残ると、そのコメントが自分の検出を握り潰す。"""
+        prose, code = dc.split_lines("final x = 1; // OldService handled this\n", "lib/a.dart")
+
+        self.assertEqual([t.strip() for _, t in code], ["final x = 1;"])
+        self.assertEqual([t for _, t in prose], ["// OldService handled this"])
+
+    def test_does_not_treat_a_url_inside_a_string_as_a_comment(self):
+        _, code = dc.split_lines("const u = 'https://example.com/x';\n", "lib/a.dart")
+
+        self.assertEqual([t.strip() for _, t in code], ["const u = 'https://example.com/x';"])
+
+
+class GitCommandTest(unittest.TestCase):
+    def test_recognizes_commit_after_global_options(self):
+        for cmd in [
+            "git commit -m x",
+            "git --no-pager commit -m x",
+            "git -C /repo commit -m x",
+            "git -c user.email=t@t commit -m x",
+            "cd /repo && git commit -m x",
+        ]:
+            with self.subTest(cmd=cmd):
+                self.assertTrue(dc.parse_git_commit(cmd)[0])
+
+    def test_ignores_git_commands_that_are_not_commits(self):
+        for cmd in ["git status --short", "git log --oneline", "git commitizen"]:
+            with self.subTest(cmd=cmd):
+                self.assertFalse(dc.parse_git_commit(cmd)[0])
+
+    def test_flags_commits_that_pull_in_unstaged_content(self):
+        for cmd in ["git commit -a -m x", "git commit -am x", "git commit --all", "git commit lib/a.dart"]:
+            with self.subTest(cmd=cmd):
+                self.assertEqual(dc.parse_git_commit(cmd), (True, True))
+
+    def test_does_not_flag_a_plain_staged_commit(self):
+        self.assertEqual(dc.parse_git_commit("git commit -m 'lib/a.dart を直す'"), (True, False))
+
+
 class PathPatternTest(unittest.TestCase):
     def test_matches_a_path_that_ends_a_sentence(self):
         self.assertEqual(dc.PATH_RE.findall("See lib/core/gone.dart."), ["lib/core/gone.dart"])
@@ -270,6 +310,37 @@ class HookTest(unittest.TestCase):
             write(repo.path, "lib/user.dart", "/// 詳細は §2.3 を見る。\nclass User {}\n")
             repo.commit("cite 2.3")
             write(repo.path, "docs/spec/route-optimization.md", "## 1. 目的\n\n## 2. データ源\n\n### 2.4 コリドー\n")
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("§2.3", result.stderr)
+
+    def test_does_not_let_a_trailing_comment_vouch_for_its_own_symbol(self):
+        with Repo() as repo:
+            write(repo.path, "lib/user.dart", "class User {} // probeThresholdValue が持っていた責務\n")
+            (repo.path / "lib/probe.dart").unlink()
+            repo.stage_all()
+
+            self.assertEqual(run_hook(repo.path).returncode, 2)
+
+    def test_inspects_unstaged_content_when_the_commit_would_include_it(self):
+        """`git commit -a` はフック実行後に自動 stage する。index だけ見ると素通りする。"""
+        with Repo() as repo:
+            (repo.path / "lib/probe.dart").unlink()  # stage しない
+
+            payload = {"tool_name": "Bash", "tool_input": {"command": "git commit -am x"}}
+            result = run_hook(repo.path, payload)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("probeThresholdValue", result.stderr)
+
+    def test_still_checks_when_the_spec_drops_numbered_headings(self):
+        with Repo() as repo:
+            write(repo.path, "lib/user.dart", "/// 詳細は §2.3 を見る。\nclass User {}\n")
+            repo.commit("cite 2.3")
+            write(repo.path, "docs/spec/route-optimization.md", "## Purpose\n\n## Data sources\n")
             repo.stage_all()
 
             result = run_hook(repo.path)

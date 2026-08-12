@@ -23,7 +23,15 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             python3 .claude/doc_consistency.py --ci --base "origin/${{ github.base_ref }}"
           else
-            python3 .claude/doc_consistency.py --ci
+            # push でも差分駆動の検査（消えたシンボル・削除ファイル）を効かせる。
+            # base を渡さないとその2つが無効になり、main への直 push が素通りする。
+            # 初回 push / force push では before が空コミットを指すため素の検査へ落とす。
+            BASE="${{ github.event.before }}"
+            if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+              python3 .claude/doc_consistency.py --ci --base "$BASE"
+            else
+              python3 .claude/doc_consistency.py --ci
+            fi
           fi
 
       - uses: subosito/flutter-action@v2
