@@ -72,24 +72,18 @@ class Repo:
         git(self.path, "add", "-A")
 
 
-class WordBoundaryTest(unittest.TestCase):
-    """`git grep -E` は `\\b` / `\\s` を解釈せず、エラーにせず 0 件を返す。
-    検査が黙って何も見つけない状態になるため、パターンに混入させない。"""
+class WordMatchTest(unittest.TestCase):
+    def test_matches_the_symbol_as_a_whole_word(self):
+        pattern = dc.word_re("planRoute")
 
-    def test_word_boundary_pattern_avoids_backslash_b_and_s(self):
-        pattern = dc.word_re("foo")
+        self.assertTrue(pattern.search("[planRoute] を呼ぶ"))
+        self.assertTrue(pattern.search("planRoute()"))
 
-        self.assertNotIn(r"\b", pattern)
-        self.assertNotIn(r"\s", pattern)
+    def test_does_not_match_a_longer_identifier_that_contains_it(self):
+        pattern = dc.word_re("planRoute")
 
-    def test_git_grep_actually_matches_the_word_boundary_pattern(self):
-        with Repo() as repo:
-            out = subprocess.run(
-                ["git", "grep", "-n", "-E", dc.word_re("probeThresholdValue"), "--", *dc.CODE_GLOBS],
-                cwd=str(repo.path), capture_output=True, text=True, check=False,
-            )
-
-            self.assertIn("lib/user.dart", out.stdout)
+        self.assertIsNone(pattern.search("planRouteFast()"))
+        self.assertIsNone(pattern.search("_planRoute"))
 
 
 class RemovedDeclarationsTest(unittest.TestCase):
@@ -108,15 +102,68 @@ class RemovedDeclarationsTest(unittest.TestCase):
 
         self.assertEqual(dc.removed_declarations(diff), set())
 
+    def test_picks_up_dart_modifier_based_class_declarations(self):
+        for line, expected in [
+            ("-sealed class LocationState {", "LocationState"),
+            ("-abstract interface class RouteService {", "RouteService"),
+            ("-abstract class AppLocalizations {", "AppLocalizations"),
+        ]:
+            with self.subTest(line=line):
+                self.assertIn(expected, dc.removed_declarations(line))
 
-class CommentExtractionTest(unittest.TestCase):
-    def test_reads_only_comment_lines_from_source(self):
-        text = "// 先頭コメント\nfinal x = 1; // 行末は対象外\n/// doc\n"
+    def test_picks_up_a_const_whose_type_is_inferred(self):
+        self.assertIn("_pageCount", dc.removed_declarations("-  static const _pageCount = 3;"))
 
-        self.assertEqual(dc.comment_lines(text, "lib/a.dart"), [(1, "// 先頭コメント"), (3, "/// doc")])
+    def test_picks_up_a_method_and_a_getter(self):
+        self.assertIn("planRoute", dc.removed_declarations("-  Future<void> planRoute(int x) {"))
+        self.assertIn("matrixCalls", dc.removed_declarations("-  int get matrixCalls => _matrixCalls;"))
+
+    def test_ignores_local_variables_inside_a_method_body(self):
+        """局所名は散文の普通の英単語に当たる。コメントが指すのは API シンボル。"""
+        diff = "-    final files = captured?.files ?? const [];\n-      final bestIndex = 0;\n"
+
+        self.assertEqual(dc.removed_declarations(diff), set())
+
+    def test_ignores_generic_lowercase_names(self):
+        self.assertEqual(dc.removed_declarations("-const files = 1;"), set())
+        self.assertIn("roundTrips", dc.removed_declarations("-  int get roundTrips => 1;"))
+
+    def test_does_not_mistake_statements_for_declarations(self):
+        for line in [
+            "-    return calculateRoute(input);",
+            "-  runApp(const App());",
+            "-  while (isReadyForDeparture()) {",
+            "-    throw RouteExceptionThing('x');",
+        ]:
+            with self.subTest(line=line):
+                self.assertEqual(dc.removed_declarations(line), set())
+
+
+class LineSplitTest(unittest.TestCase):
+    def test_separates_comment_lines_from_code_lines(self):
+        prose, code = dc.split_lines("// 先頭\nfinal x = 1;\n/// doc\n", "lib/a.dart")
+
+        self.assertEqual([t for _, t in prose], ["// 先頭", "/// doc"])
+        self.assertEqual([t.strip() for _, t in code], ["final x = 1;"])
 
     def test_treats_every_line_of_markdown_as_prose(self):
-        self.assertEqual(dc.comment_lines("a\nb\n", "docs/x.md"), [(1, "a"), (2, "b")])
+        prose, code = dc.split_lines("a\nb\n", "docs/x.md")
+
+        self.assertEqual(prose, [(1, "a"), (2, "b")])
+        self.assertEqual(code, [])
+
+
+class PathPatternTest(unittest.TestCase):
+    def test_matches_a_path_that_ends_a_sentence(self):
+        self.assertEqual(dc.PATH_RE.findall("See lib/core/gone.dart."), ["lib/core/gone.dart"])
+
+    def test_keeps_a_multi_part_extension_whole(self):
+        self.assertEqual(
+            dc.PATH_RE.findall("see android/app/build.gradle.kts"), ["android/app/build.gradle.kts"]
+        )
+
+    def test_ignores_a_package_uri(self):
+        self.assertEqual(dc.PATH_RE.findall("import 'package:x/lib/foo.dart';"), [])
 
 
 class HookTest(unittest.TestCase):
@@ -172,6 +219,63 @@ class HookTest(unittest.TestCase):
             repo.stage_all()
 
             self.assertEqual(run_hook(repo.path).returncode, 0)
+
+    def test_does_not_let_a_stale_comment_vouch_for_its_own_symbol(self):
+        """コメント自身が「まだ宣言が在る」判定に当たると、自分の検出を握り潰す。"""
+        with Repo() as repo:
+            write(repo.path, "lib/user.dart", "/// class probeThresholdValue が持っていた責務。\nclass User {}\n")
+            (repo.path / "lib/probe.dart").unlink()
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("probeThresholdValue", result.stderr)
+
+    def test_does_not_let_a_call_shaped_comment_vouch_for_its_own_symbol(self):
+        with Repo() as repo:
+            write(repo.path, "lib/user.dart", "/// 呼ぶときは probeThresholdValue() だった。\nclass User {}\n")
+            (repo.path / "lib/probe.dart").unlink()
+            repo.stage_all()
+
+            self.assertEqual(run_hook(repo.path).returncode, 2)
+
+    def test_honours_the_keep_marker_for_an_intentional_historical_reference(self):
+        with Repo() as repo:
+            write(
+                repo.path,
+                "lib/user.dart",
+                "/// probeThresholdValue は #330 で撤去した。 doc-consistency:keep\nclass User {}\n",
+            )
+            (repo.path / "lib/probe.dart").unlink()
+            repo.stage_all()
+
+            self.assertEqual(run_hook(repo.path).returncode, 0)
+
+    def test_rejects_a_reference_to_a_file_that_is_only_untracked(self):
+        """作業ツリーに在るだけの未追跡ファイルは、クリーンな CI では存在しない。"""
+        with Repo() as repo:
+            write(repo.path, "lib/new_service.dart", "class NewService {}\n")
+            write(repo.path, "lib/user.dart", "/// 詳細は lib/new_service.dart を見る。\nclass User {}\n")
+            git(repo.path, "add", "lib/user.dart")
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("lib/new_service.dart", result.stderr)
+
+    def test_rescans_every_code_reference_when_the_spec_is_renumbered(self):
+        """節の付け替えは、変えたのが仕様書だけでも他ファイルの §N を腐らせる。"""
+        with Repo() as repo:
+            write(repo.path, "lib/user.dart", "/// 詳細は §2.3 を見る。\nclass User {}\n")
+            repo.commit("cite 2.3")
+            write(repo.path, "docs/spec/route-optimization.md", "## 1. 目的\n\n## 2. データ源\n\n### 2.4 コリドー\n")
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("§2.3", result.stderr)
 
     def test_stays_out_of_the_way_of_bash_commands_that_are_not_commits(self):
         with Repo() as repo:
