@@ -31,7 +31,7 @@ class _SettingsSection extends StatelessWidget {
 
 /// 設定項目の下に添える補足説明の一文。
 class _SettingsNote extends StatelessWidget {
-  const _SettingsNote({required this.text});
+  const _SettingsNote({required this.text, super.key});
 
   final String text;
 

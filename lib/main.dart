@@ -58,6 +58,13 @@ Future<void> main() async {
   // （予約は絶対時刻として解釈されるため、このゾーン設定は発火時刻を変えない）。
   tz_data.initializeTimeZones();
   tz.setLocalLocation(tz.getLocation('Asia/Tokyo'));
+  // サービスの実体と設定画面の出し分けを同じ判定から配る。別々に評価すると
+  // 「トグルはオンなのに何も起きない」設定が生まれる。
+  final notificationsSupported = useLocalNotifications(
+    isWeb: kIsWeb,
+    isIOS: () => Platform.isIOS,
+    isAndroid: () => Platform.isAndroid,
+  );
   runApp(
     ProviderScope(
       overrides: [
@@ -70,13 +77,12 @@ Future<void> main() async {
         // 既定の NoopHealthService（無害な no-op）のままにする。
         if (useHealthKit(isWeb: kIsWeb, isIOS: () => Platform.isIOS))
           healthServiceProvider.overrideWithValue(HealthKitService()),
+        localNotificationsSupportedProvider.overrideWithValue(
+          notificationsSupported,
+        ),
         // ローカル通知は iOS / Android の実機のみ。他は既定の
         // NoopNotificationService（無害な no-op）のままにする。
-        if (useLocalNotifications(
-          isWeb: kIsWeb,
-          isIOS: () => Platform.isIOS,
-          isAndroid: () => Platform.isAndroid,
-        ))
+        if (notificationsSupported)
           notificationServiceProvider.overrideWithValue(
             LocalNotificationService(),
           ),

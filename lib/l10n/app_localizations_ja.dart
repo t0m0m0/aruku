@@ -358,6 +358,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get settingsReceiveNotifications => '通知を受け取る';
 
   @override
+  String get settingsNotificationsUnsupported => 'この環境では通知を利用できません';
+
+  @override
   String get notificationStreakReminderTitle => '連続記録が途切れそうです';
 
   @override
@@ -384,6 +387,9 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get settingsOpenDeviceSettings => '端末設定を開く';
+
+  @override
+  String get settingsOsSettingsUnavailable => '権限はブラウザのサイト設定から変更してください';
 
   @override
   String get settingsHealthKitSection => 'ヘルスケア連携';

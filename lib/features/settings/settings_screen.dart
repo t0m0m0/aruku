@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/config/platform_capabilities.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/models/app_settings.dart';
+import '../../core/services/notification_service.dart';
 import '../../core/services/url_launcher.dart';
 import '../../core/state/app_state.dart';
 import '../../core/state/settings_provider.dart';
@@ -108,14 +110,23 @@ class SettingsScreen extends ConsumerWidget {
                   _SettingsSection(
                     title: l10n.settingsNotificationsSection,
                     children: [
-                      _SwitchRow(
-                        switchKey: const Key('switch_notifications'),
-                        label: l10n.settingsReceiveNotifications,
-                        value: settings.notificationsEnabled,
-                        onChanged: (v) => guardSave(
-                          () => settingsNotifier.setNotifications(v),
+                      // 非対応環境ではスイッチを残さず理由へ差し替える。既定が
+                      // 有効なので残すと「オンなのに何も起きない」設定をユーザーが
+                      // 自分で永続化できてしまう。
+                      if (ref.watch(localNotificationsSupportedProvider))
+                        _SwitchRow(
+                          switchKey: const Key('switch_notifications'),
+                          label: l10n.settingsReceiveNotifications,
+                          value: settings.notificationsEnabled,
+                          onChanged: (v) => guardSave(
+                            () => settingsNotifier.setNotifications(v),
+                          ),
+                        )
+                      else
+                        _SettingsNote(
+                          key: const Key('settings-notifications-unsupported'),
+                          text: l10n.settingsNotificationsUnsupported,
                         ),
-                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -150,11 +161,19 @@ class SettingsScreen extends ConsumerWidget {
                   _SettingsSection(
                     title: l10n.settingsPermissionsSection,
                     children: [
-                      _LinkRow(
-                        label: l10n.settingsLocationNotificationPermission,
-                        trailing: l10n.settingsOpenDeviceSettings,
-                        onTap: openAppSettings,
-                      ),
+                      // 押しても無反応の導線を残すと、権限を変えられない理由が
+                      // 画面から復元できない。
+                      if (ref.watch(canOpenOsSettingsProvider))
+                        _LinkRow(
+                          label: l10n.settingsLocationNotificationPermission,
+                          trailing: l10n.settingsOpenDeviceSettings,
+                          onTap: openAppSettings,
+                        )
+                      else
+                        _SettingsNote(
+                          key: const Key('settings-os-settings-unavailable'),
+                          text: l10n.settingsOsSettingsUnavailable,
+                        ),
                     ],
                   ),
                   const SizedBox(height: 16),

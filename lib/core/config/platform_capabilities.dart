@@ -6,6 +6,9 @@
 /// コンパイルは通り触った瞬間に例外になる）。#359 参照。
 library;
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 /// iOS 専用の HealthKit 連携を注入するか。
 bool useHealthKit({required bool isWeb, required bool Function() isIOS}) =>
     !isWeb && isIOS();
@@ -23,6 +26,19 @@ bool useLocalNotifications({
 /// MissingPluginException として例外側へ出るだけで、歩数が一生 0 のまま理由を
 /// 残さないから。非対応を値として持てば UI が理由を出せる（#359 Phase 2）。
 bool supportsStepCounting({required bool isWeb}) => !isWeb;
+
+/// OS のアプリ設定画面を開けるか。
+///
+/// Web の権限はブラウザのサイト設定側にあり、permission_handler の
+/// openAppSettings は何も開かない——例外も出ないため、押しても無反応の導線が残る。
+bool canOpenOsSettings({required bool isWeb}) => !isWeb;
+
+/// [canOpenOsSettings] の値。UI から kIsWeb を直接読むと非対応時の見た目が
+/// Web でしか検証できないため注入可能にする。専用のサービス層を持たない
+/// 機能（permission_handler の直呼び）なので、置き場所はここになる。
+final canOpenOsSettingsProvider = Provider<bool>(
+  (_) => canOpenOsSettings(isWeb: kIsWeb),
+);
 
 /// 未捕捉エラーを Crashlytics へ流すハンドラを登録するか。
 ///

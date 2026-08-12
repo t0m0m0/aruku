@@ -50,6 +50,15 @@ final notificationServiceProvider = Provider<NotificationService>(
   (_) => const NoopNotificationService(),
 );
 
+/// この環境でローカル通知を配信できるか。既定はネイティブ想定の true で、
+/// 実際の値は main.dart が [notificationServiceProvider] の注入と同じ判定
+/// （useLocalNotifications）から上書きする。二重に判定させないのは、UI の
+/// 表示とサービスの実体がずれると「オンなのに何も起きない」設定が生まれるため。
+///
+/// 判定を UI から kIsWeb で直接読まないのは、非対応時の見た目が Web でしか
+/// 検証できなくなるから。テストで上書きして反証する。#359 参照。
+final localNotificationsSupportedProvider = Provider<bool>((_) => true);
+
 /// ストリーク途切れ警告のスケジュール判断。純粋関数で副作用を持たない。
 @immutable
 sealed class StreakReminderPlan {
