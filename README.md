@@ -107,6 +107,11 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 
 （既定では実地図を有効化しません。地図 UI の本格統合・テーマ適用は別 ISSUE で対応します）
 
+**Web ではこのフラグは無視され、常にスタイライズド地図になります。**
+`google_maps_flutter_web` は Maps JavaScript SDK を要求しますが、`web/index.html` は
+まだ読み込んでいません（Web 用にリファラ制限した別枠のキーが必要。#359 Phase 2b）。
+フラグを通すと地図が描画できずフォールバックも効かないため、`supportsRealMap` で塞いでいます。
+
 ## プロキシを動かす（地点検索・徒歩実測）
 
 **地点検索と徒歩実測は上記のキー設定だけでは動きません。** どちらも Cloud Functions

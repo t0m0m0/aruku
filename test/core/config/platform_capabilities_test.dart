@@ -78,6 +78,19 @@ void main() {
     });
   });
 
+  group('supportsRealMap', () {
+    test('フラグが立っていればネイティブでは実地図を描画する', () {
+      expect(supportsRealMap(isWeb: false, flagEnabled: true), isTrue);
+      expect(supportsRealMap(isWeb: false, flagEnabled: false), isFalse);
+    });
+
+    test('Web ではフラグが立っていても描画しない', () {
+      // web/index.html は Maps JavaScript SDK を読み込んでいないため、
+      // GoogleMap を作ると初期化に失敗して地図ごと描画できない（#359 Phase 2b 待ち）。
+      expect(supportsRealMap(isWeb: true, flagEnabled: true), isFalse);
+    });
+  });
+
   group('useCrashHandlers', () {
     test('release のネイティブでのみ登録する', () {
       expect(useCrashHandlers(isWeb: false, isRelease: true), isTrue);
