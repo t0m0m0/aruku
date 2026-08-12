@@ -155,6 +155,23 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 つまり Web のローカル開発は Phase 1 を待たずに完結します。ページを `http` で配信して
 いれば `http://127.0.0.1:5001` への呼び出しも混在コンテンツになりません。
 
+手順は2つ。まず `functions/` でエミュレータを起動します（`npm run dev` が
+`GOOGLE_MAPS_API_KEY` をキーチェーンから読んで渡します）。
+
+```sh
+cd functions && npm run dev
+```
+
+`dart_defines.json` の `PROXY_BASE_URL` を
+`http://127.0.0.1:5001/{projectId}/asia-northeast1` にしてから起動します。
+
+```sh
+flutter run -d chrome --dart-define-from-file=dart_defines.json
+```
+
+これで地点検索・徒歩実測・経路検索まで通ります（新宿駅→東京駅で実証済み。
+`placesProxy` / `googleWalkProxy` / `googleWalkMatrixProxy` がすべて 200 を返す）。
+
 > **Web の現在地取得はブラウザの許可が要ります。** `http://localhost` は secure context
 > なので geolocation API 自体は使えますが、許可を拒否すると `LocationDenied` になり
 > 「位置情報なし」と表示されます（アプリ側の失敗ではありません）。一度拒否すると
