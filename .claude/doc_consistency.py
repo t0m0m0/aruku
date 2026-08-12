@@ -344,29 +344,37 @@ def check_removed_symbols(snap, diff, findings):
                 )
 
 
+def path_refs(path, text):
+    """この行が指すリポジトリ相対パスの集合。
+
+    ルート相対の記述（`lib/core/foo.dart`）と、Markdown の相対リンク
+    （`[spec](../spec/foo.md)`）の両方を解決する。文字列一致で済ませると、
+    相対リンクで書かれた参照だけ検査から漏れる（PR #358 レビュー）。
+    """
+    refs = {m.group(1) for m in PATH_RE.finditer(text)}
+    if path.endswith(".md"):
+        for m in MD_LINK_RE.finditer(text):
+            target = m.group(1)
+            if re.match(r"[a-z]+:", target) or target.startswith("/"):
+                continue  # 外部 URL・絶対パスは対象外
+            refs.add(posixpath.normpath(posixpath.join(posixpath.dirname(path), target)))
+    return refs
+
+
 def check_deleted_files(snap, deleted, findings):
     """削除されたファイルのパスが、コメント・ドキュメントに残っているもの。"""
-    for gone in deleted:
-        for path, line, text in snap.prose(snap.code_paths + snap.doc_paths):
-            if gone in text:
-                findings.append((path, line, f"削除された `{gone}` への参照が残っている"))
+    if not deleted:
+        return
+    gone = set(deleted)
+    for path, line, text in snap.prose(snap.code_paths + snap.doc_paths):
+        for ref in sorted(path_refs(path, text) & gone):
+            findings.append((path, line, f"削除された `{ref}` への参照が残っている"))
 
 
 def check_dangling_paths(snap, targets, findings):
-    """コメント・ドキュメントが指すパスが実在するか。
-
-    ルート相対の記述（`lib/core/foo.dart`）と、Markdown の相対リンク
-    （`[spec](../spec/foo.md)`）の両方を見る。後者は参照元からの相対で解決する。
-    """
+    """コメント・ドキュメントが指すパスが実在するか。"""
     for path, line, text in snap.prose(targets):
-        refs = {m.group(1) for m in PATH_RE.finditer(text)}
-        if path.endswith(".md"):
-            for m in MD_LINK_RE.finditer(text):
-                target = m.group(1)
-                if re.match(r"[a-z]+:", target) or target.startswith("/"):
-                    continue  # 外部 URL・絶対パスは対象外
-                refs.add(posixpath.normpath(posixpath.join(posixpath.dirname(path), target)))
-        for ref in sorted(refs):
+        for ref in sorted(path_refs(path, text)):
             if not snap.exists(ref):
                 findings.append((path, line, f"存在しないパス `{ref}` を参照している"))
 

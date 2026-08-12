@@ -372,6 +372,19 @@ class HookTest(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertIn("lib/probe.dart", result.stderr)
 
+    def test_flags_a_deleted_file_reached_by_a_relative_link_from_an_unchanged_doc(self):
+        """参照元が未変更だと targets に入らない。削除ファイル検査側でも相対リンクを解く。"""
+        with Repo() as repo:
+            write(repo.path, "docs/spec/foo.md", "x\n")
+            write(repo.path, "docs/adr/a.md", "詳細は [spec](../spec/foo.md) を見る。\n")
+            repo.commit("add doc pair")
+            git(repo.path, "rm", "-q", "docs/spec/foo.md")
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("docs/spec/foo.md", result.stderr)
+
     def test_resolves_a_relative_markdown_link_before_checking_it(self):
         with Repo() as repo:
             write(repo.path, "docs/adr/a.md", "詳細は [spec](../spec/gone.md) を見る。\n")
