@@ -22,6 +22,10 @@ class _MockGeolocatorPlatform extends GeolocatorPlatform
   /// getCurrentPosition に渡された設定を記録する（timeLimit 検証用）。
   LocationSettings? lastSettings;
 
+  /// true のとき getCurrentPosition が永久に解決しない。timeLimit を尊重しない
+  /// プラットフォーム実装（geolocator_web）を模す。
+  bool hang = false;
+
   @override
   Future<bool> isLocationServiceEnabled() async => serviceEnabled;
 
@@ -34,6 +38,7 @@ class _MockGeolocatorPlatform extends GeolocatorPlatform
   @override
   Future<Position> getCurrentPosition({LocationSettings? locationSettings}) {
     lastSettings = locationSettings;
+    if (hang) return Completer<Position>().future;
     if (positionError != null) return Future.error(positionError!);
     return Future.value(position);
   }
@@ -61,7 +66,7 @@ void main() {
     GeolocatorPlatform.instance = mock;
   });
 
-  final service = GeolocatorLocationService();
+  const service = GeolocatorLocationService();
 
   test('権限許可＋座標取得成功で LocationAvailable', () async {
     mock.position = _fakePosition(35.68, 139.76);
@@ -121,6 +126,21 @@ void main() {
     );
 
     expect(await service.request(), isA<LocationDenied>());
+  });
+
+  test('プラットフォームが返らなくても自前のタイムアウトで LocationUnavailable へ落ちる', () async {
+    // geolocator_web は PositionOptions.timeout（ミリ秒）へ inMicroseconds を渡すため、
+    // 10 秒指定が約 2.8 時間として解釈され timeLimit が実質効かない。await が解決
+    // しないと例外も状態更新も起きず、無音で止まる。#359 参照。
+    mock.hang = true;
+    const shortTimeout = Duration(milliseconds: 50);
+
+    final result = await const GeolocatorLocationService(
+      timeout: shortTimeout,
+    ).request();
+
+    expect(result, isA<LocationUnavailable>());
+    expect(result, isNot(isA<LocationDenied>()));
   });
 
   test('getCurrentPosition に timeLimit が渡される', () async {

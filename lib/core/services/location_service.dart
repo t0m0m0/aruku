@@ -8,7 +8,15 @@ abstract interface class LocationService {
   Future<LocationState> request();
 }
 
+/// 現在地の単発取得を打ち切るまでの上限。
+const Duration kLocationRequestTimeout = Duration(seconds: 10);
+
 class GeolocatorLocationService implements LocationService {
+  const GeolocatorLocationService({this.timeout = kLocationRequestTimeout});
+
+  /// 取得を打ち切るまでの上限。テストから短縮して注入する。
+  final Duration timeout;
+
   @override
   Future<LocationState> request() async {
     try {
@@ -24,11 +32,13 @@ class GeolocatorLocationService implements LocationService {
         return const LocationDenied();
       }
 
+      // timeLimit だけに頼らず自前でも打ち切る。geolocator_web は W3C の
+      // PositionOptions.timeout（ミリ秒）へ Duration.inMicroseconds を渡すため、
+      // 10 秒指定が約 2.8 時間として解釈され Web では timeLimit が効かない。
+      // await が解決しないと例外も状態更新も起きず、無音で止まる。#359 参照。
       final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          timeLimit: Duration(seconds: 10),
-        ),
-      );
+        locationSettings: LocationSettings(timeLimit: timeout),
+      ).timeout(timeout);
       return LocationAvailable(GeoPoint(pos.latitude, pos.longitude));
     } on LocationServiceDisabledException {
       // 前段チェック通過後にサービスが切られた場合（TOCTOU）。前段の
@@ -46,5 +56,5 @@ class GeolocatorLocationService implements LocationService {
 }
 
 final locationServiceProvider = Provider<LocationService>(
-  (_) => GeolocatorLocationService(),
+  (_) => const GeolocatorLocationService(),
 );
