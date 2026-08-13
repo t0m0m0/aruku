@@ -147,10 +147,20 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 
 **Web からデプロイ済みプロキシを叩くには App Check の設定が要ります。**
 `RECAPTCHA_SITE_KEY`（reCAPTCHA v3 サイトキー）を dart-define で渡すと
-`ReCaptchaV3Provider` で有効化します。debug / profile ビルドは
-`WEB_APP_CHECK_DEBUG_TOKEN`（未設定でも可）で `WebDebugProvider` を使います。
+`ReCaptchaV3Provider` で有効化します。
 
-どちらも無い release Web ビルドでは `activate` を呼びません
+`WebDebugProvider` を使う条件はビルド種別で違います（`useDebugAppCheckProvider`）。
+
+| ビルド | `WEB_APP_CHECK_DEBUG_TOKEN` | 挙動 |
+|---|---|---|
+| debug | 不要 | 常に `WebDebugProvider`。未指定なら Firebase JS SDK がトークンを自動生成してコンソールへ出力する |
+| profile | **必須** | トークンを渡したときだけ `WebDebugProvider`。渡さないとサイトキーが無い限り `activate` を呼ばない |
+| release | 効果なし | `RECAPTCHA_SITE_KEY` のみ |
+
+profile でトークンを要求するのは、提出物にバイパス経路を混入させないための境界です
+（`lib/core/config/app_check_provider.dart` 参照）。
+
+サイトキーもデバッグプロバイダも無い場合は `activate` を呼びません
 （`canActivateWebAppCheck`）。`providerWeb` を渡さない `activate` は同期的に
 throw してアプリが起動しなくなるためで、この場合プロキシは 401 を返します。
 

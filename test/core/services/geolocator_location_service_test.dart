@@ -26,6 +26,10 @@ class _MockGeolocatorPlatform extends GeolocatorPlatform
   /// プラットフォーム実装（geolocator_web）を模す。
   bool hang = false;
 
+  /// true のとき requestPermission が永久に解決しない。Web の requestPermission が
+  /// 内部で座標取得を行い、プロンプト放置で返らない状況を模す。
+  bool hangPermission = false;
+
   @override
   Future<bool> isLocationServiceEnabled() async => serviceEnabled;
 
@@ -33,7 +37,10 @@ class _MockGeolocatorPlatform extends GeolocatorPlatform
   Future<LocationPermission> checkPermission() async => permission;
 
   @override
-  Future<LocationPermission> requestPermission() async => permission;
+  Future<LocationPermission> requestPermission() {
+    if (hangPermission) return Completer<LocationPermission>().future;
+    return Future.value(permission);
+  }
 
   @override
   Future<Position> getCurrentPosition({LocationSettings? locationSettings}) {
@@ -137,10 +144,33 @@ void main() {
 
     final result = await const GeolocatorLocationService(
       timeout: shortTimeout,
+      timeoutWholeRequest: true,
     ).request();
 
     expect(result, isA<LocationUnavailable>());
     expect(result, isNot(isA<LocationDenied>()));
+  });
+
+  test('権限要求が返らなくてもタイムアウトで LocationUnavailable へ落ちる', () async {
+    // Web の checkPermission は 'prompt' を denied へ写すため初回は必ず
+    // requestPermission を通る。その実装は内部で座標取得を行い、プロンプトを
+    // 放置されると返らない。最後の getCurrentPosition だけを包むと素通りする。
+    mock.permission = LocationPermission.denied;
+    mock.hangPermission = true;
+
+    final result = await const GeolocatorLocationService(
+      timeout: Duration(milliseconds: 50),
+      timeoutWholeRequest: true,
+    ).request();
+
+    expect(result, isA<LocationUnavailable>());
+    expect(result, isNot(isA<LocationDenied>()));
+  });
+
+  test('ネイティブでは取得全体を包まない（権限ダイアログを打ち切らない）', () {
+    // requestPermission は OS のダイアログを待つ。包むとユーザーが考えている間に
+    // 「取得できず」へ落ちる。ネイティブは timeLimit が実際に効くので不要。
+    expect(const GeolocatorLocationService().timeoutWholeRequest, isFalse);
   });
 
   test('getCurrentPosition に timeLimit が渡される', () async {
