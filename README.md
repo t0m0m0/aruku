@@ -166,15 +166,21 @@ throw してアプリが起動しなくなるためで、この場合プロキ�
 
 準備するもの:
 
-1. Google Cloud / reCAPTCHA コンソールで **reCAPTCHA v3 サイトキー**を発行し、
-   配信するドメインを登録する
-2. Firebase Console → App Check → アプリ（Web）で reCAPTCHA v3 を有効化し、
-   同じサイトキーを登録する
-3. `dart_defines.json` に `RECAPTCHA_SITE_KEY` を追記する
+1. reCAPTCHA 管理コンソールで **reCAPTCHA v3** のサイトを登録し、配信ドメイン
+   （ローカル開発なら `localhost`）を追加する。**サイトキーとシークレットキーの
+   2つが発行される**
+2. Firebase Console → **Security → App Check → Apps** タブでこの Web アプリに
+   reCAPTCHA v3 プロバイダを登録する。ここに入れるのは**シークレットキー**
+3. `dart_defines.json` の `RECAPTCHA_SITE_KEY` に**サイトキー**（公開鍵）を書く
+
+**2 と 3 で入れる鍵は別物です。** Firebase 側はトークン検証にシークレットを使い、
+アプリ側は `ReCaptchaV3Provider` にサイトキーを渡します。取り違えると検証が通りません。
 
 > debug ビルドで `WebDebugProvider` を使う場合、トークンを渡さなければ Firebase JS
-> SDK が自動生成してブラウザのコンソールへ出力します。その値を Firebase Console の
-> デバッグトークンに登録してください。
+> SDK が自動生成してブラウザのコンソールへ出力します。その値を Firebase Console →
+> Security → App Check → Apps タブ → 対象アプリの ⋮ → **デバッグトークンを管理**
+> に登録してください。登録すればデプロイ済みのバックエンドでも通ります。
+> **デバッグトークンはコミットしないこと。**
 
 **ローカルのエミュレータなら Web でも動きます。** `functions/src/index.ts` の
 `verifyAppCheck` は `FUNCTIONS_EMULATOR` が立っているとき検証ごとスキップし、
