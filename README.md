@@ -88,6 +88,11 @@ Web の `appId` は android / ios と違いコードに焼いていないため�
 Web で実地図を出す場合は `MAPS_WEB_API_KEY`（Maps JavaScript API キー）も設定します。
 未設定なら実地図の読み込みを見送り、スタイライズド地図のままになります（起動は落ちません）。
 
+**ここに入れるのは開発用キーです。** 開発用は許可リストに `localhost` を含めるため、
+キーを知っている者なら誰でも使えます（`localhost` は誰のマシンにもあり所有を証明しない）。
+公開ビルドには配信ドメインだけを許可した別のキーを渡してください。分け方は
+[docs/security_hardening.md](docs/security_hardening.md) ①④ が正本です。
+
 `dart_defines.json` は gitignore 済みです。**コミットしないでください。**
 
 ### 4. ビルド・実行
@@ -119,7 +124,15 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 script タグを `web/index.html` へ直書きしないのは、このリポジトリが public で、
 追跡ファイルにキーを置くと履歴に恒久的に残るためです。**ただしこれは秘匿ではありません。**
 dart-define はコンパイル時定数として `main.dart.js` に焼き込まれ、ブラウザから読めます。
-実運用の防御は HTTP リファラー制限と GCP のクォータ上限です。
+実運用の防御はリファラー制限と GCP のクォータ上限で、**そのリファラー制限が効くのは
+`localhost` を含めない本番用キーだけ**です。
+
+開発中は次のように起動します（ポートは許可リストに登録した値に固定する）。
+
+```sh
+flutter run -d chrome --web-port=5000 \
+  --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
+```
 
 現時点で Web の地図には既知の見た目の差があります（#359 Phase 2b）:
 

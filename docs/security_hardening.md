@@ -39,7 +39,8 @@
 |---|---|---|---|---|
 | 地図表示用（Android） | アプリ（Maps SDK） | `secrets.properties` | Android: パッケージ名 + SHA-1 | **Maps SDK for Android のみ** |
 | 地図表示用（iOS） | アプリ（Maps SDK） | `ios/Flutter/Secrets.xcconfig` | iOS: Bundle ID | **Maps SDK for iOS のみ** |
-| 地図表示用（Web） | ブラウザ（Maps JavaScript API） | `dart_defines.json` `MAPS_WEB_API_KEY` | HTTP リファラー: 配信ドメイン + `localhost` | **Maps JavaScript API のみ** |
+| 地図表示用（Web・本番） | ブラウザ（Maps JavaScript API） | 公開ビルドの `MAPS_WEB_API_KEY` | ウェブサイト: 配信ドメインのみ | **Maps JavaScript API のみ** |
+| 地図表示用（Web・開発） | ブラウザ（Maps JavaScript API） | ローカルの `dart_defines.json` | ウェブサイト: `localhost`（下記のとおり防御にならない） | **Maps JavaScript API のみ** |
 | プロキシ用（`GOOGLE_MAPS_API_KEY`） | Cloud Functions | Secret Manager | **なし**（下記） | **Places API (New) + Routes API のみ** |
 
 1. [GCP Console > API とサービス > 認証情報](https://console.cloud.google.com/apis/credentials) を開く。
@@ -57,18 +58,31 @@
    - **API の制限**: 「キーを制限」→ **Maps SDK for iOS のみ**。
    - このキーは `ios/Flutter/Secrets.xcconfig` に入れる。
    - 地図表示用キーはいずれもアプリバイナリから抽出できる前提なので、地図タイル取得以外に転用させない。
-4. **地図表示用キー（Web）** を選択し、次を設定する。
-   - **アプリケーションの制限**: 「HTTP リファラー」→ 配信ドメインと、開発用に
-     `localhost` を登録。`flutter run -d chrome` はポートが毎回変わるため、
-     `--web-port` で固定してそのポートを登録すること。
+4. **地図表示用キー（Web）** は開発用と本番用で**別のキーを作る**。同じキーを使い回しては
+   ならない——`localhost` を許可リストに含めたキーは、キーの文字列を知っている者なら
+   誰でも使える。`localhost` は誰のマシンにもあり所有を証明しないため、公開バンドルに
+   載るキーへ入れるとリファラー制限が丸ごと無効になる。
+
+   **開発用キー**
+   - **アプリケーションの制限**: 「ウェブサイト」→ `http://localhost:5000/*`。
+     `flutter run -d chrome` はポートが毎回変わるため `--web-port=5000` で固定する。
+   - ローカルの `dart_defines.json` にだけ置き、**デプロイ成果物に載せない**。
+   - このキーの防御はリファラー制限ではなく「公開しないこと」である。上記のとおり
+     `localhost` の登録は誰でも名乗れるので防御にならない。漏洩時の被害を頭打ちに
+     するため、**1日あたりのクォータ上限を低く**掛けておくこと。
+
+   **本番用キー**
+   - **アプリケーションの制限**: 「ウェブサイト」→ 配信ドメインのみ。**`localhost` を入れない。**
+   - 公開ビルドの `MAPS_WEB_API_KEY` にはこちらを渡す。
+
+   **共通**
    - **API の制限**: 「キーを制限」→ **Maps JavaScript API のみ**。
-   - このキーは `dart_defines.json` の `MAPS_WEB_API_KEY` に入れる。
    - **Web の地図キーは秘匿できない。** dart-define はコンパイル時定数として
      `main.dart.js` に焼き込まれ、ブラウザから読める。`web/index.html` へ直書き
      しないのは public リポジトリの履歴に残さないためであって、露出は同じ。
    - リファラー制限は `Referer` ヘッダを見ているだけで、ブラウザ外からは偽装できる。
      ネイティブの署名ベースの制限より構造的に弱いため、**GCP 側の予算アラートと
-     1日あたりのクォータ上限**を併せて掛けること。
+     1日あたりのクォータ上限**を併せて掛けること。本番用キーでも省けない。
 
 5. **プロキシ用キー**を選択し、次を設定する。
    - **アプリケーションの制限**: **設定しない**。
