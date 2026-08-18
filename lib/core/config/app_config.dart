@@ -40,4 +40,18 @@ class AppConfig {
     'APPLE_APP_CHECK_DEBUG_TOKEN',
     defaultValue: appCheckDebugToken,
   );
+
+  /// Web デバッグビルド用の App Check トークン。空でも `WebDebugProvider` は動く
+  /// （Firebase JS SDK が自動生成しコンソールへ出すので、それを Console に登録する）。
+  static const String webAppCheckDebugToken = String.fromEnvironment(
+    'WEB_APP_CHECK_DEBUG_TOKEN',
+    defaultValue: appCheckDebugToken,
+  );
+
+  /// Web の App Check（reCAPTCHA v3）サイトキー。
+  /// release の Web ビルドでプロキシを叩くには必須。未設定だと App Check の
+  /// 有効化を見送り、プロキシは 401 を返す（`canActivateWebAppCheck`）。
+  static const String recaptchaSiteKey = String.fromEnvironment(
+    'RECAPTCHA_SITE_KEY',
+  );
 }

@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../core/config/app_config.dart';
+import '../../core/config/platform_capabilities.dart';
 import '../../core/theme/aruku_map_style.dart';
 import '../../core/theme/aruku_theme.dart';
 
@@ -28,6 +30,7 @@ class ArukuMap extends StatefulWidget {
 
   /// 既定は [AppConfig.useRealMap]（`--dart-define=USE_REAL_MAP=true` で true）。
   /// false のときは非インタラクティブなスタイライズド地図を描画する。
+  /// Web では [supportsRealMap] が true でも無視する（Maps JavaScript SDK 未読込）。
   final bool useRealMap;
 
   final Set<Polyline> polylines;
@@ -111,7 +114,7 @@ class _ArukuMapState extends State<ArukuMap> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.useRealMap) {
+    if (supportsRealMap(isWeb: kIsWeb, flagEnabled: widget.useRealMap)) {
       final interactive = widget.variant != ArukuMapVariant.thumb;
       return GoogleMap(
         initialCameraPosition: CameraPosition(

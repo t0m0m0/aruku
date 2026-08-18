@@ -70,13 +70,19 @@ cp ios/Flutter/Secrets.xcconfig.example ios/Flutter/Secrets.xcconfig
 
 アプリは Firebase を初期化するため、`FIREBASE_ANDROID_API_KEY` / `FIREBASE_IOS_API_KEY` を
 dart-define で受け取ります。**未設定だと debug ビルドは起動時に `StateError` で落ちます**
-（`lib/main.dart` の `_assertFirebaseKeyPresent`）。地図表示だけを試す場合でも必要です。
+（`lib/main.dart` の `_assertFirebaseOptionsComplete`）。地図表示だけを試す場合でも必要です。
 
 ```sh
 cp dart_defines.example.json dart_defines.json
 #   FIREBASE_ANDROID_API_KEY / FIREBASE_IOS_API_KEY に実キーを設定
 #   （Firebase Console → プロジェクトの設定 → マイアプリ）
 ```
+
+Web で動かす場合は `FIREBASE_WEB_API_KEY` と `FIREBASE_WEB_APP_ID` も設定します。
+Web の `appId` は android / ios と違いコードに焼いていないため、
+**Firebase Console で Web アプリを登録してから値を取得**してください
+（`lib/firebase_options.dart` の `web`）。両方とも同じ検査に掛かるので、
+片方でも空なら debug ビルドは起動時に落ちます。
 
 `dart_defines.json` は gitignore 済みです。**コミットしないでください。**
 
@@ -101,6 +107,11 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 
 （既定では実地図を有効化しません。地図 UI の本格統合・テーマ適用は別 ISSUE で対応します）
 
+**Web ではこのフラグは無視され、常にスタイライズド地図になります。**
+`google_maps_flutter_web` は Maps JavaScript SDK を要求しますが、`web/index.html` は
+まだ読み込んでいません（Web 用にリファラ制限した別枠のキーが必要。#359 Phase 2b）。
+フラグを通すと地図が描画できずフォールバックも効かないため、`supportsRealMap` で塞いでいます。
+
 ## プロキシを動かす（地点検索・徒歩実測）
 
 **地点検索と徒歩実測は上記のキー設定だけでは動きません。** どちらも Cloud Functions
@@ -117,10 +128,10 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 | 3 | App Check デバッグトークン | `dart_defines.json` ＋ Firebase Console への登録 |
 
 **① `PROXY_BASE_URL` を決める。** 値は**アプリを動かす場所から見たホストのアドレス**で、
-実行先ごとに違います。対応するのは iOS / Android の 2 プラットフォームです
-（macOS・Web は `lib/firebase_options.dart` が `UnsupportedError` を投げるため動きません）。
+実行先ごとに違います（macOS は `lib/firebase_options.dart` が `UnsupportedError` を
+投げるため動きません）。
 
-**ローカルの Functions エミュレータを叩けるのは iOS シミュレータと Android です。**
+**ローカルの Functions エミュレータを叩けるのは iOS シミュレータ・Android・Web です。**
 塞がっているのは iOS 実機だけで、その場合はデプロイ済みプロキシを使います。
 
 | アプリの実行先 | ローカルの Functions エミュレータを叩く | デプロイ済みプロキシを叩く |
@@ -129,9 +140,70 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 | iOS 実機 | **不可** — iOS 14+ のローカルネットワークプライバシー。LAN 上の IP へ繋ぐには `Info.plist` に `NSLocalNetworkUsageDescription` が要るが、開発専用の用途で全ユーザーに権限要求を出したくないため入れていない | ✅ |
 | Android エミュレータ | `http://10.0.2.2:5001/{projectId}/asia-northeast1`（`10.0.2.2` はエミュレータから見たホストの別名） | ✅ |
 | Android 実機 | `adb reverse tcp:5001 tcp:5001` してから `http://127.0.0.1:5001/{projectId}/asia-northeast1` | ✅ |
+| Web | `http://127.0.0.1:5001/{projectId}/asia-northeast1` | ✅ ただし **App Check の設定が前提**（下記） |
 
 デプロイ済みプロキシの URL は実行先を問わず
 `https://asia-northeast1-{projectId}.cloudfunctions.net` です。
+
+**Web からデプロイ済みプロキシを叩くには App Check の設定が要ります。**
+`RECAPTCHA_SITE_KEY`（reCAPTCHA v3 サイトキー）を dart-define で渡すと
+`ReCaptchaV3Provider` で有効化します。
+
+`WebDebugProvider` を使う条件はビルド種別で違います（`useDebugAppCheckProvider`）。
+
+| ビルド | `WEB_APP_CHECK_DEBUG_TOKEN` | 挙動 |
+|---|---|---|
+| debug | 不要 | 常に `WebDebugProvider`。未指定なら Firebase JS SDK がトークンを自動生成してコンソールへ出力する |
+| profile | **必須** | トークンを渡したときだけ `WebDebugProvider`。渡さないとサイトキーが無い限り `activate` を呼ばない |
+| release | 効果なし | `RECAPTCHA_SITE_KEY` のみ |
+
+profile でトークンを要求するのは、提出物にバイパス経路を混入させないための境界です
+（`lib/core/config/app_check_provider.dart` 参照）。
+
+サイトキーもデバッグプロバイダも無い場合は `activate` を呼びません
+（`canActivateWebAppCheck`）。`providerWeb` を渡さない `activate` は同期的に
+throw してアプリが起動しなくなるためで、この場合プロキシは 401 を返します。
+
+準備するもの:
+
+1. reCAPTCHA 管理コンソールで **reCAPTCHA v3** のサイトを登録し、配信ドメイン
+   （ローカル開発なら `localhost`）を追加する。**サイトキーとシークレットキーの
+   2つが発行される**
+2. Firebase Console → **Security → App Check → Apps** タブでこの Web アプリに
+   reCAPTCHA v3 プロバイダを登録する。ここに入れるのは**シークレットキー**
+3. `dart_defines.json` の `RECAPTCHA_SITE_KEY` に**サイトキー**（公開鍵）を書く
+
+**2 と 3 で入れる鍵は別物です。** Firebase 側はトークン検証にシークレットを使い、
+アプリ側は `ReCaptchaV3Provider` にサイトキーを渡します。取り違えると検証が通りません。
+
+> debug ビルドで `WebDebugProvider` を使う場合、トークンを渡さなければ Firebase JS
+> SDK が自動生成してブラウザのコンソールへ出力します。その値を Firebase Console →
+> Security → App Check → Apps タブ → 対象アプリの ⋮ → **デバッグトークンを管理**
+> に登録してください。登録すればデプロイ済みのバックエンドでも通ります。
+> **デバッグトークンはコミットしないこと。**
+
+**ローカルのエミュレータなら Web でも動きます。** `functions/src/index.ts` の
+`verifyAppCheck` は `FUNCTIONS_EMULATOR` が立っているとき検証ごとスキップし、
+プロキシは `Access-Control-Allow-Origin: *` とプリフライトに対応済みです。
+つまり Web のローカル開発は Phase 1 を待たずに完結します。ページを `http` で配信して
+いれば `http://127.0.0.1:5001` への呼び出しも混在コンテンツになりません。
+
+手順は下の **② Functions エミュレータを起動する**（`npm run build` が必須。
+ビルドしないと読み込む関数が無い状態で起動します）と同じです。そのうえで
+`dart_defines.json` の `PROXY_BASE_URL` を
+`http://127.0.0.1:5001/{projectId}/asia-northeast1` にして起動します。
+
+```sh
+flutter run -d chrome --dart-define-from-file=dart_defines.json
+```
+
+これで地点検索・徒歩実測・経路検索まで通ります（新宿駅→東京駅で実証済み。
+`placesProxy` / `googleWalkProxy` / `googleWalkMatrixProxy` がすべて 200 を返す）。
+
+> **Web の現在地取得はブラウザの許可が要ります。** `http://localhost` は secure context
+> なので geolocation API 自体は使えますが、許可を拒否すると `LocationDenied` になり
+> 「位置情報なし」と表示されます（アプリ側の失敗ではありません）。一度拒否すると
+> プロンプトは再表示されないため、サイト設定から許可し直してください。
 
 > iOS の URL は `localhost` ではなく **IP リテラル（`127.0.0.1`）で書く**こと。ATS は IP アドレスへの
 > 接続には適用されない（iOS 10 以降は常に許可）が、`localhost` や `*.local` は**ホスト名なので ATS の

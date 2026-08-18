@@ -1,9 +1,11 @@
 import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pedometer/pedometer.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../config/platform_capabilities.dart';
 import '../models/activity_snapshot.dart';
 
 /// セッション/日次の歩数・距離・kcal を計測するサービス。
@@ -18,9 +20,12 @@ abstract interface class ActivityService {
 class PedometerActivityService implements ActivityService {
   @override
   Future<bool> requestPermission() async {
-    // iOS の CMPedometer は NSMotionUsageDescription を元に初回利用時へ自動で
-    // プロンプトするため、ランタイム要求は Android の ACTIVITY_RECOGNITION のみ。
-    if (!Platform.isAndroid) return true;
+    if (!requiresActivityRecognitionPermission(
+      isWeb: kIsWeb,
+      isAndroid: () => Platform.isAndroid,
+    )) {
+      return true;
+    }
     final status = await Permission.activityRecognition.request();
     return status.isGranted;
   }
@@ -39,4 +44,10 @@ class PedometerActivityService implements ActivityService {
 
 final activityServiceProvider = Provider<ActivityService>(
   (_) => PedometerActivityService(),
+);
+
+/// この環境で歩数を計測できるか。プロバイダにしているのは kIsWeb を直接読むと
+/// 非対応時の挙動を Web でしか検証できなくなるため（テストで上書きして反証する）。
+final stepCountingSupportedProvider = Provider<bool>(
+  (_) => supportsStepCounting(isWeb: kIsWeb),
 );

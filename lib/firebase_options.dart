@@ -17,10 +17,7 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
-      throw UnsupportedError(
-        'DefaultFirebaseOptions have not been configured for web - '
-        'you can reconfigure this by running the FlutterFire CLI again.',
-      );
+      return web;
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
@@ -55,6 +52,19 @@ class DefaultFirebaseOptions {
     appId: '1:174669528481:android:46086feb0a8db9e18f9fe0',
     messagingSenderId: '174669528481',
     projectId: 'aruku-app',
+    storageBucket: 'aruku-app.firebasestorage.app',
+  );
+
+  // appId は android / ios と違いコードに焼いていない。Firebase Console への Web
+  // アプリ登録で初めて確定するため、値を持たないまま偽の定数を置くより
+  // dart-define へ寄せて注入漏れを起動時に落とす（main.dart の
+  // _assertFirebaseOptionsComplete）。#359 参照。
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: String.fromEnvironment('FIREBASE_WEB_API_KEY'),
+    appId: String.fromEnvironment('FIREBASE_WEB_APP_ID'),
+    messagingSenderId: '174669528481',
+    projectId: 'aruku-app',
+    authDomain: 'aruku-app.firebaseapp.com',
     storageBucket: 'aruku-app.firebasestorage.app',
   );
 

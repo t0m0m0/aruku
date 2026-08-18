@@ -316,6 +316,12 @@ abstract class AppLocalizations {
   /// **'歩 ·'**
   String get homeStepsUnit;
 
+  /// No description provided for @homeActivityUnsupported.
+  ///
+  /// In ja, this message translates to:
+  /// **'この環境では歩数を計測できません'**
+  String get homeActivityUnsupported;
+
   /// No description provided for @homeStreakDays.
   ///
   /// In ja, this message translates to:
@@ -735,6 +741,12 @@ abstract class AppLocalizations {
   /// **'通知を受け取る'**
   String get settingsReceiveNotifications;
 
+  /// No description provided for @settingsNotificationsUnsupported.
+  ///
+  /// In ja, this message translates to:
+  /// **'この環境では通知を利用できません'**
+  String get settingsNotificationsUnsupported;
+
   /// No description provided for @notificationStreakReminderTitle.
   ///
   /// In ja, this message translates to:
@@ -759,6 +771,12 @@ abstract class AppLocalizations {
   /// **'1週間の目標距離'**
   String get settingsWeeklyGoalLabel;
 
+  /// No description provided for @settingsWeeklyGoalUnsupported.
+  ///
+  /// In ja, this message translates to:
+  /// **'この環境では歩数を計測できないため、目標を設定できません'**
+  String get settingsWeeklyGoalUnsupported;
+
   /// No description provided for @settingsWeeklyGoalValue.
   ///
   /// In ja, this message translates to:
@@ -782,6 +800,12 @@ abstract class AppLocalizations {
   /// In ja, this message translates to:
   /// **'端末設定を開く'**
   String get settingsOpenDeviceSettings;
+
+  /// No description provided for @settingsOsSettingsUnavailable.
+  ///
+  /// In ja, this message translates to:
+  /// **'権限はブラウザのサイト設定から変更してください'**
+  String get settingsOsSettingsUnavailable;
 
   /// No description provided for @settingsHealthKitSection.
   ///

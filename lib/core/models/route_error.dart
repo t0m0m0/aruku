@@ -64,6 +64,11 @@ RouteErrorKind classifyRouteError(Object error) {
   if (error is TimeoutException) return RouteErrorKind.timeout;
   // SocketException / HttpException / HandshakeException など dart:io 系、
   // http パッケージの ClientException は通信系として扱う。
+  //
+  // ClientException は dart:io 系と重複しているように見えるが外せない。Web では
+  // BrowserClient が ClientException しか投げず、dart2js の dart:io はスタブなので
+  // IOException 側に一致しない。片方に寄せると Web の通信断が unknown へ落ちて
+  // 「通信状況を確認して再試行」の導線を失う。#359 参照。
   if (error is IOException || error is http.ClientException) {
     return RouteErrorKind.network;
   }

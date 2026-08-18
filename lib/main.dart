@@ -12,6 +12,8 @@ import 'package:timezone/timezone.dart' as tz;
 
 import 'core/config/app_check_provider.dart';
 import 'core/config/app_config.dart';
+import 'core/config/firebase_options_check.dart';
+import 'core/config/platform_capabilities.dart';
 import 'core/navigation/app_router.dart';
 import 'core/services/crash_reporter.dart';
 import 'core/services/health_service.dart';
@@ -27,11 +29,11 @@ import 'l10n/app_localizations.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  _assertFirebaseKeyPresent();
+  _assertFirebaseOptionsComplete();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await _activateAppCheck();
   const crashReporter = FirebaseCrashReporter();
-  if (kReleaseMode) {
+  if (useCrashHandlers(isWeb: kIsWeb, isRelease: kReleaseMode)) {
     _installCrashHandlers(crashReporter);
   }
   SystemChrome.setSystemUIOverlayStyle(
@@ -49,6 +51,13 @@ Future<void> main() async {
   // （予約は絶対時刻として解釈されるため、このゾーン設定は発火時刻を変えない）。
   tz_data.initializeTimeZones();
   tz.setLocalLocation(tz.getLocation('Asia/Tokyo'));
+  // サービスの実体と設定画面の出し分けを同じ判定から配る。別々に評価すると
+  // 「トグルはオンなのに何も起きない」設定が生まれる。
+  final notificationsSupported = useLocalNotifications(
+    isWeb: kIsWeb,
+    isIOS: () => Platform.isIOS,
+    isAndroid: () => Platform.isAndroid,
+  );
   runApp(
     ProviderScope(
       overrides: [
@@ -59,11 +68,14 @@ Future<void> main() async {
         ),
         // HealthKit は iOS 専用。iOS でのみ実体を注入し、他プラットフォームは
         // 既定の NoopHealthService（無害な no-op）のままにする。
-        if (Platform.isIOS)
+        if (useHealthKit(isWeb: kIsWeb, isIOS: () => Platform.isIOS))
           healthServiceProvider.overrideWithValue(HealthKitService()),
+        localNotificationsSupportedProvider.overrideWithValue(
+          notificationsSupported,
+        ),
         // ローカル通知は iOS / Android の実機のみ。他は既定の
         // NoopNotificationService（無害な no-op）のままにする。
-        if (Platform.isIOS || Platform.isAndroid)
+        if (notificationsSupported)
           notificationServiceProvider.overrideWithValue(
             LocalNotificationService(),
           ),
@@ -93,15 +105,18 @@ void _installCrashHandlers(CrashReporter crashReporter) {
   };
 }
 
-// API キーは --dart-define-from-file=dart_defines.json で注入する。渡し忘れると
-// String.fromEnvironment は空文字を返し、Firebase 初期化が分かりにくく失敗する。
-// debug ビルドのみ早期に検出してセットアップ漏れを明示する（release では assert
-// は除去され、本番ビルドは CI 等で確実にキーを注入する前提）。
-void _assertFirebaseKeyPresent() {
+// API キーと Web の appId は --dart-define-from-file=dart_defines.json で注入する。
+// 渡し忘れると String.fromEnvironment は空文字を返し、Firebase 初期化が分かりにくく
+// 失敗する。debug ビルドのみ早期に検出してセットアップ漏れを明示する（release では
+// assert は除去され、本番ビルドは CI 等で確実に注入する前提）。
+void _assertFirebaseOptionsComplete() {
   assert(() {
-    if (DefaultFirebaseOptions.currentPlatform.apiKey.isEmpty) {
+    final missing = missingFirebaseOptionFields(
+      DefaultFirebaseOptions.currentPlatform,
+    );
+    if (missing.isNotEmpty) {
       throw StateError(
-        'Firebase API キーが空です。'
+        'Firebase の ${missing.join(' / ')} が空です。'
         '--dart-define-from-file=dart_defines.json を付けて起動してください'
         '（dart_defines.example.json 参照）。',
       );
@@ -115,6 +130,8 @@ void _assertFirebaseKeyPresent() {
 Future<void> _activateAppCheck() {
   const androidToken = AppConfig.androidAppCheckDebugToken;
   const appleToken = AppConfig.appleAppCheckDebugToken;
+  const webToken = AppConfig.webAppCheckDebugToken;
+  const siteKey = AppConfig.recaptchaSiteKey;
 
   final androidUsesDebug = useDebugAppCheckProvider(
     isDebugBuild: kDebugMode,
@@ -126,6 +143,22 @@ Future<void> _activateAppCheck() {
     isProfileBuild: kProfileMode,
     debugToken: appleToken,
   );
+  final webUsesDebug = useDebugAppCheckProvider(
+    isDebugBuild: kDebugMode,
+    isProfileBuild: kProfileMode,
+    debugToken: webToken,
+  );
+
+  // Web は providerWeb を渡せないと activate 自体が throw するため、有効化できる
+  // 条件が揃わないときは呼ばずに戻る。try/catch で黙らせるとトークン無しのまま
+  // 起動して「原因不明の 401」になる。
+  if (kIsWeb &&
+      !canActivateWebAppCheck(
+        usesDebugProvider: webUsesDebug,
+        recaptchaSiteKey: siteKey,
+      )) {
+    return Future.value();
+  }
 
   return FirebaseAppCheck.instance.activate(
     providerAndroid: androidUsesDebug
@@ -136,6 +169,11 @@ Future<void> _activateAppCheck() {
     providerApple: appleUsesDebug
         ? AppleDebugProvider(debugToken: appleToken.isEmpty ? null : appleToken)
         : const AppleAppAttestProvider(),
+    // ネイティブでは providerWeb は無視される。Web で release かつサイトキーが
+    // 空になる組み合わせは上のガードで弾いているため、ここへは来ない。
+    providerWeb: webUsesDebug
+        ? WebDebugProvider(debugToken: webToken.isEmpty ? null : webToken)
+        : ReCaptchaV3Provider(siteKey.trim()),
   );
 }
 

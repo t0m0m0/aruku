@@ -303,9 +303,62 @@ class _WeeklyGoalCard extends StatelessWidget {
     required this.todaySteps,
     required this.todayKcal,
     required this.streakDays,
+    required this.activityTrackingSupported,
   });
 
   /// ユーザーが設定した週間目標距離（km）。
+  final double goalKm;
+  final double weekKm;
+  final double todayKm;
+  final int todaySteps;
+  final int todayKcal;
+  final int streakDays;
+  final bool activityTrackingSupported;
+
+  @override
+  Widget build(BuildContext context) {
+    return ArukuCard(
+      key: const Key('home-weekly-goal'),
+      borderRadius: 22,
+      shadow: const [
+        BoxShadow(
+          color: ArukuTokens.shadowCardSubtle,
+          blurRadius: 24,
+          offset: Offset(0, 8),
+        ),
+      ],
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      // 週間目標は歩数由来の距離でしか進まない。非対応環境で達成度リングと目標距離を
+      // 残すと「永久に 0% の進捗計」になるため、進捗の表示ごと理由に差し替える。
+      child: activityTrackingSupported
+          ? _WeeklyProgress(
+              goalKm: goalKm,
+              weekKm: weekKm,
+              todayKm: todayKm,
+              todaySteps: todaySteps,
+              todayKcal: todayKcal,
+              streakDays: streakDays,
+            )
+          // カードが理由の文字幅まで縮んで他のカードと揃わないため幅を張る。
+          : const SizedBox(
+              width: double.infinity,
+              child: _ActivityUnsupportedNote(),
+            ),
+    );
+  }
+}
+
+/// 達成度リング ＋ 週間距離 ＋ 今日の実績。歩数を計測できる環境でのみ出す。
+class _WeeklyProgress extends StatelessWidget {
+  const _WeeklyProgress({
+    required this.goalKm,
+    required this.weekKm,
+    required this.todayKm,
+    required this.todaySteps,
+    required this.todayKcal,
+    required this.streakDays,
+  });
+
   final double goalKm;
   final double weekKm;
   final double todayKm;
@@ -320,96 +373,85 @@ class _WeeklyGoalCard extends StatelessWidget {
     final goal = goalKm;
     final pct = goal <= 0 ? 0.0 : (weekKm / goal).clamp(0.0, 1.0);
 
-    return ArukuCard(
-      key: const Key('home-weekly-goal'),
-      borderRadius: 22,
-      shadow: const [
-        BoxShadow(
-          color: ArukuTokens.shadowCardSubtle,
-          blurRadius: 24,
-          offset: Offset(0, 8),
+    return Row(
+      key: const Key('home-weekly-progress'),
+      children: [
+        // 達成度リング
+        SizedBox(
+          width: 64,
+          height: 64,
+          child: CustomPaint(
+            painter: _GoalRingPainter(
+              pct: pct,
+              track: c.moss100,
+              progress: c.moss500,
+            ),
+            child: Center(
+              child: Text(
+                '${(pct * 100).round()}%',
+                style: numStyle(
+                  size: 14,
+                  weight: FontWeight.w600,
+                  color: c.moss700,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                l10n.homeWeeklyGoal(formatDistanceKm(goal)),
+                style: jpStyle(
+                  size: 13,
+                  weight: FontWeight.w800,
+                  color: c.ink2,
+                  letterSpacing: 0.08 * 13,
+                ),
+              ),
+              const SizedBox(height: 2),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      weekKm.toStringAsFixed(1),
+                      style: numStyle(
+                        size: 24,
+                        weight: FontWeight.w600,
+                        color: c.ink,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'km',
+                      style: jpStyle(
+                        size: 12,
+                        weight: FontWeight.w700,
+                        color: c.ink2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 3),
+              _TodayLine(
+                todayKm: todayKm,
+                todaySteps: todaySteps,
+                todayKcal: todayKcal,
+                streakDays: streakDays,
+              ),
+            ],
+          ),
         ),
       ],
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-      child: Row(
-        children: [
-          // 達成度リング
-          SizedBox(
-            width: 64,
-            height: 64,
-            child: CustomPaint(
-              painter: _GoalRingPainter(
-                pct: pct,
-                track: c.moss100,
-                progress: c.moss500,
-              ),
-              child: Center(
-                child: Text(
-                  '${(pct * 100).round()}%',
-                  style: numStyle(
-                    size: 14,
-                    weight: FontWeight.w600,
-                    color: c.moss700,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  l10n.homeWeeklyGoal(formatDistanceKm(goal)),
-                  style: jpStyle(
-                    size: 13,
-                    weight: FontWeight.w800,
-                    color: c.ink2,
-                    letterSpacing: 0.08 * 13,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
-                    children: [
-                      Text(
-                        weekKm.toStringAsFixed(1),
-                        style: numStyle(
-                          size: 24,
-                          weight: FontWeight.w600,
-                          color: c.ink,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'km',
-                        style: jpStyle(
-                          size: 12,
-                          weight: FontWeight.w700,
-                          color: c.ink2,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 3),
-                _TodayLine(
-                  todayKm: todayKm,
-                  todaySteps: todaySteps,
-                  todayKcal: todayKcal,
-                  streakDays: streakDays,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -446,6 +488,7 @@ class _TodayLine extends StatelessWidget {
         Text(s, style: number ? numberStyle : labelStyle);
 
     return Wrap(
+      key: const Key('home-today-line'),
       spacing: 4,
       runSpacing: 2,
       crossAxisAlignment: WrapCrossAlignment.center,
@@ -469,6 +512,24 @@ class _TodayLine extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+/// 歩数を計測できない環境で、実績行の代わりに理由を示す行。
+///
+/// 0 の実績値を並べる代わりに置き換えるのは、「0 歩・0 kcal」を計測結果として
+/// 出すと非対応と本当に歩いていない状態が画面から区別できないため。
+class _ActivityUnsupportedNote extends StatelessWidget {
+  const _ActivityUnsupportedNote();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Text(
+      key: const Key('home-activity-unsupported'),
+      AppLocalizations.of(context).homeActivityUnsupported,
+      style: jpStyle(size: 13, weight: FontWeight.w600, color: c.ink2),
     );
   }
 }
