@@ -27,14 +27,18 @@ bool useLocalNotifications({
 /// 残さないから。非対応を値として持てば UI が理由を出せる（#359 Phase 2）。
 bool supportsStepCounting({required bool isWeb}) => !isWeb;
 
-/// 実地図（GoogleMap）を描画できるか。[flagEnabled] は USE_REAL_MAP の値。
+/// 実地図（GoogleMap）を描画できるか。[flagEnabled] は USE_REAL_MAP の値、
+/// [mapsJsLoaded] は Maps JavaScript API の読み込みが済んだか（`mapsJsLoadedProvider`）。
 ///
-/// Web でフラグを無視するのは、google_maps_flutter_web が Maps JavaScript SDK を
-/// 要求する一方、web/index.html がまだ読み込んでいないため。読み込みには Web 用に
-/// リファラ制限した別枠のキーが要る（#359 Phase 2b）。フラグを通すと地図が描画
-/// できず、スタイライズド地図へのフォールバックも効かない。
-bool supportsRealMap({required bool isWeb, required bool flagEnabled}) =>
-    flagEnabled && !isWeb;
+/// Web だけ読み込み状態を要求するのは、google_maps_flutter_web が
+/// `window.google.maps` の存在を前提に動くため。読み込み前に GoogleMap を作ると
+/// 初期化に失敗し、スタイライズド地図へのフォールバックも効かない。ネイティブは
+/// Maps SDK が自前でキーを読むので [mapsJsLoaded] を見ない。
+bool supportsRealMap({
+  required bool isWeb,
+  required bool flagEnabled,
+  required bool mapsJsLoaded,
+}) => flagEnabled && (!isWeb || mapsJsLoaded);
 
 /// OS のアプリ設定画面を開けるか。
 ///

@@ -39,6 +39,7 @@
 |---|---|---|---|---|
 | 地図表示用（Android） | アプリ（Maps SDK） | `secrets.properties` | Android: パッケージ名 + SHA-1 | **Maps SDK for Android のみ** |
 | 地図表示用（iOS） | アプリ（Maps SDK） | `ios/Flutter/Secrets.xcconfig` | iOS: Bundle ID | **Maps SDK for iOS のみ** |
+| 地図表示用（Web） | ブラウザ（Maps JavaScript API） | `dart_defines.json` `MAPS_WEB_API_KEY` | HTTP リファラー: 配信ドメイン + `localhost` | **Maps JavaScript API のみ** |
 | プロキシ用（`GOOGLE_MAPS_API_KEY`） | Cloud Functions | Secret Manager | **なし**（下記） | **Places API (New) + Routes API のみ** |
 
 1. [GCP Console > API とサービス > 認証情報](https://console.cloud.google.com/apis/credentials) を開く。
@@ -56,7 +57,20 @@
    - **API の制限**: 「キーを制限」→ **Maps SDK for iOS のみ**。
    - このキーは `ios/Flutter/Secrets.xcconfig` に入れる。
    - 地図表示用キーはいずれもアプリバイナリから抽出できる前提なので、地図タイル取得以外に転用させない。
-4. **プロキシ用キー**を選択し、次を設定する。
+4. **地図表示用キー（Web）** を選択し、次を設定する。
+   - **アプリケーションの制限**: 「HTTP リファラー」→ 配信ドメインと、開発用に
+     `localhost` を登録。`flutter run -d chrome` はポートが毎回変わるため、
+     `--web-port` で固定してそのポートを登録すること。
+   - **API の制限**: 「キーを制限」→ **Maps JavaScript API のみ**。
+   - このキーは `dart_defines.json` の `MAPS_WEB_API_KEY` に入れる。
+   - **Web の地図キーは秘匿できない。** dart-define はコンパイル時定数として
+     `main.dart.js` に焼き込まれ、ブラウザから読める。`web/index.html` へ直書き
+     しないのは public リポジトリの履歴に残さないためであって、露出は同じ。
+   - リファラー制限は `Referer` ヘッダを見ているだけで、ブラウザ外からは偽装できる。
+     ネイティブの署名ベースの制限より構造的に弱いため、**GCP 側の予算アラートと
+     1日あたりのクォータ上限**を併せて掛けること。
+
+5. **プロキシ用キー**を選択し、次を設定する。
    - **アプリケーションの制限**: **設定しない**。
      - Android/iOS アプリ制限は使えない（呼び出し元は Cloud Functions でありアプリではない）。
      - **IP アドレス制限も使えない。** プロキシは 2nd gen Cloud Functions（Cloud Run）で、
@@ -68,7 +82,7 @@
      アプリケーション制限を掛けられない分、**このキーの防御は API 制限が主**になる。
    - 併せて働く保護: キー自体は Secret Manager にありアプリへ出ない、プロキシは App Check 必須（②）、
      IP 単位のレート制限（README）。
-5. 保存後、本番ビルドで地図・各機能が正常動作することを確認する。
+6. 保存後、本番ビルドで地図・各機能が正常動作することを確認する。
 
 ### 検証
 

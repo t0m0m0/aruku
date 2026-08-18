@@ -20,11 +20,12 @@
 |---|---|---|---|
 | 地図表示（Android） | Maps SDK for Android | アプリ（ネイティブ SDK） | `secrets.properties` |
 | 地図表示（iOS） | Maps SDK for iOS | アプリ（ネイティブ SDK） | `ios/Flutter/Secrets.xcconfig` |
+| 地図表示（Web） | Maps JavaScript API | ブラウザ（実行時に script を注入） | `dart_defines.json` `MAPS_WEB_API_KEY` |
 | 徒歩の所要・距離・街路ジオメトリ | Routes API | `googleWalkProxy` / `googleWalkMatrixProxy` | Secret Manager `GOOGLE_MAPS_API_KEY` |
 | 地点検索 | Places API (New) | `placesProxy` | Secret Manager `GOOGLE_MAPS_API_KEY` |
 | 公共交通の経路 | — （Transit API・認証不要） | アプリから直接 | 不要 |
 
-**本番では地図表示用キーを Android 用・iOS 用に分け、プロキシ用と合わせて 3 本にします。**
+**本番では地図表示用キーを Android 用・iOS 用・Web 用に分け、プロキシ用と合わせて 4 本にします。**
 Google の API キーは**アプリケーション制限を 1 種類しか持てない**ため、1 本のキーに
 Android パッケージ名と iOS Bundle ID の両方を掛けることはできません（[Google の
 セキュリティ ガイダンス](https://developers.google.com/maps/api-security-best-practices)）。
@@ -84,6 +85,9 @@ Web の `appId` は android / ios と違いコードに焼いていないため�
 （`lib/firebase_options.dart` の `web`）。両方とも同じ検査に掛かるので、
 片方でも空なら debug ビルドは起動時に落ちます。
 
+Web で実地図を出す場合は `MAPS_WEB_API_KEY`（Maps JavaScript API キー）も設定します。
+未設定なら実地図の読み込みを見送り、スタイライズド地図のままになります（起動は落ちません）。
+
 `dart_defines.json` は gitignore 済みです。**コミットしないでください。**
 
 ### 4. ビルド・実行
@@ -107,10 +111,22 @@ flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP
 
 （既定では実地図を有効化しません。地図 UI の本格統合・テーマ適用は別 ISSUE で対応します）
 
-**Web ではこのフラグは無視され、常にスタイライズド地図になります。**
-`google_maps_flutter_web` は Maps JavaScript SDK を要求しますが、`web/index.html` は
-まだ読み込んでいません（Web 用にリファラ制限した別枠のキーが必要。#359 Phase 2b）。
-フラグを通すと地図が描画できずフォールバックも効かないため、`supportsRealMap` で塞いでいます。
+**Web ではフラグに加えて `MAPS_WEB_API_KEY` が要ります。** `google_maps_flutter_web` は
+`window.google.maps` が在る前提で動くため、キーから組んだ script タグを実行時に注入し、
+読み込みが済むまで `supportsRealMap` が実地図を塞ぎます（`lib/core/services/maps_js_loader.dart`）。
+どちらかが欠ければスタイライズド地図のままです。
+
+script タグを `web/index.html` へ直書きしないのは、このリポジトリが public で、
+追跡ファイルにキーを置くと履歴に恒久的に残るためです。**ただしこれは秘匿ではありません。**
+dart-define はコンパイル時定数として `main.dart.js` に焼き込まれ、ブラウザから読めます。
+実運用の防御は HTTP リファラー制限と GCP のクォータ上限です。
+
+現時点で Web の地図には既知の見た目の差があります（#359 Phase 2b）:
+
+- 出発地・目的地のピンが色分けされず既定の赤になる。`BitmapDescriptor.defaultMarkerWithHue`
+  に Web 実装が無く、例外にならないまま既定アイコンへ落ちるため
+- ローディング画面の淡く沈めた背景地図が、フル彩度で描画される。`Opacity` と
+  `ColorFiltered` はプラットフォームビューへ適用されないため
 
 ## プロキシを動かす（地点検索・徒歩実測）
 
