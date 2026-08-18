@@ -130,7 +130,7 @@ dart-define はコンパイル時定数として `main.dart.js` に焼き込ま�
 開発中は次のように起動します（ポートは許可リストに登録した値に固定する）。
 
 ```sh
-flutter run -d chrome --web-port=5000 \
+flutter run -d chrome --web-port=5555 \
   --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
 ```
 
