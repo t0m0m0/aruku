@@ -57,6 +57,8 @@ app.*.map.json
 !.claude/dart_quality.sh
 !.claude/doc_consistency.py
 !.claude/doc_consistency_test.py
+!.claude/web_safety.py
+!.claude/web_safety_test.py
 .claude/settings.local.json
 .claude/worktrees/
 .claude/.DS_Store

@@ -120,6 +120,14 @@ When `functions/` changes, also run in `functions/`:
 - `npm run build`  (tsc)
 - `npm test`       (vitest)
 
+When `lib/` changes, also run:
+
+- `python3 .claude/web_safety.py`
+
+`dart:io` の新規混入と `Platform` の直接評価を落とす（#359）。`flutter build web` では
+捕まらない——dart2js の `dart:io` はスタブでコンパイルは通り、触った瞬間に
+`UnsupportedError` になる。CI でも同じ検査が走る。
+
 ---
 
 ## Security Restrictions
