@@ -119,6 +119,19 @@ class DartIoImports(unittest.TestCase):
             self.assertEqual(code, 1, out)
             self.assertIn("lib/core/io.dart", out)
 
+    def test_raw_string_import_is_still_checked(self):
+        # Dart は import の URI に raw string / 三重引用符を許す。
+        with Tree() as t:
+            t.write("lib/core/probe.dart", "import r'dart:io';\n")
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
+
+    def test_triple_quoted_import_is_still_checked(self):
+        with Tree() as t:
+            t.write("lib/core/probe.dart", 'import """dart:io""";\n')
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
+
     def test_dart_io_in_a_comment_is_not_an_import(self):
         with Tree() as t:
             t.write("lib/core/note.dart", "// import 'dart:io'; は Web で使えない。\n")

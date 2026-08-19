@@ -42,8 +42,11 @@ DART_IO_ALLOWLIST = {
 # 同一行前提の正規表現はそれを取りこぼし、**所見ゼロ**＝合格になる（PR #363 レビュー）。
 # export も見る。barrel が `export 'dart:io';` すると、それを import した側には
 # dart:io が一切現れないまま File などがスコープに入る（PR #363 レビュー）。
+# raw string（`r'dart:io'`）と三重引用符も URI として有効。素の引用符だけを見ると
+# そこが抜け道になる（PR #363 レビュー。実際に exit 0 を確認した）。
 DART_IO_IMPORT_RE = re.compile(
-    r"""(?:import|export)\s+['"]dart:io['"](?P<rest>[^;]*);""", re.DOTALL
+    r"""(?:import|export)\s+r?(?P<q>'{3}|"{3}|'|")dart:io(?P=q)(?P<rest>[^;]*);""",
+    re.DOTALL,
 )
 SHOW_RE = re.compile(r"\bshow\s+(?P<symbols>[A-Za-z0-9_,\s]+)")
 # 直前が識別子文字なら別物（`TargetPlatform.` を拾わないため）。
