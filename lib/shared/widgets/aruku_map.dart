@@ -120,7 +120,8 @@ class _ArukuMapState extends ConsumerState<ArukuMap> {
     if (supportsRealMap(
       isWeb: kIsWeb,
       flagEnabled: widget.useRealMap,
-      mapsJsLoaded: ref.watch(mapsJsLoadedProvider).value ?? false,
+      mapsJsLoaded:
+          ref.watch(mapsJsLoadedProvider(widget.useRealMap)).value ?? false,
     )) {
       final interactive = widget.variant != ArukuMapVariant.thumb;
       return GoogleMap(

@@ -67,10 +67,15 @@ Future<bool> loadMapsJsIfNeeded({
 /// 地図が二度と出ない（PR #363 レビュー）。地図の無い画面へ移ると破棄され、
 /// 次に地図を出すときに再試行される。成功後の再実行は `loadMapsJs` が
 /// `google.maps` の存在を見て即座に返すため、無駄な再読み込みにはならない。
-final mapsJsLoadedProvider = FutureProvider.autoDispose<bool>(
-  (ref) => loadMapsJsIfNeeded(
+///
+/// family の引数はウィジェット個別の USE_REAL_MAP 相当値。`AppConfig.useRealMap` を
+/// 直接読むと `ArukuMap(useRealMap: …)` の指定が Web でだけ無視され、実地図を求めた
+/// のに読み込まれない／要らないのに読み込む、という食い違いになる。ネイティブは
+/// ウィジェット側の値で分岐しているので、そこへ揃える（PR #363 レビュー）。
+final mapsJsLoadedProvider = FutureProvider.autoDispose.family<bool, bool>(
+  (ref, flagEnabled) => loadMapsJsIfNeeded(
     isWeb: kIsWeb,
-    flagEnabled: AppConfig.useRealMap,
+    flagEnabled: flagEnabled,
     apiKey: AppConfig.mapsWebApiKey,
   ),
 );

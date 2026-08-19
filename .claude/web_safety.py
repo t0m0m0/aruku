@@ -40,8 +40,10 @@ DART_IO_ALLOWLIST = {
 
 # 行単位で見てはいけない。`show` 句が長いと dart format が改行し、`;` が別行へ回る。
 # 同一行前提の正規表現はそれを取りこぼし、**所見ゼロ**＝合格になる（PR #363 レビュー）。
+# export も見る。barrel が `export 'dart:io';` すると、それを import した側には
+# dart:io が一切現れないまま File などがスコープに入る（PR #363 レビュー）。
 DART_IO_IMPORT_RE = re.compile(
-    r"""import\s+['"]dart:io['"](?P<rest>[^;]*);""", re.DOTALL
+    r"""(?:import|export)\s+['"]dart:io['"](?P<rest>[^;]*);""", re.DOTALL
 )
 SHOW_RE = re.compile(r"\bshow\s+(?P<symbols>[A-Za-z0-9_,\s]+)")
 # 直前が識別子文字なら別物（`TargetPlatform.` を拾わないため）。
@@ -56,7 +58,12 @@ PLATFORM_USE_RE = re.compile(r"(?<![\w$])Platform\s*\.")
 # 接していなければ、その式を守っている保証がない——`consume(() => false, Platform.isX)`
 # のサンクは別の引数のものだし、`… && safe(); Platform.isX;` のガードは別の文のもの。
 # 末尾一致にすることで「この式に掛かっている」ことだけを許す。
-GUARD_RE = re.compile(r"(?:\(\s*\)\s*=>|!\s*kIsWeb\s*&&|kIsWeb\s*\|\|)\s*$")
+# サンクに `名前:` を要求するのは、素の `(() => Platform.isX)()` を弾くため。直後に
+# 呼ぶサンクは遅延にならず、Web でその場で評価される。platform_capabilities へ
+# 名前付き引数で渡す形だけを許す（PR #363 レビュー）。
+GUARD_RE = re.compile(
+    r"(?:\w+\s*:\s*\(\s*\)\s*=>|!\s*kIsWeb\s*&&|kIsWeb\s*\|\|)\s*$"
+)
 
 STRING_RE = re.compile(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"")
 LINE_COMMENT_RE = re.compile(r"//.*$")
@@ -87,7 +94,7 @@ def check_dart_io_import(rel, n, rest):
     """`import 'dart:io' …;` の 1 行を検査する。[rest] は パスと `;` の間。"""
     allowed = DART_IO_ALLOWLIST.get(rel)
     if allowed is None:
-        return [(rel, n, "dart:io を新しく import している。Web では評価した時点で "
+        return [(rel, n, "dart:io を新しく import / export している。Web では評価した時点で "
                  "UnsupportedError になる。避けられないなら .claude/web_safety.py の "
                  "DART_IO_ALLOWLIST へ、使う記号を列挙して足すこと")]
     show = SHOW_RE.search(rest)
@@ -119,19 +126,20 @@ def scan(root):
         for imp in DART_IO_IMPORT_RE.finditer(uncommented):
             n = uncommented.count("\n", 0, imp.start()) + 1
             findings.extend(check_dart_io_import(rel, n, imp.group("rest")))
-        for n, raw in enumerate(text.splitlines(), start=1):
-            line = strip_comments(raw)
-            # 1行に複数あることがある。最初の1つだけ見ると、守られた呼び出しの隣に
-            # 素の評価を書いた場合に素通りする（PR #363 レビュー）。
-            #
-            for m in PLATFORM_USE_RE.finditer(line):
-                if GUARD_RE.search(line[: m.start()]):
-                    continue
-                findings.append(
-                    (rel, n, "Platform を直接評価している。Web では UnsupportedError "
-                     "になる。`() => Platform.isX` のサンクで platform_capabilities へ渡すか "
-                     "`!kIsWeb && …` / `kIsWeb || …` で短絡させること")
-                )
+        # Platform も行単位で見ない。dart format は長い式を折るので `isIOS: () =>` と
+        # `Platform.isIOS` が別行に分かれる。行ごとに見ると、この検査が推奨している
+        # 書き方そのものを誤検知する（PR #363 レビュー）。全文を通して見れば、
+        # 直前一致の判定が改行をまたいでも成立する。
+        code = "\n".join(strip_comments(ln) for ln in text.splitlines())
+        for m in PLATFORM_USE_RE.finditer(code):
+            if GUARD_RE.search(code[: m.start()]):
+                continue
+            n = code.count("\n", 0, m.start()) + 1
+            findings.append(
+                (rel, n, "Platform を直接評価している。Web では UnsupportedError "
+                 "になる。`名前: () => Platform.isX` のサンクで platform_capabilities へ "
+                 "渡すか、`!kIsWeb && …` / `kIsWeb || …` で短絡させること")
+            )
     return findings
 
 

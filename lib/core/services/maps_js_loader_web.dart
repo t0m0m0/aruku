@@ -60,7 +60,10 @@ Future<bool> _inject(String url) {
   final script = _document.createElement('script')
     ..src = url
     ..isAsync = true
-    ..onload = (() => completer.complete(true)).toJS
+    // onload だけで成功と見なさない。プロキシが HTML を返した場合など、script は
+    // 読めても API が生成されないことがある。true を返すと ArukuMap が存在しない
+    // google.maps に対して GoogleMap を作り、回復可能な失敗が実行時エラーになる。
+    ..onload = (() => completer.complete(_mapsApiReady())).toJS
     ..onerror = (() => completer.complete(false)).toJS;
   _document.head.appendChild(script);
   return completer.future;

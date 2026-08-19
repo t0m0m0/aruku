@@ -111,6 +111,14 @@ class DartIoImports(unittest.TestCase):
             self.assertEqual(code, 1, out)
             self.assertIn("File", out)
 
+    def test_reexporting_dart_io_is_rejected(self):
+        # barrel が re-export すると、import 側には dart:io が現れない。
+        with Tree() as t:
+            t.write("lib/core/io.dart", "export 'dart:io';\n")
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
+            self.assertIn("lib/core/io.dart", out)
+
     def test_dart_io_in_a_comment_is_not_an_import(self):
         with Tree() as t:
             t.write("lib/core/note.dart", "// import 'dart:io'; は Web で使えない。\n")
@@ -172,6 +180,23 @@ class PlatformEvaluation(unittest.TestCase):
             )
             code, out = check(t.path)
             self.assertEqual(code, 1, out)
+
+    def test_immediately_invoked_thunk_is_rejected(self):
+        # 直後に呼ぶサンクは遅延しない。Web でその場で評価される。
+        with Tree() as t:
+            t.write("lib/main.dart", "final x = (() => Platform.isAndroid)();\n")
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
+
+    def test_thunk_wrapped_onto_the_next_line_is_allowed(self):
+        # dart format は長い式を折る。推奨している書き方を誤検知してはいけない。
+        with Tree() as t:
+            t.write(
+                "lib/main.dart",
+                "final x = useHealthKit(\n  isWeb: kIsWeb,\n  isIOS: () =>\n      Platform.isIOS,\n);\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 0, out)
 
     def test_bare_platform_evaluation_is_rejected(self):
         with Tree() as t:
