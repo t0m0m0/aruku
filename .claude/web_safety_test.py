@@ -60,6 +60,29 @@ class DartIoImports(unittest.TestCase):
             code, out = check(t.path)
             self.assertEqual(code, 0, out)
 
+    def test_allowlisted_file_must_restrict_with_show(self):
+        # show 無しは dart:io 全体が見えるため、File などが後から静かに入り込む。
+        with Tree() as t:
+            t.write("lib/main.dart", "import 'dart:io';\n")
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
+
+    def test_allowlisted_file_may_not_widen_its_show_clause(self):
+        with Tree() as t:
+            t.write("lib/main.dart", "import 'dart:io' show Platform, File;\n")
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
+            self.assertIn("File", out)
+
+    def test_allowlisted_file_may_narrow_its_show_clause(self):
+        with Tree() as t:
+            t.write(
+                "lib/core/models/route_error.dart",
+                "import 'dart:io' show IOException;\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 0, out)
+
     def test_new_file_importing_dart_io_is_rejected(self):
         with Tree() as t:
             t.write("lib/core/services/uploader.dart", "import 'dart:io';\n")
@@ -86,6 +109,29 @@ class PlatformEvaluation(unittest.TestCase):
             t.write("lib/main.dart", "final x = !kIsWeb && Platform.isAndroid;\n")
             code, out = check(t.path)
             self.assertEqual(code, 0, out)
+
+    def test_positive_kisweb_guard_is_rejected(self):
+        # `if (kIsWeb) Platform.isAndroid` は Web でこそ評価される。短絡もしない。
+        with Tree() as t:
+            t.write("lib/main.dart", "void f() { if (kIsWeb) Platform.isAndroid; }\n")
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
+
+    def test_short_circuiting_or_guard_is_allowed(self):
+        with Tree() as t:
+            t.write("lib/main.dart", "final x = kIsWeb || Platform.isAndroid;\n")
+            code, out = check(t.path)
+            self.assertEqual(code, 0, out)
+
+    def test_every_occurrence_on_a_line_is_checked(self):
+        # 1つ目が守られていても、2つ目が素通りしてはいけない。
+        with Tree() as t:
+            t.write(
+                "lib/main.dart",
+                "final x = f(() => Platform.isIOS, Platform.isAndroid);\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
 
     def test_bare_platform_evaluation_is_rejected(self):
         with Tree() as t:

@@ -61,7 +61,13 @@ Future<bool> loadMapsJsIfNeeded({
 /// Maps JavaScript API が使えるか。地図を出す画面が最初に watch した時点で
 /// 読み込みが始まる（起動時に走らせると、地図を出さない利用でも外部リクエストが
 /// 1本増える）。
-final mapsJsLoadedProvider = FutureProvider<bool>(
+///
+/// autoDispose にするのは、失敗をセッション中ずっと抱え込まないため。素の
+/// FutureProvider だと、一度オフラインで失敗した結果が保持され、通信が戻っても
+/// 地図が二度と出ない（PR #363 レビュー）。地図の無い画面へ移ると破棄され、
+/// 次に地図を出すときに再試行される。成功後の再実行は `loadMapsJs` が
+/// `google.maps` の存在を見て即座に返すため、無駄な再読み込みにはならない。
+final mapsJsLoadedProvider = FutureProvider.autoDispose<bool>(
   (ref) => loadMapsJsIfNeeded(
     isWeb: kIsWeb,
     flagEnabled: AppConfig.useRealMap,
