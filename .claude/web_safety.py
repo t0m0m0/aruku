@@ -38,7 +38,11 @@ DART_IO_ALLOWLIST = {
     "lib/core/models/route_error.dart": frozenset({"IOException"}),
 }
 
-DART_IO_IMPORT_RE = re.compile(r"""^\s*import\s+['"]dart:io['"](?P<rest>[^;]*);""")
+# 行単位で見てはいけない。`show` 句が長いと dart format が改行し、`;` が別行へ回る。
+# 同一行前提の正規表現はそれを取りこぼし、**所見ゼロ**＝合格になる（PR #363 レビュー）。
+DART_IO_IMPORT_RE = re.compile(
+    r"""import\s+['"]dart:io['"](?P<rest>[^;]*);""", re.DOTALL
+)
 SHOW_RE = re.compile(r"\bshow\s+(?P<symbols>[A-Za-z0-9_,\s]+)")
 # 直前が識別子文字なら別物（`TargetPlatform.` を拾わないため）。
 PLATFORM_USE_RE = re.compile(r"(?<![\w$])Platform\s*\.")
@@ -47,7 +51,12 @@ PLATFORM_USE_RE = re.compile(r"(?<![\w$])Platform\s*\.")
 #
 # 単に `kIsWeb` が同じ行にあることを条件にしてはいけない。`if (kIsWeb) Platform.isX`
 # が通ってしまい、それは Web でこそ評価される真逆の書き方になる（PR #363 レビュー）。
-GUARD_RE = re.compile(r"\(\s*\)\s*=>|!\s*kIsWeb\s*&&|kIsWeb\s*\|\|")
+#
+# さらに、行内のどこかに在るだけでも足りない。ガードは `Platform.` の**直前**に
+# 接していなければ、その式を守っている保証がない——`consume(() => false, Platform.isX)`
+# のサンクは別の引数のものだし、`… && safe(); Platform.isX;` のガードは別の文のもの。
+# 末尾一致にすることで「この式に掛かっている」ことだけを許す。
+GUARD_RE = re.compile(r"(?:\(\s*\)\s*=>|!\s*kIsWeb\s*&&|kIsWeb\s*\|\|)\s*$")
 
 STRING_RE = re.compile(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"")
 LINE_COMMENT_RE = re.compile(r"//.*$")
@@ -103,22 +112,20 @@ def scan(root):
         if EXCLUDE_RE.match(rel):
             continue
         text = strip_block_comments(path.read_text(encoding="utf-8"))
+        # 行コメントだけ落とした全文。改行数を保つので、一致位置から行番号を数えられる。
+        uncommented = "\n".join(
+            LINE_COMMENT_RE.sub("", ln) for ln in text.splitlines()
+        )
+        for imp in DART_IO_IMPORT_RE.finditer(uncommented):
+            n = uncommented.count("\n", 0, imp.start()) + 1
+            findings.extend(check_dart_io_import(rel, n, imp.group("rest")))
         for n, raw in enumerate(text.splitlines(), start=1):
-            uncommented = LINE_COMMENT_RE.sub("", raw)
             line = strip_comments(raw)
-            imp = DART_IO_IMPORT_RE.match(uncommented)
-            if imp:
-                findings.extend(check_dart_io_import(rel, n, imp.group("rest")))
             # 1行に複数あることがある。最初の1つだけ見ると、守られた呼び出しの隣に
             # 素の評価を書いた場合に素通りする（PR #363 レビュー）。
             #
-            # ガードを探す範囲を「直前の Platform. の終わりから」に限るのは、行頭から
-            # 探すと 1 つ目を守ったサンクが 2 つ目まで守っているように見えるため。
-            prev_end = 0
             for m in PLATFORM_USE_RE.finditer(line):
-                guarded = GUARD_RE.search(line[prev_end : m.start()])
-                prev_end = m.end()
-                if guarded:
+                if GUARD_RE.search(line[: m.start()]):
                     continue
                 findings.append(
                     (rel, n, "Platform を直接評価している。Web では UnsupportedError "

@@ -42,8 +42,20 @@ bool _mapsApiReady() {
       .isDefinedAndNotNull;
 }
 
+/// 進行中の読み込み。完了したら捨てる。
+///
+/// 保持するのは、`mapsJsLoadedProvider` が autoDispose で、読み込み中に地図が画面から
+/// 消えて再び現れると 2 回目の呼び出しが来るため。そのとき `_mapsApiReady()` はまだ
+/// false なので、これが無いと script を二重に注入する（PR #363 レビュー）。
+/// 完了後に捨てるのは、失敗した結果を抱え込むと再試行できなくなるから。
+Future<bool>? _pending;
+
 Future<bool> loadMapsJs(String url) {
   if (_mapsApiReady()) return Future<bool>.value(true);
+  return _pending ??= _inject(url).whenComplete(() => _pending = null);
+}
+
+Future<bool> _inject(String url) {
   final completer = Completer<bool>();
   final script = _document.createElement('script')
     ..src = url

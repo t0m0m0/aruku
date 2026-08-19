@@ -90,6 +90,27 @@ class DartIoImports(unittest.TestCase):
             self.assertEqual(code, 1, out)
             self.assertIn("lib/core/services/uploader.dart", out)
 
+    def test_multiline_import_is_still_checked(self):
+        # dart format は show 句が長いと改行する。`;` が別行にあっても素通りさせない。
+        with Tree() as t:
+            t.write(
+                "lib/core/services/uploader.dart",
+                "import 'dart:io'\n    show File, Directory;\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
+            self.assertIn("lib/core/services/uploader.dart", out)
+
+    def test_multiline_import_in_allowlisted_file_is_validated(self):
+        with Tree() as t:
+            t.write(
+                "lib/main.dart",
+                "import 'dart:io'\n    show Platform, File;\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
+            self.assertIn("File", out)
+
     def test_dart_io_in_a_comment_is_not_an_import(self):
         with Tree() as t:
             t.write("lib/core/note.dart", "// import 'dart:io'; は Web で使えない。\n")
@@ -129,6 +150,25 @@ class PlatformEvaluation(unittest.TestCase):
             t.write(
                 "lib/main.dart",
                 "final x = f(() => Platform.isIOS, Platform.isAndroid);\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
+
+    def test_thunk_for_another_argument_does_not_protect(self):
+        # `() =>` は別の引数のもの。Platform は素で評価される。
+        with Tree() as t:
+            t.write(
+                "lib/main.dart",
+                "final x = consume(() => false, Platform.isAndroid);\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
+
+    def test_guard_in_a_previous_statement_does_not_protect(self):
+        with Tree() as t:
+            t.write(
+                "lib/main.dart",
+                "void f() { final x = !kIsWeb && safe(); Platform.isAndroid; }\n",
             )
             code, out = check(t.path)
             self.assertEqual(code, 1, out)
