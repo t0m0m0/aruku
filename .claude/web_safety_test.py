@@ -132,6 +132,16 @@ class DartIoImports(unittest.TestCase):
             code, out = check(t.path)
             self.assertEqual(code, 1, out)
 
+    def test_import_text_inside_a_string_is_not_a_directive(self):
+        # 診断メッセージなどに書かれた文字列で、正当な変更を止めてはいけない。
+        with Tree() as t:
+            t.write(
+                "lib/core/probe.dart",
+                "const hint = \"import 'dart:io'; は Web で使えません\";\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 0, out)
+
     def test_dart_io_in_a_comment_is_not_an_import(self):
         with Tree() as t:
             t.write("lib/core/note.dart", "// import 'dart:io'; は Web で使えない。\n")
@@ -210,6 +220,13 @@ class PlatformEvaluation(unittest.TestCase):
             )
             code, out = check(t.path)
             self.assertEqual(code, 0, out)
+
+    def test_thunk_for_an_unknown_parameter_is_rejected(self):
+        # platform_capabilities の遅延引数以外は、即時に呼ばれないと証明できない。
+        with Tree() as t:
+            t.write("lib/main.dart", "final x = eager(cb: () => Platform.isIOS);\n")
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
 
     def test_bare_platform_evaluation_is_rejected(self):
         with Tree() as t:

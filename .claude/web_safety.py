@@ -44,9 +44,13 @@ DART_IO_ALLOWLIST = {
 # dart:io が一切現れないまま File などがスコープに入る（PR #363 レビュー）。
 # raw string（`r'dart:io'`）と三重引用符も URI として有効。素の引用符だけを見ると
 # そこが抜け道になる（PR #363 レビュー。実際に exit 0 を確認した）。
+# 行頭に錨を打つのは、文字列リテラル中の `"import 'dart:io';"` を指令と読まないため。
+# 診断メッセージや例文でそれを書いただけで CI が落ちると、正当な変更が止まる
+# （PR #363 レビュー）。指令は行頭から始まる一方、`;` は改行の先にあり得るので
+# MULTILINE と DOTALL を併用する。
 DART_IO_IMPORT_RE = re.compile(
-    r"""(?:import|export)\s+r?(?P<q>'{3}|"{3}|'|")dart:io(?P=q)(?P<rest>[^;]*);""",
-    re.DOTALL,
+    r"""^\s*(?:import|export)\s+r?(?P<q>'{3}|"{3}|'|")dart:io(?P=q)(?P<rest>[^;]*);""",
+    re.MULTILINE | re.DOTALL,
 )
 SHOW_RE = re.compile(r"\bshow\s+(?P<symbols>[A-Za-z0-9_,\s]+)")
 # 直前が識別子文字なら別物（`TargetPlatform.` を拾わないため）。
@@ -61,11 +65,18 @@ PLATFORM_USE_RE = re.compile(r"(?<![\w$])Platform\s*\.")
 # 接していなければ、その式を守っている保証がない——`consume(() => false, Platform.isX)`
 # のサンクは別の引数のものだし、`… && safe(); Platform.isX;` のガードは別の文のもの。
 # 末尾一致にすることで「この式に掛かっている」ことだけを許す。
-# サンクに `名前:` を要求するのは、素の `(() => Platform.isX)()` を弾くため。直後に
-# 呼ぶサンクは遅延にならず、Web でその場で評価される。platform_capabilities へ
-# 名前付き引数で渡す形だけを許す（PR #363 レビュー）。
+# サンクは platform_capabilities の遅延引数名に限る。素の `(() => Platform.isX)()` は
+# 直後に呼ばれるので遅延にならず、任意の名前付き引数も呼び出し側が即時に呼ぶかも
+# しれない（PR #363 レビュー）。名前を絞れば、新しい遅延引数を足すときに意識的な
+# 更新が要る——DART_IO_ALLOWLIST と同じ考え方。
+#
+# **これは規約の検査であって証明ではない。** 呼び出し先がサンクを即時に呼ぶかどうかは
+# 正規表現では判定できない。ここで担保しているのは「このリポジトリの遅延評価の型に
+# 従っている」ことまでで、そこから先は platform_capabilities のテストが受け持つ。
+LAZY_PLATFORM_ARGS = ("isIOS", "isAndroid")
 GUARD_RE = re.compile(
-    r"(?:\w+\s*:\s*\(\s*\)\s*=>|!\s*kIsWeb\s*&&|kIsWeb\s*\|\|)\s*$"
+    r"(?:(?:" + "|".join(LAZY_PLATFORM_ARGS) + r")\s*:\s*\(\s*\)\s*=>"
+    r"|!\s*kIsWeb\s*&&|kIsWeb\s*\|\|)\s*$"
 )
 
 STRING_RE = re.compile(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"")
