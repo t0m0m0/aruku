@@ -275,6 +275,34 @@ class PlatformEvaluation(unittest.TestCase):
             code, out = check(t.path)
             self.assertEqual(code, 0, out)
 
+    def test_nested_block_comment_stays_commented(self):
+        # Dart はブロックコメントの入れ子を許す。内側の */ で終わりにしてはいけない。
+        with Tree() as t:
+            t.write(
+                "lib/core/probe.dart",
+                "/* outer /* inner */ Platform.isAndroid */\nconst a = 1;\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 0, out)
+
+    def test_comment_inside_interpolation_does_not_end_it(self):
+        with Tree() as t:
+            t.write(
+                "lib/core/probe.dart",
+                "final x = '${/* } */ Platform.isAndroid}';\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
+
+    def test_nested_string_inside_interpolation_is_lexed(self):
+        with Tree() as t:
+            t.write(
+                "lib/core/probe.dart",
+                "final x = '${f(\'}\') ? Platform.isAndroid : false}';\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
+
     def test_bare_platform_evaluation_is_rejected(self):
         with Tree() as t:
             t.write("lib/main.dart", "final x = Platform.isAndroid;\n")

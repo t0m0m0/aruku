@@ -98,13 +98,14 @@ def mask(text, keep_strings):
 
     長さと改行を保つので、一致位置から行番号を数えられる。
 
-    正規表現ではなく走査で書くのは、文字列とコメントが互いを含み得るため。
+    正規表現ではなく走査で書くのは、文字列・コメント・補間が互いを含み得るため。
     `const opening = '/*';` を本物のコメント開始と読むと、そこから先のコードが
     まるごと検査から消える。逆に `'https://…'` の `//` を行コメントと読むと、その行の
     残りが消える。境界の判定はここ 1 箇所に集約する（PR #363 レビュー）。
 
     文字列補間 `${…}` の中身は潰さない——そこは実行されるコードで、
-    `'running on ${Platform.operatingSystem}'` は Web で落ちる。
+    `'running on ${Platform.operatingSystem}'` は Web で落ちる。中身も同じ規則で
+    走るので、そこに現れるコメントや入れ子の文字列も正しく扱える。
     """
     out = list(text)
     n = len(text)
@@ -114,48 +115,77 @@ def mask(text, keep_strings):
             if out[k] != "\n":
                 out[k] = " "
 
-    i = 0
-    while i < n:
-        if text.startswith("//", i):
-            j = text.find("\n", i)
-            j = n if j < 0 else j
-            blank(i, j)
-            i = j
-            continue
-        if text.startswith("/*", i):
-            j = text.find("*/", i + 2)
-            j = n if j < 0 else j + 2
-            blank(i, j)
-            i = j
-            continue
-        raw = text[i] == "r" and i + 1 < n and text[i + 1] in "'\""
-        q = i + 1 if raw else i
-        if q < n and text[q] in "'\"":
-            quote = text[q]
-            delim = quote * 3 if text.startswith(quote * 3, q) else quote
-            j = q + len(delim)
-            content = j
-            while j < n:
-                if not raw and text[j] == "\\":
-                    j += 2
-                    continue
-                if not raw and text.startswith("${", j):
-                    if not keep_strings:
-                        blank(content, j)
-                    depth, j = 1, j + 2
-                    while j < n and depth:
-                        depth += (text[j] == "{") - (text[j] == "}")
-                        j += 1
-                    content = j
-                    continue
-                if text.startswith(delim, j):
-                    break
+    def block_comment(i):
+        """`/* … */` を潰し、閉じた次の位置を返す。Dart は入れ子を許すので数える。
+
+        内側の `*/` で打ち切ると、まだコメントの中なのに残りをコードとして
+        検査してしまう。既存のコメントを含むブロックを丸ごとコメントアウトする、
+        という日常的な編集で踏む（PR #363 レビュー）。
+        """
+        depth, j = 1, i + 2
+        while j < n and depth:
+            if text.startswith("/*", j):
+                depth, j = depth + 1, j + 2
+            elif text.startswith("*/", j):
+                depth, j = depth - 1, j + 2
+            else:
                 j += 1
-            if not keep_strings:
-                blank(content, j)
-            i = min(j + len(delim), n)
-            continue
-        i += 1
+        blank(i, j)
+        return j
+
+    def string(q, raw):
+        """文字列リテラルを潰し、閉じた次の位置を返す。[q] は開き引用符の位置。"""
+        quote = text[q]
+        delim = quote * 3 if text.startswith(quote * 3, q) else quote
+        j = q + len(delim)
+        content = j
+        while j < n:
+            if not raw and text[j] == "\\":
+                j += 2
+                continue
+            if not raw and text.startswith("${", j):
+                if not keep_strings:
+                    blank(content, j)
+                j = min(code(j + 2, stop_at_brace=True) + 1, n)
+                content = j
+                continue
+            if text.startswith(delim, j):
+                break
+            j += 1
+        if not keep_strings:
+            blank(content, j)
+        return min(j + len(delim), n)
+
+    def code(i, stop_at_brace=False):
+        """コード領域を走る。[stop_at_brace] なら対応する `}` の位置を返す。"""
+        depth = 0
+        while i < n:
+            c = text[i]
+            if c == "}":
+                if stop_at_brace and depth == 0:
+                    return i
+                depth -= 1
+            elif c == "{":
+                depth += 1
+            elif text.startswith("//", i):
+                j = text.find("\n", i)
+                j = n if j < 0 else j
+                blank(i, j)
+                i = j
+                continue
+            elif text.startswith("/*", i):
+                i = block_comment(i)
+                continue
+            else:
+                raw = c == "r" and i + 1 < n and text[i + 1] in "'\""
+                q = i + 1 if raw else i
+                if text[q] in "'\"":
+                    i = string(q, raw)
+                    continue
+            i += 1
+        return i
+
+    code(0)
     return "".join(out)
 
 
