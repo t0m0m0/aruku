@@ -87,10 +87,7 @@ _GUARD_TOKEN = (
     r"(?:" + "|".join(LAZY_PLATFORM_ARGS) + r")\s*:\s*\(\s*\)\s*=>"
     r"|!\s*kIsWeb\s*&&|kIsWeb\s*\|\|"
 )
-GUARD_RE = re.compile(r"(?:" + _GUARD_TOKEN + r")\s*$")
-# ガードが括弧で群をまとめる形。`!kIsWeb && (Platform.isAndroid || Platform.isIOS)` の
-# 2 つ目は末尾一致では拾えないが、群ごと短絡するので安全（PR #363 レビュー）。
-GUARD_GROUP_RE = re.compile(r"(?:" + _GUARD_TOKEN + r")\s*\(")
+GUARD_TOKEN_RE = re.compile(_GUARD_TOKEN)
 
 
 def mask(text, keep_strings):
@@ -190,12 +187,29 @@ def mask(text, keep_strings):
 
 
 def guarded_spans(code):
-    """ガードが括弧でまとめた群の範囲。中の `Platform.` は短絡で守られる。"""
+    """ガードが守る範囲。短絡かサンクなので、この中の `Platform.` は Web で評価されない。
+
+    右辺は括弧で括られているとは限らない。`!kIsWeb && f(Platform.isX)` も
+    `… && '${Platform.x}'.isNotEmpty` も短絡する以上は安全で、ガードが `Platform.` に
+    隣接していることを求めると、これらを誤検知する（PR #363 レビュー）。
+
+    そこで「ガードの直後から、その式が終わるまで」を範囲にする。深さを見ながら、
+    深さ 0 の `;` `,` か、始点より浅い閉じ括弧で止める。`… && safe(); Platform.isX;`
+    のように文が変われば `;` で切れるので、別の文までは守らない。
+    """
     spans = []
-    for m in GUARD_GROUP_RE.finditer(code):
-        depth, j = 1, m.end()
-        while j < len(code) and depth:
-            depth += (code[j] == "(") - (code[j] == ")")
+    for m in GUARD_TOKEN_RE.finditer(code):
+        j, depth = m.end(), 0
+        while j < len(code):
+            c = code[j]
+            if c in "([{":
+                depth += 1
+            elif c in ")]}":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif depth == 0 and c in ";,":
+                break
             j += 1
         spans.append((m.end(), j))
     return spans
@@ -241,8 +255,6 @@ def scan(root):
         code = mask(text, keep_strings=False)
         spans = guarded_spans(code)
         for m in PLATFORM_USE_RE.finditer(code):
-            if GUARD_RE.search(code[: m.start()]):
-                continue
             if any(a <= m.start() < b for a, b in spans):
                 continue
             n = code.count("\n", 0, m.start()) + 1

@@ -303,6 +303,22 @@ class PlatformEvaluation(unittest.TestCase):
             code, out = check(t.path)
             self.assertEqual(code, 1, out)
 
+    def test_guard_protects_a_nested_right_operand(self):
+        # 短絡は右辺全体に効く。括弧で括った形だけが安全なのではない。
+        with Tree() as t:
+            t.write("lib/main.dart", "final x = !kIsWeb && f(Platform.isAndroid);\n")
+            code, out = check(t.path)
+            self.assertEqual(code, 0, out)
+
+    def test_guard_protects_interpolation_in_right_operand(self):
+        with Tree() as t:
+            t.write(
+                "lib/main.dart",
+                "final x = !kIsWeb && '${Platform.operatingSystem}'.isNotEmpty;\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 0, out)
+
     def test_bare_platform_evaluation_is_rejected(self):
         with Tree() as t:
             t.write("lib/main.dart", "final x = Platform.isAndroid;\n")
