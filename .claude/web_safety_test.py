@@ -142,6 +142,16 @@ class DartIoImports(unittest.TestCase):
             code, out = check(t.path)
             self.assertEqual(code, 0, out)
 
+    def test_conditional_import_uri_is_checked(self):
+        # 条件付き import の分岐 URI も実際に選択され得る。
+        with Tree() as t:
+            t.write(
+                "lib/core/probe.dart",
+                "import 'stub.dart' if (dart.library.io) 'dart:io' show File;\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
+
     def test_dart_io_in_a_comment_is_not_an_import(self):
         with Tree() as t:
             t.write("lib/core/note.dart", "// import 'dart:io'; は Web で使えない。\n")
@@ -227,6 +237,43 @@ class PlatformEvaluation(unittest.TestCase):
             t.write("lib/main.dart", "final x = eager(cb: () => Platform.isIOS);\n")
             code, out = check(t.path)
             self.assertEqual(code, 1, out)
+
+    def test_triple_quoted_string_content_is_not_code(self):
+        with Tree() as t:
+            t.write(
+                "lib/core/probe.dart",
+                "const help = \'\'\'\n  Platform.isAndroid を直接書かないこと\n\'\'\';\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 0, out)
+
+    def test_platform_inside_string_interpolation_is_rejected(self):
+        # 補間の中身は実行される。文字列ごと潰すと見逃す。
+        with Tree() as t:
+            t.write(
+                "lib/core/probe.dart",
+                "final label = 'running on ${Platform.operatingSystem}';\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
+
+    def test_comment_delimiters_in_strings_do_not_blank_code(self):
+        with Tree() as t:
+            t.write(
+                "lib/core/probe.dart",
+                "const opening = '/*';\nfinal x = Platform.isAndroid;\nconst closing = '*/';\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 1, out)
+
+    def test_parenthesized_short_circuit_guard_is_allowed(self):
+        with Tree() as t:
+            t.write(
+                "lib/main.dart",
+                "final x = !kIsWeb && (Platform.isAndroid || Platform.isIOS);\n",
+            )
+            code, out = check(t.path)
+            self.assertEqual(code, 0, out)
 
     def test_bare_platform_evaluation_is_rejected(self):
         with Tree() as t:

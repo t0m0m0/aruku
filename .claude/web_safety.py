@@ -57,80 +57,128 @@ DART_IO_ALLOWLIST = {
     "lib/core/models/route_error.dart": frozenset({"IOException"}),
 }
 
-# 行単位で見てはいけない。`show` 句が長いと dart format が改行し、`;` が別行へ回る。
-# 同一行前提の正規表現はそれを取りこぼし、**所見ゼロ**＝合格になる（PR #363 レビュー）。
-# export も見る。barrel が `export 'dart:io';` すると、それを import した側には
-# dart:io が一切現れないまま File などがスコープに入る（PR #363 レビュー）。
-# raw string（`r'dart:io'`）と三重引用符も URI として有効。素の引用符だけを見ると
-# そこが抜け道になる（PR #363 レビュー。実際に exit 0 を確認した）。
-# 行頭に錨を打つのは、文字列リテラル中の `"import 'dart:io';"` を指令と読まないため。
-# 診断メッセージや例文でそれを書いただけで CI が落ちると、正当な変更が止まる
-# （PR #363 レビュー）。指令は行頭から始まる一方、`;` は改行の先にあり得るので
-# MULTILINE と DOTALL を併用する。
-DART_IO_IMPORT_RE = re.compile(
-    r"""^\s*(?:import|export)\s+r?(?P<q>'{3}|"{3}|'|")dart:io(?P=q)(?P<rest>[^;]*);""",
-    re.MULTILINE | re.DOTALL,
+# 指令は行頭から始まる。文字列リテラル中の `"import 'dart:io';"` を指令と読むと、
+# 診断メッセージや例文を書いただけで CI が落ちる（PR #363 レビュー）。`;` は改行の
+# 先にあり得るので MULTILINE と DOTALL を併用する。
+DIRECTIVE_RE = re.compile(
+    r"^\s*(?:import|export)\b(?P<body>[^;]*);", re.MULTILINE | re.DOTALL
 )
+# 指令の中に現れる dart:io の URI。条件付き import
+# （`import 'stub.dart' if (dart.library.io) 'dart:io' …`）の分岐も実際に選択される
+# ため、先頭の URI だけを見ては塞げない。raw string と三重引用符も有効な記法。
+DART_IO_URI_RE = re.compile(r"""r?(?P<q>'{3}|"{3}|'|")dart:io(?P=q)""")
 SHOW_RE = re.compile(r"\bshow\s+(?P<symbols>[A-Za-z0-9_,\s]+)")
 # 直前が識別子文字なら別物（`TargetPlatform.` を拾わないため）。
 PLATFORM_USE_RE = re.compile(r"(?<![\w$])Platform\s*\.")
+
 # 評価を Web まで届かせない書き方だけを許す。サンクは呼ばれるまで評価されず、
 # `!kIsWeb &&` と `kIsWeb ||` は短絡して Web では右辺に到達しない。
 #
 # 単に `kIsWeb` が同じ行にあることを条件にしてはいけない。`if (kIsWeb) Platform.isX`
-# が通ってしまい、それは Web でこそ評価される真逆の書き方になる（PR #363 レビュー）。
+# が通ってしまい、それは Web でこそ評価される真逆の書き方になる。さらに、行内の
+# どこかに在るだけでも足りない——`consume(() => false, Platform.isX)` のサンクは別の
+# 引数のものだ。末尾一致にして「この式に掛かっている」ものだけを許す。
 #
-# さらに、行内のどこかに在るだけでも足りない。ガードは `Platform.` の**直前**に
-# 接していなければ、その式を守っている保証がない——`consume(() => false, Platform.isX)`
-# のサンクは別の引数のものだし、`… && safe(); Platform.isX;` のガードは別の文のもの。
-# 末尾一致にすることで「この式に掛かっている」ことだけを許す。
 # サンクは platform_capabilities の遅延引数名に限る。素の `(() => Platform.isX)()` は
 # 直後に呼ばれるので遅延にならず、任意の名前付き引数も呼び出し側が即時に呼ぶかも
-# しれない（PR #363 レビュー）。名前を絞れば、新しい遅延引数を足すときに意識的な
-# 更新が要る——DART_IO_ALLOWLIST と同じ考え方。
-#
-# **これは規約の検査であって証明ではない。** 呼び出し先がサンクを即時に呼ぶかどうかは
-# 正規表現では判定できない。ここで担保しているのは「このリポジトリの遅延評価の型に
-# 従っている」ことまでで、そこから先は platform_capabilities のテストが受け持つ。
+# しれない。名前を絞れば、新しい遅延引数を足すときに意識的な更新が要る。
 LAZY_PLATFORM_ARGS = ("isIOS", "isAndroid")
-GUARD_RE = re.compile(
-    r"(?:(?:" + "|".join(LAZY_PLATFORM_ARGS) + r")\s*:\s*\(\s*\)\s*=>"
-    r"|!\s*kIsWeb\s*&&|kIsWeb\s*\|\|)\s*$"
+_GUARD_TOKEN = (
+    r"(?:" + "|".join(LAZY_PLATFORM_ARGS) + r")\s*:\s*\(\s*\)\s*=>"
+    r"|!\s*kIsWeb\s*&&|kIsWeb\s*\|\|"
 )
-
-STRING_RE = re.compile(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"")
-LINE_COMMENT_RE = re.compile(r"//.*$")
-
-
-def strip_block_comments(text):
-    """`/* */` を空白へ潰す。改行は残す——行番号がずれると報告先が嘘になる。"""
-
-    def blank(m):
-        return re.sub(r"[^\n]", " ", m.group(0))
-
-    return re.sub(r"/\*.*?\*/", blank, text, flags=re.DOTALL)
+GUARD_RE = re.compile(r"(?:" + _GUARD_TOKEN + r")\s*$")
+# ガードが括弧で群をまとめる形。`!kIsWeb && (Platform.isAndroid || Platform.isIOS)` の
+# 2 つ目は末尾一致では拾えないが、群ごと短絡するので安全（PR #363 レビュー）。
+GUARD_GROUP_RE = re.compile(r"(?:" + _GUARD_TOKEN + r")\s*\(")
 
 
-def strip_comments(line):
-    """コードだけを残す。文字列は中身を潰す。
+def mask(text, keep_strings):
+    """コメント（と [keep_strings] が false なら文字列の中身）を空白へ潰す。
 
-    文字列を先に潰すのは、`'https://…'` の `//` を行コメントと読むと、その行の
-    残りが検査から静かに消えるため。
+    長さと改行を保つので、一致位置から行番号を数えられる。
 
-    import の検査にこれを使ってはいけない——`import 'dart:io'` の `'dart:io'` 自体が
-    文字列で、潰すと検出が一度も発火しなくなる（違反ゼロと見分けが付かない）。
+    正規表現ではなく走査で書くのは、文字列とコメントが互いを含み得るため。
+    `const opening = '/*';` を本物のコメント開始と読むと、そこから先のコードが
+    まるごと検査から消える。逆に `'https://…'` の `//` を行コメントと読むと、その行の
+    残りが消える。境界の判定はここ 1 箇所に集約する（PR #363 レビュー）。
+
+    文字列補間 `${…}` の中身は潰さない——そこは実行されるコードで、
+    `'running on ${Platform.operatingSystem}'` は Web で落ちる。
     """
-    return LINE_COMMENT_RE.sub("", STRING_RE.sub("''", line))
+    out = list(text)
+    n = len(text)
+
+    def blank(a, b):
+        for k in range(a, min(b, n)):
+            if out[k] != "\n":
+                out[k] = " "
+
+    i = 0
+    while i < n:
+        if text.startswith("//", i):
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+            blank(i, j)
+            i = j
+            continue
+        if text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            blank(i, j)
+            i = j
+            continue
+        raw = text[i] == "r" and i + 1 < n and text[i + 1] in "'\""
+        q = i + 1 if raw else i
+        if q < n and text[q] in "'\"":
+            quote = text[q]
+            delim = quote * 3 if text.startswith(quote * 3, q) else quote
+            j = q + len(delim)
+            content = j
+            while j < n:
+                if not raw and text[j] == "\\":
+                    j += 2
+                    continue
+                if not raw and text.startswith("${", j):
+                    if not keep_strings:
+                        blank(content, j)
+                    depth, j = 1, j + 2
+                    while j < n and depth:
+                        depth += (text[j] == "{") - (text[j] == "}")
+                        j += 1
+                    content = j
+                    continue
+                if text.startswith(delim, j):
+                    break
+                j += 1
+            if not keep_strings:
+                blank(content, j)
+            i = min(j + len(delim), n)
+            continue
+        i += 1
+    return "".join(out)
 
 
-def check_dart_io_import(rel, n, rest):
-    """`import 'dart:io' …;` の 1 行を検査する。[rest] は パスと `;` の間。"""
+def guarded_spans(code):
+    """ガードが括弧でまとめた群の範囲。中の `Platform.` は短絡で守られる。"""
+    spans = []
+    for m in GUARD_GROUP_RE.finditer(code):
+        depth, j = 1, m.end()
+        while j < len(code) and depth:
+            depth += (code[j] == "(") - (code[j] == ")")
+            j += 1
+        spans.append((m.end(), j))
+    return spans
+
+
+def check_dart_io_directive(rel, n, body):
+    """dart:io を含む import / export 指令 1 件を検査する。"""
     allowed = DART_IO_ALLOWLIST.get(rel)
     if allowed is None:
         return [(rel, n, "dart:io を新しく import / export している。Web では評価した時点で "
                  "UnsupportedError になる。避けられないなら .claude/web_safety.py の "
                  "DART_IO_ALLOWLIST へ、使う記号を列挙して足すこと")]
-    show = SHOW_RE.search(rest)
+    show = SHOW_RE.search(body)
     if not show:
         return [(rel, n, "dart:io を `show` 無しで import している。dart:io 全体が "
                  "スコープに入るため、File などが後から静かに混入する。"
@@ -151,21 +199,21 @@ def scan(root):
         rel = path.relative_to(base).as_posix()
         if EXCLUDE_RE.match(rel):
             continue
-        text = strip_block_comments(path.read_text(encoding="utf-8"))
-        # 行コメントだけ落とした全文。改行数を保つので、一致位置から行番号を数えられる。
-        uncommented = "\n".join(
-            LINE_COMMENT_RE.sub("", ln) for ln in text.splitlines()
-        )
-        for imp in DART_IO_IMPORT_RE.finditer(uncommented):
-            n = uncommented.count("\n", 0, imp.start()) + 1
-            findings.extend(check_dart_io_import(rel, n, imp.group("rest")))
-        # Platform も行単位で見ない。dart format は長い式を折るので `isIOS: () =>` と
-        # `Platform.isIOS` が別行に分かれる。行ごとに見ると、この検査が推奨している
-        # 書き方そのものを誤検知する（PR #363 レビュー）。全文を通して見れば、
-        # 直前一致の判定が改行をまたいでも成立する。
-        code = "\n".join(strip_comments(ln) for ln in text.splitlines())
+        text = path.read_text(encoding="utf-8")
+        # 指令の検査は URI を読む必要があるので文字列を残す。
+        directives = mask(text, keep_strings=True)
+        for d in DIRECTIVE_RE.finditer(directives):
+            if not DART_IO_URI_RE.search(d.group("body")):
+                continue
+            n = directives.count("\n", 0, d.start()) + 1
+            findings.extend(check_dart_io_directive(rel, n, d.group("body")))
+        # Platform の検査は文字列を潰す。補間の中身は残る。
+        code = mask(text, keep_strings=False)
+        spans = guarded_spans(code)
         for m in PLATFORM_USE_RE.finditer(code):
             if GUARD_RE.search(code[: m.start()]):
+                continue
+            if any(a <= m.start() < b for a, b in spans):
                 continue
             n = code.count("\n", 0, m.start()) + 1
             findings.append(
