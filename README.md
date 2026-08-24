@@ -354,11 +354,17 @@ npx --yes wrangler@latest pages project create aruku --production-branch=main
 
 ### 3. production Environment の branch rule（**必須**）
 
-Settings → Environments → production → Deployment branches で **`main` のみ**を許可します。
+Settings → Environments → production → Deployment branches and tags で **`main` のみ**を
+許可します。**ルールの種別は「Branch」を選んでください**（「Tag」ではありません）。
 
 これが実際に ref を縛る唯一の仕組みです。ワークフローファイル側の `if` はブランチから
-書き換えられますが、Environment の branch rule は GitHub 側が強制するため、main 以外の ref から
+書き換えられますが、Environment のルールは GitHub 側が強制するため、許可されていない ref から
 `environment: production` のジョブを走らせようとするとゲートで拒否されます。
+
+種別を指定するのは、名前パターンがブランチとタグで個別に設定されるためです。Branch 種別の
+`main` は `refs/tags/main` に一致しないので、同名タグを作って dispatch する経路は塞がります
+（Tag のルールを別途作らない限り、タグからは配信できません）。「Protected branches only」を
+選ぶ形でも構いません——保護ブランチと同名のタグからの deployment は GitHub 側が拒否します。
 
 同じ画面で required reviewers を設定すれば、配信前に承認を挟めます
 （`deploy-functions.yml` と同じ環境です）。
