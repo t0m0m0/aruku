@@ -36,6 +36,13 @@ jobs:
             fi
           fi
 
+      # dart:io の新規混入は web ビルドでは捕まらない（dart2js がスタブを提供する
+      # ためコンパイルは通り、触った瞬間に実行時例外になる）。静的に見るのはここ。
+      - name: Web safety
+        run: |
+          python3 .claude/web_safety_test.py
+          python3 .claude/web_safety.py
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -53,3 +60,9 @@ jobs:
 
       - name: Run tests
         run: flutter test
+
+      # Web を壊す変更を出す前に落とす（#359 Phase 3）。dart-define は渡さない——
+      # release ビルドでは assert が落ちるため鍵の検査は走らず、String.fromEnvironment
+      # は空文字を返すだけでコンパイルは通る。CI に秘密を持ち込まずに済む。
+      - name: Build web
+        run: flutter build web

@@ -7,5 +7,6 @@
   "APPLE_APP_CHECK_DEBUG_TOKEN": "your-ios-app-check-debug-token",
   "WEB_APP_CHECK_DEBUG_TOKEN": "your-web-app-check-debug-token",
   "RECAPTCHA_SITE_KEY": "your-recaptcha-v3-site-key",
+  "MAPS_WEB_API_KEY": "your-maps-javascript-api-key",
   "PROXY_BASE_URL": "http://127.0.0.1:5001/your-project-id/asia-northeast1"
 }

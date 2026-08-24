@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:io' show IOException;
 
 import 'package:http/http.dart' as http;
 

@@ -5,14 +5,19 @@ import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/l10n/app_localizations.dart';
 import 'package:aruku/shared/widgets/aruku_map.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-Widget _host(Widget child) => MaterialApp(
-  localizationsDelegates: AppLocalizations.localizationsDelegates,
-  supportedLocales: AppLocalizations.supportedLocales,
-  theme: ArukuTheme.light(),
-  home: Scaffold(body: child),
+/// ArukuMap は Maps JavaScript API の読み込み状態を watch するため
+/// ProviderScope を要する。VM では kIsWeb が false で読み込み自体が走らない。
+Widget _host(Widget child) => ProviderScope(
+  child: MaterialApp(
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
+    theme: ArukuTheme.light(),
+    home: Scaffold(body: child),
+  ),
 );
 
 void main() {

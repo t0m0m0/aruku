@@ -54,4 +54,11 @@ class AppConfig {
   static const String recaptchaSiteKey = String.fromEnvironment(
     'RECAPTCHA_SITE_KEY',
   );
+
+  /// Web の地図表示用 Maps JavaScript API キー。
+  /// ネイティブは Maps SDK が `AndroidManifest.xml` / `Info.plist` から自前で読むため
+  /// ここは Web 専用。未設定なら実地図の読み込みを見送り、スタイライズド地図になる。
+  static const String mapsWebApiKey = String.fromEnvironment(
+    'MAPS_WEB_API_KEY',
+  );
 }

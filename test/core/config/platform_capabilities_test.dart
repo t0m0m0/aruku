@@ -80,14 +80,33 @@ void main() {
 
   group('supportsRealMap', () {
     test('フラグが立っていればネイティブでは実地図を描画する', () {
-      expect(supportsRealMap(isWeb: false, flagEnabled: true), isTrue);
-      expect(supportsRealMap(isWeb: false, flagEnabled: false), isFalse);
+      expect(
+        supportsRealMap(isWeb: false, flagEnabled: true, mapsJsLoaded: false),
+        isTrue,
+      );
+      expect(
+        supportsRealMap(isWeb: false, flagEnabled: false, mapsJsLoaded: false),
+        isFalse,
+      );
     });
 
-    test('Web ではフラグが立っていても描画しない', () {
-      // web/index.html は Maps JavaScript SDK を読み込んでいないため、
-      // GoogleMap を作ると初期化に失敗して地図ごと描画できない（#359 Phase 2b 待ち）。
-      expect(supportsRealMap(isWeb: true, flagEnabled: true), isFalse);
+    test('Web では Maps JavaScript API の読み込みが済むまで描画しない', () {
+      // 読み込み前に GoogleMap を作ると window.google.maps が無く初期化に失敗する。
+      expect(
+        supportsRealMap(isWeb: true, flagEnabled: true, mapsJsLoaded: false),
+        isFalse,
+      );
+      expect(
+        supportsRealMap(isWeb: true, flagEnabled: true, mapsJsLoaded: true),
+        isTrue,
+      );
+    });
+
+    test('Web で読み込み済みでもフラグが立っていなければ描画しない', () {
+      expect(
+        supportsRealMap(isWeb: true, flagEnabled: false, mapsJsLoaded: true),
+        isFalse,
+      );
     });
   });
 

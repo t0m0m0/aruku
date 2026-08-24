@@ -1,15 +1,17 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../core/config/app_config.dart';
 import '../../core/config/platform_capabilities.dart';
+import '../../core/services/maps_js_loader.dart';
 import '../../core/theme/aruku_map_style.dart';
 import '../../core/theme/aruku_theme.dart';
 
 /// Map widget — uses google_maps_flutter when [useRealMap] is true,
 /// otherwise renders a stylized SVG-like placeholder matching the design.
-class ArukuMap extends StatefulWidget {
+class ArukuMap extends ConsumerStatefulWidget {
   const ArukuMap({
     super.key,
     this.variant = ArukuMapVariant.full,
@@ -30,7 +32,8 @@ class ArukuMap extends StatefulWidget {
 
   /// 既定は [AppConfig.useRealMap]（`--dart-define=USE_REAL_MAP=true` で true）。
   /// false のときは非インタラクティブなスタイライズド地図を描画する。
-  /// Web では [supportsRealMap] が true でも無視する（Maps JavaScript SDK 未読込）。
+  /// Web ではこれに加えて Maps JavaScript API の読み込み完了を要する
+  /// （[supportsRealMap]）。
   final bool useRealMap;
 
   final Set<Polyline> polylines;
@@ -56,7 +59,7 @@ class ArukuMap extends StatefulWidget {
   static const LatLng _defaultTarget = LatLng(35.6679, 139.7038);
 
   @override
-  State<ArukuMap> createState() => _ArukuMapState();
+  ConsumerState<ArukuMap> createState() => _ArukuMapState();
 }
 
 /// `didUpdateWidget` で自動 `_fitBounds` を実行すべきか判定する。
@@ -74,7 +77,7 @@ bool shouldAutoFitBounds({
   return oldBounds != newBounds;
 }
 
-class _ArukuMapState extends State<ArukuMap> {
+class _ArukuMapState extends ConsumerState<ArukuMap> {
   GoogleMapController? _controller;
 
   Future<void> _onMapCreated(GoogleMapController controller) async {
@@ -114,7 +117,12 @@ class _ArukuMapState extends State<ArukuMap> {
 
   @override
   Widget build(BuildContext context) {
-    if (supportsRealMap(isWeb: kIsWeb, flagEnabled: widget.useRealMap)) {
+    if (supportsRealMap(
+      isWeb: kIsWeb,
+      flagEnabled: widget.useRealMap,
+      mapsJsLoaded:
+          ref.watch(mapsJsLoadedProvider(widget.useRealMap)).value ?? false,
+    )) {
       final interactive = widget.variant != ArukuMapVariant.thumb;
       return GoogleMap(
         initialCameraPosition: CameraPosition(
