@@ -515,10 +515,10 @@ function isRoutesMatrixSuccessBody(data: unknown): boolean {
   return Array.isArray(data);
 }
 
-// CORS is set to * because clients are Flutter mobile apps which are not subject
-// to browser CORS restrictions. Unauthorized access is prevented by Firebase
-// App Check: every handler calls verifyAppCheck() to validate the
-// X-Firebase-AppCheck token before doing any billable work.
+// CORS を配信オリジンの列挙にしないのは、ブラウザ側の呼び出し元が Cloudflare Pages の
+// 本番ドメインと、そこへ割り当てられる `*.pages.dev` の両方になり、列挙では取りこぼすため。
+// オリジンで守らない代わりに認可は Firebase App Check が担う——各ハンドラは課金の
+// 発生する処理より前に verifyAppCheck() で X-Firebase-AppCheck トークンを検証する。
 
 /**
  * クエリの lat/lon を数値として取り出す。両方が有限値のときだけ

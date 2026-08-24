@@ -297,6 +297,67 @@ flutter build appbundle --release
 `android/key.properties` と keystore（`*.jks` / `*.keystore`）は gitignore 済みです。
 **絶対にコミットしないでください。**
 
+## Web 公開（Cloudflare Pages）
+
+`main` への push で `.github/workflows/deploy-web.yml` が `flutter build web` の成果物を
+Cloudflare Pages へ配信します。静的配信先に Cloudflare を選んだのは、Flutter の web 出力が
+初回ロードで数 MB になり、転送量に上限のある無料枠（Firebase Hosting Spark は 10GB/月）だと
+先に頭を打つためです。Vercel Hobby は帯域では足りますが ToS が非商用限定で、収益化
+（#238〜#240）と両立しません。
+
+**配信の費用はこの構成では実質かかりません。** 課金が発生し得るのは Google Maps Platform
+（SKU ごとの月間無料枠を超えた分）と Cloud Functions（Blaze）で、いずれも配信先の選択とは
+無関係です。
+
+### 1. Pages プロジェクトの作成
+
+ワークフローはプロジェクトが既にある前提で `pages deploy` します。一度だけ作成します。
+
+```sh
+npx --yes wrangler@latest pages project create aruku --production-branch=main
+```
+
+名前を変える場合は `deploy-web.yml` の `PAGES_PROJECT` も合わせてください。
+
+### 2. GitHub 側の設定
+
+| 種別 | 名前 | 内容 |
+|---|---|---|
+| Secret | `CLOUDFLARE_API_TOKEN` | 権限「Cloudflare Pages: 編集」のみを持つ API トークン |
+| Secret | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare ダッシュボード右側のアカウント ID |
+| Secret | `FIREBASE_WEB_API_KEY` / `FIREBASE_WEB_APP_ID` | Firebase Console → プロジェクトの設定 → マイアプリ（Web）|
+| Secret | `RECAPTCHA_SITE_KEY` | Web の App Check（reCAPTCHA v3）サイトキー。未設定だとプロキシが 401 |
+| Secret | `MAPS_WEB_API_KEY` | **本番用**の Maps JavaScript API キー（開発用と使い回さない）|
+| Variable | `PROXY_BASE_URL` | `https://asia-northeast1-{projectId}.cloudfunctions.net` |
+
+`PROXY_BASE_URL` だけ Variable なのは公開 URL で秘匿する対象ではないためです。いずれも
+未設定のままだと空文字がバンドルに焼かれて実行時に壊れるため、ワークフロー冒頭で
+存在検査をして落とします。
+
+`environment: production` を使うので、Environment に required reviewers を設定していれば
+配信前に承認を挟めます（`deploy-functions.yml` と同じ環境）。
+
+### 3. 公開ドメインの登録
+
+配信ドメインが決まったら次の3か所に登録します。いずれか漏れると、その機能だけが
+本番で静かに落ちます。
+
+- **Maps JavaScript API キーのリファラー制限** — `aruku.pages.dev/*`（独自ドメインなら
+  そちら）。**`*.pages.dev` を入れてはいけません。** 他人の Pages プロジェクトを含む
+  ワイルドカードになり、リファラー制限が実質無効になります。詳細は
+  [docs/security_hardening.md](docs/security_hardening.md) ①。
+- **App Check（reCAPTCHA v3）の許可ドメイン** — Firebase Console → App Check。
+- **Firebase Authentication の承認済みドメイン** — Firebase Console → Authentication。
+
+同じ理由で、このワークフローは PR ごとのプレビュー配信を作りません。プレビューは
+デプロイのたびにサブドメインが変わり、リファラー制限で追随できないためです。
+
+### 4. 注意
+
+`--dart-define` で渡した値はコンパイル時定数として `main.dart.js` に焼き込まれ、
+ブラウザから読めます。GitHub Secret にするのは履歴に残さず差し替えを効かせるためで、
+**公開後の露出は防げません。** 予算アラートと1日あたりのクォータ上限を併せて掛けてください。
+
 ## 秘匿情報の取り扱い
 
 | ファイル | 追跡 | 内容 |
