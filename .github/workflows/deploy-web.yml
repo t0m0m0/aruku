@@ -17,9 +17,18 @@ on:
 # デプロイごとに変わるサブドメインを追随できず、`*.pages.dev` を許可すれば
 # 他人の Pages プロジェクトからも使えるキーになる（docs/security_hardening.md ①）。
 #
-# workflow_dispatch は main 以外の ref からも起動できる。配信するのは main の
-# ときだけで、他の ref では検査とビルドまでを走らせて配信段を飛ばす（dry run）。
-# ref を見ずに配信すると、`--branch=main` が未マージの内容を本番として上書きする。
+# workflow_dispatch は main 以外の ref からも起動でき、そのとき**実行されるのは
+# その ref のワークフロー定義**である。したがってこのファイルに書いた
+# `if: github.ref == ...` は境界にならない——ブランチ側で消せる。配信の資格情報を
+# 守るのは次の2つで、どちらも GitHub 側が強制する:
+#
+#   1. CLOUDFLARE_* を production Environment のシークレットに置く（リポジトリ
+#      シークレットにしない）。Environment を宣言していない build ジョブからは届かない。
+#   2. production Environment に deployment branch rule を張り、main のみ許可する。
+#      これで ref を偽ったジョブは Environment のゲートで拒否される。
+#
+# dart-define 用のシークレットはリポジトリ側に置く。これらは main.dart.js に焼かれて
+# ブラウザから読める値であり、ブランチから参照できても権限の格上げにならないため。
 
 env:
   # ci.yml と同じ版に固定する。版が割れると CI が緑のまま配信物だけ壊れうる。
@@ -38,12 +47,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
-    name: Build and deploy
+  build:
+    name: Verify and build
     runs-on: ubuntu-latest
-    # deploy-functions.yml と同じ環境に載せ、本番へ出る経路の承認を一本化する。
-    # 注意: 承認は Environment 側で required reviewers を設定して初めて発動する。
-    environment: production
+    # environment を宣言しない。main 以外からも走るジョブに production の
+    # 資格情報を渡さないための構造上の分離であり、上のコメントの (1) にあたる。
     env:
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
       FIREBASE_WEB_APP_ID: ${{ secrets.FIREBASE_WEB_APP_ID }}
@@ -102,8 +110,39 @@ jobs:
           --dart-define=MAPS_WEB_API_KEY="$MAPS_WEB_API_KEY"
           --dart-define=PROXY_BASE_URL="$PROXY_BASE_URL"
 
+      # deploy ジョブへの受け渡し。retention を切り詰めるのは、この成果物が
+      # 公開ビルドそのもので、ジョブ間の受け渡し以外に用途が無いため。
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web-build
+          path: build/web
+          retention-days: 1
+
+      # 配信まで行かないことを結果に残す。緑のまま何も配信されていない状態を
+      # 「配信できた」と読み違えるのを防ぐ。
+      - name: Report dry run
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "### Dry run（${GITHUB_REF_NAME}）" >> "$GITHUB_STEP_SUMMARY"
+          echo "検査・テスト・ビルドは通った。配信は main からのみ行うため走らない。" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy to Cloudflare Pages
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # 資格情報はこの Environment のシークレットに置く。併せて deployment branch
+    # rule で main のみ許可すること——上の `if` はブランチ側で消せるため、
+    # 実際に ref を縛るのは Environment 側の設定である（README 参照）。
+    environment: production
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: web-build
+          path: build/web
+
       - name: Deploy to Cloudflare Pages
-        if: github.ref == 'refs/heads/main'
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -114,12 +153,3 @@ jobs:
             pages deploy build/web
             --project-name=${{ env.PAGES_PROJECT }}
             --branch=main
-
-      # 飛ばしたことを結果に残す。緑のまま何も配信されていない状態を
-      # 「配信できた」と読み違えるのを防ぐ。
-      - name: Report dry run
-        if: github.ref != 'refs/heads/main'
-        run: |
-          echo "### Dry run（${GITHUB_REF_NAME}）" >> "$GITHUB_STEP_SUMMARY"
-          echo "検査・テスト・ビルドは通ったが、配信は main からのみ行うため飛ばした。" \
-            >> "$GITHUB_STEP_SUMMARY"

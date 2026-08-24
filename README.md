@@ -321,23 +321,49 @@ npx --yes wrangler@latest pages project create aruku --production-branch=main
 
 ### 2. GitHub 側の設定
 
+**置き場所が2種類あります。取り違えると防御が無くなるので、表のとおりに分けてください。**
+
+**(a) production Environment のシークレット**（Settings → Environments → production → Environment secrets）
+
+| 名前 | 内容 |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | 権限「Cloudflare Pages: 編集」のみを持つ API トークン |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare ダッシュボード右側のアカウント ID |
+
+**(b) リポジトリのシークレット / 変数**（Settings → Secrets and variables → Actions）
+
 | 種別 | 名前 | 内容 |
 |---|---|---|
-| Secret | `CLOUDFLARE_API_TOKEN` | 権限「Cloudflare Pages: 編集」のみを持つ API トークン |
-| Secret | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare ダッシュボード右側のアカウント ID |
 | Secret | `FIREBASE_WEB_API_KEY` / `FIREBASE_WEB_APP_ID` | Firebase Console → プロジェクトの設定 → マイアプリ（Web）|
 | Secret | `RECAPTCHA_SITE_KEY` | Web の App Check（reCAPTCHA v3）サイトキー。未設定だとプロキシが 401 |
 | Secret | `MAPS_WEB_API_KEY` | **本番用**の Maps JavaScript API キー（開発用と使い回さない）|
 | Variable | `PROXY_BASE_URL` | `https://asia-northeast1-{projectId}.cloudfunctions.net` |
 
-`PROXY_BASE_URL` だけ Variable なのは公開 URL で秘匿する対象ではないためです。いずれも
-未設定のままだと空文字がバンドルに焼かれて実行時に壊れるため、ワークフロー冒頭で
-存在検査をして落とします。
+分ける理由は、`workflow_dispatch` が main 以外の ref からも起動でき、**そのとき実行されるのは
+その ref のワークフロー定義**だからです。ブランチ側でワークフローを書き換えれば、そこから
+読めるシークレットはすべて取り出せます。したがって `deploy-web.yml` の
+`if: github.ref == ...` は利便のための分岐であって、防御ではありません。
 
-`environment: production` を使うので、Environment に required reviewers を設定していれば
-配信前に承認を挟めます（`deploy-functions.yml` と同じ環境）。
+(a) の2つは配信を実行できる資格情報なので、Environment に置いて main 以外のジョブから
+構造的に届かないようにします。(b) は `main.dart.js` に焼かれてブラウザから読める値であり、
+ブランチから参照できても権限の格上げになりません。
 
-### 3. 公開ドメインの登録
+`PROXY_BASE_URL` だけ Variable なのは公開 URL で秘匿対象ではないためです。(b) はいずれも
+未設定だと空文字がバンドルに焼かれて実行時に壊れるため、ワークフロー冒頭で存在検査をして
+落とします。
+
+### 3. production Environment の branch rule（**必須**）
+
+Settings → Environments → production → Deployment branches で **`main` のみ**を許可します。
+
+これが実際に ref を縛る唯一の仕組みです。ワークフローファイル側の `if` はブランチから
+書き換えられますが、Environment の branch rule は GitHub 側が強制するため、main 以外の ref から
+`environment: production` のジョブを走らせようとするとゲートで拒否されます。
+
+同じ画面で required reviewers を設定すれば、配信前に承認を挟めます
+（`deploy-functions.yml` と同じ環境です）。
+
+### 4. 公開ドメインの登録
 
 配信ドメインが決まったら次の2か所に登録します。どちらが漏れても、その機能だけが
 本番で静かに落ちます（地図が出ない／プロキシが 401）。
@@ -356,16 +382,17 @@ Firebase Authentication は使っていない（`firebase_auth` に依存して�
 同じ理由で、このワークフローは PR ごとのプレビュー配信を作りません。プレビューは
 デプロイのたびにサブドメインが変わり、リファラー制限で追随できないためです。
 
-### 4. マージ前の確認（dry run）
+### 5. マージ前の確認（dry run）
 
-`workflow_dispatch` は main 以外のブランチからも起動できます。**配信が走るのは main
-からのときだけ**で、他のブランチでは検査・テスト・ビルドまで走って配信段を飛ばします
-（結果はジョブのサマリに出ます）。設定の不備やビルドの失敗はマージ前にここで分かります。
+ワークフローは `build`（検査・テスト・ビルド）と `deploy`（配信）の2ジョブに分かれています。
+`workflow_dispatch` を main 以外のブランチから起動すると `build` だけが走り、設定の不備や
+ビルドの失敗をマージ前に検出できます（結果はジョブのサマリに出ます）。
 
-配信段を ref で縛っているのは、`--branch=main` が「この成果物を本番とする」という
-指定であり、ref を見ずに配信すると未マージのブランチの内容が本番を上書きするためです。
+`deploy` だけを Environment に載せているのは、main 以外からも走る `build` に配信の資格情報を
+渡さないためです。`--branch=main` は「この成果物を本番とする」という指定なので、ref を
+見ずに配信すると未マージのブランチの内容が本番を上書きします。
 
-### 4. 注意
+### 6. 注意
 
 `--dart-define` で渡した値はコンパイル時定数として `main.dart.js` に焼き込まれ、
 ブラウザから読めます。GitHub Secret にするのは履歴に残さず差し替えを効かせるためで、
