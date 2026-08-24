@@ -14,6 +14,7 @@
 | ③ | TLS 証明書ピンニングの検討 | 設計判断 | ✅ 検討完了（当面見送り） |
 | ④ | リリースビルドの本番署名鍵・production dart-define 確認 | 一部コード済 + 手動検証 | 🟡 署名分離済(PR #87) / 実ビルド検証が残 |
 | ⑥ | Firestore クラウド同期のルール デプロイ | 一部コード済 + 手動デプロイ | 🟡 ルール実装済(PR #98) / Firestore 有効化・デプロイが残 |
+| ⑧ | Functions プロキシの CORS Origin 許可リスト | コード | ✅ 実装済（#359） |
 
 ---
 
@@ -369,3 +370,51 @@ deploy --only functions,firestore --non-interactive
 **順序の注意:** 1 と 3 の間に `functions/**` を触る別の変更が main へ入ると、その
 デプロイが削除済みの関数を**作り直す**（ソースにまだ残っているため）。1 の直後に 3 を
 済ませること。
+
+---
+
+## ⑧ Cloud Functions プロキシの CORS（Origin 許可リスト）
+
+**目的:** 他サイトがブラウザ JS からプロキシを埋め込み、自サイトの訪問者のトラフィックで
+Places / Routes の課金枠を食う経路を塞ぐ。#359（Web 配信）で導入した。
+
+### 守るもの・守らないもの
+
+CORS はブラウザが**レスポンスを読ませるか**を決める仕組みでしかなく、リクエストが
+サーバーへ届くこと自体は止めない。curl やモバイルアプリは無視する。
+
+したがって**認可の主体は依然として ②App Check** であり、許可リストは多層防御の1枚である。
+Origin ヘッダの無いリクエスト（モバイル・curl）はサーバー側では拒否せず、ACAO を
+付けないだけにしている——拒否してもブラウザ以外には効かず、ネイティブ版が壊れるだけのため。
+
+### 許可する Origin
+
+`isAllowedOrigin()`（`functions/src/index.ts`）が判定する。
+
+| Origin | 用途 |
+| --- | --- |
+| `https://aruku.pages.dev` | 本番配信（Cloudflare Pages） |
+| `https://<alias>.aruku.pages.dev` | ブランチ／デプロイ単位のプレビュー配信 |
+| `localhost` / `127.0.0.1`（http・https、任意のポート） | ローカル開発（README の `flutter run -d chrome --web-port=5555`） |
+
+`pages.dev` は誰でもプロジェクトを作れる共有ドメインのため、`evil.pages.dev` や
+`evil-aruku.pages.dev` を通さないよう、ホスト名は URL として解析し完全一致か
+サブドメインかだけで判定している。前方一致・部分一致に書き換えないこと。
+
+本番デプロイでも `localhost` を許可しているのは、開発手順がデプロイ済み Functions を
+叩くため。localhost オリジンを持てるのは開発者自身の端末で動くページだけで、攻撃者が
+被害者のブラウザに localhost を名乗らせることはできない。
+
+### 配信ドメインを変えるとき
+
+`CORS_ALLOWED_HOST`（`functions/src/index.ts`）を変更し、`functions/test/handler-integration.test.ts`
+の「Origin 許可リスト」の許可・拒否ケースを併せて更新する。① の地図表示用キーの
+HTTP リファラ制限（配信ドメインのみ）も同じタイミングで直す。
+
+### 検証
+
+- 許可 Origin のプリフライト（`OPTIONS`）が **204** と `Access-Control-Allow-Origin: <その Origin>`、
+  `Access-Control-Max-Age: 3600` を返すこと。
+- 許可外 Origin では ACAO が付かないこと（ステータスは 204 のままでよい）。
+- `Vary: Origin` が Origin の有無にかかわらず付くこと。共有キャッシュが別オリジン向けの
+  ACAO を使い回さないための前提。

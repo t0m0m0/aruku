@@ -515,10 +515,79 @@ function isRoutesMatrixSuccessBody(data: unknown): boolean {
   return Array.isArray(data);
 }
 
-// CORS is set to * because clients are Flutter mobile apps which are not subject
-// to browser CORS restrictions. Unauthorized access is prevented by Firebase
-// App Check: every handler calls verifyAppCheck() to validate the
-// X-Firebase-AppCheck token before doing any billable work.
+// CORS（#359 Phase 3）。
+//
+// なぜ許可リストが認可の代わりにならないか:
+//   CORS はブラウザが「レスポンスを読ませるか」を決める仕組みでしかなく、
+//   リクエストが届くこと自体は止めない。curl やモバイルアプリは無視する。
+//   課金処理の門番は verifyAppCheck()（各ハンドラが上流を叩く前に呼ぶ）であって
+//   ここではない。許可リストは「他サイトがブラウザ JS からプロキシを埋め込んで
+//   課金枠を食う」経路だけを塞ぐ多層防御として置いている。
+//
+// なぜ Origin 無しを拒否しないか:
+//   モバイルアプリと curl は Origin を送らない。拒否するとネイティブ版が壊れる
+//   一方、得られる防御は無い（上記のとおり CORS はブラウザ限定のため）。
+//
+// なぜ本番デプロイでも localhost を許可するか:
+//   README の開発手順（flutter run -d chrome --web-port=5555）はデプロイ済み
+//   Functions を叩く。localhost オリジンを持てるのは開発者自身の端末で動く
+//   ページだけで、攻撃者が被害者のブラウザに localhost を名乗らせることは
+//   できないため、許可しても許可リストの目的は損なわれない。
+const CORS_ALLOWED_HOST = "aruku.pages.dev";
+const CORS_ALLOWED_DEV_HOSTS = new Set(["localhost", "127.0.0.1"]);
+// プリフライト結果の再利用可能秒数。未設定だと X-Firebase-AppCheck 付きの GET が
+// 毎回 OPTIONS を伴い、Function 呼び出し数と体感レイテンシが倍になる。
+const CORS_PREFLIGHT_MAX_AGE_S = 3600;
+
+/**
+ * Origin が配信元（本番・プレビュー・ローカル開発）かを判定する。
+ *
+ * pages.dev は誰でもプロジェクトを作れる共有ドメインのため、前方一致・部分一致では
+ * `evil.pages.dev` や `evil-aruku.pages.dev` を通してしまう。ホスト名を URL として
+ * 解析し、完全一致かサブドメインかだけを見る。
+ */
+export function isAllowedOrigin(origin: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return false;
+  }
+  // ACAO はこの文字列をそのまま echo するため、Origin の正規形（scheme://host[:port]）
+  // 以外は弾く。パスや userinfo を含む値をヘッダへ書き戻さないための境界。
+  if (url.origin !== origin) return false;
+  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+  // ループバックだけは平文も許す。そのオリジンを名乗れるのは開発者自身の端末で
+  // 動くページに限られ、名前解決を攻撃者が握る余地が無い。
+  if (CORS_ALLOWED_DEV_HOSTS.has(url.hostname)) return true;
+  if (url.protocol !== "https:") return false;
+  return (
+    url.hostname === CORS_ALLOWED_HOST ||
+    url.hostname.endsWith(`.${CORS_ALLOWED_HOST}`)
+  );
+}
+
+/**
+ * CORS ヘッダを付け、OPTIONS プリフライトなら 204 を返して true を返す。
+ * true のとき呼び出し側は即 return する（応答送信済み）。
+ */
+function handleCors(req: Request, res: Response): boolean {
+  // 応答は Origin ごとに変わる。共有キャッシュが別オリジン向けの ACAO を
+  // 使い回さないよう、許可・不許可にかかわらず必ず付ける。
+  res.set("Vary", "Origin");
+  const origin = req.header("Origin");
+  if (origin && isAllowedOrigin(origin)) {
+    res.set("Access-Control-Allow-Origin", origin);
+  }
+
+  if (req.method !== "OPTIONS") return false;
+
+  res.set("Access-Control-Allow-Methods", "GET");
+  res.set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck");
+  res.set("Access-Control-Max-Age", String(CORS_PREFLIGHT_MAX_AGE_S));
+  res.status(204).send("");
+  return true;
+}
 
 /**
  * クエリの lat/lon を数値として取り出す。両方が有限値のときだけ
@@ -597,13 +666,7 @@ export function withRequestLatency(
 
 /** Places Autocomplete / Details プロキシ */
 export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKeySecret] }, withRequestLatency("placesProxy", async (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Methods", "GET");
-    res.set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck");
-    res.status(204).send("");
-    return;
-  }
+  if (handleCors(req, res)) return;
 
   if (!(await verifyAppCheck(req, res, { endpoint: "placesProxy" }))) return;
 
@@ -700,13 +763,7 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKey
  * レスポンスは無加工で返す（変換はクライアント側）。
  */
 export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKeySecret] }, withRequestLatency("googleWalkProxy", async (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Methods", "GET");
-    res.set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck");
-    res.status(204).send("");
-    return;
-  }
+  if (handleCors(req, res)) return;
 
   if (!(await verifyAppCheck(req, res, { endpoint: "googleWalkProxy" }))) return;
 
@@ -766,13 +823,7 @@ export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHma
 export const googleWalkMatrixProxy = onRequest(
   { secrets: [mapsKeySecret, rateLimitHmacKeySecret] },
   withRequestLatency("googleWalkMatrixProxy", async (req, res) => {
-    res.set("Access-Control-Allow-Origin", "*");
-    if (req.method === "OPTIONS") {
-      res.set("Access-Control-Allow-Methods", "GET");
-      res.set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck");
-      res.status(204).send("");
-      return;
-    }
+    if (handleCors(req, res)) return;
 
     // 要素数課金で最も高単価なため、リプレイ保護（limited-use token 消費）を
     // このエンドポイントに限定して有効化する（issue #155）。
