@@ -1,0 +1,20 @@
+# Cloudflare Pages は配信物の直下に置かれた `_headers` を読む。`flutter build web` は
+# `web/` の中身をそのまま `build/web/` へ複製するため、ここに置けば配信物に載る。
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+
+# 更新の入口になる4つだけ再検証を強制する。長期キャッシュや immutable を付けないのは、
+# Flutter の web 出力がファイル名にハッシュを持たない（`main.dart.js` は名前が不変）ため、
+# 一度焼き付くと次のデプロイがブラウザへ届かなくなるから。残りは Cloudflare の既定
+# （ETag による再検証）に任せる。
+/index.html
+  Cache-Control: no-cache
+/flutter_bootstrap.js
+  Cache-Control: no-cache
+/flutter_service_worker.js
+  Cache-Control: no-cache
+/version.json
+  Cache-Control: no-cache

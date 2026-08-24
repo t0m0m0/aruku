@@ -298,6 +298,113 @@ flutter build appbundle --release
 `android/key.properties` と keystore（`*.jks` / `*.keystore`）は gitignore 済みです。
 **絶対にコミットしないでください。**
 
+## Web 公開（Cloudflare Pages）
+
+`main` への push で `.github/workflows/deploy-web.yml` が `flutter build web` の成果物を
+Cloudflare Pages へ配信します。静的配信先に Cloudflare を選んだのは、Flutter の web 出力が
+初回ロードで数 MB になり、転送量に上限のある無料枠（Firebase Hosting Spark は 10GB/月）だと
+先に頭を打つためです。Vercel Hobby は帯域では足りますが ToS が非商用限定で、収益化
+（#238〜#240）と両立しません。
+
+**配信の費用はこの構成では実質かかりません。** 課金が発生し得るのは Google Maps Platform
+（SKU ごとの月間無料枠を超えた分）と Cloud Functions（Blaze）で、いずれも配信先の選択とは
+無関係です。
+
+### 1. Pages プロジェクトの作成
+
+ワークフローはプロジェクトが既にある前提で `pages deploy` します。一度だけ作成します。
+
+```sh
+npx --yes wrangler@latest pages project create aruku --production-branch=main
+```
+
+名前を変える場合は `deploy-web.yml` の `PAGES_PROJECT` も合わせてください。
+
+### 2. GitHub 側の設定
+
+**置き場所が2種類あります。取り違えると防御が無くなるので、表のとおりに分けてください。**
+
+**(a) production Environment のシークレット**（Settings → Environments → production → Environment secrets）
+
+| 名前 | 内容 |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | 権限「Cloudflare Pages: 編集」のみを持つ API トークン |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare ダッシュボード右側のアカウント ID |
+
+**(b) リポジトリのシークレット / 変数**（Settings → Secrets and variables → Actions）
+
+| 種別 | 名前 | 内容 |
+|---|---|---|
+| Secret | `FIREBASE_WEB_API_KEY` / `FIREBASE_WEB_APP_ID` | Firebase Console → プロジェクトの設定 → マイアプリ（Web）|
+| Secret | `RECAPTCHA_SITE_KEY` | Web の App Check（reCAPTCHA v3）サイトキー。未設定だとプロキシが 401 |
+| Secret | `MAPS_WEB_API_KEY` | **本番用**の Maps JavaScript API キー（開発用と使い回さない）|
+| Variable | `PROXY_BASE_URL` | `https://asia-northeast1-{projectId}.cloudfunctions.net` |
+
+分ける理由は、`workflow_dispatch` が main 以外の ref からも起動でき、**そのとき実行されるのは
+その ref のワークフロー定義**だからです。ブランチ側でワークフローを書き換えれば、そこから
+読めるシークレットはすべて取り出せます。したがって `deploy-web.yml` の
+`if: github.ref == ...` は利便のための分岐であって、防御ではありません。
+
+(a) の2つは配信を実行できる資格情報なので、Environment に置いて main 以外のジョブから
+構造的に届かないようにします。(b) は `main.dart.js` に焼かれてブラウザから読める値であり、
+ブランチから参照できても権限の格上げになりません。
+
+`PROXY_BASE_URL` だけ Variable なのは公開 URL で秘匿対象ではないためです。(b) はいずれも
+未設定だと空文字がバンドルに焼かれて実行時に壊れるため、ワークフロー冒頭で存在検査をして
+落とします。
+
+### 3. production Environment の branch rule（**必須**）
+
+Settings → Environments → production → Deployment branches and tags で **`main` のみ**を
+許可します。**ルールの種別は「Branch」を選んでください**（「Tag」ではありません）。
+
+これが実際に ref を縛る唯一の仕組みです。ワークフローファイル側の `if` はブランチから
+書き換えられますが、Environment のルールは GitHub 側が強制するため、許可されていない ref から
+`environment: production` のジョブを走らせようとするとゲートで拒否されます。
+
+種別を指定するのは、名前パターンがブランチとタグで個別に設定されるためです。Branch 種別の
+`main` は `refs/tags/main` に一致しないので、同名タグを作って dispatch する経路は塞がります
+（Tag のルールを別途作らない限り、タグからは配信できません）。「Protected branches only」を
+選ぶ形でも構いません——保護ブランチと同名のタグからの deployment は GitHub 側が拒否します。
+
+同じ画面で required reviewers を設定すれば、配信前に承認を挟めます
+（`deploy-functions.yml` と同じ環境です）。
+
+### 4. 公開ドメインの登録
+
+配信ドメインが決まったら次の2か所に登録します。どちらが漏れても、その機能だけが
+本番で静かに落ちます（地図が出ない／プロキシが 401）。
+
+- **Maps JavaScript API キーのリファラー制限** — `aruku.pages.dev/*`（独自ドメインなら
+  そちら）。**`*.pages.dev` を入れてはいけません。** 他人の Pages プロジェクトを含む
+  ワイルドカードになり、リファラー制限が実質無効になります。詳細は
+  [docs/security_hardening.md](docs/security_hardening.md) ①。
+- **reCAPTCHA v3 サイトキーの許可ドメイン** — reCAPTCHA 管理コンソール（サイトキーを
+  Firebase Console → App Check で登録したもの）。登録外のドメインではトークンが
+  発行されず、プロキシが 401 を返します。
+
+Firebase Authentication は使っていない（`firebase_auth` に依存していない）ため、
+「承認済みドメイン」の設定は不要です。
+
+同じ理由で、このワークフローは PR ごとのプレビュー配信を作りません。プレビューは
+デプロイのたびにサブドメインが変わり、リファラー制限で追随できないためです。
+
+### 5. マージ前の確認（dry run）
+
+ワークフローは `build`（検査・テスト・ビルド）と `deploy`（配信）の2ジョブに分かれています。
+`workflow_dispatch` を main 以外のブランチから起動すると `build` だけが走り、設定の不備や
+ビルドの失敗をマージ前に検出できます（結果はジョブのサマリに出ます）。
+
+`deploy` だけを Environment に載せているのは、main 以外からも走る `build` に配信の資格情報を
+渡さないためです。`--branch=main` は「この成果物を本番とする」という指定なので、ref を
+見ずに配信すると未マージのブランチの内容が本番を上書きします。
+
+### 6. 注意
+
+`--dart-define` で渡した値はコンパイル時定数として `main.dart.js` に焼き込まれ、
+ブラウザから読めます。GitHub Secret にするのは履歴に残さず差し替えを効かせるためで、
+**公開後の露出は防げません。** 予算アラートと1日あたりのクォータ上限を併せて掛けてください。
+
 ## 秘匿情報の取り扱い
 
 | ファイル | 追跡 | 内容 |

@@ -1,0 +1,155 @@
+name: Deploy Web (Cloudflare Pages)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'web/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'l10n.yaml'
+      - '.github/workflows/deploy-web.yml'
+  workflow_dispatch:
+
+# プレビュー配信（PR ごとの *.pages.dev）を意図的に作らない。プレビューは
+# 本番と同じ MAPS_WEB_API_KEY を焼いた成果物になるが、リファラー制限は
+# デプロイごとに変わるサブドメインを追随できず、`*.pages.dev` を許可すれば
+# 他人の Pages プロジェクトからも使えるキーになる（docs/security_hardening.md ①）。
+#
+# workflow_dispatch は main 以外の ref からも起動でき、そのとき**実行されるのは
+# その ref のワークフロー定義**である。したがってこのファイルに書いた
+# `if: github.ref == ...` は境界にならない——ブランチ側で消せる。配信の資格情報を
+# 守るのは次の2つで、どちらも GitHub 側が強制する:
+#
+#   1. CLOUDFLARE_* を production Environment のシークレットに置く（リポジトリ
+#      シークレットにしない）。Environment を宣言していない build ジョブからは届かない。
+#   2. production Environment に deployment branch rule を張り、main のみ許可する。
+#      これで ref を偽ったジョブは Environment のゲートで拒否される。
+#
+# dart-define 用のシークレットはリポジトリ側に置く。これらは main.dart.js に焼かれて
+# ブラウザから読める値であり、ブランチから参照できても権限の格上げにならないため。
+
+env:
+  # ci.yml と同じ版に固定する。版が割れると CI が緑のまま配信物だけ壊れうる。
+  FLUTTER_VERSION: 3.38.5
+  # Cloudflare Pages のプロジェクト名。dashboard か `wrangler pages project create` で
+  # 作った名前と一致させる（README「Web 公開（Cloudflare Pages）」）。
+  PAGES_PROJECT: aruku
+
+permissions:
+  contents: read
+
+concurrency:
+  # ref をキーに含めるのは、main 以外からの dry run が進行中の本番配信を
+  # 巻き添えでキャンセルしないようにするため。
+  group: deploy-web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Verify and build
+    runs-on: ubuntu-latest
+    # environment を宣言しない。main 以外からも走るジョブに production の
+    # 資格情報を渡さないための構造上の分離であり、上のコメントの (1) にあたる。
+    env:
+      FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+      FIREBASE_WEB_APP_ID: ${{ secrets.FIREBASE_WEB_APP_ID }}
+      RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY }}
+      MAPS_WEB_API_KEY: ${{ secrets.MAPS_WEB_API_KEY }}
+      PROXY_BASE_URL: ${{ vars.PROXY_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v6
+
+      # 空の dart-define はコンパイルを通り、壊れるのは実行時（Firebase 初期化・
+      # App Check・地図読み込み）。release では assert が落ちて main.dart 側の
+      # 検査も効かないため、配信前に落とせるのはここだけ。
+      - name: Verify required configuration
+        run: |
+          missing=()
+          for name in FIREBASE_WEB_API_KEY FIREBASE_WEB_APP_ID \
+                      RECAPTCHA_SITE_KEY MAPS_WEB_API_KEY PROXY_BASE_URL; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::missing secrets/variables: ${missing[*]}"
+            exit 1
+          fi
+
+      # ci.yml と同じ検査をここでも走らせる。dart:io の混入は `flutter test`
+      # （VM 上で動くので dart:io が使える）でも `flutter build web`（dart2js が
+      # スタブを与えるのでコンパイルは通る）でも捕まらず、壊れるのはブラウザの
+      # 実行時（ci.yml:39-44）。ci.yml とこのワークフローに順序関係は無いため、
+      # ここで見ないと CI が赤くなる前に壊れた成果物が配信され得る。
+      - name: Web safety
+        run: |
+          python3 .claude/web_safety_test.py
+          python3 .claude/web_safety.py
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # ci.yml とは別ワークフローで、CI の緑を待たずに走る。配信物にだけ
+      # 退行が乗るのを防ぐため、deploy-functions.yml と同じくここでも検査する。
+      - name: Run tests
+        run: flutter test
+
+      - name: Build web
+        run: >-
+          flutter build web --release
+          --dart-define=USE_REAL_MAP=true
+          --dart-define=FIREBASE_WEB_API_KEY="$FIREBASE_WEB_API_KEY"
+          --dart-define=FIREBASE_WEB_APP_ID="$FIREBASE_WEB_APP_ID"
+          --dart-define=RECAPTCHA_SITE_KEY="$RECAPTCHA_SITE_KEY"
+          --dart-define=MAPS_WEB_API_KEY="$MAPS_WEB_API_KEY"
+          --dart-define=PROXY_BASE_URL="$PROXY_BASE_URL"
+
+      # deploy ジョブへの受け渡し。retention を切り詰めるのは、この成果物が
+      # 公開ビルドそのもので、ジョブ間の受け渡し以外に用途が無いため。
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web-build
+          path: build/web
+          retention-days: 1
+
+      # 配信まで行かないことを結果に残す。緑のまま何も配信されていない状態を
+      # 「配信できた」と読み違えるのを防ぐ。
+      - name: Report dry run
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "### Dry run（${GITHUB_REF_NAME}）" >> "$GITHUB_STEP_SUMMARY"
+          echo "検査・テスト・ビルドは通った。配信は main からのみ行うため走らない。" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy to Cloudflare Pages
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # 資格情報はこの Environment のシークレットに置く。併せて deployment branch
+    # rule で main のみ許可すること——上の `if` はブランチ側で消せるため、
+    # 実際に ref を縛るのは Environment 側の設定である（README 参照）。
+    environment: production
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: web-build
+          path: build/web
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # --branch を明示するのは、wrangler が git から推測した名前が main と
+          # 食い違うと本番配信ではなくプレビュー扱いになるため。
+          command: >-
+            pages deploy build/web
+            --project-name=${{ env.PAGES_PROJECT }}
+            --branch=main

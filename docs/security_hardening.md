@@ -78,6 +78,13 @@
    **本番用キー**
    - **アプリケーションの制限**: 「ウェブサイト」→ 配信ドメインのみ。**`localhost` を入れない。**
    - 公開ビルドの `MAPS_WEB_API_KEY` にはこちらを渡す。
+   - 配信先は Cloudflare Pages（README「Web 公開（Cloudflare Pages）」）。登録するのは
+     `aruku.pages.dev/*` か独自ドメインで、**`*.pages.dev` を入れてはならない。**
+     `pages.dev` は Cloudflare の全ユーザーが自分のプロジェクトを持つ共有サフィックスで、
+     ワイルドカードで許可すると誰でも自分の Pages からこのキーを使えてしまう。
+     `localhost` と同じく「所有を証明しないドメイン」であり、防御にならない。
+   - 同じ理由で **PR ごとのプレビュー配信を作らない**。プレビューはデプロイのたびに
+     サブドメインが変わり、個別に登録して追随することができない。
 
    **共通**
    - **API の制限**: 「キーを制限」→ **Maps JavaScript API のみ**。
@@ -394,12 +401,19 @@ Origin ヘッダの無いリクエスト（モバイル・curl）はサーバー
 | Origin | 用途 |
 | --- | --- |
 | `https://aruku.pages.dev` | 本番配信（Cloudflare Pages） |
-| `https://<alias>.aruku.pages.dev` | ブランチ／デプロイ単位のプレビュー配信 |
+| `https://<hash>.aruku.pages.dev` | Cloudflare が各デプロイへ自動で割り当てる別名 |
 | `localhost` / `127.0.0.1`（http・https、任意のポート） | ローカル開発（README の `flutter run -d chrome --web-port=5555`） |
 
 `pages.dev` は誰でもプロジェクトを作れる共有ドメインのため、`evil.pages.dev` や
 `evil-aruku.pages.dev` を通さないよう、ホスト名は URL として解析し完全一致か
 サブドメインかだけで判定している。前方一致・部分一致に書き換えないこと。
+
+サブドメインを許すのは ① の「`*.pages.dev` を入れてはならない」と矛盾しない。
+① が禁じているのは Cloudflare 全ユーザーの共有サフィックスを許すことで、ここで
+許可するのは `aruku.pages.dev` の下——このプロジェクトのデプロイだけが名乗れる
+名前に限られる。PR ごとのプレビュー配信は `.github/workflows/deploy-web.yml` の
+方針どおり作らないが、本番デプロイにも Cloudflare がハッシュ別名を割り当てるため、
+サブドメイン形は本番だけの運用でも必要になる。
 
 本番デプロイでも `localhost` を許可しているのは、開発手順がデプロイ済み Functions を
 叩くため。localhost オリジンを持てるのは開発者自身の端末で動くページだけで、攻撃者が
