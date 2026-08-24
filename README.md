@@ -339,15 +339,19 @@ npx --yes wrangler@latest pages project create aruku --production-branch=main
 
 ### 3. 公開ドメインの登録
 
-配信ドメインが決まったら次の3か所に登録します。いずれか漏れると、その機能だけが
-本番で静かに落ちます。
+配信ドメインが決まったら次の2か所に登録します。どちらが漏れても、その機能だけが
+本番で静かに落ちます（地図が出ない／プロキシが 401）。
 
 - **Maps JavaScript API キーのリファラー制限** — `aruku.pages.dev/*`（独自ドメインなら
   そちら）。**`*.pages.dev` を入れてはいけません。** 他人の Pages プロジェクトを含む
   ワイルドカードになり、リファラー制限が実質無効になります。詳細は
   [docs/security_hardening.md](docs/security_hardening.md) ①。
-- **App Check（reCAPTCHA v3）の許可ドメイン** — Firebase Console → App Check。
-- **Firebase Authentication の承認済みドメイン** — Firebase Console → Authentication。
+- **reCAPTCHA v3 サイトキーの許可ドメイン** — reCAPTCHA 管理コンソール（サイトキーを
+  Firebase Console → App Check で登録したもの）。登録外のドメインではトークンが
+  発行されず、プロキシが 401 を返します。
+
+Firebase Authentication は使っていない（`firebase_auth` に依存していない）ため、
+「承認済みドメイン」の設定は不要です。
 
 同じ理由で、このワークフローは PR ごとのプレビュー配信を作りません。プレビューは
 デプロイのたびにサブドメインが変わり、リファラー制限で追随できないためです。
