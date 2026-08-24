@@ -16,6 +16,10 @@ on:
 # 本番と同じ MAPS_WEB_API_KEY を焼いた成果物になるが、リファラー制限は
 # デプロイごとに変わるサブドメインを追随できず、`*.pages.dev` を許可すれば
 # 他人の Pages プロジェクトからも使えるキーになる（docs/security_hardening.md ①）。
+#
+# workflow_dispatch は main 以外の ref からも起動できる。配信するのは main の
+# ときだけで、他の ref では検査とビルドまでを走らせて配信段を飛ばす（dry run）。
+# ref を見ずに配信すると、`--branch=main` が未マージの内容を本番として上書きする。
 
 env:
   # ci.yml と同じ版に固定する。版が割れると CI が緑のまま配信物だけ壊れうる。
@@ -28,7 +32,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-web
+  # ref をキーに含めるのは、main 以外からの dry run が進行中の本番配信を
+  # 巻き添えでキャンセルしないようにするため。
+  group: deploy-web-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -62,6 +68,16 @@ jobs:
             exit 1
           fi
 
+      # ci.yml と同じ検査をここでも走らせる。dart:io の混入は `flutter test`
+      # （VM 上で動くので dart:io が使える）でも `flutter build web`（dart2js が
+      # スタブを与えるのでコンパイルは通る）でも捕まらず、壊れるのはブラウザの
+      # 実行時（ci.yml:39-44）。ci.yml とこのワークフローに順序関係は無いため、
+      # ここで見ないと CI が赤くなる前に壊れた成果物が配信され得る。
+      - name: Web safety
+        run: |
+          python3 .claude/web_safety_test.py
+          python3 .claude/web_safety.py
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -87,6 +103,7 @@ jobs:
           --dart-define=PROXY_BASE_URL="$PROXY_BASE_URL"
 
       - name: Deploy to Cloudflare Pages
+        if: github.ref == 'refs/heads/main'
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -97,3 +114,12 @@ jobs:
             pages deploy build/web
             --project-name=${{ env.PAGES_PROJECT }}
             --branch=main
+
+      # 飛ばしたことを結果に残す。緑のまま何も配信されていない状態を
+      # 「配信できた」と読み違えるのを防ぐ。
+      - name: Report dry run
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "### Dry run（${GITHUB_REF_NAME}）" >> "$GITHUB_STEP_SUMMARY"
+          echo "検査・テスト・ビルドは通ったが、配信は main からのみ行うため飛ばした。" \
+            >> "$GITHUB_STEP_SUMMARY"
