@@ -4,7 +4,6 @@ import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/cancellation.dart';
-import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -52,8 +51,6 @@ void main() {
       overrides: [
         nowProvider.overrideWithValue(clock.now),
         routeServiceProvider.overrideWithValue(route),
-        // オンボーディング済みとして home から開始する（実運用の復帰シナリオ）。
-        onboardingCompletedProvider.overrideWithValue(true),
       ],
     );
     addTearDown(container.dispose);
@@ -192,7 +189,6 @@ void main() {
         overrides: [
           nowProvider.overrideWithValue(clock.now),
           routeServiceProvider.overrideWithValue(route),
-          onboardingCompletedProvider.overrideWithValue(true),
         ],
       );
       addTearDown(container.dispose);
@@ -263,7 +259,6 @@ void main() {
         overrides: [
           nowProvider.overrideWithValue(clock.now),
           routeServiceProvider.overrideWithValue(route),
-          onboardingCompletedProvider.overrideWithValue(true),
         ],
       );
       addTearDown(container.dispose);
@@ -300,7 +295,6 @@ void main() {
         overrides: [
           nowProvider.overrideWithValue(clock.now),
           routeServiceProvider.overrideWithValue(route),
-          onboardingCompletedProvider.overrideWithValue(true),
         ],
       );
       addTearDown(container.dispose);

@@ -14,7 +14,7 @@ import 'support/e2e_helpers.dart';
 /// pop で再現できていることを検証する（go_router 移行の parity テスト）。
 ///
 /// 旧分岐: settings・search・searchOrigin・result・nav・
-/// error→home / home・onboarding・loading→無反応。
+/// error→home / home・loading→無反応。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -29,13 +29,9 @@ void main() {
 
   Future<ProviderContainer> pumpApp(
     WidgetTester tester, {
-    bool onboardingDone = true,
     RouteService? routeService,
   }) async {
-    final container = await makeContainer(
-      onboardingDone: onboardingDone,
-      routeService: routeService,
-    );
+    final container = await makeContainer(routeService: routeService);
     addTearDown(container.dispose);
     container.read(appStateProvider);
     await tester.pumpWidget(appWidget(container));
@@ -112,13 +108,6 @@ void main() {
 
     await back(tester);
     expect(screenOf(container), Screen.home);
-  });
-
-  testWidgets('onboarding での back は無反応', (tester) async {
-    final container = await pumpApp(tester, onboardingDone: false);
-
-    await back(tester);
-    expect(screenOf(container), Screen.onboarding);
   });
 
   testWidgets('loading での back は無反応', (tester) async {

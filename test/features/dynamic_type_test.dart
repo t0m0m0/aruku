@@ -13,7 +13,6 @@ import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/features/home/home_screen.dart';
-import 'package:aruku/features/onboarding/onboarding_screen.dart';
 import 'package:aruku/features/result/result_screen.dart';
 import 'package:aruku/l10n/app_localizations.dart';
 import 'package:aruku/shared/widgets/aruku_button.dart';
@@ -165,22 +164,6 @@ void main() {
     await container.read(appStateProvider.notifier).startSearch();
 
     await tester.pumpWidget(_scaled(container, const ResultScreen(), scale));
-    await tester.pump();
-
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('オンボーディングは最大文字拡大でレイアウトが崩れない', (tester) async {
-    tester.view.physicalSize = const Size(1170, 2532);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.reset);
-
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
-
-    await tester.pumpWidget(
-      _scaled(container, const OnboardingScreen(), scale),
-    );
     await tester.pump();
 
     expect(tester.takeException(), isNull);

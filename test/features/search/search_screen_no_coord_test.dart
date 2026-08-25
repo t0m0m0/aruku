@@ -61,8 +61,9 @@ Widget _wrap(
 
 Future<ProviderContainer> _makeContainer(
   WidgetTester tester,
-  PlacesService places,
-) async {
+  PlacesService places, {
+  Screen screen = Screen.search,
+}) async {
   final container = ProviderContainer(
     overrides: [
       locationServiceProvider.overrideWithValue(
@@ -71,7 +72,9 @@ Future<ProviderContainer> _makeContainer(
       placesServiceProvider.overrideWithValue(places),
     ],
   );
-  container.read(appStateProvider.notifier);
+  // 検索画面を表示している状態を再現する。初期画面のまま検証すると
+  // 「確定して離脱していない」ことを screen で反証できない。
+  container.read(appStateProvider.notifier).go(screen);
   await tester.runAsync(() => Future<void>.delayed(Duration.zero));
   return container;
 }
@@ -100,7 +103,7 @@ void main() {
       final state = container.read(appStateProvider);
       expect(state.destination, isNull, reason: '確定してはいけない');
       expect(state.destinationLatLng, isNull);
-      expect(state.screen, isNot(Screen.home), reason: 'ホームに遷移してはいけない');
+      expect(state.screen, Screen.search, reason: 'ホームに遷移してはいけない');
       expect(find.textContaining('別の候補'), findsOneWidget);
     });
 
@@ -118,7 +121,7 @@ void main() {
 
       final state = container.read(appStateProvider);
       expect(state.destination, isNull);
-      expect(state.screen, isNot(Screen.home));
+      expect(state.screen, Screen.search);
       expect(find.textContaining('別の候補'), findsOneWidget);
     });
 
@@ -138,7 +141,7 @@ void main() {
 
       final state = container.read(appStateProvider);
       expect(state.destination, isNull, reason: '確定してはいけない');
-      expect(state.screen, isNot(Screen.home), reason: 'ホームに遷移してはいけない');
+      expect(state.screen, Screen.search, reason: 'ホームに遷移してはいけない');
       // 再選択を促し、選択中スピナーは消えてリストは操作可能に戻る。
       expect(find.textContaining('別の候補'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
@@ -147,7 +150,11 @@ void main() {
 
   group('SearchScreen 座標が取れない出発地（origin モード）', () {
     testWidgets('fetchLatLng が null のとき確定せずバナーを表示する', (tester) async {
-      final container = await _makeContainer(tester, _NoCoordPlacesService());
+      final container = await _makeContainer(
+        tester,
+        _NoCoordPlacesService(),
+        screen: Screen.searchOrigin,
+      );
       addTearDown(container.dispose);
 
       await tester.pumpWidget(_wrap(container, mode: SearchMode.origin));
@@ -157,7 +164,7 @@ void main() {
 
       final state = container.read(appStateProvider);
       expect(state.origin, isNull, reason: '確定してはいけない');
-      expect(state.screen, isNot(Screen.home), reason: 'ホームに遷移してはいけない');
+      expect(state.screen, Screen.searchOrigin, reason: 'ホームに遷移してはいけない');
       expect(find.textContaining('この出発地は位置情報'), findsOneWidget);
       expect(find.textContaining('別の候補'), findsOneWidget);
     });

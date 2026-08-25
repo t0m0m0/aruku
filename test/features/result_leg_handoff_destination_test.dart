@@ -6,7 +6,6 @@ import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/activity_service.dart';
 import 'package:aruku/core/services/cancellation.dart';
 import 'package:aruku/core/services/location_service.dart';
-import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/services/url_launcher.dart';
 import 'package:aruku/core/state/app_state.dart';
@@ -206,7 +205,6 @@ _pumpResult(WidgetTester tester, RoutePlan plan, {int startAtLeg = 0}) async {
     overrides: [
       nowProvider.overrideWithValue(clock.now),
       routeServiceProvider.overrideWithValue(_FixedRouteService(plan)),
-      onboardingCompletedProvider.overrideWithValue(true),
       locationServiceProvider.overrideWithValue(const _FakeLocationService()),
       activityServiceProvider.overrideWithValue(_FakeActivityService()),
       urlLauncherProvider.overrideWithValue((uri) async {

@@ -20,7 +20,6 @@ import 'core/services/health_service.dart';
 import 'core/services/healthkit_service.dart';
 import 'core/services/local_notification_service.dart';
 import 'core/services/notification_service.dart';
-import 'core/services/onboarding_repository.dart';
 import 'core/services/recents_repository.dart';
 import 'core/state/app_state.dart';
 import 'core/theme/aruku_theme.dart';
@@ -42,8 +41,8 @@ Future<void> main() async {
       statusBarIconBrightness: Brightness.dark,
     ),
   );
-  // オンボーディングのチラつきを避けるため、初期画面の判定に使う完了フラグを
-  // 起動前に同期的に読めるよう SharedPreferences を先読みして注入する。
+  // 設定・履歴・活動ログは起動直後に SharedPreferences を読む。先読みして実体を
+  // 注入し、初回フレームで既定値が一瞬見える状態を避ける。
   final prefs = await SharedPreferences.getInstance();
   // ローカル通知の zonedSchedule はタイムゾーン DB を必要とする。DB を初期化し、
   // 予約時刻の表現に使うローカルゾーンを設定する。本アプリは日本向けのため
@@ -63,9 +62,6 @@ Future<void> main() async {
       overrides: [
         sharedPreferencesProvider.overrideWith((ref) => prefs),
         crashReporterProvider.overrideWithValue(crashReporter),
-        onboardingCompletedProvider.overrideWithValue(
-          OnboardingRepository(prefs).isCompleted(),
-        ),
         // HealthKit は iOS 専用。iOS でのみ実体を注入し、他プラットフォームは
         // 既定の NoopHealthService（無害な no-op）のままにする。
         if (useHealthKit(isWeb: kIsWeb, isIOS: () => Platform.isIOS))

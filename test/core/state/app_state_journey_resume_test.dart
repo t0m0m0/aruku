@@ -12,7 +12,6 @@ import 'package:aruku/core/services/activity_service.dart';
 import 'package:aruku/core/services/cancellation.dart';
 import 'package:aruku/core/services/health_service.dart';
 import 'package:aruku/core/services/location_service.dart';
-import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/state/settings_provider.dart';
@@ -468,7 +467,6 @@ void main() {
           _FakeActivityService(activity),
         ),
         healthServiceProvider.overrideWithValue(health),
-        onboardingCompletedProvider.overrideWithValue(true),
         nowProvider.overrideWithValue(clock.now),
         if (deferHistoryLoad)
           activityLogRepositoryProvider.overrideWith((ref) async {

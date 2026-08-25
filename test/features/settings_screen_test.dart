@@ -4,7 +4,6 @@ import 'package:aruku/core/models/app_settings.dart';
 import 'package:aruku/core/models/location_state.dart';
 import 'package:aruku/core/services/activity_service.dart';
 import 'package:aruku/core/services/location_service.dart';
-import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:aruku/core/services/settings_repository.dart';
 import 'package:aruku/core/services/url_launcher.dart';
@@ -45,7 +44,6 @@ Future<ProviderContainer> _container() async {
   return ProviderContainer(
     overrides: [
       sharedPreferencesProvider.overrideWith((ref) => prefs),
-      onboardingCompletedProvider.overrideWithValue(true),
       locationServiceProvider.overrideWithValue(_FakeLocationService()),
       activityServiceProvider.overrideWithValue(_FakeActivityService()),
     ],
@@ -190,7 +188,6 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         sharedPreferencesProvider.overrideWith((ref) => prefs),
-        onboardingCompletedProvider.overrideWithValue(true),
         locationServiceProvider.overrideWithValue(_FakeLocationService()),
         activityServiceProvider.overrideWithValue(_FakeActivityService()),
         settingsRepositoryProvider.overrideWith(
@@ -229,7 +226,6 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         sharedPreferencesProvider.overrideWith((ref) => prefs),
-        onboardingCompletedProvider.overrideWithValue(true),
         locationServiceProvider.overrideWithValue(_FakeLocationService()),
         activityServiceProvider.overrideWithValue(_FakeActivityService()),
         urlLauncherProvider.overrideWithValue((url) async {
@@ -258,7 +254,6 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         sharedPreferencesProvider.overrideWith((ref) => prefs),
-        onboardingCompletedProvider.overrideWithValue(true),
         locationServiceProvider.overrideWithValue(_FakeLocationService()),
         activityServiceProvider.overrideWithValue(_FakeActivityService()),
         urlLauncherProvider.overrideWithValue((url) async {
@@ -286,7 +281,6 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         sharedPreferencesProvider.overrideWith((ref) => prefs),
-        onboardingCompletedProvider.overrideWithValue(true),
         locationServiceProvider.overrideWithValue(_FakeLocationService()),
         activityServiceProvider.overrideWithValue(_FakeActivityService()),
         urlLauncherProvider.overrideWithValue((url) async => false),
@@ -310,7 +304,6 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         sharedPreferencesProvider.overrideWith((ref) => prefs),
-        onboardingCompletedProvider.overrideWithValue(true),
         locationServiceProvider.overrideWithValue(_FakeLocationService()),
         activityServiceProvider.overrideWithValue(_FakeActivityService()),
         urlLauncherProvider.overrideWithValue(

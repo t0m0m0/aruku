@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../../features/error/error_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/loading/loading_screen.dart';
-import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/result/result_screen.dart';
 import '../../features/search/search_screen.dart';
 import '../../features/settings/settings_screen.dart';
@@ -57,7 +56,7 @@ CustomTransitionPage<void> _page(GoRouterState state, Widget child) {
 /// path 比較、go_router 自身の同一 location no-op。
 ///
 /// ネスト構造で戻り先を表現する: settings/search/result/error→home。
-/// home・onboarding・loading は PopScope(canPop: false) で back を無効化し、
+/// home・loading は PopScope(canPop: false) で back を無効化し、
 /// 「back でアプリが終了しない」現行仕様を維持する。
 final goRouterProvider = Provider<GoRouter>((ref) {
   final router = GoRouter(
@@ -86,13 +85,6 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       return missingPrerequisite ? ScreenPath.fallback.path : null;
     },
     routes: [
-      GoRoute(
-        path: '/onboarding',
-        pageBuilder: (context, state) => _page(
-          state,
-          const PopScope(canPop: false, child: OnboardingScreen()),
-        ),
-      ),
       GoRoute(
         path: '/home',
         pageBuilder: (context, state) =>

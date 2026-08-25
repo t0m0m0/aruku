@@ -9,7 +9,6 @@ import 'package:aruku/core/navigation/app_router.dart';
 import 'package:aruku/core/services/activity_service.dart';
 import 'package:aruku/core/services/cancellation.dart';
 import 'package:aruku/core/services/location_service.dart';
-import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
@@ -119,11 +118,9 @@ Widget appWidget(ProviderContainer container) => UncontrolledProviderScope(
 
 /// 共通のプロバイダオーバーライドでコンテナを生成する。
 ///
-/// [onboardingDone] でオンボーディング完了状態を制御する。
 /// [routeService] / [locationService] が指定された場合は該当プロバイダを
 /// 差し替える（位置ストリームを外部制御したいテスト向け）。
 Future<ProviderContainer> makeContainer({
-  bool onboardingDone = true,
   RouteService? routeService,
   LocationService? locationService,
   Now? now,
@@ -132,7 +129,6 @@ Future<ProviderContainer> makeContainer({
   return ProviderContainer(
     overrides: [
       sharedPreferencesProvider.overrideWith((ref) => prefs),
-      onboardingCompletedProvider.overrideWithValue(onboardingDone),
       locationServiceProvider.overrideWithValue(
         locationService ?? FakeLocationService(),
       ),
