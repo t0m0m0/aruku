@@ -24,7 +24,8 @@
 他用途に転用できないよう、キーに「呼び出せるアプリ」と「呼び出せる API」の二重制限をかける。
 
 > 補足: 地図表示用キー（`google_maps_flutter` が `AndroidManifest.xml` / `Info.plist` から
-> 読むキー）はアプリ内に存在せざるを得ない（ADR-001 参照）。Routes/Places 等の REST 系は
+> 読むキー）はアプリ内に存在せざるを得ない——ネイティブ Maps SDK が起動時にキーを読んで
+> 直接タイルを取得するため、アプリコードで制御できない。Routes/Places 等の REST 系は
 > Cloud Functions プロキシ側に隔離済みのため、ここで制限する主対象は **地図表示用キー**。
 
 ### 手順
