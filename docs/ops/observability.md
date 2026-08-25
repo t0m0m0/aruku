@@ -220,6 +220,14 @@ gcloud logging metrics create rate_limit_fail_open_transient_count \
   --log-filter='resource.type="cloud_run_revision" AND jsonPayload.event="rate_limit" AND jsonPayload.decision="fail-open" AND jsonPayload.reason="transient"'
 ```
 
+**reason を持たない `rate_limit_fail_open_count` がある環境では削除する。**
+
+```bash
+gcloud logging metrics delete rate_limit_fail_open_count
+```
+
+全 fail-open を1本にまとめたカウンタなので、残すと §6.1 と重複発火し、**設計上許容している `transient` でも P1 が鳴る**。§3.4 が2本に分けている意味がそこで失われる。
+
 ---
 
 ## 6. アラートポリシー
