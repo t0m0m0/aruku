@@ -23,9 +23,6 @@ class ArukuTokens {
   /// 結果画面のカードの落ち影。
   static const Color shadowCard = Color(0x1422361E);
 
-  /// オンボーディングのカードの落ち影。
-  static const Color shadowCardSoft = Color(0x1A22361E);
-
   /// ホームの主要 CTA ボタンの影。
   static const Color shadowCtaPrimary = Color(0x5C35501A);
 
@@ -34,7 +31,4 @@ class ArukuTokens {
 
   /// ローディングのアイコンのグロー影。
   static const Color shadowGlow = Color(0x7335501A);
-
-  /// ロゴの落ち影。
-  static const Color shadowLogo = Color(0x3836501E);
 }
