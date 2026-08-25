@@ -8,6 +8,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
+
+import '../support/fake_google_maps_platform.dart';
 
 /// ArukuMap は Maps JavaScript API の読み込み状態を watch するため
 /// ProviderScope を要する。VM では kIsWeb が false で読み込み自体が走らない。
@@ -181,6 +184,30 @@ void main() {
         ),
         isFalse,
       );
+    });
+  });
+
+  group('ArukuMap の破棄（#362）', () {
+    late GoogleMapsFlutterPlatform original;
+    late FakeGoogleMapsPlatform fake;
+
+    setUp(() {
+      original = GoogleMapsFlutterPlatform.instance;
+      fake = FakeGoogleMapsPlatform();
+      GoogleMapsFlutterPlatform.instance = fake;
+    });
+
+    tearDown(() => GoogleMapsFlutterPlatform.instance = original);
+
+    testWidgets('地図をツリーから外すと、プラットフォームの破棄は1回だけ走る', (tester) async {
+      await tester.pumpWidget(_host(const ArukuMap(useRealMap: true)));
+      await tester.pump();
+      expect(fake.disposedMapIds, isEmpty, reason: '表示中に破棄されてはいけない');
+
+      await tester.pumpWidget(_host(const SizedBox.shrink()));
+      await tester.pump();
+
+      expect(fake.disposedMapIds, hasLength(1));
     });
   });
 

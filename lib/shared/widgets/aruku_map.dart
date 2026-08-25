@@ -97,11 +97,11 @@ class _ArukuMapState extends ConsumerState<ArukuMap> {
     widget.onFitBoundsComplete?.call(_controller!);
   }
 
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
+  // ここで _controller を破棄しない。GoogleMapController の所有権は GoogleMap 側に
+  // あり、_GoogleMapState.dispose が自前で破棄する。両方が破棄すると
+  // GoogleMapsFlutterPlatform.dispose が二重に走り、Web 実装は
+  // 「Maps cannot be retrieved before calling buildView!」で落ちる。ネイティブは
+  // チャンネル送信が黙って捨てられるため表面化しない。#362 参照。
 
   @override
   void didUpdateWidget(covariant ArukuMap oldWidget) {

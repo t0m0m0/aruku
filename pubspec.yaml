@@ -65,6 +65,10 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
   fake_async: ^1.3.0
+  # テスト専用。GoogleMapsFlutterPlatform を差し替えて dispose の呼び出し回数を
+  # 検証するため（#362）。google_maps_flutter の export は LatLng などのデータ型
+  # までで、プラットフォーム基底クラスとイベント型は再公開していない。
+  google_maps_flutter_platform_interface: ^2.16.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
