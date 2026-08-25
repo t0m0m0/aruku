@@ -1,7 +1,7 @@
 # 本番リリース セキュリティハードニング 手順書
 
 - **関連 Issue:** #75
-- **最終更新:** 2026-06-09
+- **最終更新:** 2026-08-25
 - **対象:** 公開前に実施すべきセキュリティ対策のチェックリストと実施手順
 
 このドキュメントは Issue #75 の4項目について、**コードで完結しない手動・運用作業の手順**と、
@@ -10,7 +10,7 @@
 | # | 項目 | 種別 | 状態 |
 |---|---|---|---|
 | ① | API キーのアプリ制限 + API 制限 | 手動（GCP Console） | ⬜ 未実施 |
-| ② | App Check enforcement 確認 | 手動（Firebase Console） | ⬜ 未実施 |
+| ② | App Check enforcement 確認 + リプレイ保護 | 手動（Firebase Console） + コード | 🟡 リプレイ保護は実装済（#366） / Console 確認が残 |
 | ③ | TLS 証明書ピンニングの検討 | 設計判断 | ✅ 検討完了（当面見送り） |
 | ④ | リリースビルドの本番署名鍵・production dart-define 確認 | 一部コード済 + 手動検証 | 🟡 署名分離済(PR #87) / 実ビルド検証が残 |
 | ⑥ | Firestore クラウド同期のルール デプロイ | 一部コード済 + 手動デプロイ | 🟡 ルール実装済(PR #98) / Firestore 有効化・デプロイが残 |
@@ -148,6 +148,47 @@
 - 正規アプリからの呼び出しは通ること。
 - 注意: invoker（`allUsers`）が欠落していると App Check 到達前に **403** で弾かれる。
   401（App Check 拒否）と 403（invoker/権限）を区別して切り分けること。
+
+### リプレイ保護（limited-use トークン）
+
+トークンを持っていることの証明だけでは、**抜き取ったトークンの再送**を止められない。
+Web 版ではトークンがブラウザの DevTools から読め、TTL の間そのまま再利用できる
+（ネイティブの Play Integrity / App Attest では実質不可能だったことが、Web では
+利用者の誰にでもできる）。攻撃者は自分のサーバーから curl でプロキシを叩ける。
+
+対策として、課金プロキシ3本すべてを**使い捨てトークン**へ移行した（#155 → #366）。
+
+| エンドポイント | クライアントが取るトークン | サーバーの検証 |
+| --- | --- | --- |
+| `placesProxy` | `getLimitedUseToken()` | `verifyToken(token, {consume:true})` |
+| `googleWalkProxy` | 同上 | 同上 |
+| `googleWalkMatrixProxy` | 同上 | 同上 |
+
+クライアント側は `AppCheckHttpClient`（`lib/core/services/app_check_http_client.dart`）が
+URL によらず常に `getLimitedUseToken()` を使う。**この使い分けを URL 判定で持たない**のは、
+判定がサーバーの `consume` 設定とずれた瞬間に「標準トークンを送った先が 2 回目から 401」で
+静かに壊れるため。分岐が無ければ、そのずれ自体が起こりえない。
+
+なぜ当初 `googleWalkMatrixProxy` 限定だったか（#366 で方針転換）:
+`consume:true` は App Check バックエンドへの往復を毎回足すため、要素数課金で最も高単価な
+matrix だけに絞る判断だった。Web 公開でトークン抜き取りの難度が下がり、この前提が崩れた。
+CORS 許可リスト（⑧）は curl の再生を止めず、IP 単位のレート制限も IP を替えられれば
+頭打ちにならない。3本すべてを対象にしないと穴が残る。
+
+#### 検証
+
+- 同じトークンで 2 回叩くと、2 回目が **401**（`App Check token already consumed`）になること。
+- **デプロイ後は 401 率を必ず確認する。** `consume:true` は Functions のサービスアカウントに
+  `firebaseappcheck.appCheckTokens.verify` を要求し、これが欠けると対象エンドポイントが
+  **100% 失敗**する（`googleWalkMatrixProxy` で実際に踏んだ）。`app_check_denied` の
+  `reason` が `invalid` に張り付いていたらこれを疑う。
+
+#### レイテンシの計測
+
+`request_latency` イベント（`functions/src/metrics.ts`）の **`appCheckMs`** が
+App Check 検証区間だけの所要時間。`totalLatencyMs` には上流 API のばらつきが乗るため、
+`consume` が足した往復のコストはこちらで見る。endpoint 別に比較でき、`googleWalkMatrixProxy`
+（#155 以来 `consume:true`）がベースラインになる。
 
 ---
 
@@ -391,6 +432,10 @@ CORS はブラウザが**レスポンスを読ませるか**を決める仕組�
 サーバーへ届くこと自体は止めない。curl やモバイルアプリは無視する。
 
 したがって**認可の主体は依然として ②App Check** であり、許可リストは多層防御の1枚である。
+
+具体的には、許可リストが潰せるのは「攻撃者が自分のサーバーを用意せず、訪問者のブラウザに
+プロキシを叩かせる」変種だけ。**抜き取ったトークンをサーバーから再生する経路には無力**で、
+そちらは ② の limited-use トークン（`consume:true`）が担う。
 Origin ヘッダの無いリクエスト（モバイル・curl）はサーバー側では拒否せず、ACAO を
 付けないだけにしている——拒否してもブラウザ以外には効かず、ネイティブ版が壊れるだけのため。
 
