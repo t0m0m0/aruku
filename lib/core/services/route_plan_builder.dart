@@ -89,12 +89,6 @@ int arrivalMinutes(List<RouteSegment> segments, DateTime? departureAt) {
 /// =不整合データを併せて除外する）。発車時刻が欠落した区間は判定できないため対象外。
 /// バスも電車と同じ基準で判定する（#250。バス限定の緩和は入れない——時刻表を信じる
 /// 決定と「その便が実在するか」の検証は別物）。
-///
-/// かつては駅着までの実累積分 `cumBefore` も返し、乗車駅からの時刻表再照会の start_time
-/// （出発 + cumBefore）を組むのに使っていた（#115）。データ源が Transit API へ移ったとき
-/// この再照会は廃止され、#115 は乗車駅探索（docs/spec/route-optimization.md §3.6）が
-/// 候補側から `/guidance/plan` を引き直して自前で乗車時刻を決める形になったため、
-/// `cumBefore` は誰も読まなくなった（#330 で撤去）。
 int? firstMissedTransit(List<RouteSegment> segments, DateTime departureAt) {
   var cum = 0;
   for (var i = 0; i < segments.length; i++) {

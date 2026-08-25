@@ -366,8 +366,8 @@ int walkFeasiblePrefixCount(List<int> walk1Min, int budgetMin) {
 /// [maxBacktrackRatio] × 直線距離(origin→goal) を超えて戻る駅を含むか。
 /// 徒歩区間は判定しない（目的地へ近づくための短い徒歩を弾かないため）。
 ///
-/// 判定は電車区間 polyline を[両端＋均等サンプリング]した点で行い、生の全頂点は
-/// 使わない（[_sampledForBacktrack]）。`stopOrder` の polyline は停車駅座標で疎
+/// 判定は電車区間 polyline を均等サンプリングした点で行い、生の全頂点は使わない
+/// （[evenSample] を [_maxBacktrackSamplesPerLeg] 点まで）。`stopOrder` の polyline は停車駅座標で疎
 /// （サンプリング上限以下）なので全点がそのまま使われる。一方 Transit API の
 /// gtfsShape は線路追従で頂点が密（数百）なため、全頂点を判定すると乗車直後などの
 /// 一過性の後方カーブ頂点1つで正当な経路を誤除外してしまう。サンプリングにより

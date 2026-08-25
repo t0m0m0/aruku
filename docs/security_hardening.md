@@ -1,20 +1,18 @@
 # 本番リリース セキュリティハードニング 手順書
 
-- **関連 Issue:** #75
-- **最終更新:** 2026-08-25
-- **対象:** 公開前に実施すべきセキュリティ対策のチェックリストと実施手順
+- **位置づけ:** 公開前および運用中に実施する**コードで完結しない手動・運用作業**の手順書。
+- **進捗の正本は本書ではなく issue #75 のチェックボックス。** 本書は「どう実施するか」だけを書き、「実施したか」は書かない。
+- **関連:** [route-optimization.md](spec/route-optimization.md) §2.1（プロキシの構成）, [ops/observability.md](ops/observability.md)（保護機構の監視）
 
-このドキュメントは Issue #75 の4項目について、**コードで完結しない手動・運用作業の手順**と、
-**証明書ピンニングの検討結果**をまとめる。各項目の進捗は Issue #75 のチェックボックスと同期する。
-
-| # | 項目 | 種別 | 状態 |
-|---|---|---|---|
-| ① | API キーのアプリ制限 + API 制限 | 手動（GCP Console） | ⬜ 未実施 |
-| ② | App Check enforcement 確認 + リプレイ保護 | 手動（Firebase Console） + コード | 🟡 リプレイ保護は places/matrix に実装済（#366） / Console 確認・徒歩系の再生対策が残 |
-| ③ | TLS 証明書ピンニングの検討 | 設計判断 | ✅ 検討完了（当面見送り） |
-| ④ | リリースビルドの本番署名鍵・production dart-define 確認 | 一部コード済 + 手動検証 | 🟡 署名分離済(PR #87) / 実ビルド検証が残 |
-| ⑥ | Firestore クラウド同期のルール デプロイ | 一部コード済 + 手動デプロイ | 🟡 ルール実装済(PR #98) / Firestore 有効化・デプロイが残 |
-| ⑧ | Functions プロキシの CORS Origin 許可リスト | コード | ✅ 実装済（#359） |
+| # | 項目 | 種別 |
+|---|---|---|
+| ① | API キーのアプリ制限 + API 制限 | 手動（GCP Console） |
+| ② | App Check enforcement 確認 + リプレイ保護 | 手動（Firebase Console） + コード |
+| ③ | TLS 証明書ピンニング | 設計判断 |
+| ④ | リリースビルドの本番署名鍵・production dart-define 確認 | 手動検証 |
+| ⑥ | Firestore クラウド同期のセキュリティ（ルール デプロイ） | 手動デプロイ |
+| ⑦ | 関数を廃止するときの手順 | 手動（本番削除） |
+| ⑧ | Functions プロキシの CORS Origin 許可リスト | コード |
 
 ---
 
@@ -24,7 +22,8 @@
 他用途に転用できないよう、キーに「呼び出せるアプリ」と「呼び出せる API」の二重制限をかける。
 
 > 補足: 地図表示用キー（`google_maps_flutter` が `AndroidManifest.xml` / `Info.plist` から
-> 読むキー）はアプリ内に存在せざるを得ない（ADR-001 参照）。Routes/Places 等の REST 系は
+> 読むキー）はアプリ内に存在せざるを得ない——ネイティブ Maps SDK が起動時にキーを読んで
+> 直接タイルを取得するため、アプリコードで制御できない。Routes/Places 等の REST 系は
 > Cloud Functions プロキシ側に隔離済みのため、ここで制限する主対象は **地図表示用キー**。
 
 ### 手順
@@ -129,7 +128,7 @@
 正規アプリ以外からの呼び出し（API 課金の濫用）を遮断できていることを確認する。
 
 > アプリ側は `AppCheckHttpClient`（`lib/core/services/app_check_http_client.dart`）が
-> 全リクエストに `X-Firebase-AppCheck` ヘッダを付与済み。残るは**サーバー側の enforce 設定確認**。
+> 全リクエストに `X-Firebase-AppCheck` ヘッダを付与する。本節が扱うのは**サーバー側の enforce 設定**。
 
 ### 手順
 
@@ -250,26 +249,17 @@ reCAPTCHA 側のクォータ画面で見る。**対象を増やす前に、現�
 
 ---
 
-## ③ TLS 証明書ピンニングの検討結果 → 当面見送り
-
-### 検討内容
-
-証明書ピンニングは、アプリに通信相手の証明書/公開鍵の指紋を焼き込み、OS の信頼ストアに
-依存せず一致する相手としか通信しない防御策。中間者攻撃（不正 CA・端末への悪意ある CA 注入）
-への耐性を高める。
-
-### 結論: **当面実装しない**
+## ③ TLS 証明書ピンニング → 実装しない
 
 主たる通信先が **Google 管理の Cloud Functions / Cloud Run**（`*.cloudfunctions.net` /
-`*.run.app`）であることが決定的な理由。
+`*.run.app`）であることが理由。
 
 - Google は証明書・公開鍵を**短期間で自動ローテーション**する。リーフ/中間証明書をハードピンすると、
-  ローテーション時に**全ユーザーが一斉に通信不能になる自爆的な本番障害**を招くリスクが高い。
-- 濫用対策は **① API キー制限**と **② App Check enforcement** で実質的に担保されており、
+  ローテーション時に**全ユーザーが一斉に通信不能になる自爆的な本番障害**を招く。
+- 濫用対策は **① API キー制限**と **② App Check enforcement** で担保しており、
   ピンニングの追加便益は限定的。
-- Issue #75 の文言も「ピンニングの**検討**」であり、実装必須ではない。
 
-### 再検討の条件（将来）
+### 実装する条件
 
 以下に該当する通信先が増えた場合は、その通信先に限定して **SPKI（公開鍵）ピン**を再検討する:
 
@@ -283,12 +273,12 @@ reCAPTCHA 側のクォータ画面で見る。**対象を増やす前に、現�
 **目的:** リリースビルドが **debug keystore ではなく本番署名鍵**で、かつ **production の
 dart-define**（`PROXY_BASE_URL` 等）で生成されることを確認する。
 
-### 現状
+### 前提
 
-- 署名鍵の分離は **PR #87 で対応済み**。`android/key.properties` があれば本番 keystore で
-  `release` を署名し、未配置の開発環境では debug 鍵にフォールバックする
-  （`android/app/build.gradle.kts`）。
-- 残るは **Android SDK 環境での実ビルド検証**（本ドキュメント作成環境では未実施）。
+`android/app/build.gradle.kts` は `android/key.properties` があれば本番 keystore で
+`release` を署名し、未配置の環境では debug 鍵へフォールバックする。**フォールバックは
+沈黙する**ので、本番ビルドで `key.properties` を置き忘れても署名は通る。以下の検証は
+それを検出するためのもの。
 
 ### 手順（Android SDK のある環境で実施）
 
@@ -320,21 +310,16 @@ dart-define**（`PROXY_BASE_URL` 等）で生成されることを確認する�
 
 ## ⑥ Firestore クラウド同期のセキュリティ（ルール デプロイ）
 
-> **ステータス: ルールのみ先行整備・クライアント未実装（2026-08-08 確認）。**
-> Issue #19 のクラウド同期はアプリ側が存在しない — `cloud_firestore` は `pubspec.yaml` の
-> 依存にすら入っておらず、`userSync/{uid}` を読み書きするコードは `lib/` に無い
-> （最後の残骸だった `sync_meta_repository.dart` は #353 で撤去）。**同期機能そのものの
-> 公開前チェックとしては未着手。**
->
-> ただし**この例外ルール自体は生きている**。ルールをデプロイした環境では、認証済み
-> （匿名サインインを含む）ユーザーが自分の `userSync/{uid}` を read / create / update /
-> delete できる（`firestore.rules` の `match /userSync/{uid}`）。公式クライアントがその
-> 経路を使っていないだけで、コレクションが到達不能なわけではない。実装まで残すか
-> 撤去するかは別判断（本節では扱わない）。
-
 **目的:** クライアント SDK が `userSync/{uid}` を直接読み書きするようになったとき、
-**本人以外がアクセスできない**ことを保証する。ルールとそのテストは先行して用意済みなので、
-同期を実装する際はこの節の検証を満たしてから公開する。
+**本人以外がアクセスできない**ことを保証する。
+
+> **アプリ側にクラウド同期の実装は無い。** `cloud_firestore` は `pubspec.yaml` の依存に
+> 入っておらず、`userSync/{uid}` を読み書きするコードは `lib/` に無い。
+>
+> **それでもルールは効いている。** デプロイ済みの環境では認証済み（匿名サインインを含む）
+> ユーザーが自分の `userSync/{uid}` を read / create / update / delete できる
+> （`firestore.rules` の `match /userSync/{uid}`）。公式クライアントがその経路を使って
+> いないだけで、**コレクションは到達可能**。
 
 > `firestore.rules` は既定で全面拒否を維持しつつ、`userSync/{uid}` のみ
 > `request.auth.uid == uid` の本人に read/write を許可する。書き込みは `isValidSyncData`
@@ -378,57 +363,6 @@ dart-define**（`PROXY_BASE_URL` 等）で生成されることを確認する�
 - ルールでドキュメントサイズ/フィールドを検証する（例: `request.resource.size() < N`）。
   自分のドキュメントへの過大書き込み（自クォータ内）を抑止する。
 - App Check を **Firestore** にも enforce する（現状は Cloud Functions のみ enforce、②参照）。
-
----
-
-## ⑤ Functions リージョン移行手順（us-central1 → asia-northeast1）
-
-> **ステータス: 完了済み（2026-07-27 確認）。** `functions:list` で `us-central1` の関数が
-> 0 件、`asia-northeast1` のみ稼働していることを確認した。以下は再発時・別リージョンへの
-> 移行時に再利用する手順であり、**いま実行すべき作業は無い**。
->
-> 手順3のコマンドが列挙する関数名は「実行時点で旧リージョンに残っているもの」を指す。
-> 過去に存在した関数（例: `navitimeProxy`・#330 で撤去）を後から足す必要はない——旧
-> リージョンには既に何も残っていない。逆に**未完了の状態でこの節を編集するときは、
-> 削除対象から関数名を落とさないこと**（落とすとその関数だけ旧リージョンに取り残される）。
-
-**目的:** Issue #79 で Functions を `asia-northeast1` に明示デプロイした。リージョンを
-変更すると Firebase は別の関数とみなすため、**旧 `us-central1` 関数は自動削除されない**。
-以下を**安全な順序**で実施する（先に旧関数を消すと配布済みアプリが 404 になる）。
-プロジェクト ID は `aruku-app`（`.firebaserc` の default）。コマンド例は実値を
-記載しているが、URL 例中の `{projectId}` プレースホルダも同値に読み替える。
-
-1. 新リージョンへデプロイ:
-   ```sh
-   cd functions && npm run build && cd ..
-   npx -y firebase-tools@latest deploy --only functions --project aruku-app
-   ```
-   この時点では旧 `us-central1` の関数も残り、両リージョンが並存する。
-
-2. クライアントの `PROXY_BASE_URL` を新リージョンへ切り替えてリリースビルドする
-   （④ の手順）。URL は `https://asia-northeast1-{projectId}.cloudfunctions.net`。
-   CI でビルドしている場合は CI 側の dart-define も更新する。
-
-3. 配布が行き渡り、新リージョン関数の稼働と `allUsers` invoker 権限を確認したら、
-   旧 `us-central1` 関数を**手動削除**する:
-   ```sh
-   npx -y firebase-tools@latest functions:delete \
-     googleWalkProxy \
-     --region us-central1 --project aruku-app
-   ```
-
-4. 削除を確認する:
-   ```sh
-   npx -y firebase-tools@latest functions:list --project aruku-app
-   # us-central1 の関数が消え、asia-northeast1 のみ残ること
-   ```
-
-### 注意
-
-- 2nd gen Functions の実体は Cloud Run。残骸が無いか
-  `gcloud run services list --region us-central1 --project aruku-app` で確認する。
-- 新リージョン関数で `allUsers` invoker 権限が欠落すると App Check 検証前に 403 になる
-  （② の検証参照）。
 
 ---
 

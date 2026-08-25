@@ -63,7 +63,7 @@ const sampleRoutePlan = RoutePlan(
 );
 
 /// 左折を1つだけ含む徒歩専用のL字経路（案内アイコン種別のテスト用）。
-/// 東へ進み→左折して北上する形状（`nav_engine_test.dart` のL字ルートと同型）。
+/// 東へ進み→左折して北上する形状。
 const leftTurnRoutePlan = RoutePlan(
   from: 'A地点',
   to: 'B地点',
