@@ -744,6 +744,65 @@ describe("ハンドラ統合（App Check 401）", () => {
   });
 });
 
+describe("ハンドラ統合（リプレイ保護 / issue #366）", () => {
+  const original = process.env.FUNCTIONS_EMULATOR;
+
+  // 課金プロキシ3本とも、抜き取ったトークンの再送を弾けること。Web ではトークンが
+  // DevTools から読めるため、matrix 限定だった保護を全プロキシへ広げた（#366）。
+  const proxies: [string, HttpsFunction, Record<string, string>][] = [
+    [
+      "placesProxy",
+      placesProxy,
+      { action: "autocomplete", input: "shibuya" },
+    ],
+    [
+      "googleWalkProxy",
+      googleWalkProxy,
+      { start: "35.7,139.7", goal: "35.6,139.7" },
+    ],
+    [
+      "googleWalkMatrixProxy",
+      googleWalkMatrixProxy,
+      { origins: "35.7,139.7", destinations: "35.6,139.7" },
+    ],
+  ];
+
+  beforeEach(() => {
+    resetRateLimit();
+    resetUpstreamCache();
+    httpsRequestMock.mockReset();
+    verifyTokenMock.mockReset();
+    delete process.env.FUNCTIONS_EMULATOR;
+  });
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.FUNCTIONS_EMULATOR;
+    else process.env.FUNCTIONS_EMULATOR = original;
+  });
+
+  it.each(proxies)(
+    "%s はトークンを consume 付きで検証する",
+    async (_name, handler, query) => {
+      verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: false });
+      mockUpstream({});
+      await invokeHandler(handler, makeReq({ query, token: "fresh" }), makeRes());
+      expect(verifyTokenMock).toHaveBeenCalledWith("fresh", { consume: true });
+    }
+  );
+
+  it.each(proxies)(
+    "%s は消費済みトークンを 401 で拒否し上流を呼ばない",
+    async (_name, handler, query) => {
+      verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: true });
+      const res = makeRes();
+      await invokeHandler(handler, makeReq({ query, token: "replayed" }), res);
+      expect(res.statusCode).toBe(401);
+      expect(res.body).toEqual({ error: "App Check token already consumed" });
+      expect(httpsRequestMock).not.toHaveBeenCalled();
+    }
+  );
+});
+
 describe("CORS プリフライト（OPTIONS）", () => {
   const handlers: [string, HttpsFunction][] = [
     ["placesProxy", placesProxy],

@@ -234,14 +234,23 @@ export function clientIp(req: Request): string {
 // with 401, blocking unauthenticated access to these billable proxies.
 // The emulator is exempted so local development works without App Check setup.
 //
-// リプレイ保護（issue #155）:
+// リプレイ保護（issue #155・#366）:
 //   opts.consume=true のとき verifyToken に { consume: true } を渡し、App Check
 //   バックエンドにトークンを「消費済み」として記録させる。クライアントは
 //   getLimitedUseToken() で毎回新規トークンを送る前提で、2 回目以降は応答の
-//   alreadyConsumed=true で返るためリプレイとして 401 で弾く。追加往復のコストが
-//   あるため、要素数課金の googleWalkMatrixProxy のような高単価エンドポイント
-//   限定で有効化する。consume 未指定時は従来通り単一引数で検証する（他プロキシは
-//   キャッシュ済み標準トークンを再利用でき、動作・コストとも不変）。
+//   alreadyConsumed=true で返るためリプレイとして 401 で弾く。
+//
+//   なぜ高単価な googleWalkMatrixProxy 限定にしていないか（#366 で方針転換）:
+//     当初は「App Check バックエンドへの往復が増えるぶん、要素数課金の matrix だけ
+//     に絞る」判断だった。Web 配信ではトークンがブラウザの DevTools から読め、
+//     TTL の間そのまま再生できるため、この前提が崩れた。CORS 許可リスト（⑧）は
+//     ブラウザにレスポンスを読ませるかを決めるだけで curl の再生を止めず、IP 単位の
+//     レート制限も IP を替えられれば頭打ちにならない。課金プロキシ3本すべてを
+//     対象にしないと穴が残る。
+//
+//   consume 未指定の経路（単一引数の検証）は呼び出し側が全て consume:true へ
+//   移行した今も残す。エミュレータ免除と同様、検証だけしたい将来の非課金
+//   エンドポイントのための既定であり、課金プロキシから使ってはならない。
 export async function verifyAppCheck(
   req: Request,
   res: Response,
@@ -675,7 +684,13 @@ export function withRequestLatency(
 export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKeySecret] }, withRequestLatency("placesProxy", async (req, res) => {
   if (handleCors(req, res)) return;
 
-  if (!(await verifyAppCheck(req, res, { endpoint: "placesProxy" }))) return;
+  if (
+    !(await verifyAppCheck(req, res, {
+      consume: true,
+      endpoint: "placesProxy",
+    }))
+  )
+    return;
 
   if (!(await checkRateLimit(clientIp(req)))) {
     res.status(429).json({ error: "Too many requests" });
@@ -772,7 +787,13 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKey
 export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKeySecret] }, withRequestLatency("googleWalkProxy", async (req, res) => {
   if (handleCors(req, res)) return;
 
-  if (!(await verifyAppCheck(req, res, { endpoint: "googleWalkProxy" }))) return;
+  if (
+    !(await verifyAppCheck(req, res, {
+      consume: true,
+      endpoint: "googleWalkProxy",
+    }))
+  )
+    return;
 
   if (!(await checkRateLimit(clientIp(req), WALK_RATE_LIMIT))) {
     res.status(429).json({ error: "Too many requests" });
@@ -832,8 +853,6 @@ export const googleWalkMatrixProxy = onRequest(
   withRequestLatency("googleWalkMatrixProxy", async (req, res) => {
     if (handleCors(req, res)) return;
 
-    // 要素数課金で最も高単価なため、リプレイ保護（limited-use token 消費）を
-    // このエンドポイントに限定して有効化する（issue #155）。
     if (
       !(await verifyAppCheck(req, res, {
         consume: true,

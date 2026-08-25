@@ -32,7 +32,7 @@ void main() {
       final inner = _FakeInnerClient();
       final client = AppCheckHttpClient(
         inner,
-        tokenProvider: () async => 'token_abc',
+        limitedUseTokenProvider: () async => 'token_abc',
       );
 
       await client.send(_request());
@@ -41,11 +41,11 @@ void main() {
       expect(inner.lastRequest!.headers['X-Firebase-AppCheck'], 'token_abc');
     });
 
-    test('getToken が例外を投げてもヘッダ未付与でリクエストは継続する', () async {
+    test('getLimitedUseToken が例外を投げてもヘッダ未付与でリクエストは継続する', () async {
       final inner = _FakeInnerClient();
       final client = AppCheckHttpClient(
         inner,
-        tokenProvider: () async => throw Exception('App Check 未設定'),
+        limitedUseTokenProvider: () async => throw Exception('App Check 未設定'),
       );
 
       final response = await client.send(_request());
@@ -61,7 +61,10 @@ void main() {
 
     test('トークンが null の場合はヘッダを付与しない', () async {
       final inner = _FakeInnerClient();
-      final client = AppCheckHttpClient(inner, tokenProvider: () async => null);
+      final client = AppCheckHttpClient(
+        inner,
+        limitedUseTokenProvider: () async => null,
+      );
 
       await client.send(_request());
 
@@ -73,7 +76,10 @@ void main() {
 
     test('トークンが空文字列の場合はヘッダを付与しない', () async {
       final inner = _FakeInnerClient();
-      final client = AppCheckHttpClient(inner, tokenProvider: () async => '');
+      final client = AppCheckHttpClient(
+        inner,
+        limitedUseTokenProvider: () async => '',
+      );
 
       await client.send(_request());
 
@@ -84,65 +90,39 @@ void main() {
     });
   });
 
-  group('limited-use トークン（リプレイ保護, issue #155）', () {
-    test('googleWalkMatrixProxy へは limited-use プロバイダのトークンを付与する', () async {
-      final inner = _FakeInnerClient();
-      final client = AppCheckHttpClient(
-        inner,
-        tokenProvider: () async => 'standard_token',
-        limitedUseTokenProvider: () async => 'limited_use_token',
-      );
+  group('limited-use トークン（リプレイ保護, issue #155・#366）', () {
+    // このクライアントが触る URL は課金プロキシ3本だけで、いずれもサーバ側が
+    // consume:true で検証する。標準トークンを送る経路が1つでも残ると、そこは
+    // 2 回目以降 401 になる。
+    for (final path in const [
+      'placesProxy',
+      'googleWalkProxy',
+      'googleWalkMatrixProxy',
+    ]) {
+      test('$path へは limited-use プロバイダのトークンを付与する', () async {
+        final inner = _FakeInnerClient();
+        final client = AppCheckHttpClient(
+          inner,
+          limitedUseTokenProvider: () async => 'limited_use_token',
+        );
 
-      await client.send(_request('googleWalkMatrixProxy'));
+        await client.send(_request(path));
 
-      expect(
-        inner.lastRequest!.headers['X-Firebase-AppCheck'],
-        'limited_use_token',
-      );
-    });
-
-    test('matrix 以外（googleWalkProxy）へは標準プロバイダのトークンを付与する', () async {
-      final inner = _FakeInnerClient();
-      final client = AppCheckHttpClient(
-        inner,
-        tokenProvider: () async => 'standard_token',
-        limitedUseTokenProvider: () async => 'limited_use_token',
-      );
-
-      await client.send(_request('googleWalkProxy'));
-
-      expect(
-        inner.lastRequest!.headers['X-Firebase-AppCheck'],
-        'standard_token',
-      );
-    });
-
-    test('requiresLimitedUseToken は matrix パスのみ true', () {
-      expect(
-        AppCheckHttpClient.requiresLimitedUseToken(
-          Uri.parse('https://proxy.example.com/googleWalkMatrixProxy'),
-        ),
-        isTrue,
-      );
-      expect(
-        AppCheckHttpClient.requiresLimitedUseToken(
-          Uri.parse('https://proxy.example.com/googleWalkProxy'),
-        ),
-        isFalse,
-      );
-      expect(
-        AppCheckHttpClient.requiresLimitedUseToken(
-          Uri.parse('https://proxy.example.com/placesProxy'),
-        ),
-        isFalse,
-      );
-    });
+        expect(
+          inner.lastRequest!.headers['X-Firebase-AppCheck'],
+          'limited_use_token',
+        );
+      });
+    }
   });
 
   group('AppCheckHttpClient.close', () {
     test('close() が内部クライアントへ委譲される', () {
       final inner = _FakeInnerClient();
-      final client = AppCheckHttpClient(inner, tokenProvider: () async => null);
+      final client = AppCheckHttpClient(
+        inner,
+        limitedUseTokenProvider: () async => null,
+      );
 
       client.close();
 

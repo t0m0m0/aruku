@@ -94,11 +94,11 @@ void main() {
 
     test('内側の App Check トークン取得がハングしても打ち切る (#156)', () {
       // 合成順を TimeoutHttpClient(AppCheckHttpClient(...)) と最外側にすることで、
-      // getToken 相当の送信前待ちも header タイムアウトの内側に収まる。
+      // getLimitedUseToken 相当の送信前待ちも header タイムアウトの内側に収まる。
       final client = TimeoutHttpClient(
         AppCheckHttpClient(
           _FakeInnerClient(),
-          tokenProvider: () => Future<String?>.delayed(
+          limitedUseTokenProvider: () => Future<String?>.delayed(
             const Duration(milliseconds: 200),
             () => 't',
           ),
