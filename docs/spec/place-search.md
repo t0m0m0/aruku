@@ -3,7 +3,7 @@
 - **位置づけ:** 目的地・出発地の地点検索の **設計の正本**。検索系統を変える実装・レビューは本書を基準にする。
 - **最終更新:** 2026-06-30
 - **対象コード:** `lib/core/services/places_service.dart`, `lib/features/search/places_provider.dart`, `lib/features/search/search_screen.dart`, `functions/src/index.ts`（`placesProxy`）, `functions/src/places-transform.ts`
-- **関連:** #144（POI を Google へ戻す）, #145（その実装）, #146（近くの店モード）
+- **関連:** [route-optimization.md](route-optimization.md) §2.1（`placesProxy` の構成）
 
 ---
 
@@ -18,7 +18,7 @@
 
 - **Autocomplete (New)** は駅・地名候補に強いが、`locationBias` は**ソフトな地域バイアス**で距離ソートではない。近隣には寄るが「近い順」にはならない。座標を返さないため確定時に `details`（`fetchLatLng`）が必要。
 - ただし Autocomplete に **`origin` を渡すと各候補に距離（`distanceMeters`）が付く**。これを使えば、**系統は Autocomplete のまま**でクライアント側で距離昇順に並べ替えられる。
-- Text Search(New)+DISTANCE で厳密な距離昇順も取れるが、駅・地名 typeahead を壊し（下北沢駅で1件、渋谷で無関係 POI 羅列）、割高 SKU で確定が速い等の別トレードオフがある。本実装では採用せず、より軽量な distance 再ソート方式を採る（検討記録は #146 / #147 のコメント参照）。
+- **Text Search(New)+DISTANCE へ全面切替してはならない。** 厳密な距離昇順は得られるが、駅・地名の typeahead を壊す（実測: 「下北沢駅」で1件、「渋谷」で無関係な POI が並ぶ・#146）。加えて SKU が割高。
 
 → 方針: **Autocomplete を唯一の系統とし、「近くの店」モードのときだけ `distanceMeters` で並びを距離昇順に再ソートする。**
 
@@ -41,10 +41,10 @@
 
 ## 4. コスト
 
-C案は Text Search の割高 SKU を使わず、**通常 typeahead と同じ Autocomplete のみ**。近くの店モードでも追加課金は無し（再ソートはクライアント処理）。
+Text Search の割高 SKU を使わず、**通常 typeahead と同じ Autocomplete のみ**。近くの店モードでも追加課金は無い（再ソートはクライアント処理）。
 
-- debounce 400ms（既存）。
-- 最小文字数ガードは不要（Autocomplete は安価なため撤去）。
+- debounce 400ms。
+- 最小文字数ガードは無い（Autocomplete が安価なため不要）。
 
 ## 5. 不変条件
 
@@ -54,5 +54,5 @@ C案は Text Search の割高 SKU を使わず、**通常 typeahead と同じ Au
 
 ## 6. 既知の限界
 
-- 近くの店モードが並べ替えるのは**Autocomplete が関連度で拾った候補（≒5件）**で、選抜自体は関連度任せ。関連度が拾わなかった近所の小さな店は出てこない。周辺を広く距離順で網羅したい要件が出たら Text Search(New)+DISTANCE の併設を再検討する（#147 に実装案あり）。
+- 近くの店モードが並べ替えるのは**Autocomplete が関連度で拾った候補（≒5件）**で、選抜自体は関連度任せ。関連度が拾わなかった近所の小さな店は出てこない。周辺を広く距離順で網羅する要件が出た場合は、全面切替ではなく Text Search(New)+DISTANCE の**併設**で対応する（切替が不可な理由は §1）。
 - **現在地の到着が取得より遅れると、トグルが効かない候補が残る。** 取得時に現在地が未確定だと `origin` を送れず、その候補には `distanceMeters` が付かない。その後に現在地が届くとトグルは表示されるが（表示条件は現在地の有無）、`setNearby` は再フェッチしないため `_sortByDistance` は距離不明の候補を末尾へ回すだけで**並びが変わらない**。トグルを押しても無反応に見える。次のクエリ入力で取得し直せば解消する。恒久対策（現在地到着時の再取得、または座標確定後の距離再計算）は未実装。
