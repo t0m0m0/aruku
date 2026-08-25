@@ -412,6 +412,67 @@ describe("request_latency イベント配線（ハンドラ全体レイテンシ
   });
 });
 
+describe("appCheckMs 配線（consume の追加往復コスト・#366）", () => {
+  const original = process.env.FUNCTIONS_EMULATOR;
+
+  beforeEach(() => {
+    resetRateLimitFromIndex();
+    resetUpstreamCache();
+    httpsRequestMock.mockReset();
+    verifyTokenMock.mockReset();
+    logRequestLatencyMock.mockReset();
+    // App Check 検証を実際に走らせる（エミュレータでは検証ごとスキップされる）。
+    delete process.env.FUNCTIONS_EMULATOR;
+  });
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.FUNCTIONS_EMULATOR;
+    else process.env.FUNCTIONS_EMULATOR = original;
+  });
+
+  it("検証成功時: request_latency に数値 appCheckMs を載せる", async () => {
+    verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: false });
+    mockUpstream({ suggestions: [] });
+    await invokeHandler(
+      placesProxy,
+      makeReq({ query: { action: "autocomplete", input: "shibuya" }, token: "t" }),
+      makeRes()
+    );
+    expect(logRequestLatencyMock).toHaveBeenCalledTimes(1);
+    expect(typeof logRequestLatencyMock.mock.calls[0][0].appCheckMs).toBe(
+      "number"
+    );
+  });
+
+  it("401 で拒否された要求でも appCheckMs を載せる（拒否コストも計測対象）", async () => {
+    verifyTokenMock.mockRejectedValue(new Error("invalid"));
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({ query: { action: "autocomplete", input: "shibuya" }, token: "bad" }),
+      res
+    );
+    expect(res.statusCode).toBe(401);
+    expect(typeof logRequestLatencyMock.mock.calls[0][0].appCheckMs).toBe(
+      "number"
+    );
+  });
+
+  // 検証しなかった要求を 0ms として計上すると分布が 0 側へ寄って「App Check は速い」
+  // と誤読させる。未計測は undefined のまま渡し、ログ payload からはキーごと落とす
+  // （その落とし方は metrics.test.ts 側で担保する）。
+  it("エミュレータ免除では検証しないので appCheckMs は undefined", async () => {
+    process.env.FUNCTIONS_EMULATOR = "true";
+    mockUpstream({ suggestions: [] });
+    await invokeHandler(
+      placesProxy,
+      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
+      makeRes()
+    );
+    expect(logRequestLatencyMock.mock.calls[0][0].appCheckMs).toBeUndefined();
+  });
+});
+
 describe("app_check_denied イベント配線（verifyAppCheck 経由）", () => {
   beforeEach(() => {
     logAppCheckDeniedMock.mockReset();

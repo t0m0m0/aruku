@@ -157,7 +157,7 @@ final routeServiceProvider = Provider<RouteService>((ref) {
   // に close して in-flight を切るには、この per-search 所有が要る。
   return SearchScopedRouteService((cancellation) {
     // Transit API は直叩き（認証不要・CORS）、Google 徒歩プロキシは App Check 必須。
-    // TimeoutHttpClient は最外側に置き、App Check の getToken を含む全体を打ち切る（#156）。
+    // TimeoutHttpClient は最外側に置き、App Check の getLimitedUseToken を含む全体を打ち切る（#156）。
     final transitClient = TimeoutHttpClient(
       http.Client(),
       timeout: transitRequestTimeout,

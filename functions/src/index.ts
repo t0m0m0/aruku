@@ -228,27 +228,79 @@ export function clientIp(req: Request): string {
   return req.ip ?? "unknown";
 }
 
+// リプレイ保護を有効にするエンドポイント（issue #366）。
+//
+// 既定に googleWalkProxy を含めないのはクォータのため。使い捨てトークンは要求ごとに
+// 新規アテステーションを強制し、その回数は事業者のクォータを直接消費する（例:
+// Play Integrity の Standard ティアは 1 日 10,000 コール）。徒歩プロキシは 1 検索で
+// 21 本まで膨らむ実測がある（docs/spec/route-optimization.md §3.8）ため、ここを
+// 対象にすると数百検索/日でクォータを使い切る。枯渇するとクライアントの
+// getLimitedUseToken() が throw し、ヘッダ無し＝全要求 401 になる。防ごうとした
+// 課金リスクより大きな可用性リスクを買うことになるため入れない。徒歩プロキシの
+// 再生対策はトークン単位のレート制限で別途扱う。
+//
+// Firebase 側も「replay protection は特に機微なエンドポイントに限って有効化する」
+// ことを推奨している（往復が増えるため）。
+const DEFAULT_APP_CHECK_CONSUME_ENDPOINTS = [
+  "placesProxy",
+  "googleWalkMatrixProxy",
+];
+
+// なぜ環境変数で上書き可能にするか:
+//   (1) 段階導入。クライアントとサーバは同じトークン契約の両端で、モバイルの
+//       入れ替えは原子的でない。対象を増やすときは「クライアント先行リリース →
+//       アドプション待ち → サーバで有効化」の順が要る。
+//   (2) 緊急ロールバック。アテステーション枯渇や IAM 欠落で 401 が張り付いたとき、
+//       コード変更なしに空文字列で全停止できる。
+// 空文字列は「全エンドポイントで consume しない」を意味する（未設定＝既定とは別）。
+// 設定は functions/.env もしくはデプロイ時の --set-env-vars で与える。
+export function shouldConsumeAppCheckToken(endpoint: string): boolean {
+  const configured = process.env.APP_CHECK_CONSUME_ENDPOINTS;
+  const endpoints =
+    configured === undefined
+      ? DEFAULT_APP_CHECK_CONSUME_ENDPOINTS
+      : configured
+          .split(",")
+          .map((e) => e.trim())
+          .filter((e) => e.length > 0);
+  return endpoints.includes(endpoint);
+}
+
+// verifyAppCheck の所要時間を withRequestLatency へ渡す受け渡し口（#366）。
+//
+// なぜ res.locals ではなく WeakMap か: 既存のテストは res を軽量なスタブ
+// （status/json/set だけを持つオブジェクトリテラル）で差し替えており、locals を
+// 前提にすると全スタブへフィールドを足して回ることになる。WeakMap なら他人の
+// オブジェクトにプロパティを生やさず、res が回収されればエントリも消える。
+const appCheckMsByRes = new WeakMap<object, number>();
+
 // Firebase App Check verification for raw HTTP functions. onRequest (unlike
 // onCall) has no built-in enforceAppCheck, so the X-Firebase-AppCheck header
 // must be verified explicitly. Without a valid token the request is rejected
 // with 401, blocking unauthenticated access to these billable proxies.
 // The emulator is exempted so local development works without App Check setup.
 //
-// リプレイ保護（issue #155）:
-//   opts.consume=true のとき verifyToken に { consume: true } を渡し、App Check
-//   バックエンドにトークンを「消費済み」として記録させる。クライアントは
-//   getLimitedUseToken() で毎回新規トークンを送る前提で、2 回目以降は応答の
-//   alreadyConsumed=true で返るためリプレイとして 401 で弾く。追加往復のコストが
-//   あるため、要素数課金の googleWalkMatrixProxy のような高単価エンドポイント
-//   限定で有効化する。consume 未指定時は従来通り単一引数で検証する（他プロキシは
-//   キャッシュ済み標準トークンを再利用でき、動作・コストとも不変）。
+// リプレイ保護（issue #155・#366）:
+//   shouldConsumeAppCheckToken(endpoint) が真のエンドポイントでは verifyToken に
+//   { consume: true } を渡し、App Check バックエンドにトークンを「消費済み」として
+//   記録させる。クライアントはそのエンドポイントへ getLimitedUseToken() の新規
+//   トークンを送る前提で、2 回目以降は alreadyConsumed=true で返るためリプレイと
+//   して 401 で弾く。
+//
+//   対象外では単一引数で検証し alreadyConsumed を見ない——標準トークンの正当な
+//   再利用と区別できず、見れば正常な要求を落とすため。
 export async function verifyAppCheck(
   req: Request,
   res: Response,
-  opts: { consume?: boolean; endpoint?: string } = {}
+  opts: { endpoint?: string } = {}
 ): Promise<boolean> {
   if (process.env.FUNCTIONS_EMULATOR === "true") return true;
+  // endpoint 未指定（"unknown"）は既定の集合に含まれないため consume しない。
+  // 呼び出し側が endpoint を書き忘れるとリプレイ保護が静かに外れる向きだが、
+  // 逆向き（未知のエンドポイントで消費を強制）はクライアントが標準トークンを
+  // 送っている場合に機能ごと落とすため、こちらへ倒す。
   const endpoint = opts.endpoint ?? "unknown";
+  const consume = shouldConsumeAppCheckToken(endpoint);
   const token = req.header("X-Firebase-AppCheck");
   if (!token) {
     console.warn("AppCheck: token missing");
@@ -256,11 +308,15 @@ export async function verifyAppCheck(
     res.status(401).json({ error: "App Check token missing" });
     return false;
   }
+  // トークン欠落は上流（App Check バックエンド）を叩かないため計測対象から外す。
+  // 計りたいのは consume が足した往復のコストで、ローカル判定だけで終わる経路を
+  // 混ぜると分布が 0ms 側へ引っ張られる。
+  const start = Date.now();
   try {
-    const result = opts.consume
+    const result = consume
       ? await getAppCheck().verifyToken(token, { consume: true })
       : await getAppCheck().verifyToken(token);
-    if (opts.consume && result.alreadyConsumed) {
+    if (consume && result.alreadyConsumed) {
       console.warn("AppCheck: token already consumed (replay)");
       logAppCheckDenied({ endpoint, reason: "replayed" });
       res.status(401).json({ error: "App Check token already consumed" });
@@ -272,6 +328,8 @@ export async function verifyAppCheck(
     logAppCheckDenied({ endpoint, reason: "invalid" });
     res.status(401).json({ error: "App Check token invalid" });
     return false;
+  } finally {
+    appCheckMsByRes.set(res, Date.now() - start);
   }
 }
 
@@ -661,10 +719,13 @@ export function withRequestLatency(
         // 隠してしまう。未書き込み（<400）のまま throw した経路は 500 として記録する。
         const written =
           typeof res.statusCode === "number" ? res.statusCode : 200;
+        const appCheckMs = appCheckMsByRes.get(res);
+        appCheckMsByRes.delete(res);
         logRequestLatency({
           endpoint,
           totalLatencyMs: Date.now() - start,
           httpStatus: threw && written < 400 ? 500 : written,
+          appCheckMs,
         });
       }
     }
@@ -832,13 +893,8 @@ export const googleWalkMatrixProxy = onRequest(
   withRequestLatency("googleWalkMatrixProxy", async (req, res) => {
     if (handleCors(req, res)) return;
 
-    // 要素数課金で最も高単価なため、リプレイ保護（limited-use token 消費）を
-    // このエンドポイントに限定して有効化する（issue #155）。
     if (
-      !(await verifyAppCheck(req, res, {
-        consume: true,
-        endpoint: "googleWalkMatrixProxy",
-      }))
+      !(await verifyAppCheck(req, res, { endpoint: "googleWalkMatrixProxy" }))
     )
       return;
 
