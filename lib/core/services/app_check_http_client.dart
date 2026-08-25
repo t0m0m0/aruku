@@ -64,23 +64,43 @@ class AppCheckHttpClient extends http.BaseClient {
     return _replayProtectedFunctions.contains(segments.last);
   }
 
+  /// プロバイダからトークンを取り出す。取得できなければ null。
+  ///
+  /// getToken/getLimitedUseToken はプラットフォーム未登録（例: iOS デバッグで
+  /// App Check 未設定）やアテステーション・クォータ枯渇で例外を投げうる。ここで
+  /// 握りつぶしてもプロキシ側が本番ではトークンを必須化しており（未トークンは 401）、
+  /// 安全側に倒れる。例外を伝播させるとリクエスト自体が落ち、エミュレータ等の
+  /// 検証免除環境まで巻き添えになる。
+  /// 空文字列は未トークンと同義（プロキシ側で検証不能）のため null に畳む。
+  static Future<String?> _tokenFrom(AppCheckTokenProvider provider) async {
+    try {
+      final token = await provider();
+      return (token == null || token.isEmpty) ? null : token;
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    final provider = requiresLimitedUseToken(request.url)
-        ? _limitedUseTokenProvider
-        : _tokenProvider;
-    // getToken/getLimitedUseToken はプラットフォーム未登録（例: iOS デバッグで
-    // App Check 未設定）等で例外を投げうる。ここで握りつぶしてもプロキシ側が本番では
-    // トークンを必須化しており（未トークンは 401）、安全側に倒れる。例外を伝播させると
-    // リクエスト自体が落ち、エミュレータ等の検証免除環境まで巻き添えになる。
-    String? token;
-    try {
-      token = await provider();
-    } catch (_) {
-      token = null;
+    final needsLimitedUse = requiresLimitedUseToken(request.url);
+    var token = await _tokenFrom(
+      needsLimitedUse ? _limitedUseTokenProvider : _tokenProvider,
+    );
+    // 使い捨ての取得に失敗したら標準トークンへ縮退する。
+    //
+    // なぜ縮退させるか: アテステーション・クォータが枯渇すると getLimitedUseToken() は
+    // throw する。ここで諦めるとヘッダ無し＝サーバは「トークン欠落」で 401 を返し、
+    // その経路は consume 設定を一切見ない。つまりサーバ側の緊急停止
+    // （APP_CHECK_CONSUME_ENDPOINTS=""）だけでは復旧できない。標準トークンへ落とせば、
+    // 停止と組み合わせて完全に復旧できる。
+    //
+    // 停止していない場合でも劣化に留まる: 1 回目は通り、同じトークンの 2 回目以降が
+    // リプレイとして 401 になる。全要求 401 よりは良い。
+    if (token == null && needsLimitedUse) {
+      token = await _tokenFrom(_tokenProvider);
     }
-    // 空文字列は未トークンと同義（プロキシ側で検証不能）のため付与しない。
-    if (token != null && token.isNotEmpty) {
+    if (token != null) {
       request.headers['X-Firebase-AppCheck'] = token;
     }
     return _inner.send(request);

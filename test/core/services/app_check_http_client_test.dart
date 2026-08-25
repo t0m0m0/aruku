@@ -143,6 +143,85 @@ void main() {
     });
   });
 
+  group('使い捨てトークン取得の失敗時は標準トークンへ縮退する（#366）', () {
+    // アテステーション・クォータが枯渇すると getLimitedUseToken() は throw する。
+    // ここで諦めてヘッダ無しにすると、サーバ側で consume を切っても「トークン欠落」で
+    // 401 のままになり、緊急ロールバックが効かない。標準トークンへ落とせば
+    // APP_CHECK_CONSUME_ENDPOINTS="" と組み合わせて完全復旧できる。
+    test('limited-use が例外を投げたら標準トークンを付与する', () async {
+      final inner = _FakeInnerClient();
+      final client = AppCheckHttpClient(
+        inner,
+        tokenProvider: () async => 'standard_token',
+        limitedUseTokenProvider: () async => throw Exception('quota exceeded'),
+      );
+
+      await client.send(_request('placesProxy'));
+
+      expect(
+        inner.lastRequest!.headers['X-Firebase-AppCheck'],
+        'standard_token',
+      );
+    });
+
+    test('limited-use が null / 空文字列でも標準トークンへ縮退する', () async {
+      for (final empty in <String?>[null, '']) {
+        final inner = _FakeInnerClient();
+        final client = AppCheckHttpClient(
+          inner,
+          tokenProvider: () async => 'standard_token',
+          limitedUseTokenProvider: () async => empty,
+        );
+
+        await client.send(_request('googleWalkMatrixProxy'));
+
+        expect(
+          inner.lastRequest!.headers['X-Firebase-AppCheck'],
+          'standard_token',
+        );
+      }
+    });
+
+    test('両方失敗したらヘッダ未付与でリクエストは継続する', () async {
+      final inner = _FakeInnerClient();
+      final client = AppCheckHttpClient(
+        inner,
+        tokenProvider: () async => throw Exception('未設定'),
+        limitedUseTokenProvider: () async => throw Exception('quota exceeded'),
+      );
+
+      final response = await client.send(_request('placesProxy'));
+
+      expect(
+        inner.lastRequest!.headers.containsKey('X-Firebase-AppCheck'),
+        isFalse,
+      );
+      expect(response.statusCode, 200);
+    });
+
+    // 縮退は使い捨てが要る経路だけ。非対象で標準が失敗しても縮退先は無い。
+    test('非対象エンドポイントで標準が失敗しても limited-use は呼ばない', () async {
+      var limitedUseCalls = 0;
+      final inner = _FakeInnerClient();
+      final client = AppCheckHttpClient(
+        inner,
+        tokenProvider: () async => throw Exception('未設定'),
+        limitedUseTokenProvider: () async {
+          limitedUseCalls++;
+          return 'limited_use_token';
+        },
+      );
+
+      await client.send(_request('googleWalkProxy'));
+
+      expect(limitedUseCalls, 0);
+      expect(
+        inner.lastRequest!.headers.containsKey('X-Firebase-AppCheck'),
+        isFalse,
+      );
+    });
+  });
+
   group('AppCheckHttpClient.close', () {
     test('close() が内部クライアントへ委譲される', () {
       final inner = _FakeInnerClient();
