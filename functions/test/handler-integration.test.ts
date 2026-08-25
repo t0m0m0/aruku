@@ -745,27 +745,17 @@ describe("ハンドラ統合（App Check 401）", () => {
 });
 
 describe("ハンドラ統合（リプレイ保護 / issue #366）", () => {
-  const original = process.env.FUNCTIONS_EMULATOR;
+  const originalEmulator = process.env.FUNCTIONS_EMULATOR;
+  const originalConsume = process.env.APP_CHECK_CONSUME_ENDPOINTS;
 
-  // 課金プロキシ3本とも、抜き取ったトークンの再送を弾けること。Web ではトークンが
-  // DevTools から読めるため、matrix 限定だった保護を全プロキシへ広げた（#366）。
-  const proxies: [string, HttpsFunction, Record<string, string>][] = [
-    [
-      "placesProxy",
-      placesProxy,
-      { action: "autocomplete", input: "shibuya" },
-    ],
-    [
-      "googleWalkProxy",
-      googleWalkProxy,
-      { start: "35.7,139.7", goal: "35.6,139.7" },
-    ],
-    [
-      "googleWalkMatrixProxy",
-      googleWalkMatrixProxy,
-      { origins: "35.7,139.7", destinations: "35.6,139.7" },
-    ],
-  ];
+  const QUERIES: Record<string, Record<string, string>> = {
+    placesProxy: { action: "autocomplete", input: "shibuya" },
+    googleWalkProxy: { start: "35.7,139.7", goal: "35.6,139.7" },
+    googleWalkMatrixProxy: {
+      origins: "35.7,139.7",
+      destinations: "35.6,139.7",
+    },
+  };
 
   beforeEach(() => {
     resetRateLimit();
@@ -773,34 +763,109 @@ describe("ハンドラ統合（リプレイ保護 / issue #366）", () => {
     httpsRequestMock.mockReset();
     verifyTokenMock.mockReset();
     delete process.env.FUNCTIONS_EMULATOR;
+    delete process.env.APP_CHECK_CONSUME_ENDPOINTS;
   });
 
   afterEach(() => {
-    if (original === undefined) delete process.env.FUNCTIONS_EMULATOR;
-    else process.env.FUNCTIONS_EMULATOR = original;
+    if (originalEmulator === undefined) delete process.env.FUNCTIONS_EMULATOR;
+    else process.env.FUNCTIONS_EMULATOR = originalEmulator;
+    if (originalConsume === undefined)
+      delete process.env.APP_CHECK_CONSUME_ENDPOINTS;
+    else process.env.APP_CHECK_CONSUME_ENDPOINTS = originalConsume;
   });
 
-  it.each(proxies)(
-    "%s はトークンを consume 付きで検証する",
-    async (_name, handler, query) => {
+  // 既定の対象は placesProxy と googleWalkMatrixProxy。googleWalkProxy を外すのは
+  // 1検索で 21 本まで膨らみ（spec §3.8 の実測 walkCalls=21）、使い捨てトークンの
+  // アテステーション・クォータを最も速く食い潰すため。
+  const consuming: [string, HttpsFunction][] = [
+    ["placesProxy", placesProxy],
+    ["googleWalkMatrixProxy", googleWalkMatrixProxy],
+  ];
+
+  it.each(consuming)(
+    "%s は既定でトークンを consume 付きで検証する",
+    async (name, handler) => {
       verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: false });
       mockUpstream({});
-      await invokeHandler(handler, makeReq({ query, token: "fresh" }), makeRes());
+      await invokeHandler(
+        handler,
+        makeReq({ query: QUERIES[name], token: "fresh" }),
+        makeRes()
+      );
       expect(verifyTokenMock).toHaveBeenCalledWith("fresh", { consume: true });
     }
   );
 
-  it.each(proxies)(
+  it.each(consuming)(
     "%s は消費済みトークンを 401 で拒否し上流を呼ばない",
-    async (_name, handler, query) => {
+    async (name, handler) => {
       verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: true });
       const res = makeRes();
-      await invokeHandler(handler, makeReq({ query, token: "replayed" }), res);
+      await invokeHandler(
+        handler,
+        makeReq({ query: QUERIES[name], token: "replayed" }),
+        res
+      );
       expect(res.statusCode).toBe(401);
       expect(res.body).toEqual({ error: "App Check token already consumed" });
       expect(httpsRequestMock).not.toHaveBeenCalled();
     }
   );
+
+  it("googleWalkProxy は既定では consume しない（クォータ保護のため対象外）", async () => {
+    verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: true });
+    mockUpstream({});
+    const res = makeRes();
+    await invokeHandler(
+      googleWalkProxy,
+      makeReq({ query: QUERIES.googleWalkProxy, token: "cached" }),
+      res
+    );
+    // 単一引数の検証＝消費記録を残さない。alreadyConsumed が立っていても通す
+    // （標準トークンの正当な再利用と区別できないため）。
+    expect(verifyTokenMock).toHaveBeenCalledWith("cached");
+    expect(res.statusCode).not.toBe(401);
+  });
+
+  describe("APP_CHECK_CONSUME_ENDPOINTS による段階導入", () => {
+    it("列挙されたエンドポイントだけが consume する", async () => {
+      process.env.APP_CHECK_CONSUME_ENDPOINTS = "googleWalkProxy";
+      verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: false });
+      mockUpstream({});
+      await invokeHandler(
+        googleWalkProxy,
+        makeReq({ query: QUERIES.googleWalkProxy, token: "t" }),
+        makeRes()
+      );
+      expect(verifyTokenMock).toHaveBeenCalledWith("t", { consume: true });
+    });
+
+    it("列挙から外れたエンドポイントは consume しない", async () => {
+      process.env.APP_CHECK_CONSUME_ENDPOINTS = "googleWalkProxy";
+      verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: false });
+      mockUpstream({ suggestions: [] });
+      await invokeHandler(
+        placesProxy,
+        makeReq({ query: QUERIES.placesProxy, token: "t" }),
+        makeRes()
+      );
+      expect(verifyTokenMock).toHaveBeenCalledWith("t");
+    });
+
+    it("空文字列は全エンドポイントの consume を止める（緊急ロールバック）", async () => {
+      process.env.APP_CHECK_CONSUME_ENDPOINTS = "";
+      verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: true });
+      mockUpstream({});
+      const res = makeRes();
+      await invokeHandler(
+        googleWalkMatrixProxy,
+        makeReq({ query: QUERIES.googleWalkMatrixProxy, token: "t" }),
+        res
+      );
+      expect(verifyTokenMock).toHaveBeenCalledWith("t");
+      expect(res.statusCode).not.toBe(401);
+    });
+  });
 });
 
 describe("CORS プリフライト（OPTIONS）", () => {

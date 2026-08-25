@@ -10,7 +10,7 @@
 | # | 項目 | 種別 | 状態 |
 |---|---|---|---|
 | ① | API キーのアプリ制限 + API 制限 | 手動（GCP Console） | ⬜ 未実施 |
-| ② | App Check enforcement 確認 + リプレイ保護 | 手動（Firebase Console） + コード | 🟡 リプレイ保護は実装済（#366） / Console 確認が残 |
+| ② | App Check enforcement 確認 + リプレイ保護 | 手動（Firebase Console） + コード | 🟡 リプレイ保護は places/matrix に実装済（#366） / Console 確認・徒歩系の再生対策が残 |
 | ③ | TLS 証明書ピンニングの検討 | 設計判断 | ✅ 検討完了（当面見送り） |
 | ④ | リリースビルドの本番署名鍵・production dart-define 確認 | 一部コード済 + 手動検証 | 🟡 署名分離済(PR #87) / 実ビルド検証が残 |
 | ⑥ | Firestore クラウド同期のルール デプロイ | 一部コード済 + 手動デプロイ | 🟡 ルール実装済(PR #98) / Firestore 有効化・デプロイが残 |
@@ -156,39 +156,80 @@ Web 版ではトークンがブラウザの DevTools から読め、TTL の間�
 （ネイティブの Play Integrity / App Attest では実質不可能だったことが、Web では
 利用者の誰にでもできる）。攻撃者は自分のサーバーから curl でプロキシを叩ける。
 
-対策として、課金プロキシ3本すべてを**使い捨てトークン**へ移行した（#155 → #366）。
+対策は**使い捨てトークン**（`getLimitedUseToken()` + `verifyToken(token, {consume:true})`）。
+ただし全エンドポイントには広げられない。**対象はクォータで決まる。**
 
-| エンドポイント | クライアントが取るトークン | サーバーの検証 |
-| --- | --- | --- |
-| `placesProxy` | `getLimitedUseToken()` | `verifyToken(token, {consume:true})` |
-| `googleWalkProxy` | 同上 | 同上 |
-| `googleWalkMatrixProxy` | 同上 | 同上 |
+| エンドポイント | 1検索あたりの本数 | トークン | 理由 |
+| --- | --- | --- | --- |
+| `googleWalkMatrixProxy` | 約11 | 使い捨て | 要素数課金で最も高単価（#155） |
+| `placesProxy` | 3〜5 | 使い捨て | 本数が少なくクォータ影響が小さい（#366） |
+| `googleWalkProxy` | **約21** | 標準（キャッシュ可） | 下記のとおりクォータを最も速く食う |
 
-クライアント側は `AppCheckHttpClient`（`lib/core/services/app_check_http_client.dart`）が
-URL によらず常に `getLimitedUseToken()` を使う。**この使い分けを URL 判定で持たない**のは、
-判定がサーバーの `consume` 設定とずれた瞬間に「標準トークンを送った先が 2 回目から 401」で
-静かに壊れるため。分岐が無ければ、そのずれ自体が起こりえない。
+本数は `docs/spec/route-optimization.md` §3.8 の実測（`walkCalls=21 matrixCalls=11`）による。
 
-なぜ当初 `googleWalkMatrixProxy` 限定だったか（#366 で方針転換）:
-`consume:true` は App Check バックエンドへの往復を毎回足すため、要素数課金で最も高単価な
-matrix だけに絞る判断だった。Web 公開でトークン抜き取りの難度が下がり、この前提が崩れた。
-CORS 許可リスト（⑧）は curl の再生を止めず、IP 単位のレート制限も IP を替えられれば
-頭打ちにならない。3本すべてを対象にしないと穴が残る。
+#### なぜ `googleWalkProxy` を対象外にするか
+
+使い捨てトークンは要求ごとに**新規アテステーションを強制**し、その回数はアテステーション
+事業者のクォータを直接消費する。Firebase は「App Check の利用は事業者のクォータと制限に
+従う。例: Play Integrity は Standard ティアで **1日 10,000 コール**」と明記している。
+
+徒歩プロキシを対象に含めると 1 検索あたり 30 本超になり、**全ユーザー合計で 1日 300 検索
+程度**でクォータが尽きる。枯渇するとクライアントの `getLimitedUseToken()` が throw し、
+`AppCheckHttpClient` の catch がヘッダを落とし、結果として**そのプロキシは全要求 401**——
+防ごうとした課金リスクより大きな可用性リスクを買うことになる。
+
+Firebase 自身も「replay protection は往復が増えるため、**特に機微なエンドポイントに限って**
+有効化する」ことを推奨している。
+
+徒歩プロキシの再生対策は、アテステーションを消費しない方向（トークン単位のレート制限＝
+盗んだトークン1本を1ユーザー分の枠に縛る）で別途扱う。
+
+#### クライアントとサーバーの対応
+
+- サーバー: `shouldConsumeAppCheckToken()`（`functions/src/index.ts`）
+- クライアント: `AppCheckHttpClient.requiresLimitedUseToken()`（`lib/core/services/app_check_http_client.dart`）
+
+**この2つは厳密に一致させること。** ずれは両方向とも実害がある。
+
+- 対象を取りこぼして標準トークンを送る → サーバーが 2 回目以降を消費済みとして 401 →
+  そのエンドポイントが壊れる。
+- 非対象へ使い捨てトークンを送る → 毎回アテステーションを焼き、枯渇すれば同じく全要求 401。
+
+#### 段階導入・緊急ロールバック
+
+環境変数 `APP_CHECK_CONSUME_ENDPOINTS`（カンマ区切りの関数名）でサーバー側の対象を
+上書きできる。設定は加算ではなく**置換**。
+
+| 値 | 意味 |
+| --- | --- |
+| 未設定 | 既定（`placesProxy,googleWalkMatrixProxy`） |
+| `googleWalkProxy` | 列挙したものだけが対象。既定は効かない |
+| 空文字列 | 全エンドポイントで consume しない（緊急停止） |
+
+対象を増やすときは **クライアント先行リリース → アドプション待ち → サーバーで有効化** の順で
+行う。モバイルの入れ替えは原子的ではないため、サーバーを先に有効化すると旧クライアントが
+送るキャッシュ済み標準トークンが 1 回目で消費され、2 回目以降 401 になる。
 
 #### 検証
 
-- 同じトークンで 2 回叩くと、2 回目が **401**（`App Check token already consumed`）になること。
+- 対象エンドポイントに同じトークンで 2 回叩くと、2 回目が **401**
+  （`App Check token already consumed`）になること。
+- 対象外（`googleWalkProxy`）は同じトークンの再利用で 401 にならないこと。
 - **デプロイ後は 401 率を必ず確認する。** `consume:true` は Functions のサービスアカウントに
   `firebaseappcheck.appCheckTokens.verify` を要求し、これが欠けると対象エンドポイントが
   **100% 失敗**する（`googleWalkMatrixProxy` で実際に踏んだ）。`app_check_denied` の
-  `reason` が `invalid` に張り付いていたらこれを疑う。
+  `reason` が `invalid` に張り付いていたらこれを疑う。応急処置は
+  `APP_CHECK_CONSUME_ENDPOINTS=""` での停止。
 
-#### レイテンシの計測
+#### レイテンシとクォータの計測
 
 `request_latency` イベント（`functions/src/metrics.ts`）の **`appCheckMs`** が
 App Check 検証区間だけの所要時間。`totalLatencyMs` には上流 API のばらつきが乗るため、
-`consume` が足した往復のコストはこちらで見る。endpoint 別に比較でき、`googleWalkMatrixProxy`
-（#155 以来 `consume:true`）がベースラインになる。
+`consume` が足した往復のコストはこちらで見る。endpoint 別に比較でき、`googleWalkProxy`
+（consume なし）が対照になる。
+
+アテステーションのクォータ消費量は Firebase Console の App Check 指標と、Play Integrity /
+reCAPTCHA 側のクォータ画面で見る。**対象を増やす前に、現行の消費量と上限の余裕を必ず確認する。**
 
 ---
 

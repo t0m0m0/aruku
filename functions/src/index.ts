@@ -228,29 +228,44 @@ export function clientIp(req: Request): string {
   return req.ip ?? "unknown";
 }
 
-// Firebase App Check verification for raw HTTP functions. onRequest (unlike
-// onCall) has no built-in enforceAppCheck, so the X-Firebase-AppCheck header
-// must be verified explicitly. Without a valid token the request is rejected
-// with 401, blocking unauthenticated access to these billable proxies.
-// The emulator is exempted so local development works without App Check setup.
+// リプレイ保護を有効にするエンドポイント（issue #366）。
 //
-// リプレイ保護（issue #155・#366）:
-//   opts.consume=true のとき verifyToken に { consume: true } を渡し、App Check
-//   バックエンドにトークンを「消費済み」として記録させる。クライアントは
-//   getLimitedUseToken() で毎回新規トークンを送る前提で、2 回目以降は応答の
-//   alreadyConsumed=true で返るためリプレイとして 401 で弾く。
+// 既定に googleWalkProxy を含めないのはクォータのため。使い捨てトークンは要求ごとに
+// 新規アテステーションを強制し、その回数は事業者のクォータを直接消費する（例:
+// Play Integrity の Standard ティアは 1 日 10,000 コール）。徒歩プロキシは 1 検索で
+// 21 本まで膨らむ実測がある（docs/spec/route-optimization.md §3.8）ため、ここを
+// 対象にすると数百検索/日でクォータを使い切る。枯渇するとクライアントの
+// getLimitedUseToken() が throw し、ヘッダ無し＝全要求 401 になる。防ごうとした
+// 課金リスクより大きな可用性リスクを買うことになるため入れない。徒歩プロキシの
+// 再生対策はトークン単位のレート制限で別途扱う。
 //
-//   なぜ高単価な googleWalkMatrixProxy 限定にしていないか（#366 で方針転換）:
-//     当初は「App Check バックエンドへの往復が増えるぶん、要素数課金の matrix だけ
-//     に絞る」判断だった。Web 配信ではトークンがブラウザの DevTools から読め、
-//     TTL の間そのまま再生できるため、この前提が崩れた。CORS 許可リスト（⑧）は
-//     ブラウザにレスポンスを読ませるかを決めるだけで curl の再生を止めず、IP 単位の
-//     レート制限も IP を替えられれば頭打ちにならない。課金プロキシ3本すべてを
-//     対象にしないと穴が残る。
-//
-//   consume 未指定の経路（単一引数の検証）は呼び出し側が全て consume:true へ
-//   移行した今も残す。エミュレータ免除と同様、検証だけしたい将来の非課金
-//   エンドポイントのための既定であり、課金プロキシから使ってはならない。
+// Firebase 側も「replay protection は特に機微なエンドポイントに限って有効化する」
+// ことを推奨している（往復が増えるため）。
+const DEFAULT_APP_CHECK_CONSUME_ENDPOINTS = [
+  "placesProxy",
+  "googleWalkMatrixProxy",
+];
+
+// なぜ環境変数で上書き可能にするか:
+//   (1) 段階導入。クライアントとサーバは同じトークン契約の両端で、モバイルの
+//       入れ替えは原子的でない。対象を増やすときは「クライアント先行リリース →
+//       アドプション待ち → サーバで有効化」の順が要る。
+//   (2) 緊急ロールバック。アテステーション枯渇や IAM 欠落で 401 が張り付いたとき、
+//       コード変更なしに空文字列で全停止できる。
+// 空文字列は「全エンドポイントで consume しない」を意味する（未設定＝既定とは別）。
+// 設定は functions/.env もしくはデプロイ時の --set-env-vars で与える。
+export function shouldConsumeAppCheckToken(endpoint: string): boolean {
+  const configured = process.env.APP_CHECK_CONSUME_ENDPOINTS;
+  const endpoints =
+    configured === undefined
+      ? DEFAULT_APP_CHECK_CONSUME_ENDPOINTS
+      : configured
+          .split(",")
+          .map((e) => e.trim())
+          .filter((e) => e.length > 0);
+  return endpoints.includes(endpoint);
+}
+
 // verifyAppCheck の所要時間を withRequestLatency へ渡す受け渡し口（#366）。
 //
 // なぜ res.locals ではなく WeakMap か: 既存のテストは res を軽量なスタブ
@@ -259,13 +274,33 @@ export function clientIp(req: Request): string {
 // オブジェクトにプロパティを生やさず、res が回収されればエントリも消える。
 const appCheckMsByRes = new WeakMap<object, number>();
 
+// Firebase App Check verification for raw HTTP functions. onRequest (unlike
+// onCall) has no built-in enforceAppCheck, so the X-Firebase-AppCheck header
+// must be verified explicitly. Without a valid token the request is rejected
+// with 401, blocking unauthenticated access to these billable proxies.
+// The emulator is exempted so local development works without App Check setup.
+//
+// リプレイ保護（issue #155・#366）:
+//   shouldConsumeAppCheckToken(endpoint) が真のエンドポイントでは verifyToken に
+//   { consume: true } を渡し、App Check バックエンドにトークンを「消費済み」として
+//   記録させる。クライアントはそのエンドポイントへ getLimitedUseToken() の新規
+//   トークンを送る前提で、2 回目以降は alreadyConsumed=true で返るためリプレイと
+//   して 401 で弾く。
+//
+//   対象外では単一引数で検証し alreadyConsumed を見ない——標準トークンの正当な
+//   再利用と区別できず、見れば正常な要求を落とすため。
 export async function verifyAppCheck(
   req: Request,
   res: Response,
-  opts: { consume?: boolean; endpoint?: string } = {}
+  opts: { endpoint?: string } = {}
 ): Promise<boolean> {
   if (process.env.FUNCTIONS_EMULATOR === "true") return true;
+  // endpoint 未指定（"unknown"）は既定の集合に含まれないため consume しない。
+  // 呼び出し側が endpoint を書き忘れるとリプレイ保護が静かに外れる向きだが、
+  // 逆向き（未知のエンドポイントで消費を強制）はクライアントが標準トークンを
+  // 送っている場合に機能ごと落とすため、こちらへ倒す。
   const endpoint = opts.endpoint ?? "unknown";
+  const consume = shouldConsumeAppCheckToken(endpoint);
   const token = req.header("X-Firebase-AppCheck");
   if (!token) {
     console.warn("AppCheck: token missing");
@@ -278,10 +313,10 @@ export async function verifyAppCheck(
   // 混ぜると分布が 0ms 側へ引っ張られる。
   const start = Date.now();
   try {
-    const result = opts.consume
+    const result = consume
       ? await getAppCheck().verifyToken(token, { consume: true })
       : await getAppCheck().verifyToken(token);
-    if (opts.consume && result.alreadyConsumed) {
+    if (consume && result.alreadyConsumed) {
       console.warn("AppCheck: token already consumed (replay)");
       logAppCheckDenied({ endpoint, reason: "replayed" });
       res.status(401).json({ error: "App Check token already consumed" });
@@ -701,13 +736,7 @@ export function withRequestLatency(
 export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKeySecret] }, withRequestLatency("placesProxy", async (req, res) => {
   if (handleCors(req, res)) return;
 
-  if (
-    !(await verifyAppCheck(req, res, {
-      consume: true,
-      endpoint: "placesProxy",
-    }))
-  )
-    return;
+  if (!(await verifyAppCheck(req, res, { endpoint: "placesProxy" }))) return;
 
   if (!(await checkRateLimit(clientIp(req)))) {
     res.status(429).json({ error: "Too many requests" });
@@ -804,13 +833,7 @@ export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKey
 export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKeySecret] }, withRequestLatency("googleWalkProxy", async (req, res) => {
   if (handleCors(req, res)) return;
 
-  if (
-    !(await verifyAppCheck(req, res, {
-      consume: true,
-      endpoint: "googleWalkProxy",
-    }))
-  )
-    return;
+  if (!(await verifyAppCheck(req, res, { endpoint: "googleWalkProxy" }))) return;
 
   if (!(await checkRateLimit(clientIp(req), WALK_RATE_LIMIT))) {
     res.status(429).json({ error: "Too many requests" });
@@ -871,10 +894,7 @@ export const googleWalkMatrixProxy = onRequest(
     if (handleCors(req, res)) return;
 
     if (
-      !(await verifyAppCheck(req, res, {
-        consume: true,
-        endpoint: "googleWalkMatrixProxy",
-      }))
+      !(await verifyAppCheck(req, res, { endpoint: "googleWalkMatrixProxy" }))
     )
       return;
 
