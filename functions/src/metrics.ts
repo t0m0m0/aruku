@@ -61,6 +61,11 @@ export interface RequestLatencyParams {
   totalLatencyMs: number;
   /** 応答の HTTP ステータスコード。 */
   httpStatus: number;
+  /**
+   * App Check 検証だけに掛かった時間（ミリ秒）。検証を行わなかった要求
+   * （エミュレータ免除）では省略する。
+   */
+  appCheckMs?: number;
 }
 
 // なぜ search_request に latencyMs を足すのではなく別イベントにするか:
@@ -71,13 +76,20 @@ export interface RequestLatencyParams {
 //   イベント・同じフィールドに混ぜると #268 SLO と #274 計測が汚れるため、独立イベントに
 //   分ける。severity は情報（info）——失敗応答でも「レイテンシ計測」であって関数エラー
 //   ではないので、logger.error/write に寄せて Error Reporting を汚さない。
-/** ハンドラ入口〜応答までのリクエスト全体レイテンシを記録する（#309）。 */
+// なぜ appCheckMs を独立イベントにせず request_latency に相乗りさせるか:
+//   知りたいのは「全体のうち App Check が何ミリ秒か」で、同一レコードに並んでいないと
+//   endpoint・httpStatus で突き合わせる手間が要る。独立イベントにすると要求ごとのログ
+//   本数が倍になり、Cloud Logging の取り込み量も倍払うことになる。
+/** ハンドラ入口〜応答までのリクエスト全体レイテンシを記録する（#309・#366）。 */
 export function logRequestLatency(params: RequestLatencyParams): void {
   logger.info("request_latency", {
     event: "request_latency",
     endpoint: params.endpoint,
     totalLatencyMs: params.totalLatencyMs,
     httpStatus: params.httpStatus,
+    ...(params.appCheckMs === undefined
+      ? {}
+      : { appCheckMs: params.appCheckMs }),
   });
 }
 

@@ -251,6 +251,14 @@ export function clientIp(req: Request): string {
 //   consume 未指定の経路（単一引数の検証）は呼び出し側が全て consume:true へ
 //   移行した今も残す。エミュレータ免除と同様、検証だけしたい将来の非課金
 //   エンドポイントのための既定であり、課金プロキシから使ってはならない。
+// verifyAppCheck の所要時間を withRequestLatency へ渡す受け渡し口（#366）。
+//
+// なぜ res.locals ではなく WeakMap か: 既存のテストは res を軽量なスタブ
+// （status/json/set だけを持つオブジェクトリテラル）で差し替えており、locals を
+// 前提にすると全スタブへフィールドを足して回ることになる。WeakMap なら他人の
+// オブジェクトにプロパティを生やさず、res が回収されればエントリも消える。
+const appCheckMsByRes = new WeakMap<object, number>();
+
 export async function verifyAppCheck(
   req: Request,
   res: Response,
@@ -265,6 +273,10 @@ export async function verifyAppCheck(
     res.status(401).json({ error: "App Check token missing" });
     return false;
   }
+  // トークン欠落は上流（App Check バックエンド）を叩かないため計測対象から外す。
+  // 計りたいのは consume が足した往復のコストで、ローカル判定だけで終わる経路を
+  // 混ぜると分布が 0ms 側へ引っ張られる。
+  const start = Date.now();
   try {
     const result = opts.consume
       ? await getAppCheck().verifyToken(token, { consume: true })
@@ -281,6 +293,8 @@ export async function verifyAppCheck(
     logAppCheckDenied({ endpoint, reason: "invalid" });
     res.status(401).json({ error: "App Check token invalid" });
     return false;
+  } finally {
+    appCheckMsByRes.set(res, Date.now() - start);
   }
 }
 
@@ -670,10 +684,13 @@ export function withRequestLatency(
         // 隠してしまう。未書き込み（<400）のまま throw した経路は 500 として記録する。
         const written =
           typeof res.statusCode === "number" ? res.statusCode : 200;
+        const appCheckMs = appCheckMsByRes.get(res);
+        appCheckMsByRes.delete(res);
         logRequestLatency({
           endpoint,
           totalLatencyMs: Date.now() - start,
           httpStatus: threw && written < 400 ? 500 : written,
+          appCheckMs,
         });
       }
     }
