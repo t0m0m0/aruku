@@ -20,7 +20,6 @@ import '../services/crash_reporter.dart';
 import '../services/health_service.dart';
 import '../services/location_service.dart';
 import '../services/notification_service.dart';
-import '../services/onboarding_repository.dart';
 import '../services/route_plan_builder.dart' as planner;
 import '../services/route_service.dart';
 import 'settings_provider.dart';
@@ -105,16 +104,7 @@ TimeValue _clampArrivalAfterDeparture(TimeValue departure, TimeValue arrival) {
   return (departure: newDeparture, arrival: newArrival);
 }
 
-enum Screen {
-  onboarding,
-  home,
-  settings,
-  search,
-  searchOrigin,
-  loading,
-  result,
-  error,
-}
+enum Screen { home, settings, search, searchOrigin, loading, result, error }
 
 @immutable
 class AppState {
@@ -291,7 +281,7 @@ class AppState {
   static const _sentinel = Object();
 
   static const initial = AppState(
-    screen: Screen.onboarding,
+    screen: Screen.home,
     destination: null,
     destinationLatLng: null,
     departure: TimeValue(h: 0, m: 0, isNow: true),
@@ -389,14 +379,9 @@ class AppNotifier extends Notifier<AppState> {
     final now = _now();
     final depH = now.hour;
     final depM = now.minute;
-    // 完了済みならオンボーディングを飛ばして home から開始する。
-    final initialScreen = ref.read(onboardingCompletedProvider)
-        ? Screen.home
-        : Screen.onboarding;
     // 日跨ぎ（深夜出発）は arrival の dateOffset に繰り上げる。
     final arrivalTotal = depH * 60 + depM + kInitialBudgetMinutes;
     return AppState.initial.copyWith(
-      screen: initialScreen,
       activityTrackingSupported: ref.read(stepCountingSupportedProvider),
       departure: TimeValue(h: depH, m: depM, isNow: true),
       arrival: TimeValue(

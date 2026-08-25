@@ -4,7 +4,6 @@ import 'package:aruku/core/models/location_state.dart';
 import 'package:aruku/core/models/place_prediction.dart';
 import 'package:aruku/core/services/activity_service.dart';
 import 'package:aruku/core/services/location_service.dart';
-import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/places_service.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
@@ -45,7 +44,6 @@ Future<ProviderContainer> _container() async {
   return ProviderContainer(
     overrides: [
       sharedPreferencesProvider.overrideWith((ref) => prefs),
-      onboardingCompletedProvider.overrideWithValue(true),
       locationServiceProvider.overrideWithValue(_FakeLocationService()),
       activityServiceProvider.overrideWithValue(_FakeActivityService()),
       placesServiceProvider.overrideWithValue(_FakePlacesService()),

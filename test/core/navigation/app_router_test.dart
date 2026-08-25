@@ -7,7 +7,6 @@ import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/features/home/home_screen.dart';
 import 'package:aruku/features/loading/loading_screen.dart';
-import 'package:aruku/features/onboarding/onboarding_screen.dart';
 import 'package:aruku/features/result/result_screen.dart';
 import 'package:aruku/features/settings/settings_screen.dart';
 import 'package:aruku/l10n/app_localizations.dart';
@@ -36,17 +35,7 @@ void main() {
   });
 
   group('初期 location', () {
-    testWidgets('オンボーディング未完了なら /onboarding から始まる', (tester) async {
-      final container = await makeContainer(onboardingDone: false);
-      addTearDown(container.dispose);
-
-      await tester.pumpWidget(routerApp(container));
-      await pumpTransition(tester);
-
-      expect(find.byType(OnboardingScreen), findsOneWidget);
-    });
-
-    testWidgets('オンボーディング完了済みなら /home から始まる', (tester) async {
+    testWidgets('アプリは /home から始まる', (tester) async {
       final container = await makeContainer();
       addTearDown(container.dispose);
 

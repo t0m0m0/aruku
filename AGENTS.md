@@ -18,7 +18,7 @@ After reviewing:
 ## Architecture
 
 - `lib/core/` — config, models, services, state (Riverpod), geo, navigation
-- `lib/features/` — feature-first UI (auth, home, search, picker, result, navigation, settings, onboarding, …)
+- `lib/features/` — feature-first UI (home, search, picker, loading, result, settings, error)
 - `lib/shared/` — reusable widgets, extensions, icons
 - `functions/` — Cloud Functions **TypeScript** backend. Google Places / Routes proxies (`placesProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`) + Firestore rate limiter. **公共交通のプロキシは無い** — Transit API はクライアント直叩き（`docs/spec/route-optimization.md` §2.1）
 - Run the app: `flutter run` (add `--dart-define=USE_REAL_MAP=true` for the real map). Setup: see README.

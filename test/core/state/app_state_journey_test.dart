@@ -2,7 +2,6 @@ import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/route_plan.dart';
 import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/cancellation.dart';
-import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -38,7 +37,6 @@ ProviderContainer _containerWith(RoutePlan plan, {_Clock? clock}) {
   final container = ProviderContainer(
     overrides: [
       routeServiceProvider.overrideWithValue(_FixedRouteService(plan)),
-      onboardingCompletedProvider.overrideWithValue(true),
       if (clock != null) nowProvider.overrideWithValue(clock.now),
     ],
   );

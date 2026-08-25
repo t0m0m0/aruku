@@ -4,7 +4,6 @@ import 'package:aruku/core/models/location_state.dart';
 import 'package:aruku/core/services/activity_service.dart';
 import 'package:aruku/core/services/location_service.dart';
 import 'package:aruku/core/services/notification_service.dart';
-import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/features/settings/settings_screen.dart';
@@ -37,7 +36,6 @@ Future<void> _pumpSettings(
   final container = ProviderContainer(
     overrides: [
       sharedPreferencesProvider.overrideWith((ref) => prefs),
-      onboardingCompletedProvider.overrideWithValue(true),
       locationServiceProvider.overrideWithValue(_FakeLocationService()),
       activityServiceProvider.overrideWithValue(_FakeActivityService()),
       localNotificationsSupportedProvider.overrideWithValue(

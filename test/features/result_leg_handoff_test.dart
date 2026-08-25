@@ -8,7 +8,6 @@ import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/services/activity_service.dart';
 import 'package:aruku/core/services/cancellation.dart';
 import 'package:aruku/core/services/location_service.dart';
-import 'package:aruku/core/services/onboarding_repository.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/services/url_launcher.dart';
 import 'package:aruku/core/state/app_state.dart';
@@ -225,7 +224,6 @@ ProviderContainer _containerFor({
   final container = ProviderContainer(
     overrides: [
       routeServiceProvider.overrideWithValue(_FixedRouteService(plan)),
-      onboardingCompletedProvider.overrideWithValue(true),
       locationServiceProvider.overrideWithValue(
         _FakeLocationService(locationState),
       ),

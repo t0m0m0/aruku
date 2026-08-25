@@ -16,8 +16,6 @@ void main() {
       // back: settings→home を実 pop で再現するためのネスト。
       expect(Screen.settings.path, '/home/settings');
       expect(Screen.home.path, '/home');
-      // onboarding だけは home の外（back 無効の独立ルート）。
-      expect(Screen.onboarding.path, '/onboarding');
     });
   });
 

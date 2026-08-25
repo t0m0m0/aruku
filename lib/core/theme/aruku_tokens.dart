@@ -32,9 +32,6 @@ class ArukuTokens {
   /// 結果画面の CTA ボタンの影。
   static const Color shadowCtaResult = Color(0x5235501A);
 
-  /// オンボーディングの CTA ボタンの影。
-  static const Color shadowCtaOnboarding = Color(0x52496A24);
-
   /// ローディングのアイコンのグロー影。
   static const Color shadowGlow = Color(0x7335501A);
 
