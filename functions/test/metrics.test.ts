@@ -158,6 +158,32 @@ describe("logRequestLatency", () => {
     expect(errorMock).not.toHaveBeenCalled();
   });
 
+  it("appCheckMs を渡すと同じイベントに載せる（#366 の consume 追加往復を切り分ける）", () => {
+    logRequestLatency({
+      endpoint: "placesProxy",
+      totalLatencyMs: 210,
+      httpStatus: 200,
+      appCheckMs: 42,
+    });
+    expect(infoMock).toHaveBeenCalledWith("request_latency", {
+      event: "request_latency",
+      endpoint: "placesProxy",
+      totalLatencyMs: 210,
+      httpStatus: 200,
+      appCheckMs: 42,
+    });
+  });
+
+  it("appCheckMs 未指定ならキー自体を出さない（undefined を載せない）", () => {
+    logRequestLatency({
+      endpoint: "placesProxy",
+      totalLatencyMs: 210,
+      httpStatus: 200,
+    });
+    const payload = infoMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("appCheckMs");
+  });
+
   it("失敗ステータスでも info で出す（レイテンシは情報イベント・Error Reporting を汚さない）", () => {
     logRequestLatency({
       endpoint: "googleWalkProxy",

@@ -21,7 +21,7 @@ import 'package:http/http.dart' as http;
 /// [AppCheckHttpClient] とは独立したレイヤーにするのは、App Check を通さない
 /// Transit API 直叩き（ファンアウトの大半）にも一律で掛けるため。App Check を
 /// 挟む経路では最外側に置き（例: `TimeoutHttpClient(AppCheckHttpClient(http.Client()))`）、
-/// トークン取得（getToken）のハングも [timeout] の内側に収める。認証不要の直叩きは
+/// トークン取得（getLimitedUseToken）のハングも [timeout] の内側に収める。認証不要の直叩きは
 /// `TimeoutHttpClient(http.Client())` と最内側で包む。
 class TimeoutHttpClient extends http.BaseClient {
   TimeoutHttpClient(this._inner, {this.timeout = const Duration(seconds: 15)});
@@ -34,7 +34,7 @@ class TimeoutHttpClient extends http.BaseClient {
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    // 接続・ヘッダ受信（合成順が最外側なら getToken も含む）に header タイムアウト。
+    // 接続・ヘッダ受信（合成順が最外側なら getLimitedUseToken も含む）に header タイムアウト。
     final response = await _inner.send(request).timeout(timeout);
     // ヘッダ受信後のボディ送出ストールも打ち切る。get()/Response.fromStream は
     // ここで返した stream を最後まで読み切るため、chunk 間の無応答が上限を超えたら

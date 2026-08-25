@@ -800,8 +800,8 @@ void main() {
     });
 
     test('mode 欠落の transit leg は電車として維持する（後方互換）', () {
-      // 実 API・既存フィクスチャで mode を欠く transit leg があり得る。_isTrainTransit は
-      // mode 欠落を電車扱いとするため、除外されず区間へ残ることを検証する。
+      // 実 API・既存フィクスチャで mode を欠く transit leg があり得る。パーサは mode 欠落を
+      // 電車扱いとするため、除外されず区間へ残ることを検証する。
       final Map<String, dynamic> noModeLeg = {
         'kind': 'transit',
         'routeName': '京浜東北線（北行（大宮方面））',

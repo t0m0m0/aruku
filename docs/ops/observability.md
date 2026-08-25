@@ -1,9 +1,8 @@
 # SLO とアラート定義
 
-- **位置づけ:** Cloud Functions バックエンド（`functions/src/`）の SLI/SLO とログベース指標・アラートポリシーの定義書。issue #268「SLOとアラートを定義する」の受け入れ基準に対応する。
-- **最終更新:** 2026-07-13
+- **位置づけ:** Cloud Functions バックエンド（`functions/src/`）の SLI/SLO とログベース指標・アラートポリシーの定義書。
 - **前提コード:** `functions/src/metrics.ts`（構造化ログのログ契約）, `functions/src/index.ts`（各プロキシの呼び出し箇所）
-- **関連:** [route-optimization.md](../spec/route-optimization.md) §2.1（エンドポイント一覧・レート制限値）, issue #263（レート制限再設計・IaC化は未着手）
+- **関連:** [route-optimization.md](../spec/route-optimization.md) §2.1（エンドポイント一覧・レート制限値）, [security_hardening.md](../security_hardening.md)（保護機構そのものの設定手順）
 
 ---
 
@@ -61,7 +60,7 @@ success_rate(upstream) = count(status="success")
 | `config` | Firestore 未プロビジョニング（API 未有効・DB 未作成・IAM 不足）、`RATE_LIMIT_HMAC_KEY` 未登録／32文字未満 | 人が設定するまで**永続的に**保護が無効。時間経過では絶対に解消しない | 1件でも即 P1（§6.1） |
 | `transient` | ホットドキュメント競合によるリトライ枯渇、一時的な不通・タイムアウト | 単発は README「制約・トレードオフ」で**設計上許容**。バースト局面で必然的に出る | 急増のみ P3（§6.1） |
 
-**なぜ分けるか:** かつて fail-open は理由を持たず、`config` と `transient` が同一の信号だった。`transient` は許容済みで恒常的に出るため「1件でも P1」は必ずノイズとして黙らされ、その結果 #301 では本番の Firestore API 未有効化による**恒久的なフェイルオープンが数か月検知されなかった**。`transient` を黙らせても `config` が鳴り続ける構造にすることが、この指標の存在意義である。
+**2本を統合してはならない。** `transient` は設計上許容され恒常的に出るので、両者が同一の信号だと「1件でも P1」は必ずノイズとして黙らされる。そのとき `config`（＝人が設定するまで保護が永続的に無効）も一緒に黙る。**`transient` を黙らせても `config` が鳴り続ける**ことがこの分割の存在意義で、統合はその性質だけを失わせる。
 
 参考: `decision="blocked"` の件数も同じログから取得できる（正当なレート制限動作。急増は乱用 or クライアント側リトライ暴走の兆候として監視対象にはするが、SLO 対象ではない）。
 
@@ -221,13 +220,19 @@ gcloud logging metrics create rate_limit_fail_open_transient_count \
   --log-filter='resource.type="cloud_run_revision" AND jsonPayload.event="rate_limit" AND jsonPayload.decision="fail-open" AND jsonPayload.reason="transient"'
 ```
 
-**既存環境からの移行:** 旧 `rate_limit_fail_open_count`（reason 無しの全 fail-open）を作成済みの場合は、上記2つへ置き換えたうえで削除する（`gcloud logging metrics delete rate_limit_fail_open_count`）。残すと §6.1 と重複発火し、`transient` でも P1 が鳴る従来の問題がそのまま残る。
+**reason を持たない `rate_limit_fail_open_count` がある環境では削除する。**
+
+```bash
+gcloud logging metrics delete rate_limit_fail_open_count
+```
+
+全 fail-open を1本にまとめたカウンタなので、残すと §6.1 と重複発火し、**設計上許容している `transient` でも P1 が鳴る**。§3.4 が2本に分けている意味がそこで失われる。
 
 ---
 
 ## 6. アラートポリシー
 
-通知先は未整備（Slack Webhook 等は本 issue の対象外）。まずは email 通知チャンネルを作成し、後日 Slack 連携に差し替える想定。
+通知先は email 通知チャンネル。
 
 ```bash
 gcloud alpha monitoring channels create \
@@ -381,7 +386,7 @@ gcloud alpha monitoring policies create --policy-from-file=policy_latency_routes
 
 ## 7. 運用メモ
 
-- **IaC 未整備:** 本リポジトリに Terraform 等の IaC は導入されていない（issue #263 のレート制限再設計も TTL の IaC 化が未着手のまま）。本書のログベース指標・アラートポリシーは `gcloud`／Console 上での手動作成が前提。将来 Terraform 導入時は `google_logging_metric` / `google_monitoring_alert_policy` リソースへそのまま移植できる粒度で設計してある。
+- **IaC は無い:** 本リポジトリに Terraform 等は導入されていない。本書のログベース指標・アラートポリシーは `gcloud`／Console 上での手動作成が前提。定義の粒度は `google_logging_metric` / `google_monitoring_alert_policy` へそのまま移植できるよう揃えてある。
 - **ログ量・コストへの配慮:** `rate_limit` の `decision="allowed"` は `metrics.ts` の設計上意図的にログ出力されない（`logRateLimit` のコメント参照）。許可は毎リクエストで発生し件数が支配的なため、全件ログするとログ量・コストが膨らむ。運用上アラート対象になるのは `blocked`／`fail-open` のみであり、現状のログ契約で必要十分。
-- **成功率の分母欠落に注意:** App Check 拒否率（§3.3）はレート制限前で弾かれるため「保護前の全リクエスト数」がログに存在せず、真の「率」ではなく絶対件数ベースの近似にとどまる。分母を厳密化したい場合は `verifyAppCheck` 呼び出し自体をカウントするログを追加する必要があるが、本 issue のスコープ外とする。
-- **Crashlytics 側は Cloud Logging 経路に乗らない:** クラッシュフリー率は Firebase Console の Crashlytics ダッシュボードで確認する。Cloud Monitoring 側でアラート化したい場合は BigQuery エクスポート経由になるが、現時点では未設定（将来課題）。
+- **成功率の分母欠落に注意:** App Check 拒否率（§3.3）はレート制限前で弾かれるため「保護前の全リクエスト数」がログに存在せず、真の「率」ではなく絶対件数ベースの近似にとどまる。分母を厳密化するには `verifyAppCheck` 呼び出し自体をカウントするログの追加が要る。
+- **Crashlytics 側は Cloud Logging 経路に乗らない:** クラッシュフリー率は Firebase Console の Crashlytics ダッシュボードで確認する。Cloud Monitoring 側でアラート化するには BigQuery エクスポートの構成が要る（未構成）。

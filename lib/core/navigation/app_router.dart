@@ -11,8 +11,7 @@ import '../../features/settings/settings_screen.dart';
 import '../state/app_state.dart';
 import 'screen_paths.dart';
 
-/// 旧 AnimatedSwitcher（main.dart の _Root）と同じ見た目の遷移。
-/// fade + ごく小さな上方向スライドを 220ms で再生する。
+/// 画面遷移のアニメーション。fade + ごく小さな上方向スライドを 220ms で再生する。
 ///
 /// テストが遷移完了を待つ際にも参照できるよう公開する（マジックナンバーの
 /// 散在を避け、値を変えてもテストが自動追従する）。
@@ -56,8 +55,7 @@ CustomTransitionPage<void> _page(GoRouterState state, Widget child) {
 /// エコーは三重に遮断される: syncScreen の同値 early-return、下記 listen 側の
 /// path 比較、go_router 自身の同一 location no-op。
 ///
-/// ネスト構造は旧 _Root の PopScope 手動分岐を実 pop で再現する:
-/// settings/search/result/error→home。
+/// ネスト構造で戻り先を表現する: settings/search/result/error→home。
 /// home・loading は PopScope(canPop: false) で back を無効化し、
 /// 「back でアプリが終了しない」現行仕様を維持する。
 final goRouterProvider = Provider<GoRouter>((ref) {
