@@ -44,6 +44,7 @@ import {
   checkRateLimit,
   googleWalkMatrixProxy,
   googleWalkProxy,
+  isAllowedOrigin,
   MAX_RESPONSE_BYTES,
   placesProxy,
   resetRateLimit,
@@ -217,13 +218,24 @@ function makeReq(opts: {
   token?: string;
   ip?: string;
   method?: string;
+  origin?: string;
 }) {
   return {
     method: opts.method ?? "GET",
     query: opts.query ?? {},
     headers: {} as Record<string, string | undefined>,
-    header: (name: string) =>
-      name === "X-Firebase-AppCheck" ? opts.token : undefined,
+    // Express の req.header はヘッダ名を case-insensitive に引く。ハンドラ側の
+    // 表記（"X-Firebase-AppCheck" / "Origin"）に依存しないよう小文字で比較する。
+    header: (name: string) => {
+      switch (name.toLowerCase()) {
+        case "x-firebase-appcheck":
+          return opts.token;
+        case "origin":
+          return opts.origin;
+        default:
+          return undefined;
+      }
+    },
     ip: opts.ip ?? "127.0.0.1",
   };
 }
@@ -736,20 +748,37 @@ describe("CORS プリフライト（OPTIONS）", () => {
   const handlers: [string, HttpsFunction][] = [
     ["placesProxy", placesProxy],
     ["googleWalkProxy", googleWalkProxy],
+    ["googleWalkMatrixProxy", googleWalkMatrixProxy],
   ];
+  const original = process.env.FUNCTIONS_EMULATOR;
 
   beforeEach(() => {
     httpsRequestMock.mockReset();
+    verifyTokenMock.mockReset();
+    resetRateLimit();
+    resetUpstreamCache();
+    process.env.FUNCTIONS_EMULATOR = "true";
+  });
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.FUNCTIONS_EMULATOR;
+    else process.env.FUNCTIONS_EMULATOR = original;
   });
 
   it.each(handlers)(
     "%s: OPTIONS は 204 と CORS ヘッダを返し上流を呼ばない",
     async (_name, handler) => {
       const res = makeRes();
-      await invokeHandler(handler, makeReq({ method: "OPTIONS" }), res);
+      await invokeHandler(
+        handler,
+        makeReq({ method: "OPTIONS", origin: "https://aruku.pages.dev" }),
+        res
+      );
       expect(res.statusCode).toBe(204);
       expect(res.body).toBe("");
-      expect(res.headers["Access-Control-Allow-Origin"]).toBe("*");
+      expect(res.headers["Access-Control-Allow-Origin"]).toBe(
+        "https://aruku.pages.dev"
+      );
       expect(res.headers["Access-Control-Allow-Methods"]).toBe("GET");
       expect(res.headers["Access-Control-Allow-Headers"]).toBe(
         "Content-Type, X-Firebase-AppCheck"
@@ -757,6 +786,121 @@ describe("CORS プリフライト（OPTIONS）", () => {
       expect(httpsRequestMock).not.toHaveBeenCalled();
     }
   );
+
+  it.each(handlers)(
+    "%s: プリフライトは Max-Age を返し毎回の往復を避ける",
+    async (_name, handler) => {
+      const res = makeRes();
+      await invokeHandler(
+        handler,
+        makeReq({ method: "OPTIONS", origin: "https://aruku.pages.dev" }),
+        res
+      );
+      expect(res.headers["Access-Control-Max-Age"]).toBe("3600");
+    }
+  );
+
+  it.each(handlers)(
+    "%s: 許可外 Origin には ACAO を付けない",
+    async (_name, handler) => {
+      const res = makeRes();
+      await invokeHandler(
+        handler,
+        makeReq({ method: "OPTIONS", origin: "https://evil.example" }),
+        res
+      );
+      expect(res.statusCode).toBe(204);
+      expect(res.headers["Access-Control-Allow-Origin"]).toBeUndefined();
+    }
+  );
+
+  it.each(handlers)(
+    "%s: Origin の有無にかかわらず Vary: Origin を返す",
+    async (_name, handler) => {
+      const withOrigin = makeRes();
+      await invokeHandler(
+        handler,
+        makeReq({ method: "OPTIONS", origin: "https://aruku.pages.dev" }),
+        withOrigin
+      );
+      expect(withOrigin.headers["Vary"]).toBe("Origin");
+
+      const withoutOrigin = makeRes();
+      await invokeHandler(handler, makeReq({ method: "OPTIONS" }), withoutOrigin);
+      expect(withoutOrigin.headers["Vary"]).toBe("Origin");
+    }
+  );
+
+  it("Origin 無し（モバイル・curl）でも ACAO 無しで通常処理へ進む", async () => {
+    mockUpstream({ routes: [{ distanceMeters: 100 }] });
+    const res = makeRes();
+    await invokeHandler(
+      googleWalkProxy,
+      makeReq({
+        query: { start: "35.7,139.7", goal: "35.6,139.7" },
+        token: "ok",
+      }),
+      res
+    );
+    expect(res.statusCode).toBeUndefined();
+    expect(res.headers["Access-Control-Allow-Origin"]).toBeUndefined();
+    expect(httpsRequestMock).toHaveBeenCalled();
+  });
+
+  it("許可外 Origin でもサーバー側では拒否しない（CORS はブラウザ側の仕組み）", async () => {
+    mockUpstream({ routes: [{ distanceMeters: 100 }] });
+    const res = makeRes();
+    await invokeHandler(
+      googleWalkProxy,
+      makeReq({
+        query: { start: "35.7,139.7", goal: "35.6,139.7" },
+        token: "ok",
+        origin: "https://evil.example",
+      }),
+      res
+    );
+    expect(res.headers["Access-Control-Allow-Origin"]).toBeUndefined();
+    expect(httpsRequestMock).toHaveBeenCalled();
+  });
+});
+
+describe("Origin 許可リスト", () => {
+  it.each([
+    "https://aruku.pages.dev",
+    "https://claude-aruku-pages-dev-url-k.aruku.pages.dev",
+    "https://abcd1234.aruku.pages.dev",
+    "http://localhost:5555",
+    "http://localhost",
+    "http://127.0.0.1:8080",
+    "https://localhost:5555",
+  ])("許可: %s", (origin) => {
+    expect(isAllowedOrigin(origin)).toBe(true);
+  });
+
+  it.each([
+    // pages.dev は共有ドメインで誰でもプロジェクトを作れる。前方一致・部分一致で
+    // 判定すると他人のプロジェクトを通してしまうため、境界を厳密に検証する。
+    "https://evil.pages.dev",
+    "https://evil-aruku.pages.dev",
+    "https://aruku.pages.dev.evil.example",
+    "https://arukupages.dev",
+    "https://evil.example",
+    // 開発用の許可は平文 http のローカルホストのみ。名前解決を攻撃者が握れる
+    // ホスト名で http を許すと中間者に ACAO を渡すことになる。
+    "http://aruku.pages.dev",
+    "http://evil.example",
+    // ブラウザの Origin になり得ないスキームは、ループバックでも通さない。
+    "ftp://localhost",
+    // Origin として正規形でない文字列は echo 対象にしない。
+    "https://aruku.pages.dev/",
+    "https://aruku.pages.dev/path",
+    "https://user:pass@aruku.pages.dev",
+    "null",
+    "",
+    "not a url",
+  ])("拒否: %s", (origin) => {
+    expect(isAllowedOrigin(origin)).toBe(false);
+  });
 });
 
 // 上流応答を手動で解決させる擬似。cb は同期で呼び（requestJsonNew が data/end

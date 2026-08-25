@@ -213,7 +213,8 @@ throw してアプリが起動しなくなるためで、この場合プロキ�
 
 **ローカルのエミュレータなら Web でも動きます。** `functions/src/index.ts` の
 `verifyAppCheck` は `FUNCTIONS_EMULATOR` が立っているとき検証ごとスキップし、
-プロキシは `Access-Control-Allow-Origin: *` とプリフライトに対応済みです。
+プロキシの CORS 許可リスト（`isAllowedOrigin`）は `localhost` / `127.0.0.1` を
+任意のポートで許可しています（プリフライト対応済み）。
 つまり Web のローカル開発は Phase 1 を待たずに完結します。ページを `http` で配信して
 いれば `http://127.0.0.1:5001` への呼び出しも混在コンテンツになりません。
 
