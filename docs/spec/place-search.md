@@ -1,7 +1,6 @@
 # 地点検索 仕様（Autocomplete + 距離再ソート）
 
 - **位置づけ:** 目的地・出発地の地点検索の **設計の正本**。検索系統を変える実装・レビューは本書を基準にする。
-- **最終更新:** 2026-06-30
 - **対象コード:** `lib/core/services/places_service.dart`, `lib/features/search/places_provider.dart`, `lib/features/search/search_screen.dart`, `functions/src/index.ts`（`placesProxy`）, `functions/src/places-transform.ts`
 - **関連:** [route-optimization.md](route-optimization.md) §2.1（`placesProxy` の構成）
 
