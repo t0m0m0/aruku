@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/place_prediction.dart';
 import 'package:aruku/core/services/places_service.dart';
@@ -31,6 +33,24 @@ class _StubPlacesService implements PlacesService {
   @override
   Future<GeoPoint?> fetchLatLng(String placeId) async =>
       const GeoPoint(35.6580, 139.7016);
+}
+
+/// fetchLatLng を外から解放できる。確定待ちの間に打ち替える経路を作る。
+class _SlowPlacesService implements PlacesService {
+  _SlowPlacesService(this.gate);
+
+  final Completer<GeoPoint?> gate;
+
+  @override
+  Future<List<PlacePrediction>> autocomplete(
+    String query, {
+    GeoPoint? bias,
+  }) async => const [
+    PlacePrediction(placeId: 'p1', name: '渋谷ヒカリエ', address: '渋谷区渋谷'),
+  ];
+
+  @override
+  Future<GeoPoint?> fetchLatLng(String placeId) => gate.future;
 }
 
 class _FailingPlacesService implements PlacesService {
@@ -241,6 +261,30 @@ void main() {
       tester.widget<TextField>(find.byKey(_field)).focusNode?.hasFocus,
       isTrue,
     );
+  });
+
+  // 確定を待つ間も欄は編集できる。遅れて返った古い確定が、打ち替えた後の
+  // クエリを消して別の地点を入れてしまう。
+  testWidgets('打ち替えた後に返ってきた古い確定は捨てる', (tester) async {
+    final gate = Completer<GeoPoint?>();
+    final container = await _pumpHome(
+      tester,
+      1280,
+      places: _SlowPlacesService(gate),
+    );
+    await _query(tester, '渋谷');
+
+    await tester.tap(find.text('渋谷ヒカリエ'));
+    await tester.pump();
+
+    await tester.enterText(find.byKey(_field), '新宿');
+    await tester.pump(const Duration(milliseconds: 500));
+
+    gate.complete(const GeoPoint(35.6580, 139.7016));
+    await tester.pumpAndSettle();
+
+    expect(container.read(appStateProvider).destination, isNull);
+    expect(tester.widget<TextField>(find.byKey(_field)).controller?.text, '新宿');
   });
 
   testWidgets('外側をクリックすると閉じる', (tester) async {

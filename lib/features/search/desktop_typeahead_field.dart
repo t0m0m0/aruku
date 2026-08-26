@@ -60,6 +60,10 @@ class _DesktopTypeaheadFieldState extends ConsumerState<DesktopTypeaheadField> {
   bool _selecting = false;
   bool _pickFailed = false;
 
+  /// 座標の引き当てごとに増やす世代。fetchLatLng を待つ間も欄は編集できるため、
+  /// 遅れて返った古い確定が、打ち替えた後のクエリを消して別の地点を入れてしまう。
+  int _selectGeneration = 0;
+
   String get _side =>
       widget.mode == SearchMode.origin ? 'origin' : 'destination';
 
@@ -133,6 +137,7 @@ class _DesktopTypeaheadFieldState extends ConsumerState<DesktopTypeaheadField> {
     // なくなる。残すと表示は新しいクエリ・状態は古い座標というズレが作れ、
     // 検索 CTA が有効なまま前の目的地へ経路を引いてしまう。
     _clearSelection();
+    _selectGeneration++;
     ref.read(placesProvider.notifier).search(query);
     setState(() {
       _highlighted = 0;
@@ -167,12 +172,18 @@ class _DesktopTypeaheadFieldState extends ConsumerState<DesktopTypeaheadField> {
 
   Future<void> _select(PlacePrediction prediction) async {
     if (_selecting) return;
+    final generation = ++_selectGeneration;
     setState(() => _selecting = true);
     final resolved = await resolvePlacePrediction(
       ref.read(placesServiceProvider),
       prediction,
     );
     if (!mounted) return;
+    // 待っている間に打ち替えられていたら、この確定はもう欄が指していない。
+    if (generation != _selectGeneration) {
+      setState(() => _selecting = false);
+      return;
+    }
     // 座標を引けない候補は確定させない。黙って無反応にすると「押しても何も
     // 起きない候補」になるため、理由をドロップダウンへ出して選び直させる。
     setState(() {
