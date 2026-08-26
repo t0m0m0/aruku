@@ -554,6 +554,67 @@ void main() {
       );
     });
 
+    // 下限が範囲内でも到着だけが外に出る組み合わせがある。下限だけ見て範囲を
+    // 広げると、その到着を表せる日がカレンダーから消えたままになる。
+    testWidgets('下限が範囲内でも上限を越えた到着は確定で動かない', (tester) async {
+      final container = await _pumpHome(tester, 1280);
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(
+            mode: PickerMode.depart,
+            h: 23,
+            m: 30,
+            dateOffset: kMaxDateOffsetDays,
+          );
+      await tester.pump();
+      final before = container.read(appStateProvider).arrival;
+      expect(before.dateOffset, greaterThan(kMaxDateOffsetDays));
+
+      await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      final after = container.read(appStateProvider).arrival;
+      expect(
+        (after.h, after.m, after.dateOffset),
+        (before.h, before.m, before.dateOffset),
+      );
+    });
+
+    // 今日より前は表現できないので、今日の出発は日を跨いでも詰められない。
+    // そこで到着だけ詰めると、選んだばかりの到着が出発の直後へ潰される。
+    testWidgets('詰められない出発があるときは基準を動かさない', (tester) async {
+      final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
+      final container = await _pumpHome(tester, 1280, now: clock.call);
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(
+            mode: PickerMode.depart,
+            h: 23,
+            m: 55,
+            dateOffset: 0,
+          );
+      await tester.pump();
+      final before = container.read(appStateProvider).arrival;
+      final budget = _budgetMinutes(container);
+
+      await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('16'));
+      await tester.pumpAndSettle();
+      clock.set(DateTime(2026, 5, 16, 0, 5));
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      final after = container.read(appStateProvider).arrival;
+      expect(
+        (after.h, after.m, after.dateOffset),
+        (before.h, before.m, before.dateOffset),
+      );
+      expect(_budgetMinutes(container), budget);
+    });
+
     // dateOffset は相対値なので、今日が動けば同じ値が別の日を指す。確定する側
     // だけ数え直すと、相手が古い今日に取り残されて予算が24時間ぶん伸びる。
     testWidgets('日を跨いで確定しても予算が24時間ぶん伸びない', (tester) async {

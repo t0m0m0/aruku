@@ -57,12 +57,13 @@ const int kInitialBudgetMinutes = 60;
 /// 出発と到着の最小ギャップ（分）。これにより常に「出発 < 到着」を保証する。
 const int kMinBudgetMinutes = 1;
 
-/// [days] 日ぶん手前へ寄せた TimeValue。今日より前は表現できないので 0 で止める
-/// （そのぶん予算は縮むが、[AppNotifier.applyPickedTime] が下限を持ち直す）。
-/// isNow は dateOffset を見ないため触らない。
-TimeValue _rebased(TimeValue t, int days) => t.isNow
-    ? t
-    : t.copyWith(dateOffset: (t.dateOffset - days).clamp(0, t.dateOffset));
+/// [days] 日ぶん手前へ寄せられるか。isNow は dateOffset を見ず、時間経過は
+/// startSearch の再取得が引き受けるため（#264）常に動かせる扱いにする。
+bool _canRebase(TimeValue t, int days) => t.isNow || t.dateOffset >= days;
+
+/// [days] 日ぶん手前へ寄せた TimeValue。[_canRebase] を通した値だけを渡す。
+TimeValue _rebased(TimeValue t, int days) =>
+    t.isNow ? t : t.copyWith(dateOffset: t.dateOffset - days);
 
 /// 当日0時基準の絶対分から TimeValue を復元する（isNow は付かない）。
 TimeValue _timeValueFromAbs(int abs) =>
@@ -623,17 +624,29 @@ class AppNotifier extends Notifier<AppState> {
       state = state.copyWith(origin: name, originLatLng: latLng);
 
   /// 日を跨いだぶんだけ出発・到着の日数オフセットを詰め、両者が指す絶対日付を保つ。
+  /// 新しい基準日へ移せたかを返す。
   ///
   /// [TimeValue.dateOffset] は「今日から何日後か」なので、今日が動けば同じ値が
   /// 別の日を指す。片方だけ新しい今日で数え直すと、予算だけが日数ぶん伸びる。
   /// 出発と到着を同じ [copyWith] で動かすのは、片方ずつ通すと [applyPickedTime]
   /// の「出発 < 到着」補正が途中の食い違いを本物の値として固定してしまうため。
-  void rebaseDates(int days) {
-    if (days <= 0) return;
+  ///
+  /// 今日より前は表現できないので、[days] ぶん戻せない側があるときは何も動かさず
+  /// false を返す。そこで 0 へ丸めて片方だけ詰めると、23:55 発・翌 00:55 着が
+  /// 「同じ日の 23:55 発と 00:55 着」になり、選んだばかりの到着が出発の直後へ
+  /// 潰される。全部動かせるときだけ動かす。
+  bool rebaseDates(int days) {
+    if (days <= 0) return true;
+    final departure = state.departure;
+    final arrival = state.arrival;
+    if (!_canRebase(departure, days) || !_canRebase(arrival, days)) {
+      return false;
+    }
     state = state.copyWith(
-      departure: _rebased(state.departure, days),
-      arrival: _rebased(state.arrival, days),
+      departure: _rebased(departure, days),
+      arrival: _rebased(arrival, days),
     );
+    return true;
   }
 
   /// 日付・時刻ピッカーで確定した値を出発/到着に反映する。

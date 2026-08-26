@@ -126,18 +126,27 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
   /// ステッパーだけでは上限の90日目まで90回押す必要があり、遠い日付を選ぶ手段が
   /// 実質無い。範囲は [kMaxDateOffsetDays] から引く——ここを独自に決めると
   /// ホイールシートとデスクトップで作れる日付が食い違う。
+  /// カレンダーが出す最後の日。
+  ///
+  /// 到着は出発+最小ギャップへ押し出されるため、[kMaxDateOffsetDays] を越えた
+  /// 日に居ることがある。上限を定数で切るとその日がカレンダーから消え、開いて
+  /// 確定しただけで値が動く。下限だけでなく今の値も含めて広げるのは、下限が
+  /// 範囲内でも到着だけが外に出る組み合わせ（90日目 23:30 発→91日目 00:30 着）
+  /// があるため。それ以上先は出発側が作れない。
+  int _lastSelectableOffset() {
+    var last = kMaxDateOffsetDays;
+    final floor = _firstSelectableOffset();
+    if (floor > last) last = floor;
+    final current = _current().dateOffset;
+    if (current > last) last = current;
+    return last;
+  }
+
   Future<void> _pickDate() async {
     final opened = ref.read(nowProvider)();
     final firstOffset = _firstSelectableOffset();
-    // 到着は出発+最小ギャップへ押し出されるため、出発が上限の日の 23:59 だと
-    // 到着だけが上限を1日越える。上限を [kMaxDateOffsetDays] で切ると、その
-    // 到着を表せる日がカレンダーから消え、開いて確定しただけで値が動く。
-    // 状態として既に在る日までは出す（それ以上先は出発側が作れない）。
-    final lastOffset = firstOffset > kMaxDateOffsetDays
-        ? firstOffset
-        : kMaxDateOffsetDays;
     final first = _dateAt(opened, firstOffset);
-    final last = _dateAt(opened, lastOffset);
+    final last = _dateAt(opened, _lastSelectableOffset());
     final initial = _dateAt(opened, _current().dateOffset);
     final picked = await showDatePicker(
       context: context,
@@ -154,9 +163,12 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
     final closed = ref.read(nowProvider)();
     // 表示中に日を跨ぐと、確定する側だけ新しい今日で数え直され、相手側は古い
     // 今日を基準にした値のまま残る。先に両方を同じ基準へ揃える。
-    ref
+    final rebased = ref
         .read(appStateProvider.notifier)
         .rebaseDates(dateOffsetFrom(picked: closed, now: opened));
+    // 揃えられなかったなら基準は動いていない。新しい今日で数えると確定した側
+    // だけがずれるので、開いた時点の基準のまま通す。
+    final base = rebased ? closed : opened;
     // 編集途中の表示値を基点にする。確定値の時刻を持ち回ると、18:20 と打った
     // 直後に日付を変えたとき、打ったばかりの時刻が黙って捨てられる。
     final typed = parseTimeInput(_controller.text);
@@ -166,8 +178,8 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
       m: typed?.m ?? current.m,
       dateOffset: dateOffsetFrom(
         picked: picked,
-        now: closed,
-        maxOffset: lastOffset,
+        now: base,
+        maxOffset: _lastSelectableOffset(),
       ),
     );
   }
