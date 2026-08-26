@@ -4,6 +4,7 @@ import 'package:aruku/core/navigation/app_router.dart';
 import 'package:aruku/core/navigation/screen_paths.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -106,6 +107,45 @@ void main() {
 
     expect(selected(), contains(const Key('shell-tab-settings-semantics')));
     expect(selected(), isNot(contains(const Key('shell-tab-plan-semantics'))));
+  });
+
+  /// [key] の部分木に焦点があるか。
+  bool focusInside(WidgetTester tester, Key key) {
+    final focused = FocusManager.instance.primaryFocus?.context;
+    if (focused == null) return false;
+    final target = tester.element(find.byKey(key));
+    var found = false;
+    focused.visitAncestorElements((e) {
+      if (e == target) {
+        found = true;
+        return false;
+      }
+      return true;
+    });
+    return found;
+  }
+
+  // 主要なナビゲーションがキーボードだけの利用者から touch できないと、
+  // デスクトップ／Web で行き来する手段がまるごと無くなる。
+  testWidgets('タブは Tab で焦点が入り Enter で押せる', (tester) async {
+    await _pumpAppAt(tester, 1280);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byKey(_settingsTab)),
+    );
+
+    // ホームの入力欄をすべて巡ってからバーへ移る（焦点はルート内から始まる）。
+    var reached = false;
+    for (var i = 0; i < 24 && !reached; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      reached = focusInside(tester, _settingsTab);
+    }
+    expect(reached, isTrue, reason: 'Tab 送りで設定タブへ到達できない');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await pumpTransition(tester);
+
+    expect(container.read(appStateProvider).screen, Screen.settings);
   });
 
   group('ローディング中の離脱', () {

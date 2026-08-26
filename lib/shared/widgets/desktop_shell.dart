@@ -67,50 +67,50 @@ class _TopBar extends ConsumerWidget {
       notifier.go(target);
     }
 
-    return Container(
+    return Material(
       key: const Key('desktop-shell-top-bar'),
-      height: ArukuTokens.topBarHeight,
-      decoration: BoxDecoration(
-        color: c.paper,
-        border: Border(bottom: BorderSide(color: c.hairline)),
-      ),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: ArukuTokens.contentMaxWidth,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Row(
-              children: [
-                const ArukuLogo(size: 34),
-                const SizedBox(width: 10),
-                Text(
-                  l10n.appTitle,
-                  style: jpStyle(
-                    size: 19,
-                    weight: FontWeight.w900,
-                    color: c.ink,
-                    letterSpacing: 0.04 * 19,
+      color: c.paper,
+      shape: Border(bottom: BorderSide(color: c.hairline)),
+      child: SizedBox(
+        height: ArukuTokens.topBarHeight,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxWidth: ArukuTokens.contentMaxWidth,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Row(
+                children: [
+                  const ArukuLogo(size: 34),
+                  const SizedBox(width: 10),
+                  Text(
+                    l10n.appTitle,
+                    style: jpStyle(
+                      size: 19,
+                      weight: FontWeight.w900,
+                      color: c.ink,
+                      letterSpacing: 0.04 * 19,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 20),
-                _Tab(
-                  id: 'plan',
-                  label: l10n.shellTabPlan,
-                  iconBuilder: (color) => Ic.routes(size: 16, color: color),
-                  selected: !onSettings,
-                  onTap: () => leave(Screen.home),
-                ),
-                const SizedBox(width: 4),
-                _Tab(
-                  id: 'settings',
-                  label: l10n.shellTabSettings,
-                  iconBuilder: (color) => Ic.settings(size: 16, color: color),
-                  selected: onSettings,
-                  onTap: () => leave(Screen.settings),
-                ),
-              ],
+                  const SizedBox(width: 20),
+                  _Tab(
+                    id: 'plan',
+                    label: l10n.shellTabPlan,
+                    iconBuilder: (color) => Ic.routes(size: 16, color: color),
+                    selected: !onSettings,
+                    onTap: () => leave(Screen.home),
+                  ),
+                  const SizedBox(width: 4),
+                  _Tab(
+                    id: 'settings',
+                    label: l10n.shellTabSettings,
+                    iconBuilder: (color) => Ic.settings(size: 16, color: color),
+                    selected: onSettings,
+                    onTap: () => leave(Screen.settings),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -143,10 +143,12 @@ class _Tab extends StatelessWidget {
       button: true,
       selected: selected,
       label: label,
-      child: GestureDetector(
+      // GestureDetector では焦点移動にも Enter / Space にも乗らない。
+      // 主要なナビゲーションがキーボードだけの利用者から touch できなくなる。
+      child: InkWell(
         key: Key('shell-tab-$id'),
         onTap: onTap,
-        behavior: HitTestBehavior.opaque,
+        borderRadius: BorderRadius.circular(11),
         child: Container(
           height: 38,
           padding: const EdgeInsets.symmetric(horizontal: 16),
