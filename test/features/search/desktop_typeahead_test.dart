@@ -2,6 +2,7 @@ import 'package:aruku/core/models/geo_point.dart';
 import 'package:aruku/core/models/place_prediction.dart';
 import 'package:aruku/core/services/places_service.dart';
 import 'package:aruku/core/state/app_state.dart';
+import 'package:aruku/features/search/places_provider.dart';
 import 'package:aruku/features/search/search_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -32,15 +33,30 @@ class _StubPlacesService implements PlacesService {
       const GeoPoint(35.6580, 139.7016);
 }
 
-Future<ProviderContainer> _pumpHome(WidgetTester tester, double width) async {
+class _FailingPlacesService implements PlacesService {
+  const _FailingPlacesService();
+
+  @override
+  Future<List<PlacePrediction>> autocomplete(
+    String query, {
+    GeoPoint? bias,
+  }) async => throw const PlacesException('REQUEST_DENIED');
+
+  @override
+  Future<GeoPoint?> fetchLatLng(String placeId) async => null;
+}
+
+Future<ProviderContainer> _pumpHome(
+  WidgetTester tester,
+  double width, {
+  PlacesService places = const _StubPlacesService(),
+}) async {
   tester.view.physicalSize = Size(width, 1000);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  final container = await makeContainer(
-    placesService: const _StubPlacesService(),
-  );
+  final container = await makeContainer(placesService: places);
   addTearDown(container.dispose);
   await tester.pumpWidget(appWidget(container));
   await pumpTransition(tester);
@@ -155,6 +171,76 @@ void main() {
 
     expect(find.byKey(_dropdown), findsNothing);
     expect(container.read(appStateProvider).destination, isNull);
+  });
+
+  // 全画面検索は「選ばずに戻れば何も変わらない」構造だった。インラインは
+  // 入力欄と確定済みの値が同じ場所に同居するため、遷移が持っていた不変条件を
+  // 状態側で作り直す必要がある。
+  testWidgets('確定後に打ち替え始めると目的地は無効になる', (tester) async {
+    final container = await _pumpHome(tester, 1280);
+    await _query(tester, '渋谷');
+    await tester.tap(find.text('渋谷駅'));
+    await tester.pumpAndSettle();
+    expect(container.read(appStateProvider).destination, '渋谷駅');
+
+    await tester.tap(find.byKey(_field));
+    await tester.pump();
+    await tester.enterText(find.byKey(_field), '新宿');
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(container.read(appStateProvider).destination, isNull);
+  });
+
+  testWidgets('取得に失敗したら候補なしではなく失敗として出す', (tester) async {
+    await _pumpHome(tester, 1280, places: const _FailingPlacesService());
+    await _query(tester, '渋谷');
+
+    expect(find.textContaining('検索できませんでした'), findsOneWidget);
+    expect(find.text('候補が見つかりませんでした'), findsNothing);
+  });
+
+  // 焦点が入っただけでは確定済みの目的地を捨てない。捨てるのは打ち替えを
+  // 始めたとき（欄の表示と状態がずれる瞬間）だけ。
+  testWidgets('未入力で焦点が入ると履歴を出す', (tester) async {
+    final container = await _pumpHome(tester, 1280);
+    await _query(tester, '渋谷');
+    await tester.tap(find.text('渋谷駅'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(_field));
+    await tester.pumpAndSettle();
+
+    expect(find.text('最近の目的地'), findsOneWidget);
+    expect(
+      find.descendant(of: find.byKey(_dropdown), matching: find.text('渋谷駅')),
+      findsOneWidget,
+    );
+    expect(container.read(appStateProvider).destination, '渋谷駅');
+  });
+
+  // 全画面検索で入れた「近くの店」を引き継ぐと、以後の候補が理由の見えない
+  // まま距離順で並び続ける。インラインにはトグルが無い。
+  testWidgets('焦点が入ると近くの店モードを解除する', (tester) async {
+    final container = await _pumpHome(tester, 1280);
+    container.read(placesProvider.notifier).setNearby(true);
+
+    await tester.tap(find.byKey(_field));
+    await tester.pump();
+
+    expect(container.read(placesProvider).nearby, isFalse);
+  });
+
+  testWidgets('目的地未選択の CTA はインライン入力へ焦点を移す', (tester) async {
+    final container = await _pumpHome(tester, 1280);
+
+    await tester.tap(find.text('目的地を選ぶ'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(appStateProvider).screen, Screen.home);
+    expect(
+      tester.widget<TextField>(find.byKey(_field)).focusNode?.hasFocus,
+      isTrue,
+    );
   });
 
   testWidgets('外側をクリックすると閉じる', (tester) async {

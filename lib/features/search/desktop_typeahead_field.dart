@@ -16,6 +16,16 @@ import 'place_selection.dart';
 import 'places_provider.dart';
 import 'search_screen.dart' show SearchMode;
 
+/// インライン目的地入力の焦点。CTA など離れた場所から開くために共有する。
+///
+/// GlobalKey ではなくプロバイダにするのは、入力欄が条件カードの奥にあり、
+/// 経路上のウィジェットを Stateful に変えていかないと参照を降ろせないため。
+final desktopDestinationFocusProvider = Provider<FocusNode>((ref) {
+  final node = FocusNode();
+  ref.onDispose(node.dispose);
+  return node;
+});
+
 /// デスクトップ幅の地点入力。全画面遷移をやめ、その場のドロップダウンで確定する。
 ///
 /// 全画面検索を widget ごと流用しないのは、あちらが「開いて、選び、戻る」という
@@ -38,9 +48,13 @@ class DesktopTypeaheadField extends ConsumerStatefulWidget {
 
 class _DesktopTypeaheadFieldState extends ConsumerState<DesktopTypeaheadField> {
   final _controller = TextEditingController();
-  final _focusNode = FocusNode();
   final _link = LayerLink();
   final _portal = OverlayPortalController();
+
+  /// 目的地側だけ共有ノードを使う。CTA から開けるようにするため。
+  late final FocusNode _focusNode = widget.mode == SearchMode.destination
+      ? ref.read(desktopDestinationFocusProvider)
+      : FocusNode();
 
   int _highlighted = 0;
   bool _selecting = false;
@@ -50,13 +64,58 @@ class _DesktopTypeaheadFieldState extends ConsumerState<DesktopTypeaheadField> {
       widget.mode == SearchMode.origin ? 'origin' : 'destination';
 
   @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(_onFocusChanged);
+  }
+
+  @override
   void dispose() {
+    _focusNode.removeListener(_onFocusChanged);
+    // 共有ノードの寿命はプロバイダが持つ。ここで捨てると、次に開いたときに
+    // 破棄済みのノードへ焦点を要求することになる。
+    if (widget.mode != SearchMode.destination) _focusNode.dispose();
     _controller.dispose();
-    _focusNode.dispose();
     super.dispose();
   }
 
-  List<PlacePrediction> get _options => ref.read(placesProvider).suggestions;
+  void _onFocusChanged() {
+    if (!_focusNode.hasFocus) return;
+    // インラインの入力面には「近くの店」トグルが無い。全画面検索で入れた
+    // モードを引き継ぐと、以後の候補が理由の見えないまま距離順で並び続ける。
+    ref.read(placesProvider.notifier).setNearby(false);
+    _open();
+  }
+
+  List<RecentPlace> get _recents =>
+      (widget.mode == SearchMode.origin
+              ? ref.read(recentOriginsProvider)
+              : ref.read(recentsProvider))
+          .value ??
+      const [];
+
+  /// ドロップダウンに並ぶ行。未入力なら履歴、入力中なら候補。
+  /// キー操作と描画が同じ並びを見るよう、組み立てを1箇所に置く。
+  List<_Entry> _entries() {
+    if (_controller.text.isEmpty) {
+      return [
+        for (final r in _recents)
+          _Entry(
+            name: r.name,
+            detail: r.address ?? '',
+            onSelect: () => _apply(r),
+          ),
+      ];
+    }
+    return [
+      for (final p in ref.read(placesProvider).suggestions)
+        _Entry(
+          name: p.name,
+          detail: p.address,
+          onSelect: () => unawaited(_select(p)),
+        ),
+    ];
+  }
 
   void _open() {
     if (_portal.isShowing) return;
@@ -70,30 +129,40 @@ class _DesktopTypeaheadFieldState extends ConsumerState<DesktopTypeaheadField> {
   }
 
   void _onChanged(String query) {
+    // 打ち替えを始めた時点で、確定済みの地点は「今その欄が指しているもの」で
+    // なくなる。残すと表示は新しいクエリ・状態は古い座標というズレが作れ、
+    // 検索 CTA が有効なまま前の目的地へ経路を引いてしまう。
+    _clearSelection();
     ref.read(placesProvider.notifier).search(query);
     setState(() {
       _highlighted = 0;
       _pickFailed = false;
     });
-    if (query.isEmpty) {
-      _close();
-      return;
-    }
     _open();
   }
 
+  void _clearSelection() {
+    final state = ref.read(appStateProvider);
+    final notifier = ref.read(appStateProvider.notifier);
+    if (widget.mode == SearchMode.origin) {
+      if (state.origin != null) notifier.setOrigin(null);
+    } else {
+      if (state.destination != null) notifier.setDestination(null);
+    }
+  }
+
   void _move(int delta) {
-    final options = _options;
-    if (options.isEmpty) return;
+    final entries = _entries();
+    if (entries.isEmpty) return;
     setState(
-      () => _highlighted = (_highlighted + delta).clamp(0, options.length - 1),
+      () => _highlighted = (_highlighted + delta).clamp(0, entries.length - 1),
     );
   }
 
-  Future<void> _confirmHighlighted() async {
-    final options = _options;
-    if (options.isEmpty || _highlighted >= options.length) return;
-    await _select(options[_highlighted]);
+  void _confirmHighlighted() {
+    final entries = _entries();
+    if (_highlighted >= entries.length) return;
+    entries[_highlighted].onSelect();
   }
 
   Future<void> _select(PlacePrediction prediction) async {
@@ -173,7 +242,7 @@ class _DesktopTypeaheadFieldState extends ConsumerState<DesktopTypeaheadField> {
                 ),
                 _ConfirmIntent: CallbackAction<_ConfirmIntent>(
                   onInvoke: (_) {
-                    unawaited(_confirmHighlighted());
+                    _confirmHighlighted();
                     return null;
                   },
                 ),
@@ -198,7 +267,7 @@ class _DesktopTypeaheadFieldState extends ConsumerState<DesktopTypeaheadField> {
                         controller: _controller,
                         focusNode: _focusNode,
                         onChanged: _onChanged,
-                        onSubmitted: (_) => unawaited(_confirmHighlighted()),
+                        onSubmitted: (_) => _confirmHighlighted(),
                         cursorColor: c.moss500,
                         style: jpStyle(
                           size: 15.5,
@@ -245,9 +314,14 @@ class _DesktopTypeaheadFieldState extends ConsumerState<DesktopTypeaheadField> {
 
   Widget _buildDropdown(BuildContext context) {
     final c = context.c;
-    final l10n = AppLocalizations.of(context);
     final searchState = ref.watch(placesProvider);
-    final options = searchState.suggestions;
+    // 履歴の到着でも並びを組み直す（未入力時の行は履歴そのもの）。
+    ref.watch(
+      widget.mode == SearchMode.origin
+          ? recentOriginsProvider
+          : recentsProvider,
+    );
+    final entries = _entries();
 
     return CompositedTransformFollower(
       link: _link,
@@ -268,57 +342,7 @@ class _DesktopTypeaheadFieldState extends ConsumerState<DesktopTypeaheadField> {
               elevation: 8,
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 460),
-                child: _pickFailed
-                    ? Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 22, 16, 22),
-                        child: Text(
-                          widget.mode == SearchMode.origin
-                              ? l10n.searchPickFailedOrigin
-                              : l10n.searchPickFailedDestination,
-                          style: jpStyle(
-                            size: 13.5,
-                            weight: FontWeight.w600,
-                            color: c.ink2,
-                          ),
-                        ),
-                      )
-                    : options.isEmpty
-                    ? Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 22, 16, 22),
-                        child: searchState.status == SearchStatus.loading
-                            ? const Center(
-                                child: SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                ),
-                              )
-                            : Text(
-                                l10n.searchEmptyTitle,
-                                style: jpStyle(
-                                  size: 14,
-                                  weight: FontWeight.w600,
-                                  color: c.ink2,
-                                ),
-                              ),
-                      )
-                    : SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            for (var i = 0; i < options.length; i++)
-                              _OptionRow(
-                                option: options[i],
-                                highlighted: i == _highlighted,
-                                onTap: () => unawaited(_select(options[i])),
-                                onHover: () => setState(() => _highlighted = i),
-                              ),
-                          ],
-                        ),
-                      ),
+                child: _dropdownBody(context, searchState, entries),
               ),
             ),
           ),
@@ -326,6 +350,140 @@ class _DesktopTypeaheadFieldState extends ConsumerState<DesktopTypeaheadField> {
       ),
     );
   }
+
+  Widget _dropdownBody(
+    BuildContext context,
+    SearchState searchState,
+    List<_Entry> entries,
+  ) {
+    final l10n = AppLocalizations.of(context);
+
+    if (_pickFailed) {
+      return _message(
+        context,
+        widget.mode == SearchMode.origin
+            ? l10n.searchPickFailedOrigin
+            : l10n.searchPickFailedDestination,
+      );
+    }
+    if (entries.isNotEmpty) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_controller.text.isEmpty)
+              _Eyebrow(
+                label: widget.mode == SearchMode.origin
+                    ? l10n.searchRecentOrigins
+                    : l10n.searchRecentDestinations,
+              ),
+            for (var i = 0; i < entries.length; i++)
+              _OptionRow(
+                entry: entries[i],
+                highlighted: i == _highlighted,
+                onHover: () => setState(() => _highlighted = i),
+              ),
+          ],
+        ),
+      );
+    }
+    // 未入力で履歴も無いときは、まだ何も起きていない。空振りの文言を出さない。
+    if (_controller.text.isEmpty) return const SizedBox.shrink();
+    if (searchState.status == SearchStatus.loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 22),
+        child: Center(
+          child: SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+    // 取得の失敗を「候補なし」と出すと、通信断・認証拒否・API 拒否が
+    // すべて「そんな場所は無い」に見える。全画面検索と同じ文言を出す。
+    if (searchState.status == SearchStatus.error) {
+      final status = searchState.errorStatus;
+      return _message(
+        context,
+        status == null
+            ? l10n.searchErrorGeneric
+            : l10n.searchErrorWithStatus(status),
+        hint: l10n.searchNetworkHint,
+      );
+    }
+    return _message(context, l10n.searchEmptyTitle, hint: l10n.searchEmptyHint);
+  }
+
+  Widget _message(BuildContext context, String text, {String? hint}) {
+    final c = context.c;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 22, 16, 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            text,
+            style: jpStyle(size: 14, weight: FontWeight.w600, color: c.ink2),
+          ),
+          if (hint != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              hint,
+              style: jpStyle(
+                size: 12.5,
+                weight: FontWeight.w500,
+                color: c.ink3,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _Eyebrow extends StatelessWidget {
+  const _Eyebrow({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          label,
+          style: jpStyle(
+            size: 12,
+            weight: FontWeight.w800,
+            color: c.ink3,
+            letterSpacing: 0.14 * 12,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// ドロップダウンの1行。履歴と候補を同じ形に均し、キー操作と描画が
+/// 同じ並びを見るようにする。
+class _Entry {
+  const _Entry({
+    required this.name,
+    required this.detail,
+    required this.onSelect,
+  });
+
+  final String name;
+  final String detail;
+  final VoidCallback onSelect;
 }
 
 class _MoveIntent extends Intent {
@@ -343,22 +501,20 @@ class _ConfirmIntent extends Intent {
 
 class _OptionRow extends StatelessWidget {
   const _OptionRow({
-    required this.option,
+    required this.entry,
     required this.highlighted,
-    required this.onTap,
     required this.onHover,
   });
 
-  final PlacePrediction option;
+  final _Entry entry;
   final bool highlighted;
-  final VoidCallback onTap;
   final VoidCallback onHover;
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
     return InkWell(
-      onTap: onTap,
+      onTap: entry.onSelect,
       onHover: (hovering) {
         if (hovering) onHover();
       },
@@ -374,22 +530,24 @@ class _OptionRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    option.name,
+                    entry.name,
                     style: jpStyle(
                       size: 15,
                       weight: FontWeight.w700,
                       color: c.ink,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    option.address,
-                    style: jpStyle(
-                      size: 12.5,
-                      weight: FontWeight.w500,
-                      color: c.ink2,
+                  if (entry.detail.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      entry.detail,
+                      style: jpStyle(
+                        size: 12.5,
+                        weight: FontWeight.w500,
+                        color: c.ink2,
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),

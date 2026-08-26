@@ -320,6 +320,13 @@ class HomeScreen extends ConsumerWidget {
                           hasDestination: destination != null,
                           onPressed: destination != null
                               ? () => notifier.startSearch()
+                              // デスクトップでは目的地の入口がこの画面の中に
+                              // ある。最も目立つ導線だけ全画面検索へ送ると、
+                              // 入れ替えたはずのインライン入力を素通りする。
+                              : isDesktop
+                              ? ref
+                                    .read(desktopDestinationFocusProvider)
+                                    .requestFocus
                               : () => notifier.go(Screen.search),
                         ),
                       ),
