@@ -697,6 +697,45 @@ void main() {
       expect(_budgetMinutes(container), budget);
     });
 
+    testWidgets('60分の予算は日を跨いだ出発の打ち直しでも保たれる', (tester) async {
+      final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
+      final container = await _pumpHome(tester, 1280, now: clock.call);
+      final notifier = container.read(appStateProvider.notifier);
+      notifier.applyPickedTime(
+        mode: PickerMode.depart,
+        h: 23,
+        m: 55,
+        dateOffset: 0,
+      );
+      notifier.applyPickedTime(
+        mode: PickerMode.arrival,
+        h: 0,
+        m: 55,
+        dateOffset: 1,
+      );
+      await tester.pump();
+      expect(_budgetMinutes(container), 60);
+
+      await tester.tap(find.byKey(_departDateOpen));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('16'));
+      await tester.pumpAndSettle();
+      clock.set(DateTime(2026, 5, 16, 0, 5));
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      final state = container.read(appStateProvider);
+      expect(
+        (state.departure.h, state.departure.m, state.departure.dateOffset),
+        (23, 55, 0),
+      );
+      expect(
+        (state.arrival.h, state.arrival.m, state.arrival.dateOffset),
+        (0, 55, 1),
+      );
+      expect(_budgetMinutes(container), 60);
+    });
+
     // dateOffset は相対値なので、今日が動けば同じ値が別の日を指す。確定する側
     // だけ数え直すと、相手が古い今日に取り残されて予算が24時間ぶん伸びる。
     testWidgets('日を跨いで確定しても予算が24時間ぶん伸びない', (tester) async {
