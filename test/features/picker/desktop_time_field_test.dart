@@ -582,9 +582,10 @@ void main() {
       );
     });
 
-    // 今日より前は表現できないので、今日の出発は日を跨いでも詰められない。
-    // そこで到着だけ詰めると、選んだばかりの到着が出発の直後へ潰される。
-    testWidgets('詰められない出発があるときは基準を動かさない', (tester) async {
+    // 今日の 23:55 発は日を跨いだ時点で過ぎている。dateOffset の基準日は state に
+    // 無く常に「今日」として読まれるので、0 で止めると新しい今日の 23:55＝丸1日後
+    // を黙って指す。過ぎた出発は現在時刻へ寄せ、選んだ到着はその日のまま残す。
+    testWidgets('過ぎた出発は現在時刻へ寄せ、選んだ到着はその日に残る', (tester) async {
       final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
       final container = await _pumpHome(tester, 1280, now: clock.call);
       container
@@ -597,7 +598,6 @@ void main() {
           );
       await tester.pump();
       final before = container.read(appStateProvider).arrival;
-      final budget = _budgetMinutes(container);
 
       await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
       await tester.pumpAndSettle();
@@ -607,12 +607,16 @@ void main() {
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
 
-      final after = container.read(appStateProvider).arrival;
+      final state = container.read(appStateProvider);
+      // 選んだ 5月16日 は確定した時点の今日。1日先ではない。
       expect(
-        (after.h, after.m, after.dateOffset),
-        (before.h, before.m, before.dateOffset),
+        (state.arrival.h, state.arrival.m, state.arrival.dateOffset),
+        (before.h, before.m, 0),
       );
-      expect(_budgetMinutes(container), budget);
+      expect(
+        (state.departure.h, state.departure.m, state.departure.dateOffset),
+        (0, 5, 0),
+      );
     });
 
     // dateOffset は相対値なので、今日が動けば同じ値が別の日を指す。確定する側

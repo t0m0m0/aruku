@@ -163,12 +163,9 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
     final closed = ref.read(nowProvider)();
     // 表示中に日を跨ぐと、確定する側だけ新しい今日で数え直され、相手側は古い
     // 今日を基準にした値のまま残る。先に両方を同じ基準へ揃える。
-    final rebased = ref
+    ref
         .read(appStateProvider.notifier)
         .rebaseDates(dateOffsetFrom(picked: closed, now: opened));
-    // 揃えられなかったなら基準は動いていない。新しい今日で数えると確定した側
-    // だけがずれるので、開いた時点の基準のまま通す。
-    final base = rebased ? closed : opened;
     // 編集途中の表示値を基点にする。確定値の時刻を持ち回ると、18:20 と打った
     // 直後に日付を変えたとき、打ったばかりの時刻が黙って捨てられる。
     final typed = parseTimeInput(_controller.text);
@@ -178,7 +175,7 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
       m: typed?.m ?? current.m,
       dateOffset: dateOffsetFrom(
         picked: picked,
-        now: base,
+        now: closed,
         maxOffset: _lastSelectableOffset(),
       ),
     );
