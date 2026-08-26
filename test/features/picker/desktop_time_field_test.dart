@@ -506,6 +506,24 @@ void main() {
       );
     });
 
+    // 打ちかけの出発は、ダイアログが焦点を奪った時点で確定する。範囲を先に
+    // 決めていると、出せない日を出したままになる。
+    testWidgets('打ちかけの出発を確定してから到着の範囲を決める', (tester) async {
+      await _pumpHome(tester, 1280);
+      await tester.tap(find.byKey(_departField));
+      await tester.pump();
+      await tester.enterText(find.byKey(_departField), '23:59');
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
+      await tester.pumpAndSettle();
+
+      final dialog = tester.widget<DatePickerDialog>(
+        find.byType(DatePickerDialog),
+      );
+      expect(dialog.firstDate, DateTime(2026, 5, 16));
+    });
+
     // 何も変えずに閉じたのに、古い表示を書き戻すと寄せた出発の直後へ潰れる。
     testWidgets('何も変えずに確定したら再基準化した値を残す', (tester) async {
       final clock = _MovableClock(DateTime(2026, 5, 15, 9, 30));

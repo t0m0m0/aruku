@@ -133,6 +133,11 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
     // 閉じた時点で日付が1日先を指したまま残る。
     final notifier = ref.read(appStateProvider.notifier);
     final clock = ref.read(nowProvider);
+    // 打ちかけの値は焦点が外れて初めて確定する。ダイアログが焦点を奪うのは
+    // 範囲を決めた後なので、先に外しておかないと出せない日を出したままになる。
+    FocusManager.instance.primaryFocus?.unfocus();
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
     final opened = clock();
     final firstOffset = _firstSelectableOffset();
     final first = _dateAt(opened, firstOffset);
@@ -148,19 +153,21 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
       // 既定の DateTime.now() だと、時計を差し替えたとき「今日」の強調がずれる。
       currentDate: _dateAt(opened, 0),
     );
-    final elapsed = calendarDaysBetween(from: opened, to: clock());
+    // 閉じた時刻は1回だけ読む。数える／寄せる／符号化で読み直すと、その隙に日が
+    // 変われば互いの基準が食い違う。
+    final closed = clock();
+    final elapsed = calendarDaysBetween(from: opened, to: closed);
     // 片方だけ新しい今日で数え直すと相手が古い今日に取り残される。取り消しでも
     // 通すのは、基準日が動いたのが操作と無関係だから。
     if (!mounted) {
-      notifier.rebaseDates(elapsed);
+      notifier.rebaseDates(elapsed, closed);
       return;
     }
-    final closed = clock();
     // 確定値でなく編集途中の表示値を基点にする。再基準化より先に読むのは、
     // それが state を書き換えて欄へ跳ね返るため。
     final typed = parseTimeInput(_controller.text);
     final before = _current();
-    notifier.rebaseDates(elapsed);
+    notifier.rebaseDates(elapsed, closed);
     final current = _current();
     // 日も時刻も動かさずに閉じたなら、書き戻す意思が無い。再基準化が直した値を
     // 古い表示で上書きすると、寄せた出発の直後へ潰れる。
