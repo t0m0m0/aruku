@@ -57,20 +57,26 @@ const int kInitialBudgetMinutes = 60;
 /// 出発と到着の最小ギャップ（分）。これにより常に「出発 < 到着」を保証する。
 const int kMinBudgetMinutes = 1;
 
-/// [days] 日ぶん手前へ寄せた TimeValue。
+/// [days] 日ぶん手前へ寄せた TimeValue。過ぎてしまった値は [now] へ引き上げる。
 ///
-/// 寄せきれない値は、その絶対日時が既に過ぎている。今日より前は表現できないので、
-/// 0 で止めるのではなく [now] へ引き上げる。0 で止めると「今日の 23:55」が動いた
-/// 今日の同時刻＝丸1日後を黙って指し、選んだばかりの到着がその直後へ潰される。
-/// 過ぎた出発を現在時刻へ寄せるのは [clampDepartureMinutes] と同じ規則。
+/// 引き上げるのは、今日より前を表現できないため。0 で止めると「今日の 23:55」が
+/// 動いた今日の同時刻＝丸1日後を黙って指し、選んだばかりの到着がその直後へ
+/// 潰される。過ぎた時刻を現在時刻へ寄せるのは [clampDepartureMinutes] と同じ規則で、
+/// それを日跨ぎの瞬間にも当てているだけ。
 ///
-/// isNow は dateOffset を見ず、時間経過は startSearch の再取得が引き受ける（#264）。
+/// 日付だけでは足りない。詰めた先が今日でも時刻が既に過ぎていることがあり
+/// （翌 00:01 発を 00:05 に詰める）、固定出発は startSearch も更新しないので、
+/// 過去のまま経路照会へ渡る。
 TimeValue _rebased(TimeValue t, int days, DateTime now) {
-  if (t.isNow) return t;
-  if (t.dateOffset >= days) {
-    return t.copyWith(dateOffset: t.dateOffset - days);
+  // isNow は「現在時刻」そのもの。跨いだ先へ更新しないと、古い 23:50 が動いた
+  // 今日の 23:50 として比較され、直後に確定した到着がその1分後へ潰れる。
+  if (t.isNow) return t.copyWith(h: now.hour, m: now.minute);
+  if (t.dateOffset < days) return TimeValue(h: now.hour, m: now.minute);
+  final shifted = t.dateOffset - days;
+  if (shifted == 0 && t.totalMinutes < now.hour * 60 + now.minute) {
+    return TimeValue(h: now.hour, m: now.minute);
   }
-  return TimeValue(h: now.hour, m: now.minute);
+  return t.copyWith(dateOffset: shifted);
 }
 
 /// 当日0時基準の絶対分から TimeValue を復元する（isNow は付かない）。

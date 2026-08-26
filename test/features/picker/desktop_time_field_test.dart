@@ -619,6 +619,55 @@ void main() {
       );
     });
 
+    // isNow は「現在時刻」そのもの。跨いだ先へ更新しないと、古い 23:50 が動いた
+    // 今日の 23:50 として比較され、確定した到着がその1分後へ潰れる。
+    testWidgets('日を跨ぐと今すぐ出発も跨いだ先の時刻になる', (tester) async {
+      final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
+      final container = await _pumpHome(tester, 1280, now: clock.call);
+      final before = container.read(appStateProvider).arrival;
+      expect(before.dateOffset, 1);
+
+      await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('16'));
+      await tester.pumpAndSettle();
+      clock.set(DateTime(2026, 5, 16, 0, 5));
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      final state = container.read(appStateProvider);
+      expect(
+        (state.departure.h, state.departure.m, state.departure.isNow),
+        (0, 5, true),
+      );
+      expect(
+        (state.arrival.h, state.arrival.m, state.arrival.dateOffset),
+        (before.h, before.m, 0),
+      );
+    });
+
+    // 詰めた先が今日でも、時刻が既に過ぎていることがある。固定出発は startSearch
+    // も更新しないので、日付だけ見て残すと過去のまま経路照会へ渡る。
+    testWidgets('跨いだ先で過ぎている出発も現在時刻へ寄せる', (tester) async {
+      final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
+      final container = await _pumpHome(tester, 1280, now: clock.call);
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(mode: PickerMode.depart, h: 0, m: 1, dateOffset: 1);
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('16'));
+      await tester.pumpAndSettle();
+      clock.set(DateTime(2026, 5, 16, 0, 5));
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      final dep = container.read(appStateProvider).departure;
+      expect((dep.h, dep.m, dep.dateOffset), (0, 5, 0));
+    });
+
     // dateOffset は相対値なので、今日が動けば同じ値が別の日を指す。確定する側
     // だけ数え直すと、相手が古い今日に取り残されて予算が24時間ぶん伸びる。
     testWidgets('日を跨いで確定しても予算が24時間ぶん伸びない', (tester) async {
