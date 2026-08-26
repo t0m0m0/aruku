@@ -106,11 +106,14 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
   /// 到着は出発より前へ置けない。選ばせておいて [AppNotifier.applyPickedTime] が
   /// 出発+最小ギャップへ戻すと、選んだ日と確定した日が食い違う。時刻の下限は
   /// 向こうの担当のままで、ここが決めるのは日付の下限だけ。
-  int _firstSelectableOffset() {
+  int _firstSelectableOffset(DateTime now) {
     if (widget.mode == PickerMode.depart) return 0;
     final departure = ref.read(appStateProvider).departure;
+    // isNow は起動時の丸め値を h/m に持ったまま古びる。下限は現在時刻で数える。
     final offset = departure.isNow ? 0 : departure.dateOffset;
-    final minutes = departure.isNow ? 0 : departure.totalMinutes;
+    final minutes = departure.isNow
+        ? now.hour * 60 + now.minute
+        : departure.totalMinutes;
     // 23:59 発の最小ギャップは翌日へ入る。日跨ぎを分で数えるのは、時刻を
     // DateTime へ起こすと再び夏時間の加算に触れるため。
     final carry = (minutes + kMinBudgetMinutes) ~/ Duration.minutesPerDay;
@@ -124,7 +127,7 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
   /// ホイールシートとデスクトップで作れる日付が食い違う。
   Future<void> _pickDate() async {
     final now = ref.read(nowProvider)();
-    final first = _dateAt(now, _firstSelectableOffset());
+    final first = _dateAt(now, _firstSelectableOffset(now));
     final last = _dateAt(now, kMaxDateOffsetDays);
     // 到着は出発+最小ギャップへ押し出されるため、出発が上限の日の 23:59 だと
     // 上限を1日越える。範囲の外を開始位置に渡すと assert で落ちる。

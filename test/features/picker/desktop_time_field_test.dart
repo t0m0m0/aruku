@@ -479,6 +479,20 @@ void main() {
       expect(dialog.firstDate, DateTime(2026, 5, 18));
     });
 
+    // isNow 出発は h/m に起動時の丸め値を持つ。実際の現在時刻で数えないと、
+    // 23:59 に開いたとき到着の下限だけ今日に留まり、選んだ日が翌日へ戻される。
+    testWidgets('今すぐ出発が 23:59 なら到着カレンダーは翌日から始まる', (tester) async {
+      await _pumpHome(tester, 1280, now: () => DateTime(2026, 5, 15, 23, 59));
+
+      await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
+      await tester.pumpAndSettle();
+
+      final dialog = tester.widget<DatePickerDialog>(
+        find.byType(DatePickerDialog),
+      );
+      expect(dialog.firstDate, DateTime(2026, 5, 16));
+    });
+
     // 出発が上限の日の 23:59 だと到着の下限は 91 日目になり、firstDate が
     // lastDate を越える。showDatePicker はその組み合わせでも assert で落ちる。
     testWidgets('出発が上限の日でも到着カレンダーは開ける', (tester) async {
