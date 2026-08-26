@@ -55,6 +55,18 @@ class _TopBar extends ConsumerWidget {
     // 設定以外の画面はすべて「ルートを計画」の下にある導線。
     final onSettings = screen == Screen.settings;
 
+    // ローディングからの離脱は go だけでは足りない。screen だけ変えても探索は
+    // 走り続け、完了時に startSearch が result / error へ引き戻す。モバイルは
+    // PopScope で離脱経路自体を塞いでいるが、上部バーはそれを迂回する新しい
+    // 出口なので、ここで明示的に打ち切る。
+    void leave(Screen target) {
+      if (screen == Screen.loading) {
+        notifier.cancelSearch();
+        if (target == Screen.home) return;
+      }
+      notifier.go(target);
+    }
+
     return Container(
       key: const Key('desktop-shell-top-bar'),
       height: ArukuTokens.topBarHeight,
@@ -88,7 +100,7 @@ class _TopBar extends ConsumerWidget {
                   label: l10n.shellTabPlan,
                   iconBuilder: (color) => Ic.routes(size: 16, color: color),
                   selected: !onSettings,
-                  onTap: () => notifier.go(Screen.home),
+                  onTap: () => leave(Screen.home),
                 ),
                 const SizedBox(width: 4),
                 _Tab(
@@ -96,7 +108,7 @@ class _TopBar extends ConsumerWidget {
                   label: l10n.shellTabSettings,
                   iconBuilder: (color) => Ic.settings(size: 16, color: color),
                   selected: onSettings,
-                  onTap: () => notifier.go(Screen.settings),
+                  onTap: () => leave(Screen.settings),
                 ),
               ],
             ),

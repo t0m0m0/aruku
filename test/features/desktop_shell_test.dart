@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:aruku/core/navigation/app_router.dart';
 import 'package:aruku/core/navigation/screen_paths.dart';
 import 'package:aruku/core/state/app_state.dart';
@@ -104,6 +106,52 @@ void main() {
 
     expect(selected(), contains(const Key('shell-tab-settings-semantics')));
     expect(selected(), isNot(contains(const Key('shell-tab-plan-semantics'))));
+  });
+
+  group('ローディング中の離脱', () {
+    Future<ProviderContainer> pumpLoading(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final container = await makeContainer(
+        routeService: HoldingRouteService(Completer<void>()),
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(appWidget(container));
+      await pumpTransition(tester);
+
+      container.read(appStateProvider.notifier).setDestination('渋谷駅');
+      unawaited(container.read(appStateProvider.notifier).startSearch());
+      await pumpTransition(tester);
+      expect(container.read(appStateProvider).screen, Screen.loading);
+      return container;
+    }
+
+    // screen だけ変えても探索は走り続け、完了時に result / error へ引き戻す。
+    // 画面と表示前提データ（routePhase）は必ず一緒に更新する。
+    testWidgets('設定タブへ移るとき進行中の探索を打ち切る', (tester) async {
+      final container = await pumpLoading(tester);
+
+      await tester.tap(find.byKey(_settingsTab));
+      await pumpTransition(tester);
+
+      final state = container.read(appStateProvider);
+      expect(state.screen, Screen.settings);
+      expect(state.routePhase, isNull);
+    });
+
+    testWidgets('計画タブへ移るとき進行中の探索を打ち切る', (tester) async {
+      final container = await pumpLoading(tester);
+
+      await tester.tap(find.byKey(_planTab));
+      await pumpTransition(tester);
+
+      final state = container.read(appStateProvider);
+      expect(state.screen, Screen.home);
+      expect(state.routePhase, isNull);
+    });
   });
 
   // 画面遷移のたびにバーが作り直されると、デザインが要求する「スクロールしない
