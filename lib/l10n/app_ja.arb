@@ -306,6 +306,14 @@
   "@homeOpenSettings": {
     "description": "ホーム右上の設定ボタンのVoiceOverラベル"
   },
+  "timeFieldPreviousDay": "前の日へ",
+  "@timeFieldPreviousDay": {
+    "description": "デスクトップ時刻フィールドの日付を1日戻すボタンのVoiceOverラベル"
+  },
+  "timeFieldNextDay": "次の日へ",
+  "@timeFieldNextDay": {
+    "description": "デスクトップ時刻フィールドの日付を1日進めるボタンのVoiceOverラベル"
+  },
   "shellTabPlan": "ルートを計画",
   "@shellTabPlan": {
     "description": "デスクトップ幅の上部バーで経路計画画面へ移るタブのラベル"

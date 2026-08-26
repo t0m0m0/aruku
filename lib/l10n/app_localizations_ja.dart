@@ -391,6 +391,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get homeOpenSettings => '設定を開く';
 
   @override
+  String get timeFieldPreviousDay => '前の日へ';
+
+  @override
+  String get timeFieldNextDay => '次の日へ';
+
+  @override
   String get shellTabPlan => 'ルートを計画';
 
   @override

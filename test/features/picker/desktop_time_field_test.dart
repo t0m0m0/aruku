@@ -1,3 +1,4 @@
+import 'package:aruku/core/models/time_value.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -34,6 +35,10 @@ Future<void> _type(WidgetTester tester, Key field, String text) async {
   await tester.testTextInput.receiveAction(TextInputAction.done);
   await tester.pump();
 }
+
+String? _dateLabel(WidgetTester tester) => tester
+    .widget<Text>(find.byKey(const Key('desktop-date-label-depart')))
+    .data;
 
 void main() {
   setUp(() {
@@ -111,6 +116,76 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.pump();
     expect(container.read(appStateProvider).departure.m, 0);
+  });
+
+  // 日付を据え置いたまま時刻だけ折り返すと、23:58 の5分後が「同日の 00:03」に
+  // なる。到着が翌日のままなら1時間の予算が25時間近くへ膨らむ。
+  testWidgets('真夜中をまたぐステップは日付も翌日へ進める', (tester) async {
+    final container = await _pumpHome(tester, 1280);
+    await _type(tester, _departField, '23:58');
+
+    final before = container.read(appStateProvider).departure.dateOffset;
+    await tester.tap(find.byKey(_departStepUp));
+    await tester.pump();
+
+    final dep = container.read(appStateProvider).departure;
+    expect((dep.h, dep.m), (0, 3));
+    expect(dep.dateOffset, before + 1);
+  });
+
+  // 今日より前は選べない。折り返して同日 23:57 にすると、5分戻したつもりが
+  // 24時間近く後ろへ飛ぶ。
+  testWidgets('今日の 00:02 から戻すステップは効かない', (tester) async {
+    final container = await _pumpHome(tester, 1280);
+    await _type(tester, _departField, '00:02');
+    final before = container.read(appStateProvider).departure;
+
+    await tester.tap(find.byKey(_departStepDown));
+    await tester.pump();
+
+    final dep = container.read(appStateProvider).departure;
+    expect((dep.h, dep.m, dep.dateOffset), (before.h, before.m, 0));
+  });
+
+  group('日付', () {
+    testWidgets('既定は今日と表示する', (tester) async {
+      await _pumpHome(tester, 1280);
+      expect(_dateLabel(tester), '今日');
+    });
+
+    testWidgets('日付ステッパーで翌日以降を選べる', (tester) async {
+      final container = await _pumpHome(tester, 1280);
+
+      await tester.tap(find.byKey(const Key('desktop-date-step-up-depart')));
+      await tester.pump();
+
+      expect(container.read(appStateProvider).departure.dateOffset, 1);
+      expect(_dateLabel(tester), '明日');
+    });
+
+    testWidgets('今日より前へは動かない', (tester) async {
+      final container = await _pumpHome(tester, 1280);
+
+      await tester.tap(find.byKey(const Key('desktop-date-step-down-depart')));
+      await tester.pump();
+
+      expect(container.read(appStateProvider).departure.dateOffset, 0);
+    });
+
+    testWidgets('上限を越えて先へは動かない', (tester) async {
+      final container = await _pumpHome(tester, 1280);
+      final up = find.byKey(const Key('desktop-date-step-up-depart'));
+
+      for (var i = 0; i < kMaxDateOffsetDays + 3; i++) {
+        await tester.tap(up);
+        await tester.pump();
+      }
+
+      expect(
+        container.read(appStateProvider).departure.dateOffset,
+        kMaxDateOffsetDays,
+      );
+    });
   });
 
   // 到着が出発を追い越さない不変条件は applyPickedTime が持っている。

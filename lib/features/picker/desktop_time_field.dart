@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/time_value.dart';
 import '../../core/state/app_state.dart';
 import '../../core/theme/aruku_theme.dart';
+import '../../l10n/app_localizations.dart';
 import 'time_field_input.dart';
 
 /// デスクトップ幅の時刻フィールド。`HH:MM` のキー入力と5分刻みのステッパー。
@@ -68,18 +69,34 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
   }
 
   void _step(int deltaMinutes) {
-    final total = stepTotalMinutes(_current().totalMinutes, deltaMinutes);
-    _apply(h: total ~/ 60, m: total % 60);
+    final current = _current();
+    final stepped = stepTotalMinutes(current.totalMinutes, deltaMinutes);
+    final dateOffset = current.dateOffset + stepped.dayDelta;
+    // 今日より前へは動かさない。時刻だけ折り返して日付を据え置くと、
+    // 00:02 の5分前が「同日の 23:57」＝24時間近く後ろへ飛ぶ。
+    if (dateOffset < 0) return;
+    _apply(
+      h: stepped.totalMinutes ~/ 60,
+      m: stepped.totalMinutes % 60,
+      dateOffset: dateOffset,
+    );
   }
 
-  void _apply({required int h, required int m}) {
+  void _stepDay(int deltaDays) {
+    final current = _current();
+    final dateOffset = current.dateOffset + deltaDays;
+    if (dateOffset < 0 || dateOffset > kMaxDateOffsetDays) return;
+    _apply(h: current.h, m: current.m, dateOffset: dateOffset);
+  }
+
+  void _apply({required int h, required int m, int? dateOffset}) {
     ref
         .read(appStateProvider.notifier)
         .applyPickedTime(
           mode: widget.mode,
           h: h,
           m: m,
-          dateOffset: _current().dateOffset,
+          dateOffset: dateOffset ?? _current().dateOffset,
         );
     _syncFromState();
   }
@@ -96,7 +113,13 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final l10n = AppLocalizations.of(context);
     final side = widget.mode == PickerMode.depart ? 'depart' : 'arrival';
+    // 日付ラベルは state の変化で描き直す必要がある（出発の変更で到着が翌日へ
+    // ずれる経路がある）。read ではなく watch で取る。
+    final current = widget.mode == PickerMode.depart
+        ? ref.watch(appStateProvider.select((s) => s.departure))
+        : ref.watch(appStateProvider.select((s) => s.arrival));
     // 到着の自動シフト（出発を動かしたとき）を欄へ映す。編集中は手を入れない。
     ref.listen(appStateProvider, (_, _) {
       if (!_focusNode.hasFocus) _syncFromState();
@@ -175,18 +198,51 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
                   _StepButton(
                     key: Key('desktop-time-step-up-$side'),
                     icon: Icons.keyboard_arrow_up,
+                    semanticLabel: widget.label,
                     onTap: () => _step(kTimeStepMinutes),
                   ),
                   const SizedBox(height: 4),
                   _StepButton(
                     key: Key('desktop-time-step-down-$side'),
                     icon: Icons.keyboard_arrow_down,
+                    semanticLabel: widget.label,
                     onTap: () => _step(-kTimeStepMinutes),
                   ),
                 ],
               ),
             ],
           ),
+        ),
+        const SizedBox(height: 6),
+        // 日付は時刻と同じ入力面に無いと、デスクトップでは明日以降を選ぶ手段が
+        // まるごと無くなる（ホイールシートを出さないため）。
+        Row(
+          children: [
+            _StepButton(
+              key: Key('desktop-date-step-down-$side'),
+              icon: Icons.chevron_left,
+              semanticLabel: l10n.timeFieldPreviousDay,
+              onTap: () => _stepDay(-1),
+            ),
+            Expanded(
+              child: Text(
+                current.dateLabel() ?? l10n.homeToday,
+                key: Key('desktop-date-label-$side'),
+                textAlign: TextAlign.center,
+                style: jpStyle(
+                  size: 12,
+                  weight: FontWeight.w700,
+                  color: current.dateOffset == 0 ? c.ink3 : c.moss700,
+                ),
+              ),
+            ),
+            _StepButton(
+              key: Key('desktop-date-step-up-$side'),
+              icon: Icons.chevron_right,
+              semanticLabel: l10n.timeFieldNextDay,
+              onTap: () => _stepDay(1),
+            ),
+          ],
         ),
       ],
     );
@@ -199,9 +255,15 @@ class _StepIntent extends Intent {
 }
 
 class _StepButton extends StatelessWidget {
-  const _StepButton({super.key, required this.icon, required this.onTap});
+  const _StepButton({
+    super.key,
+    required this.icon,
+    required this.semanticLabel,
+    required this.onTap,
+  });
 
   final IconData icon;
+  final String semanticLabel;
   final VoidCallback onTap;
 
   @override
