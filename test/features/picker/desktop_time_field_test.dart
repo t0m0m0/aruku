@@ -147,6 +147,72 @@ void main() {
     expect((dep.h, dep.m, dep.dateOffset), (before.h, before.m, 0));
   });
 
+  // ホイールシートは下限を now に置いて選ばせない。キー入力は任意の値が来る。
+  testWidgets('今日の過去時刻を打つと現在時刻へ引き上げる', (tester) async {
+    final container = await _pumpHome(tester, 1280);
+
+    await _type(tester, _departField, '08:00');
+
+    final dep = container.read(appStateProvider).departure;
+    expect((dep.h, dep.m), (9, 30));
+  });
+
+  testWidgets('明日以降なら現在時刻より前でも打てる', (tester) async {
+    final container = await _pumpHome(tester, 1280);
+    await tester.tap(find.byKey(const Key('desktop-date-step-up-depart')));
+    await tester.pump();
+
+    await _type(tester, _departField, '08:00');
+
+    final dep = container.read(appStateProvider).departure;
+    expect((dep.h, dep.m, dep.dateOffset), (8, 0, 1));
+  });
+
+  // 確定値から動かすと、打ったばかりの値が黙って捨てられる。
+  testWidgets('確定前の表示値を基点にステップする', (tester) async {
+    final container = await _pumpHome(tester, 1280);
+    await _type(tester, _departField, '10:00');
+
+    await tester.tap(find.byKey(_departField));
+    await tester.pump();
+    await tester.enterText(find.byKey(_departField), '11:00');
+    await tester.pump();
+    await tester.tap(find.byKey(_departStepUp));
+    await tester.pump();
+
+    final dep = container.read(appStateProvider).departure;
+    expect((dep.h, dep.m), (11, 5));
+  });
+
+  // 日付ステッパーでは作れない 91 日目を、時刻側の折り返しから作らせない。
+  testWidgets('上限の日で真夜中を越えるステップは効かない', (tester) async {
+    final container = await _pumpHome(tester, 1280);
+    container
+        .read(appStateProvider.notifier)
+        .applyPickedTime(
+          mode: PickerMode.depart,
+          h: 23,
+          m: 58,
+          dateOffset: kMaxDateOffsetDays,
+        );
+    await tester.pump();
+
+    await tester.tap(find.byKey(_departStepUp));
+    await tester.pump();
+
+    final dep = container.read(appStateProvider).departure;
+    expect((dep.h, dep.m, dep.dateOffset), (23, 58, kMaxDateOffsetDays));
+  });
+
+  testWidgets('ステッパーは読み上げラベルを持つ', (tester) async {
+    await _pumpHome(tester, 1280);
+
+    expect(find.bySemanticsLabel('出発を5分あとにする'), findsOneWidget);
+    expect(find.bySemanticsLabel('出発を5分まえにする'), findsOneWidget);
+    expect(find.bySemanticsLabel('次の日へ'), findsWidgets);
+    expect(find.bySemanticsLabel('前の日へ'), findsWidgets);
+  });
+
   group('日付', () {
     testWidgets('既定は今日と表示する', (tester) async {
       await _pumpHome(tester, 1280);

@@ -45,6 +45,42 @@ void main() {
     });
   });
 
+  group('clampDepartureMinutes', () {
+    // 14:00 に 09:00 と打てると、出発も連動する到着も過去のまま経路照会へ渡る。
+    test('今日の過去時刻は現在時刻へ引き上げる', () {
+      expect(
+        clampDepartureMinutes(
+          totalMinutes: 9 * 60,
+          dateOffset: 0,
+          nowMinutes: 14 * 60,
+        ),
+        14 * 60,
+      );
+    });
+
+    test('今日の未来時刻はそのまま', () {
+      expect(
+        clampDepartureMinutes(
+          totalMinutes: 18 * 60,
+          dateOffset: 0,
+          nowMinutes: 14 * 60,
+        ),
+        18 * 60,
+      );
+    });
+
+    test('明日以降は現在時刻より前でも触らない', () {
+      expect(
+        clampDepartureMinutes(
+          totalMinutes: 9 * 60,
+          dateOffset: 1,
+          nowMinutes: 14 * 60,
+        ),
+        9 * 60,
+      );
+    });
+  });
+
   group('stepTotalMinutes', () {
     test('刻みぶん進める', () {
       expect(stepTotalMinutes(9 * 60 + 30, kTimeStepMinutes), (

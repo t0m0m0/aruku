@@ -789,6 +789,18 @@ abstract class AppLocalizations {
   /// **'設定を開く'**
   String get homeOpenSettings;
 
+  /// デスクトップ時刻フィールドの上ステッパーのVoiceOverラベル
+  ///
+  /// In ja, this message translates to:
+  /// **'{label}を5分あとにする'**
+  String timeFieldLater(String label);
+
+  /// デスクトップ時刻フィールドの下ステッパーのVoiceOverラベル
+  ///
+  /// In ja, this message translates to:
+  /// **'{label}を5分まえにする'**
+  String timeFieldEarlier(String label);
+
   /// デスクトップ時刻フィールドの日付を1日戻すボタンのVoiceOverラベル
   ///
   /// In ja, this message translates to:

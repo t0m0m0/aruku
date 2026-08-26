@@ -55,3 +55,14 @@ final _separated = RegExp(r'^\D*(\d+)\D+(\d+)\D*$');
   final dayDelta = (moved / _minutesPerDay).floor();
   return (totalMinutes: moved - dayDelta * _minutesPerDay, dayDelta: dayDelta);
 }
+
+/// 出発の下限。今日を指しているなら現在時刻より前へは置かない。
+///
+/// ホイールシートは下限を now に置いてそもそも選ばせないが、キー入力は
+/// 任意の値が来る。14:00 に 09:00 と打てると、出発も（連動する）到着も
+/// 過去のまま経路照会へ渡り、結果が黙って意味を失う。
+int clampDepartureMinutes({
+  required int totalMinutes,
+  required int dateOffset,
+  required int nowMinutes,
+}) => dateOffset == 0 && totalMinutes < nowMinutes ? nowMinutes : totalMinutes;

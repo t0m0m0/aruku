@@ -70,11 +70,16 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
 
   void _step(int deltaMinutes) {
     final current = _current();
-    final stepped = stepTotalMinutes(current.totalMinutes, deltaMinutes);
+    // 編集途中の表示値を基点にする。確定値から動かすと、10:00 と打った直後の
+    // ↑ が 09:35 を返し、打ったばかりの値が黙って捨てられる。
+    final typed = parseTimeInput(_controller.text);
+    final base = typed == null ? current.totalMinutes : typed.h * 60 + typed.m;
+    final stepped = stepTotalMinutes(base, deltaMinutes);
     final dateOffset = current.dateOffset + stepped.dayDelta;
-    // 今日より前へは動かさない。時刻だけ折り返して日付を据え置くと、
-    // 00:02 の5分前が「同日の 23:57」＝24時間近く後ろへ飛ぶ。
-    if (dateOffset < 0) return;
+    // 選べる範囲の外へは動かさない。時刻だけ折り返して日付を据え置くと、
+    // 00:02 の5分前が「同日の 23:57」＝24時間近く後ろへ飛ぶ。上端を素通り
+    // させると、日付ステッパーでは作れない 91 日目が時刻側から作れてしまう。
+    if (dateOffset < 0 || dateOffset > kMaxDateOffsetDays) return;
     _apply(
       h: stepped.totalMinutes ~/ 60,
       m: stepped.totalMinutes % 60,
@@ -90,13 +95,25 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
   }
 
   void _apply({required int h, required int m, int? dateOffset}) {
+    final offset = dateOffset ?? _current().dateOffset;
+    var total = h * 60 + m;
+    // 到着の下限は出発 + 最小ギャップで、applyPickedTime が持っている。
+    // ここで見るのは出発の下限だけ。
+    if (widget.mode == PickerMode.depart) {
+      final now = ref.read(nowProvider)();
+      total = clampDepartureMinutes(
+        totalMinutes: total,
+        dateOffset: offset,
+        nowMinutes: now.hour * 60 + now.minute,
+      );
+    }
     ref
         .read(appStateProvider.notifier)
         .applyPickedTime(
           mode: widget.mode,
-          h: h,
-          m: m,
-          dateOffset: dateOffset ?? _current().dateOffset,
+          h: total ~/ 60,
+          m: total % 60,
+          dateOffset: offset,
         );
     _syncFromState();
   }
@@ -198,14 +215,14 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
                   _StepButton(
                     key: Key('desktop-time-step-up-$side'),
                     icon: Icons.keyboard_arrow_up,
-                    semanticLabel: widget.label,
+                    semanticLabel: l10n.timeFieldLater(widget.label),
                     onTap: () => _step(kTimeStepMinutes),
                   ),
                   const SizedBox(height: 4),
                   _StepButton(
                     key: Key('desktop-time-step-down-$side'),
                     icon: Icons.keyboard_arrow_down,
-                    semanticLabel: widget.label,
+                    semanticLabel: l10n.timeFieldEarlier(widget.label),
                     onTap: () => _step(-kTimeStepMinutes),
                   ),
                 ],
@@ -269,17 +286,23 @@ class _StepButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: 26,
-        height: 22,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(7),
-          border: Border.all(color: c.hairline),
+    // 受け取ったラベルを Semantics へ渡さないと、読み上げでは向きの無い
+    // 矢印がただ並ぶ。「前の日へ」と「次の日へ」が区別できなくなる。
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(7),
+        child: Container(
+          width: 26,
+          height: 22,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(7),
+            border: Border.all(color: c.hairline),
+          ),
+          child: Icon(icon, size: 14, color: c.ink2),
         ),
-        child: Icon(icon, size: 14, color: c.ink2),
       ),
     );
   }

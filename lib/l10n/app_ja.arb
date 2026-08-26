@@ -306,6 +306,20 @@
   "@homeOpenSettings": {
     "description": "ホーム右上の設定ボタンのVoiceOverラベル"
   },
+  "timeFieldLater": "{label}を5分あとにする",
+  "@timeFieldLater": {
+    "description": "デスクトップ時刻フィールドの上ステッパーのVoiceOverラベル",
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
+  "timeFieldEarlier": "{label}を5分まえにする",
+  "@timeFieldEarlier": {
+    "description": "デスクトップ時刻フィールドの下ステッパーのVoiceOverラベル",
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
   "timeFieldPreviousDay": "前の日へ",
   "@timeFieldPreviousDay": {
     "description": "デスクトップ時刻フィールドの日付を1日戻すボタンのVoiceOverラベル"
