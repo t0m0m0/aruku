@@ -12,6 +12,7 @@ const _departField = Key('desktop-time-input-depart');
 const _arrivalField = Key('desktop-time-input-arrival');
 const _departStepUp = Key('desktop-time-step-up-depart');
 const _departStepDown = Key('desktop-time-step-down-depart');
+const _departDateOpen = Key('desktop-date-open-depart');
 
 DateTime _fixedNow() => DateTime(2026, 5, 15, 9, 30);
 
@@ -267,5 +268,148 @@ void main() {
       state.arrival.totalMinutes,
       greaterThan(state.departure.totalMinutes),
     );
+  });
+
+  group('カレンダー', () {
+    // 上限は今日+90日。1クリック1日のステッパーだけでは端まで90クリック要り、
+    // 遠い日付を選ぶ手段が実質無い。
+    testWidgets('日付ラベルを押すとカレンダーが開く', (tester) async {
+      await _pumpHome(tester, 1280);
+
+      expect(find.byType(DatePickerDialog), findsNothing);
+      await tester.tap(find.byKey(_departDateOpen));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DatePickerDialog), findsOneWidget);
+    });
+
+    testWidgets('選べる範囲は今日から kMaxDateOffsetDays 日後まで', (tester) async {
+      await _pumpHome(tester, 1280);
+      await tester.tap(find.byKey(_departDateOpen));
+      await tester.pumpAndSettle();
+
+      final dialog = tester.widget<DatePickerDialog>(
+        find.byType(DatePickerDialog),
+      );
+      final today = DateTime(2026, 5, 15);
+      expect(dialog.firstDate, today);
+      expect(
+        dialog.lastDate,
+        today.add(const Duration(days: kMaxDateOffsetDays)),
+      );
+    });
+
+    testWidgets('選んだ日が dateOffset になる', (tester) async {
+      final container = await _pumpHome(tester, 1280);
+      await tester.tap(find.byKey(_departDateOpen));
+      await tester.pumpAndSettle();
+
+      // 固定した現在時刻は 2026-05-15。同月内の 22 日＝今日+7。
+      await tester.tap(find.text('22'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(container.read(appStateProvider).departure.dateOffset, 7);
+      expect(_dateLabel(tester), '5/22(金)');
+    });
+
+    testWidgets('翌月の日付も選べる', (tester) async {
+      final container = await _pumpHome(tester, 1280);
+      await tester.tap(find.byKey(_departDateOpen));
+      await tester.pumpAndSettle();
+
+      // 日付ステッパーも同じ矢印アイコンを使う。ダイアログ内へ絞らないと
+      // 「次の月へ」ではなくフィールド側の「次の日へ」を押す。
+      await tester.tap(
+        find.descendant(
+          of: find.byType(DatePickerDialog),
+          matching: find.byIcon(Icons.chevron_right),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('10'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      // 2026-06-10 は今日+26日。
+      expect(container.read(appStateProvider).departure.dateOffset, 26);
+    });
+
+    testWidgets('キャンセルすると日付は変わらない', (tester) async {
+      final container = await _pumpHome(tester, 1280);
+      await tester.tap(find.byKey(_departDateOpen));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('22'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('キャンセル'));
+      await tester.pumpAndSettle();
+
+      expect(container.read(appStateProvider).departure.dateOffset, 0);
+    });
+
+    // 時刻の下限は applyPickedTime の担当。カレンダーは日付の下限しか表現できず、
+    // 今日を選び直した経路でも現在時刻より前に落ちてはいけない。
+    testWidgets('今日を選び直しても出発は現在時刻より前にならない', (tester) async {
+      final container = await _pumpHome(tester, 1280);
+      await tester.tap(find.byKey(const Key('desktop-date-step-up-depart')));
+      await tester.pump();
+      await _type(tester, _departField, '08:00');
+
+      await tester.tap(find.byKey(_departDateOpen));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('15'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      final dep = container.read(appStateProvider).departure;
+      expect((dep.h, dep.m, dep.dateOffset), (9, 30, 0));
+    });
+
+    // 確定値から日付だけ動かすと、打ったばかりの時刻が黙って捨てられる。
+    // ステッパーと同じく編集中の表示値を基点にする。
+    testWidgets('確定前に打った時刻を残したまま日付を変える', (tester) async {
+      final container = await _pumpHome(tester, 1280);
+      await tester.tap(find.byKey(_departField));
+      await tester.pump();
+      await tester.enterText(find.byKey(_departField), '18:20');
+      await tester.pump();
+
+      await tester.tap(find.byKey(_departDateOpen));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('22'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      final dep = container.read(appStateProvider).departure;
+      expect((dep.h, dep.m, dep.dateOffset), (18, 20, 7));
+    });
+
+    testWidgets('到着側にもカレンダーの入口がある', (tester) async {
+      await _pumpHome(tester, 1280);
+
+      await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DatePickerDialog), findsOneWidget);
+    });
+
+    // 矢印と違い日付ラベルは現在値そのものが手掛かりになる。Text の意味づけは
+    // 親の Semantics へ併合されるので、用途と日付が1ノードに並ぶ。
+    testWidgets('カレンダーの入口は用途と現在の日付を読み上げる', (tester) async {
+      await _pumpHome(tester, 1280);
+
+      expect(find.bySemanticsLabel(RegExp(r'^日付を選ぶ\n今日$')), findsWidgets);
+    });
+
+    testWidgets('モバイル幅にはカレンダーの入口を出さない', (tester) async {
+      await _pumpHome(tester, 819);
+
+      expect(find.byKey(_departDateOpen), findsNothing);
+    });
   });
 }

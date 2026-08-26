@@ -8,7 +8,8 @@ import '../../core/theme/aruku_theme.dart';
 import '../../l10n/app_localizations.dart';
 import 'time_field_input.dart';
 
-/// デスクトップ幅の時刻フィールド。`HH:MM` のキー入力と5分刻みのステッパー。
+/// デスクトップ幅の日時フィールド。`HH:MM` のキー入力と5分刻みのステッパー、
+/// 日付は1日ステッパーと月グリッドのカレンダー。
 ///
 /// モバイルのホイールシートを流用しないのは、ポインタで回す前提の操作が
 /// キーボードのある環境で最も遅い入力手段になるため。値域の保証は
@@ -94,6 +95,35 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
     _apply(h: current.h, m: current.m, dateOffset: dateOffset);
   }
 
+  /// 月グリッドのカレンダーを開き、選ばれた日を日付オフセットへ移す。
+  ///
+  /// ステッパーだけでは上限の90日目まで90回押す必要があり、遠い日付を選ぶ手段が
+  /// 実質無い。範囲は [kMaxDateOffsetDays] から引く——ここを独自に決めると
+  /// ホイールシートとデスクトップで作れる日付が食い違う。
+  Future<void> _pickDate() async {
+    final now = ref.read(nowProvider)();
+    final today = DateTime(now.year, now.month, now.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: today.add(Duration(days: _current().dateOffset)),
+      firstDate: today,
+      lastDate: today.add(const Duration(days: kMaxDateOffsetDays)),
+      // 既定は DateTime.now() で、テストが時計を差し替えても実時刻を指す。
+      // 「今日」の強調が firstDate と別の日に付く。
+      currentDate: today,
+    );
+    if (picked == null || !mounted) return;
+    // 編集途中の表示値を基点にする。確定値の時刻を持ち回ると、18:20 と打った
+    // 直後に日付を変えたとき、打ったばかりの時刻が黙って捨てられる。
+    final typed = parseTimeInput(_controller.text);
+    final current = _current();
+    _apply(
+      h: typed?.h ?? current.h,
+      m: typed?.m ?? current.m,
+      dateOffset: dateOffsetFrom(picked: picked, now: now),
+    );
+  }
+
   void _apply({required int h, required int m, int? dateOffset}) {
     final offset = dateOffset ?? _current().dateOffset;
     var total = h * 60 + m;
@@ -142,6 +172,9 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
       if (!_focusNode.hasFocus) _syncFromState();
     });
     final focused = _focusNode.hasFocus;
+    // 日付ラベルとカレンダーの範囲は同じ時計から引く。既定の DateTime.now() を
+    // 使うと、時計を差し替えたときにラベルだけ別の日を指す。
+    final now = ref.read(nowProvider)();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -242,14 +275,30 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
               onTap: () => _stepDay(-1),
             ),
             Expanded(
-              child: Text(
-                current.dateLabel() ?? l10n.homeToday,
-                key: Key('desktop-date-label-$side'),
-                textAlign: TextAlign.center,
-                style: jpStyle(
-                  size: 12,
-                  weight: FontWeight.w700,
-                  color: current.dateOffset == 0 ? c.ink3 : c.moss700,
+              child: Semantics(
+                button: true,
+                label: l10n.timeFieldOpenCalendar,
+                child: InkWell(
+                  key: Key('desktop-date-open-$side'),
+                  onTap: _pickDate,
+                  borderRadius: BorderRadius.circular(7),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Text(
+                      current.dateLabel(now: now) ?? l10n.homeToday,
+                      key: Key('desktop-date-label-$side'),
+                      textAlign: TextAlign.center,
+                      style:
+                          jpStyle(
+                            size: 12,
+                            weight: FontWeight.w700,
+                            color: current.dateOffset == 0 ? c.ink3 : c.moss700,
+                          ).copyWith(
+                            decoration: TextDecoration.underline,
+                            decorationColor: c.hairline,
+                          ),
+                    ),
+                  ),
                 ),
               ),
             ),
