@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/config/layout_breakpoints.dart';
 import '../../core/models/geo_point.dart';
 import '../../core/models/journey_progress.dart';
 import '../../core/models/location_state.dart';
@@ -117,57 +118,165 @@ class ResultScreen extends ConsumerWidget {
       );
     }
 
+    final header = Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+      child: Row(
+        children: [
+          _HeaderButton(
+            semanticLabel: l10n.commonBack,
+            child: Ic.chevron(size: 18, color: c.ink, dir: ChevronDir.left),
+            onTap: () => notifier.go(Screen.home),
+          ),
+          Expanded(
+            child: Center(
+              child: Text(
+                l10n.resultDepartureLabel(
+                  state.departure.fullDateLabel(),
+                  state.departure.format(),
+                ),
+                style: jpStyle(
+                  size: 12,
+                  weight: FontWeight.w700,
+                  color: c.ink3,
+                ),
+              ),
+            ),
+          ),
+          _HeaderButton(
+            key: const ValueKey('result-share-button'),
+            semanticLabel: l10n.resultShareButton,
+            child: Ic.share(size: 18, color: c.ink),
+            onTap: () => unawaited(
+              _shareRoute(ref.read(shareServiceProvider), l10n, route),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    final overBudget = route.totalMin > route.budgetMin
+        ? _OverBudgetBanner(
+            overMin: route.totalMin - route.budgetMin,
+            onChange: () => notifier.go(Screen.home),
+          )
+        : null;
+
+    final legCta = _LegCta(
+      // 経路または legIndex ごとに State を作り直し、区間進行で
+      // 前経路の起動失敗バナーを持ち越さない。
+      key: ValueKey((route, currentLegIndex)),
+      leg: currentLeg,
+      onManualAdvance:
+          currentLeg != null &&
+              state.journey != null &&
+              // 復帰時の到着確認が手動完了を許可した区間、または
+              // geometry 欠落かつ既に handoff（起動）済みの区間のみ。
+              // まだ出発していない geometry 欠落区間を先に完了させない。
+              (state.journeyManualCompletionAvailable ||
+                  (currentLeg.polyline.isEmpty &&
+                      state.journeyCurrentLegHandedOff))
+          ? notifier.advanceCurrentLegManually
+          : null,
+      handoffUnavailable: currentHandoffUri == null,
+      onLaunch: currentLeg == null
+          ? null
+          : () async {
+              // 初回タップ（行程未開始）で失効していたら外部起動せず
+              // 経路を無効化する。redirect が画面を遷移させるため、
+              // 起動失敗ではなく true を返しバナーを出さない（#305）。
+              if (notifier.expireStaleBeforeHandoff()) {
+                return true;
+              }
+              final uri = currentHandoffUri;
+              final expectedJourney = state.journey;
+              // 引き継ぎ先を特定できない区間は外部地図を開かない（#323）。
+              // 起動を飛ばすだけで handoff と同じ状態遷移は通す — ここを
+              // 通らないと行程開始・歩数基準・失効からの行程保護が
+              // すべて落ち、区間に入ったまま先へ進めなくなる。
+              final launched =
+                  uri == null || await ref.read(urlLauncherProvider)(uri);
+              // 起動に成功したときだけ行程を開始する。失敗で「開始済み」
+              // にすると、以後の復帰再評価が走ってしまうため（#305）。
+              // await 中に結果画面を離れた・代替案/区間が変わった場合は、
+              // 完了した古い起動から非表示または別経路の行程を始めない。
+              if (launched) {
+                notifier.startJourneyIfHandoffStillCurrent(
+                  expectedRoute: route,
+                  expectedJourney: expectedJourney,
+                  expectedLegIndex: currentLegIndex,
+                );
+              }
+              return launched;
+            },
+    );
+
+    final detail = Column(
+      children: [
+        _JourneyHeader(route: route),
+        const SizedBox(height: 14),
+        _TotalsStrip(route: route),
+        const SizedBox(height: 12),
+        _WalkRatioRow(route: route),
+        const SizedBox(height: 14),
+        _Timeline(route: route, journey: state.journey),
+      ],
+    );
+
+    if (ref.watch(isDesktopLayoutProvider)) {
+      return Material(
+        color: c.ivory,
+        child: SafeArea(
+          child: Row(
+            children: [
+              Container(
+                key: const Key('result-desktop-left-panel'),
+                width: ArukuTokens.splitPanelWidth,
+                decoration: BoxDecoration(
+                  color: c.paper,
+                  border: Border(right: BorderSide(color: c.hairline)),
+                ),
+                child: Column(
+                  children: [
+                    header,
+                    ?overBudget,
+                    // 左パネルだけが内部スクロール。CTA を一緒に流すと
+                    // ビューポート固定の分割ビューから押し出される（#262）。
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(18, 4, 18, 14),
+                        child: detail,
+                      ),
+                    ),
+                    Padding(
+                      key: const Key('result-desktop-cta'),
+                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
+                      child: legCta,
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ArukuMap(
+                  key: const Key('result-desktop-map'),
+                  polylines: route.toPolylines(),
+                  markers: route.toMarkers(),
+                  routeBounds: route.toBounds(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Material(
       color: c.ivory,
       child: SafeArea(
         child: Column(
           children: [
-            // Mini header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
-              child: Row(
-                children: [
-                  _HeaderButton(
-                    semanticLabel: l10n.commonBack,
-                    child: Ic.chevron(
-                      size: 18,
-                      color: c.ink,
-                      dir: ChevronDir.left,
-                    ),
-                    onTap: () => notifier.go(Screen.home),
-                  ),
-                  Expanded(
-                    child: Center(
-                      child: Text(
-                        l10n.resultDepartureLabel(
-                          state.departure.fullDateLabel(),
-                          state.departure.format(),
-                        ),
-                        style: jpStyle(
-                          size: 12,
-                          weight: FontWeight.w700,
-                          color: c.ink3,
-                        ),
-                      ),
-                    ),
-                  ),
-                  _HeaderButton(
-                    key: const ValueKey('result-share-button'),
-                    semanticLabel: l10n.resultShareButton,
-                    child: Ic.share(size: 18, color: c.ink),
-                    onTap: () => unawaited(
-                      _shareRoute(ref.read(shareServiceProvider), l10n, route),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            header,
 
-            if (route.totalMin > route.budgetMin)
-              _OverBudgetBanner(
-                overMin: route.totalMin - route.budgetMin,
-                onChange: () => notifier.go(Screen.home),
-              ),
+            ?overBudget,
 
             // Journey card
             Expanded(
@@ -194,67 +303,13 @@ class ResultScreen extends ConsumerWidget {
                             children: [
                               _RouteMapPreview(route: route),
                               const SizedBox(height: 14),
-                              _JourneyHeader(route: route),
-                              const SizedBox(height: 14),
-                              _TotalsStrip(route: route),
-                              const SizedBox(height: 12),
-                              _WalkRatioRow(route: route),
-                              const SizedBox(height: 14),
-                              _Timeline(route: route, journey: state.journey),
+                              detail,
                             ],
                           ),
                         ),
                       ),
                       const SizedBox(height: 8),
-                      _LegCta(
-                        // 経路または legIndex ごとに State を作り直し、区間進行で
-                        // 前経路の起動失敗バナーを持ち越さない。
-                        key: ValueKey((route, currentLegIndex)),
-                        leg: currentLeg,
-                        onManualAdvance:
-                            currentLeg != null &&
-                                state.journey != null &&
-                                // 復帰時の到着確認が手動完了を許可した区間、または
-                                // geometry 欠落かつ既に handoff（起動）済みの区間のみ。
-                                // まだ出発していない geometry 欠落区間を先に完了させない。
-                                (state.journeyManualCompletionAvailable ||
-                                    (currentLeg.polyline.isEmpty &&
-                                        state.journeyCurrentLegHandedOff))
-                            ? notifier.advanceCurrentLegManually
-                            : null,
-                        handoffUnavailable: currentHandoffUri == null,
-                        onLaunch: currentLeg == null
-                            ? null
-                            : () async {
-                                // 初回タップ（行程未開始）で失効していたら外部起動せず
-                                // 経路を無効化する。redirect が画面を遷移させるため、
-                                // 起動失敗ではなく true を返しバナーを出さない（#305）。
-                                if (notifier.expireStaleBeforeHandoff()) {
-                                  return true;
-                                }
-                                final uri = currentHandoffUri;
-                                final expectedJourney = state.journey;
-                                // 引き継ぎ先を特定できない区間は外部地図を開かない（#323）。
-                                // 起動を飛ばすだけで handoff と同じ状態遷移は通す — ここを
-                                // 通らないと行程開始・歩数基準・失効からの行程保護が
-                                // すべて落ち、区間に入ったまま先へ進めなくなる。
-                                final launched =
-                                    uri == null ||
-                                    await ref.read(urlLauncherProvider)(uri);
-                                // 起動に成功したときだけ行程を開始する。失敗で「開始済み」
-                                // にすると、以後の復帰再評価が走ってしまうため（#305）。
-                                // await 中に結果画面を離れた・代替案/区間が変わった場合は、
-                                // 完了した古い起動から非表示または別経路の行程を始めない。
-                                if (launched) {
-                                  notifier.startJourneyIfHandoffStillCurrent(
-                                    expectedRoute: route,
-                                    expectedJourney: expectedJourney,
-                                    expectedLegIndex: currentLegIndex,
-                                  );
-                                }
-                                return launched;
-                              },
-                      ),
+                      legCta,
                     ],
                   ),
                 ),

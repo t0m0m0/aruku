@@ -54,4 +54,8 @@ class ArukuTokens {
 
   /// エラーの本文最大幅。
   static const double errorMaxWidth = 520;
+
+  /// 分割ビュー（結果画面）の左パネル幅。デザインの minmax(340,400) は
+  /// 固定幅で足りる——右の地図が残り全部を取るため可変にする理由がない。
+  static const double splitPanelWidth = 380;
 }
