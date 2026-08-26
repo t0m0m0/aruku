@@ -64,7 +64,7 @@
 
 バスは電車と同格の交通手段ではなく、**電車で予算内に届かないときの最後の手段**として扱う。
 
-- **① last-resort:** 主照会は `avoidModes=bus,ferry,air` でバスを除外する。予算内候補が実測で全滅して best-effort 縮退へ入ったら、バスを許容した `/guidance/plan` の再照会を `_bestEffortResolved` と**並行して投機発行**する（高々1回）。best-effort が実測でなお予算外か乗り遅れるときだけ結果を候補プールへ採用し、予算内・乗車可能なら結果を捨てる。通常の予算内候補が生存する経路では追加コールは発生しない。
+- **① last-resort:** 主照会は `avoidModes=bus,ferry,air` でバスを除外する（初回の departure 波・arrival 波とも同条件・§3.1）。予算内候補が実測で全滅して best-effort 縮退へ入ったら、バスを許容した `/guidance/plan` の再照会を `_bestEffortResolved` と**並行して投機発行**する（高々1回）。best-effort が実測でなお予算外か乗り遅れるときだけ結果を候補プールへ採用し、予算内・乗車可能なら結果を捨てる。通常の予算内候補が生存する経路では追加コールは発生しない。
   - 候補プールへの採用判定を「到着が予算内か」だけで行ってはならない。`arrivalMinutes` は乗り遅れた便を「待ち0で予定どおり乗車」と楽観近似するため、実測徒歩で発車後に駅着する経路が予算内に見える。`firstMissedTransit` を必ず併用する。
 - **② 時刻表を信じる:** バスの発着時刻は電車と同じ基準で扱う。乗車待ち（`maxBoardingWait`）・乗り遅れ（`firstMissedTransit`）・幽霊便拒否（実発車時刻を確認できない transit 区間は確定させない）に、バス限定の緩和は入れない。
 - **③ 徒歩最大化のフル適用:** バスが last-resort 候補として**勝った**ときは、そのバス corridor も徒歩最大化の基準（`_baseForHybrid` の base）に据える。「手前のバス停で降りて歩く」ハイブリッド候補・乗車バス停探索候補を生成し、その中から徒歩最大を選ぶ。
@@ -148,7 +148,8 @@
 
 - **1本の上限と検索全体の締切は別レイヤー。** 引き直しは `on RouteException` → null で縮退するが、縮退する前に上限いっぱい待つ。直列ラウンドは初期 guidance → board-search（`O(log n)`）→ 実時刻解決 → 駅名確定でおよそ 6〜9 段あり、最悪待ち時間は「1本の上限 × ラウンド数」で効く。
 - **天井の掛け方:** `SearchDeadline` を `TransitApiClient` に渡し、Transit の各 fetch を `min(1本の上限, 残予算)` でクランプする。残予算 0 での照会は HTTP を発行せず即 `TIMEOUT`。
-- **締切超過は失敗ではなく縮退。** 必須なのは初期 `/guidance/plan` 1本だけで、それ以降の引き直しは徒歩最大化のための改善なので、改善側だけをゲートできる。既得の候補で確定経路を返す。
+- **締切超過は失敗ではなく縮退。** 必須なのは初期 `/guidance/plan` の **departure 波1本**だけで、それ以降の引き直しは徒歩最大化のための改善なので、改善側だけをゲートできる。既得の候補で確定経路を返す。
+  - **並列に走る arrival 波（§3.1・#376）も改善側。** 失敗（429/5xx/TIMEOUT/パース不能）は黙って捨てて departure 波だけで続行する＝`RouteException` を上へ抜けさせない。ただし**キャンセル（`SearchCanceledException`）は握り潰さない**——飲むと離脱後も departure 波だけで完走して経路を返してしまう（#316 と同型）。
 - **120 秒は検索全体の厳密な上限ではない。** 締切後も確定候補の徒歩実測（短リストを候補**間並列**で測る 1〜2 バッチ・§3.7）が走るため `totalMs` は 120 秒を超え得る。天井を締めたいなら検証を削るのではなく短リスト上限を下げること。
 - **トレードオフ:** 締切で board-search が打ち切られると徒歩が最大より短くなる＝主目的が劣化する。劣化の頻度が問題になるなら、締切を伸ばすのではなく**ラウンド数を減らす**方向で対処する。
 - **UI 文言:** `TIMEOUT` は `RouteErrorKind.timeout`（`network` とは別）。
@@ -175,8 +176,13 @@
 ### 3.1 `plan()` のデータフロー
 
 ```
-/guidance/plan 照会（1回・必須。avoidModes でバス除外）
+/guidance/plan 照会を2本**並列**発行（いずれも avoidModes でバス除外）
+  ・departure 波（type=departure・出発時刻アンカー）＝**必須**。失敗は検索ごと失敗
+  ・arrival 波（type=arrival・締切=出発+予算アンカー・#376）＝**改善**。失敗は黙って捨てる
   → parseGuidancePlan で option 列へ解析（legs＋map.segments の polyline）
+  → arrival 波の option を _hybridKey と同一の構造フィンガープリントで dedup して合流
+    （標準乗換候補・basesForHybrid の母集合の両方へ入る。dep < 出発時刻の便が返り得るが、
+     新しい防波堤は書かない——firstMissedTransit / reachableWithinBudget が弾く・§4 #254）
   → 標準乗換候補（door-to-door をそのまま候補化）
   → basesForHybrid で路線ファミリの異なる base を最大 _maxHybridBases 本選ぶ
   → base ごとに _buildCorridorHybrids を並列実行:
@@ -202,8 +208,8 @@
   → buildRoutePlan で RoutePlan 構築
 ```
 
-- **往復回数:** guidance(1) + マトリクス(base ごと2並列) + 先行実測／勝者 enrich + 崩壊時の board-search 引き直し。通常ケースは検証が初回で通り、逐次 1〜2 往復で収束する。実測の内訳は `RouteSearchMetrics`（§3.8）で機械集計する。
-- **base 拡張の増分ゼロ（固定テスト）:** `origin` 発の本命照会は base 数に比例して増えない（`from=origin` の照会は常に1回）。固定テスト「複数 base に広げても guidance/plan 照会は増えない」が、フロントが小さい代表シナリオで origin 発1回・総数≤5 を固定する。
+- **往復回数:** guidance(2＝departure 波・arrival 波を並列) + マトリクス(base ごと2並列) + 先行実測／勝者 enrich + 崩壊時の board-search 引き直し。通常ケースは検証が初回で通り、逐次 1〜2 往復で収束する。**第2波は並列なので直列段数は増えない**（増えるのは毎検索 guidance +1 本のみ・§3.8「段数が床を決める」）。実測の内訳は `RouteSearchMetrics`（§3.8）で機械集計する。
+- **base 拡張の増分ゼロ（固定テスト）:** `origin` 発の本命照会は base 数に比例して増えない（`from=origin` の照会は初回の2波で固定）。固定テスト「複数 base に広げても guidance/plan 照会は増えない」が、フロントが小さい代表シナリオで origin 発2回・総数≤6 を固定する。
 - **「測ってから選ぶ」の要点:** 直線推定で先に絞り（フロンティア）、**実測してから決定的に選ぶ**。迂回率学習・割増ヒューリスティック・境界帯は持たない。座標バリア（川・線路）も直線でなく実測で織り込まれる。採用候補の enrich 検証は「予算内候補がある限り超過を返さない」不変条件を matrix 失敗時にも保つための安全網で、通常は1回で確定する。
 
 ### 3.2 候補の種別

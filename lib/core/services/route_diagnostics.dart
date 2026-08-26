@@ -252,7 +252,9 @@ class RouteSearchMetrics {
   /// 本番ログから機械集計できるよう計上する。
   bool singlePassMeasure = false;
 
-  /// 初回 `/guidance/plan`（必須の1本）に掛かった実時間（ミリ秒）。
+  /// 初回 `/guidance/plan` の **departure 波**（必須の1本）に掛かった実時間（ミリ秒）。
+  /// 並列に走る到着アンカー第2波（#376）は含めない——あちらは fail-soft の改善で、
+  /// 待たされる床を決めるのは必須波の方だから。
   int guidanceMs = 0;
 
   /// ハイブリッド候補生成（コリドー実測マトリクス＋候補構築）区間の実時間。

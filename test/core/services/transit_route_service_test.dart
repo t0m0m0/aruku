@@ -188,6 +188,32 @@ http.Client _mock({
   return _json(const {}, 404);
 });
 
+/// departure 波と arrival 波（#376）で別の応答を返すモック。`type=arrival` の照会だけ
+/// [arrival]（または [onArrival]）へ振り、初回 departure 波も引き直しも [departure] を返す。
+///
+/// [_mock] と分けてあるのは、あちらが**全 guidance 照会へ同一 body を返す**ため——既存
+/// テストでは両波の応答が一致して合流が丸ごと dedup され、振る舞いが #376 前と一致する
+/// （それ自体が dedup の固定になっている）。波ごとの差を作るテストだけがこちらを使う。
+http.Client _waveMock({
+  required Map<String, dynamic> departure,
+  Map<String, dynamic>? arrival,
+  Future<http.Response> Function()? onArrival,
+  List<Uri>? log,
+}) => MockClient((req) async {
+  log?.add(req.url);
+  final path = req.url.path;
+  if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+  if (path.contains('googleWalkProxy')) return _walkFor(req.url);
+  if (path.contains('guidance/plan')) {
+    if (req.url.queryParameters['type'] == 'arrival') {
+      if (onArrival != null) return onArrival();
+      return _json(arrival ?? _guidance(const []));
+    }
+    return _json(departure);
+  }
+  return _json(const {}, 404);
+});
+
 /// 崩壊（徒歩最大化の不達）を再現する door-to-door 応答。origin(35.0,139.0) →
 /// goal(35.0,139.5)、コリドー3点。ハイブリッドは乗車時間が長く予算外になるので、予算内
 /// 候補は徒歩の短い標準乗換だけ＝崩壊状況になる。
@@ -238,6 +264,94 @@ Map<String, dynamic> _collapseGuidance() {
     },
   ]);
 }
+
+/// 路線ファミリ2種（[_familyA] / [_familyB]）の共通 origin / goal。
+const _familyOrigin = GeoPoint(35.0, 139.000);
+const _familyGoal = GeoPoint(35.0, 139.100);
+
+/// ファミリA「特急線」= 総所要最小の単一 base。コリドー2点[近origin, 近goal]で途中乗車の
+/// 余地がなく、生成できるハイブリッドの徒歩は access+egress の ~4分止まり。
+///
+/// 09:03発。勝者(B0→B1)の乗車座標到達は 09:02（前半徒歩2分）なので、実発車時刻検証
+/// （approach A）で dep >= boardAt を満たし、時刻なし電車の幽霊便除外に掛からない。
+Map<String, dynamic> _familyA() => {
+  'journey': {
+    'departureSecs': 32580, // 09:03
+    'arrivalSecs': 32880, // 09:08
+    'durationSecs': 32880 - 32580 + 240,
+    'accessWalkSecs': 120, // origin->139.002 ≒ 2分
+    'egressWalkSecs': 120, // 139.098->goal ≒ 2分
+    'legs': [
+      _railLeg(
+        route: '特急線',
+        fromId: 'a:board',
+        fromName: 'A乗車',
+        toId: 'a:alight',
+        toName: 'A降車',
+        dep: 32580,
+        arr: 32880,
+      ),
+    ],
+  },
+  'map': {
+    'points': const [],
+    'segments': [
+      _mapSeg('walk', 'origin', 'a:board', 'osmWalk', const [
+        [35.0, 139.000],
+        [35.0, 139.002],
+      ]),
+      _mapSeg('transit', 'a:board', 'a:alight', 'stopOrder', const [
+        [35.0, 139.002],
+        [35.0, 139.098],
+      ]),
+      _mapSeg('walk', 'a:alight', 'destination', 'estimatedWalk', const [
+        [35.0, 139.098],
+        [35.0, 139.100],
+      ]),
+    ],
+  },
+};
+
+/// ファミリB「各停線」= Aよりやや遅い（base 順は A→B）。コリドー3点[近origin, 中間,
+/// 近goal]。中間で降りて goal まで歩くと徒歩82分・実到着 ~88分（予算100分内）。
+Map<String, dynamic> _familyB() => {
+  'journey': {
+    'departureSecs': 32580, // 09:03
+    'arrivalSecs': 33480, // 09:18（Aより遅い＝base 順は A→B）
+    'durationSecs': 33480 - 32580 + 240,
+    'accessWalkSecs': 120,
+    'egressWalkSecs': 120,
+    'legs': [
+      _railLeg(
+        route: '各停線',
+        fromId: 'b:board',
+        fromName: 'B乗車',
+        toId: 'b:alight',
+        toName: 'B降車',
+        dep: 32580,
+        arr: 33480,
+      ),
+    ],
+  },
+  'map': {
+    'points': const [],
+    'segments': [
+      _mapSeg('walk', 'origin', 'b:board', 'osmWalk', const [
+        [35.0, 139.000],
+        [35.0, 139.002],
+      ]),
+      _mapSeg('transit', 'b:board', 'b:alight', 'stopOrder', const [
+        [35.0, 139.002],
+        [35.0, 139.030],
+        [35.0, 139.098],
+      ]),
+      _mapSeg('walk', 'b:alight', 'destination', 'estimatedWalk', const [
+        [35.0, 139.098],
+        [35.0, 139.100],
+      ]),
+    ],
+  },
+};
 
 TransitRouteService _service(
   http.Client client, {
@@ -374,7 +488,12 @@ void main() {
         arrival: const TimeValue(h: 12, m: 0),
         origin: origin,
       );
-      final g = log.firstWhere((u) => u.path.contains('guidance/plan'));
+      // 到着アンカー波（#376）が先に並ぶので、departure 波を型で拾う。
+      final g = log.firstWhere(
+        (u) =>
+            u.path.contains('guidance/plan') &&
+            u.queryParameters['type'] == 'departure',
+      );
       expect(g.queryParameters['from'], 'geo:35.68,139.76');
       expect(g.queryParameters['to'], 'geo:35.69,139.7');
       expect(g.queryParameters['date'], '20260627');
@@ -436,90 +555,11 @@ void main() {
     // 単一最速 base（=A）だけを土台にすると B のコリドー由来ハイブリッドは原理的に
     // 生成されず、徒歩は A の ~4分へ縮退する。複数 base に拡張して初めて B の徒歩82分
     // 候補がプールに入り選定対象になる。全徒歩(114分)は予算外なので勝てない。
-    const o = GeoPoint(35.0, 139.000);
-    const g = GeoPoint(35.0, 139.100);
-
-    // 09:03発。勝者(B0→B1)の乗車座標到達は 09:02（前半徒歩2分）なので、実発車時刻検証
-    // （approach A）で dep >= boardAt を満たし、時刻なし電車の幽霊便除外に掛からない。
-    Map<String, dynamic> familyA() => {
-      'journey': {
-        'departureSecs': 32580, // 09:03
-        'arrivalSecs': 32880, // 09:08
-        'durationSecs': 32880 - 32580 + 240,
-        'accessWalkSecs': 120, // origin->139.002 ≒ 2分
-        'egressWalkSecs': 120, // 139.098->goal ≒ 2分
-        'legs': [
-          _railLeg(
-            route: '特急線',
-            fromId: 'a:board',
-            fromName: 'A乗車',
-            toId: 'a:alight',
-            toName: 'A降車',
-            dep: 32580,
-            arr: 32880,
-          ),
-        ],
-      },
-      'map': {
-        'points': const [],
-        'segments': [
-          _mapSeg('walk', 'origin', 'a:board', 'osmWalk', const [
-            [35.0, 139.000],
-            [35.0, 139.002],
-          ]),
-          _mapSeg('transit', 'a:board', 'a:alight', 'stopOrder', const [
-            [35.0, 139.002],
-            [35.0, 139.098],
-          ]),
-          _mapSeg('walk', 'a:alight', 'destination', 'estimatedWalk', const [
-            [35.0, 139.098],
-            [35.0, 139.100],
-          ]),
-        ],
-      },
-    };
-
-    Map<String, dynamic> familyB() => {
-      'journey': {
-        'departureSecs': 32580, // 09:03
-        'arrivalSecs': 33480, // 09:18（Aより遅い＝base 順は A→B）
-        'durationSecs': 33480 - 32580 + 240,
-        'accessWalkSecs': 120,
-        'egressWalkSecs': 120,
-        'legs': [
-          _railLeg(
-            route: '各停線',
-            fromId: 'b:board',
-            fromName: 'B乗車',
-            toId: 'b:alight',
-            toName: 'B降車',
-            dep: 32580,
-            arr: 33480,
-          ),
-        ],
-      },
-      'map': {
-        'points': const [],
-        'segments': [
-          _mapSeg('walk', 'origin', 'b:board', 'osmWalk', const [
-            [35.0, 139.000],
-            [35.0, 139.002],
-          ]),
-          _mapSeg('transit', 'b:board', 'b:alight', 'stopOrder', const [
-            [35.0, 139.002],
-            [35.0, 139.030],
-            [35.0, 139.098],
-          ]),
-          _mapSeg('walk', 'b:alight', 'destination', 'estimatedWalk', const [
-            [35.0, 139.098],
-            [35.0, 139.100],
-          ]),
-        ],
-      },
-    };
+    const o = _familyOrigin;
+    const g = _familyGoal;
 
     test('別路線ファミリのコリドー由来の徒歩多め候補が選ばれる', () async {
-      final svc = _service(_mock(transit: _guidance([familyA(), familyB()])));
+      final svc = _service(_mock(transit: _guidance([_familyA(), _familyB()])));
       final plan = await svc.plan(
         destination: '目的地',
         destinationLatLng: g,
@@ -546,11 +586,12 @@ void main() {
     test('複数 base に広げても guidance/plan 照会は増えない（増分APIコストゼロ）', () async {
       // base 拡張とハイブリッド生成は取得済み options と Google マトリクスだけで完結し、
       // 新規 transit 照会を発行しない。素朴に base ごと door-to-door を再照会する実装なら
-      // origin 発の照会が base 数分（2回以上）になる。乗車座標発の勝者検証照会が別途載るため、
-      // 総数ではなく origin 発の本命照会数（=1）で base 比例の退行を検出する。
+      // origin 発の照会が base 数に比例して増える。乗車座標発の勝者検証照会が別途載るため、
+      // 総数ではなく origin 発の本命照会数で base 比例の退行を検出する。
+      // origin 発は departure 波・arrival 波（#376）の2本で固定＝base 数には比例しない。
       final log = <Uri>[];
       final svc = _service(
-        _mock(transit: _guidance([familyA(), familyB()]), log: log),
+        _mock(transit: _guidance([_familyA(), _familyB()]), log: log),
       );
       await svc.plan(
         destination: '目的地',
@@ -567,11 +608,11 @@ void main() {
                 u.queryParameters['from'] == 'geo:35.0,139.0',
           )
           .length;
-      expect(mainCalls, 1);
+      expect(mainCalls, 2);
       final guidanceCalls = log
           .where((u) => u.path.contains('guidance/plan'))
           .length;
-      expect(guidanceCalls, lessThanOrEqualTo(5));
+      expect(guidanceCalls, lessThanOrEqualTo(6));
     });
 
     test('路線名を欠く別コリドーも別ファミリとして徒歩多め候補を生む', () async {
@@ -1577,10 +1618,11 @@ void main() {
           inflatedFromMock(guidanceCalls: calls),
           // board-search が**起動した後**に予算を使い切る。起動前に切れると探索自体を
           // 起こさず縮退するので（best=-1 で集計対象外）、再現したい状況と別物になる。
-          // 初期1本＋引き直し1本が出た時点で切らせ、探索の途中で締切に掛からせる。
+          // 初期2本（departure 波＋到着アンカー波・#376）＋引き直し1本が出た時点で
+          // 切らせ、探索の途中で締切に掛からせる。
           SearchDeadline(
             const Duration(seconds: 120),
-            elapsed: () => calls.length >= 2
+            elapsed: () => calls.length >= 3
                 ? const Duration(seconds: 120)
                 : Duration.zero,
           ),
@@ -1638,10 +1680,10 @@ void main() {
           originName: '出発',
         );
 
-        // 必須の初期照会1本だけ。締切なしの同条件（上のテスト群）では board-search が
-        // 複数本引く。残予算0で投げた照会は必ず打ち切られる＝上流を無駄に叩くだけなので、
-        // 送る前に落とす。
-        expect(calls, hasLength(1));
+        // 初期照会の2本（departure 波と到着アンカー波・#376）だけ。両波は締切が切れる前に
+        // 同時発行される。締切なしの同条件（上のテスト群）では board-search が続けて複数本
+        // 引く。残予算0で投げた照会は必ず打ち切られる＝上流を無駄に叩くだけなので、送る前に落とす。
+        expect(calls, hasLength(2));
       });
 
       test('締切超過後は board-search の matrix プレ実測も投げない（#317 レビュー）', () async {
@@ -6067,6 +6109,227 @@ void main() {
         sharedEgressCalls,
         1,
         reason: '共有 egress レッグは in-flight を単一化して1回だけ実測されるはず',
+      );
+    });
+  });
+
+  group('plan: 到着アンカー第2波 (#376)', () {
+    const o = _familyOrigin;
+    const g = _familyGoal;
+
+    Future<RoutePlan> run(
+      http.Client client, {
+      void Function(RouteSearchMetrics)? onMetrics,
+    }) => _service(client, onMetrics: onMetrics).plan(
+      destination: '目的地',
+      destinationLatLng: g,
+      departure: const TimeValue(h: 9, m: 0),
+      arrival: const TimeValue(h: 10, m: 40), // 予算100分
+      origin: o,
+      originName: '出発',
+    );
+
+    int walkOf(RoutePlan plan) => plan.segments
+        .where((s) => s.type == SegmentType.walk)
+        .fold<int>(0, (a, s) => a + s.minutes);
+
+    test('arrival 波が締切（出発+予算）をアンカーに type=arrival で発行される', () async {
+      final log = <Uri>[];
+      await run(
+        _waveMock(
+          departure: _guidance([_familyA()]),
+          arrival: _guidance(const []),
+          log: log,
+        ),
+      );
+      final wave = log.singleWhere(
+        (u) =>
+            u.path.contains('guidance/plan') &&
+            u.queryParameters['type'] == 'arrival',
+      );
+      expect(wave.queryParameters['from'], 'geo:35.0,139.0');
+      expect(wave.queryParameters['to'], 'geo:35.0,139.1');
+      expect(wave.queryParameters['date'], '20260627');
+      expect(wave.queryParameters['time'], '10:40'); // 09:00 + 予算100分
+      // departure 波と同じ train-only 条件（§1.1 の last-resort 構造は変えない）。
+      expect(wave.queryParameters['avoidModes'], 'bus,ferry,air');
+    });
+
+    test('arrival 波だけが返す別系統が base になりそのコリドーから勝者が出る', () async {
+      // departure 波はファミリA（コリドー2点＝徒歩は access+egress の ~4分止まり）だけ。
+      // ファミリB（コリドー3点）は arrival 波にしか居ないので、第2波を合流しなければ
+      // B のコリドー由来ハイブリッド（徒歩82分）は原理的に生成されない。
+      final plan = await run(
+        _waveMock(
+          departure: _guidance([_familyA()]),
+          arrival: _guidance([_familyB()]),
+        ),
+      );
+      expect(walkOf(plan), greaterThan(40));
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+      expect(
+        plan.segments.any(
+          (s) => s.type == SegmentType.train && s.line == '各停線',
+        ),
+        isTrue,
+        reason: 'arrival 波の option が base に採られた証拠',
+      );
+    });
+
+    test('arrival 波が非200で落ちても departure 波だけで従来どおり確定する', () async {
+      final plan = await run(
+        _waveMock(
+          departure: _guidance([_familyA(), _familyB()]),
+          onArrival: () async => _json(const {}, 503),
+        ),
+      );
+      // 両ファミリが departure 波に揃っているときの従来結果と同一。
+      expect(walkOf(plan), greaterThan(40));
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+      expect(
+        plan.segments.any(
+          (s) => s.type == SegmentType.train && s.line == '各停線',
+        ),
+        isTrue,
+      );
+    });
+
+    test('arrival 波がタイムアウトしても departure 波だけで確定する', () async {
+      final plan = await run(
+        _waveMock(
+          departure: _guidance([_familyA(), _familyB()]),
+          onArrival: () async => throw TimeoutException('no response'),
+        ),
+      );
+      expect(walkOf(plan), greaterThan(40));
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+    });
+
+    test('departure 波が落ちれば arrival 波が生きていても検索ごと失敗する', () async {
+      // arrival 波は有効な option を返す。第2波が必須波を肩代わりしてしまう実装なら
+      // ここで成功してしまう。
+      final client = MockClient((req) async {
+        final path = req.url.path;
+        if (path.contains('googleWalkMatrixProxy')) return _matrixFor(req.url);
+        if (path.contains('googleWalkProxy')) return _walkFor(req.url);
+        if (path.contains('guidance/plan')) {
+          return req.url.queryParameters['type'] == 'arrival'
+              ? _json(_guidance([_familyA(), _familyB()]))
+              : _json(const {}, 503);
+        }
+        return _json(const {}, 404);
+      });
+      await expectLater(run(client), throwsA(isA<RouteException>()));
+    });
+
+    test('arrival 波の出発済み便は既存の不変条件が弾き確定に出ない', () async {
+      // 罠: 幽霊特急は徒歩59分（プール最大）で見積り到着69分（予算100分内）なので、
+      // 乗り遅れ判定（firstMissedTransit / _invariantViolation）が無ければ**必ず勝つ**。
+      // 08:00 発＝照会時刻 09:00 より前なので待ちが 0 に丸まり、到着が楽観へ縮退する
+      // （#343 のクラス）。arrivalMinutes は arrTime 駆動なので depTime/arrTime で仕込む。
+      Map<String, dynamic> departed() => {
+        'journey': {
+          'departureSecs': 28800, // 08:00 = departureAt(09:00) より前
+          'arrivalSecs': 29400, // 08:10
+          'durationSecs': 29400 - 28800 + 3540,
+          'accessWalkSecs': 3420, // origin->139.050 ≒ 57分（徒歩最大の源）
+          'egressWalkSecs': 120,
+          'legs': [
+            _railLeg(
+              route: '幽霊特急',
+              fromId: 'x:board',
+              fromName: 'X乗車',
+              toId: 'x:alight',
+              toName: 'X降車',
+              dep: 28800,
+              arr: 29400,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('walk', 'origin', 'x:board', 'osmWalk', const [
+              [35.0, 139.000],
+              [35.0, 139.050],
+            ]),
+            _mapSeg('transit', 'x:board', 'x:alight', 'stopOrder', const [
+              [35.0, 139.050],
+              [35.0, 139.098],
+            ]),
+            _mapSeg('walk', 'x:alight', 'destination', 'estimatedWalk', const [
+              [35.0, 139.098],
+              [35.0, 139.100],
+            ]),
+          ],
+        },
+      };
+
+      final plan = await run(
+        _waveMock(
+          departure: _guidance([_familyA()]),
+          arrival: _guidance([departed()]),
+        ),
+      );
+      expect(
+        plan.segments.any((s) => s.line == '幽霊特急'),
+        isFalse,
+        reason: '出発済みの便は乗れない＝確定に出してはいけない',
+      );
+      expect(
+        walkOf(plan),
+        lessThan(50),
+        reason: '徒歩59分の幽霊特急を掴んでいないこと（掴めば徒歩は59分近辺になる）',
+      );
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+    });
+
+    test('両波が同じ便を返しても候補も実測ファンアウトも増えない', () async {
+      Future<List<Uri>> runWith(Map<String, dynamic> arrival) async {
+        final log = <Uri>[];
+        await run(
+          _waveMock(
+            departure: _guidance([_familyA(), _familyB()]),
+            arrival: arrival,
+            log: log,
+          ),
+        );
+        return log;
+      }
+
+      int countOf(List<Uri> log, String path) =>
+          log.where((u) => u.path.contains(path)).length;
+
+      final dup = await runWith(_guidance([_familyA(), _familyB()]));
+      final empty = await runWith(_guidance(const []));
+      expect(
+        countOf(dup, 'googleWalkProxy'),
+        countOf(empty, 'googleWalkProxy'),
+        reason: '同一便は dedup されるので徒歩実測は増えないはず',
+      );
+      expect(
+        countOf(dup, 'googleWalkMatrixProxy'),
+        countOf(empty, 'googleWalkMatrixProxy'),
+        reason: '同一便は base を増やさないのでマトリクスも増えないはず',
+      );
+      expect(
+        countOf(dup, 'guidance/plan'),
+        countOf(empty, 'guidance/plan'),
+        reason: 'arrival 波の1本は両方に載る＝差は出ないはず',
+      );
+    });
+
+    test('arrival 波 in-flight のキャンセルは握り潰さず伝播する', () async {
+      // fail-soft の catch がキャンセルまで飲むと、離脱後も departure 波だけで完走して
+      // 経路を返してしまう（#316 と同型）。
+      await expectLater(
+        run(
+          _waveMock(
+            departure: _guidance([_familyA(), _familyB()]),
+            onArrival: () async => throw const SearchCanceledException(),
+          ),
+        ),
+        throwsA(isA<SearchCanceledException>()),
       );
     });
   });

@@ -64,7 +64,8 @@ class TransitRouteService implements SearchEngine {
   /// 検索1回分の締切（#300）。超過したら**引き直しの新ラウンドを起こさない**。
   ///
   /// 引き直し（乗車駅探索・代替検証）は徒歩最大化のための改善であって、必須なのは
-  /// 初期 `/guidance/plan` 1本だけ。改善は `on RouteException` → null で縮退するが、
+  /// 初期 `/guidance/plan` の departure 波1本だけ（到着アンカー第2波・#376 も改善側で、
+  /// 失敗しても departure 波だけで続行する）。改善は `on RouteException` → null で縮退するが、
   /// 縮退する前に1本の上限いっぱい待つため、締切で止めないと「劣化した経路を、
   /// 上限×直列ラウンド数だけ待った末に受け取る」最悪が生じる。ゲートするのは改善側
   /// だけで、必須の初期照会は締切で止めない（止めれば #300 の症状そのものへ戻る）。
@@ -178,6 +179,20 @@ class TransitRouteService implements SearchEngine {
     onProgress?.call(RoutePhase.routing);
 
     final departureAt = _departureDateTime(departure);
+    // 到着アンカー第2波（#376）。締切（出発+予算）から後ろ向きに探した便列を第2の母集合と
+    // して合流する。**departure 波を await する前に起こす**——後ろに置くと並列でなくなり、
+    // 上流1本ぶんの段（実測 ~20s）が丸ごと体感へ乗る。
+    final arrivalWave = _api.fetchGuidanceArrivalAt(
+      origin,
+      destinationLatLng,
+      departureAt,
+      departureAt.add(Duration(minutes: budgetMin)),
+    );
+    // 捨てる経路（departure 波が先に落ちる）で未処理例外にしないための番人。Future は
+    // 複数のリスナを持てるので、後から await する経路の例外伝播は妨げない——キャンセル
+    // （[SearchCanceledException]）を握り潰さないために必要な性質（`prefetchBus` と同型・#316）。
+    arrivalWave.ignore();
+
     final guidanceSw = Stopwatch()..start();
     final body = await _api.fetchGuidanceAt(
       origin,
@@ -191,7 +206,7 @@ class TransitRouteService implements SearchEngine {
     onProgress?.call(RoutePhase.walkability);
 
     final plan = await _selectMeasured(
-      options,
+      [...options, ...await _arrivalWaveOptions(arrivalWave, options)],
       budgetMin,
       departure,
       origin: origin,
@@ -214,6 +229,36 @@ class TransitRouteService implements SearchEngine {
     _onMetrics?.call(metrics);
 
     return plan;
+  }
+
+  /// 到着アンカー第2波（#376）の応答を option 列へ解析し、[departureOptions] と構造が
+  /// 重複しないものだけを返す。
+  ///
+  /// 失敗（HTTP・TIMEOUT・パース不能）を握って空リストへ落とすのは、この波が「改善」で
+  /// あって必須ではないから（必須は departure 波1本・§2.4）。ただし
+  /// [SearchCanceledException] だけは飲まない——飲むと検索から離脱した後も departure 波
+  /// だけで完走して経路を返してしまう（#316）。
+  Future<List<TransitOption>> _arrivalWaveOptions(
+    Future<Map<String, dynamic>> wave,
+    List<TransitOption> departureOptions,
+  ) async {
+    try {
+      final parsed = parseGuidancePlan(await wave);
+      final seen = {for (final o in departureOptions) _optionKey(o)};
+      final fresh = [
+        for (final o in parsed)
+          if (seen.add(_optionKey(o))) o,
+      ];
+      _diag.log(
+        () => 'arrival 波: ${parsed.length} options → 純増 ${fresh.length}件を合流',
+      );
+      return fresh;
+    } on SearchCanceledException {
+      rethrow;
+    } catch (e) {
+      _diag.log(() => 'arrival 波: 失敗（$e）→ departure 波のみで続行');
+      return const [];
+    }
   }
 
   @override
@@ -2075,6 +2120,12 @@ class TransitRouteService implements SearchEngine {
           '${_coordKey(s.polyline.isNotEmpty ? s.polyline.first : null)}>'
           '${_coordKey(s.polyline.isNotEmpty ? s.polyline.last : null)}',
   ].join('|');
+
+  /// option を [_hybridKey] と同一の構造フィンガープリントへ要約する（#376）。到着アンカー
+  /// 第2波と departure 波は同じ便を返し得るので、ハイブリッドのマージ重複除去と同じ基準で
+  /// 畳む——別基準にすると、片方でだけ重複と判定される候補が生まれ上限の意味が崩れる。
+  String _optionKey(TransitOption o) =>
+      _hybridKey(RouteCandidate(from: o.from, to: o.to, segments: o.segments));
 
   String _coordKey(GeoPoint? p) => p == null
       ? '-'
