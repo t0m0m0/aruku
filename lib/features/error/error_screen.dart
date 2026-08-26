@@ -7,6 +7,7 @@ import '../../core/theme/aruku_theme.dart';
 import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/widgets/aruku_button.dart';
+import '../../shared/widgets/desktop_content.dart';
 
 class ErrorScreen extends ConsumerWidget {
   const ErrorScreen({super.key});
@@ -42,51 +43,54 @@ class ErrorScreen extends ConsumerWidget {
     return Material(
       color: c.ivory,
       child: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 84,
-                  height: 84,
-                  decoration: BoxDecoration(
-                    color: c.paper,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: c.hairline),
+        child: DesktopContent(
+          maxWidth: ArukuTokens.errorMaxWidth,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 84,
+                    height: 84,
+                    decoration: BoxDecoration(
+                      color: c.paper,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: c.hairline),
+                    ),
+                    child: Center(child: Ic.search(size: 32, color: c.ink3)),
                   ),
-                  child: Center(child: Ic.search(size: 32, color: c.ink3)),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  view.title,
-                  textAlign: TextAlign.center,
-                  style: jpStyle(
-                    size: 20,
-                    weight: FontWeight.w800,
-                    color: c.ink,
+                  const SizedBox(height: 24),
+                  Text(
+                    view.title,
+                    textAlign: TextAlign.center,
+                    style: jpStyle(
+                      size: 20,
+                      weight: FontWeight.w800,
+                      color: c.ink,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  view.description,
-                  textAlign: TextAlign.center,
-                  style: jpStyle(
-                    size: 13,
-                    weight: FontWeight.w500,
-                    color: c.ink3,
+                  const SizedBox(height: 8),
+                  Text(
+                    view.description,
+                    textAlign: TextAlign.center,
+                    style: jpStyle(
+                      size: 13,
+                      weight: FontWeight.w500,
+                      color: c.ink3,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 32),
-                ArukuButton(label: primary.label, onPressed: primary.onTap),
-                const SizedBox(height: 12),
-                ArukuButton(
-                  label: secondary.label,
-                  onPressed: secondary.onTap,
-                  variant: ArukuButtonVariant.outlined,
-                ),
-              ],
+                  const SizedBox(height: 32),
+                  ArukuButton(label: primary.label, onPressed: primary.onTap),
+                  const SizedBox(height: 12),
+                  ArukuButton(
+                    label: secondary.label,
+                    onPressed: secondary.onTap,
+                    variant: ArukuButtonVariant.outlined,
+                  ),
+                ],
+              ),
             ),
           ),
         ),

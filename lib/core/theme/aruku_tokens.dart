@@ -42,4 +42,16 @@ class ArukuTokens {
 
   /// 本文コンテンツの最大幅。これを超える幅では中央へ寄せる。
   static const double contentMaxWidth = 1280;
+
+  /// ホームの本文最大幅。1カラムで読み切れる幅に絞る。
+  static const double homeMaxWidth = 620;
+
+  /// 設定の本文最大幅。見出し 200px + 中身の2カラムが収まる幅。
+  static const double settingsMaxWidth = 760;
+
+  /// 設定の見出し列の幅。
+  static const double settingsLabelColumnWidth = 200;
+
+  /// エラーの本文最大幅。
+  static const double errorMaxWidth = 520;
 }
