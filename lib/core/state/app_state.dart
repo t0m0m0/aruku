@@ -57,19 +57,14 @@ const int kInitialBudgetMinutes = 60;
 /// 出発と到着の最小ギャップ（分）。これにより常に「出発 < 到着」を保証する。
 const int kMinBudgetMinutes = 1;
 
-/// [days] 日ぶん手前へ寄せた TimeValue。過ぎてしまった値は [now] へ引き上げる。
+/// [days] 日ぶん手前へ寄せた TimeValue。過ぎた値は [now] へ引き上げる。
 ///
-/// 引き上げるのは、今日より前を表現できないため。0 で止めると「今日の 23:55」が
-/// 動いた今日の同時刻＝丸1日後を黙って指し、選んだばかりの到着がその直後へ
-/// 潰される。過ぎた時刻を現在時刻へ寄せるのは [clampDepartureMinutes] と同じ規則で、
-/// それを日跨ぎの瞬間にも当てているだけ。
-///
-/// 日付だけでは足りない。詰めた先が今日でも時刻が既に過ぎていることがあり
-/// （翌 00:01 発を 00:05 に詰める）、固定出発は startSearch も更新しないので、
-/// 過去のまま経路照会へ渡る。
+/// 0 で止めると「今日の 23:55」が動いた今日の同時刻＝丸1日後を指す。日付だけ
+/// では足りず（翌 00:01 発を 00:05 に詰める）、固定出発は startSearch も更新
+/// しないので過去のまま経路照会へ渡る。
 TimeValue _rebased(TimeValue t, int days, DateTime now) {
-  // isNow は「現在時刻」そのもの。跨いだ先へ更新しないと、古い 23:50 が動いた
-  // 今日の 23:50 として比較され、直後に確定した到着がその1分後へ潰れる。
+  // isNow も h/m が applyPickedTime の比較に使われる。更新しないと直後に確定
+  // した到着がその1分後へ潰れる。
   if (t.isNow) return t.copyWith(h: now.hour, m: now.minute);
   if (t.dateOffset < days) return TimeValue(h: now.hour, m: now.minute);
   final shifted = t.dateOffset - days;
@@ -637,20 +632,16 @@ class AppNotifier extends Notifier<AppState> {
   void setOrigin(String? name, {GeoPoint? latLng}) =>
       state = state.copyWith(origin: name, originLatLng: latLng);
 
-  /// 日を跨いだぶんだけ出発・到着の日数オフセットを詰め、両者が指す絶対日付を保つ。
+  /// 日を跨いだぶん出発・到着を詰め、両者が指す絶対日付を保つ。
   ///
-  /// [TimeValue.dateOffset] は「今日から何日後か」で、基準日は state に持たず常に
-  /// 「今日」として読まれる。今日が動けば同じ値が別の日を指すので、片方だけ新しい
-  /// 今日で数え直すと予算だけが日数ぶん伸びる。出発と到着を同じ [copyWith] で
-  /// 動かすのは、片方ずつ通すと [applyPickedTime] の「出発 < 到着」補正が途中の
-  /// 食い違いを本物の値として固定してしまうため。
+  /// [TimeValue.dateOffset] の基準日は state に持たず常に「今日」として読まれる。
+  /// 同じ [copyWith] で動かすのは、片方ずつ通すと [applyPickedTime] の
+  /// 「出発 < 到着」補正が途中の食い違いを本物の値として固定するため。
   void rebaseDates(int days) {
     if (days <= 0) return;
     final now = _now();
-    // 出発を現在時刻へ引き上げると予算が縮む。縮んだ値は直後の出発確定で
-    // 「変更前の予算」として引き継がれる（[_arrivalAfterDeparture]）ので、
-    // 到着を出発+予算で置き直して幅を保つ。isNow の時刻更新で到着も同じだけ
-    // 送る [_refreshedNowTimes] と同じ規則。
+    // 予算幅を保つ。縮めると直後の出発確定が縮んだ値を「変更前の予算」として
+    // 引き継ぐ（[_arrivalAfterDeparture]）。
     final budget = planner.budgetMinutes(state.departure, state.arrival);
     final departure = _rebased(state.departure, days, now);
     state = state.copyWith(

@@ -95,44 +95,25 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
     _apply(h: current.h, m: current.m, dateOffset: dateOffset);
   }
 
-  /// [now] から [offset] 日後の日付。`add(Duration(days:))` を使わないのは、
-  /// 夏時間の切り替わりを跨ぐと1日が23時間になり、加算結果が前日の23時へ落ちる
-  /// ため。日付として解釈される値は必ずカレンダー成分から組む。
+  /// `add(Duration(days:))` は夏時間を跨ぐと前日23時へ落ちる。成分から組む。
   DateTime _dateAt(DateTime now, int offset) =>
       DateTime(now.year, now.month, now.day + offset);
 
-  /// カレンダーが出す最初の日。
-  ///
-  /// 到着は出発より前へ置けない。選ばせておいて [AppNotifier.applyPickedTime] が
-  /// 出発+最小ギャップへ戻すと、選んだ日と確定した日が食い違う。時刻の下限は
-  /// 向こうの担当のままで、ここが決めるのは日付の下限だけ。
+  /// カレンダーが出す最初の日。出発より前を選ばせると
+  /// [AppNotifier.applyPickedTime] が戻すので、選んだ日と確定した日が食い違う。
   int _firstSelectableOffset() {
     if (widget.mode == PickerMode.depart) return 0;
     final departure = ref.read(appStateProvider).departure;
-    // isNow でも現在時刻ではなく保持値で数える。下限を実時刻へ寄せると、欄が
-    // 09:30 を出したまま到着だけ翌日から始まり、[AppNotifier.applyPickedTime]
-    // が比べるのは保持値のままなので25時間の予算が黙って作れる。isNow の
-    // 古びは startSearch の再取得が引き受けている（#264）。
+    // isNow でも実時刻でなく保持値で数える。applyPickedTime が比べるのは保持値
+    // なので、下限だけ実時刻へ寄せると25時間の予算が黙って作れる（#264）。
     final offset = departure.isNow ? 0 : departure.dateOffset;
-    // 23:59 発の最小ギャップは翌日へ入る。日跨ぎを分で数えるのは、時刻を
-    // DateTime へ起こすと再び夏時間の加算に触れるため。
     final carry =
         (departure.totalMinutes + kMinBudgetMinutes) ~/ Duration.minutesPerDay;
     return offset + carry;
   }
 
-  /// 月グリッドのカレンダーを開き、選ばれた日を日付オフセットへ移す。
-  ///
-  /// ステッパーだけでは上限の90日目まで90回押す必要があり、遠い日付を選ぶ手段が
-  /// 実質無い。範囲は [kMaxDateOffsetDays] から引く——ここを独自に決めると
-  /// ホイールシートとデスクトップで作れる日付が食い違う。
-  /// カレンダーが出す最後の日。
-  ///
-  /// 到着は出発+最小ギャップへ押し出されるため、[kMaxDateOffsetDays] を越えた
-  /// 日に居ることがある。上限を定数で切るとその日がカレンダーから消え、開いて
-  /// 確定しただけで値が動く。下限だけでなく今の値も含めて広げるのは、下限が
-  /// 範囲内でも到着だけが外に出る組み合わせ（90日目 23:30 発→91日目 00:30 着）
-  /// があるため。それ以上先は出発側が作れない。
+  /// カレンダーが出す最後の日。押し出された到着は [kMaxDateOffsetDays] の外に
+  /// 居ることがあり、定数で切るとその日が消えて開いて確定しただけで値が動く。
   int _lastSelectableOffset() {
     var last = kMaxDateOffsetDays;
     final floor = _firstSelectableOffset();
@@ -142,6 +123,9 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
     return last;
   }
 
+  /// 月グリッドのカレンダーを開く。ステッパーだけでは上限の90日目まで90回押す
+  /// 必要があり、遠い日付を選ぶ手段が実質無い。範囲は [kMaxDateOffsetDays] から
+  /// 引く——独自に決めるとホイールシートと作れる日付が食い違う。
   Future<void> _pickDate() async {
     final opened = ref.read(nowProvider)();
     final firstOffset = _firstSelectableOffset();
@@ -155,28 +139,23 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
           : (initial.isAfter(last) ? last : initial),
       firstDate: first,
       lastDate: last,
-      // 既定は DateTime.now() で、テストが時計を差し替えても実時刻を指す。
-      // 「今日」の強調が firstDate と別の日に付く。
+      // 既定の DateTime.now() だと、時計を差し替えたとき「今日」の強調がずれる。
       currentDate: _dateAt(opened, 0),
     );
-    if (picked == null || !mounted) return;
+    if (!mounted) return;
     final closed = ref.read(nowProvider)();
-    // 編集途中の表示値を基点にする。確定値の時刻を持ち回ると、18:20 と打った
-    // 直後に日付を変えたとき、打ったばかりの時刻が黙って捨てられる。
-    //
-    // 再基準化より先に読むのは、それが state を書き換えて欄へ跳ね返るため。
-    // 確定するのはユーザーが見ていた値であって、揃え直した後の値ではない。
+    // 確定値でなく編集途中の表示値を基点にする。再基準化より先に読むのは、
+    // それが state を書き換えて欄へ跳ね返るため。
     final typed = parseTimeInput(_controller.text);
     final current = _current();
-    // 表示中に日を跨ぐと、確定する側だけ新しい今日で数え直され、相手側は古い
-    // 今日を基準にした値のまま残る。先に両方を同じ基準へ揃える。
+    // 片方だけ新しい今日で数え直すと相手が古い今日に取り残される。取り消しでも
+    // 通すのは、基準日が動いたのが操作と無関係だから。
     ref
         .read(appStateProvider.notifier)
-        .rebaseDates(dateOffsetFrom(picked: closed, now: opened));
-    // 選んだ日そのものが表示中に過ぎることがある（15日を出したまま16日に確定）。
-    // 過去は表現できないので日は今日へ丸められ、開いた時点の 23:55 と組むと
-    // 確定した覚えのない丸1日後になる。再基準化が置いた値をそのまま残す。
-    if (_dateAt(picked, 0).isBefore(_dateAt(closed, 0))) {
+        .rebaseDates(calendarDaysBetween(from: opened, to: closed));
+    // 選んだ日が表示中に過ぎたら丸めない。今日へ丸めると、開いた時点の 23:55 と
+    // 組んで丸1日後になる。
+    if (picked == null || calendarDaysBetween(from: closed, to: picked) < 0) {
       _syncFromState();
       return;
     }

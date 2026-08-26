@@ -74,9 +74,8 @@ void main() {
     });
   });
 
-  // アプリ自身は Divider を使わず Border で罫を引くため、outlineVariant が
-  // 未定義（＝ColorScheme.light() の既定で純黒）でも画面には出てこない。
-  // Material 製のダイアログ（カレンダー等）を開いた瞬間だけ硬い黒罫が現れる。
+  // アプリは Divider を使わず Border で罫を引くため、outlineVariant が未定義
+  // （＝純黒）でも Material 製のダイアログを開くまで画面に出てこない。
   testWidgets('Material の Divider はアプリのけい線色で出る', (tester) async {
     late Color dividerColor;
     late Color hairline;

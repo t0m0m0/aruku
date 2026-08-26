@@ -86,22 +86,24 @@ const int kMaxDateOffsetDays = 90;
 
 /// カレンダーが返す絶対日付を [TimeValue.dateOffset]（今日からの日数）へ直す。
 ///
-/// ホイールシートとデスクトップのカレンダーで別々に書かない。片方だけ丸めを
-/// 落とすと、範囲外の日付が [TimeValue] の `assert(dateOffset >= 0)` まで
-/// 素通りして、入口ではなくモデルの構築時に落ちる。
-///
-/// 日付どうしの差は UTC へ置き換えてから取る。ローカル時刻のままだと、夏時間の
-/// 切り替わりを挟む1日が23時間となり `inDays` が 0 を返す。
-///
-/// [maxOffset] を渡せるのは、押し出された到着が [kMaxDateOffsetDays] を越えて
-/// 存在し得るため。その値を出した入口は、自分が出した範囲で数え直さないと、
-/// 表示した日を選んだだけで別の日へ丸められる。既定は選べる範囲そのもの。
+/// 入口ごとに書かない。丸めを落とすと範囲外が [TimeValue] の
+/// `assert(dateOffset >= 0)` まで素通りする。[maxOffset] を渡せるのは、押し出さ
+/// れた到着が [kMaxDateOffsetDays] を越えて存在し得るため——出した範囲で数え
+/// 直さないと、表示した日を選んだだけで別の日へ丸められる。
 int dateOffsetFrom({
   required DateTime picked,
   required DateTime now,
   int maxOffset = kMaxDateOffsetDays,
-}) {
-  final today = DateTime.utc(now.year, now.month, now.day);
-  final target = DateTime.utc(picked.year, picked.month, picked.day);
-  return target.difference(today).inDays.clamp(0, maxOffset);
-}
+}) => calendarDaysBetween(from: now, to: picked).clamp(0, maxOffset);
+
+/// [from] から [to] までのカレンダー日数。過去なら負。
+///
+/// UTC へ置き換えるのは、ローカルのままだと夏時間を挟む1日が23時間で `inDays`
+/// が 0 を返すため。[dateOffsetFrom] と分けるのは「選べる範囲」と「経過日数」が
+/// 別の量だから——上限を被せると放置された状態が範囲内に見える。
+int calendarDaysBetween({required DateTime from, required DateTime to}) =>
+    DateTime.utc(
+      to.year,
+      to.month,
+      to.day,
+    ).difference(DateTime.utc(from.year, from.month, from.day)).inDays;

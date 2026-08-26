@@ -142,8 +142,6 @@ void main() {
       expect(dateOffsetFrom(picked: last, now: now), kMaxDateOffsetDays);
     });
 
-    // TimeValue は dateOffset >= 0 を assert する。範囲外を素通しすると
-    // 画面ではなくモデルの構築時に落ちる。
     test('過去の日付は 0 へ丸める', () {
       expect(dateOffsetFrom(picked: DateTime(2026, 5, 18), now: now), 0);
     });
@@ -153,8 +151,6 @@ void main() {
       expect(dateOffsetFrom(picked: beyond, now: now), kMaxDateOffsetDays);
     });
 
-    // 押し出された到着は kMaxDateOffsetDays を越えて存在し得る。それを出した
-    // 入口が既定で数え直すと、表示した日を選んだだけで別の日へ丸められる。
     test('maxOffset を渡すとその上限で丸める', () {
       final beyond = DateTime(2026, 5, 19 + kMaxDateOffsetDays + 5);
       expect(

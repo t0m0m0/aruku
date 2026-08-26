@@ -292,8 +292,6 @@ void main() {
   });
 
   group('カレンダー', () {
-    // 上限は今日+90日。1クリック1日のステッパーだけでは端まで90クリック要り、
-    // 遠い日付を選ぶ手段が実質無い。
     testWidgets('日付ラベルを押すとカレンダーが開く', (tester) async {
       await _pumpHome(tester, 1280);
 
@@ -320,8 +318,6 @@ void main() {
       );
     });
 
-    // 月グリッドが英語で出ると「一般的な形へ寄せる」目的を果たさない。
-    // GlobalMaterialLocalizations が外れたら気付けるようにする。
     testWidgets('カレンダーは日本語で出る', (tester) async {
       await _pumpHome(tester, 1280);
       await tester.tap(find.byKey(_departDateOpen));
@@ -351,8 +347,7 @@ void main() {
       await tester.tap(find.byKey(_departDateOpen));
       await tester.pumpAndSettle();
 
-      // 日付ステッパーも同じ矢印アイコンを使う。ダイアログ内へ絞らないと
-      // 「次の月へ」ではなくフィールド側の「次の日へ」を押す。
+      // 日付ステッパーも同じアイコンを使う。絞らないと「次の日へ」を押す。
       await tester.tap(
         find.descendant(
           of: find.byType(DatePickerDialog),
@@ -382,8 +377,6 @@ void main() {
       expect(container.read(appStateProvider).departure.dateOffset, 0);
     });
 
-    // 時刻の下限は applyPickedTime の担当。カレンダーは日付の下限しか表現できず、
-    // 今日を選び直した経路でも現在時刻より前に落ちてはいけない。
     testWidgets('今日を選び直しても出発は現在時刻より前にならない', (tester) async {
       final container = await _pumpHome(tester, 1280);
       await tester.tap(find.byKey(const Key('desktop-date-step-up-depart')));
@@ -401,8 +394,6 @@ void main() {
       expect((dep.h, dep.m, dep.dateOffset), (9, 30, 0));
     });
 
-    // 確定値から日付だけ動かすと、打ったばかりの時刻が黙って捨てられる。
-    // ステッパーと同じく編集中の表示値を基点にする。
     testWidgets('確定前に打った時刻を残したまま日付を変える', (tester) async {
       final container = await _pumpHome(tester, 1280);
       await tester.tap(find.byKey(_departField));
@@ -430,8 +421,7 @@ void main() {
       expect(find.byType(DatePickerDialog), findsOneWidget);
     });
 
-    // 矢印と違い日付ラベルは現在値そのものが手掛かりになる。Text の意味づけは
-    // 親の Semantics へ併合されるので、用途と日付が1ノードに並ぶ。
+    // Text の意味づけは親の Semantics へ併合され、用途と日付が1ノードに並ぶ。
     testWidgets('カレンダーの入口は出発・到着を区別して読み上げる', (tester) async {
       await _pumpHome(tester, 1280);
 
@@ -439,9 +429,6 @@ void main() {
       expect(find.bySemanticsLabel(RegExp(r'^到着の日付を選ぶ\n今日$')), findsOneWidget);
     });
 
-    // 到着は出発+最小ギャップへ押し出されるため、出発が上限の日の 23:59 だと
-    // 上限を1日越える。カレンダーは initialDate が lastDate を越えると
-    // assert で落ちる。ホイールシートは _initialFor で同じ事故を防いでいる。
     testWidgets('上限を越えた到着でもカレンダーは開ける', (tester) async {
       final container = await _pumpHome(tester, 1280);
       container
@@ -465,9 +452,6 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    // 到着カレンダーが今日から開いていると、出発より前の日を選べてしまう。
-    // 確定値は applyPickedTime が出発+最小ギャップへ戻すので、選んだ日と
-    // 表示される日が食い違う。選ばせない方を採る。
     testWidgets('到着カレンダーは出発の日より前を出さない', (tester) async {
       await _pumpHome(tester, 1280);
       final up = find.byKey(const Key('desktop-date-step-up-depart'));
@@ -485,8 +469,6 @@ void main() {
       expect(dialog.firstDate, DateTime(2026, 5, 18));
     });
 
-    // 23:59 発の最小ギャップは翌日へ入る。下限を出発と同じ日に置くと、選べる日
-    // と applyPickedTime が返す日が食い違う。
     testWidgets('23:59 出発なら到着カレンダーは翌日から始まる', (tester) async {
       await _pumpHome(tester, 1280, now: () => DateTime(2026, 5, 15, 23, 59));
 
@@ -499,9 +481,6 @@ void main() {
       expect(dialog.firstDate, DateTime(2026, 5, 16));
     });
 
-    // 古びた isNow 出発の下限を実時刻へ寄せると、欄が 09:30 を出したまま到着
-    // だけ翌日から始まる。applyPickedTime が比べるのは保持値なので、25時間の
-    // 予算が黙って作れてしまう。表示と同じ値で数える。
     testWidgets('古びた今すぐ出発でも到着の予算が1日ぶん膨らまない', (tester) async {
       final clock = _MovableClock(DateTime(2026, 5, 15, 9, 30));
       final container = await _pumpHome(tester, 1280, now: clock.call);
@@ -527,8 +506,6 @@ void main() {
       );
     });
 
-    // 上限を kMaxDateOffsetDays で切ると、押し出された到着を表せる日が消える。
-    // 何も変えずに確定しただけで値が動く。
     testWidgets('上限を越えた到着は開いて確定しても動かない', (tester) async {
       final container = await _pumpHome(tester, 1280);
       container
@@ -554,8 +531,6 @@ void main() {
       );
     });
 
-    // 下限が範囲内でも到着だけが外に出る組み合わせがある。下限だけ見て範囲を
-    // 広げると、その到着を表せる日がカレンダーから消えたままになる。
     testWidgets('下限が範囲内でも上限を越えた到着は確定で動かない', (tester) async {
       final container = await _pumpHome(tester, 1280);
       container
@@ -582,9 +557,6 @@ void main() {
       );
     });
 
-    // 今日の 23:55 発は日を跨いだ時点で過ぎている。dateOffset の基準日は state に
-    // 無く常に「今日」として読まれるので、0 で止めると新しい今日の 23:55＝丸1日後
-    // を黙って指す。過ぎた出発は現在時刻へ寄せ、選んだ到着はその日のまま残す。
     testWidgets('過ぎた出発は現在時刻へ寄せ、選んだ到着はその日に残る', (tester) async {
       final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
       final container = await _pumpHome(tester, 1280, now: clock.call);
@@ -608,7 +580,6 @@ void main() {
       await tester.pumpAndSettle();
 
       final state = container.read(appStateProvider);
-      // 選んだ 5月16日 は確定した時点の今日。1日先ではない。
       expect(
         (state.arrival.h, state.arrival.m, state.arrival.dateOffset),
         (before.h, before.m, 0),
@@ -619,8 +590,6 @@ void main() {
       );
     });
 
-    // isNow は「現在時刻」そのもの。跨いだ先へ更新しないと、古い 23:50 が動いた
-    // 今日の 23:50 として比較され、確定した到着がその1分後へ潰れる。
     testWidgets('日を跨ぐと今すぐ出発も跨いだ先の時刻になる', (tester) async {
       final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
       final container = await _pumpHome(tester, 1280, now: clock.call);
@@ -646,8 +615,6 @@ void main() {
       );
     });
 
-    // 詰めた先が今日でも、時刻が既に過ぎていることがある。固定出発は startSearch
-    // も更新しないので、日付だけ見て残すと過去のまま経路照会へ渡る。
     testWidgets('跨いだ先で過ぎている出発も現在時刻へ寄せる', (tester) async {
       final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
       final container = await _pumpHome(tester, 1280, now: clock.call);
@@ -668,8 +635,6 @@ void main() {
       expect((dep.h, dep.m, dep.dateOffset), (0, 5, 0));
     });
 
-    // 過ぎた出発を現在時刻へ引き上げると予算が縮む。縮んだ値をそのまま残すと、
-    // 直後の出発確定が _arrivalAfterDeparture へ「変更前の予算」として渡す。
     testWidgets('過ぎた出発を寄せても設定した予算幅は縮まない', (tester) async {
       final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
       final container = await _pumpHome(tester, 1280, now: clock.call);
@@ -697,8 +662,6 @@ void main() {
       expect(_budgetMinutes(container), budget);
     });
 
-    // 選んだ日が表示中に過ぎると、日は今日へ丸められる。開いた時点の 23:55 と
-    // 組むと、確定した覚えのない丸1日後になる。
     testWidgets('選んだ日が表示中に過ぎたら再基準化した値を残す', (tester) async {
       final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
       final container = await _pumpHome(tester, 1280, now: clock.call);
@@ -722,6 +685,47 @@ void main() {
 
       final dep = container.read(appStateProvider).departure;
       expect((dep.h, dep.m, dep.dateOffset), (0, 5, 0));
+    });
+
+    testWidgets('取り消して閉じても日付は同じ日を指したまま', (tester) async {
+      final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
+      final container = await _pumpHome(tester, 1280, now: clock.call);
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(mode: PickerMode.depart, h: 10, m: 0, dateOffset: 1);
+      await tester.pump();
+
+      await tester.tap(find.byKey(_departDateOpen));
+      await tester.pumpAndSettle();
+      clock.set(DateTime(2026, 5, 16, 0, 5));
+      await tester.tap(find.text('キャンセル'));
+      await tester.pumpAndSettle();
+
+      final dep = container.read(appStateProvider).departure;
+      expect((dep.h, dep.m, dep.dateOffset), (10, 0, 0));
+    });
+
+    testWidgets('上限を越えて放置された日付も詰めきる', (tester) async {
+      final clock = _MovableClock(DateTime(2026, 5, 15, 23, 0));
+      final container = await _pumpHome(tester, 1280, now: clock.call);
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(
+            mode: PickerMode.depart,
+            h: 23,
+            m: 0,
+            dateOffset: kMaxDateOffsetDays,
+          );
+      await tester.pump();
+
+      await tester.tap(find.byKey(_departDateOpen));
+      await tester.pumpAndSettle();
+      clock.set(DateTime(2026, 5, 15 + kMaxDateOffsetDays + 1, 9, 30));
+      await tester.tap(find.text('キャンセル'));
+      await tester.pumpAndSettle();
+
+      final dep = container.read(appStateProvider).departure;
+      expect((dep.h, dep.m, dep.dateOffset), (9, 30, 0));
     });
 
     testWidgets('60分の予算は日を跨いだ出発の打ち直しでも保たれる', (tester) async {
@@ -763,8 +767,6 @@ void main() {
       expect(_budgetMinutes(container), 60);
     });
 
-    // dateOffset は相対値なので、今日が動けば同じ値が別の日を指す。確定する側
-    // だけ数え直すと、相手が古い今日に取り残されて予算が24時間ぶん伸びる。
     testWidgets('日を跨いで確定しても予算が24時間ぶん伸びない', (tester) async {
       final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
       final container = await _pumpHome(tester, 1280, now: clock.call);
