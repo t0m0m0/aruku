@@ -73,4 +73,26 @@ void main() {
       expect(isNotoSansJp(headlineLarge!.fontFamily), isTrue);
     });
   });
+
+  // アプリ自身は Divider を使わず Border で罫を引くため、outlineVariant が
+  // 未定義（＝ColorScheme.light() の既定で純黒）でも画面には出てこない。
+  // Material 製のダイアログ（カレンダー等）を開いた瞬間だけ硬い黒罫が現れる。
+  testWidgets('Material の Divider はアプリのけい線色で出る', (tester) async {
+    late Color dividerColor;
+    late Color hairline;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ArukuTheme.light(),
+        home: Builder(
+          builder: (context) {
+            dividerColor = Divider.createBorderSide(context).color;
+            hairline = Theme.of(context).extension<ArukuColors>()!.hairline;
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+
+    expect(dividerColor, hairline);
+  });
 }

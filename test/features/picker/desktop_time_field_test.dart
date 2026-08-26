@@ -299,6 +299,17 @@ void main() {
       );
     });
 
+    // 月グリッドが英語で出ると「一般的な形へ寄せる」目的を果たさない。
+    // GlobalMaterialLocalizations が外れたら気付けるようにする。
+    testWidgets('カレンダーは日本語で出る', (tester) async {
+      await _pumpHome(tester, 1280);
+      await tester.tap(find.byKey(_departDateOpen));
+      await tester.pumpAndSettle();
+
+      expect(find.text('日付の選択'), findsOneWidget);
+      expect(find.text('2026年5月'), findsOneWidget);
+    });
+
     testWidgets('選んだ日が dateOffset になる', (tester) async {
       final container = await _pumpHome(tester, 1280);
       await tester.tap(find.byKey(_departDateOpen));
