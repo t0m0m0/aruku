@@ -205,8 +205,13 @@ class TransitRouteService implements SearchEngine {
 
     onProgress?.call(RoutePhase.walkability);
 
+    final wave = await _arrivalWaveOptions(arrivalWave, options);
+    metrics
+      ..arrivalWaveOk = wave.ok
+      ..arrivalWaveOptions = wave.fresh.length;
+
     final plan = await _selectMeasured(
-      [...options, ...await _arrivalWaveOptions(arrivalWave, options)],
+      [...options, ...wave.fresh],
       budgetMin,
       departure,
       origin: origin,
@@ -215,6 +220,9 @@ class TransitRouteService implements SearchEngine {
       fromName: originName,
       toName: destination,
       metrics: metrics,
+      // option には出自欄が無いのでインスタンス同一性で追う（合流も `basesForHybrid` も
+      // インスタンスをそのまま持ち回るので保たれる）。
+      arrivalWaveOptions: Set<TransitOption>.identity()..addAll(wave.fresh),
     );
 
     // 上流本数は API クライアントの実測カウンタから、全体時間は Stopwatch から確定させ、
@@ -232,13 +240,13 @@ class TransitRouteService implements SearchEngine {
   }
 
   /// 到着アンカー第2波（#376）の応答を option 列へ解析し、[departureOptions] と構造が
-  /// 重複しないものだけを返す。
+  /// 重複しないもの（[fresh]）と、応答自体が使えたか（[ok]）を返す。
   ///
   /// 失敗（HTTP・TIMEOUT・パース不能）を握って空リストへ落とすのは、この波が「改善」で
   /// あって必須ではないから（必須は departure 波1本・§2.4）。ただし
   /// [SearchCanceledException] だけは飲まない——飲むと検索から離脱した後も departure 波
   /// だけで完走して経路を返してしまう（#316）。
-  Future<List<TransitOption>> _arrivalWaveOptions(
+  Future<({bool ok, List<TransitOption> fresh})> _arrivalWaveOptions(
     Future<Map<String, dynamic>> wave,
     List<TransitOption> departureOptions,
   ) async {
@@ -252,12 +260,12 @@ class TransitRouteService implements SearchEngine {
       _diag.log(
         () => 'arrival 波: ${parsed.length} options → 純増 ${fresh.length}件を合流',
       );
-      return fresh;
+      return (ok: parsed.isNotEmpty, fresh: fresh);
     } on SearchCanceledException {
       rethrow;
     } catch (e) {
       _diag.log(() => 'arrival 波: 失敗（$e）→ departure 波のみで続行');
-      return const [];
+      return (ok: false, fresh: const <TransitOption>[]);
     }
   }
 
@@ -267,6 +275,10 @@ class TransitRouteService implements SearchEngine {
   /// measure-first 選定。標準乗換・実測ハイブリッド・全徒歩を同一土俵で比較し、
   /// 採用候補を Google 実測（enrich）で検証して確定する。徒歩最大化が崩壊したときだけ
   /// 乗車駅探索（引き直し）を1本足して選び直す。
+  ///
+  /// [arrivalWaveOptions] は [options] のうち到着アンカー第2波（#376）由来のインスタンス。
+  /// 選定そのものには影響せず、採用状況（`arrivalWaveBaseUsed` / `arrivalWaveWon`）の
+  /// 計測だけに使う。
   Future<RoutePlan> _selectMeasured(
     List<TransitOption> options,
     int budgetMin,
@@ -274,6 +286,7 @@ class TransitRouteService implements SearchEngine {
     required GeoPoint origin,
     required GeoPoint goal,
     required RouteSearchMetrics metrics,
+    required Set<TransitOption> arrivalWaveOptions,
     void Function(RoutePhase)? onProgress,
     String? fromName,
     String? toName,
@@ -310,6 +323,16 @@ class TransitRouteService implements SearchEngine {
       _diag.log(() => 'standard: ${_diag.candLine(c, budgetMin, departureAt)}');
     }
 
+    // 到着アンカー第2波（#376）由来の候補をインスタンス同一性で覚える（`arrivalWaveWon`）。
+    // 候補にも option にも出自欄は無く、足すと選定の純粋関数群まで型が波及するので、
+    // 生成箇所で対応を控える側を採る。上の内包表記は options と1対1・同順。
+    final fromArrivalWave = Set<RouteCandidate>.identity();
+    for (var i = 0; i < options.length; i++) {
+      if (arrivalWaveOptions.contains(options[i])) {
+        fromArrivalWave.add(candidates[i]);
+      }
+    }
+
     // 単一最速ではなく路線ファミリの異なる複数 base を土台にする（#292・限界2）。増分 API
     // コストはゼロ（取得済み options を追加で使うだけ）。base ごとのハイブリッドは構造
     // フィンガープリント（[_hybridKey]）でマージ重複除去し、多様化が実測試行を食い合って
@@ -318,6 +341,7 @@ class TransitRouteService implements SearchEngine {
     // 崩壊時の board-search は単一 base を土台にする（#137）。先頭は総所要最小＝従来の
     // [_baseForHybrid] と一致するため、崩壊フォールバックの挙動は #292 前と変わらない。
     final base = bases.isEmpty ? null : bases.first;
+    metrics.arrivalWaveBaseUsed = bases.any(arrivalWaveOptions.contains);
     final hybridSw = Stopwatch()..start();
     if (bases.isNotEmpty) {
       _diag.log(() => 'hybrid bases: ${bases.length}家系');
@@ -335,6 +359,11 @@ class TransitRouteService implements SearchEngine {
             measured,
           ),
       ]);
+      for (var i = 0; i < bases.length; i++) {
+        if (arrivalWaveOptions.contains(bases[i])) {
+          fromArrivalWave.addAll(built[i]);
+        }
+      }
       final merged = mergeHybrids(
         built,
         (h) => arrivalMinutes(h.segments, departureAt) <= budgetMin,
@@ -562,56 +591,61 @@ class TransitRouteService implements SearchEngine {
       // 触ると scanCount/best が別々の探索の値で対を成さなくなり、rounds は並列に
       // 走ったものの和になる（#332 レビュー指摘）。
       final busBoardSearch = BoardSearchStats();
-      final extra = [
-        for (final built in await Future.wait([
-          if (base != null)
-            // バスが勝ったときも電車 base の board-search は走らせる。last-resort の発火条件は
-            // 「予算外**または乗り遅れ**」（#250）なので、door-to-door では乗り遅れた電車も、
-            // より手前の駅から引き直せば後続便で予算内に入ることがある。電車が全滅する状況なら
-            // 予算内候補は0件で [extra] に何も足さない＝プールも選定結果も変わらない。
-            //
-            // 投機起動済み（#341）ならその Future をそのまま待つ。ここで起こし直すと同じ
-            // 探索を二重に走らせて上流本数が倍になる。
-            trainBoardSearchFuture ??
-                _buildBoardSearchCandidate(
-                  base,
-                  origin,
-                  goal,
-                  budgetMin,
-                  departureAt,
-                  walkCache,
-                  trainBoardSearch,
-                  boardSearchRoundOf,
-                ),
-          if (busBase != null)
-            // バス corridor は基準になったのがここが初めてなので、途中乗降ハイブリッドも
-            // ここで作る（通常照会の base と違い、事前に作る機会がなかった）。
-            () async {
-              _diag.log(() => 'バス corridor を基準に徒歩最大化（#251）');
-              return [
-                ...await _buildCorridorHybrids(
-                  busBase,
-                  origin,
-                  goal,
-                  budgetMin,
-                  departureAt,
-                  measured,
-                ),
-                ...await _buildBoardSearchCandidate(
-                  busBase,
-                  origin,
-                  goal,
-                  budgetMin,
-                  departureAt,
-                  walkCache,
-                  busBoardSearch,
-                  boardSearchRoundOf,
-                ),
-              ];
-            }(),
-        ]))
-          ...built,
-      ];
+      final builtPerSystem = await Future.wait([
+        if (base != null)
+          // バスが勝ったときも電車 base の board-search は走らせる。last-resort の発火条件は
+          // 「予算外**または乗り遅れ**」（#250）なので、door-to-door では乗り遅れた電車も、
+          // より手前の駅から引き直せば後続便で予算内に入ることがある。電車が全滅する状況なら
+          // 予算内候補は0件で [extra] に何も足さない＝プールも選定結果も変わらない。
+          //
+          // 投機起動済み（#341）ならその Future をそのまま待つ。ここで起こし直すと同じ
+          // 探索を二重に走らせて上流本数が倍になる。
+          trainBoardSearchFuture ??
+              _buildBoardSearchCandidate(
+                base,
+                origin,
+                goal,
+                budgetMin,
+                departureAt,
+                walkCache,
+                trainBoardSearch,
+                boardSearchRoundOf,
+              ),
+        if (busBase != null)
+          // バス corridor は基準になったのがここが初めてなので、途中乗降ハイブリッドも
+          // ここで作る（通常照会の base と違い、事前に作る機会がなかった）。
+          () async {
+            _diag.log(() => 'バス corridor を基準に徒歩最大化（#251）');
+            return [
+              ...await _buildCorridorHybrids(
+                busBase,
+                origin,
+                goal,
+                budgetMin,
+                departureAt,
+                measured,
+              ),
+              ...await _buildBoardSearchCandidate(
+                busBase,
+                origin,
+                goal,
+                budgetMin,
+                departureAt,
+                walkCache,
+                busBoardSearch,
+                boardSearchRoundOf,
+              ),
+            ];
+          }(),
+      ]);
+      // 電車系の探索結果は base（＝`bases.first`）のコリドー由来なので、その base が第2波
+      // 由来ならここで生まれた候補も第2波由来（#376 の `arrivalWaveWon`）。先頭が電車系
+      // なのは上のリテラルの並び順が保証する——`base == null` なら電車系は載らないので、
+      // その場合は先頭がバス系になる。
+      if (base != null && arrivalWaveOptions.contains(base)) {
+        fromArrivalWave.addAll(builtPerSystem.first);
+      }
+      final extra = [for (final built in builtPerSystem) ...built];
       metrics.recordBoardSearches([
         if (base != null) trainBoardSearch,
         if (busBase != null) busBoardSearch,
@@ -665,6 +699,10 @@ class TransitRouteService implements SearchEngine {
       speculationAbandoned = true;
       _diag.log(() => '投機 board-search 空振り: collapse=false → 打ち切り');
     }
+
+    // 確定候補が第2波（#376）由来かも同一性で引く。best-effort 縮退でコピーが作られると
+    // 参照が切れて false になる点は [RouteSearchMetrics.boardSearchWinnerRound] と同じ。
+    metrics.arrivalWaveWon = fromArrivalWave.contains(selected.chosen);
 
     // 崩壊後の再選定も同じ台帳へ積むので、畳むのは board-search を抜けた後。
     // [enrichMs] も同じ区間（初回選定＋再選定）を覆うよう再開・停止してある。

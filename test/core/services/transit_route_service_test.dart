@@ -6319,6 +6319,70 @@ void main() {
       );
     });
 
+    group('採用状況の計測', () {
+      test('base に採られ勝者にもなれば BaseUsed / Won が立つ', () async {
+        RouteSearchMetrics? captured;
+        await run(
+          _waveMock(
+            departure: _guidance([_familyA()]),
+            arrival: _guidance([_familyB()]),
+          ),
+          onMetrics: (m) => captured = m,
+        );
+        final m = captured!;
+        expect(m.arrivalWaveOk, isTrue);
+        expect(m.arrivalWaveOptions, 1, reason: 'dedup 後の純増分');
+        expect(m.arrivalWaveBaseUsed, isTrue);
+        expect(m.arrivalWaveWon, isTrue);
+        // 第2波の1本は既存の数え方のまま guidanceCalls に乗る。
+        expect(m.guidanceCalls, greaterThanOrEqualTo(2));
+      });
+
+      test('arrival 波が落ちれば計測はすべて立たない', () async {
+        RouteSearchMetrics? captured;
+        await run(
+          _waveMock(
+            departure: _guidance([_familyA(), _familyB()]),
+            onArrival: () async => _json(const {}, 503),
+          ),
+          onMetrics: (m) => captured = m,
+        );
+        final m = captured!;
+        expect(m.arrivalWaveOk, isFalse);
+        expect(m.arrivalWaveOptions, 0);
+        expect(m.arrivalWaveBaseUsed, isFalse);
+        expect(m.arrivalWaveWon, isFalse);
+      });
+
+      test('重複便しか返らなければ Ok だけ立ち純増0・不採用', () async {
+        RouteSearchMetrics? captured;
+        await run(
+          _waveMock(
+            departure: _guidance([_familyA(), _familyB()]),
+            arrival: _guidance([_familyA(), _familyB()]),
+          ),
+          onMetrics: (m) => captured = m,
+        );
+        final m = captured!;
+        expect(m.arrivalWaveOk, isTrue, reason: '応答自体は有効だった');
+        expect(m.arrivalWaveOptions, 0, reason: '全て dedup で消える');
+        expect(m.arrivalWaveBaseUsed, isFalse);
+        expect(m.arrivalWaveWon, isFalse);
+      });
+
+      test('計測は1行ログにも出る', () {
+        expect(
+          RouteSearchMetrics().toLogLine(),
+          allOf(
+            contains('arrivalWaveOk=0'),
+            contains('arrivalWaveOptions=0'),
+            contains('arrivalWaveBaseUsed=0'),
+            contains('arrivalWaveWon=0'),
+          ),
+        );
+      });
+    });
+
     test('arrival 波 in-flight のキャンセルは握り潰さず伝播する', () async {
       // fail-soft の catch がキャンセルまで飲むと、離脱後も departure 波だけで完走して
       // 経路を返してしまう（#316 と同型）。

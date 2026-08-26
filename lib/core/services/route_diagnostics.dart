@@ -486,6 +486,29 @@ class RouteSearchMetrics {
   /// 消える上限）。enrich 削減の費用対効果を測るための実測（振る舞いは未変更）。
   int guidanceDupCalls = 0;
 
+  /// 到着アンカー第2波（#376）が解析可能な非空応答を返したか。**失敗（HTTP/TIMEOUT/
+  /// パース不能）と「応答は返ったが option が0本」を区別しない**——どちらも合流できる
+  /// 素材が無かったという同じ結果で、判定（毎検索 +1 本の対価に見合うか）に必要なのは
+  /// 「素材が入ったか」だけだから。
+  bool arrivalWaveOk = false;
+
+  /// 第2波から候補プールへ**純増**した option 数（構造フィンガープリント dedup の後）。
+  /// [arrivalWaveOk] が真でもここが 0 なら、その経路では departure 波と同じ便しか
+  /// 返らなかった＝第2波は何も足していない。
+  int arrivalWaveOptions = 0;
+
+  /// `basesForHybrid` が選んだ base に第2波由来の option が含まれたか。**コリドーが
+  /// 掘られたか**の分子で、[arrivalWaveWon] とは別に持つ——base に入っても勝てるとは
+  /// 限らないし、勝たなくても「別系統のコリドーを候補にできた」ことは効果の前提になる。
+  bool arrivalWaveBaseUsed = false;
+
+  /// 確定候補が第2波由来か（標準乗換ならその option 自身、ハイブリッド・board-search 候補
+  /// なら土台にした base）。
+  ///
+  /// **0 は「由来でない」と「同一性が切れて特定不能」を兼ねる**（[boardSearchWinnerRound]
+  /// の 0 と同じ事情。best-effort 縮退は実時刻を当てたコピーを作るため参照が切れる）。
+  bool arrivalWaveWon = false;
+
   /// Google 徒歩ルート（enrich）の実 HTTP 往復本数。
   int walkCalls = 0;
 
@@ -504,6 +527,10 @@ class RouteSearchMetrics {
       'http=$httpRoundTrips '
       'guidanceCalls=$guidanceCalls walkCalls=$walkCalls matrixCalls=$matrixCalls '
       'guidanceDupCalls=$guidanceDupCalls '
+      'arrivalWaveOk=${arrivalWaveOk ? 1 : 0} '
+      'arrivalWaveOptions=$arrivalWaveOptions '
+      'arrivalWaveBaseUsed=${arrivalWaveBaseUsed ? 1 : 0} '
+      'arrivalWaveWon=${arrivalWaveWon ? 1 : 0} '
       'guidanceMs=$guidanceMs hybridMs=$hybridMs enrichMs=$enrichMs '
       'boardSearchMs=$boardSearchMs '
       'boardSearchRounds=$boardSearchRounds '

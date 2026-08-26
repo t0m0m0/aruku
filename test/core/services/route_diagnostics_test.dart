@@ -277,6 +277,10 @@ void main() {
         ..guidanceDupCalls = 1
         ..walkCalls = 10
         ..matrixCalls = 2
+        ..arrivalWaveOk = true
+        ..arrivalWaveOptions = 2
+        ..arrivalWaveBaseUsed = true
+        ..arrivalWaveWon = true
         ..guidanceMs = 1200
         ..hybridMs = 500
         ..enrichMs = 2600
@@ -319,6 +323,8 @@ void main() {
         'collapse=1 boardSearch=1 singlePass=1 http=15 '
         'guidanceCalls=3 walkCalls=10 matrixCalls=2 '
         'guidanceDupCalls=1 '
+        'arrivalWaveOk=1 arrivalWaveOptions=2 '
+        'arrivalWaveBaseUsed=1 arrivalWaveWon=1 '
         'guidanceMs=1200 hybridMs=500 enrichMs=2600 boardSearchMs=3400 '
         'boardSearchRounds=3 boardSearchScanCount=63 boardSearchBest=25 '
         'boardSearchTruncated=1 boardSearchProbeFailed=1 '
@@ -489,6 +495,8 @@ void main() {
         'collapse=0 boardSearch=0 singlePass=0 http=5 '
         'guidanceCalls=1 walkCalls=4 matrixCalls=0 '
         'guidanceDupCalls=0 '
+        'arrivalWaveOk=0 arrivalWaveOptions=0 '
+        'arrivalWaveBaseUsed=0 arrivalWaveWon=0 '
         'guidanceMs=0 hybridMs=0 enrichMs=0 boardSearchMs=0 '
         'boardSearchRounds=0 boardSearchScanCount=0 boardSearchBest=-1 '
         'boardSearchTruncated=0 boardSearchProbeFailed=0 '

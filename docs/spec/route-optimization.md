@@ -292,6 +292,7 @@
 ```
 [route-metrics] collapse=1 boardSearch=1 singlePass=0 http=45
   guidanceCalls=13 walkCalls=21 matrixCalls=11 guidanceDupCalls=0
+  arrivalWaveOk=1 arrivalWaveOptions=2 arrivalWaveBaseUsed=1 arrivalWaveWon=0
   guidanceMs=10217 hybridMs=7213 enrichMs=5563 boardSearchMs=70334
   finalizeMs=0 totalMs=93361
 ```
@@ -302,6 +303,8 @@
 | 〃 | `boardSearchSpeculated` / `boardSearchSpeculationWasted` / `boardSearchSpeculationProbes` | 電車系 board-search の投機起動（§3.6・#341）・その空振り・空振りが上流へ捨てた probe 本数。**空振り率の分母は総検索数ではなく投機件数**（総数で割ると、投機の起きないルートを混ぜたぶんだけ当たって見える）。`boardSearch` とは別に持つ——空振りは候補をプールへ1件も足しておらず、同じ印にすると board-search 本体の起動率が読めなくなる |
 | 往復本数 | `guidanceCalls` / `walkCalls` / `matrixCalls` / `http` | 実際に GET を発行した回数（種別ごと＋合計）。締切切れ・キャンセルで発行前に落ちた要求は数えない |
 | 〃 | `guidanceDupCalls` | 同一 guidance URI の重複発行数＝per-search キャッシュで消せる上限 |
+| 到着アンカー波 | `arrivalWaveOk` / `arrivalWaveOptions` | 第2波（§3.1・#376）が使える応答を返したか（0/1）と、dedup 後に候補プールへ**純増**した option 数。`Ok=1` でも `Options=0` なら、その経路では departure 波と同じ便しか返らなかった＝何も足していない |
+| 〃 | `arrivalWaveBaseUsed` / `arrivalWaveWon` | 第2波由来の option が `basesForHybrid` の base に採られたか／確定候補（またはその土台 base）が第2波由来か。**これが #376 の判定基準**——両方がほぼ 0 なら毎検索 +1 本の対価に見合わないので revert する。`Won=0` は「由来でない」と「best-effort 縮退でコピーが作られ同一性が切れた＝特定不能」を兼ねる（`boardSearchWinnerRound` の 0 と同じ事情） |
 | フェーズ所要 | `guidanceMs` / `hybridMs` / `enrichMs` / `boardSearchMs` / `finalizeMs` / `totalMs` | 各区間の実時間。**崩壊時の再選定は `boardSearchMs` と `enrichMs` の両方に入る**——台帳（下2行）が再選定の enrich も積むので、時計だけ board-search 突入で止めると計上外の残りが負に化ける。意図的な重なりなので、フェーズを足し上げるときは注意する |
 | 〃 | `boardSearchMs` の読み方（#341 以降） | **電車系 board-search で「なお直列に待った」残りの時間**であって、探索が始まってから終わるまでの全体ではない（`busLastResortMs` と同じ語法）。投機起動（§3.6）が enrich と並行に走るぶん `totalMs` への寄与が減り、投機が完全に間に合えば電車系の寄与は 0 に近づく——それがこの最適化の効き目そのもの。**したがって #341 前後で `boardSearchMs` を直接比較してはいけない**（縮んだのは段であって探索ではない）。探索そのものの重さは `boardSearchRounds` と `boardSearchProbeSerialMs` で見る。区間には依然としてバス系の探索と崩壊後の再選定が含まれる |
 | enrich 内訳 | `enrichCriticalMs` / `enrichPasses` / `enrichResolveDepth` / `enrichCandidates` | 測定口 `_measureCandidate` を通る臨界パスの所要・パス数・区間解決の段数・測った候補数。壊れた応答で落ちた候補も**払った壁時計ごと計上する**（障害時ほど小さく出る歪みを避ける）。**縮退パス（`_bestEffortResolved`・バス last-resort・再帰）はここを通らない** |
