@@ -103,9 +103,13 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
   Future<void> _pickDate() async {
     final now = ref.read(nowProvider)();
     final today = DateTime(now.year, now.month, now.day);
+    // 到着は出発+最小ギャップへ押し出されるため、出発が上限の日の 23:59 だと
+    // 上限を1日越える。そのまま initialDate に渡すと assert で落ちる。
+    // ホイールシートも同じ理由で開始位置を範囲へ丸めている。
+    final offset = _current().dateOffset.clamp(0, kMaxDateOffsetDays);
     final picked = await showDatePicker(
       context: context,
-      initialDate: today.add(Duration(days: _current().dateOffset)),
+      initialDate: today.add(Duration(days: offset)),
       firstDate: today,
       lastDate: today.add(const Duration(days: kMaxDateOffsetDays)),
       // 既定は DateTime.now() で、テストが時計を差し替えても実時刻を指す。

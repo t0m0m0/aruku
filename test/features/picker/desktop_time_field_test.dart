@@ -417,6 +417,32 @@ void main() {
       expect(find.bySemanticsLabel(RegExp(r'^日付を選ぶ\n今日$')), findsWidgets);
     });
 
+    // 到着は出発+最小ギャップへ押し出されるため、出発が上限の日の 23:59 だと
+    // 上限を1日越える。カレンダーは initialDate が lastDate を越えると
+    // assert で落ちる。ホイールシートは _initialFor で同じ事故を防いでいる。
+    testWidgets('上限を越えた到着でもカレンダーは開ける', (tester) async {
+      final container = await _pumpHome(tester, 1280);
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(
+            mode: PickerMode.depart,
+            h: 23,
+            m: 59,
+            dateOffset: kMaxDateOffsetDays,
+          );
+      await tester.pump();
+      expect(
+        container.read(appStateProvider).arrival.dateOffset,
+        greaterThan(kMaxDateOffsetDays),
+      );
+
+      await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DatePickerDialog), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('モバイル幅にはカレンダーの入口を出さない', (tester) async {
       await _pumpHome(tester, 819);
 
