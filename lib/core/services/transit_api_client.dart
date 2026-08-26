@@ -132,6 +132,42 @@ class TransitApiClient {
     return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
   }
 
+  /// [start]→[goal] を [deadline] 到着で `/guidance/plan` に問い合わせ、生 JSON を返す
+  /// （到着アンカー第2波・#376）。`type` は `arrival`、`time` は [departureAt] のサービス日
+  /// 基準（[_formatServiceTime]）に置き換わる点以外は [fetchGuidanceAt] と同じ組み立て。
+  /// [allowBus] の意味も同じ。
+  Future<Map<String, dynamic>> fetchGuidanceArrivalAt(
+    GeoPoint start,
+    GeoPoint goal,
+    DateTime departureAt,
+    DateTime deadline, {
+    bool allowBus = false,
+  }) async {
+    final uri = Uri.parse('$_transitBaseUrl/api/v1/guidance/plan').replace(
+      queryParameters: {
+        'from': 'geo:${start.lat},${start.lng}',
+        'to': 'geo:${goal.lat},${goal.lng}',
+        'date': _formatDate(departureAt),
+        'time': _formatServiceTime(departureAt, deadline),
+        'type': 'arrival',
+        'numItineraries': '$_numItineraries',
+        'avoidModes': (allowBus ? _avoidModesAllowBus : _avoidModesTrainOnly)
+            .join(','),
+      },
+    );
+    final key = uri.toString();
+    final res = await _getOrTimeout(
+      _transit,
+      uri,
+      onIssued: () {
+        _guidanceCalls++;
+        if (!_guidanceKeys.add(key)) _guidanceDupCalls++;
+      },
+    );
+    if (res.statusCode != 200) throw RouteException('HTTP ${res.statusCode}');
+    return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+  }
+
   // ---- Google Routes（プロキシ） ----
 
   /// [origins]×[dests] の徒歩マトリクスを Google プロキシで一括実測し、生の要素配列を返す。
@@ -267,4 +303,22 @@ class TransitApiClient {
 
   String _formatTime(DateTime dt) =>
       '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+
+  /// [departureAt] のサービス日（0時起点）から [deadline] までの経過分を `H:mm` で返す。
+  /// 日またぎで H は 24 以上になり得る（例: 25:00）。
+  ///
+  /// [deadline] 自身の暦日+HH:mm ではなく [departureAt] のサービス日を基準にするのは、
+  /// 0時前発車の便をサービス日負秒にせず表現するため（実 API 直測で確認済み・#376）。
+  String _formatServiceTime(DateTime departureAt, DateTime deadline) {
+    final serviceMidnight = DateTime(
+      departureAt.year,
+      departureAt.month,
+      departureAt.day,
+    );
+    final totalMinutes = deadline.difference(serviceMidnight).inMinutes;
+    final hours = totalMinutes ~/ 60;
+    final minutes = totalMinutes % 60;
+    return '${hours.toString().padLeft(2, '0')}:'
+        '${minutes.toString().padLeft(2, '0')}';
+  }
 }

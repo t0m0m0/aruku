@@ -122,6 +122,98 @@ void main() {
     });
   });
 
+  group('fetchGuidanceArrivalAt (#376)', () {
+    test(
+      '/api/v1/guidance/plan へ type=arrival・departureAt のサービス日基準の time を渡す',
+      () async {
+        late Uri captured;
+        final client = _client(
+          MockClient((req) async {
+            captured = req.url;
+            return _json({'ok': true});
+          }),
+        );
+        final body = await client.fetchGuidanceArrivalAt(
+          const GeoPoint(35.1, 139.2),
+          const GeoPoint(35.3, 139.4),
+          DateTime(2026, 6, 27, 9, 5),
+          DateTime(2026, 6, 27, 10, 40),
+        );
+        expect(body, {'ok': true});
+        expect(captured.path, '/api/v1/guidance/plan');
+        expect(captured.queryParameters['from'], 'geo:35.1,139.2');
+        expect(captured.queryParameters['to'], 'geo:35.3,139.4');
+        expect(captured.queryParameters['date'], '20260627');
+        expect(captured.queryParameters['time'], '10:40');
+        expect(captured.queryParameters['type'], 'arrival');
+        expect(captured.queryParameters['numItineraries'], '5');
+        expect(captured.queryParameters['avoidModes'], 'bus,ferry,air');
+      },
+    );
+
+    test('日またぎの締切は date=出発サービス日・time=24時超で表す', () async {
+      late Uri captured;
+      final client = _client(
+        MockClient((req) async {
+          captured = req.url;
+          return _json({'ok': true});
+        }),
+      );
+      await client.fetchGuidanceArrivalAt(
+        const GeoPoint(35.1, 139.2),
+        const GeoPoint(35.3, 139.4),
+        DateTime(2026, 8, 26, 23, 30),
+        DateTime(2026, 8, 27, 1, 0),
+      );
+      expect(captured.queryParameters['date'], '20260826');
+      expect(captured.queryParameters['time'], '25:00');
+    });
+
+    test('allowBus: true では avoidModes からバスを外す', () async {
+      late Uri captured;
+      final client = _client(
+        MockClient((req) async {
+          captured = req.url;
+          return _json({'ok': true});
+        }),
+      );
+      await client.fetchGuidanceArrivalAt(
+        const GeoPoint(35.1, 139.2),
+        const GeoPoint(35.3, 139.4),
+        DateTime(2026, 6, 27, 9, 5),
+        DateTime(2026, 6, 27, 10, 40),
+        allowBus: true,
+      );
+      expect(captured.queryParameters['avoidModes'], 'ferry,air');
+    });
+
+    test('非200は RouteException(HTTP <code>)', () async {
+      final client = _client(MockClient((req) async => _json(const {}, 503)));
+      expect(
+        () => client.fetchGuidanceArrivalAt(
+          const GeoPoint(0, 0),
+          const GeoPoint(1, 1),
+          DateTime(2026, 6, 27, 9, 0),
+          DateTime(2026, 6, 27, 10, 0),
+        ),
+        throwsA(
+          isA<RouteException>().having((e) => e.status, 'status', 'HTTP 503'),
+        ),
+      );
+    });
+
+    test('guidanceCalls を増やす（既存 fetchGuidanceAt と同じカウンタを共有）', () async {
+      final client = _client(MockClient((req) async => _json({'ok': true})));
+      await client.fetchGuidanceArrivalAt(
+        const GeoPoint(35.1, 139.2),
+        const GeoPoint(35.3, 139.4),
+        DateTime(2026, 6, 27, 9, 5),
+        DateTime(2026, 6, 27, 10, 40),
+      );
+      expect(client.guidanceCalls, 1);
+    });
+  });
+
   group('fetchWalkMatrix', () {
     test('googleWalkMatrixProxy から配列を返す', () async {
       final client = _client(
