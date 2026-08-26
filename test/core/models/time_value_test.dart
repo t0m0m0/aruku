@@ -152,5 +152,19 @@ void main() {
       final beyond = DateTime(2026, 5, 19 + kMaxDateOffsetDays + 5);
       expect(dateOffsetFrom(picked: beyond, now: now), kMaxDateOffsetDays);
     });
+
+    // 押し出された到着は kMaxDateOffsetDays を越えて存在し得る。それを出した
+    // 入口が既定で数え直すと、表示した日を選んだだけで別の日へ丸められる。
+    test('maxOffset を渡すとその上限で丸める', () {
+      final beyond = DateTime(2026, 5, 19 + kMaxDateOffsetDays + 5);
+      expect(
+        dateOffsetFrom(
+          picked: beyond,
+          now: now,
+          maxOffset: kMaxDateOffsetDays + 1,
+        ),
+        kMaxDateOffsetDays + 1,
+      );
+    });
   });
 }

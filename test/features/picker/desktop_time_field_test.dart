@@ -52,6 +52,12 @@ Future<void> _type(WidgetTester tester, Key field, String text) async {
   await tester.pump();
 }
 
+int _budgetMinutes(ProviderContainer container) {
+  final state = container.read(appStateProvider);
+  int abs(TimeValue t) => t.dateOffset * 24 * 60 + t.totalMinutes;
+  return abs(state.arrival) - abs(state.departure);
+}
+
 String? _dateLabel(WidgetTester tester) => tester
     .widget<Text>(find.byKey(const Key('desktop-date-label-depart')))
     .data;
@@ -479,9 +485,9 @@ void main() {
       expect(dialog.firstDate, DateTime(2026, 5, 18));
     });
 
-    // isNow 出発は h/m に起動時の丸め値を持つ。実際の現在時刻で数えないと、
-    // 23:59 に開いたとき到着の下限だけ今日に留まり、選んだ日が翌日へ戻される。
-    testWidgets('今すぐ出発が 23:59 なら到着カレンダーは翌日から始まる', (tester) async {
+    // 23:59 発の最小ギャップは翌日へ入る。下限を出発と同じ日に置くと、選べる日
+    // と applyPickedTime が返す日が食い違う。
+    testWidgets('23:59 出発なら到着カレンダーは翌日から始まる', (tester) async {
       await _pumpHome(tester, 1280, now: () => DateTime(2026, 5, 15, 23, 59));
 
       await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
@@ -491,6 +497,82 @@ void main() {
         find.byType(DatePickerDialog),
       );
       expect(dialog.firstDate, DateTime(2026, 5, 16));
+    });
+
+    // 古びた isNow 出発の下限を実時刻へ寄せると、欄が 09:30 を出したまま到着
+    // だけ翌日から始まる。applyPickedTime が比べるのは保持値なので、25時間の
+    // 予算が黙って作れてしまう。表示と同じ値で数える。
+    testWidgets('古びた今すぐ出発でも到着の予算が1日ぶん膨らまない', (tester) async {
+      final clock = _MovableClock(DateTime(2026, 5, 15, 9, 30));
+      final container = await _pumpHome(tester, 1280, now: clock.call);
+      clock.set(DateTime(2026, 5, 15, 23, 59));
+
+      await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
+      await tester.pumpAndSettle();
+      final dialog = tester.widget<DatePickerDialog>(
+        find.byType(DatePickerDialog),
+      );
+      expect(dialog.firstDate, DateTime(2026, 5, 15));
+
+      await tester.tap(find.text('15'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      final state = container.read(appStateProvider);
+      expect(state.arrival.dateOffset, 0);
+      expect(
+        state.arrival.totalMinutes - state.departure.totalMinutes,
+        kInitialBudgetMinutes,
+      );
+    });
+
+    // 上限を kMaxDateOffsetDays で切ると、押し出された到着を表せる日が消える。
+    // 何も変えずに確定しただけで値が動く。
+    testWidgets('上限を越えた到着は開いて確定しても動かない', (tester) async {
+      final container = await _pumpHome(tester, 1280);
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(
+            mode: PickerMode.depart,
+            h: 23,
+            m: 59,
+            dateOffset: kMaxDateOffsetDays,
+          );
+      await tester.pump();
+      final before = container.read(appStateProvider).arrival;
+
+      await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      final after = container.read(appStateProvider).arrival;
+      expect(
+        (after.h, after.m, after.dateOffset),
+        (before.h, before.m, before.dateOffset),
+      );
+    });
+
+    // dateOffset は相対値なので、今日が動けば同じ値が別の日を指す。確定する側
+    // だけ数え直すと、相手が古い今日に取り残されて予算が24時間ぶん伸びる。
+    testWidgets('日を跨いで確定しても予算が24時間ぶん伸びない', (tester) async {
+      final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
+      final container = await _pumpHome(tester, 1280, now: clock.call);
+      await tester.tap(find.byKey(const Key('desktop-date-step-up-depart')));
+      await tester.pump();
+      final budget = _budgetMinutes(container);
+
+      await tester.tap(find.byKey(_departDateOpen));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('16'));
+      await tester.pumpAndSettle();
+      clock.set(DateTime(2026, 5, 16, 0, 5));
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(_budgetMinutes(container), budget);
+      expect(container.read(appStateProvider).departure.dateOffset, 0);
     });
 
     // 出発が上限の日の 23:59 だと到着の下限は 91 日目になり、firstDate が

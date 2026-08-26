@@ -57,6 +57,13 @@ const int kInitialBudgetMinutes = 60;
 /// 出発と到着の最小ギャップ（分）。これにより常に「出発 < 到着」を保証する。
 const int kMinBudgetMinutes = 1;
 
+/// [days] 日ぶん手前へ寄せた TimeValue。今日より前は表現できないので 0 で止める
+/// （そのぶん予算は縮むが、[AppNotifier.applyPickedTime] が下限を持ち直す）。
+/// isNow は dateOffset を見ないため触らない。
+TimeValue _rebased(TimeValue t, int days) => t.isNow
+    ? t
+    : t.copyWith(dateOffset: (t.dateOffset - days).clamp(0, t.dateOffset));
+
 /// 当日0時基準の絶対分から TimeValue を復元する（isNow は付かない）。
 TimeValue _timeValueFromAbs(int abs) =>
     TimeValue(h: (abs ~/ 60) % 24, m: abs % 60, dateOffset: abs ~/ (24 * 60));
@@ -614,6 +621,20 @@ class AppNotifier extends Notifier<AppState> {
 
   void setOrigin(String? name, {GeoPoint? latLng}) =>
       state = state.copyWith(origin: name, originLatLng: latLng);
+
+  /// 日を跨いだぶんだけ出発・到着の日数オフセットを詰め、両者が指す絶対日付を保つ。
+  ///
+  /// [TimeValue.dateOffset] は「今日から何日後か」なので、今日が動けば同じ値が
+  /// 別の日を指す。片方だけ新しい今日で数え直すと、予算だけが日数ぶん伸びる。
+  /// 出発と到着を同じ [copyWith] で動かすのは、片方ずつ通すと [applyPickedTime]
+  /// の「出発 < 到着」補正が途中の食い違いを本物の値として固定してしまうため。
+  void rebaseDates(int days) {
+    if (days <= 0) return;
+    state = state.copyWith(
+      departure: _rebased(state.departure, days),
+      arrival: _rebased(state.arrival, days),
+    );
+  }
 
   /// 日付・時刻ピッカーで確定した値を出発/到着に反映する。
   void applyPickedTime({

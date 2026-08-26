@@ -106,18 +106,19 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
   /// 到着は出発より前へ置けない。選ばせておいて [AppNotifier.applyPickedTime] が
   /// 出発+最小ギャップへ戻すと、選んだ日と確定した日が食い違う。時刻の下限は
   /// 向こうの担当のままで、ここが決めるのは日付の下限だけ。
-  int _firstSelectableOffset(DateTime now) {
+  int _firstSelectableOffset() {
     if (widget.mode == PickerMode.depart) return 0;
     final departure = ref.read(appStateProvider).departure;
-    // isNow は起動時の丸め値を h/m に持ったまま古びる。下限は現在時刻で数える。
+    // isNow でも現在時刻ではなく保持値で数える。下限を実時刻へ寄せると、欄が
+    // 09:30 を出したまま到着だけ翌日から始まり、[AppNotifier.applyPickedTime]
+    // が比べるのは保持値のままなので25時間の予算が黙って作れる。isNow の
+    // 古びは startSearch の再取得が引き受けている（#264）。
     final offset = departure.isNow ? 0 : departure.dateOffset;
-    final minutes = departure.isNow
-        ? now.hour * 60 + now.minute
-        : departure.totalMinutes;
     // 23:59 発の最小ギャップは翌日へ入る。日跨ぎを分で数えるのは、時刻を
     // DateTime へ起こすと再び夏時間の加算に触れるため。
-    final carry = (minutes + kMinBudgetMinutes) ~/ Duration.minutesPerDay;
-    return (offset + carry).clamp(0, kMaxDateOffsetDays);
+    final carry =
+        (departure.totalMinutes + kMinBudgetMinutes) ~/ Duration.minutesPerDay;
+    return offset + carry;
   }
 
   /// 月グリッドのカレンダーを開き、選ばれた日を日付オフセットへ移す。
@@ -126,13 +127,18 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
   /// 実質無い。範囲は [kMaxDateOffsetDays] から引く——ここを独自に決めると
   /// ホイールシートとデスクトップで作れる日付が食い違う。
   Future<void> _pickDate() async {
-    final now = ref.read(nowProvider)();
-    final first = _dateAt(now, _firstSelectableOffset(now));
-    final last = _dateAt(now, kMaxDateOffsetDays);
+    final opened = ref.read(nowProvider)();
+    final firstOffset = _firstSelectableOffset();
     // 到着は出発+最小ギャップへ押し出されるため、出発が上限の日の 23:59 だと
-    // 上限を1日越える。範囲の外を開始位置に渡すと assert で落ちる。
-    // ホイールシートも同じ理由で開始位置を範囲へ丸めている。
-    final initial = _dateAt(now, _current().dateOffset);
+    // 到着だけが上限を1日越える。上限を [kMaxDateOffsetDays] で切ると、その
+    // 到着を表せる日がカレンダーから消え、開いて確定しただけで値が動く。
+    // 状態として既に在る日までは出す（それ以上先は出発側が作れない）。
+    final lastOffset = firstOffset > kMaxDateOffsetDays
+        ? firstOffset
+        : kMaxDateOffsetDays;
+    final first = _dateAt(opened, firstOffset);
+    final last = _dateAt(opened, lastOffset);
+    final initial = _dateAt(opened, _current().dateOffset);
     final picked = await showDatePicker(
       context: context,
       initialDate: initial.isBefore(first)
@@ -142,9 +148,15 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
       lastDate: last,
       // 既定は DateTime.now() で、テストが時計を差し替えても実時刻を指す。
       // 「今日」の強調が firstDate と別の日に付く。
-      currentDate: _dateAt(now, 0),
+      currentDate: _dateAt(opened, 0),
     );
     if (picked == null || !mounted) return;
+    final closed = ref.read(nowProvider)();
+    // 表示中に日を跨ぐと、確定する側だけ新しい今日で数え直され、相手側は古い
+    // 今日を基準にした値のまま残る。先に両方を同じ基準へ揃える。
+    ref
+        .read(appStateProvider.notifier)
+        .rebaseDates(dateOffsetFrom(picked: closed, now: opened));
     // 編集途中の表示値を基点にする。確定値の時刻を持ち回ると、18:20 と打った
     // 直後に日付を変えたとき、打ったばかりの時刻が黙って捨てられる。
     final typed = parseTimeInput(_controller.text);
@@ -152,9 +164,11 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
     _apply(
       h: typed?.h ?? current.h,
       m: typed?.m ?? current.m,
-      // 開いた時点の now では数えない。表示中に日を跨ぐと基準日が古いままになり、
-      // 選んだ日そのものではなく1日先を指す。
-      dateOffset: dateOffsetFrom(picked: picked, now: ref.read(nowProvider)()),
+      dateOffset: dateOffsetFrom(
+        picked: picked,
+        now: closed,
+        maxOffset: lastOffset,
+      ),
     );
   }
 

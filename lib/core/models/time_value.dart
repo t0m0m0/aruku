@@ -92,8 +92,16 @@ const int kMaxDateOffsetDays = 90;
 ///
 /// 日付どうしの差は UTC へ置き換えてから取る。ローカル時刻のままだと、夏時間の
 /// 切り替わりを挟む1日が23時間となり `inDays` が 0 を返す。
-int dateOffsetFrom({required DateTime picked, required DateTime now}) {
+///
+/// [maxOffset] を渡せるのは、押し出された到着が [kMaxDateOffsetDays] を越えて
+/// 存在し得るため。その値を出した入口は、自分が出した範囲で数え直さないと、
+/// 表示した日を選んだだけで別の日へ丸められる。既定は選べる範囲そのもの。
+int dateOffsetFrom({
+  required DateTime picked,
+  required DateTime now,
+  int maxOffset = kMaxDateOffsetDays,
+}) {
   final today = DateTime.utc(now.year, now.month, now.day);
   final target = DateTime.utc(picked.year, picked.month, picked.day);
-  return target.difference(today).inDays.clamp(0, kMaxDateOffsetDays);
+  return target.difference(today).inDays.clamp(0, maxOffset);
 }
