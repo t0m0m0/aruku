@@ -105,15 +105,13 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
   }
 
   void _confirm() {
-    final dateOnly = DateTime(_selected.year, _selected.month, _selected.day);
-    final dateOffset = dateOnly.difference(_today).inDays;
     ref
         .read(appStateProvider.notifier)
         .applyPickedTime(
           mode: _mode,
           h: _selected.hour,
           m: _selected.minute,
-          dateOffset: dateOffset < 0 ? 0 : dateOffset,
+          dateOffset: dateOffsetFrom(picked: _selected, now: _today),
         );
     Navigator.of(context).pop();
   }

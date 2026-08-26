@@ -121,4 +121,36 @@ void main() {
       expect(tv.dateLabel(now: now), '6/18(木)');
     });
   });
+
+  group('dateOffsetFrom', () {
+    final now = DateTime(2026, 5, 19, 14, 30);
+
+    test('同じ日は 0', () {
+      expect(dateOffsetFrom(picked: DateTime(2026, 5, 19), now: now), 0);
+    });
+
+    test('時刻が残っていても日付だけで数える', () {
+      expect(dateOffsetFrom(picked: DateTime(2026, 5, 20, 3, 15), now: now), 1);
+    });
+
+    test('月をまたいでも日数で数える', () {
+      expect(dateOffsetFrom(picked: DateTime(2026, 6, 18), now: now), 30);
+    });
+
+    test('上限の日は kMaxDateOffsetDays', () {
+      final last = DateTime(2026, 5, 19 + kMaxDateOffsetDays);
+      expect(dateOffsetFrom(picked: last, now: now), kMaxDateOffsetDays);
+    });
+
+    // TimeValue は dateOffset >= 0 を assert する。範囲外を素通しすると
+    // 画面ではなくモデルの構築時に落ちる。
+    test('過去の日付は 0 へ丸める', () {
+      expect(dateOffsetFrom(picked: DateTime(2026, 5, 18), now: now), 0);
+    });
+
+    test('上限より先の日付は kMaxDateOffsetDays へ丸める', () {
+      final beyond = DateTime(2026, 5, 19 + kMaxDateOffsetDays + 5);
+      expect(dateOffsetFrom(picked: beyond, now: now), kMaxDateOffsetDays);
+    });
+  });
 }

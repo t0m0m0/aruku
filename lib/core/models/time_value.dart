@@ -83,3 +83,17 @@ enum PickerMode { depart, arrival }
 /// 値はここだけに置く。片方だけ広いと、一方の入口でしか作れない状態が
 /// できて再現条件が読めなくなる。
 const int kMaxDateOffsetDays = 90;
+
+/// カレンダーが返す絶対日付を [TimeValue.dateOffset]（今日からの日数）へ直す。
+///
+/// ホイールシートとデスクトップのカレンダーで別々に書かない。片方だけ丸めを
+/// 落とすと、範囲外の日付が [TimeValue] の `assert(dateOffset >= 0)` まで
+/// 素通りして、入口ではなくモデルの構築時に落ちる。
+///
+/// 日付どうしの差は UTC へ置き換えてから取る。ローカル時刻のままだと、夏時間の
+/// 切り替わりを挟む1日が23時間となり `inDays` が 0 を返す。
+int dateOffsetFrom({required DateTime picked, required DateTime now}) {
+  final today = DateTime.utc(now.year, now.month, now.day);
+  final target = DateTime.utc(picked.year, picked.month, picked.day);
+  return target.difference(today).inDays.clamp(0, kMaxDateOffsetDays);
+}
