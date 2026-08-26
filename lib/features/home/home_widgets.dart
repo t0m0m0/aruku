@@ -1,6 +1,6 @@
 part of 'home_screen.dart';
 
-class _DestinationCard extends StatelessWidget {
+class _DestinationCard extends ConsumerWidget {
   const _DestinationCard({
     required this.departure,
     required this.destination,
@@ -15,7 +15,7 @@ class _DestinationCard extends StatelessWidget {
   final VoidCallback onRefreshLocation;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
     final l10n = AppLocalizations.of(context);
     // 「出発」「目的地」ラベル共通スタイル（2箇所で同期させる）
@@ -105,54 +105,73 @@ class _DestinationCard extends StatelessWidget {
                 ),
               ),
               // To
-              InkWell(
-                onTap: onTapDestination,
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(38, 12, 0, 12),
-                  child: Row(
+              if (ref.watch(isDesktopLayoutProvider))
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(38, 8, 0, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(l10n.homeDestinationLabel, style: labelStyle),
-                            const SizedBox(height: 2),
-                            Text(
-                              destination ?? l10n.homeDestinationPlaceholder,
-                              style: jpStyle(
-                                size: 16,
-                                weight: destination != null
-                                    ? FontWeight.w700
-                                    : FontWeight.w600,
-                                color: destination != null ? c.ink : c.ink3,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      // 検索チップ（moss50 角丸）— コンパスと同じく 44px タップ
-                      // 領域＋ボタン意味付けで一貫させる。
-                      _IconHit(
-                        key: const Key('home-destination-search'),
-                        label: l10n.homeSearchDestination,
-                        onTap: onTapDestination,
-                        child: Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            color: c.moss50,
-                            borderRadius: BorderRadius.circular(11),
-                          ),
-                          child: Center(
-                            child: Ic.search(size: 17, color: c.moss600),
-                          ),
-                        ),
+                      Text(l10n.homeDestinationLabel, style: labelStyle),
+                      const SizedBox(height: 6),
+                      DesktopTypeaheadField(
+                        mode: SearchMode.destination,
+                        hintText: l10n.homeDestinationPlaceholder,
                       ),
                     ],
                   ),
+                )
+              else
+                InkWell(
+                  onTap: onTapDestination,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(38, 12, 0, 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                l10n.homeDestinationLabel,
+                                style: labelStyle,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                destination ?? l10n.homeDestinationPlaceholder,
+                                style: jpStyle(
+                                  size: 16,
+                                  weight: destination != null
+                                      ? FontWeight.w700
+                                      : FontWeight.w600,
+                                  color: destination != null ? c.ink : c.ink3,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // 検索チップ（moss50 角丸）— コンパスと同じく 44px タップ
+                        // 領域＋ボタン意味付けで一貫させる。
+                        _IconHit(
+                          key: const Key('home-destination-search'),
+                          label: l10n.homeSearchDestination,
+                          onTap: onTapDestination,
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: c.moss50,
+                              borderRadius: BorderRadius.circular(11),
+                            ),
+                            child: Center(
+                              child: Ic.search(size: 17, color: c.moss600),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
             ],
           ),
         ],

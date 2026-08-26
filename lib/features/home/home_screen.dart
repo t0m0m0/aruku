@@ -18,6 +18,8 @@ import '../../shared/widgets/aruku_card.dart';
 import '../../shared/widgets/desktop_content.dart';
 import '../picker/date_time_picker_sheet.dart';
 import '../picker/desktop_time_field.dart';
+import '../search/desktop_typeahead_field.dart';
+import '../search/search_screen.dart' show SearchMode;
 
 part 'home_widgets.dart';
 

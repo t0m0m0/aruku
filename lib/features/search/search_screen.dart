@@ -13,6 +13,7 @@ import '../../core/state/recents_provider.dart';
 import '../../core/theme/aruku_theme.dart';
 import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
+import 'place_selection.dart';
 import 'places_provider.dart';
 
 part 'search_widgets.dart';
@@ -54,21 +55,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       _selecting = true;
       _pickFailed = false;
     });
-    // Google autocomplete は座標を返さないため、確定時に details で座標を引く。
-    // オフライン時の SocketException など PlacesException 以外も座標なし扱いにする
-    // （取りこぼすと _selecting が立ったままリストが固まる）。
-    GeoPoint? latLng;
-    try {
-      latLng = await ref
-          .read(placesServiceProvider)
-          .fetchLatLng(prediction.placeId);
-    } catch (_) {
-      latLng = null;
-    }
+    final resolved = await resolvePlacePrediction(
+      ref.read(placesServiceProvider),
+      prediction,
+    );
     if (!mounted) return;
-    // 経路照会（/guidance/plan）は from/to ともに座標必須。
-    // 座標が取れない候補は確定させず、別候補の再選択を促す。
-    if (latLng == null) {
+    if (resolved == null) {
       setState(() {
         _selecting = false;
         _pickFailed = true;
@@ -77,15 +69,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
     setState(() => _selecting = false);
     // 目的地・出発地どちらのモードでも、確定した地点をそのモードの履歴に残す。
-    _rememberRecent(
-      RecentPlace(
-        name: prediction.name,
-        placeId: prediction.placeId,
-        latLng: latLng,
-        address: prediction.address,
-      ),
-    );
-    _applySelection(prediction.name, latLng: latLng);
+    _rememberRecent(resolved);
+    _applySelection(resolved.name, latLng: resolved.latLng);
   }
 
   void _rememberRecent(RecentPlace place) {

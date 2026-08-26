@@ -9,6 +9,7 @@ import 'package:aruku/core/navigation/app_router.dart';
 import 'package:aruku/core/services/activity_service.dart';
 import 'package:aruku/core/services/cancellation.dart';
 import 'package:aruku/core/services/location_service.dart';
+import 'package:aruku/core/services/places_service.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
@@ -129,6 +130,7 @@ Widget appWidget(ProviderContainer container) => UncontrolledProviderScope(
 Future<ProviderContainer> makeContainer({
   RouteService? routeService,
   LocationService? locationService,
+  PlacesService? placesService,
   Now? now,
 }) async {
   final prefs = await SharedPreferences.getInstance();
@@ -141,6 +143,8 @@ Future<ProviderContainer> makeContainer({
       activityServiceProvider.overrideWithValue(FakeActivityService()),
       if (routeService != null)
         routeServiceProvider.overrideWithValue(routeService),
+      if (placesService != null)
+        placesServiceProvider.overrideWithValue(placesService),
       if (now != null) nowProvider.overrideWithValue(now),
     ],
   );
