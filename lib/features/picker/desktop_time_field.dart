@@ -159,11 +159,19 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
     // 確定値でなく編集途中の表示値を基点にする。再基準化より先に読むのは、
     // それが state を書き換えて欄へ跳ね返るため。
     final typed = parseTimeInput(_controller.text);
-    final current = _current();
+    final before = _current();
     notifier.rebaseDates(elapsed);
+    final current = _current();
+    // 日も時刻も動かさずに閉じたなら、書き戻す意思が無い。再基準化が直した値を
+    // 古い表示で上書きすると、寄せた出発の直後へ潰れる。
+    final untouched =
+        (typed == null || (typed.h == before.h && typed.m == before.m)) &&
+        picked == _dateAt(opened, before.dateOffset);
     // 選んだ日が表示中に過ぎたら丸めない。今日へ丸めると、開いた時点の 23:55 と
     // 組んで丸1日後になる。
-    if (picked == null || calendarDaysBetween(from: closed, to: picked) < 0) {
+    if (picked == null ||
+        untouched ||
+        calendarDaysBetween(from: closed, to: picked) < 0) {
       _syncFromState();
       return;
     }

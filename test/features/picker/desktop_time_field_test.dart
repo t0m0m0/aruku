@@ -506,6 +506,27 @@ void main() {
       );
     });
 
+    // 何も変えずに閉じたのに、古い表示を書き戻すと寄せた出発の直後へ潰れる。
+    testWidgets('何も変えずに確定したら再基準化した値を残す', (tester) async {
+      final clock = _MovableClock(DateTime(2026, 5, 15, 9, 30));
+      final container = await _pumpHome(tester, 1280, now: clock.call);
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(mode: PickerMode.depart, h: 9, m: 30, dateOffset: 0);
+      await tester.pump();
+      final budget = _budgetMinutes(container);
+      clock.set(DateTime(2026, 5, 15, 23, 59));
+
+      await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      final dep = container.read(appStateProvider).departure;
+      expect((dep.h, dep.m, dep.dateOffset), (23, 59, 0));
+      expect(_budgetMinutes(container), budget);
+    });
+
     // 西向きの時刻変更で今日が戻ることがある。据え置くと offset 0 が指す日が
     // 1日手前へずれる。
     testWidgets('今日が手前へ動いたら日付を先へ送り返す', (tester) async {
@@ -612,7 +633,7 @@ void main() {
             dateOffset: 0,
           );
       await tester.pump();
-      final before = container.read(appStateProvider).arrival;
+      final budget = _budgetMinutes(container);
 
       await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
       await tester.pumpAndSettle();
@@ -624,20 +645,19 @@ void main() {
 
       final state = container.read(appStateProvider);
       expect(
-        (state.arrival.h, state.arrival.m, state.arrival.dateOffset),
-        (before.h, before.m, 0),
-      );
-      expect(
         (state.departure.h, state.departure.m, state.departure.dateOffset),
         (0, 5, 0),
       );
+      // 5月16日は確定した時点の今日。1日先ではない。
+      expect(state.arrival.dateOffset, 0);
+      expect(_budgetMinutes(container), budget);
     });
 
     testWidgets('日を跨ぐと今すぐ出発も跨いだ先の時刻になる', (tester) async {
       final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
       final container = await _pumpHome(tester, 1280, now: clock.call);
-      final before = container.read(appStateProvider).arrival;
-      expect(before.dateOffset, 1);
+      expect(container.read(appStateProvider).arrival.dateOffset, 1);
+      final budget = _budgetMinutes(container);
 
       await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
       await tester.pumpAndSettle();
@@ -652,10 +672,8 @@ void main() {
         (state.departure.h, state.departure.m, state.departure.isNow),
         (0, 5, true),
       );
-      expect(
-        (state.arrival.h, state.arrival.m, state.arrival.dateOffset),
-        (before.h, before.m, 0),
-      );
+      expect(state.arrival.dateOffset, 0);
+      expect(_budgetMinutes(container), budget);
     });
 
     testWidgets('跨いだ先で過ぎている出発も現在時刻へ寄せる', (tester) async {
