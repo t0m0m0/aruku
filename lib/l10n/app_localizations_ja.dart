@@ -391,5 +391,27 @@ class AppLocalizationsJa extends AppLocalizations {
   String get homeOpenSettings => '設定を開く';
 
   @override
+  String timeFieldLater(String label) {
+    return '$labelを5分あとにする';
+  }
+
+  @override
+  String timeFieldEarlier(String label) {
+    return '$labelを5分まえにする';
+  }
+
+  @override
+  String get timeFieldPreviousDay => '前の日へ';
+
+  @override
+  String get timeFieldNextDay => '次の日へ';
+
+  @override
+  String get shellTabPlan => 'ルートを計画';
+
+  @override
+  String get shellTabSettings => '設定';
+
+  @override
   String get searchClearInput => '入力を消去';
 }

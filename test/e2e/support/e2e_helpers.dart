@@ -9,11 +9,14 @@ import 'package:aruku/core/navigation/app_router.dart';
 import 'package:aruku/core/services/activity_service.dart';
 import 'package:aruku/core/services/cancellation.dart';
 import 'package:aruku/core/services/location_service.dart';
+import 'package:aruku/core/services/places_service.dart';
 import 'package:aruku/core/services/recents_repository.dart';
 import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/l10n/app_localizations.dart';
+import 'package:aruku/shared/widgets/desktop_shell.dart';
+import 'package:aruku/shared/widgets/responsive_scope.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -113,6 +116,10 @@ Widget appWidget(ProviderContainer container) => UncontrolledProviderScope(
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     routerConfig: container.read(goRouterProvider),
+    // 本番（main.dart）と同じ合成にする。ここが食い違うと、デスクトップ幅の
+    // 挙動が e2e を素通りする。
+    builder: (context, child) =>
+        ResponsiveScope(child: DesktopShell(child: child!)),
   ),
 );
 
@@ -123,6 +130,7 @@ Widget appWidget(ProviderContainer container) => UncontrolledProviderScope(
 Future<ProviderContainer> makeContainer({
   RouteService? routeService,
   LocationService? locationService,
+  PlacesService? placesService,
   Now? now,
 }) async {
   final prefs = await SharedPreferences.getInstance();
@@ -135,6 +143,8 @@ Future<ProviderContainer> makeContainer({
       activityServiceProvider.overrideWithValue(FakeActivityService()),
       if (routeService != null)
         routeServiceProvider.overrideWithValue(routeService),
+      if (placesService != null)
+        placesServiceProvider.overrideWithValue(placesService),
       if (now != null) nowProvider.overrideWithValue(now),
     ],
   );

@@ -1,29 +1,46 @@
 part of 'settings_screen.dart';
 
 /// 見出し付きのカードでまとめた設定項目グループ。
-class _SettingsSection extends StatelessWidget {
+class _SettingsSection extends ConsumerWidget {
   const _SettingsSection({required this.title, required this.children});
 
   final String title;
   final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
+    final label = Text(
+      title,
+      style: jpStyle(size: 12, weight: FontWeight.w700, color: c.ink3),
+    );
+    final card = ArukuCard(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Column(children: children),
+    );
+
+    if (ref.watch(isDesktopLayoutProvider)) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: ArukuTokens.settingsLabelColumnWidth,
+            // カードの内側 padding と行の文字位置を揃えるための下げ幅。
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(4, 14, 16, 0),
+              child: label,
+            ),
+          ),
+          Expanded(child: card),
+        ],
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-          child: Text(
-            title,
-            style: jpStyle(size: 12, weight: FontWeight.w700, color: c.ink3),
-          ),
-        ),
-        ArukuCard(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: Column(children: children),
-        ),
+        Padding(padding: const EdgeInsets.fromLTRB(4, 0, 4, 8), child: label),
+        card,
       ],
     );
   }

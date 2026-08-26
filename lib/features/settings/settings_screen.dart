@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/config/layout_breakpoints.dart';
 import '../../core/config/platform_capabilities.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/models/app_settings.dart';
@@ -15,6 +16,7 @@ import '../../l10n/app_localizations.dart';
 import '../../shared/icons/ic.dart';
 import '../../shared/km_format.dart';
 import '../../shared/widgets/aruku_card.dart';
+import '../../shared/widgets/desktop_content.dart';
 
 part 'settings_widgets.dart';
 
@@ -68,147 +70,152 @@ class SettingsScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: c.ivory,
       body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
-              child: Row(
-                children: [
-                  IconButton(
-                    onPressed: () => notifier.go(Screen.home),
-                    tooltip: l10n.commonBack,
-                    icon: Ic.chevron(
-                      size: 20,
-                      color: c.ink,
-                      dir: ChevronDir.left,
-                    ),
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      fixedSize: const Size(40, 40),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+        child: DesktopContent(
+          maxWidth: ArukuTokens.settingsMaxWidth,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => notifier.go(Screen.home),
+                      tooltip: l10n.commonBack,
+                      icon: Ic.chevron(
+                        size: 20,
+                        color: c.ink,
+                        dir: ChevronDir.left,
+                      ),
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        fixedSize: const Size(40, 40),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    l10n.settingsTitle,
-                    style: jpStyle(
-                      size: 20,
-                      weight: FontWeight.w800,
-                      color: c.ink,
+                    const SizedBox(width: 4),
+                    Text(
+                      l10n.settingsTitle,
+                      style: jpStyle(
+                        size: 20,
+                        weight: FontWeight.w800,
+                        color: c.ink,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-                children: [
-                  _SettingsSection(
-                    title: l10n.settingsNotificationsSection,
-                    children: [
-                      // 非対応環境ではスイッチを残さず理由へ差し替える。既定が
-                      // 有効なので残すと「オンなのに何も起きない」設定をユーザーが
-                      // 自分で永続化できてしまう。
-                      if (ref.watch(localNotificationsSupportedProvider))
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                  children: [
+                    _SettingsSection(
+                      title: l10n.settingsNotificationsSection,
+                      children: [
+                        // 非対応環境ではスイッチを残さず理由へ差し替える。既定が
+                        // 有効なので残すと「オンなのに何も起きない」設定をユーザーが
+                        // 自分で永続化できてしまう。
+                        if (ref.watch(localNotificationsSupportedProvider))
+                          _SwitchRow(
+                            switchKey: const Key('switch_notifications'),
+                            label: l10n.settingsReceiveNotifications,
+                            value: settings.notificationsEnabled,
+                            onChanged: (v) => guardSave(
+                              () => settingsNotifier.setNotifications(v),
+                            ),
+                          )
+                        else
+                          _SettingsNote(
+                            key: const Key(
+                              'settings-notifications-unsupported',
+                            ),
+                            text: l10n.settingsNotificationsUnsupported,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _SettingsSection(
+                      title: l10n.settingsHealthKitSection,
+                      children: [
                         _SwitchRow(
-                          switchKey: const Key('switch_notifications'),
-                          label: l10n.settingsReceiveNotifications,
-                          value: settings.notificationsEnabled,
+                          switchKey: const Key('switch_healthkit'),
+                          label: l10n.settingsHealthKitEnable,
+                          value: settings.healthKitEnabled,
                           onChanged: (v) => guardSave(
-                            () => settingsNotifier.setNotifications(v),
+                            () => settingsNotifier.setHealthKitEnabled(v),
                           ),
-                        )
-                      else
-                        _SettingsNote(
-                          key: const Key('settings-notifications-unsupported'),
-                          text: l10n.settingsNotificationsUnsupported,
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _SettingsSection(
-                    title: l10n.settingsHealthKitSection,
-                    children: [
-                      _SwitchRow(
-                        switchKey: const Key('switch_healthkit'),
-                        label: l10n.settingsHealthKitEnable,
-                        value: settings.healthKitEnabled,
-                        onChanged: (v) => guardSave(
-                          () => settingsNotifier.setHealthKitEnabled(v),
-                        ),
-                      ),
-                      _SettingsNote(text: l10n.settingsHealthKitDescription),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _SettingsSection(
-                    title: l10n.settingsWeeklyGoalSection,
-                    children: [
-                      // 目標は歩数由来の距離でしか進まない。選ばせると永久に
-                      // 到達しない目標を設定できてしまう。
-                      if (ref.watch(stepCountingSupportedProvider))
-                        _GoalPresetRow(
-                          label: l10n.settingsWeeklyGoalLabel,
-                          selectedKm: settings.weeklyGoalKm,
-                          onSelected: (km) => guardSave(
-                            () => settingsNotifier.setWeeklyGoalKm(km),
+                        _SettingsNote(text: l10n.settingsHealthKitDescription),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _SettingsSection(
+                      title: l10n.settingsWeeklyGoalSection,
+                      children: [
+                        // 目標は歩数由来の距離でしか進まない。選ばせると永久に
+                        // 到達しない目標を設定できてしまう。
+                        if (ref.watch(stepCountingSupportedProvider))
+                          _GoalPresetRow(
+                            label: l10n.settingsWeeklyGoalLabel,
+                            selectedKm: settings.weeklyGoalKm,
+                            onSelected: (km) => guardSave(
+                              () => settingsNotifier.setWeeklyGoalKm(km),
+                            ),
+                          )
+                        else
+                          _SettingsNote(
+                            key: const Key('settings-weekly-goal-unsupported'),
+                            text: l10n.settingsWeeklyGoalUnsupported,
                           ),
-                        )
-                      else
-                        _SettingsNote(
-                          key: const Key('settings-weekly-goal-unsupported'),
-                          text: l10n.settingsWeeklyGoalUnsupported,
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _SettingsSection(
-                    title: l10n.settingsPermissionsSection,
-                    children: [
-                      // 押しても無反応の導線を残すと、権限を変えられない理由が
-                      // 画面から復元できない。
-                      if (ref.watch(canOpenOsSettingsProvider))
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _SettingsSection(
+                      title: l10n.settingsPermissionsSection,
+                      children: [
+                        // 押しても無反応の導線を残すと、権限を変えられない理由が
+                        // 画面から復元できない。
+                        if (ref.watch(canOpenOsSettingsProvider))
+                          _LinkRow(
+                            label: l10n.settingsLocationNotificationPermission,
+                            trailing: l10n.settingsOpenDeviceSettings,
+                            onTap: openAppSettings,
+                          )
+                        else
+                          _SettingsNote(
+                            key: const Key('settings-os-settings-unavailable'),
+                            text: l10n.settingsOsSettingsUnavailable,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _SettingsSection(
+                      title: l10n.settingsLegalSection,
+                      children: [
                         _LinkRow(
-                          label: l10n.settingsLocationNotificationPermission,
-                          trailing: l10n.settingsOpenDeviceSettings,
-                          onTap: openAppSettings,
-                        )
-                      else
-                        _SettingsNote(
-                          key: const Key('settings-os-settings-unavailable'),
-                          text: l10n.settingsOsSettingsUnavailable,
+                          key: const Key('link_terms'),
+                          label: l10n.settingsTermsOfService,
+                          onTap: () => openExternal(
+                            Uri.parse(AppConstants.termsOfServiceUrl),
+                          ),
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _SettingsSection(
-                    title: l10n.settingsLegalSection,
-                    children: [
-                      _LinkRow(
-                        key: const Key('link_terms'),
-                        label: l10n.settingsTermsOfService,
-                        onTap: () => openExternal(
-                          Uri.parse(AppConstants.termsOfServiceUrl),
+                        _LinkRow(
+                          key: const Key('link_privacy'),
+                          label: l10n.settingsPrivacyPolicy,
+                          onTap: () => openExternal(
+                            Uri.parse(AppConstants.privacyPolicyUrl),
+                          ),
                         ),
-                      ),
-                      _LinkRow(
-                        key: const Key('link_privacy'),
-                        label: l10n.settingsPrivacyPolicy,
-                        onTap: () => openExternal(
-                          Uri.parse(AppConstants.privacyPolicyUrl),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

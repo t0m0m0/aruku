@@ -51,7 +51,13 @@ class _DateTimePickerSheetState extends ConsumerState<_DateTimePickerSheet> {
     _today = DateTime(now.year, now.month, now.day);
     // 過去時刻は選択不可。秒は落として分単位の下限にする（1分刻みで選べる）。
     _minDate = DateTime(now.year, now.month, now.day, now.hour, now.minute);
-    _maxDate = DateTime(_today.year, _today.month, _today.day + 90, 23, 59);
+    _maxDate = DateTime(
+      _today.year,
+      _today.month,
+      _today.day + kMaxDateOffsetDays,
+      23,
+      59,
+    );
     _arrivalMin = _computeArrivalMin();
     _mode = widget.initialMode;
     _selected = _initialFor(_mode);

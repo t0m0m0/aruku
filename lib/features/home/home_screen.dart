@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/config/layout_breakpoints.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/models/time_value.dart';
 import '../../core/state/app_state.dart';
@@ -14,7 +15,11 @@ import '../../shared/icons/ic.dart';
 import '../../shared/km_format.dart';
 import '../../shared/widgets/aruku_button.dart';
 import '../../shared/widgets/aruku_card.dart';
+import '../../shared/widgets/desktop_content.dart';
 import '../picker/date_time_picker_sheet.dart';
+import '../picker/desktop_time_field.dart';
+import '../search/desktop_typeahead_field.dart';
+import '../search/search_screen.dart' show SearchMode;
 
 part 'home_widgets.dart';
 
@@ -42,240 +47,291 @@ class HomeScreen extends ConsumerWidget {
     final dep = state.departure;
     final arr = state.arrival;
     final budget = state.budgetMinutes;
+    final isDesktop = ref.watch(isDesktopLayoutProvider);
 
     return Material(
       color: c.ivory,
       child: SafeArea(
         bottom: false,
-        // 大きな文字倍率では Spacer を含む固定 Column が縦にあふれる。ビューポート
-        // を満たしつつ、収まらないときだけスクロールへ退避する器で包む。
-        child: LayoutBuilder(
-          builder: (context, constraints) => SingleChildScrollView(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: IntrinsicHeight(
-                child: Column(
-                  children: [
-                    // Greeting header（ストリークチップは下部の目標カードへ統合）
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        _gutter,
-                        _sp2,
-                        _gutter,
-                        _sp3,
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  AppConstants.todayGreeting(l10n),
-                                  style: jpStyle(
-                                    size: 13,
-                                    weight: FontWeight.w600,
-                                    color: c.ink2,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                RichText(
-                                  text: TextSpan(
+        child: DesktopContent(
+          maxWidth: ArukuTokens.homeMaxWidth,
+          // 大きな文字倍率では Spacer を含む固定 Column が縦にあふれる。ビューポート
+          // を満たしつつ、収まらないときだけスクロールへ退避する器で包む。
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: IntrinsicHeight(
+                  child: Column(
+                    children: [
+                      // Greeting header（ストリークチップは下部の目標カードへ統合）
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          _gutter,
+                          _sp2,
+                          _gutter,
+                          _sp3,
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    AppConstants.todayGreeting(l10n),
                                     style: jpStyle(
-                                      size: 26,
-                                      weight: FontWeight.w800,
-                                      color: c.ink,
-                                      height: 1.15,
-                                      letterSpacing: -0.01 * 26,
-                                    ),
-                                    children: [
-                                      TextSpan(text: l10n.homeGreetingLead),
-                                      TextSpan(
-                                        text: l10n.homeGreetingHighlight,
-                                        style: TextStyle(color: c.moss600),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Semantics(
-                            button: true,
-                            label: l10n.homeOpenSettings,
-                            child: GestureDetector(
-                              key: const Key('home-settings-button'),
-                              onTap: () => notifier.go(Screen.settings),
-                              behavior: HitTestBehavior.opaque,
-                              child: ArukuCard(
-                                width: 44,
-                                height: 44,
-                                borderRadius: 14,
-                                child: Center(
-                                  child: Ic.settings(size: 20, color: c.ink2),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Destination card
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: _gutter),
-                      child: _DestinationCard(
-                        departure: state.departureLabelText,
-                        destination: destination,
-                        onTapDeparture: () => notifier.go(Screen.searchOrigin),
-                        onTapDestination: () => notifier.go(Screen.search),
-                        onRefreshLocation: notifier.refreshLocation,
-                      ),
-                    ),
-
-                    // Time card
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        _gutter,
-                        _sp6,
-                        _gutter,
-                        0,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(4, 0, 4, _sp2),
-                            // 大きな文字倍率ではラベルと予算注記が 1 行に収まらない
-                            // ため、両者を Flexible で折返し可能にし spaceBetween で
-                            // 左右に寄せる（Spacer だと文字が縮まずあふれる）。
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Ic.clock(size: 12, color: c.ink2),
-                                const SizedBox(width: 5),
-                                Flexible(
-                                  child: Text(
-                                    l10n.homeTimeSectionLabel,
-                                    style: jpStyle(
-                                      size: 11,
-                                      weight: FontWeight.w800,
+                                      size: 13,
+                                      weight: FontWeight.w600,
                                       color: c.ink2,
-                                      letterSpacing: 0.08 * 11,
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                Flexible(
-                                  child: RichText(
-                                    textAlign: TextAlign.end,
+                                  const SizedBox(height: 2),
+                                  RichText(
                                     text: TextSpan(
                                       style: jpStyle(
-                                        size: 11,
-                                        weight: FontWeight.w600,
-                                        color: c.ink2,
+                                        size: 26,
+                                        weight: FontWeight.w800,
+                                        color: c.ink,
+                                        height: 1.15,
+                                        letterSpacing: -0.01 * 26,
                                       ),
                                       children: [
+                                        TextSpan(text: l10n.homeGreetingLead),
                                         TextSpan(
-                                          text: TimeValue.formatBudget(budget),
-                                          style: TextStyle(
-                                            color: c.moss600,
-                                            fontWeight: FontWeight.w800,
-                                          ),
+                                          text: l10n.homeGreetingHighlight,
+                                          style: TextStyle(color: c.moss600),
                                         ),
-                                        TextSpan(text: l10n.homeWalkableSuffix),
                                       ],
                                     ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                          ArukuCard(
-                            padding: const EdgeInsets.all(6),
-                            child: IntrinsicHeight(
+                            Semantics(
+                              button: true,
+                              label: l10n.homeOpenSettings,
+                              child: GestureDetector(
+                                key: const Key('home-settings-button'),
+                                onTap: () => notifier.go(Screen.settings),
+                                behavior: HitTestBehavior.opaque,
+                                child: ArukuCard(
+                                  width: 44,
+                                  height: 44,
+                                  borderRadius: 14,
+                                  child: Center(
+                                    child: Ic.settings(size: 20, color: c.ink2),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Destination card
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: _gutter,
+                        ),
+                        child: _DestinationCard(
+                          departure: state.departureLabelText,
+                          destination: destination,
+                          onTapDeparture: () =>
+                              notifier.go(Screen.searchOrigin),
+                          onTapDestination: () => notifier.go(Screen.search),
+                          onRefreshLocation: notifier.refreshLocation,
+                        ),
+                      ),
+
+                      // Time card
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          _gutter,
+                          _sp6,
+                          _gutter,
+                          0,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(4, 0, 4, _sp2),
+                              // 大きな文字倍率ではラベルと予算注記が 1 行に収まらない
+                              // ため、両者を Flexible で折返し可能にし spaceBetween で
+                              // 左右に寄せる（Spacer だと文字が縮まずあふれる）。
                               child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Expanded(
-                                    child: _TimeField(
-                                      key: const Key('time_field_depart'),
-                                      label: l10n.homeDepartureLabel,
-                                      time: dep.format(),
-                                      date: dep.dateLabel(),
-                                      onTap: () => _pickDateTime(
-                                        context,
-                                        PickerMode.depart,
+                                  Ic.clock(size: 12, color: c.ink2),
+                                  const SizedBox(width: 5),
+                                  Flexible(
+                                    child: Text(
+                                      l10n.homeTimeSectionLabel,
+                                      style: jpStyle(
+                                        size: 11,
+                                        weight: FontWeight.w800,
+                                        color: c.ink2,
+                                        letterSpacing: 0.08 * 11,
                                       ),
                                     ),
                                   ),
-                                  SizedBox(
-                                    width: 28,
-                                    child: Center(
-                                      child: Ic.chevron(
-                                        size: 14,
-                                        color: c.ink3,
-                                        dir: ChevronDir.right,
-                                      ),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: _TimeField(
-                                      key: const Key('time_field_arrival'),
-                                      label: l10n.homeArrivalLabel,
-                                      time: arr.format(),
-                                      date: arr.dateLabel(),
-                                      onTap: () => _pickDateTime(
-                                        context,
-                                        PickerMode.arrival,
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: RichText(
+                                      textAlign: TextAlign.end,
+                                      text: TextSpan(
+                                        style: jpStyle(
+                                          size: 11,
+                                          weight: FontWeight.w600,
+                                          color: c.ink2,
+                                        ),
+                                        children: [
+                                          TextSpan(
+                                            text: TimeValue.formatBudget(
+                                              budget,
+                                            ),
+                                            style: TextStyle(
+                                              color: c.moss600,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          TextSpan(
+                                            text: l10n.homeWalkableSuffix,
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                          ),
-                        ],
+                            if (isDesktop)
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Expanded(
+                                    child: DesktopTimeField(
+                                      mode: PickerMode.depart,
+                                      label: l10n.homeDepartureLabel,
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      10,
+                                      0,
+                                      10,
+                                      16,
+                                    ),
+                                    child: Ic.chevron(
+                                      size: 16,
+                                      color: c.ink3,
+                                      dir: ChevronDir.right,
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: DesktopTimeField(
+                                      mode: PickerMode.arrival,
+                                      label: l10n.homeArrivalLabel,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            else
+                              ArukuCard(
+                                padding: const EdgeInsets.all(6),
+                                child: IntrinsicHeight(
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: _TimeField(
+                                          key: const Key('time_field_depart'),
+                                          label: l10n.homeDepartureLabel,
+                                          time: dep.format(),
+                                          date: dep.dateLabel(),
+                                          onTap: () => _pickDateTime(
+                                            context,
+                                            PickerMode.depart,
+                                          ),
+                                        ),
+                                      ),
+                                      SizedBox(
+                                        width: 28,
+                                        child: Center(
+                                          child: Ic.chevron(
+                                            size: 14,
+                                            color: c.ink3,
+                                            dir: ChevronDir.right,
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: _TimeField(
+                                          key: const Key('time_field_arrival'),
+                                          label: l10n.homeArrivalLabel,
+                                          time: arr.format(),
+                                          date: arr.dateLabel(),
+                                          onTap: () => _pickDateTime(
+                                            context,
+                                            PickerMode.arrival,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
 
-                    const Spacer(),
+                      const Spacer(),
 
-                    // Weekly goal card — bottom, above CTA
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        _gutter,
-                        0,
-                        _gutter,
-                        _sp6,
+                      // Weekly goal card — bottom, above CTA
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          _gutter,
+                          0,
+                          _gutter,
+                          _sp6,
+                        ),
+                        child: _WeeklyGoalCard(
+                          goalKm: goalKm,
+                          weekKm: state.weekKm,
+                          todayKm: state.todayKm,
+                          todaySteps: state.todaySteps,
+                          todayKcal: state.todayKcal,
+                          streakDays: state.streakDays,
+                          activityTrackingSupported:
+                              state.activityTrackingSupported,
+                        ),
                       ),
-                      child: _WeeklyGoalCard(
-                        goalKm: goalKm,
-                        weekKm: state.weekKm,
-                        todayKm: state.todayKm,
-                        todaySteps: state.todaySteps,
-                        todayKcal: state.todayKcal,
-                        streakDays: state.streakDays,
-                        activityTrackingSupported:
-                            state.activityTrackingSupported,
-                      ),
-                    ),
 
-                    // CTA — 目的地の有無でラベル・アイコン・遷移先が変わる
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        _gutter,
-                        0,
-                        _gutter,
-                        _safeBottom,
+                      // CTA — 目的地の有無でラベル・アイコン・遷移先が変わる
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          _gutter,
+                          0,
+                          _gutter,
+                          _safeBottom,
+                        ),
+                        child: _SearchCTA(
+                          hasDestination: destination != null,
+                          onPressed: destination != null
+                              ? () => notifier.startSearch()
+                              // デスクトップでは目的地の入口がこの画面の中に
+                              // ある。最も目立つ導線だけ全画面検索へ送ると、
+                              // 入れ替えたはずのインライン入力を素通りする。
+                              : isDesktop
+                              ? ref
+                                    .read(desktopDestinationFocusProvider)
+                                    .requestFocus
+                              : () => notifier.go(Screen.search),
+                        ),
                       ),
-                      child: _SearchCTA(
-                        hasDestination: destination != null,
-                        onPressed: destination != null
-                            ? () => notifier.startSearch()
-                            : () => notifier.go(Screen.search),
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

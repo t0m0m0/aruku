@@ -76,3 +76,10 @@ class TimeValue {
 }
 
 enum PickerMode { depart, arrival }
+
+/// 出発・到着に指定できる先の上限（今日からの日数）。
+///
+/// ホイールシートとデスクトップの日付ステッパーが同じ範囲を出すよう、
+/// 値はここだけに置く。片方だけ広いと、一方の入口でしか作れない状態が
+/// できて再現条件が読めなくなる。
+const int kMaxDateOffsetDays = 90;
