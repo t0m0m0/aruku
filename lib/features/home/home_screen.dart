@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/config/layout_breakpoints.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/models/time_value.dart';
 import '../../core/state/app_state.dart';
@@ -16,6 +17,7 @@ import '../../shared/widgets/aruku_button.dart';
 import '../../shared/widgets/aruku_card.dart';
 import '../../shared/widgets/desktop_content.dart';
 import '../picker/date_time_picker_sheet.dart';
+import '../picker/desktop_time_field.dart';
 
 part 'home_widgets.dart';
 
@@ -43,6 +45,7 @@ class HomeScreen extends ConsumerWidget {
     final dep = state.departure;
     final arr = state.arrival;
     final budget = state.budgetMinutes;
+    final isDesktop = ref.watch(isDesktopLayoutProvider);
 
     return Material(
       color: c.ivory,
@@ -202,49 +205,81 @@ class HomeScreen extends ConsumerWidget {
                                 ],
                               ),
                             ),
-                            ArukuCard(
-                              padding: const EdgeInsets.all(6),
-                              child: IntrinsicHeight(
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: _TimeField(
-                                        key: const Key('time_field_depart'),
-                                        label: l10n.homeDepartureLabel,
-                                        time: dep.format(),
-                                        date: dep.dateLabel(),
-                                        onTap: () => _pickDateTime(
-                                          context,
-                                          PickerMode.depart,
+                            if (isDesktop)
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Expanded(
+                                    child: DesktopTimeField(
+                                      mode: PickerMode.depart,
+                                      label: l10n.homeDepartureLabel,
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      10,
+                                      0,
+                                      10,
+                                      16,
+                                    ),
+                                    child: Ic.chevron(
+                                      size: 16,
+                                      color: c.ink3,
+                                      dir: ChevronDir.right,
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: DesktopTimeField(
+                                      mode: PickerMode.arrival,
+                                      label: l10n.homeArrivalLabel,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            else
+                              ArukuCard(
+                                padding: const EdgeInsets.all(6),
+                                child: IntrinsicHeight(
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: _TimeField(
+                                          key: const Key('time_field_depart'),
+                                          label: l10n.homeDepartureLabel,
+                                          time: dep.format(),
+                                          date: dep.dateLabel(),
+                                          onTap: () => _pickDateTime(
+                                            context,
+                                            PickerMode.depart,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                    SizedBox(
-                                      width: 28,
-                                      child: Center(
-                                        child: Ic.chevron(
-                                          size: 14,
-                                          color: c.ink3,
-                                          dir: ChevronDir.right,
+                                      SizedBox(
+                                        width: 28,
+                                        child: Center(
+                                          child: Ic.chevron(
+                                            size: 14,
+                                            color: c.ink3,
+                                            dir: ChevronDir.right,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                    Expanded(
-                                      child: _TimeField(
-                                        key: const Key('time_field_arrival'),
-                                        label: l10n.homeArrivalLabel,
-                                        time: arr.format(),
-                                        date: arr.dateLabel(),
-                                        onTap: () => _pickDateTime(
-                                          context,
-                                          PickerMode.arrival,
+                                      Expanded(
+                                        child: _TimeField(
+                                          key: const Key('time_field_arrival'),
+                                          label: l10n.homeArrivalLabel,
+                                          time: arr.format(),
+                                          date: arr.dateLabel(),
+                                          onTap: () => _pickDateTime(
+                                            context,
+                                            PickerMode.arrival,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
                           ],
                         ),
                       ),
