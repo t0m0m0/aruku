@@ -104,8 +104,9 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
   int _firstSelectableOffset() {
     if (widget.mode == PickerMode.depart) return 0;
     final departure = ref.read(appStateProvider).departure;
-    // isNow でも実時刻でなく保持値で数える。applyPickedTime が比べるのは保持値
-    // なので、下限だけ実時刻へ寄せると25時間の予算が黙って作れる（#264）。
+    // isNow でも実時刻でなく保持値で数える。欄が出しているのは保持値なので、
+    // 下限だけ実時刻へ寄せると選べる日と表示が食い違う（実時刻への追従は
+    // 確定時の rebaseDates が引き受ける）。
     final offset = departure.isNow ? 0 : departure.dateOffset;
     final carry =
         (departure.totalMinutes + kMinBudgetMinutes) ~/ Duration.minutesPerDay;
@@ -127,7 +128,12 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
   /// 必要があり、遠い日付を選ぶ手段が実質無い。範囲は [kMaxDateOffsetDays] から
   /// 引く——独自に決めるとホイールシートと作れる日付が食い違う。
   Future<void> _pickDate() async {
-    final opened = ref.read(nowProvider)();
+    // 欄より先に notifier を掴む。幅が 820px を割ると欄は捨てられるが、この
+    // Future はダイアログと一緒に生き残る。mounted で基準合わせごと落とすと、
+    // 閉じた時点で日付が1日先を指したまま残る。
+    final notifier = ref.read(appStateProvider.notifier);
+    final clock = ref.read(nowProvider);
+    final opened = clock();
     final firstOffset = _firstSelectableOffset();
     final first = _dateAt(opened, firstOffset);
     final last = _dateAt(opened, _lastSelectableOffset());
@@ -142,17 +148,19 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
       // 既定の DateTime.now() だと、時計を差し替えたとき「今日」の強調がずれる。
       currentDate: _dateAt(opened, 0),
     );
-    if (!mounted) return;
-    final closed = ref.read(nowProvider)();
+    final elapsed = calendarDaysBetween(from: opened, to: clock());
+    // 片方だけ新しい今日で数え直すと相手が古い今日に取り残される。取り消しでも
+    // 通すのは、基準日が動いたのが操作と無関係だから。
+    if (!mounted) {
+      notifier.rebaseDates(elapsed);
+      return;
+    }
+    final closed = clock();
     // 確定値でなく編集途中の表示値を基点にする。再基準化より先に読むのは、
     // それが state を書き換えて欄へ跳ね返るため。
     final typed = parseTimeInput(_controller.text);
     final current = _current();
-    // 片方だけ新しい今日で数え直すと相手が古い今日に取り残される。取り消しでも
-    // 通すのは、基準日が動いたのが操作と無関係だから。
-    ref
-        .read(appStateProvider.notifier)
-        .rebaseDates(calendarDaysBetween(from: opened, to: closed));
+    notifier.rebaseDates(elapsed);
     // 選んだ日が表示中に過ぎたら丸めない。今日へ丸めると、開いた時点の 23:55 と
     // 組んで丸1日後になる。
     if (picked == null || calendarDaysBetween(from: closed, to: picked) < 0) {

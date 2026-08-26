@@ -637,8 +637,10 @@ class AppNotifier extends Notifier<AppState> {
   /// [TimeValue.dateOffset] の基準日は state に持たず常に「今日」として読まれる。
   /// 同じ [copyWith] で動かすのは、片方ずつ通すと [applyPickedTime] の
   /// 「出発 < 到着」補正が途中の食い違いを本物の値として固定するため。
+  ///
+  /// [days] が 0 以下でも素通しにしない。西向きの時刻変更で負になるし、0 でも
+  /// isNow の古びと過ぎた時刻の引き上げは要る。
   void rebaseDates(int days) {
-    if (days <= 0) return;
     final now = _now();
     // 予算幅を保つ。縮めると直後の出発確定が縮んだ値を「変更前の予算」として
     // 引き継ぐ（[_arrivalAfterDeparture]）。

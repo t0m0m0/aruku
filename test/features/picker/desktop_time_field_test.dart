@@ -481,29 +481,72 @@ void main() {
       expect(dialog.firstDate, DateTime(2026, 5, 16));
     });
 
-    testWidgets('古びた今すぐ出発でも到着の予算が1日ぶん膨らまない', (tester) async {
+    // 09:30 のまま古びた isNow 出発に到着を比べると25時間の予算ができ、
+    // startSearch の再取得がそれを保って到着をもう1日先へ送る。
+    testWidgets('古びた今すぐ出発でも選んだ到着日がずれない', (tester) async {
       final clock = _MovableClock(DateTime(2026, 5, 15, 9, 30));
       final container = await _pumpHome(tester, 1280, now: clock.call);
       clock.set(DateTime(2026, 5, 15, 23, 59));
 
       await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
       await tester.pumpAndSettle();
-      final dialog = tester.widget<DatePickerDialog>(
-        find.byType(DatePickerDialog),
-      );
-      expect(dialog.firstDate, DateTime(2026, 5, 15));
-
-      await tester.tap(find.text('15'));
+      await tester.tap(find.text('16'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
 
       final state = container.read(appStateProvider);
-      expect(state.arrival.dateOffset, 0);
       expect(
-        state.arrival.totalMinutes - state.departure.totalMinutes,
-        kInitialBudgetMinutes,
+        (state.departure.h, state.departure.m, state.departure.isNow),
+        (23, 59, true),
       );
+      expect(
+        (state.arrival.h, state.arrival.m, state.arrival.dateOffset),
+        (10, 30, 1),
+      );
+    });
+
+    // 西向きの時刻変更で今日が戻ることがある。据え置くと offset 0 が指す日が
+    // 1日手前へずれる。
+    testWidgets('今日が手前へ動いたら日付を先へ送り返す', (tester) async {
+      final clock = _MovableClock(DateTime(2026, 5, 16, 10, 0));
+      final container = await _pumpHome(tester, 1280, now: clock.call);
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(mode: PickerMode.depart, h: 12, m: 0, dateOffset: 0);
+      await tester.pump();
+
+      await tester.tap(find.byKey(_departDateOpen));
+      await tester.pumpAndSettle();
+      clock.set(DateTime(2026, 5, 15, 10, 0));
+      await tester.tap(find.text('キャンセル'));
+      await tester.pumpAndSettle();
+
+      final dep = container.read(appStateProvider).departure;
+      expect((dep.h, dep.m, dep.dateOffset), (12, 0, 1));
+    });
+
+    // 幅が 820px を割ると欄は捨てられるが、ダイアログは開いたまま残る。
+    testWidgets('欄が外れて閉じても日付は同じ日を指したまま', (tester) async {
+      final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
+      final container = await _pumpHome(tester, 1280, now: clock.call);
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(mode: PickerMode.depart, h: 10, m: 0, dateOffset: 1);
+      await tester.pump();
+
+      await tester.tap(find.byKey(_departDateOpen));
+      await tester.pumpAndSettle();
+      tester.view.physicalSize = const Size(819, 900);
+      await tester.pumpAndSettle();
+      expect(find.byKey(_departDateOpen), findsNothing);
+
+      clock.set(DateTime(2026, 5, 16, 0, 5));
+      await tester.tap(find.text('キャンセル'));
+      await tester.pumpAndSettle();
+
+      final dep = container.read(appStateProvider).departure;
+      expect((dep.h, dep.m, dep.dateOffset), (10, 0, 0));
     });
 
     testWidgets('上限を越えた到着は開いて確定しても動かない', (tester) async {
