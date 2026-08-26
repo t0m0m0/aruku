@@ -161,15 +161,18 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
     );
     if (picked == null || !mounted) return;
     final closed = ref.read(nowProvider)();
+    // 編集途中の表示値を基点にする。確定値の時刻を持ち回ると、18:20 と打った
+    // 直後に日付を変えたとき、打ったばかりの時刻が黙って捨てられる。
+    //
+    // 再基準化より先に読むのは、それが state を書き換えて欄へ跳ね返るため。
+    // 確定するのはユーザーが見ていた値であって、揃え直した後の値ではない。
+    final typed = parseTimeInput(_controller.text);
+    final current = _current();
     // 表示中に日を跨ぐと、確定する側だけ新しい今日で数え直され、相手側は古い
     // 今日を基準にした値のまま残る。先に両方を同じ基準へ揃える。
     ref
         .read(appStateProvider.notifier)
         .rebaseDates(dateOffsetFrom(picked: closed, now: opened));
-    // 編集途中の表示値を基点にする。確定値の時刻を持ち回ると、18:20 と打った
-    // 直後に日付を変えたとき、打ったばかりの時刻が黙って捨てられる。
-    final typed = parseTimeInput(_controller.text);
-    final current = _current();
     _apply(
       h: typed?.h ?? current.h,
       m: typed?.m ?? current.m,

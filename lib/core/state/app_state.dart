@@ -647,9 +647,15 @@ class AppNotifier extends Notifier<AppState> {
   void rebaseDates(int days) {
     if (days <= 0) return;
     final now = _now();
+    // 出発を現在時刻へ引き上げると予算が縮む。縮んだ値は直後の出発確定で
+    // 「変更前の予算」として引き継がれる（[_arrivalAfterDeparture]）ので、
+    // 到着を出発+予算で置き直して幅を保つ。isNow の時刻更新で到着も同じだけ
+    // 送る [_refreshedNowTimes] と同じ規則。
+    final budget = planner.budgetMinutes(state.departure, state.arrival);
+    final departure = _rebased(state.departure, days, now);
     state = state.copyWith(
-      departure: _rebased(state.departure, days, now),
-      arrival: _rebased(state.arrival, days, now),
+      departure: departure,
+      arrival: _timeValueFromAbs(planner.absoluteMinutes(departure) + budget),
     );
   }
 

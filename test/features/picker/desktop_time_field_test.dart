@@ -668,6 +668,35 @@ void main() {
       expect((dep.h, dep.m, dep.dateOffset), (0, 5, 0));
     });
 
+    // 過ぎた出発を現在時刻へ引き上げると予算が縮む。縮んだ値をそのまま残すと、
+    // 直後の出発確定が _arrivalAfterDeparture へ「変更前の予算」として渡す。
+    testWidgets('過ぎた出発を寄せても設定した予算幅は縮まない', (tester) async {
+      final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
+      final container = await _pumpHome(tester, 1280, now: clock.call);
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(
+            mode: PickerMode.depart,
+            h: 23,
+            m: 55,
+            dateOffset: 0,
+          );
+      await tester.pump();
+      final budget = _budgetMinutes(container);
+
+      await tester.tap(find.byKey(_departDateOpen));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('16'));
+      await tester.pumpAndSettle();
+      clock.set(DateTime(2026, 5, 16, 0, 5));
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      final state = container.read(appStateProvider);
+      expect((state.departure.h, state.departure.m), (23, 55));
+      expect(_budgetMinutes(container), budget);
+    });
+
     // dateOffset は相対値なので、今日が動けば同じ値が別の日を指す。確定する側
     // だけ数え直すと、相手が古い今日に取り残されて予算が24時間ぶん伸びる。
     testWidgets('日を跨いで確定しても予算が24時間ぶん伸びない', (tester) async {
