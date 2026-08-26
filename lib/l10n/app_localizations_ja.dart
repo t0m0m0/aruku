@@ -407,6 +407,11 @@ class AppLocalizationsJa extends AppLocalizations {
   String get timeFieldNextDay => '次の日へ';
 
   @override
+  String timeFieldOpenCalendar(String label) {
+    return '$labelの日付を選ぶ';
+  }
+
+  @override
   String get shellTabPlan => 'ルートを計画';
 
   @override

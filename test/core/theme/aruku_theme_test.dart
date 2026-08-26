@@ -73,4 +73,25 @@ void main() {
       expect(isNotoSansJp(headlineLarge!.fontFamily), isTrue);
     });
   });
+
+  // アプリは Divider を使わず Border で罫を引くため、outlineVariant が未定義
+  // （＝純黒）でも Material 製のダイアログを開くまで画面に出てこない。
+  testWidgets('Material の Divider はアプリのけい線色で出る', (tester) async {
+    late Color dividerColor;
+    late Color hairline;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ArukuTheme.light(),
+        home: Builder(
+          builder: (context) {
+            dividerColor = Divider.createBorderSide(context).color;
+            hairline = Theme.of(context).extension<ArukuColors>()!.hairline;
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+
+    expect(dividerColor, hairline);
+  });
 }

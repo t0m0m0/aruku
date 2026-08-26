@@ -21,6 +21,11 @@ class ArukuTheme {
         onSecondary: Color(0xFFFBFCEC),
         surface: Color(0xFFFFFFF4),
         onSurface: Color(0xFF1D2418),
+        // ArukuColors.hairline と同値。指定しないと ColorScheme.light() の既定＝
+        // 純黒になり、Material 製のダイアログ（カレンダー等）だけ硬い黒罫が出る。
+        // ThemeData.dividerColor では直らない——useMaterial3 の Divider は
+        // そちらを見ず outlineVariant を辿る。
+        outlineVariant: Color(0x141D2418),
       ),
       useMaterial3: true,
       splashFactory: InkRipple.splashFactory,

@@ -83,3 +83,27 @@ enum PickerMode { depart, arrival }
 /// 値はここだけに置く。片方だけ広いと、一方の入口でしか作れない状態が
 /// できて再現条件が読めなくなる。
 const int kMaxDateOffsetDays = 90;
+
+/// カレンダーが返す絶対日付を [TimeValue.dateOffset]（今日からの日数）へ直す。
+///
+/// 入口ごとに書かない。丸めを落とすと範囲外が [TimeValue] の
+/// `assert(dateOffset >= 0)` まで素通りする。[maxOffset] を渡せるのは、押し出さ
+/// れた到着が [kMaxDateOffsetDays] を越えて存在し得るため——出した範囲で数え
+/// 直さないと、表示した日を選んだだけで別の日へ丸められる。
+int dateOffsetFrom({
+  required DateTime picked,
+  required DateTime now,
+  int maxOffset = kMaxDateOffsetDays,
+}) => calendarDaysBetween(from: now, to: picked).clamp(0, maxOffset);
+
+/// [from] から [to] までのカレンダー日数。過去なら負。
+///
+/// UTC へ置き換えるのは、ローカルのままだと夏時間を挟む1日が23時間で `inDays`
+/// が 0 を返すため。[dateOffsetFrom] と分けるのは「選べる範囲」と「経過日数」が
+/// 別の量だから——上限を被せると放置された状態が範囲内に見える。
+int calendarDaysBetween({required DateTime from, required DateTime to}) =>
+    DateTime.utc(
+      to.year,
+      to.month,
+      to.day,
+    ).difference(DateTime.utc(from.year, from.month, from.day)).inDays;

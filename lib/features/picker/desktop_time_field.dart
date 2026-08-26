@@ -8,7 +8,8 @@ import '../../core/theme/aruku_theme.dart';
 import '../../l10n/app_localizations.dart';
 import 'time_field_input.dart';
 
-/// デスクトップ幅の時刻フィールド。`HH:MM` のキー入力と5分刻みのステッパー。
+/// デスクトップ幅の日時フィールド。`HH:MM` のキー入力と5分刻みのステッパー、
+/// 日付は1日ステッパーと月グリッドのカレンダー。
 ///
 /// モバイルのホイールシートを流用しないのは、ポインタで回す前提の操作が
 /// キーボードのある環境で最も遅い入力手段になるため。値域の保証は
@@ -94,6 +95,104 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
     _apply(h: current.h, m: current.m, dateOffset: dateOffset);
   }
 
+  /// `add(Duration(days:))` は夏時間を跨ぐと前日23時へ落ちる。成分から組む。
+  DateTime _dateAt(DateTime now, int offset) =>
+      DateTime(now.year, now.month, now.day + offset);
+
+  /// カレンダーが出す最初の日。出発より前を選ばせると
+  /// [AppNotifier.applyPickedTime] が戻すので、選んだ日と確定した日が食い違う。
+  int _firstSelectableOffset() {
+    if (widget.mode == PickerMode.depart) return 0;
+    final departure = ref.read(appStateProvider).departure;
+    // isNow でも実時刻でなく保持値で数える。欄が出しているのは保持値なので、
+    // 下限だけ実時刻へ寄せると選べる日と表示が食い違う（実時刻への追従は
+    // 確定時の rebaseDates が引き受ける）。
+    final offset = departure.isNow ? 0 : departure.dateOffset;
+    final carry =
+        (departure.totalMinutes + kMinBudgetMinutes) ~/ Duration.minutesPerDay;
+    return offset + carry;
+  }
+
+  /// カレンダーが出す最後の日。押し出された到着は [kMaxDateOffsetDays] の外に
+  /// 居ることがあり、定数で切るとその日が消えて開いて確定しただけで値が動く。
+  int _lastSelectableOffset() {
+    var last = kMaxDateOffsetDays;
+    final floor = _firstSelectableOffset();
+    if (floor > last) last = floor;
+    final current = _current().dateOffset;
+    if (current > last) last = current;
+    return last;
+  }
+
+  /// 月グリッドのカレンダーを開く。ステッパーだけでは上限の90日目まで90回押す
+  /// 必要があり、遠い日付を選ぶ手段が実質無い。範囲は [kMaxDateOffsetDays] から
+  /// 引く——独自に決めるとホイールシートと作れる日付が食い違う。
+  Future<void> _pickDate() async {
+    // 欄より先に notifier を掴む。幅が 820px を割ると欄は捨てられるが、この
+    // Future はダイアログと一緒に生き残る。mounted で基準合わせごと落とすと、
+    // 閉じた時点で日付が1日先を指したまま残る。
+    final notifier = ref.read(appStateProvider.notifier);
+    final clock = ref.read(nowProvider);
+    // 打ちかけの値は焦点が外れて初めて確定する。ダイアログが焦点を奪うのは
+    // 範囲を決めた後なので、先に外しておかないと出せない日を出したままになる。
+    FocusManager.instance.primaryFocus?.unfocus();
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+    final opened = clock();
+    final firstOffset = _firstSelectableOffset();
+    final first = _dateAt(opened, firstOffset);
+    final last = _dateAt(opened, _lastSelectableOffset());
+    final initial = _dateAt(opened, _current().dateOffset);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial.isBefore(first)
+          ? first
+          : (initial.isAfter(last) ? last : initial),
+      firstDate: first,
+      lastDate: last,
+      // 既定の DateTime.now() だと、時計を差し替えたとき「今日」の強調がずれる。
+      currentDate: _dateAt(opened, 0),
+    );
+    // 閉じた時刻は1回だけ読む。数える／寄せる／符号化で読み直すと、その隙に日が
+    // 変われば互いの基準が食い違う。
+    final closed = clock();
+    final elapsed = calendarDaysBetween(from: opened, to: closed);
+    // 片方だけ新しい今日で数え直すと相手が古い今日に取り残される。取り消しでも
+    // 通すのは、基準日が動いたのが操作と無関係だから。
+    if (!mounted) {
+      notifier.rebaseDates(elapsed, closed);
+      return;
+    }
+    // 確定値でなく編集途中の表示値を基点にする。再基準化より先に読むのは、
+    // それが state を書き換えて欄へ跳ね返るため。
+    final typed = parseTimeInput(_controller.text);
+    final before = _current();
+    notifier.rebaseDates(elapsed, closed);
+    final current = _current();
+    // 日も時刻も動かさずに閉じたなら、書き戻す意思が無い。再基準化が直した値を
+    // 古い表示で上書きすると、寄せた出発の直後へ潰れる。
+    final untouched =
+        (typed == null || (typed.h == before.h && typed.m == before.m)) &&
+        picked == _dateAt(opened, before.dateOffset);
+    // 選んだ日が表示中に過ぎたら丸めない。今日へ丸めると、開いた時点の 23:55 と
+    // 組んで丸1日後になる。
+    if (picked == null ||
+        untouched ||
+        calendarDaysBetween(from: closed, to: picked) < 0) {
+      _syncFromState();
+      return;
+    }
+    _apply(
+      h: typed?.h ?? current.h,
+      m: typed?.m ?? current.m,
+      dateOffset: dateOffsetFrom(
+        picked: picked,
+        now: closed,
+        maxOffset: _lastSelectableOffset(),
+      ),
+    );
+  }
+
   void _apply({required int h, required int m, int? dateOffset}) {
     final offset = dateOffset ?? _current().dateOffset;
     var total = h * 60 + m;
@@ -142,6 +241,9 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
       if (!_focusNode.hasFocus) _syncFromState();
     });
     final focused = _focusNode.hasFocus;
+    // 日付ラベルとカレンダーの範囲は同じ時計から引く。既定の DateTime.now() を
+    // 使うと、時計を差し替えたときにラベルだけ別の日を指す。
+    final now = ref.read(nowProvider)();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -242,14 +344,30 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
               onTap: () => _stepDay(-1),
             ),
             Expanded(
-              child: Text(
-                current.dateLabel() ?? l10n.homeToday,
-                key: Key('desktop-date-label-$side'),
-                textAlign: TextAlign.center,
-                style: jpStyle(
-                  size: 12,
-                  weight: FontWeight.w700,
-                  color: current.dateOffset == 0 ? c.ink3 : c.moss700,
+              child: Semantics(
+                button: true,
+                label: l10n.timeFieldOpenCalendar(widget.label),
+                child: InkWell(
+                  key: Key('desktop-date-open-$side'),
+                  onTap: _pickDate,
+                  borderRadius: BorderRadius.circular(7),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Text(
+                      current.dateLabel(now: now) ?? l10n.homeToday,
+                      key: Key('desktop-date-label-$side'),
+                      textAlign: TextAlign.center,
+                      style:
+                          jpStyle(
+                            size: 12,
+                            weight: FontWeight.w700,
+                            color: current.dateOffset == 0 ? c.ink3 : c.moss700,
+                          ).copyWith(
+                            decoration: TextDecoration.underline,
+                            decorationColor: c.hairline,
+                          ),
+                    ),
+                  ),
                 ),
               ),
             ),

@@ -813,6 +813,12 @@ abstract class AppLocalizations {
   /// **'次の日へ'**
   String get timeFieldNextDay;
 
+  /// デスクトップ時刻フィールドの日付ラベル（押すとカレンダーが開く）のVoiceOverラベル
+  ///
+  /// In ja, this message translates to:
+  /// **'{label}の日付を選ぶ'**
+  String timeFieldOpenCalendar(String label);
+
   /// デスクトップ幅の上部バーで経路計画画面へ移るタブのラベル
   ///
   /// In ja, this message translates to:

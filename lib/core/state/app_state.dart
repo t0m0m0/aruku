@@ -57,6 +57,23 @@ const int kInitialBudgetMinutes = 60;
 /// 出発と到着の最小ギャップ（分）。これにより常に「出発 < 到着」を保証する。
 const int kMinBudgetMinutes = 1;
 
+/// [days] 日ぶん手前へ寄せた TimeValue。過ぎた値は [now] へ引き上げる。
+///
+/// 0 で止めると「今日の 23:55」が動いた今日の同時刻＝丸1日後を指す。日付だけ
+/// では足りず（翌 00:01 発を 00:05 に詰める）、固定出発は startSearch も更新
+/// しないので過去のまま経路照会へ渡る。
+TimeValue _rebased(TimeValue t, int days, DateTime now) {
+  // isNow も h/m が applyPickedTime の比較に使われる。更新しないと直後に確定
+  // した到着がその1分後へ潰れる。
+  if (t.isNow) return t.copyWith(h: now.hour, m: now.minute);
+  if (t.dateOffset < days) return TimeValue(h: now.hour, m: now.minute);
+  final shifted = t.dateOffset - days;
+  if (shifted == 0 && t.totalMinutes < now.hour * 60 + now.minute) {
+    return TimeValue(h: now.hour, m: now.minute);
+  }
+  return t.copyWith(dateOffset: shifted);
+}
+
 /// 当日0時基準の絶対分から TimeValue を復元する（isNow は付かない）。
 TimeValue _timeValueFromAbs(int abs) =>
     TimeValue(h: (abs ~/ 60) % 24, m: abs % 60, dateOffset: abs ~/ (24 * 60));
@@ -614,6 +631,28 @@ class AppNotifier extends Notifier<AppState> {
 
   void setOrigin(String? name, {GeoPoint? latLng}) =>
       state = state.copyWith(origin: name, originLatLng: latLng);
+
+  /// 日を跨いだぶん出発・到着を詰め、両者が指す絶対日付を保つ。
+  ///
+  /// [TimeValue.dateOffset] の基準日は state に持たず常に「今日」として読まれる。
+  /// 同じ [copyWith] で動かすのは、片方ずつ通すと [applyPickedTime] の
+  /// 「出発 < 到着」補正が途中の食い違いを本物の値として固定するため。
+  ///
+  /// [days] が 0 以下でも素通しにしない。西向きの時刻変更で負になるし、0 でも
+  /// isNow の古びと過ぎた時刻の引き上げは要る。
+  ///
+  /// [now] を受け取るのは、呼び出し側が [days] を数えた時計と揃えるため。ここで
+  /// 読み直すと、その隙に日が変われば数えた基準と寄せる先が食い違う。
+  void rebaseDates(int days, DateTime now) {
+    // 予算幅を保つ。縮めると直後の出発確定が縮んだ値を「変更前の予算」として
+    // 引き継ぐ（[_arrivalAfterDeparture]）。
+    final budget = planner.budgetMinutes(state.departure, state.arrival);
+    final departure = _rebased(state.departure, days, now);
+    state = state.copyWith(
+      departure: departure,
+      arrival: _timeValueFromAbs(planner.absoluteMinutes(departure) + budget),
+    );
+  }
 
   /// 日付・時刻ピッカーで確定した値を出発/到着に反映する。
   void applyPickedTime({
