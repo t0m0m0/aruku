@@ -407,7 +407,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get timeFieldNextDay => '次の日へ';
 
   @override
-  String get timeFieldOpenCalendar => '日付を選ぶ';
+  String timeFieldOpenCalendar(String label) {
+    return '$labelの日付を選ぶ';
+  }
 
   @override
   String get shellTabPlan => 'ルートを計画';

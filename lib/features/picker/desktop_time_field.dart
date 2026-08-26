@@ -95,6 +95,28 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
     _apply(h: current.h, m: current.m, dateOffset: dateOffset);
   }
 
+  /// [now] から [offset] 日後の日付。`add(Duration(days:))` を使わないのは、
+  /// 夏時間の切り替わりを跨ぐと1日が23時間になり、加算結果が前日の23時へ落ちる
+  /// ため。日付として解釈される値は必ずカレンダー成分から組む。
+  DateTime _dateAt(DateTime now, int offset) =>
+      DateTime(now.year, now.month, now.day + offset);
+
+  /// カレンダーが出す最初の日。
+  ///
+  /// 到着は出発より前へ置けない。選ばせておいて [AppNotifier.applyPickedTime] が
+  /// 出発+最小ギャップへ戻すと、選んだ日と確定した日が食い違う。時刻の下限は
+  /// 向こうの担当のままで、ここが決めるのは日付の下限だけ。
+  int _firstSelectableOffset() {
+    if (widget.mode == PickerMode.depart) return 0;
+    final departure = ref.read(appStateProvider).departure;
+    final offset = departure.isNow ? 0 : departure.dateOffset;
+    final minutes = departure.isNow ? 0 : departure.totalMinutes;
+    // 23:59 発の最小ギャップは翌日へ入る。日跨ぎを分で数えるのは、時刻を
+    // DateTime へ起こすと再び夏時間の加算に触れるため。
+    final carry = (minutes + kMinBudgetMinutes) ~/ Duration.minutesPerDay;
+    return (offset + carry).clamp(0, kMaxDateOffsetDays);
+  }
+
   /// 月グリッドのカレンダーを開き、選ばれた日を日付オフセットへ移す。
   ///
   /// ステッパーだけでは上限の90日目まで90回押す必要があり、遠い日付を選ぶ手段が
@@ -102,19 +124,22 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
   /// ホイールシートとデスクトップで作れる日付が食い違う。
   Future<void> _pickDate() async {
     final now = ref.read(nowProvider)();
-    final today = DateTime(now.year, now.month, now.day);
+    final first = _dateAt(now, _firstSelectableOffset());
+    final last = _dateAt(now, kMaxDateOffsetDays);
     // 到着は出発+最小ギャップへ押し出されるため、出発が上限の日の 23:59 だと
-    // 上限を1日越える。そのまま initialDate に渡すと assert で落ちる。
+    // 上限を1日越える。範囲の外を開始位置に渡すと assert で落ちる。
     // ホイールシートも同じ理由で開始位置を範囲へ丸めている。
-    final offset = _current().dateOffset.clamp(0, kMaxDateOffsetDays);
+    final initial = _dateAt(now, _current().dateOffset);
     final picked = await showDatePicker(
       context: context,
-      initialDate: today.add(Duration(days: offset)),
-      firstDate: today,
-      lastDate: today.add(const Duration(days: kMaxDateOffsetDays)),
+      initialDate: initial.isBefore(first)
+          ? first
+          : (initial.isAfter(last) ? last : initial),
+      firstDate: first,
+      lastDate: last,
       // 既定は DateTime.now() で、テストが時計を差し替えても実時刻を指す。
       // 「今日」の強調が firstDate と別の日に付く。
-      currentDate: today,
+      currentDate: _dateAt(now, 0),
     );
     if (picked == null || !mounted) return;
     // 編集途中の表示値を基点にする。確定値の時刻を持ち回ると、18:20 と打った
@@ -124,7 +149,9 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
     _apply(
       h: typed?.h ?? current.h,
       m: typed?.m ?? current.m,
-      dateOffset: dateOffsetFrom(picked: picked, now: now),
+      // 開いた時点の now では数えない。表示中に日を跨ぐと基準日が古いままになり、
+      // 選んだ日そのものではなく1日先を指す。
+      dateOffset: dateOffsetFrom(picked: picked, now: ref.read(nowProvider)()),
     );
   }
 
@@ -281,7 +308,7 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
             Expanded(
               child: Semantics(
                 button: true,
-                label: l10n.timeFieldOpenCalendar,
+                label: l10n.timeFieldOpenCalendar(widget.label),
                 child: InkWell(
                   key: Key('desktop-date-open-$side'),
                   onTap: _pickDate,

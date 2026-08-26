@@ -16,13 +16,28 @@ const _departDateOpen = Key('desktop-date-open-depart');
 
 DateTime _fixedNow() => DateTime(2026, 5, 15, 9, 30);
 
-Future<ProviderContainer> _pumpHome(WidgetTester tester, double width) async {
+/// 進められる時計。日跨ぎのように、ダイアログ表示中に現在時刻が変わる経路を作る。
+class _MovableClock {
+  _MovableClock(this._value);
+
+  DateTime _value;
+
+  DateTime call() => _value;
+
+  void set(DateTime value) => _value = value;
+}
+
+Future<ProviderContainer> _pumpHome(
+  WidgetTester tester,
+  double width, {
+  DateTime Function()? now,
+}) async {
   tester.view.physicalSize = Size(width, 900);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  final container = await makeContainer(now: _fixedNow);
+  final container = await makeContainer(now: now ?? _fixedNow);
   addTearDown(container.dispose);
   await tester.pumpWidget(appWidget(container));
   await pumpTransition(tester);
@@ -411,10 +426,11 @@ void main() {
 
     // 矢印と違い日付ラベルは現在値そのものが手掛かりになる。Text の意味づけは
     // 親の Semantics へ併合されるので、用途と日付が1ノードに並ぶ。
-    testWidgets('カレンダーの入口は用途と現在の日付を読み上げる', (tester) async {
+    testWidgets('カレンダーの入口は出発・到着を区別して読み上げる', (tester) async {
       await _pumpHome(tester, 1280);
 
-      expect(find.bySemanticsLabel(RegExp(r'^日付を選ぶ\n今日$')), findsWidgets);
+      expect(find.bySemanticsLabel(RegExp(r'^出発の日付を選ぶ\n今日$')), findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp(r'^到着の日付を選ぶ\n今日$')), findsOneWidget);
     });
 
     // 到着は出発+最小ギャップへ押し出されるため、出発が上限の日の 23:59 だと
@@ -441,6 +457,66 @@ void main() {
 
       expect(find.byType(DatePickerDialog), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+
+    // 到着カレンダーが今日から開いていると、出発より前の日を選べてしまう。
+    // 確定値は applyPickedTime が出発+最小ギャップへ戻すので、選んだ日と
+    // 表示される日が食い違う。選ばせない方を採る。
+    testWidgets('到着カレンダーは出発の日より前を出さない', (tester) async {
+      await _pumpHome(tester, 1280);
+      final up = find.byKey(const Key('desktop-date-step-up-depart'));
+      for (var i = 0; i < 3; i++) {
+        await tester.tap(up);
+        await tester.pump();
+      }
+
+      await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
+      await tester.pumpAndSettle();
+
+      final dialog = tester.widget<DatePickerDialog>(
+        find.byType(DatePickerDialog),
+      );
+      expect(dialog.firstDate, DateTime(2026, 5, 18));
+    });
+
+    // 出発が上限の日の 23:59 だと到着の下限は 91 日目になり、firstDate が
+    // lastDate を越える。showDatePicker はその組み合わせでも assert で落ちる。
+    testWidgets('出発が上限の日でも到着カレンダーは開ける', (tester) async {
+      final container = await _pumpHome(tester, 1280);
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(
+            mode: PickerMode.depart,
+            h: 23,
+            m: 59,
+            dateOffset: kMaxDateOffsetDays,
+          );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DatePickerDialog), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    // 開いた時点の now で数えると、日を跨いだ瞬間に基準日が古いままになる。
+    // 「明日」を選んだのに、確定後の今日から見ると1日先を指す。
+    testWidgets('表示中に日付が変わっても選んだ日そのものを指す', (tester) async {
+      final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
+      final container = await _pumpHome(tester, 1280, now: clock.call);
+
+      await tester.tap(find.byKey(const Key('desktop-date-open-arrival')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('16'));
+      await tester.pumpAndSettle();
+
+      clock.set(DateTime(2026, 5, 16, 0, 5));
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      // 5月16日は確定した時点の「今日」。1日先ではない。
+      expect(container.read(appStateProvider).arrival.dateOffset, 0);
     });
 
     testWidgets('モバイル幅にはカレンダーの入口を出さない', (tester) async {

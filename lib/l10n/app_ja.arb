@@ -328,9 +328,12 @@
   "@timeFieldNextDay": {
     "description": "デスクトップ時刻フィールドの日付を1日進めるボタンのVoiceOverラベル"
   },
-  "timeFieldOpenCalendar": "日付を選ぶ",
+  "timeFieldOpenCalendar": "{label}の日付を選ぶ",
   "@timeFieldOpenCalendar": {
-    "description": "デスクトップ時刻フィールドの日付ラベル（押すとカレンダーが開く）のVoiceOverラベル"
+    "description": "デスクトップ時刻フィールドの日付ラベル（押すとカレンダーが開く）のVoiceOverラベル",
+    "placeholders": {
+      "label": { "type": "String" }
+    }
   },
   "shellTabPlan": "ルートを計画",
   "@shellTabPlan": {
