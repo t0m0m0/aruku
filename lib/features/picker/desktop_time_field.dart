@@ -173,6 +173,13 @@ class _DesktopTimeFieldState extends ConsumerState<DesktopTimeField> {
     ref
         .read(appStateProvider.notifier)
         .rebaseDates(dateOffsetFrom(picked: closed, now: opened));
+    // 選んだ日そのものが表示中に過ぎることがある（15日を出したまま16日に確定）。
+    // 過去は表現できないので日は今日へ丸められ、開いた時点の 23:55 と組むと
+    // 確定した覚えのない丸1日後になる。再基準化が置いた値をそのまま残す。
+    if (_dateAt(picked, 0).isBefore(_dateAt(closed, 0))) {
+      _syncFromState();
+      return;
+    }
     _apply(
       h: typed?.h ?? current.h,
       m: typed?.m ?? current.m,

@@ -697,6 +697,33 @@ void main() {
       expect(_budgetMinutes(container), budget);
     });
 
+    // 選んだ日が表示中に過ぎると、日は今日へ丸められる。開いた時点の 23:55 と
+    // 組むと、確定した覚えのない丸1日後になる。
+    testWidgets('選んだ日が表示中に過ぎたら再基準化した値を残す', (tester) async {
+      final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
+      final container = await _pumpHome(tester, 1280, now: clock.call);
+      container
+          .read(appStateProvider.notifier)
+          .applyPickedTime(
+            mode: PickerMode.depart,
+            h: 23,
+            m: 55,
+            dateOffset: 0,
+          );
+      await tester.pump();
+
+      await tester.tap(find.byKey(_departDateOpen));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('15'));
+      await tester.pumpAndSettle();
+      clock.set(DateTime(2026, 5, 16, 0, 5));
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      final dep = container.read(appStateProvider).departure;
+      expect((dep.h, dep.m, dep.dateOffset), (0, 5, 0));
+    });
+
     testWidgets('60分の予算は日を跨いだ出発の打ち直しでも保たれる', (tester) async {
       final clock = _MovableClock(DateTime(2026, 5, 15, 23, 50));
       final container = await _pumpHome(tester, 1280, now: clock.call);
