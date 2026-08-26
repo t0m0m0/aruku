@@ -391,5 +391,11 @@ class AppLocalizationsJa extends AppLocalizations {
   String get homeOpenSettings => '設定を開く';
 
   @override
+  String get shellTabPlan => 'ルートを計画';
+
+  @override
+  String get shellTabSettings => '設定';
+
+  @override
   String get searchClearInput => '入力を消去';
 }

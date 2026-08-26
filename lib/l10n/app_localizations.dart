@@ -789,6 +789,18 @@ abstract class AppLocalizations {
   /// **'設定を開く'**
   String get homeOpenSettings;
 
+  /// デスクトップ幅の上部バーで経路計画画面へ移るタブのラベル
+  ///
+  /// In ja, this message translates to:
+  /// **'ルートを計画'**
+  String get shellTabPlan;
+
+  /// デスクトップ幅の上部バーで設定画面へ移るタブのラベル
+  ///
+  /// In ja, this message translates to:
+  /// **'設定'**
+  String get shellTabSettings;
+
   /// 検索フィールドのクリアボタンのVoiceOverラベル
   ///
   /// In ja, this message translates to:

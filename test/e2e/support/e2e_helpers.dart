@@ -14,6 +14,8 @@ import 'package:aruku/core/services/route_service.dart';
 import 'package:aruku/core/state/app_state.dart';
 import 'package:aruku/core/theme/aruku_theme.dart';
 import 'package:aruku/l10n/app_localizations.dart';
+import 'package:aruku/shared/widgets/desktop_shell.dart';
+import 'package:aruku/shared/widgets/responsive_scope.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -113,6 +115,10 @@ Widget appWidget(ProviderContainer container) => UncontrolledProviderScope(
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     routerConfig: container.read(goRouterProvider),
+    // 本番（main.dart）と同じ合成にする。ここが食い違うと、デスクトップ幅の
+    // 挙動が e2e を素通りする。
+    builder: (context, child) =>
+        ResponsiveScope(child: DesktopShell(child: child!)),
   ),
 );
 

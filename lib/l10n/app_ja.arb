@@ -306,6 +306,14 @@
   "@homeOpenSettings": {
     "description": "ホーム右上の設定ボタンのVoiceOverラベル"
   },
+  "shellTabPlan": "ルートを計画",
+  "@shellTabPlan": {
+    "description": "デスクトップ幅の上部バーで経路計画画面へ移るタブのラベル"
+  },
+  "shellTabSettings": "設定",
+  "@shellTabSettings": {
+    "description": "デスクトップ幅の上部バーで設定画面へ移るタブのラベル"
+  },
   "searchClearInput": "入力を消去",
   "@searchClearInput": {
     "description": "検索フィールドのクリアボタンのVoiceOverラベル"

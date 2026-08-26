@@ -31,4 +31,15 @@ class ArukuTokens {
 
   /// ローディングのアイコンのグロー影。
   static const Color shadowGlow = Color(0x7335501A);
+
+  /// ロゴの落ち影。
+  static const Color shadowLogo = Color(0x3836501E);
+
+  // --- Desktop layout tokens (#372) ---
+  // モバイルには対応する概念が無く、デスクトップ幅でのみ参照される。
+  /// 上部バーの高さ。スクロールしない固定バー。
+  static const double topBarHeight = 64;
+
+  /// 本文コンテンツの最大幅。これを超える幅では中央へ寄せる。
+  static const double contentMaxWidth = 1280;
 }
