@@ -137,7 +137,7 @@ void main() {
           const GeoPoint(35.1, 139.2),
           const GeoPoint(35.3, 139.4),
           DateTime(2026, 6, 27, 9, 5),
-          DateTime(2026, 6, 27, 10, 40),
+          95, // 09:05 + 95分 = 10:40
         );
         expect(body, {'ok': true});
         expect(captured.path, '/api/v1/guidance/plan');
@@ -151,7 +151,7 @@ void main() {
       },
     );
 
-    test('日またぎの締切は date=出発サービス日・time=24時超で表す', () async {
+    test('日をまたぐ予算は date=出発サービス日・time=24時超で表す', () async {
       late Uri captured;
       final client = _client(
         MockClient((req) async {
@@ -163,16 +163,15 @@ void main() {
         const GeoPoint(35.1, 139.2),
         const GeoPoint(35.3, 139.4),
         DateTime(2026, 8, 26, 23, 30),
-        DateTime(2026, 8, 27, 1, 0),
+        90, // 23:30 + 90分 = 翌 01:00 = サービス時刻 25:00
       );
       expect(captured.queryParameters['date'], '20260826');
       expect(captured.queryParameters['time'], '25:00');
     });
 
-    // 年またぎでも「暦フィールドから組み立て」であって「経過時間」でないことを固定する。
-    // 経過時間差（DateTime.difference）は年境界そのものには影響されないが、DST のある
-    // 端末タイムゾーンでは経過時間と壁時計の時刻がずれる（#121 と同じクラス）。
-    test('年またぎの締切も date=出発サービス日・time=24時超で表す', () async {
+    // 年境界そのものは time の組み立て（departureAt.hour/minute + budgetMin の整数和）に
+    // 一切関与しないが、境界固定として日またぎと同じ形を残す。
+    test('年境界をまたぐ予算も date=出発サービス日・time=24時超で表す', () async {
       late Uri captured;
       final client = _client(
         MockClient((req) async {
@@ -184,13 +183,13 @@ void main() {
         const GeoPoint(35.1, 139.2),
         const GeoPoint(35.3, 139.4),
         DateTime(2026, 12, 31, 23, 30),
-        DateTime(2027, 1, 1, 1, 0),
+        90, // 23:30 + 90分 = 翌年 01:00 = サービス時刻 25:00
       );
       expect(captured.queryParameters['date'], '20261231');
       expect(captured.queryParameters['time'], '25:00');
     });
 
-    test('複数日またぎの締切は time=48時超で表す', () async {
+    test('複数日にまたがる予算は time=48時超で表す', () async {
       late Uri captured;
       final client = _client(
         MockClient((req) async {
@@ -202,7 +201,7 @@ void main() {
         const GeoPoint(35.1, 139.2),
         const GeoPoint(35.3, 139.4),
         DateTime(2026, 8, 26, 9, 0),
-        DateTime(2026, 8, 28, 1, 30),
+        2430, // 09:00 + 2430分（1日16.5時間）= サービス時刻 49:30
       );
       expect(captured.queryParameters['date'], '20260826');
       expect(captured.queryParameters['time'], '49:30');
@@ -220,7 +219,7 @@ void main() {
         const GeoPoint(35.1, 139.2),
         const GeoPoint(35.3, 139.4),
         DateTime(2026, 6, 27, 9, 5),
-        DateTime(2026, 6, 27, 10, 40),
+        95,
         allowBus: true,
       );
       expect(captured.queryParameters['avoidModes'], 'ferry,air');
@@ -233,7 +232,7 @@ void main() {
           const GeoPoint(0, 0),
           const GeoPoint(1, 1),
           DateTime(2026, 6, 27, 9, 0),
-          DateTime(2026, 6, 27, 10, 0),
+          60,
         ),
         throwsA(
           isA<RouteException>().having((e) => e.status, 'status', 'HTTP 503'),
@@ -247,7 +246,7 @@ void main() {
         const GeoPoint(35.1, 139.2),
         const GeoPoint(35.3, 139.4),
         DateTime(2026, 6, 27, 9, 5),
-        DateTime(2026, 6, 27, 10, 40),
+        95,
       );
       expect(client.guidanceCalls, 1);
     });

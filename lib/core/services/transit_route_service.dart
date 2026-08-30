@@ -202,7 +202,7 @@ class TransitRouteService implements SearchEngine {
       origin,
       destinationLatLng,
       departureAt,
-      departureAt.add(Duration(minutes: budgetMin)),
+      budgetMin,
     );
     // 捨てる経路（departure 波が先に落ちる）で未処理例外にしないための番人。Future は
     // 複数のリスナを持てるので、後から await する経路の例外伝播は妨げない——キャンセル

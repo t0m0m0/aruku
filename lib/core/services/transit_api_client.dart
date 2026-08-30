@@ -132,15 +132,15 @@ class TransitApiClient {
     return jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
   }
 
-  /// [start]→[goal] を [deadline] 到着で `/guidance/plan` に問い合わせ、生 JSON を返す
-  /// （到着アンカー第2波・#376）。`type` は `arrival`、`time` は [departureAt] のサービス日
-  /// 基準（[_formatServiceTime]）に置き換わる点以外は [fetchGuidanceAt] と同じ組み立て。
-  /// [allowBus] の意味も同じ。
+  /// [start]→[goal] を「[departureAt] から [budgetMin] 分後」到着で `/guidance/plan` に
+  /// 問い合わせ、生 JSON を返す（到着アンカー第2波・#376）。`type` は `arrival`、`time` は
+  /// [departureAt] のサービス日基準（[_formatServiceTime]）に置き換わる点以外は
+  /// [fetchGuidanceAt] と同じ組み立て。[allowBus] の意味も同じ。
   Future<Map<String, dynamic>> fetchGuidanceArrivalAt(
     GeoPoint start,
     GeoPoint goal,
     DateTime departureAt,
-    DateTime deadline, {
+    int budgetMin, {
     bool allowBus = false,
   }) async {
     final uri = Uri.parse('$_transitBaseUrl/api/v1/guidance/plan').replace(
@@ -148,7 +148,7 @@ class TransitApiClient {
         'from': 'geo:${start.lat},${start.lng}',
         'to': 'geo:${goal.lat},${goal.lng}',
         'date': _formatDate(departureAt),
-        'time': _formatServiceTime(departureAt, deadline),
+        'time': _formatServiceTime(departureAt, budgetMin),
         'type': 'arrival',
         'numItineraries': '$_numItineraries',
         'avoidModes': (allowBus ? _avoidModesAllowBus : _avoidModesTrainOnly)
@@ -304,26 +304,22 @@ class TransitApiClient {
   String _formatTime(DateTime dt) =>
       '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
 
-  /// [departureAt] のサービス日（0時起点）を基準に、[deadline] までの時刻を暦フィールド
-  /// （年月日時分）だけから `H:mm` で組み立てる。日またぎで H は 24 以上になり得る
-  /// （例: 25:00）。
+  /// [departureAt] のサービス日（0時起点）を基準に、そこから [budgetMin] 分後の時刻を
+  /// `H:mm` で組み立てる。日またぎで H は 24 以上になり得る（例: 25:00）。
   ///
-  /// [deadline] 自身の暦日+HH:mm ではなく [departureAt] のサービス日を基準にするのは、
+  /// [departureAt] 自身の暦日+HH:mm ではなく到着側の暦日+HH:mm を基準にしないのは、
   /// 0時前発車の便をサービス日負秒にせず表現するため（実 API 直測で確認済み・#376）。
   ///
-  /// `deadline.difference(serviceMidnight)` のような経過時間差は使わない。
-  /// DateTime.difference は経過時間を測るため、DST のある端末タイムゾーンでは
-  /// spring-forward 後の締切が実際の壁時計より短く出て誤った時刻表を照会する
-  /// （#121 と同じクラス。端末 TZ は JST とは限らない）。日数差だけは date-only の
-  /// DateTime.utc 同士の difference で取る（UTC に DST は無く暦日差と一致するため正確）。
-  String _formatServiceTime(DateTime departureAt, DateTime deadline) {
-    final dayDelta = DateTime.utc(deadline.year, deadline.month, deadline.day)
-        .difference(
-          DateTime.utc(departureAt.year, departureAt.month, departureAt.day),
-        )
-        .inDays;
-    final hours = deadline.hour + 24 * dayDelta;
-    final minutes = deadline.minute;
+  /// 締切を表す中間の `DateTime`（`departureAt.add(Duration(minutes: budgetMin))` 等）は
+  /// 経由しない。[budgetMin] は呼び出し元で既に TimeValue 由来の名目分として求まっており、
+  /// それを `Duration` に載せて `.add` すると経過時間演算になり、DST のある端末タイムゾーン
+  /// では spring-forward を跨ぐ計算で壁時計が1時間ずれる（#121 と同じクラス。端末 TZ は
+  /// JST とは限らない）。壁時計の年月日時分から `DateTime` を作り直す代替も、その時刻が
+  /// DST ギャップに落ちれば同じだけずれるため避け、暦フィールドの整数演算だけで完結させる。
+  String _formatServiceTime(DateTime departureAt, int budgetMin) {
+    final total = departureAt.hour * 60 + departureAt.minute + budgetMin;
+    final hours = total ~/ 60;
+    final minutes = total % 60;
     return '${hours.toString().padLeft(2, '0')}:'
         '${minutes.toString().padLeft(2, '0')}';
   }
