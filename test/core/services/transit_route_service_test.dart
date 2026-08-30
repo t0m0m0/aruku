@@ -8,7 +8,7 @@ import 'package:aruku/core/services/cancellation.dart';
 import 'package:aruku/core/services/hybrid_route_selector.dart'
     show RouteCandidate, haversineKm;
 import 'package:aruku/core/services/route_diagnostics.dart'
-    show RouteSearchMetrics;
+    show ArrivalWaveOutcome, RouteSearchMetrics;
 import 'package:aruku/core/services/route_plan_builder.dart'
     show walkMetersPerMinute, trainMetersPerMinute, firstMissedTransit;
 import 'package:aruku/core/services/route_service.dart';
@@ -6272,8 +6272,9 @@ void main() {
       // departure 波だけで従来どおり確定する。
       expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
       final m = captured!;
-      // 猶予切れは失敗と同じ扱い＝計測は立たない。
-      expect(m.arrivalWaveOk, isFalse);
+      // 猶予切れも合流できる素材が無い点は失敗と同じだが、原因は別物として残す
+      // ——集計で「間に合わなかった」と「仮説が外れた」を取り違えないため（#376）。
+      expect(m.arrivalWaveOutcome, ArrivalWaveOutcome.timeout);
       expect(m.arrivalWaveOptions, 0);
       expect(m.arrivalWaveBaseUsed, isFalse);
       expect(m.arrivalWaveWon, isFalse);
@@ -6492,7 +6493,7 @@ void main() {
           onMetrics: (m) => captured = m,
         );
         final m = captured!;
-        expect(m.arrivalWaveOk, isTrue);
+        expect(m.arrivalWaveOutcome, ArrivalWaveOutcome.ok);
         expect(m.arrivalWaveOptions, 1, reason: 'dedup 後の純増分');
         expect(m.arrivalWaveBaseUsed, isTrue);
         expect(m.arrivalWaveWon, isTrue);
@@ -6510,10 +6511,26 @@ void main() {
           onMetrics: (m) => captured = m,
         );
         final m = captured!;
-        expect(m.arrivalWaveOk, isFalse);
+        expect(m.arrivalWaveOutcome, ArrivalWaveOutcome.error);
         expect(m.arrivalWaveOptions, 0);
         expect(m.arrivalWaveBaseUsed, isFalse);
         expect(m.arrivalWaveWon, isFalse);
+      });
+
+      test('200 でも option が0本なら空応答として区別する', () async {
+        // 「仮説が外れた」唯一の形。ここだけが revert の根拠になり得るので、
+        // 猶予切れ・上流エラーと同じコードに潰してはいけない（#376・§3.8）。
+        RouteSearchMetrics? captured;
+        await run(
+          _waveMock(
+            departure: _guidance([_familyA(), _familyB()]),
+            arrival: _guidance(const []),
+          ),
+          onMetrics: (m) => captured = m,
+        );
+        final m = captured!;
+        expect(m.arrivalWaveOutcome, ArrivalWaveOutcome.empty);
+        expect(m.arrivalWaveOptions, 0);
       });
 
       test('重複便しか返らなければ Ok だけ立ち純増0・不採用', () async {
@@ -6526,7 +6543,11 @@ void main() {
           onMetrics: (m) => captured = m,
         );
         final m = captured!;
-        expect(m.arrivalWaveOk, isTrue, reason: '応答自体は有効だった');
+        expect(
+          m.arrivalWaveOutcome,
+          ArrivalWaveOutcome.ok,
+          reason: '応答自体は有効だった',
+        );
         expect(m.arrivalWaveOptions, 0, reason: '全て dedup で消える');
         expect(m.arrivalWaveBaseUsed, isFalse);
         expect(m.arrivalWaveWon, isFalse);
@@ -6536,7 +6557,7 @@ void main() {
         expect(
           RouteSearchMetrics().toLogLine(),
           allOf(
-            contains('arrivalWaveOk=0'),
+            contains('arrivalWaveOutcome=-1'),
             contains('arrivalWaveOptions=0'),
             contains('arrivalWaveBaseUsed=0'),
             contains('arrivalWaveWon=0'),

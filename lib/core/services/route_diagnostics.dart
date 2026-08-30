@@ -232,6 +232,27 @@ class BestEffortLedger {
   void addMs(int ms) => totalMs += ms;
 }
 
+/// 到着アンカー第2波（#376）の結末。`arrivalWaveOutcome=<index>` として1行ログに出す。
+///
+/// **失敗をひとつに畳まないのは、対策が正反対に分かれるから。** 猶予切れ・上流エラーは
+/// 「間に合わなかった／届かなかった」で、仮説（到着アンカーは別系統を掘れる）の是非を
+/// 何も語らない。[empty] だけが仮説そのものの否定で、§3.8 の revert 判断に使えるのは
+/// これだけ。実測（#376 の実機確認）では departure 波が速い検索ほど [timeout] に倒れる。
+enum ArrivalWaveOutcome {
+  /// 解析可能な非空応答。合流できる素材が入った（純増があったかは [
+  /// RouteSearchMetrics.arrivalWaveOptions] が別に持つ）。
+  ok,
+
+  /// departure 波の確定後、猶予（`_arrivalWaveGrace`）内に返らなかった。
+  timeout,
+
+  /// HTTP 失敗・パース不能。
+  error,
+
+  /// 応答は返ったが option が0本。
+  empty,
+}
+
 /// 1検索分の定量指標（#309）。collapse 発火・board-search 起動・上流 HTTP 往復本数・
 /// フェーズ別所要時間を1オブジェクトに集約し、[toLogLine] で機械集計可能な1行に整形する。
 ///
@@ -486,15 +507,15 @@ class RouteSearchMetrics {
   /// 消える上限）。enrich 削減の費用対効果を測るための実測（振る舞いは未変更）。
   int guidanceDupCalls = 0;
 
-  /// 到着アンカー第2波（#376）が解析可能な非空応答を返したか。**失敗（HTTP/TIMEOUT/
-  /// パース不能）と「応答は返ったが option が0本」を区別しない**——どちらも合流できる
-  /// 素材が無かったという同じ結果で、判定（毎検索 +1 本の対価に見合うか）に必要なのは
-  /// 「素材が入ったか」だけだから。
-  bool arrivalWaveOk = false;
+  /// 到着アンカー第2波（#376）の結末。`null` は第2波を await する前＝この検索では未確定で、
+  /// 1行ログには `-1`（同ログ行の [boardSearchBest] / [finalWalkMinutes] と同じ「該当なし」の
+  /// 流儀）で出す。[ArrivalWaveOutcome.ok] に倒さないのは、器を作っただけの検索が成功として
+  /// 集計へ混ざらないようにするため。実経路では [RouteDiagnostics.logMetrics] までに必ず埋まる。
+  ArrivalWaveOutcome? arrivalWaveOutcome;
 
   /// 第2波から候補プールへ**純増**した option 数（構造フィンガープリント dedup の後）。
-  /// [arrivalWaveOk] が真でもここが 0 なら、その経路では departure 波と同じ便しか
-  /// 返らなかった＝第2波は何も足していない。
+  /// [arrivalWaveOutcome] が [ArrivalWaveOutcome.ok] でもここが 0 なら、その経路では
+  /// departure 波と同じ便しか返らなかった＝第2波は何も足していない。
   int arrivalWaveOptions = 0;
 
   /// `basesForHybrid` が選んだ base に第2波由来の option が含まれたか。**コリドーが
@@ -527,7 +548,7 @@ class RouteSearchMetrics {
       'http=$httpRoundTrips '
       'guidanceCalls=$guidanceCalls walkCalls=$walkCalls matrixCalls=$matrixCalls '
       'guidanceDupCalls=$guidanceDupCalls '
-      'arrivalWaveOk=${arrivalWaveOk ? 1 : 0} '
+      'arrivalWaveOutcome=${arrivalWaveOutcome?.index ?? -1} '
       'arrivalWaveOptions=$arrivalWaveOptions '
       'arrivalWaveBaseUsed=${arrivalWaveBaseUsed ? 1 : 0} '
       'arrivalWaveWon=${arrivalWaveWon ? 1 : 0} '

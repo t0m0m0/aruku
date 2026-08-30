@@ -229,7 +229,7 @@ class TransitRouteService implements SearchEngine {
       options,
     );
     metrics
-      ..arrivalWaveOk = wave.ok
+      ..arrivalWaveOutcome = wave.outcome
       ..arrivalWaveOptions = wave.fresh.length;
 
     final plan = await _selectMeasured(
@@ -269,7 +269,8 @@ class TransitRouteService implements SearchEngine {
   /// [SearchCanceledException] だけは飲まない——飲むと検索から離脱した後も departure 波
   /// だけで完走して経路を返してしまう（#316）。猶予（[_arrivalWaveGrace]）で打ち切られた
   /// 波もここへ [TimeoutException] として落ちる。
-  Future<({bool ok, List<TransitOption> fresh})> _arrivalWaveOptions(
+  Future<({ArrivalWaveOutcome outcome, List<TransitOption> fresh})>
+  _arrivalWaveOptions(
     Future<Map<String, dynamic>> wave,
     List<TransitOption> departureOptions,
   ) async {
@@ -283,12 +284,28 @@ class TransitRouteService implements SearchEngine {
       _diag.log(
         () => 'arrival 波: ${parsed.length} options → 純増 ${fresh.length}件を合流',
       );
-      return (ok: parsed.isNotEmpty, fresh: fresh);
+      return (
+        outcome: parsed.isEmpty
+            ? ArrivalWaveOutcome.empty
+            : ArrivalWaveOutcome.ok,
+        fresh: fresh,
+      );
     } on SearchCanceledException {
       rethrow;
+    } on TimeoutException {
+      // 猶予切れは上流エラーと分ける。合流できる素材が無いのは同じでも、こちらは
+      // 第2波の中身を一度も見ていない＝仮説の是非を語らない（#376・§3.8）。
+      _diag.log(() => 'arrival 波: 猶予切れ → departure 波のみで続行');
+      return (
+        outcome: ArrivalWaveOutcome.timeout,
+        fresh: const <TransitOption>[],
+      );
     } catch (e) {
       _diag.log(() => 'arrival 波: 失敗（$e）→ departure 波のみで続行');
-      return (ok: false, fresh: const <TransitOption>[]);
+      return (
+        outcome: ArrivalWaveOutcome.error,
+        fresh: const <TransitOption>[],
+      );
     }
   }
 
