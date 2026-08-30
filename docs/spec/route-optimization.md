@@ -150,6 +150,7 @@
 - **天井の掛け方:** `SearchDeadline` を `TransitApiClient` に渡し、Transit の各 fetch を `min(1本の上限, 残予算)` でクランプする。残予算 0 での照会は HTTP を発行せず即 `TIMEOUT`。
 - **締切超過は失敗ではなく縮退。** 必須なのは初期 `/guidance/plan` の **departure 波1本**だけで、それ以降の引き直しは徒歩最大化のための改善なので、改善側だけをゲートできる。既得の候補で確定経路を返す。
   - **並列に走る arrival 波（§3.1・#376）も改善側。** 失敗（429/5xx/TIMEOUT/パース不能）は黙って捨てて departure 波だけで続行する＝`RouteException` を上へ抜けさせない。ただし**キャンセル（`SearchCanceledException`）は握り潰さない**——飲むと離脱後も departure 波だけで完走して経路を返してしまう（#316 と同型）。
+  - **待つのは departure 波が返ってからの猶予（`_arrivalWaveGrace`・既定5秒）まで。** 猶予切れは失敗と同じく捨てる。**無期限に待ってはいけない**——並列 guidance の裾は実測 33〜43 秒まで伸びるので、改善でしかない波の裾が毎検索の体感へそのまま乗る（1本の上限35秒はこれを止められない）。**0 にもしない**——両波は同時発行済みで、この時点の第2波は既に departure 波ぶんの時間を走っているため、あと一息で返る応答まで捨てることになる。
 - **120 秒は検索全体の厳密な上限ではない。** 締切後も確定候補の徒歩実測（短リストを候補**間並列**で測る 1〜2 バッチ・§3.7）が走るため `totalMs` は 120 秒を超え得る。天井を締めたいなら検証を削るのではなく短リスト上限を下げること。
 - **トレードオフ:** 締切で board-search が打ち切られると徒歩が最大より短くなる＝主目的が劣化する。劣化の頻度が問題になるなら、締切を伸ばすのではなく**ラウンド数を減らす**方向で対処する。
 - **UI 文言:** `TIMEOUT` は `RouteErrorKind.timeout`（`network` とは別）。
@@ -179,6 +180,7 @@
 /guidance/plan 照会を2本**並列**発行（いずれも avoidModes でバス除外）
   ・departure 波（type=departure・出発時刻アンカー）＝**必須**。失敗は検索ごと失敗
   ・arrival 波（type=arrival・締切=出発+予算アンカー・#376）＝**改善**。失敗は黙って捨てる
+    （待つのは departure 波の確定後 _arrivalWaveGrace（既定5秒）まで・§2.4）
   → parseGuidancePlan で option 列へ解析（legs＋map.segments の polyline）
   → arrival 波の option を _hybridKey と同一の構造フィンガープリントで dedup して合流
     （標準乗換候補・basesForHybrid の母集合の両方へ入る。dep < 出発時刻の便が返り得るが、

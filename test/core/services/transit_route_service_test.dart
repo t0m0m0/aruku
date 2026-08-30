@@ -356,6 +356,7 @@ Map<String, dynamic> _familyB() => {
 TransitRouteService _service(
   http.Client client, {
   void Function(RouteSearchMetrics)? onMetrics,
+  Duration? arrivalWaveGrace,
 }) => TransitRouteService(
   transitClient: client,
   proxyClient: client,
@@ -363,6 +364,7 @@ TransitRouteService _service(
   proxyBaseUrl: _proxyBase,
   clock: () => DateTime(2026, 6, 27, 9, 0),
   onMetrics: onMetrics,
+  arrivalWaveGrace: arrivalWaveGrace,
 );
 
 void main() {
@@ -6120,14 +6122,20 @@ void main() {
     Future<RoutePlan> run(
       http.Client client, {
       void Function(RouteSearchMetrics)? onMetrics,
-    }) => _service(client, onMetrics: onMetrics).plan(
-      destination: '目的地',
-      destinationLatLng: g,
-      departure: const TimeValue(h: 9, m: 0),
-      arrival: const TimeValue(h: 10, m: 40), // 予算100分
-      origin: o,
-      originName: '出発',
-    );
+      Duration? arrivalWaveGrace,
+    }) =>
+        _service(
+          client,
+          onMetrics: onMetrics,
+          arrivalWaveGrace: arrivalWaveGrace,
+        ).plan(
+          destination: '目的地',
+          destinationLatLng: g,
+          departure: const TimeValue(h: 9, m: 0),
+          arrival: const TimeValue(h: 10, m: 40), // 予算100分
+          origin: o,
+          originName: '出発',
+        );
 
     int walkOf(RoutePlan plan) => plan.segments
         .where((s) => s.type == SegmentType.walk)
@@ -6192,6 +6200,33 @@ void main() {
         ),
         isTrue,
       );
+    });
+
+    test('猶予内に返らない arrival 波は待たずに departure 波だけで確定する', () async {
+      // 応答は Completer で止める（実時間タイマーで「遅い応答」を作るテストは負荷で
+      // フレークする）。猶予切れの側だけを見るので、gate は検証が済むまで完了しない。
+      final gate = Completer<http.Response>();
+      RouteSearchMetrics? captured;
+      final plan = await run(
+        _waveMock(
+          departure: _guidance([_familyA(), _familyB()]),
+          onArrival: () => gate.future,
+        ),
+        onMetrics: (m) => captured = m,
+        arrivalWaveGrace: const Duration(milliseconds: 20),
+      );
+
+      // departure 波だけで従来どおり確定する。
+      expect(plan.totalMin, lessThanOrEqualTo(plan.budgetMin));
+      final m = captured!;
+      // 猶予切れは失敗と同じ扱い＝計測は立たない。
+      expect(m.arrivalWaveOk, isFalse);
+      expect(m.arrivalWaveOptions, 0);
+      expect(m.arrivalWaveBaseUsed, isFalse);
+      expect(m.arrivalWaveWon, isFalse);
+
+      // 宙に浮いた応答を閉じ、上流タイムアウトのタイマーを残さない。
+      gate.complete(_json(_guidance([_familyA(), _familyB()])));
     });
 
     test('arrival 波がタイムアウトしても departure 波だけで確定する', () async {

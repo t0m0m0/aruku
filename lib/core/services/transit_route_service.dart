@@ -45,7 +45,9 @@ class TransitRouteService implements SearchEngine {
     CancellationToken? cancellation,
     SearchDeadline deadline = const SearchDeadline.none(),
     void Function(RouteSearchMetrics)? onMetrics,
-  }) : _api = TransitApiClient(
+    Duration? arrivalWaveGrace,
+  }) : _arrivalWaveGrace = arrivalWaveGrace ?? _defaultArrivalWaveGrace,
+       _api = TransitApiClient(
          transitClient: transitClient,
          proxyClient: proxyClient,
          transitBaseUrl: transitBaseUrl,
@@ -70,6 +72,20 @@ class TransitRouteService implements SearchEngine {
   /// 上限×直列ラウンド数だけ待った末に受け取る」最悪が生じる。ゲートするのは改善側
   /// だけで、必須の初期照会は締切で止めない（止めれば #300 の症状そのものへ戻る）。
   final SearchDeadline _deadline;
+
+  /// 到着アンカー第2波（#376）を departure 波の確定後に待つ猶予。テストが実時間に
+  /// 依存せず猶予切れを再現できるよう注入可能にしてある（既定は [_defaultArrivalWaveGrace]）。
+  final Duration _arrivalWaveGrace;
+
+  /// [_arrivalWaveGrace] の既定値。
+  ///
+  /// **無期限に待たない理由:** 並列に投げた guidance の裾は実測 33〜43 秒まで伸びる。
+  /// 改善でしかない波を待ち切ると、その裾が毎検索の体感へそのまま乗る＝「必須は
+  /// departure 波1本」（§2.4）という設計に反する。
+  ///
+  /// **0 にしない理由:** 両波は同時に発行済みで、この時点の第2波は既に departure 波
+  /// ぶんの時間を走っている。0 にすると、あと一息で返る応答まで捨てることになる。
+  static const Duration _defaultArrivalWaveGrace = Duration(seconds: 5);
 
   /// 選定の診断ログ整形（#169）。`verbose` は既定で [kDebugMode]。
   final RouteDiagnostics _diag = const RouteDiagnostics();
@@ -205,7 +221,13 @@ class TransitRouteService implements SearchEngine {
 
     onProgress?.call(RoutePhase.walkability);
 
-    final wave = await _arrivalWaveOptions(arrivalWave, options);
+    // 第2波を待つのは departure 波が返ってから [_arrivalWaveGrace] までに限る（猶予切れは
+    // 失敗と同じ fail-soft）。元の Future は `ignore()` 済みなので、猶予後に遅れて届く
+    // 失敗が未処理例外にはならない。キャンセルは猶予内なら素通しで上へ抜ける。
+    final wave = await _arrivalWaveOptions(
+      arrivalWave.timeout(_arrivalWaveGrace),
+      options,
+    );
     metrics
       ..arrivalWaveOk = wave.ok
       ..arrivalWaveOptions = wave.fresh.length;
@@ -242,10 +264,11 @@ class TransitRouteService implements SearchEngine {
   /// 到着アンカー第2波（#376）の応答を option 列へ解析し、[departureOptions] と構造が
   /// 重複しないもの（[fresh]）と、応答自体が使えたか（[ok]）を返す。
   ///
-  /// 失敗（HTTP・TIMEOUT・パース不能）を握って空リストへ落とすのは、この波が「改善」で
-  /// あって必須ではないから（必須は departure 波1本・§2.4）。ただし
+  /// 失敗（HTTP・TIMEOUT・パース不能・猶予切れ）を握って空リストへ落とすのは、この波が
+  /// 「改善」であって必須ではないから（必須は departure 波1本・§2.4）。ただし
   /// [SearchCanceledException] だけは飲まない——飲むと検索から離脱した後も departure 波
-  /// だけで完走して経路を返してしまう（#316）。
+  /// だけで完走して経路を返してしまう（#316）。猶予（[_arrivalWaveGrace]）で打ち切られた
+  /// 波もここへ [TimeoutException] として落ちる。
   Future<({bool ok, List<TransitOption> fresh})> _arrivalWaveOptions(
     Future<Map<String, dynamic>> wave,
     List<TransitOption> departureOptions,
