@@ -357,12 +357,13 @@ TransitRouteService _service(
   http.Client client, {
   void Function(RouteSearchMetrics)? onMetrics,
   Duration? arrivalWaveGrace,
+  DateTime Function()? clock,
 }) => TransitRouteService(
   transitClient: client,
   proxyClient: client,
   transitBaseUrl: _transitBase,
   proxyBaseUrl: _proxyBase,
-  clock: () => DateTime(2026, 6, 27, 9, 0),
+  clock: clock ?? () => DateTime(2026, 6, 27, 9, 0),
   onMetrics: onMetrics,
   arrivalWaveGrace: arrivalWaveGrace,
 );
@@ -6161,6 +6162,58 @@ void main() {
       expect(wave.queryParameters['time'], '10:40'); // 09:00 + 予算100分
       // departure 波と同じ train-only 条件（§1.1 の last-resort 構造は変えない）。
       expect(wave.queryParameters['avoidModes'], 'bus,ferry,air');
+    });
+
+    // _departureDateTime（departure 波・arrival 波が共に起点にする）の日送りが
+    // Duration(days:) の経過時間加算だと、DST のある端末タイムゾーンでは
+    // spring-forward を跨ぐ壁時計が1時間ずれる（#121 と同じクラス）。フィールド加算に
+    // よる暦正規化（月末・年末の繰り上げ）をここで固定する。
+    test('月末をまたぐ dateOffset は date=翌月1日へ暦正規化される', () async {
+      final log = <Uri>[];
+      await _service(
+        _waveMock(
+          departure: _guidance([_familyA()]),
+          arrival: _guidance(const []),
+          log: log,
+        ),
+        clock: () => DateTime(2026, 8, 31, 9, 0),
+      ).plan(
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: const TimeValue(h: 9, m: 0, dateOffset: 1),
+        arrival: const TimeValue(h: 10, m: 40, dateOffset: 1), // 予算100分
+        origin: o,
+        originName: '出発',
+      );
+      final dates = log
+          .where((u) => u.path.contains('guidance/plan'))
+          .map((u) => u.queryParameters['date'])
+          .toSet();
+      expect(dates, {'20260901'});
+    });
+
+    test('年末をまたぐ dateOffset は date=翌年1月1日へ暦正規化される', () async {
+      final log = <Uri>[];
+      await _service(
+        _waveMock(
+          departure: _guidance([_familyA()]),
+          arrival: _guidance(const []),
+          log: log,
+        ),
+        clock: () => DateTime(2026, 12, 31, 9, 0),
+      ).plan(
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: const TimeValue(h: 9, m: 0, dateOffset: 1),
+        arrival: const TimeValue(h: 10, m: 40, dateOffset: 1),
+        origin: o,
+        originName: '出発',
+      );
+      final dates = log
+          .where((u) => u.path.contains('guidance/plan'))
+          .map((u) => u.queryParameters['date'])
+          .toSet();
+      expect(dates, {'20270101'});
     });
 
     test('arrival 波だけが返す別系統が base になりそのコリドーから勝者が出る', () async {

@@ -2513,15 +2513,20 @@ class TransitRouteService implements SearchEngine {
   }
 
   /// 出発の絶対時刻。dateOffset（isNow→0）で日付を決定する。
+  ///
+  /// 日送りは `Duration(days:)` の加算ではなく `day` フィールドへの加算で行う。経過時間の
+  /// 加算は DST 端末で日跨ぎの壁時計を1時間ずらす（spring-forward を跨ぐと翌日以降指定の
+  /// 発車が1時間ずれる）。フィールド加算なら `DateTime` コンストラクタが月末・年末を含め
+  /// 暦で正規化する——#121・#376 と同じクラス。
   DateTime _departureDateTime(TimeValue t) {
     final now = _clock();
     return DateTime(
       now.year,
       now.month,
-      now.day,
+      now.day + effectiveOffset(t),
       t.h,
       t.m,
-    ).add(Duration(days: effectiveOffset(t)));
+    );
   }
 }
 
