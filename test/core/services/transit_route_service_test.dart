@@ -6257,6 +6257,80 @@ void main() {
       await expectLater(run(client), throwsA(isA<RouteException>()));
     });
 
+    test('同一路線・同一乗降でも別便なら重複除去で落とさない', () async {
+      // 到着アンカーの主産物は「同じ系統の、締切ぎりぎりまで遅らせた便」なので、構造
+      // （種別・路線名・乗降座標）だけで畳むと第2波の中身がまるごと消える。
+      //
+      // 罠: departure 波の各停は予算外（09:03→10:50 で到着114分 > 予算100分）、arrival 波の
+      // 急行だけが予算内（09:30→09:50 で到着52分）。構造だけの鍵だと急行が捨てられて
+      // 予算内候補が消滅し、検索は best-effort（予算外）へ落ちる。勝者の同定は seg.minutes
+      // ではなく depTime/arrTime で行う（比較器は arrTime 駆動・#256）。
+      Map<String, dynamic> sameLineRun({
+        required int dep,
+        required int arr,
+      }) => {
+        'journey': {
+          'departureSecs': dep,
+          'arrivalSecs': arr,
+          'durationSecs': arr - dep + 240,
+          'accessWalkSecs': 120,
+          'egressWalkSecs': 120,
+          'legs': [
+            _railLeg(
+              route: '本線',
+              fromId: 'm:board',
+              fromName: 'M乗車',
+              toId: 'm:alight',
+              toName: 'M降車',
+              dep: dep,
+              arr: arr,
+            ),
+          ],
+        },
+        'map': {
+          'points': const [],
+          'segments': [
+            _mapSeg('walk', 'origin', 'm:board', 'osmWalk', const [
+              [35.0, 139.000],
+              [35.0, 139.002],
+            ]),
+            _mapSeg('transit', 'm:board', 'm:alight', 'stopOrder', const [
+              [35.0, 139.002],
+              [35.0, 139.098],
+            ]),
+            _mapSeg('walk', 'm:alight', 'destination', 'estimatedWalk', const [
+              [35.0, 139.098],
+              [35.0, 139.100],
+            ]),
+          ],
+        },
+      };
+
+      RouteSearchMetrics? captured;
+      final plan = await run(
+        _waveMock(
+          // 各停 09:03発→10:50着（予算外）
+          departure: _guidance([sameLineRun(dep: 32580, arr: 39000)]),
+          // 急行 09:30発→09:50着（予算内）。路線名も乗降座標も各停と同一。
+          arrival: _guidance([sameLineRun(dep: 34200, arr: 35400)]),
+        ),
+        onMetrics: (m) => captured = m,
+      );
+
+      expect(
+        plan.totalMin,
+        lessThanOrEqualTo(plan.budgetMin),
+        reason: '急行が生き残れば予算内で確定できる',
+      );
+      final trains = plan.segments
+          .where((s) => s.type == SegmentType.train)
+          .toList();
+      expect(trains, hasLength(1));
+      expect(trains.first.depTime, DateTime(2026, 6, 27, 9, 30));
+      expect(trains.first.arrTime, DateTime(2026, 6, 27, 9, 50));
+      expect(captured!.arrivalWaveOptions, 1, reason: '別便なので純増1本');
+    });
+
     test('arrival 波の出発済み便は既存の不変条件が弾き確定に出ない', () async {
       // 罠: 幽霊特急は徒歩59分（プール最大）で見積り到着69分（予算100分内）なので、
       // 乗り遅れ判定（firstMissedTransit / _invariantViolation）が無ければ**必ず勝つ**。

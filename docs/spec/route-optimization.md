@@ -182,9 +182,13 @@
   ・arrival 波（type=arrival・締切=出発+予算アンカー・#376）＝**改善**。失敗は黙って捨てる
     （待つのは departure 波の確定後 _arrivalWaveGrace（既定5秒）まで・§2.4）
   → parseGuidancePlan で option 列へ解析（legs＋map.segments の polyline）
-  → arrival 波の option を _hybridKey と同一の構造フィンガープリントで dedup して合流
-    （標準乗換候補・basesForHybrid の母集合の両方へ入る。dep < 出発時刻の便が返り得るが、
-     新しい防波堤は書かない——firstMissedTransit / reachableWithinBudget が弾く・§4 #254）
+  → arrival 波の option を dedup して合流（標準乗換候補・basesForHybrid の母集合の両方へ入る）
+    ・落とすのは**同一便だけ**（構造＝種別/路線名/乗降座標 ＋ 時刻表の同一性＝実発着時刻）。
+      **構造だけで畳んではならない**——「同じ系統の、締切ぎりぎりまで遅らせた便」は路線も
+      乗降駅も departure 波と同じで時刻だけが違う＝到着アンカーの主産物そのものなので、
+      構造だけの鍵はこの波の中身をまるごと消す（`arrivalWaveOptions` も過少に出る）
+    ・dep < 出発時刻の便が返り得るが、新しい防波堤は書かない——firstMissedTransit /
+      reachableWithinBudget が弾く（§4 #254）
   → 標準乗換候補（door-to-door をそのまま候補化）
   → basesForHybrid で路線ファミリの異なる base を最大 _maxHybridBases 本選ぶ
   → base ごとに _buildCorridorHybrids を並列実行:

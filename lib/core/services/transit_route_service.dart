@@ -2182,11 +2182,25 @@ class TransitRouteService implements SearchEngine {
           '${_coordKey(s.polyline.isNotEmpty ? s.polyline.last : null)}',
   ].join('|');
 
-  /// option を [_hybridKey] と同一の構造フィンガープリントへ要約する（#376）。到着アンカー
-  /// 第2波と departure 波は同じ便を返し得るので、ハイブリッドのマージ重複除去と同じ基準で
-  /// 畳む——別基準にすると、片方でだけ重複と判定される候補が生まれ上限の意味が崩れる。
-  String _optionKey(TransitOption o) =>
-      _hybridKey(RouteCandidate(from: o.from, to: o.to, segments: o.segments));
+  /// 波をまたぐ option の重複除去キー（#376）。落とすのは**同一便**だけで、構造（[_hybridKey]
+  /// ＝種別・路線名・乗降座標）に**時刻表の同一性**（transit 区間の実発着時刻）を足して表す。
+  ///
+  /// **構造だけで畳んではいけない。** 到着アンカー第2波の主産物は「同じ系統の、締切ぎりぎり
+  /// まで遅らせた便」＝路線名も乗降駅も departure 波と同じで時刻だけが違う便なので、構造だけの
+  /// 鍵はこの波の中身をまるごと消す（各停を残して急行を落とし、予算内なのが急行だけなら
+  /// 予算内候補が消滅する）。同じ便は各波が自分の応答の `date` で解析するため時刻も一致し、
+  /// 従来どおり畳まれる。
+  ///
+  /// **ハイブリッドの [_hybridKey] は構造のままでよい。** あちらの時刻はコリドー由来で
+  /// 生成時には存在せず（実時刻は採用前の引き直しで初めて付く・#137）、時刻を混ぜても
+  /// 全部が「時刻なし」で並ぶだけになる。
+  String _optionKey(TransitOption o) => [
+    _hybridKey(RouteCandidate(from: o.from, to: o.to, segments: o.segments)),
+    for (final s in o.segments)
+      if (s.type != SegmentType.walk)
+        '${s.depTime?.toIso8601String() ?? ''}>'
+            '${s.arrTime?.toIso8601String() ?? ''}',
+  ].join('#');
 
   String _coordKey(GeoPoint? p) => p == null
       ? '-'
