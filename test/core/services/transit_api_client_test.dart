@@ -169,6 +169,45 @@ void main() {
       expect(captured.queryParameters['time'], '25:00');
     });
 
+    // 年またぎでも「暦フィールドから組み立て」であって「経過時間」でないことを固定する。
+    // 経過時間差（DateTime.difference）は年境界そのものには影響されないが、DST のある
+    // 端末タイムゾーンでは経過時間と壁時計の時刻がずれる（#121 と同じクラス）。
+    test('年またぎの締切も date=出発サービス日・time=24時超で表す', () async {
+      late Uri captured;
+      final client = _client(
+        MockClient((req) async {
+          captured = req.url;
+          return _json({'ok': true});
+        }),
+      );
+      await client.fetchGuidanceArrivalAt(
+        const GeoPoint(35.1, 139.2),
+        const GeoPoint(35.3, 139.4),
+        DateTime(2026, 12, 31, 23, 30),
+        DateTime(2027, 1, 1, 1, 0),
+      );
+      expect(captured.queryParameters['date'], '20261231');
+      expect(captured.queryParameters['time'], '25:00');
+    });
+
+    test('複数日またぎの締切は time=48時超で表す', () async {
+      late Uri captured;
+      final client = _client(
+        MockClient((req) async {
+          captured = req.url;
+          return _json({'ok': true});
+        }),
+      );
+      await client.fetchGuidanceArrivalAt(
+        const GeoPoint(35.1, 139.2),
+        const GeoPoint(35.3, 139.4),
+        DateTime(2026, 8, 26, 9, 0),
+        DateTime(2026, 8, 28, 1, 30),
+      );
+      expect(captured.queryParameters['date'], '20260826');
+      expect(captured.queryParameters['time'], '49:30');
+    });
+
     test('allowBus: true では avoidModes からバスを外す', () async {
       late Uri captured;
       final client = _client(

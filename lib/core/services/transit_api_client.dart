@@ -304,20 +304,26 @@ class TransitApiClient {
   String _formatTime(DateTime dt) =>
       '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
 
-  /// [departureAt] のサービス日（0時起点）から [deadline] までの経過分を `H:mm` で返す。
-  /// 日またぎで H は 24 以上になり得る（例: 25:00）。
+  /// [departureAt] のサービス日（0時起点）を基準に、[deadline] までの時刻を暦フィールド
+  /// （年月日時分）だけから `H:mm` で組み立てる。日またぎで H は 24 以上になり得る
+  /// （例: 25:00）。
   ///
   /// [deadline] 自身の暦日+HH:mm ではなく [departureAt] のサービス日を基準にするのは、
   /// 0時前発車の便をサービス日負秒にせず表現するため（実 API 直測で確認済み・#376）。
+  ///
+  /// `deadline.difference(serviceMidnight)` のような経過時間差は使わない。
+  /// DateTime.difference は経過時間を測るため、DST のある端末タイムゾーンでは
+  /// spring-forward 後の締切が実際の壁時計より短く出て誤った時刻表を照会する
+  /// （#121 と同じクラス。端末 TZ は JST とは限らない）。日数差だけは date-only の
+  /// DateTime.utc 同士の difference で取る（UTC に DST は無く暦日差と一致するため正確）。
   String _formatServiceTime(DateTime departureAt, DateTime deadline) {
-    final serviceMidnight = DateTime(
-      departureAt.year,
-      departureAt.month,
-      departureAt.day,
-    );
-    final totalMinutes = deadline.difference(serviceMidnight).inMinutes;
-    final hours = totalMinutes ~/ 60;
-    final minutes = totalMinutes % 60;
+    final dayDelta = DateTime.utc(deadline.year, deadline.month, deadline.day)
+        .difference(
+          DateTime.utc(departureAt.year, departureAt.month, departureAt.day),
+        )
+        .inDays;
+    final hours = deadline.hour + 24 * dayDelta;
+    final minutes = deadline.minute;
     return '${hours.toString().padLeft(2, '0')}:'
         '${minutes.toString().padLeft(2, '0')}';
   }
