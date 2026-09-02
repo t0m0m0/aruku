@@ -956,15 +956,25 @@ class TransitRouteService implements SearchEngine {
     // 分母が水増しされ、ファンアウトの実コストを読み違える。
     if (hit != null) return hit;
     final sw = Stopwatch()..start();
+    // 徒歩 enrich と引き直しは厳密な直列なので、内側の await を別時計で挟むだけで
+    // 内訳が割れる。連鎖の途中で落ちた候補は徒歩側で止まっているため、catch 側でも
+    // この時計をそのまま読めばよい（Stopwatch は停止済みでも elapsed を返す）。
+    final walkSw = Stopwatch()..start();
     var steps = 0;
     try {
+      final walked = await _enrichWalkGeometry(c, walkCache);
+      walkSw.stop();
       final e = await _resolveBoardingTimes(
-        await _enrichWalkGeometry(c, walkCache),
+        walked,
         departureAt,
         onRedraw: () => steps++,
       );
       sw.stop();
-      ledger.record(chainMs: sw.elapsedMilliseconds, resolveSteps: steps);
+      ledger.record(
+        chainMs: sw.elapsedMilliseconds,
+        walkMs: walkSw.elapsedMilliseconds,
+        resolveSteps: steps,
+      );
       return enrichedCache[c] = e;
     } on SearchCanceledException {
       // 離脱した検索の計上は無意味（[metrics] ごと捨てる）。
@@ -974,7 +984,12 @@ class TransitRouteService implements SearchEngine {
       // 並列パスの待ち時間として払っている。計上しないと**上流が壊れているときほど
       // 臨界パスが小さく出る**という逆向きの歪みが入り、障害時ほど実態が読めなくなる。
       sw.stop();
-      ledger.record(chainMs: sw.elapsedMilliseconds, resolveSteps: steps);
+      walkSw.stop();
+      ledger.record(
+        chainMs: sw.elapsedMilliseconds,
+        walkMs: walkSw.elapsedMilliseconds,
+        resolveSteps: steps,
+      );
       rethrow;
     }
   }

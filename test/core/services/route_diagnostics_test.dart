@@ -141,10 +141,10 @@ void main() {
   group('EnrichLatencyLedger', () {
     test('パスは直列・候補は並列なので、パスごとの最遅候補を足す', () {
       final l = EnrichLatencyLedger()
-        ..record(chainMs: 20000, resolveSteps: 1)
-        ..record(chainMs: 38000, resolveSteps: 2)
+        ..record(chainMs: 20000, walkMs: 5000, resolveSteps: 1)
+        ..record(chainMs: 38000, walkMs: 9500, resolveSteps: 2)
         ..endPass()
-        ..record(chainMs: 19000, resolveSteps: 1);
+        ..record(chainMs: 19000, walkMs: 4750, resolveSteps: 1);
       expect(l.criticalPathMs, 38000 + 19000);
       expect(l.passes, 2);
       expect(l.candidates, 3);
@@ -152,17 +152,45 @@ void main() {
       expect(l.resolveDepth, 2);
     });
 
+    test('徒歩の内訳は最遅候補と対で採る（対を崩さない）', () {
+      // 臨界パスは最遅候補の連鎖なので、内訳もその候補から採らないと「別の候補の徒歩」を
+      // 臨界パスの内訳として読むことになる。max(walkMs) で実装すると 11000 が返って落ちる。
+      final l = EnrichLatencyLedger()
+        ..record(chainMs: 30000, walkMs: 4000, resolveSteps: 1)
+        ..record(chainMs: 12000, walkMs: 11000, resolveSteps: 1);
+      expect(l.criticalPathMs, 30000);
+      expect(l.walkPathMs, 4000);
+    });
+
+    test('徒歩の内訳もパスごとに積む', () {
+      final l = EnrichLatencyLedger()
+        ..record(chainMs: 30000, walkMs: 4000, resolveSteps: 1)
+        ..endPass()
+        ..record(chainMs: 20000, walkMs: 9000, resolveSteps: 1);
+      expect(l.criticalPathMs, 50000);
+      expect(l.walkPathMs, 13000);
+    });
+
+    test('徒歩の内訳は臨界パスを超えない（引き直しぶんが負にならない）', () {
+      final l = EnrichLatencyLedger()
+        ..record(chainMs: 30000, walkMs: 4000, resolveSteps: 1)
+        ..endPass()
+        ..record(chainMs: 20000, walkMs: 9000, resolveSteps: 1);
+      expect(l.walkPathMs, lessThanOrEqualTo(l.criticalPathMs));
+    });
+
     test('候補の無いパスは本数に数えない', () {
       // 先行実測が発火しない検索では endPass だけが先に来る。
       final l = EnrichLatencyLedger()
         ..endPass()
-        ..record(chainMs: 5000, resolveSteps: 0);
+        ..record(chainMs: 5000, walkMs: 1250, resolveSteps: 0);
       expect(l.passes, 1);
       expect(l.criticalPathMs, 5000);
     });
 
     test('末尾の endPass を呼ばなくても進行中パスは含まれる', () {
-      final l = EnrichLatencyLedger()..record(chainMs: 7000, resolveSteps: 3);
+      final l = EnrichLatencyLedger()
+        ..record(chainMs: 7000, walkMs: 1750, resolveSteps: 3);
       expect(l.criticalPathMs, 7000);
       expect(l.passes, 1);
       expect(l.resolveDepth, 3);
@@ -171,7 +199,8 @@ void main() {
     test('引き直し0段（標準乗換のみ）でも候補と時間は数える', () {
       // 実 depTime を持つ候補は _resolveBoardingTimes が即抜けるので段数0。
       // それでも徒歩 enrich の時間は払っているため chain は残る。
-      final l = EnrichLatencyLedger()..record(chainMs: 1500, resolveSteps: 0);
+      final l = EnrichLatencyLedger()
+        ..record(chainMs: 1500, walkMs: 375, resolveSteps: 0);
       expect(l.resolveDepth, 0);
       expect(l.criticalPathMs, 1500);
       expect(l.candidates, 1);
@@ -292,14 +321,14 @@ void main() {
         ..recordSpeculationWaste(BoardSearchStats()..probes = 7)
         ..recordEnrich(
           EnrichLatencyLedger()
-            ..record(chainMs: 12000, resolveSteps: 2)
+            ..record(chainMs: 12000, walkMs: 3000, resolveSteps: 2)
             ..endPass()
-            ..record(chainMs: 7000, resolveSteps: 1)
-            ..record(chainMs: 3000, resolveSteps: 1)
-            ..record(chainMs: 1000, resolveSteps: 0)
-            ..record(chainMs: 900, resolveSteps: 0)
-            ..record(chainMs: 800, resolveSteps: 0)
-            ..record(chainMs: 700, resolveSteps: 0),
+            ..record(chainMs: 7000, walkMs: 1750, resolveSteps: 1)
+            ..record(chainMs: 3000, walkMs: 750, resolveSteps: 1)
+            ..record(chainMs: 1000, walkMs: 250, resolveSteps: 0)
+            ..record(chainMs: 900, walkMs: 225, resolveSteps: 0)
+            ..record(chainMs: 800, walkMs: 200, resolveSteps: 0)
+            ..record(chainMs: 700, walkMs: 175, resolveSteps: 0),
         )
         ..recordBestEffort(
           BestEffortLedger()
@@ -325,7 +354,7 @@ void main() {
         'boardSearchProbeSerialMs=21000 boardSearchProbeParallelMs=18000 '
         'boardSearchSpeculated=1 boardSearchSpeculationWasted=1 '
         'boardSearchSpeculationProbes=7 '
-        'enrichCriticalMs=19000 enrichPasses=2 enrichResolveDepth=2 '
+        'enrichCriticalMs=19000 enrichWalkMs=4750 enrichPasses=2 enrichResolveDepth=2 '
         'enrichCandidates=7 '
         'bestEffortMs=41000 bestEffortEntries=1 bestEffortCandidates=19 '
         'bestEffortResolveDepth=2 bestEffortRetries=2 '
@@ -495,7 +524,7 @@ void main() {
         'boardSearchProbeSerialMs=0 boardSearchProbeParallelMs=0 '
         'boardSearchSpeculated=0 boardSearchSpeculationWasted=0 '
         'boardSearchSpeculationProbes=0 '
-        'enrichCriticalMs=0 enrichPasses=0 enrichResolveDepth=0 '
+        'enrichCriticalMs=0 enrichWalkMs=0 enrichPasses=0 enrichResolveDepth=0 '
         'enrichCandidates=0 '
         'bestEffortMs=0 bestEffortEntries=0 bestEffortCandidates=0 '
         'bestEffortResolveDepth=0 bestEffortRetries=0 '
