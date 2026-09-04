@@ -306,6 +306,10 @@ void main() {
         ..guidanceDupCalls = 1
         ..walkCalls = 10
         ..matrixCalls = 2
+        ..arrivalWaveOutcome = ArrivalWaveOutcome.ok
+        ..arrivalWaveOptions = 2
+        ..arrivalWaveBaseUsed = true
+        ..arrivalWaveWon = true
         ..guidanceMs = 1200
         ..hybridMs = 500
         ..enrichMs = 2600
@@ -348,6 +352,8 @@ void main() {
         'collapse=1 boardSearch=1 singlePass=1 http=15 '
         'guidanceCalls=3 walkCalls=10 matrixCalls=2 '
         'guidanceDupCalls=1 '
+        'arrivalWaveOutcome=0 arrivalWaveOptions=2 '
+        'arrivalWaveBaseUsed=1 arrivalWaveWon=1 '
         'guidanceMs=1200 hybridMs=500 enrichMs=2600 boardSearchMs=3400 '
         'boardSearchRounds=3 boardSearchScanCount=63 boardSearchBest=25 '
         'boardSearchTruncated=1 boardSearchProbeFailed=1 '
@@ -518,6 +524,8 @@ void main() {
         'collapse=0 boardSearch=0 singlePass=0 http=5 '
         'guidanceCalls=1 walkCalls=4 matrixCalls=0 '
         'guidanceDupCalls=0 '
+        'arrivalWaveOutcome=-1 arrivalWaveOptions=0 '
+        'arrivalWaveBaseUsed=0 arrivalWaveWon=0 '
         'guidanceMs=0 hybridMs=0 enrichMs=0 boardSearchMs=0 '
         'boardSearchRounds=0 boardSearchScanCount=0 boardSearchBest=-1 '
         'boardSearchTruncated=0 boardSearchProbeFailed=0 '
@@ -532,6 +540,31 @@ void main() {
         'boardSearchWalkByRound=- boardSearchWinnerRound=-1 '
         'finalWalkMinutes=-1 '
         'finalizeMs=0 totalMs=0',
+      );
+    });
+
+    test('到着波の結末は4値のコードとして1行ログに出る (#376)', () {
+      // 集計器（tool/route_metrics_agg.dart）は key=<int> しか読まないので、内訳は
+      // 文字列ではなくコードで出す。値の対応が動くと過去ログの集計が黙って狂うため固定する。
+      int codeOf(ArrivalWaveOutcome o) {
+        final line = (RouteSearchMetrics()..arrivalWaveOutcome = o).toLogLine();
+        return int.parse(
+          RegExp(r'arrivalWaveOutcome=(-?\d+)').firstMatch(line)!.group(1)!,
+        );
+      }
+
+      expect(codeOf(ArrivalWaveOutcome.ok), 0);
+      expect(codeOf(ArrivalWaveOutcome.timeout), 1);
+      expect(codeOf(ArrivalWaveOutcome.error), 2);
+      expect(codeOf(ArrivalWaveOutcome.empty), 3);
+    });
+
+    test('第2波を待つ前の未確定は実際の結末と別のコードで出る (#376)', () {
+      // -1 は同ログ行の boardSearchBest / finalWalkMinutes と同じ「該当なし」の流儀。
+      // 0（ok）に倒すと、器を作っただけの検索が成功として集計に混ざる。
+      expect(
+        RouteSearchMetrics().toLogLine(),
+        contains('arrivalWaveOutcome=-1'),
       );
     });
   });
