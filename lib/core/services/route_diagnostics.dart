@@ -148,6 +148,8 @@ class ProbeLatencyLedger {
 class EnrichLatencyLedger {
   int _closedCritical = 0;
   int _passCritical = 0;
+  int _closedWalk = 0;
+  int _passWalk = 0;
   int _passes = 0;
   bool _passHasCandidate = false;
 
@@ -158,11 +160,24 @@ class EnrichLatencyLedger {
   int resolveDepth = 0;
 
   /// 候補1件の実測を現在のパスへ記録する。[chainMs] は徒歩 enrich と引き直しを合わせた
-  /// その候補の連鎖の壁時計、[resolveSteps] はそのうち直列に積んだ guidance の本数。
-  void record({required int chainMs, required int resolveSteps}) {
+  /// その候補の連鎖の壁時計、[walkMs] はそのうち徒歩 enrich が占めた分、[resolveSteps] は
+  /// 直列に積んだ guidance の本数。
+  ///
+  /// [walkMs] は**最遅候補と対で**採る（`max(walkMs)` にしない）。臨界パスは最遅候補の
+  /// 連鎖そのものなので、別候補の徒歩を内訳として混ぜると `criticalPathMs - walkPathMs`
+  /// が引き直しの実時間を表さなくなり、負にもなり得る。[BoardSearchStats] の
+  /// `scanCount` / `best` を同一探索から採るのと同じ理由。
+  void record({
+    required int chainMs,
+    required int walkMs,
+    required int resolveSteps,
+  }) {
     candidates++;
     _passHasCandidate = true;
-    if (chainMs > _passCritical) _passCritical = chainMs;
+    if (chainMs > _passCritical) {
+      _passCritical = chainMs;
+      _passWalk = walkMs;
+    }
     if (resolveSteps > resolveDepth) resolveDepth = resolveSteps;
   }
 
@@ -171,14 +186,20 @@ class EnrichLatencyLedger {
   void endPass() {
     if (!_passHasCandidate) return;
     _closedCritical += _passCritical;
+    _closedWalk += _passWalk;
     _passes++;
     _passCritical = 0;
+    _passWalk = 0;
     _passHasCandidate = false;
   }
 
   /// 直列に積んだパスの壁時計の合計（Σ_passes 最遅候補）。
   int get criticalPathMs =>
       _closedCritical + (_passHasCandidate ? _passCritical : 0);
+
+  /// [criticalPathMs] のうち徒歩 enrich が占めた壁時計（Σ_passes 最遅候補の徒歩）。
+  /// 差 `criticalPathMs - walkPathMs` が引き直し（`_resolveBoardingTimes`）の実時間。
+  int get walkPathMs => _closedWalk + (_passHasCandidate ? _passWalk : 0);
 
   /// 直列に走ったパスの本数。
   int get passes => _passes + (_passHasCandidate ? 1 : 0);
@@ -417,6 +438,12 @@ class RouteSearchMetrics {
   /// 区間（best-effort 縮退の実時刻解決・選定の純粋計算）と計装の取りこぼしを表す。
   int enrichCriticalMs = 0;
 
+  /// [enrichCriticalMs] のうち徒歩 enrich（Google 徒歩ルート）が占めた壁時計。差
+  /// `enrichCriticalMs − enrichWalkMs` が実発車時刻の引き直しに消えた分で、**どちらを
+  /// 削るべきかはこの対でしか決まらない**——徒歩なら往復の削減、引き直しなら段数の削減と、
+  /// 打つ手が正反対になる。
+  int enrichWalkMs = 0;
+
   /// enrich が直列に走らせたパスの本数。**§3.7 Option A が潰そうとしている量。**
   int enrichPasses = 0;
 
@@ -434,6 +461,7 @@ class RouteSearchMetrics {
   /// 違い**台帳は検索に1つ**なので、支配探索を選ぶ必要がない。
   void recordEnrich(EnrichLatencyLedger ledger) {
     enrichCriticalMs = ledger.criticalPathMs;
+    enrichWalkMs = ledger.walkPathMs;
     enrichPasses = ledger.passes;
     enrichResolveDepth = ledger.resolveDepth;
     enrichCandidates = ledger.candidates;
@@ -514,7 +542,8 @@ class RouteSearchMetrics {
       'boardSearchSpeculated=${boardSearchSpeculated ? 1 : 0} '
       'boardSearchSpeculationWasted=${boardSearchSpeculationWasted ? 1 : 0} '
       'boardSearchSpeculationProbes=$boardSearchSpeculationProbes '
-      'enrichCriticalMs=$enrichCriticalMs enrichPasses=$enrichPasses '
+      'enrichCriticalMs=$enrichCriticalMs enrichWalkMs=$enrichWalkMs '
+      'enrichPasses=$enrichPasses '
       'enrichResolveDepth=$enrichResolveDepth '
       'enrichCandidates=$enrichCandidates '
       'bestEffortMs=$bestEffortMs bestEffortEntries=$bestEffortEntries '
