@@ -33,20 +33,38 @@ void main() {
   );
 
   testWidgets('初回フレームでは、レイアウト前のノードを走査対象にしない', (tester) async {
+    // レイアウトまで進めないのが、ゲートが閉じている窓そのもの。本番では
+    // ウィジェットツリーの構築後・最初のレイアウト前にビューがフォーカスを得る。
     await tester.pumpWidget(
       wrap(FirstFrameFocusGate(child: unlaidAmongLaidOut())),
+      phase: EnginePhase.build,
     );
 
     expect(() => findFirstFocus(tester), returnsNormally);
   });
 
   testWidgets('ゲートが無ければ、同じツリーで走査が落ちる', (tester) async {
-    await tester.pumpWidget(wrap(unlaidAmongLaidOut()));
+    await tester.pumpWidget(
+      wrap(unlaidAmongLaidOut()),
+      phase: EnginePhase.build,
+    );
 
     expect(() => findFirstFocus(tester), throwsNotLaidOut);
   });
 
-  testWidgets('初回フレームのあと、配下は走査対象へ戻る', (tester) async {
+  testWidgets('ゲート中に要求されたフォーカスを取りこぼさない', (tester) async {
+    final node = FocusNode();
+    addTearDown(node.dispose);
+
+    await tester.pumpWidget(
+      wrap(FirstFrameFocusGate(child: _RequestsFocusOnFirstFrame(node: node))),
+    );
+    await tester.pumpAndSettle();
+
+    expect(node.hasFocus, isTrue);
+  });
+
+  testWidgets('レイアウト前は閉じ、レイアウト後に開く', (tester) async {
     final node = FocusNode();
     addTearDown(node.dispose);
 
@@ -59,6 +77,7 @@ void main() {
           ),
         ),
       ),
+      phase: EnginePhase.build,
     );
     expect(node.canRequestFocus, isFalse);
 
@@ -92,4 +111,33 @@ class _RenderNeverLaysOutChild extends RenderBox
 
   @override
   void visitChildrenForSemantics(RenderObjectVisitor visitor) {}
+}
+
+/// 初回フレームの post-frame でフォーカスを要求する。SearchScreen と同じ形
+/// （lib/features/search/search_screen.dart）。
+class _RequestsFocusOnFirstFrame extends StatefulWidget {
+  const _RequestsFocusOnFirstFrame({required this.node});
+
+  final FocusNode node;
+
+  @override
+  State<_RequestsFocusOnFirstFrame> createState() =>
+      _RequestsFocusOnFirstFrameState();
+}
+
+class _RequestsFocusOnFirstFrameState
+    extends State<_RequestsFocusOnFirstFrame> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => widget.node.requestFocus(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Focus(
+    focusNode: widget.node,
+    child: const SizedBox(key: Key('anchor')),
+  );
 }
