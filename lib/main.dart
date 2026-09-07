@@ -26,6 +26,7 @@ import 'core/theme/aruku_theme.dart';
 import 'firebase_options.dart';
 import 'l10n/app_localizations.dart';
 import 'shared/widgets/desktop_shell.dart';
+import 'shared/widgets/first_frame_focus_gate.dart';
 import 'shared/widgets/responsive_scope.dart';
 
 Future<void> main() async {
@@ -214,8 +215,9 @@ class _ArukuAppState extends ConsumerState<ArukuApp> {
       routerConfig: ref.watch(goRouterProvider),
       // ここに置くのは、MediaQuery が MaterialApp の内側にしか無いため。
       // runApp の ProviderScope からは幅が読めない。
-      builder: (context, child) =>
-          ResponsiveScope(child: DesktopShell(child: child!)),
+      builder: (context, child) => FirstFrameFocusGate(
+        child: ResponsiveScope(child: DesktopShell(child: child!)),
+      ),
     );
   }
 }
