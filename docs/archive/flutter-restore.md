@@ -65,14 +65,26 @@ git -C <flutter-sdk> checkout 3.38.5
 Firebase プロジェクトは **`aruku-app`**（出所は `lib/firebase_options.dart` の `projectId`。
 このファイルは追跡されているので凍結先ツリーから読める）。
 
-```bash
-# FlutterFire CLI で両方生成させる（推奨）
-flutterfire configure --project=aruku-app
-```
+**Firebase Console から手で落として置く。** プロジェクト `aruku-app` → プロジェクトの設定 →
+マイアプリ から:
 
-手で取得する場合は Firebase Console → プロジェクト `aruku-app` → プロジェクトの設定 →
-マイアプリ から、Android アプリの `google-services.json` を `android/app/` へ、
-iOS アプリの `GoogleService-Info.plist` を `ios/Runner/` へ置く。
+| ダウンロードするもの | 置き場所 |
+| --- | --- |
+| Android アプリの `google-services.json` | `android/app/` |
+| iOS アプリの `GoogleService-Info.plist` | `ios/Runner/` |
+
+**`flutterfire configure` を使ってはいけない。** ネイティブ2ファイルを落とすついでに、
+追跡済みの `lib/firebase_options.dart` を生成しなおして上書きする。このファイルは
+FlutterFire の素の出力ではなく、API キーを `String.fromEnvironment` に置き換えて
+`--dart-define` で注入する形に手を入れてある（同ファイルのコメントと #359 参照）。
+上書きすると平文の Firebase キーが追跡ファイルに焼き戻り、凍結したアプリそのものが変わる。
+
+どうしても使う場合は、直後に生成物を戻す:
+
+```bash
+git status                                   # 何が書き換わったか確認する
+git checkout -- lib/firebase_options.dart    # 追跡ファイルへの上書きを捨てる
+```
 
 **Android は `google-services.json` が無いとビルドが通らない。** `android/app/build.gradle.kts`
 が `com.google.gms.google-services` プラグインを適用しており、その処理が設定ファイルを要求する。
@@ -83,16 +95,16 @@ Web ビルドだけなら不要（Firebase の値は追跡済みの `lib/firebas
 ## 4. 復元
 
 ```bash
-# 1. 取り出す
+# 1. 取り出す（ブランチとタグはどちらか一方。両方走らせると後の行が前の行を打ち消す）
 git fetch origin
-git checkout archive/flutter        # 触る場合
-git checkout flutter-final          # 参照だけなら（detached HEAD）
+git checkout archive/flutter        # 触る／コミットする場合はこちら
+#   git checkout flutter-final      # 参照するだけならこちら（detached HEAD になる）
 
 # 2. §3 のファイルを用意する
 cp secrets.properties.example secrets.properties
 cp ios/Flutter/Secrets.xcconfig.example ios/Flutter/Secrets.xcconfig
 cp dart_defines.example.json dart_defines.json
-flutterfire configure --project=aruku-app   # Firebase の2ファイル
+#   Firebase の2ファイルは Console から手で落として置く（§3.1）
 
 # 3. 依存を入れる
 flutter pub get
