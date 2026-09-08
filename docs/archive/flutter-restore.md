@@ -55,25 +55,33 @@ git -C <flutter-sdk> checkout 3.38.5
 | Maps キー（iOS） | `ios/Flutter/Secrets.xcconfig` | `ios/Flutter/Secrets.xcconfig.example` を複製 |
 | Maps / Firebase / プロキシ URL（Web） | `dart_defines.json` | `dart_defines.example.json` を複製 |
 | Firebase 設定（Android） | `android/app/google-services.json` | **テンプレートが無い。** Firebase Console から取得（§3.1） |
-| Firebase 設定（iOS） | `ios/Runner/GoogleService-Info.plist` | 同上 |
 
-前3つは `.example` が凍結先ツリーに入っているが、**Firebase の2ファイルは雛形すら無い**。
+上3つは `.example` が凍結先ツリーに入っているが、**`google-services.json` は雛形すら無い**。
 `.gitignore` で除外されているため、クリーンチェックアウトには存在しない。
 
-### 3.1 Firebase 設定ファイルの取得
+`ios/Runner/GoogleService-Info.plist` も同じく未追跡だが、**iOS の復元には要らない**（§3.1）。
+
+### 3.1 Firebase 設定ファイル（Android のみ必要）
 
 Firebase プロジェクトは **`aruku-app`**（出所は `lib/firebase_options.dart` の `projectId`。
 このファイルは追跡されているので凍結先ツリーから読める）。
 
-**Firebase Console から手で落として置く。** プロジェクト `aruku-app` → プロジェクトの設定 →
-マイアプリ から:
+**Android は `google-services.json` が無いとビルドが通らない。**
+`android/app/build.gradle.kts` が `com.google.gms.google-services` プラグインを適用しており、
+**Gradle のビルド時**に設定ファイルを要求する（実行時に渡す `FirebaseOptions` とは無関係）。
+Firebase Console → プロジェクト `aruku-app` → プロジェクトの設定 → マイアプリ → Android アプリ
+から落として `android/app/` へ置く。
 
-| ダウンロードするもの | 置き場所 |
-| --- | --- |
-| Android アプリの `google-services.json` | `android/app/` |
-| iOS アプリの `GoogleService-Info.plist` | `ios/Runner/` |
+**iOS の `GoogleService-Info.plist` は要らない。** 置いても使われない——
+`ios/Runner.xcodeproj/project.pbxproj` にファイル参照も Resources エントリも無く、
+アプリバンドルに同梱されない。`lib/main.dart` が
+`Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)` で追跡済みの値を
+明示注入しているため、plist を読む経路自体が無い。Firebase Console にアクセスできない人でも
+iOS は復元できる。
 
-**`flutterfire configure` を使ってはいけない。** ネイティブ2ファイルを落とすついでに、
+**Web ビルドにも要らない**（Firebase の値は `lib/firebase_options.dart` から入る）。
+
+**`flutterfire configure` を使ってはいけない。** ネイティブ設定を落とすついでに、
 追跡済みの `lib/firebase_options.dart` を生成しなおして上書きする。このファイルは
 FlutterFire の素の出力ではなく、API キーを `String.fromEnvironment` に置き換えて
 `--dart-define` で注入する形に手を入れてある（同ファイルのコメントと #359 参照）。
@@ -85,10 +93,6 @@ FlutterFire の素の出力ではなく、API キーを `String.fromEnvironment`
 git status                                   # 何が書き換わったか確認する
 git checkout -- lib/firebase_options.dart    # 追跡ファイルへの上書きを捨てる
 ```
-
-**Android は `google-services.json` が無いとビルドが通らない。** `android/app/build.gradle.kts`
-が `com.google.gms.google-services` プラグインを適用しており、その処理が設定ファイルを要求する。
-Web ビルドだけなら不要（Firebase の値は追跡済みの `lib/firebase_options.dart` から入る）。
 
 ---
 
@@ -104,7 +108,7 @@ git checkout archive/flutter        # 触る／コミットする場合はこち
 cp secrets.properties.example secrets.properties
 cp ios/Flutter/Secrets.xcconfig.example ios/Flutter/Secrets.xcconfig
 cp dart_defines.example.json dart_defines.json
-#   Firebase の2ファイルは Console から手で落として置く（§3.1）
+#   Android をビルドするなら google-services.json も Console から落として置く（§3.1）
 
 # 3. 依存を入れる
 flutter pub get
@@ -130,7 +134,7 @@ flutter build ios --release --no-codesign --dart-define-from-file=dart_defines.j
 | --- | --- | --- |
 | Web | `✓ Built build/web` | 無し |
 | Android | `✓ Built build/app/outputs/flutter-apk/app-release.apk` | `google-services.json`（§3.1） |
-| iOS | `✓ Built build/ios/iphoneos/Runner.app` | `GoogleService-Info.plist`（§3.1）・Xcode・CocoaPods |
+| iOS | `✓ Built build/ios/iphoneos/Runner.app` | Xcode・CocoaPods（Firebase の設定ファイルは不要。§3.1） |
 
 **Web ビルドだけを判定条件にしない。** Android の Gradle・マニフェスト・プラグイン周りの
 壊れ方は Web ビルドを一切通らない——実際、§3.1 の `google-services.json` が凍結先ツリーに
