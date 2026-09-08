@@ -30,3 +30,18 @@ export function firstWhere<T>(
   }
   return found;
 }
+
+/// Dart の `Iterable.singleWhere`（該当が 0 件でも 2 件以上でも投げる）に対応する。
+/// 「その条件を満たす要素がちょうど1つ」という主張そのものなので、`find` へ落とさない。
+export function singleWhere<T>(
+  items: readonly T[],
+  test: (item: T) => boolean,
+): T {
+  const found = items.filter(test);
+  if (found.length !== 1) {
+    throw new Error(
+      `expected exactly one matching element, got ${found.length}`,
+    );
+  }
+  return found[0];
+}

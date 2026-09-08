@@ -10,7 +10,10 @@ import {
   type RoutePlan,
 } from '../../src/models/route-plan';
 import { TimeValue } from '../../src/models/time-value';
-import { CancellationToken } from '../../src/services/cancellation';
+import {
+  CancellationToken,
+  SearchCanceledException,
+} from '../../src/services/cancellation';
 import {
   haversineKm,
   RouteCandidate,
@@ -22,14 +25,14 @@ import {
 } from '../../src/services/http-client';
 import {
   ArrivalWaveOutcome,
-  type RouteSearchMetrics,
+  RouteSearchMetrics,
 } from '../../src/services/route-diagnostics';
 import {
   firstMissedTransit,
   trainMetersPerMinute,
   walkMetersPerMinute,
 } from '../../src/services/route-plan-builder';
-import { RouteException, RoutePhase } from '../../src/services/route-service';
+import { RouteException } from '../../src/services/route-service';
 import { SearchDeadline } from '../../src/services/search-deadline';
 import {
   TransitCorridor,
@@ -37,10 +40,17 @@ import {
 } from '../../src/services/transit-plan-parser';
 import { TransitRouteService } from '../../src/services/transit-route-service';
 import { dateTime, seconds } from '../../src/time';
+import { dartDouble } from '../support/dart-number';
 import { deferred } from '../support/deferred';
 import { delay } from '../support/delay';
 import { expectThrowsA } from '../support/expect';
-import { first, firstWhere, last, single } from '../support/iterable';
+import {
+  first,
+  firstWhere,
+  last,
+  single,
+  singleWhere,
+} from '../support/iterable';
 import { jsonResponse, mockClient } from '../support/mock-client';
 import { withTimeout } from '../support/timeout';
 
@@ -4431,5 +4441,2220 @@ describe('plan: 時刻なしハイブリッドの実発車時刻検証（approac
       ghostTrains,
       '予算内でも未確認の時刻なし電車を確定してはならない',
     ).toHaveLength(0);
+  });
+});
+
+describe('plan: バス last-resort 再照会 (#250)', () => {
+  // origin→goal は直線 ~11.6km（全徒歩 ~145分）。乗車点は origin・降車点は goal に
+  // 重ね、アクセス徒歩ゼロのバス便にする（enrich で徒歩が伸びて乗り遅れる余地を消す）。
+  const busOrigin = new GeoPoint(35.0, 139.0);
+  const busGoal = new GeoPoint(35.0, 139.127);
+
+  /// 電車のみの主照会が返す option。列車は 09:50 発 10:20 着で、予算60分（10:00 着）に
+  /// 間に合わない。コリドー点からの引き直しは all-walk のみ＝ハイブリッドも確定しない。
+  const slowTrainOption = (): JsonMap => {
+    const stops = [
+      [35.0, 139.027],
+      [35.0, 139.05],
+      [35.0, 139.075],
+      [35.0, 139.1],
+    ];
+    return {
+      journey: {
+        departureSecs: 35400, // 09:50
+        arrivalSecs: 37200, // 10:20
+        durationSecs: 1920,
+        accessWalkSecs: 60,
+        egressWalkSecs: 60,
+        legs: [
+          railLeg({
+            route: '各停線',
+            fromId: 's0',
+            fromName: '始発駅',
+            toId: 's1',
+            toName: '終着駅',
+            dep: 35400,
+            arr: 37200,
+          }),
+        ],
+      },
+      map: {
+        points: [],
+        segments: [
+          mapSeg('walk', 'origin', 's0', 'osmWalk', [
+            [35.0, 139.0],
+            [35.0, 139.027],
+          ]),
+          mapSeg('transit', 's0', 's1', 'stopOrder', stops),
+          mapSeg('walk', 's1', 'destination', 'estimatedWalk', [
+            [35.0, 139.1],
+            [35.0, 139.127],
+          ]),
+        ],
+      },
+    };
+  };
+
+  /// バス許容照会が返す door-to-door option。[dep]/[arr] を null にすると
+  /// `departureSecs`/`arrivalSecs` を欠く「時刻の無いバス便」＝幽霊バスになる。
+  const busOption = (
+    o: { dep?: number | null; arr?: number | null } = {},
+  ): JsonMap => {
+    const dep = o.dep === undefined ? 32700 : o.dep;
+    const arr = o.arr === undefined ? 34500 : o.arr;
+    const leg: JsonMap = {
+      kind: 'transit',
+      mode: 'bus',
+      routeName: '渋谷01',
+      from: station('bs:0', 'A停留所'),
+      to: station('bs:1', 'B停留所'),
+    };
+    if (dep !== null) leg['departureSecs'] = dep;
+    if (arr !== null) leg['arrivalSecs'] = arr;
+    return {
+      journey: {
+        departureSecs: dep ?? 0,
+        arrivalSecs: arr ?? 0,
+        durationSecs: 1800,
+        accessWalkSecs: 0,
+        egressWalkSecs: 0,
+        legs: [leg],
+      },
+      map: {
+        points: [],
+        segments: [
+          mapSeg('transit', 'bs:0', 'bs:1', 'gtfsShape', [
+            [35.0, 139.0],
+            [35.0, 139.127],
+          ]),
+        ],
+      },
+    };
+  };
+
+  /// コリドー点 [lng] → goal を返す電車 option（board-search の引き直し用）。
+  /// 09:10 発なので、前半徒歩31分（09:31 に乗車駅着）では乗り遅れる。到着だけ見れば
+  /// 予算内（31+10=41分）なので board-search は候補として返し、enrich の乗り遅れ除外で
+  /// 落ちる——「board-search が候補を返したのに全滅する」状況を作る。
+  const corridorTrainOption = (lng: number): JsonMap => ({
+    journey: {
+      departureSecs: 33000, // 09:10
+      arrivalSecs: 33600, // 09:20
+      durationSecs: 600,
+      accessWalkSecs: 0,
+      egressWalkSecs: 0,
+      legs: [
+        railLeg({
+          route: '各停線',
+          fromId: 'c0',
+          fromName: '途中駅',
+          toId: 'c1',
+          toName: '終着駅',
+          dep: 33000,
+          arr: 33600,
+        }),
+      ],
+    },
+    map: {
+      points: [],
+      segments: [
+        mapSeg('transit', 'c0', 'c1', 'stopOrder', [
+          [35.0, lng],
+          [35.0, 139.127],
+        ]),
+      ],
+    },
+  });
+
+  /// 見積り徒歩1分・実測徒歩31分の標準乗換（`accessWalkSecs` が所要分を決め、polyline が
+  /// enrich 後の実測を決める parser の性質を使う）。09:20 発なので見積り（09:01 駅着）では
+  /// 乗れるが、実測（09:31 駅着）では乗り遅れる。それでも到着は 31+10=41分で予算内に
+  /// 収まるため、`giveUp` が到着だけで判定すると「乗れない経路」を予算内と誤認する。
+  const missedTrainOption = (): JsonMap => ({
+    journey: {
+      departureSecs: 33600, // 09:20
+      arrivalSecs: 34200, // 09:30
+      durationSecs: 660,
+      accessWalkSecs: 60, // 見積りでは徒歩1分（実 polyline は 2.5km ≒ 31分）
+      egressWalkSecs: 0,
+      legs: [
+        railLeg({
+          route: '各停線',
+          fromId: 's0',
+          fromName: '始発駅',
+          toId: 's1',
+          toName: '終着駅',
+          dep: 33600,
+          arr: 34200,
+        }),
+      ],
+    },
+    map: {
+      points: [],
+      segments: [
+        mapSeg('walk', 'origin', 's0', 'osmWalk', [
+          [35.0, 139.0],
+          [35.0, 139.027],
+        ]),
+        mapSeg('transit', 's0', 's1', 'stopOrder', [
+          [35.0, 139.027],
+          [35.0, 139.127],
+        ]),
+      ],
+    },
+  });
+
+  /// all-walk のみを返す option（コリドー点からの引き直し用）。
+  const walkOnlyOption = (): JsonMap => ({
+    journey: {
+      departureSecs: 0,
+      arrivalSecs: 600,
+      durationSecs: 600,
+      legs: [{ kind: 'walk', departureSecs: 0, arrivalSecs: 600 }],
+    },
+    map: {
+      points: [],
+      segments: [
+        mapSeg('walk', 'a', 'b', 'osmWalk', [
+          [35.0, 139.1],
+          [35.0, 139.2],
+        ]),
+      ],
+    },
+  });
+
+  /// avoidModes でバス許容照会を判別するモック。バス許容なら [busOption] を、電車のみなら
+  /// origin 起点は [originOption]（既定＝低速電車）・コリドー点起点は [corridorOption]
+  /// （既定＝all-walk＝引き直し失敗）を返す。
+  const busMock = (a: {
+    busOption: JsonMap;
+    originOption?: JsonMap;
+    corridorOption?: (lng: number) => JsonMap;
+    log?: URL[];
+    busDelay?: number;
+    corridorDelay?: number;
+  }): HttpClient =>
+    mockClient(async (url) => {
+      a.log?.push(url);
+      const path = url.pathname;
+      if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+      if (path.includes('googleWalkProxy')) return walkFor(url);
+      if (path.includes('guidance/plan')) {
+        const allowsBus = !(url.searchParams.get('avoidModes') ?? '').includes(
+          'bus',
+        );
+        const from = url.searchParams.get('from') ?? '';
+        const lng = Number.parseFloat(from.replace('geo:', '').split(',')[1]);
+        const fromOrigin = Math.abs(lng - 139.0) < 1e-6;
+        // バス照会と縮退プールの引き直しに別々の遅延を入れられるようにする。投機発行の
+        // 効き目は「バス応答が縮退プールの解決中に返り切るか」なので、両者の遅延差でしか
+        // 決定的に固定できない。
+        if (allowsBus && (a.busDelay ?? 0) > 0) await delay(a.busDelay!);
+        if (!allowsBus && !fromOrigin && (a.corridorDelay ?? 0) > 0) {
+          await delay(a.corridorDelay!);
+        }
+        const body = allowsBus
+          ? guidance([a.busOption])
+          : guidance([
+              fromOrigin
+                ? (a.originOption ?? slowTrainOption())
+                : (a.corridorOption?.(lng) ?? walkOnlyOption()),
+            ]);
+        body['date'] = url.searchParams.get('date');
+        return json(body);
+      }
+      return json({}, 404);
+    });
+
+  it('バス照会を縮退プール解決と並行に発行し、直列の段を消す', async () => {
+    // giveUp は best-effort の結果が出るまで採用の可否を決められないが、照会自体はその
+    // 結果に依存しない。直列に置くと上流1本ぶんの段が丸ごと体感に乗る（実機 12.6s）。
+    // busLastResortMs は**投機で覆えなかった残りの待ち**を測るので、バス応答(60ms)が
+    // プール解決(200ms)の最中に返り切れば 0 に近づく。直列なら 60ms がそのまま残る。
+    let captured: RouteSearchMetrics | null = null;
+    const svc = service(
+      busMock({
+        busOption: busOption(),
+        originOption: missedTrainOption(),
+        busDelay: 60,
+        corridorDelay: 200,
+      }),
+      { onMetrics: (m) => (captured = m) },
+    );
+    const plan = await svc.plan({
+      destination: '目的地',
+      destinationLatLng: busGoal,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 10, m: 0 }),
+      origin: busOrigin,
+    });
+    expect(
+      plan.segments.filter((s) => s.type === SegmentType.bus),
+      '前提: バスが採用される（lastResortBus が await される）',
+    ).not.toHaveLength(0);
+    expect(
+      captured!.busLastResortMs,
+      '投機発行が間に合っていれば残りの直列待ちはほぼ 0（直列なら 60ms 前後）',
+    ).toBeLessThan(30);
+  });
+
+  it('電車が予算内なら バス許容照会は一度も発行しない（速度不変）', async () => {
+    // 09:15 発にして「実測徒歩8分で駅着 → 7分待って乗車」と実際に乗れる電車にする。
+    // 既定の 09:06 発だと実測徒歩が見積り5分から8分へ伸びて発車後に駅着＝乗り遅れとなり、
+    // 到着(arrivalMinutes)だけ予算内に見える「乗れない電車」になってしまい、
+    // 「電車で間に合うケース」を表現できない（乗り遅れは last-resort の発火条件）。
+    const log: URL[] = [];
+    const svc = service(
+      mock({
+        transit: guidance([singleTrainOption({ dep: 33300, arr: 35100 })]),
+        log,
+      }),
+    );
+    const plan = await svc.plan({
+      destination: '新宿',
+      destinationLatLng: goal,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 9, m: 50 }),
+      origin,
+    });
+    expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+    expect(
+      firstMissedTransit(plan.segments, dateTime(2026, 6, 27, 9, 0)),
+      '前提: 実際に乗れる電車で予算内に収まっている',
+    ).toBeNull();
+    const busQueries = log.filter(
+      (u) =>
+        u.pathname.includes('guidance/plan') &&
+        !(u.searchParams.get('avoidModes') ?? '').includes('bus'),
+    );
+    expect(busQueries, '予算内なら再照会してはならない').toHaveLength(0);
+  });
+
+  it('電車が予算外でもバスなら間に合うとき、バス候補を提示する', async () => {
+    const svc = service(busMock({ busOption: busOption() }));
+    const plan = await svc.plan({
+      destination: '目的地',
+      destinationLatLng: busGoal,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 10, m: 0 }), // 予算60分（電車も全徒歩も届かない）
+      origin: busOrigin,
+    });
+    const bus = firstWhere(plan.segments, (s) => s.type === SegmentType.bus);
+    expect(bus.line).toEqual('渋谷01');
+    expect(bus.depTime).toEqual(dateTime(2026, 6, 27, 9, 5));
+    expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+  });
+
+  it('時刻を持たないバス便は幽霊バスとして提示しない', async () => {
+    // 時刻なしバスは所要0分＝予算内に見えるが、引き直しでも実発車時刻を確認できない。
+    // 電車と同じ基準（unverified transit）で確定させず、全徒歩へ縮退する。
+    const svc = service(
+      busMock({ busOption: busOption({ dep: null, arr: null }) }),
+    );
+    const plan = await svc.plan({
+      destination: '目的地',
+      destinationLatLng: busGoal,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 10, m: 0 }),
+      origin: busOrigin,
+    });
+    const ghostBuses = plan.segments.filter(
+      (s) => s.type === SegmentType.bus && s.depTime === null,
+    );
+    expect(ghostBuses, '時刻なしの幽霊バスを提示してはならない').toHaveLength(0);
+  });
+
+  it('乗車待ちが予算を超えるバスは best-effort でも選ばれない', async () => {
+    // 09:00 出発・予算60分に対しバスは 10:05 発 10:15 着＝乗車待ち65分（>予算）・到着75分。
+    // best-effort は「今夜乗れる候補の最早到着」を選ぶため、検証済みの標準乗換（到着81分）
+    // より早いこのバスが勝ってしまう。maxBoardingWait がバスの待ちを数えて初めて
+    // 「今は乗れない便」として reachableWithinBudget から外れ、電車へ縮退する
+    // （#250。数えないと待ち0に見えてこのバスが提示される＝#121 と同型の退行）。
+    const svc = service(
+      busMock({ busOption: busOption({ dep: 36300, arr: 36900 }) }),
+    );
+    const plan = await svc.plan({
+      destination: '目的地',
+      destinationLatLng: busGoal,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 10, m: 0 }),
+      origin: busOrigin,
+    });
+    expect(
+      plan.segments.filter((s) => s.type === SegmentType.bus),
+      '今夜（今日）乗れないバスを提示してはならない',
+    ).toHaveLength(0);
+  });
+
+  it('collapse→board-search が全滅してもバス候補を取り下げない', async () => {
+    // バスが予算内で勝つ → collapse 判定が立ち board-search が起動する。board-search は
+    // 到着だけ見て候補を返すが、その電車は乗り遅れ（09:10 発／乗車駅着 09:31）なので
+    // enrich で全滅する。再選定のプールにバスを引き継がないと、せっかく見つけた予算内の
+    // バスを捨てて予算外の best-effort へ落ちてしまう。
+    const svc = service(
+      busMock({
+        busOption: busOption(),
+        corridorOption: corridorTrainOption,
+      }),
+    );
+    const plan = await svc.plan({
+      destination: '目的地',
+      destinationLatLng: busGoal,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 10, m: 0 }),
+      origin: busOrigin,
+    });
+    expect(
+      plan.segments.filter((s) => s.type === SegmentType.bus),
+      'board-search が全滅したら last-resort のバスへ戻るべき',
+    ).not.toHaveLength(0);
+    expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+  });
+
+  it('best-effort が予算内でも乗り遅れならバスを引く', async () => {
+    // 標準乗換は見積り徒歩1分で 09:20 発に間に合うが、実測徒歩31分では乗り遅れる。
+    // 乗り遅れたまま到着だけ数えると41分＝予算内に見えるため、到着だけで発火判定すると
+    // 「実際には乗れない電車」を提示してバス再照会を撃ち漏らす。
+    const svc = service(
+      busMock({ busOption: busOption(), originOption: missedTrainOption() }),
+    );
+    const plan = await svc.plan({
+      destination: '目的地',
+      destinationLatLng: busGoal,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 10, m: 0 }),
+      origin: busOrigin,
+    });
+    expect(
+      plan.segments.filter((s) => s.type === SegmentType.bus),
+      '乗り遅れる電車しか無いならバスを引くべき',
+    ).not.toHaveLength(0);
+    expect(
+      firstMissedTransit(plan.segments, dateTime(2026, 6, 27, 9, 0)),
+      '乗り遅れる便を確定してはならない',
+    ).toBeNull();
+  });
+});
+
+// last-resort でバスが勝ったら、そのバス corridor にも徒歩最大化（途中下車・乗車駅探索）を
+// フル適用する（#251）。通常照会（電車が予算内）では #249 の train-only ガードを維持する。
+describe('plan: バス corridor の徒歩最大化 (#251)', () => {
+  const busOrigin = new GeoPoint(35.0, 139.0);
+  const busGoal = new GeoPoint(35.0, 139.127); // 直線 11.6km（全徒歩 145分）
+  // バス停 A は origin から徒歩14分。バス corridor はそこから goal まで。
+  const bs0 = 139.012;
+  const corridor = [bs0, 139.05, 139.09, 139.11, 139.127];
+  const busDep = 33300; // 09:15
+
+  /// 迂回バスの corridor が通る緯度。勝者 corridor（lat 35.0）と区別するために使う。
+  const detourLat = 35.02;
+
+  /// バスの実ダイヤ速度（モック）。既定は見積り（[trainMetersPerMinute]）と同じにして、
+  /// 「見積りが通った候補は実時刻でも通る」フィクスチャにする。[metersPerMinute] を
+  /// 下げると「実ダイヤは見積りより遅い」実世界の条件を再現できる。
+  const rideMin = (
+    a: GeoPoint,
+    b: GeoPoint,
+    metersPerMinute?: number,
+  ): number =>
+    Math.round(
+      (haversineKm(a, b) * 1000) / (metersPerMinute ?? trainMetersPerMinute),
+    );
+
+  /// 電車のみの主照会が返す option。09:50 発 10:20 着で予算65分（10:05 着）に届かない。
+  /// コリドーは2点だけにして電車ハイブリッドを1本に抑える。
+  const slowTrainOption = (): JsonMap => ({
+    journey: {
+      departureSecs: 35400, // 09:50
+      arrivalSecs: 37200, // 10:20
+      durationSecs: 1920,
+      accessWalkSecs: 0,
+      egressWalkSecs: 60,
+      legs: [
+        railLeg({
+          route: '各停線',
+          fromId: 's0',
+          fromName: '始発駅',
+          toId: 's1',
+          toName: '終着駅',
+          dep: 35400,
+          arr: 37200,
+        }),
+      ],
+    },
+    map: {
+      points: [],
+      segments: [
+        mapSeg('transit', 's0', 's1', 'stopOrder', [
+          [35.0, 139.0],
+          [35.0, 139.1],
+        ]),
+        mapSeg('walk', 's1', 'destination', 'estimatedWalk', [
+          [35.0, 139.1],
+          [35.0, 139.127],
+        ]),
+      ],
+    },
+  });
+
+  /// バス許容照会（origin 起点）が返す door-to-door option。徒歩14分でバス停 A へ出て
+  /// 09:15 発のバスに乗り goal まで乗り通す（徒歩14分・到着36分）。
+  const busDoorToDoor = (): JsonMap => ({
+    journey: {
+      departureSecs: busDep,
+      arrivalSecs: busDep + rideMin(new GeoPoint(35.0, bs0), busGoal) * 60,
+      durationSecs: 2160,
+      accessWalkSecs: 840, // 徒歩14分
+      egressWalkSecs: 0,
+      legs: [
+        {
+          kind: 'transit',
+          mode: 'bus',
+          routeName: 'バス01',
+          from: station('bs:0', 'A停留所'),
+          to: station('bs:1', 'B停留所'),
+          departureSecs: busDep,
+          arrivalSecs: busDep + rideMin(new GeoPoint(35.0, bs0), busGoal) * 60,
+        },
+      ],
+    },
+    map: {
+      points: [],
+      segments: [
+        mapSeg('walk', 'origin', 'bs:0', 'osmWalk', [
+          [35.0, 139.0],
+          [35.0, bs0],
+        ]),
+        mapSeg(
+          'transit',
+          'bs:0',
+          'bs:1',
+          'gtfsShape',
+          corridor.map((lng) => [35.0, lng]),
+        ),
+      ],
+    },
+  });
+
+  /// last-resort が door-to-door と同時に返す「もう1本のバス」。徒歩0分で乗れて所要も
+  /// 短い（16分）ため「最短 option」基準ではこちらが選ばれてしまうが、徒歩最大化の
+  /// 勝者は徒歩14分の [busDoorToDoor] の方。corridor は北へ迂回させて（lat [detourLat]）、
+  /// どちらの corridor を基準にしたかを照会ログで判別できるようにする。
+  const detourBus = (): JsonMap => ({
+    journey: {
+      departureSecs: busDep,
+      arrivalSecs: busDep + 960, // 16分乗車
+      durationSecs: 960,
+      accessWalkSecs: 0,
+      egressWalkSecs: 0,
+      legs: [
+        {
+          kind: 'transit',
+          mode: 'bus',
+          routeName: 'バス02',
+          from: station('bs:n0', 'N停留所'),
+          to: station('bs:n1', 'M停留所'),
+          departureSecs: busDep,
+          arrivalSecs: busDep + 960,
+        },
+      ],
+    },
+    map: {
+      points: [],
+      segments: [
+        mapSeg('transit', 'bs:n0', 'bs:n1', 'gtfsShape', [
+          [35.0, 139.0],
+          [detourLat, 139.06],
+          [35.0, 139.127],
+        ]),
+      ],
+    },
+  });
+
+  /// バス許容照会（コリドー点起点）が返す単一バス便。[at] 以降で最も早い便として
+  /// 09:15、それを過ぎていれば [at]+5分に発車する。乗車駅探索・実時刻検証の引き直し用。
+  /// [busSpeed] を渡すと実ダイヤだけを遅くできる（見積りは [trainMetersPerMinute] のまま）。
+  const busLegFrom = (
+    from: GeoPoint,
+    to: GeoPoint,
+    at: Date,
+    o: { busSpeed?: number } = {},
+  ): JsonMap => {
+    const atSecs = at.getHours() * 3600 + at.getMinutes() * 60;
+    const dep = atSecs <= busDep ? busDep : atSecs + 300;
+    const arr = dep + rideMin(from, to, o.busSpeed) * 60;
+    return {
+      journey: {
+        departureSecs: dep,
+        arrivalSecs: arr,
+        durationSecs: arr - dep,
+        accessWalkSecs: 0,
+        egressWalkSecs: 0,
+        legs: [
+          {
+            kind: 'transit',
+            mode: 'bus',
+            routeName: 'バス01',
+            from: station('bs:x', 'X停留所'),
+            to: station('bs:y', 'Y停留所'),
+            departureSecs: dep,
+            arrivalSecs: arr,
+          },
+        ],
+      },
+      map: {
+        points: [],
+        segments: [
+          mapSeg('transit', 'bs:x', 'bs:y', 'gtfsShape', [
+            [from.lat, from.lng],
+            [to.lat, to.lng],
+          ]),
+        ],
+      },
+    };
+  };
+
+  /// バス許容照会が返す「電車＋バス」の混合便。バスだけの便より早く着く。
+  /// バス許容 (`allowBus`) の照会は電車も許すので、上流はこういう option も返し得る。
+  const trainThenBusFrom = (
+    from: GeoPoint,
+    to: GeoPoint,
+    at: Date,
+  ): JsonMap => {
+    const atSecs = at.getHours() * 3600 + at.getMinutes() * 60;
+    const mid = new GeoPoint(from.lat, (from.lng + to.lng) / 2);
+    return {
+      journey: {
+        departureSecs: atSecs,
+        arrivalSecs: atSecs + 300,
+        durationSecs: 300,
+        accessWalkSecs: 0,
+        egressWalkSecs: 0,
+        legs: [
+          railLeg({
+            route: '特急線',
+            fromId: 'mx:0',
+            fromName: 'P駅',
+            toId: 'mx:1',
+            toName: 'Q駅',
+            dep: atSecs,
+            arr: atSecs + 120,
+          }),
+          {
+            kind: 'transit',
+            mode: 'bus',
+            routeName: 'バス09',
+            from: station('bs:m', 'M停留所'),
+            to: station('bs:n', 'N停留所'),
+            departureSecs: atSecs + 180,
+            arrivalSecs: atSecs + 300,
+          },
+        ],
+      },
+      map: {
+        points: [],
+        segments: [
+          mapSeg('transit', 'mx:0', 'mx:1', 'stopOrder', [
+            [from.lat, from.lng],
+            [mid.lat, mid.lng],
+          ]),
+          mapSeg('transit', 'bs:m', 'bs:n', 'gtfsShape', [
+            [mid.lat, mid.lng],
+            [to.lat, to.lng],
+          ]),
+        ],
+      },
+    };
+  };
+
+  /// all-walk のみ（電車のみ照会をコリドー点から引いたとき＝引き直し失敗の表現）。
+  const walkOnlyOption = (): JsonMap => ({
+    journey: {
+      departureSecs: 0,
+      arrivalSecs: 600,
+      durationSecs: 600,
+      legs: [{ kind: 'walk', departureSecs: 0, arrivalSecs: 600 }],
+    },
+    map: {
+      points: [],
+      segments: [
+        mapSeg('walk', 'a', 'b', 'osmWalk', [
+          [35.0, 139.1],
+          [35.0, 139.2],
+        ]),
+      ],
+    },
+  });
+
+  /// [withDetourBus] を立てると last-resort が [detourBus] も返す（勝者でない最短 option）。
+  /// [busSpeed] は引き直し便の実ダイヤ速度（既定は見積りと同速）。
+  /// [withMixedTrainBus] を立てると、区間内（goal 以外）へのバス許容照会が「電車＋バス」の
+  /// 早着便も返す——バス1区間の時刻・停留所名を復元する照会に混合便が混ざる条件。
+  const corridorMock = (
+    o: {
+      log?: URL[];
+      withDetourBus?: boolean;
+      withMixedTrainBus?: boolean;
+      busSpeed?: number;
+    } = {},
+  ): HttpClient =>
+    mockClient((url) => {
+      o.log?.push(url);
+      const path = url.pathname;
+      if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+      if (path.includes('googleWalkProxy')) return walkFor(url);
+      if (path.includes('guidance/plan')) {
+        const q = url.searchParams;
+        const allowsBus = !(q.get('avoidModes') ?? '').includes('bus');
+        const from = pt((q.get('from') ?? '').replace('geo:', ''));
+        const to = pt((q.get('to') ?? '').replace('geo:', ''));
+        const hm = (q.get('time') ?? '09:00').split(':');
+        const at = dateTime(
+          2026,
+          6,
+          27,
+          Number.parseInt(hm[0], 10),
+          Number.parseInt(hm[1], 10),
+        );
+        // 迂回 corridor は lat が違うので、緯度も含めて origin 起点かを判定する。
+        const fromOrigin =
+          Math.abs(from.lat - busOrigin.lat) < 1e-9 &&
+          Math.abs(from.lng - busOrigin.lng) < 1e-9;
+        const options: JsonMap[] = [];
+        if (allowsBus) {
+          if (fromOrigin) {
+            options.push(busDoorToDoor());
+            if (o.withDetourBus === true) options.push(detourBus());
+          } else {
+            if (
+              o.withMixedTrainBus === true &&
+              Math.abs(to.lng - busGoal.lng) > 1e-9
+            ) {
+              options.push(trainThenBusFrom(from, to, at));
+            }
+            options.push(busLegFrom(from, to, at, { busSpeed: o.busSpeed }));
+          }
+        } else if (fromOrigin) {
+          options.push(slowTrainOption());
+        } else {
+          options.push(walkOnlyOption());
+        }
+        const body = guidance(options);
+        body['date'] = q.get('date');
+        return json(body);
+      }
+      return json({}, 404);
+    });
+
+  /// guidance/plan のうち、コリドー点（origin 以外）を起点にしたバス許容照会。
+  const corridorBusQueries = (log: URL[]): URL[] =>
+    log.filter(
+      (u) =>
+        u.pathname.includes('guidance/plan') &&
+        !(u.searchParams.get('avoidModes') ?? '').includes('bus') &&
+        u.searchParams.get('from') !==
+          `geo:${dartDouble(busOrigin.lat)},${dartDouble(busOrigin.lng)}`,
+    );
+
+  const runPlan = (client: HttpClient): Promise<RoutePlan> =>
+    service(client).plan({
+      destination: '目的地',
+      destinationLatLng: busGoal,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 10, m: 5 }), // 予算65分
+      origin: busOrigin,
+    });
+
+  it('バス区間の引き直しは電車混じりの早着便から時刻・停留所名を採らない（レビュー指摘）', async () => {
+    // `type == bus` の照会は `allowBus` ＝電車も許すので、電車＋バスの混合便が返り得る。
+    // 到着最早だけで選ぶとそれが勝ち、そこからバス leg だけ抜いた時刻・停留所名を
+    // **バス1区間ぶんとして**貼ることになる——電車部分が消え、乗車地点も所要も別物になる。
+    const plan = await runPlan(corridorMock({ withMixedTrainBus: true }));
+    const bus = firstWhere(plan.segments, (s) => s.type === SegmentType.bus);
+
+    expect(bus.fromName, '混合便のバス停名（M停留所）を貼ってはならない').toEqual(
+      'X停留所',
+    );
+    expect(bus.depTime, 'バスのみの便から実発車時刻が当たるべき').not.toBeNull();
+    expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+  });
+
+  it('バスが last-resort で勝つとき、手前のバス停で降りて歩く候補を選ぶ', async () => {
+    // door-to-door のバス（徒歩14分・到着36分）は予算65分に対し29分も余らせる。
+    // バス corridor をハイブリッド化できれば、139.11 のバス停で降りて19分歩く候補
+    // （徒歩33分・到着52分）が作れる。train-only ガードのままだとこれが生成されず、
+    // 徒歩14分の乗り通しが確定してしまう。
+    const plan = await runPlan(corridorMock());
+    const walkMinutes = plan.segments
+      .filter((s) => s.type === SegmentType.walk)
+      .reduce((a, s) => a + s.minutes, 0);
+
+    expect(
+      plan.segments.filter((s) => s.type === SegmentType.bus),
+      'last-resort のバスは残る',
+    ).not.toHaveLength(0);
+    expect(last(plan.segments).type, '手前のバス停で降りて goal まで歩く').toEqual(
+      SegmentType.walk,
+    );
+    expect(
+      last(plan.segments).minutes,
+      '降車後の徒歩が0分ならバスに乗り通している',
+    ).toBeGreaterThan(0);
+    expect(
+      walkMinutes,
+      'door-to-door バス（徒歩14分）より歩く候補を選ぶべき',
+    ).toBeGreaterThan(14);
+    expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+  });
+
+  it('バス corridor 起点の引き直しはバスを許容する', async () => {
+    const log: URL[] = [];
+    await runPlan(corridorMock({ log }));
+    // origin 起点のバス許容照会は last-resort（#250）そのものなので除く。コリドー点
+    // （バス停）を起点にした照会が出て初めて、バス corridor が徒歩最大化の基準になっている。
+    expect(
+      corridorBusQueries(log),
+      'origin 以外（バス停）を起点にバス許容で引き直しているはず',
+    ).not.toHaveLength(0);
+  });
+
+  it('基準にするのは最短のバス option ではなく徒歩最大化で勝ったバス option', async () => {
+    // last-resort が2本返す: 徒歩0分・16分乗車の迂回バス（総所要が最短）と、徒歩14分・
+    // 21分乗車の door-to-door バス（総所要35分）。徒歩最大化が選ぶのは後者だが、
+    // base を「最短の option」で決めると前者の corridor（北へ迂回・lat 35.02）を
+    // 引き直してしまい、乗車バス停探索が勝者と無関係な停留所を評価して空振りする。
+    const log: URL[] = [];
+    const plan = await runPlan(corridorMock({ log, withDetourBus: true }));
+
+    const fromDetour = corridorBusQueries(log).filter((u) =>
+      (u.searchParams.get('from') ?? '').startsWith(
+        `geo:${dartDouble(detourLat)},`,
+      ),
+    );
+    expect(fromDetour, '勝者でない迂回バスの corridor を基準にしてはならない').toHaveLength(
+      0,
+    );
+    const fromWinner = corridorBusQueries(log).filter((u) =>
+      (u.searchParams.get('from') ?? '').startsWith('geo:35.0,'),
+    );
+    expect(
+      fromWinner,
+      '勝ったバス option の corridor 上のバス停から引き直すはず',
+    ).not.toHaveLength(0);
+    expect(
+      last(plan.segments).type,
+      '勝者 corridor で徒歩最大化できているので手前で降りて歩く',
+    ).toEqual(SegmentType.walk);
+    expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+  });
+
+  it('バスの実ダイヤが見積りより遅ければ ハイブリッドは実時刻検証で落ち乗り通しへ戻る', async () => {
+    // 見積りは楽観側（[trainMetersPerMinute]）に倒し、実速度の遅さは採用前の実時刻検証が
+    // 上書きして弾く、という #251 の設計の裏取り。実ダイヤを半速にすると 139.11 で降りる
+    // 候補は到着70分（予算65分）で除外され、予算内で確実に乗れる door-to-door の
+    // 乗り通しへ安全に戻る。
+    const plan = await runPlan(
+      corridorMock({ busSpeed: trainMetersPerMinute / 2 }),
+    );
+    const walkMinutes = plan.segments
+      .filter((s) => s.type === SegmentType.walk)
+      .reduce((a, s) => a + s.minutes, 0);
+
+    expect(last(plan.segments).type, '乗り通しへ戻る').toEqual(SegmentType.bus);
+    expect(walkMinutes, 'door-to-door バスのアクセス徒歩そのもの').toEqual(14);
+    expect(
+      plan.totalMin,
+      '遅いハイブリッドを掴んで予算超過してはならない',
+    ).toBeLessThanOrEqual(plan.budgetMin);
+  });
+
+  it('電車が予算内なら バス corridor 化は起きずバス許容照会も出ない', async () => {
+    // #249 の train-only ガード維持。09:15 発の電車で予算内に収まるので last-resort は
+    // 発火せず、コリドー引き直しは常に avoidModes=bus のまま。
+    const log: URL[] = [];
+    const svc = service(
+      mock({
+        transit: guidance([singleTrainOption({ dep: 33300, arr: 35100 })]),
+        log,
+      }),
+    );
+    const plan = await svc.plan({
+      destination: '新宿',
+      destinationLatLng: goal,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 9, m: 50 }),
+      origin,
+    });
+    expect(
+      plan.segments.filter((s) => s.type === SegmentType.bus),
+    ).toHaveLength(0);
+    const busAware = log.filter(
+      (u) =>
+        u.pathname.includes('guidance/plan') &&
+        !(u.searchParams.get('avoidModes') ?? '').includes('bus'),
+    );
+    expect(busAware, '電車 corridor の引き直しはバスを除外したまま').toHaveLength(0);
+  });
+});
+
+// 確定境界（best-effort 縮退・enrich ループの確定パス）で、実測徒歩による乗り遅れを
+// 再判定する（#254）。選定時の乗り遅れ判定は guidance 見積り徒歩に対して走るが、確定直前の
+// enrich が徒歩を Google 実街路へ伸ばすため、そこで初めて発車後に駅着＝乗れない便になり得る。
+describe('plan: 確定境界の乗り遅れ再判定 (#254)', () => {
+  const departureAt = dateTime(2026, 6, 27, 9, 0);
+
+  it('best-effort 縮退は実測徒歩で乗り遅れる経路を確定しない', async () => {
+    // 既定の singleTrainOption() は 09:06 発・見積りアクセス徒歩5分だが、map の walk polyline
+    // を実測すると8分（09:08 着）＝発車済み。予算50分では全徒歩(69分)も電車も予算内に入らず
+    // best-effort へ縮退する。縮退は enrich 前の segments で firstMissedTransit を
+    // 見るため見積り5分では乗り遅れず、そのまま enrich して「乗れない電車」を確定していた。
+    const svc = service(mock({ transit: guidance([singleTrainOption()]) }));
+    const plan = await svc.plan({
+      destination: '新宿',
+      destinationLatLng: goal,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 9, m: 50 }), // 予算50分（何も予算内に入らない）
+      origin,
+    });
+    expect(
+      firstMissedTransit(plan.segments, departureAt),
+      '実測徒歩で発車後に駅着する便を best-effort で確定してはならない',
+    ).toBeNull();
+  });
+
+  /// 停車駅2点だけの単一電車 option。コリドーが痩せてハイブリッド候補が作られないため、
+  /// enrich ループのプールは「標準乗換 ＋ 全徒歩」の2件になる。
+  const twoStopOption = (): JsonMap => {
+    const stops = [
+      [35.6812, 139.7671], // 東京（origin から直線徒歩8分）
+      [35.6909, 139.7003], // 新宿（goal のほぼ隣）
+    ];
+    return {
+      journey: {
+        departureSecs: 32760, // 09:06
+        arrivalSecs: 34560, // 09:36
+        durationSecs: 2400,
+        accessWalkSecs: 300, // 見積り徒歩5分（実測は8分×factor）
+        egressWalkSecs: 60,
+        legs: [
+          railLeg({
+            route: '中央線快速',
+            fromId: 'jr:Tokyo',
+            fromName: '東京',
+            toId: 'jr:Shinjuku',
+            toName: '新宿',
+            dep: 32760,
+            arr: 34560,
+          }),
+        ],
+      },
+      map: {
+        points: [],
+        segments: [
+          mapSeg('walk', 'origin', 'jr:Tokyo', 'osmWalk', [
+            [35.68, 139.76],
+            stops[0],
+          ]),
+          mapSeg('transit', 'jr:Tokyo', 'jr:Shinjuku', 'stopOrder', stops),
+          mapSeg('walk', 'jr:Shinjuku', 'destination', 'estimatedWalk', [
+            stops[stops.length - 1],
+            [35.69, 139.7],
+          ]),
+        ],
+      },
+    };
+  };
+
+  it('プールが1件に痩せても enrich 実測の乗り遅れを素通りさせない', async () => {
+    // 予算75分。全徒歩は見積り69分で予算内＝徒歩最大として真っ先に選ばれるが、実測（×1.3）で
+    // 90分へ伸び予算超過して落ちる。残る標準乗換1件は見積り徒歩5分で 09:06 発に間に合うのに、
+    // 実測徒歩10分では発車後に駅着する。enrich ループは `pool.length > 1` のときしか除外できず、
+    // 1件に痩せたこの候補を missedAfterEnrich のまま確定していた。
+    const svc = service(
+      mock({ transit: guidance([twoStopOption()]), walkFactor: 1.3 }),
+    );
+    const plan = await svc.plan({
+      destination: '新宿',
+      destinationLatLng: goal,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 10, m: 15 }), // 予算75分
+      origin,
+    });
+    expect(
+      firstMissedTransit(plan.segments, departureAt),
+      'プールが1件でも乗り遅れる便を確定してはならない',
+    ).toBeNull();
+  });
+
+  it('乗り遅れ候補が試行上限より多くても全徒歩まで縮退しきる', async () => {
+    // best-effort の除外ループに試行上限を置くと、乗り遅れ候補がそれより多いとき
+    // 全徒歩へ到達する前に打ち切られ、乗り遅れる便を確定してしまう。
+    // 「全徒歩は決して乗り遅れないので縮退先は必ず存在する」という #254 の不変条件は、
+    // 上限を置かない（プールが1件に痩せるまで回す）ことでしか成立しない。
+    // 09:06 発・実測徒歩8分で乗り遅れる電車を9本並べ、上限を確実に踏み抜かせる。
+    const options: JsonMap[] = [];
+    for (let i = 0; i < 9; i++) {
+      // 到着だけずらし全便が乗り遅れ
+      options.push(singleTrainOption({ arr: 34560 + i * 60 }));
+    }
+    const svc = service(mock({ transit: guidance(options) }));
+    const plan = await svc.plan({
+      destination: '新宿',
+      destinationLatLng: goal,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 9, m: 50 }), // 予算50分（何も予算内に入らない）
+      origin,
+    });
+    expect(
+      firstMissedTransit(plan.segments, departureAt),
+      '乗り遅れ候補を数で押しても乗れない便を確定してはならない',
+    ).toBeNull();
+    expect(
+      plan.segments.every((s) => s.type === SegmentType.walk),
+      '乗れる電車が1本も無いのだから全徒歩へ縮退するはず',
+    ).toBe(true);
+  });
+});
+
+// 独立な検索 IO の並列化（#304）。fake client の deferred バリア——「両者の照会が
+// **両方**到達するまでどちらの応答も返さない」——で並行到達を検証する。逐次実装は
+// 先行の応答を待ったまま後続を発行できずデッドロック（テストは timeout で fail）し、
+// 並列実装でのみ完走する。タイミング依存の sleep を使わない決定的な検証。
+describe('plan: 崩壊見込みの board-search を enrich と並行に起動する (#341)', () => {
+  const origin4 = new GeoPoint(35.0, 139.0);
+  const goal4 = new GeoPoint(35.0, 139.5);
+
+  const geoOf = (raw: string | null): GeoPoint =>
+    pt((raw ?? '0,0').replace('geo:', ''));
+  const same = (a: GeoPoint, b: GeoPoint): boolean =>
+    Math.abs(a.lat - b.lat) < 1e-6 && Math.abs(a.lng - b.lng) < 1e-6;
+
+  /// 徒歩・マトリクスを直線の3倍で返す（実街路の迂回を模す）。[onEnrichWalk] は
+  /// **origin 起点でない**徒歩実測でだけ呼ぶ——board-search の probe 徒歩は必ず
+  /// origin 起点なので、これで enrich の egress 実測だけを掴める。[onBoardProbe] は
+  /// コリドー点→goal の引き直し＝board-search の probe でだけ呼ぶ（駅名確定の
+  /// 引き直しは乗車座標→降車座標なので to で弾ける）。
+  const trackingMock = (
+    o: {
+      onEnrichWalk?: () => Promise<void>;
+      onBoardProbe?: (url: URL) => Promise<void>;
+      walkFactor?: number;
+    } = {},
+  ): HttpClient => {
+    const walkFactor = o.walkFactor ?? 3;
+    const parse = (raw: string | null): GeoPoint[] =>
+      (raw ?? '')
+        .split(';')
+        .filter((s) => s.length > 0)
+        .map(pt);
+    const transit = collapseGuidance();
+    return mockClient(async (url) => {
+      const path = url.pathname;
+      const q = url.searchParams;
+      if (path.includes('googleWalkMatrixProxy')) {
+        const os = parse(q.get('origins'));
+        const ds = parse(q.get('destinations'));
+        const rows: JsonMap[] = [];
+        for (let i = 0; i < os.length; i++) {
+          for (let j = 0; j < ds.length; j++) {
+            rows.push({
+              originIndex: i,
+              destinationIndex: j,
+              duration: `${walkMin(os[i], ds[j]) * 3 * 60}s`,
+              distanceMeters: Math.round(haversineKm(os[i], ds[j]) * 1000),
+            });
+          }
+        }
+        return json(rows);
+      }
+      if (path.includes('googleWalkProxy')) {
+        if (
+          !same(pt(q.get('start') ?? '0,0'), origin4) &&
+          o.onEnrichWalk !== undefined
+        ) {
+          await o.onEnrichWalk();
+        }
+        return walkFor(url, { factor: walkFactor });
+      }
+      if (!path.includes('guidance/plan')) return json({}, 404);
+      if (
+        !same(geoOf(q.get('from')), origin4) &&
+        same(geoOf(q.get('to')), goal4) &&
+        o.onBoardProbe !== undefined
+      ) {
+        await o.onBoardProbe(url);
+      }
+      return json(transit);
+    });
+  };
+
+  const planWith = (
+    client: HttpClient,
+    o: { onMetrics?: (m: RouteSearchMetrics) => void } = {},
+  ): Promise<RoutePlan> =>
+    service(client, { onMetrics: o.onMetrics }).plan({
+      destination: '降車駅',
+      destinationLatLng: goal4,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 10, m: 0 }), // 予算60分
+      origin: origin4,
+      originName: '出発',
+    });
+
+  it('board-search の引き直しと enrich の徒歩実測が同時に上流へ到達する', async () => {
+    // board-search を勝者確定後に置く逐次実装では、enrich が終わるまで引き直しが1本も
+    // 出ない＝両者は同時に到達できない。到達を相互待ちにすると逐次実装はデッドロックし、
+    // タイムアウトで落ちる（#304 の2系統並列テストと同じ手口）。
+    const enrichWalk = deferred<void>();
+    const boardProbe = deferred<void>();
+    const barrier = (): Promise<void> =>
+      Promise.all([enrichWalk.promise, boardProbe.promise]).then(() => undefined);
+    const earlyRedraws: URL[] = [];
+
+    await withTimeout(
+      planWith(
+        trackingMock({
+          onEnrichWalk: () => {
+            if (!enrichWalk.isCompleted) enrichWalk.complete(undefined);
+            return barrier();
+          },
+          onBoardProbe: (url) => {
+            earlyRedraws.push(url);
+            if (!boardProbe.isCompleted) boardProbe.complete(undefined);
+            return barrier();
+          },
+        }),
+      ),
+      5000,
+      () => expect.fail('board-search の引き直しが enrich の完了を待っている（直列）'),
+    );
+
+    expect(enrichWalk.isCompleted, '前提: enrich の徒歩実測が走る').toBe(true);
+    expect(boardProbe.isCompleted, '前提: board-search が引き直す').toBe(true);
+    // 前倒しするのは電車系だけ。バス許容の引き直しが並行して出ていたら、勝者未確定＝
+    // 基準コリドーが決まらないバス系まで投機したことになる。
+    for (const u of earlyRedraws) {
+      expect(
+        u.searchParams.get('avoidModes') ?? '',
+        'バス系 board-search は勝者確定後のまま（busBase は enrich 依存）',
+      ).toContain('bus');
+    }
+  });
+
+  it('崩壊すれば投機の結果を使い、徒歩最大化は実測の境界で決まる', async () => {
+    // 受け入れ条件の反証側: 前倒ししても board-search の候補がプールへ入り、境界が
+    // 実測（probeFailed=0）で決まっていること。probeFailed が立つ＝直線推定への縮退か
+    // 上流失敗で、境界がその地点の実力から引き剥がされている印。
+    let captured: RouteSearchMetrics | null = null;
+    const plan = await planWith(trackingMock(), {
+      onMetrics: (m) => (captured = m),
+    });
+    const m = captured!;
+    expect(m.boardSearchSpeculated, '前提: 投機経路を通っている').toBe(true);
+    expect(m.collapseFired, '前提: 崩壊して board-search を使う').toBe(true);
+    expect(m.boardSearchActivated).toBe(true);
+    expect(m.boardSearchSpeculationWasted, '当たった投機は空振りでない').toBe(false);
+    expect(m.boardSearchProbeFailed, '境界が実測で決まっていない').toBe(false);
+    expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+  });
+
+  it('崩壊しなければ結果を捨て、空振りを probe 本数で計上する', async () => {
+    // 見積りでは予算内・崩壊ぎみ（→投機起動）だが、実測徒歩が20倍に膨らんで先頭電車に
+    // 乗り遅れ、確定は予算外の best-effort へ縮退する＝ collapse は成立しない。投機は
+    // 丸ごと無駄撃ちになるので、発火と対価を計上できていること。
+    //
+    // enrich 側を「最初の probe が出るまで」待たせるのは、probe 本数の観測を決定的に
+    // するため（sleep で待つとロードの高い CI で揺れる）。一方向のゲートなので、
+    // 投機が実装されていなければここで詰まってタイムアウトする。
+    const firstProbe = deferred<void>();
+    let captured: RouteSearchMetrics | null = null;
+    await withTimeout(
+      planWith(
+        trackingMock({
+          walkFactor: 20,
+          onEnrichWalk: () => firstProbe.promise,
+          onBoardProbe: async () => {
+            if (!firstProbe.isCompleted) firstProbe.complete(undefined);
+          },
+        }),
+        { onMetrics: (m) => (captured = m) },
+      ),
+      5000,
+      () => expect.fail('崩壊が見込まれるのに board-search を投機起動していない'),
+    );
+
+    const m = captured!;
+    expect(m.boardSearchSpeculated, '前提: 見積りでは崩壊が見込まれる').toBe(true);
+    expect(m.collapseFired, '前提: 実測後は崩壊が成立しない').toBe(false);
+    expect(
+      m.boardSearchActivated,
+      '捨てた投機を board-search 起動に数えると本体の発火率が読めなくなる',
+    ).toBe(false);
+    expect(m.boardSearchSpeculationWasted).toBe(true);
+    expect(
+      m.boardSearchSpeculationProbes,
+      '空振りの対価（上流へ打ち上げた往復本数）が計上されていない',
+    ).toBeGreaterThan(0);
+  });
+
+  it('投機中のキャンセルを握り潰さず plan ごと落とす', async () => {
+    // 並行ファンアウトの結果を捨てる経路（`ignore` / catch）を足すとき、キャンセルまで
+    // 一緒に飲みやすい。飲むと離脱後も勝者だけで完走してしまう（#316・cancellation.ts）。
+    await expectThrowsA(
+      () =>
+        planWith(
+          trackingMock({
+            onBoardProbe: async () => {
+              throw new SearchCanceledException();
+            },
+          }),
+        ),
+      SearchCanceledException,
+    );
+  });
+});
+
+describe('plan: 独立IOの並列化 (#304)', () => {
+  it('崩壊時の電車/バス2系統 board-search は並列に照会する', async () => {
+    // #250/#251 と同型の状況: 電車は予算外 → バス last-resort が勝つ → 崩壊判定が立ち、
+    // 電車 base とバス busBase の両系統で board-search が起動する。
+    const o = new GeoPoint(35.0, 139.0);
+    const g = new GeoPoint(35.0, 139.127); // 直線 ~11.6km（全徒歩 ~145分）
+    const trainLat = 35.0;
+    const busLat = 35.001; // コリドー緯度で電車系/バス系の照会を判別する
+    const trainCorridorLngs = [139.02, 139.05, 139.08, 139.1];
+    const busCorridorLngs = [139.012, 139.05, 139.09, 139.127];
+    const busRideMin = Math.round(
+      (haversineKm(
+        new GeoPoint(busLat, 139.012),
+        new GeoPoint(busLat, 139.127),
+      ) *
+        1000) /
+        trainMetersPerMinute,
+    );
+
+    /// 電車のみの主照会が返す option。09:50 発 10:20 着＋徒歩2分で予算60分に届かない。
+    const slowTrainOption = (): JsonMap => ({
+      journey: {
+        departureSecs: 35400, // 09:50
+        arrivalSecs: 37200, // 10:20
+        durationSecs: 1920,
+        accessWalkSecs: 60,
+        egressWalkSecs: 60,
+        legs: [
+          railLeg({
+            route: '各停線',
+            fromId: 's0',
+            fromName: '始発駅',
+            toId: 's1',
+            toName: '終着駅',
+            dep: 35400,
+            arr: 37200,
+          }),
+        ],
+      },
+      map: {
+        points: [],
+        segments: [
+          mapSeg('walk', 'origin', 's0', 'osmWalk', [
+            [35.0, 139.0],
+            [trainLat, 139.02],
+          ]),
+          mapSeg(
+            'transit',
+            's0',
+            's1',
+            'stopOrder',
+            trainCorridorLngs.map((lng) => [trainLat, lng]),
+          ),
+          mapSeg('walk', 's1', 'destination', 'estimatedWalk', [
+            [trainLat, 139.1],
+            [35.0, 139.127],
+          ]),
+        ],
+      },
+    });
+
+    /// バス許容照会（origin 起点）が返す option。徒歩14分＋09:15 発で予算内に収まり
+    /// 勝者になる（＝busBase が立つ）。
+    const busDoorToDoor = (): JsonMap => ({
+      journey: {
+        departureSecs: 33300, // 09:15
+        arrivalSecs: 33300 + busRideMin * 60,
+        durationSecs: 840 + busRideMin * 60 + 60,
+        accessWalkSecs: 840, // 徒歩14分
+        egressWalkSecs: 60,
+        legs: [
+          {
+            kind: 'transit',
+            mode: 'bus',
+            routeName: 'バス01',
+            from: station('bs:0', 'A停留所'),
+            to: station('bs:1', 'B停留所'),
+            departureSecs: 33300,
+            arrivalSecs: 33300 + busRideMin * 60,
+          },
+        ],
+      },
+      map: {
+        points: [],
+        segments: [
+          mapSeg('walk', 'origin', 'bs:0', 'osmWalk', [
+            [35.0, 139.0],
+            [busLat, 139.012],
+          ]),
+          mapSeg(
+            'transit',
+            'bs:0',
+            'bs:1',
+            'gtfsShape',
+            busCorridorLngs.map((lng) => [busLat, lng]),
+          ),
+          mapSeg('walk', 'bs:1', 'destination', 'estimatedWalk', [
+            [busLat, 139.127],
+            [35.0, 139.127],
+          ]),
+        ],
+      },
+    });
+
+    /// all-walk のみ＝引き直しで便を確認できない応答。
+    const walkOnlyOption = (): JsonMap => ({
+      journey: {
+        departureSecs: 0,
+        arrivalSecs: 600,
+        durationSecs: 600,
+        legs: [{ kind: 'walk', departureSecs: 0, arrivalSecs: 600 }],
+      },
+      map: {
+        points: [],
+        segments: [
+          mapSeg('walk', 'a', 'b', 'osmWalk', [
+            [35.0, 139.1],
+            [35.0, 139.2],
+          ]),
+        ],
+      },
+    });
+
+    const trainProbe = deferred<void>();
+    const busProbe = deferred<void>();
+    const barrier = (): Promise<void> =>
+      Promise.all([trainProbe.promise, busProbe.promise]).then(() => undefined);
+    const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-6;
+
+    const client = mockClient(async (url) => {
+      const path = url.pathname;
+      if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+      if (path.includes('googleWalkProxy')) return walkFor(url);
+      if (!path.includes('guidance/plan')) return json({}, 404);
+      const q = url.searchParams;
+      const allowsBus = !(q.get('avoidModes') ?? '').includes('bus');
+      const from = (q.get('from') ?? '').replace('geo:', '').split(',');
+      const to = (q.get('to') ?? '').replace('geo:', '').split(',');
+      const fromLat = Number.parseFloat(from[0]);
+      const fromLng = Number.parseFloat(from[1]);
+      const fromOrigin = near(fromLat, o.lat) && near(fromLng, o.lng);
+      const toGoal =
+        near(Number.parseFloat(to[0]), g.lat) &&
+        near(Number.parseFloat(to[1]), g.lng);
+      let body: JsonMap;
+      if (fromOrigin) {
+        body = guidance([allowsBus ? busDoorToDoor() : slowTrainOption()]);
+      } else if (toGoal && !allowsBus && near(fromLat, trainLat)) {
+        // 電車系 board-search の引き直し（崩壊フェーズ）: バス系の到達までブロック。
+        if (!trainProbe.isCompleted) trainProbe.complete(undefined);
+        await barrier();
+        body = guidance([walkOnlyOption()]);
+      } else if (toGoal && allowsBus && near(fromLat, busLat)) {
+        // バス系 board-search の引き直し（崩壊フェーズ）: 電車系の到達までブロック。
+        if (!busProbe.isCompleted) busProbe.complete(undefined);
+        await barrier();
+        body = guidance([walkOnlyOption()]);
+      } else {
+        // その他の引き直し（実時刻解決など）は即応答。
+        body = guidance([walkOnlyOption()]);
+      }
+      body['date'] = q.get('date');
+      return json(body);
+    });
+
+    const plan = await withTimeout(
+      service(client).plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 10, m: 0 }), // 予算60分
+        origin: o,
+        originName: '出発',
+      }),
+      5000,
+      () =>
+        expect.fail(
+          '電車系とバス系の board-search 照会が同時到達しない（逐次実行でデッドロック）',
+        ),
+    );
+
+    expect(trainProbe.isCompleted, '前提: 電車系 board-search が発火').toBe(true);
+    expect(busProbe.isCompleted, '前提: バス系 board-search が発火').toBe(true);
+    // 退行ガード: 並列化しても選定結果（予算内のバス勝者）は変わらない。
+    const bus = firstWhere(plan.segments, (s) => s.type === SegmentType.bus);
+    expect(bus.line).toEqual('バス01');
+    expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+  });
+
+  it('駅名確定は未命名 transit 区間を並列に照会する', async () => {
+    // 実時刻付き・駅名なしの2連 rail leg が勝者になり、駅名確定が
+    // 2区間それぞれの乗降座標で引き直す状況を作る。照会は departureAt（time=09:00）で
+    // 発行される——実時刻解決（boardAt > 09:00）と判別できる。
+    const o = new GeoPoint(35.68, 139.76);
+    const g = new GeoPoint(35.69, 139.7);
+    const a1 = [35.6812, 139.7671];
+    const a2 = [35.686, 139.735];
+    const a3 = [35.6909, 139.7003];
+
+    /// 駅名の無い（from/to に name が無い）2連 rail leg の option。09:10→09:30 で
+    /// 予算45分に収まる。slack 10分 < 閾値なので崩壊フォールバックは起動しない。
+    const unnamedTwoLegOption = (): JsonMap => ({
+      journey: {
+        departureSecs: 33000, // 09:10
+        arrivalSecs: 34200, // 09:30
+        durationSecs: 1800,
+        accessWalkSecs: 300,
+        egressWalkSecs: 300,
+        legs: [
+          {
+            kind: 'transit',
+            mode: 'rail',
+            routeName: '甲線',
+            from: { id: 'x:1' },
+            to: { id: 'x:2' },
+            departureSecs: 33000,
+            arrivalSecs: 33600,
+          },
+          {
+            kind: 'transit',
+            mode: 'rail',
+            routeName: '乙線',
+            from: { id: 'x:2' },
+            to: { id: 'x:3' },
+            departureSecs: 33660,
+            arrivalSecs: 34200,
+          },
+        ],
+      },
+      map: {
+        points: [],
+        segments: [
+          mapSeg('walk', 'origin', 'x:1', 'osmWalk', [[35.68, 139.76], a1]),
+          mapSeg('transit', 'x:1', 'x:2', 'stopOrder', [a1, a2]),
+          mapSeg('transit', 'x:2', 'x:3', 'stopOrder', [a2, a3]),
+          mapSeg('walk', 'x:3', 'destination', 'estimatedWalk', [
+            a3,
+            [35.69, 139.7],
+          ]),
+        ],
+      },
+    });
+
+    /// 駅名復元の引き直しへ返す「実駅名付き」option。
+    const namedOption = (
+      fromName: string,
+      toName: string,
+      pf: number[],
+      ptTo: number[],
+    ): JsonMap => ({
+      journey: {
+        departureSecs: 33000,
+        arrivalSecs: 33600,
+        durationSecs: 600,
+        accessWalkSecs: 0,
+        egressWalkSecs: 0,
+        legs: [
+          railLeg({
+            route: '甲線',
+            fromId: 'e0',
+            fromName,
+            toId: 'e1',
+            toName,
+            dep: 33000,
+            arr: 33600,
+          }),
+        ],
+      },
+      map: {
+        points: [],
+        segments: [mapSeg('transit', 'e0', 'e1', 'stopOrder', [pf, ptTo])],
+      },
+    });
+
+    /// all-walk のみ＝時刻なしハイブリッドの実時刻解決を空振りさせる応答。
+    const walkOnlyOption = (): JsonMap => ({
+      journey: {
+        departureSecs: 0,
+        arrivalSecs: 600,
+        durationSecs: 600,
+        legs: [{ kind: 'walk', departureSecs: 0, arrivalSecs: 600 }],
+      },
+      map: {
+        points: [],
+        segments: [
+          mapSeg('walk', 'a', 'b', 'osmWalk', [
+            [35.68, 139.76],
+            [35.69, 139.7],
+          ]),
+        ],
+      },
+    });
+
+    const probeLeg1 = deferred<void>();
+    const probeLeg2 = deferred<void>();
+    const barrier = (): Promise<void> =>
+      Promise.all([probeLeg1.promise, probeLeg2.promise]).then(() => undefined);
+    const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-6;
+
+    const client = mockClient(async (url) => {
+      const path = url.pathname;
+      if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+      if (path.includes('googleWalkProxy')) return walkFor(url);
+      if (!path.includes('guidance/plan')) return json({}, 404);
+      const q = url.searchParams;
+      const from = (q.get('from') ?? '').replace('geo:', '').split(',');
+      const fromLat = Number.parseFloat(from[0]);
+      const fromLng = Number.parseFloat(from[1]);
+      const fromOrigin = near(fromLat, o.lat) && near(fromLng, o.lng);
+      let body: JsonMap;
+      if (fromOrigin) {
+        body = guidance([unnamedTwoLegOption()]);
+      } else if (q.get('time') === '09:00' && near(fromLng, a1[1])) {
+        // 駅名復元（departureAt 発行）の leg1 照会: leg2 の到達までブロック。
+        if (!probeLeg1.isCompleted) probeLeg1.complete(undefined);
+        await barrier();
+        body = guidance([namedOption('駅一', '駅二', a1, a2)]);
+      } else if (q.get('time') === '09:00' && near(fromLng, a2[1])) {
+        // 駅名復元の leg2 照会: leg1 の到達までブロック。
+        if (!probeLeg2.isCompleted) probeLeg2.complete(undefined);
+        await barrier();
+        body = guidance([namedOption('駅二', '駅三', a2, a3)]);
+      } else {
+        // 実時刻解決（boardAt > 09:00）などは即応答＝空振り。
+        body = guidance([walkOnlyOption()]);
+      }
+      body['date'] = q.get('date');
+      return json(body);
+    });
+
+    const plan = await withTimeout(
+      service(client).plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 9, m: 45 }), // 予算45分（崩壊は不成立）
+        origin: o,
+        originName: '出発',
+      }),
+      5000,
+      () =>
+        expect.fail('未命名2区間の駅名復元照会が同時到達しない（逐次実行でデッドロック）'),
+    );
+
+    expect(probeLeg1.isCompleted, '前提: leg1 の駅名復元照会が発火').toBe(true);
+    expect(probeLeg2.isCompleted, '前提: leg2 の駅名復元照会が発火').toBe(true);
+    // 退行ガード: 並列化しても駅名の復元・伝播は変わらない。
+    const trains = plan.segments.filter((s) => s.type === SegmentType.train);
+    expect(trains).toHaveLength(2);
+    expect(trains[0].fromName).toEqual('駅一');
+    expect(trains[0].toName).toEqual('駅二');
+    expect(trains[1].fromName).toEqual('駅二');
+    expect(trains[1].toName).toEqual('駅三');
+  });
+});
+
+// 候補間並列（#315）の例外境界と共有レッグ再利用（#316 レビュー）。並列一括実測は
+// (A) キャンセルを飲まず伝播し、(B) 非勝者の壊れた応答で plan() 全体を落とさず、
+// (C) 同一徒歩レッグを in-flight でも1回に畳む——を検証する。
+describe('plan: 候補間並列の例外境界と共有レッグ (#316)', () => {
+  const o = new GeoPoint(35.0, 139.0);
+  const g = new GeoPoint(35.0, 139.03); // 全徒歩 見積り~34分＝予算30分外
+  const alight = [35.0, 139.029]; // 降車＝全候補共通（egress レッグを共有）
+
+  const option = (a: {
+    route: string;
+    board: number[];
+    accessSecs: number;
+    dep: number;
+    arr: number;
+  }): JsonMap => ({
+    journey: {
+      departureSecs: 32400,
+      arrivalSecs: a.arr,
+      durationSecs: a.arr - 32400,
+      accessWalkSecs: a.accessSecs,
+      egressWalkSecs: 60,
+      legs: [
+        railLeg({
+          route: a.route,
+          fromId: `${a.route}:board`,
+          fromName: `乗車${a.route}`,
+          toId: `${a.route}:alight`,
+          toName: `降車${a.route}`,
+          dep: a.dep,
+          arr: a.arr,
+        }),
+      ],
+    },
+    map: {
+      points: [],
+      segments: [
+        mapSeg('walk', 'origin', `${a.route}:board`, 'osmWalk', [
+          [o.lat, o.lng],
+          a.board,
+        ]),
+        mapSeg(
+          'transit',
+          `${a.route}:board`,
+          `${a.route}:alight`,
+          'stopOrder',
+          [alight],
+        ),
+        mapSeg('walk', `${a.route}:alight`, 'destination', 'estimatedWalk', [
+          alight,
+          [g.lat, g.lng],
+        ]),
+      ],
+    },
+  });
+
+  const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-6;
+
+  // A. 先行実測（#315 Option B＝勝者を1パスで温める）中に徒歩実測がキャンセルで倒れたら、
+  //    その例外は握り潰さず plan() まで伝播させる。先行実測は「壊れた応答は候補ごとに握って
+  //    落とす」fail-open だが、キャンセルだけは飲んではならない——飲むと離脱後も残りの候補で
+  //    完走してしまう（#316: cancellation.ts のキャンセル境界を並列パスでも守る）。
+  it('先行実測中のキャンセルは握り潰さず伝播する', async () => {
+    const wBoard = [35.0, 139.01]; // 勝者W: 徒歩最大（先行実測で温められる）
+    const vBoard = [35.0, 139.005]; // 早着・徒歩少の下位候補
+    const body = guidance([
+      option({
+        route: '快速W',
+        board: wBoard,
+        accessSecs: 840,
+        dep: 33300,
+        arr: 34020,
+      }),
+      option({
+        route: '快速V',
+        board: vBoard,
+        accessSecs: 420,
+        dep: 33000,
+        arr: 33600,
+      }),
+    ]);
+
+    const client = mockClient((url) => {
+      const path = url.pathname;
+      if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+      if (path.includes('googleWalkProxy')) {
+        const s = pt(url.searchParams.get('start') ?? '0,0');
+        const gl = pt(url.searchParams.get('goal') ?? '0,0');
+        // 勝者W の access 徒歩実測（origin→W乗車駅）がキャンセルで倒れる。
+        if (
+          near(s.lat, o.lat) &&
+          near(s.lng, o.lng) &&
+          near(gl.lat, wBoard[0]) &&
+          near(gl.lng, wBoard[1])
+        ) {
+          throw new SearchCanceledException();
+        }
+        return walkFor(url);
+      }
+      if (path.includes('guidance/plan')) return json(body);
+      return json({}, 404);
+    });
+
+    await expectThrowsA(
+      () =>
+        service(client).plan({
+          destination: '目的地',
+          destinationLatLng: g,
+          departure: new TimeValue({ h: 9, m: 0 }),
+          arrival: new TimeValue({ h: 9, m: 30 }),
+          origin: o,
+          originName: '出発',
+        }),
+      SearchCanceledException,
+    );
+  });
+
+  // B. 同tier の2候補（徒歩同・A が早着で勝者、B が下位）。B の access 徒歩実測が壊れた
+  //    応答（parse 不能）で例外を上げても、B だけ落として A を返す。旧実装は tier バッチの
+  //    Promise.all が非勝者 B の例外を伝播させ plan() 全体を落としていた。
+  it('同tier 非勝者の壊れた応答は当該候補だけ落として勝者を返す', async () => {
+    const aBoard = [35.001, 139.01]; // A: 早着で勝者
+    const bBoard = [34.999, 139.01]; // B: 徒歩同（同tier）だが下位。access が壊れる
+    const body = guidance([
+      option({
+        route: '快速A',
+        board: aBoard,
+        accessSecs: 720,
+        dep: 33300,
+        arr: 33900,
+      }),
+      option({
+        route: '快速B',
+        board: bBoard,
+        accessSecs: 720,
+        dep: 33600,
+        arr: 34080,
+      }),
+    ]);
+
+    const client = mockClient((url) => {
+      const path = url.pathname;
+      if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+      if (path.includes('googleWalkProxy')) {
+        const s = pt(url.searchParams.get('start') ?? '0,0');
+        const gl = pt(url.searchParams.get('goal') ?? '0,0');
+        // B の access 徒歩実測だけが parse 不能で倒れる（RouteException でも
+        // SearchCanceledException でもない一般例外。Dart の FormatException に対応する
+        // のは JSON の解析が投げる SyntaxError）。
+        if (
+          near(s.lat, o.lat) &&
+          near(s.lng, o.lng) &&
+          near(gl.lat, bBoard[0]) &&
+          near(gl.lng, bBoard[1])
+        ) {
+          throw new SyntaxError('malformed walk response');
+        }
+        return walkFor(url);
+      }
+      if (path.includes('guidance/plan')) return json(body);
+      return json({}, 404);
+    });
+
+    const plan = await service(client).plan({
+      destination: '目的地',
+      destinationLatLng: g,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 9, m: 30 }),
+      origin: o,
+      originName: '出発',
+    });
+
+    const train = firstWhere(plan.segments, (s) => s.type === SegmentType.train);
+    expect(train.line, '壊れた B を落として同tier の勝者 A を返すはず').toEqual('快速A');
+    expect(plan.totalMin).toBeLessThanOrEqual(30);
+  });
+
+  // C. 勝者W と代替V は egress（降車→目的地）を共有する。先行実測は両者を並列に測るので、
+  //    完了結果しか持たない素のキャッシュでは両者とも外して googleWalkProxy を二重発行する。
+  //    in-flight の Promise を単一化し、共有レッグの実測を1回に畳む。
+  it('同一 egress レッグは in-flight でも1回だけ実測する', async () => {
+    const wBoard = [35.0, 139.01];
+    const vBoard = [35.0, 139.005];
+    const body = guidance([
+      option({
+        route: '快速W',
+        board: wBoard,
+        accessSecs: 840,
+        dep: 33300,
+        arr: 34020,
+      }),
+      option({
+        route: '快速V',
+        board: vBoard,
+        accessSecs: 420,
+        dep: 33000,
+        arr: 33600,
+      }),
+    ]);
+
+    let sharedEgressCalls = 0;
+    const client = mockClient((url) => {
+      const path = url.pathname;
+      if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+      if (path.includes('googleWalkProxy')) {
+        const s = pt(url.searchParams.get('start') ?? '0,0');
+        const gl = pt(url.searchParams.get('goal') ?? '0,0');
+        if (
+          near(s.lat, alight[0]) &&
+          near(s.lng, alight[1]) &&
+          near(gl.lat, g.lat) &&
+          near(gl.lng, g.lng)
+        ) {
+          sharedEgressCalls++;
+        }
+        return walkFor(url);
+      }
+      if (path.includes('guidance/plan')) return json(body);
+      return json({}, 404);
+    });
+
+    await service(client).plan({
+      destination: '目的地',
+      destinationLatLng: g,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 9, m: 30 }),
+      origin: o,
+      originName: '出発',
+    });
+
+    expect(
+      sharedEgressCalls,
+      '共有 egress レッグは in-flight を単一化して1回だけ実測されるはず',
+    ).toEqual(1);
+  });
+});
+
+describe('plan: 到着アンカー第2波 (#376)', () => {
+  const o = familyOrigin;
+  const g = familyGoal;
+
+  const run = (
+    client: HttpClient,
+    opts: {
+      onMetrics?: (m: RouteSearchMetrics) => void;
+      arrivalWaveGrace?: number | null;
+    } = {},
+  ): Promise<RoutePlan> =>
+    service(client, {
+      onMetrics: opts.onMetrics,
+      arrivalWaveGrace: opts.arrivalWaveGrace,
+    }).plan({
+      destination: '目的地',
+      destinationLatLng: g,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 10, m: 40 }), // 予算100分
+      origin: o,
+      originName: '出発',
+    });
+
+  const walkOf = (plan: RoutePlan): number =>
+    plan.segments
+      .filter((s) => s.type === SegmentType.walk)
+      .reduce((a, s) => a + s.minutes, 0);
+
+  it('arrival 波が締切（出発+予算）をアンカーに type=arrival で発行される', async () => {
+    const log: URL[] = [];
+    await run(
+      waveMock({
+        departure: guidance([familyA()]),
+        arrival: guidance([]),
+        log,
+      }),
+    );
+    const wave = singleWhere(
+      log,
+      (u) =>
+        u.pathname.includes('guidance/plan') &&
+        u.searchParams.get('type') === 'arrival',
+    );
+    expect(wave.searchParams.get('from')).toEqual('geo:35.0,139.0');
+    expect(wave.searchParams.get('to')).toEqual('geo:35.0,139.1');
+    expect(wave.searchParams.get('date')).toEqual('20260627');
+    expect(wave.searchParams.get('time')).toEqual('10:40'); // 09:00 + 予算100分
+    // departure 波と同じ train-only 条件（§1.1 の last-resort 構造は変えない）。
+    expect(wave.searchParams.get('avoidModes')).toEqual('bus,ferry,air');
+  });
+
+  // 出発日時の日送りが経過時間の加算だと、DST のある端末タイムゾーンでは
+  // spring-forward を跨ぐ壁時計が1時間ずれる（#121 と同じクラス）。フィールド加算に
+  // よる暦正規化（月末・年末の繰り上げ）をここで固定する。
+  it('月末をまたぐ dateOffset は date=翌月1日へ暦正規化される', async () => {
+    const log: URL[] = [];
+    await service(
+      waveMock({
+        departure: guidance([familyA()]),
+        arrival: guidance([]),
+        log,
+      }),
+      { clock: () => dateTime(2026, 8, 31, 9, 0) },
+    ).plan({
+      destination: '目的地',
+      destinationLatLng: g,
+      departure: new TimeValue({ h: 9, m: 0, dateOffset: 1 }),
+      arrival: new TimeValue({ h: 10, m: 40, dateOffset: 1 }), // 予算100分
+      origin: o,
+      originName: '出発',
+    });
+    const dates = new Set(
+      log
+        .filter((u) => u.pathname.includes('guidance/plan'))
+        .map((u) => u.searchParams.get('date')),
+    );
+    expect(dates).toEqual(new Set(['20260901']));
+  });
+
+  it('年末をまたぐ dateOffset は date=翌年1月1日へ暦正規化される', async () => {
+    const log: URL[] = [];
+    await service(
+      waveMock({
+        departure: guidance([familyA()]),
+        arrival: guidance([]),
+        log,
+      }),
+      { clock: () => dateTime(2026, 12, 31, 9, 0) },
+    ).plan({
+      destination: '目的地',
+      destinationLatLng: g,
+      departure: new TimeValue({ h: 9, m: 0, dateOffset: 1 }),
+      arrival: new TimeValue({ h: 10, m: 40, dateOffset: 1 }),
+      origin: o,
+      originName: '出発',
+    });
+    const dates = new Set(
+      log
+        .filter((u) => u.pathname.includes('guidance/plan'))
+        .map((u) => u.searchParams.get('date')),
+    );
+    expect(dates).toEqual(new Set(['20270101']));
+  });
+
+  it('arrival 波だけが返す別系統が base になりそのコリドーから勝者が出る', async () => {
+    // departure 波はファミリA（コリドー2点＝徒歩は access+egress の ~4分止まり）だけ。
+    // ファミリB（コリドー3点）は arrival 波にしか居ないので、第2波を合流しなければ
+    // B のコリドー由来ハイブリッド（徒歩82分）は原理的に生成されない。
+    const plan = await run(
+      waveMock({
+        departure: guidance([familyA()]),
+        arrival: guidance([familyB()]),
+      }),
+    );
+    expect(walkOf(plan)).toBeGreaterThan(40);
+    expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+    expect(
+      plan.segments.some(
+        (s) => s.type === SegmentType.train && s.line === '各停線',
+      ),
+      'arrival 波の option が base に採られた証拠',
+    ).toBe(true);
+  });
+
+  it('arrival 波が非200で落ちても departure 波だけで従来どおり確定する', async () => {
+    const plan = await run(
+      waveMock({
+        departure: guidance([familyA(), familyB()]),
+        onArrival: async () => json({}, 503),
+      }),
+    );
+    // 両ファミリが departure 波に揃っているときの従来結果と同一。
+    expect(walkOf(plan)).toBeGreaterThan(40);
+    expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+    expect(
+      plan.segments.some(
+        (s) => s.type === SegmentType.train && s.line === '各停線',
+      ),
+    ).toBe(true);
+  });
+
+  it('猶予内に返らない arrival 波は待たずに departure 波だけで確定する', async () => {
+    // 応答は deferred で止める（実時間タイマーで「遅い応答」を作るテストは負荷で
+    // フレークする）。猶予切れの側だけを見るので、gate は検証が済むまで完了しない。
+    const gate = deferred<HttpResponse>();
+    let captured: RouteSearchMetrics | null = null;
+    const plan = await run(
+      waveMock({
+        departure: guidance([familyA(), familyB()]),
+        onArrival: () => gate.promise,
+      }),
+      { onMetrics: (m) => (captured = m), arrivalWaveGrace: 20 },
+    );
+
+    // departure 波だけで従来どおり確定する。
+    expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+    const m = captured!;
+    // 猶予切れも合流できる素材が無い点は失敗と同じだが、原因は別物として残す
+    // ——集計で「間に合わなかった」と「仮説が外れた」を取り違えないため（#376）。
+    expect(m.arrivalWaveOutcome).toEqual(ArrivalWaveOutcome.timeout);
+    expect(m.arrivalWaveOptions).toEqual(0);
+    expect(m.arrivalWaveBaseUsed).toBe(false);
+    expect(m.arrivalWaveWon).toBe(false);
+
+    // 宙に浮いた応答を閉じ、上流タイムアウトのタイマーを残さない。
+    gate.complete(json(guidance([familyA(), familyB()])));
+  });
+
+  it('arrival 波がタイムアウトしても departure 波だけで確定する', async () => {
+    const plan = await run(
+      waveMock({
+        departure: guidance([familyA(), familyB()]),
+        onArrival: async () => {
+          throw new TimeoutException('no response');
+        },
+      }),
+    );
+    expect(walkOf(plan)).toBeGreaterThan(40);
+    expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+  });
+
+  it('departure 波が落ちれば arrival 波が生きていても検索ごと失敗する', async () => {
+    // arrival 波は有効な option を返す。第2波が必須波を肩代わりしてしまう実装なら
+    // ここで成功してしまう。
+    const client = mockClient((url) => {
+      const path = url.pathname;
+      if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+      if (path.includes('googleWalkProxy')) return walkFor(url);
+      if (path.includes('guidance/plan')) {
+        return url.searchParams.get('type') === 'arrival'
+          ? json(guidance([familyA(), familyB()]))
+          : json({}, 503);
+      }
+      return json({}, 404);
+    });
+    await expectThrowsA(() => run(client), RouteException);
+  });
+
+  it('同一路線・同一乗降でも別便なら重複除去で落とさない', async () => {
+    // 到着アンカーの主産物は「同じ系統の、締切ぎりぎりまで遅らせた便」なので、構造
+    // （種別・路線名・乗降座標）だけで畳むと第2波の中身がまるごと消える。
+    //
+    // 罠: departure 波の各停は予算外（09:03→10:50 で到着114分 > 予算100分）、arrival 波の
+    // 急行だけが予算内（09:30→09:50 で到着52分）。構造だけの鍵だと急行が捨てられて
+    // 予算内候補が消滅し、検索は best-effort（予算外）へ落ちる。勝者の同定は seg.minutes
+    // ではなく depTime/arrTime で行う（比較器は arrTime 駆動・#256）。
+    const sameLineRun = (a: { dep: number; arr: number }): JsonMap => ({
+      journey: {
+        departureSecs: a.dep,
+        arrivalSecs: a.arr,
+        durationSecs: a.arr - a.dep + 240,
+        accessWalkSecs: 120,
+        egressWalkSecs: 120,
+        legs: [
+          railLeg({
+            route: '本線',
+            fromId: 'm:board',
+            fromName: 'M乗車',
+            toId: 'm:alight',
+            toName: 'M降車',
+            dep: a.dep,
+            arr: a.arr,
+          }),
+        ],
+      },
+      map: {
+        points: [],
+        segments: [
+          mapSeg('walk', 'origin', 'm:board', 'osmWalk', [
+            [35.0, 139.0],
+            [35.0, 139.002],
+          ]),
+          mapSeg('transit', 'm:board', 'm:alight', 'stopOrder', [
+            [35.0, 139.002],
+            [35.0, 139.098],
+          ]),
+          mapSeg('walk', 'm:alight', 'destination', 'estimatedWalk', [
+            [35.0, 139.098],
+            [35.0, 139.1],
+          ]),
+        ],
+      },
+    });
+
+    let captured: RouteSearchMetrics | null = null;
+    const plan = await run(
+      waveMock({
+        // 各停 09:03発→10:50着（予算外）
+        departure: guidance([sameLineRun({ dep: 32580, arr: 39000 })]),
+        // 急行 09:30発→09:50着（予算内）。路線名も乗降座標も各停と同一。
+        arrival: guidance([sameLineRun({ dep: 34200, arr: 35400 })]),
+      }),
+      { onMetrics: (m) => (captured = m) },
+    );
+
+    expect(plan.totalMin, '急行が生き残れば予算内で確定できる').toBeLessThanOrEqual(
+      plan.budgetMin,
+    );
+    const trains = plan.segments.filter((s) => s.type === SegmentType.train);
+    expect(trains).toHaveLength(1);
+    expect(first(trains).depTime).toEqual(dateTime(2026, 6, 27, 9, 30));
+    expect(first(trains).arrTime).toEqual(dateTime(2026, 6, 27, 9, 50));
+    expect(captured!.arrivalWaveOptions, '別便なので純増1本').toEqual(1);
+  });
+
+  it('arrival 波の出発済み便は既存の不変条件が弾き確定に出ない', async () => {
+    // 罠: 幽霊特急は徒歩59分（プール最大）で見積り到着69分（予算100分内）なので、
+    // 乗り遅れ判定が無ければ**必ず勝つ**。08:00 発＝照会時刻 09:00 より前なので待ちが
+    // 0 に丸まり、到着が楽観へ縮退する（#343 のクラス）。arrivalMinutes は arrTime 駆動
+    // なので depTime/arrTime で仕込む。
+    const departed = (): JsonMap => ({
+      journey: {
+        departureSecs: 28800, // 08:00 = departureAt(09:00) より前
+        arrivalSecs: 29400, // 08:10
+        durationSecs: 29400 - 28800 + 3540,
+        accessWalkSecs: 3420, // origin->139.050 ≒ 57分（徒歩最大の源）
+        egressWalkSecs: 120,
+        legs: [
+          railLeg({
+            route: '幽霊特急',
+            fromId: 'x:board',
+            fromName: 'X乗車',
+            toId: 'x:alight',
+            toName: 'X降車',
+            dep: 28800,
+            arr: 29400,
+          }),
+        ],
+      },
+      map: {
+        points: [],
+        segments: [
+          mapSeg('walk', 'origin', 'x:board', 'osmWalk', [
+            [35.0, 139.0],
+            [35.0, 139.05],
+          ]),
+          mapSeg('transit', 'x:board', 'x:alight', 'stopOrder', [
+            [35.0, 139.05],
+            [35.0, 139.098],
+          ]),
+          mapSeg('walk', 'x:alight', 'destination', 'estimatedWalk', [
+            [35.0, 139.098],
+            [35.0, 139.1],
+          ]),
+        ],
+      },
+    });
+
+    const plan = await run(
+      waveMock({
+        departure: guidance([familyA()]),
+        arrival: guidance([departed()]),
+      }),
+    );
+    expect(
+      plan.segments.some((s) => s.line === '幽霊特急'),
+      '出発済みの便は乗れない＝確定に出してはいけない',
+    ).toBe(false);
+    expect(
+      walkOf(plan),
+      '徒歩59分の幽霊特急を掴んでいないこと（掴めば徒歩は59分近辺になる）',
+    ).toBeLessThan(50);
+    expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+  });
+
+  it('両波が同じ便を返しても候補も実測ファンアウトも増えない', async () => {
+    const runWith = async (arrival: JsonMap): Promise<URL[]> => {
+      const log: URL[] = [];
+      await run(
+        waveMock({
+          departure: guidance([familyA(), familyB()]),
+          arrival,
+          log,
+        }),
+      );
+      return log;
+    };
+
+    const countOf = (log: URL[], path: string): number =>
+      log.filter((u) => u.pathname.includes(path)).length;
+
+    const dup = await runWith(guidance([familyA(), familyB()]));
+    const empty = await runWith(guidance([]));
+    expect(
+      countOf(dup, 'googleWalkProxy'),
+      '同一便は dedup されるので徒歩実測は増えないはず',
+    ).toEqual(countOf(empty, 'googleWalkProxy'));
+    expect(
+      countOf(dup, 'googleWalkMatrixProxy'),
+      '同一便は base を増やさないのでマトリクスも増えないはず',
+    ).toEqual(countOf(empty, 'googleWalkMatrixProxy'));
+    expect(
+      countOf(dup, 'guidance/plan'),
+      'arrival 波の1本は両方に載る＝差は出ないはず',
+    ).toEqual(countOf(empty, 'guidance/plan'));
+  });
+
+  describe('採用状況の計測', () => {
+    it('base に採られ勝者にもなれば BaseUsed / Won が立つ', async () => {
+      let captured: RouteSearchMetrics | null = null;
+      await run(
+        waveMock({
+          departure: guidance([familyA()]),
+          arrival: guidance([familyB()]),
+        }),
+        { onMetrics: (m) => (captured = m) },
+      );
+      const m = captured!;
+      expect(m.arrivalWaveOutcome).toEqual(ArrivalWaveOutcome.ok);
+      expect(m.arrivalWaveOptions, 'dedup 後の純増分').toEqual(1);
+      expect(m.arrivalWaveBaseUsed).toBe(true);
+      expect(m.arrivalWaveWon).toBe(true);
+      // 第2波の1本は既存の数え方のまま guidanceCalls に乗る。
+      expect(m.guidanceCalls).toBeGreaterThanOrEqual(2);
+    });
+
+    it('arrival 波が落ちれば計測はすべて立たない', async () => {
+      let captured: RouteSearchMetrics | null = null;
+      await run(
+        waveMock({
+          departure: guidance([familyA(), familyB()]),
+          onArrival: async () => json({}, 503),
+        }),
+        { onMetrics: (m) => (captured = m) },
+      );
+      const m = captured!;
+      expect(m.arrivalWaveOutcome).toEqual(ArrivalWaveOutcome.error);
+      expect(m.arrivalWaveOptions).toEqual(0);
+      expect(m.arrivalWaveBaseUsed).toBe(false);
+      expect(m.arrivalWaveWon).toBe(false);
+    });
+
+    it('200 でも option が0本なら空応答として区別する', async () => {
+      // 「仮説が外れた」唯一の形。ここだけが revert の根拠になり得るので、
+      // 猶予切れ・上流エラーと同じコードに潰してはいけない（#376・§3.8）。
+      let captured: RouteSearchMetrics | null = null;
+      await run(
+        waveMock({
+          departure: guidance([familyA(), familyB()]),
+          arrival: guidance([]),
+        }),
+        { onMetrics: (m) => (captured = m) },
+      );
+      const m = captured!;
+      expect(m.arrivalWaveOutcome).toEqual(ArrivalWaveOutcome.empty);
+      expect(m.arrivalWaveOptions).toEqual(0);
+    });
+
+    it('重複便しか返らなければ Ok だけ立ち純増0・不採用', async () => {
+      let captured: RouteSearchMetrics | null = null;
+      await run(
+        waveMock({
+          departure: guidance([familyA(), familyB()]),
+          arrival: guidance([familyA(), familyB()]),
+        }),
+        { onMetrics: (m) => (captured = m) },
+      );
+      const m = captured!;
+      expect(m.arrivalWaveOutcome, '応答自体は有効だった').toEqual(
+        ArrivalWaveOutcome.ok,
+      );
+      expect(m.arrivalWaveOptions, '全て dedup で消える').toEqual(0);
+      expect(m.arrivalWaveBaseUsed).toBe(false);
+      expect(m.arrivalWaveWon).toBe(false);
+    });
+
+    it('計測は1行ログにも出る', () => {
+      const line = new RouteSearchMetrics().toLogLine();
+      expect(line).toContain('arrivalWaveOutcome=-1');
+      expect(line).toContain('arrivalWaveOptions=0');
+      expect(line).toContain('arrivalWaveBaseUsed=0');
+      expect(line).toContain('arrivalWaveWon=0');
+    });
+  });
+
+  it('arrival 波 in-flight のキャンセルは握り潰さず伝播する', async () => {
+    // fail-soft の catch がキャンセルまで飲むと、離脱後も departure 波だけで完走して
+    // 経路を返してしまう（#316 と同型）。
+    await expectThrowsA(
+      () =>
+        run(
+          waveMock({
+            departure: guidance([familyA(), familyB()]),
+            onArrival: async () => {
+              throw new SearchCanceledException();
+            },
+          }),
+        ),
+      SearchCanceledException,
+    );
   });
 });

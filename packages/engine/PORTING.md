@@ -22,6 +22,14 @@ npm --prefix packages/engine run count:parity
 `flutter test --reporter=json` の `testStart` は 320 件出るが、6 件は各ファイルの
 `loading …_test.dart` という擬似テストで実テストではない。**320 を目標値にしない。**
 
+## CI での扱い
+
+`packages/engine` は CI（`.github/workflows/ci.yml` の `engine-typecheck` ジョブ）で
+**`tsc --noEmit` だけ**回す。`vitest run` は繋がない——この Phase の完了条件が「全て赤」で、
+繋ぐと Phase 2 が終わるまで CI が永久に赤くなり、他 PR のシグナルが死ぬ。それでも型検査を
+繋いでおけば、移植した 11,086 行は毎 PR 機械的に検査される。`vitest run` の追加は
+Phase 2（#385）で緑にしてから。
+
 ## 何を実装し、何をスタブにしたか
 
 | 区分 | 扱い | 例 |
@@ -79,10 +87,13 @@ describe('plan: 入力ガード', () => {
 | `allOf(a, b)` | 2 つの `expect` に分ける |
 | `expect(x, y, reason: 'なぜ')` | `expect(x, 'なぜ').toEqual(y)` |
 | `expect(list, [a, b, c])`（要素が `==` 未定義のクラス） | `expectSameList(list, [a, b, c])`（同一性・下記） |
-| `throwsA(isA<E>())` | `expectThrowsA(action, E)`（`test/support/expect.ts`） |
+| `throwsA(isA<E>())` | `expectThrowsA(action, E)`（`packages/engine/test/support/expect.ts`） |
 | `throwsA(isA<E>().having((e) => e.f, 'f', v))` | `const e = await expectThrowsA(...); expect(e.f).toBe(v)` |
 | `expectLater(future, completes)` | `await expect(p).resolves.toBeDefined()` 等（文脈ごと） |
 | `fail('...')` | `expect.fail('...')` |
+| `future.timeout(d, onTimeout: () => fail(m))` | `withTimeout(promise, ms, () => expect.fail(m))` |
+| `list.single` / `.first` / `.last` / `firstWhere` / `singleWhere` | 同名の helper（`packages/engine/test/support/iterable.ts`） |
+| `Foo()..a = 1..b = 2`（カスケード） | `cascade(new Foo(), (f) => { f.a = 1; f.b = 2; })` |
 
 Dart の `equals` はリストの要素を `==` で比べる。`RouteCandidate` のように `==` を
 定義していないクラスではそれが**同一性**の比較になるので、`toEqual`（構造比較）へ落とすと
@@ -98,10 +109,11 @@ Dart の `equals` はリストの要素を `==` で比べる。`RouteCandidate` 
 
 | Dart | TypeScript |
 | --- | --- |
-| `MockClient((req) async => res)` | `mockClient((url) => res)`（`test/support/mock-client.ts`） |
+| `MockClient((req) async => res)` | `mockClient((url) => res)`（`packages/engine/test/support/mock-client.ts`） |
 | `http.Response.bytes(utf8.encode(jsonEncode(b)), 200)` | `jsonResponse(b, 200)` |
-| `Completer<T>()` | `deferred<T>()`（`test/support/deferred.ts`） |
+| `Completer<T>()` | `deferred<T>()`（`packages/engine/test/support/deferred.ts`） |
 | 手書き fake クラス | 手書き fake クラス（`vi.fn` へ寄せない） |
+| `'${p.lat},${p.lng}'`（座標の文字列化） | `dartDouble(p.lat)`（`packages/engine/test/support/dart-number.ts`・下記） |
 
 **`vi.mock` によるモジュール差し替えは使わない。** 移植元は全て**注入**で fake を渡して
 おり、モジュールを差し替えると依存の向きが変わって「何が注入可能か」という設計上の情報が
@@ -112,7 +124,7 @@ Dart の `equals` はリストの要素を `==` で比べる。`RouteCandidate` 
 | Dart | TypeScript | 備考 |
 | --- | --- | --- |
 | `enum E { a, b }` | `const E = { a: 'a', b: 'b' } as const` + 同名 type | 失敗差分に `0` でなく `'a'` が出る |
-| `DateTime(y, mo, d, ...)` | `dateTime(y, mo, d, ...)`（`src/time.ts`） | **JS の月は 0 始まり**。素の `new Date` を使わない |
+| `DateTime(y, mo, d, ...)` | `dateTime(y, mo, d, ...)`（`packages/engine/src/time.ts`） | **JS の月は 0 始まり**。素の `new Date` を使わない |
 | `Duration(seconds: n)` | `seconds(n)`（ミリ秒の `number`） | `Duration.zero` は `0` |
 | `d1.difference(d2).inMinutes` | `differenceInMinutes(d1, d2)` | 切り捨て・負あり |
 | 名前付き引数 | 単一のオプションオブジェクト | 呼び出し側の見た目を Dart に寄せる |
@@ -124,7 +136,7 @@ Dart の `equals` はリストの要素を `==` で比べる。`RouteCandidate` 
 - **`GeoPoint` の等値**: Dart の `==` は `heading` を無視するが、`toEqual` は構造比較
   なので `heading` も見る。移植対象6ファイルは `heading` を使わないので実害は無いが、
   `heading` 付きの点を比較するテストを足すときはここが食い違う。
-- **`tsconfig` の `noUncheckedIndexedAccess`**: 入れていない。理由は `tsconfig.json` の
+- **`tsconfig` の `noUncheckedIndexedAccess`**: 入れていない。理由は `packages/engine/tsconfig.json` の
   コメントに書いた。
 
 ## 意図的に揃えた点（変えたくなるが変えてはいけない）

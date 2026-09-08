@@ -6,6 +6,31 @@ on:
   pull_request:
 
 jobs:
+  # Flutter を要さないので独立ジョブにする（並列で回り、TS 側の型崩れが Flutter の
+  # ビルド待ちに埋もれない）。
+  engine-typecheck:
+    name: engine typecheck (packages/engine)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: packages/engine/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: packages/engine
+
+      # vitest はまだ繋がない。移植したテストは実装（#385）が入るまで全て赤で、
+      # それ自体が Phase 1 の完了条件だから（packages/engine/PORTING.md）。
+      # 型検査だけを繋いでおけば、移植した 11,086 行が毎 PR 機械的に検査される。
+      - name: Typecheck
+        run: npx tsc --noEmit
+        working-directory: packages/engine
+
   analyze-and-test:
     name: format / analyze / test
     runs-on: ubuntu-latest
