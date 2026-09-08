@@ -63,9 +63,10 @@ git -C <flutter-sdk> checkout 3.38.5
 
 ---
 
-## 3. 凍結先ツリーに入っていないもの
+## 3. 凍結が固定しないもの
 
-タグが固定するのは**追跡されているファイルだけ**で、以下は含まれない。復元時に別途用意する。
+タグが固定するのは**追跡されているファイルだけ**。以下のファイルは含まれないので復元時に
+別途用意する（外部サービスについては §3.2）。
 
 | 要るもの | 置き場所 | 入手元 |
 | --- | --- | --- |
@@ -116,6 +117,25 @@ FlutterFire の素の出力ではなく、API キーを `String.fromEnvironment`
 git status                                   # 何が書き換わったか確認する
 git checkout -- lib/firebase_options.dart    # 追跡ファイルへの上書きを捨てる
 ```
+
+### 3.2 凍結が届かない外部依存
+
+タグが固定できるのはこのリポジトリのファイルだけで、**アプリが動くために要る外部の状態は
+入らない**。この手順書は以下が生きている前提で書いている。
+
+| 外部依存 | 欠けるとどうなる | 復旧の手掛かり |
+| --- | --- | --- |
+| Firebase プロジェクト `aruku-app`（App Check 登録・Firestore） | 検索が 401 になる | README「レートリミッタ（Firestore）」 |
+| デプロイ済みの `placesProxy` / `googleWalkProxy` / `googleWalkMatrixProxy` | 地点検索と徒歩実測が失敗 | `functions/` を再デプロイ |
+| Secret Manager の `GOOGLE_MAPS_API_KEY`（`functions/src/index.ts`） | プロキシが上流を叩けない | README・[security_hardening.md](../security_hardening.md) |
+| Secret Manager の `RATE_LIMIT_HMAC_KEY`（`functions/src/rate-limiter.ts`） | レート制限が**黙ってフェイルオープン**する（保護が無効のまま気付けない） | 同上 |
+| **Transit API（`https://api.transit.ls8h.com`）** | **ルートが一切出ない** | 代替なし（下記） |
+
+**Transit API は凍結の対象外であり、復元性の上限を決めている。** 公共交通のプロキシは
+このリポジトリに無く、クライアントが第三者サービスを直接叩く（`lib/core/config/app_config.dart`
+の `TRANSIT_API_BASE_URL`、既定値がこのホスト。[route-optimization.md](../spec/route-optimization.md)）。
+サービスが消えるか契約が変われば、**ビルドも起動も地図も地点検索も通ったまま、ルートだけが
+出なくなる**。git のタグでは防げない種類の劣化で、§1 の「固定されない」側の最上位に来る。
 
 ---
 
@@ -201,6 +221,7 @@ flutter run -d <iOS シミュレータ／実機> --dart-define-from-file=dart_de
 | 起動時に `Firebase の … が空です`（`StateError`）が出ない | そのターゲットの Firebase キーが入っている（`lib/main.dart` の `_assertFirebaseOptionsComplete`） |
 | 実地図が描画される | Maps キー（Web: `MAPS_WEB_API_KEY` / Android: `secrets.properties` / iOS: `ios/Flutter/Secrets.xcconfig`） |
 | 地点検索が候補を返す（**デプロイ済みプロキシ相手**） | `PROXY_BASE_URL`・App Check の資格情報 |
+| **ルート検索が結果を返す** | Transit API（§3.2）まで含めたコア機能全体。ここまで通して初めて「使える」 |
 
 **エミュレータ相手の検索は App Check を検証しない。** `dart_defines.example.json` の
 `PROXY_BASE_URL` はローカルの Functions エミュレータを指しており、`functions/src/index.ts` の
@@ -209,6 +230,13 @@ flutter run -d <iOS シミュレータ／実機> --dart-define-from-file=dart_de
 握り潰してヘッダ無しのまま送る。この2つが重なるため、資格情報がプレースホルダ・無効・
 未登録のいずれでも検索は成功し、デプロイ済みプロキシでは 401 になる。**デプロイ済みの
 プロキシに向けて1回検索するまで、App Check の資格情報は未検証のまま。**
+
+**debug 起動では release の App Check 資格情報は検証されない。** `lib/main.dart` は
+`useDebugAppCheckProvider` が真なら `WebDebugProvider` / `AndroidDebugProvider` /
+`AppleDebugProvider` を選ぶ。通るのは登録済みのデバッグトークンだけで、release Web が使う
+`ReCaptchaV3Provider`（`RECAPTCHA_SITE_KEY`）とネイティブの実機アテステーションは一度も
+走らない。`RECAPTCHA_SITE_KEY` が `.example` のプレースホルダのままでも上の確認は全部通り、
+release ビルドだけが 401 になる。そこまで確かめるなら release ビルドで同じ確認をする。
 
 **この起動確認は凍結時点では実測していない**——復元する人が用意した値に依存するため。
 ネイティブ2つを省く場合は、**ネイティブの実行時設定は未検証のまま**であることを
