@@ -139,7 +139,12 @@ flutter pub get
 
 ## 5. 復元できたことの確認
 
-凍結時点（Flutter 3.38.5）で3ターゲットすべて通ることを実測した。同じものが通れば復元成功。
+**復元成功の条件は2段ある。** ビルドが通ること（§5.1）と、設定値が生きていること（§5.2）。
+§5.1 だけでは、起動しないアプリを「復元成功」と判定できてしまう。
+
+### 5.1 ビルド（凍結時点で実測済み）
+
+Flutter 3.38.5 で3ターゲットとも通ることを確認した。
 
 ```bash
 flutter test
@@ -163,27 +168,38 @@ debug 鍵にフォールバックし（`android/app/build.gradle.kts` の `signi
 iOS は `--no-codesign` で署名を飛ばせる。上記は署名鍵を一切置かずに通した。
 実機配布まで行う場合の署名手順は README の「リリースビルド（Android 署名）」。
 
-### 5.1 ビルドが通っても設定値は検証されていない
+### 5.2 起動確認（設定値の検証）
 
-上の4コマンドは**`dart_defines.json` の中身を一切見ない**。`flutter test` は
-`lib/main.dart` を通らず（`test/widget_test.dart` は `ArukuApp` を直接 pump する）、
-release ビルドはコンパイルするだけで Firebase にも Maps にもプロキシにも接続しない。
-§3.1 のとおり release では `_assertFirebaseOptionsComplete` の assert も外れる。
-つまり値がプレースホルダのままでも4コマンドは全部通り、起動しないアプリを
-「復元成功」と判定できてしまう。
+§5.1 は **`dart_defines.json` の中身を一切見ない。** `flutter test` は `lib/main.dart` を
+通らず（`test/widget_test.dart` は `ArukuApp` を直接 pump する）、release ビルドは
+コンパイルするだけで Firebase にも Maps にもプロキシにも接続しない。§3.1 のとおり
+release では `_assertFirebaseOptionsComplete` の assert も外れる。値がプレースホルダの
+ままでも §5.1 は全部通る。
 
-設定値まで確かめるには debug で起動する:
+**3ターゲットそれぞれで debug 起動する。1つでは足りない。**
+`DefaultFirebaseOptions.currentPlatform` は `kIsWeb` を最初に見るため、Chrome だけで
+確認しても `FIREBASE_ANDROID_API_KEY` と `FIREBASE_IOS_API_KEY` は一度も読まれない。
+Maps キーも Web は `MAPS_WEB_API_KEY`（dart-define）、ネイティブは `secrets.properties` /
+`ios/Flutter/Secrets.xcconfig`（ビルド時にマニフェスト・Info.plist へ注入）と経路が別。
+Web が正常でもネイティブが使えない状態が成立する。
 
 ```bash
 flutter run -d chrome --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
+flutter run -d <Android エミュレータ／実機> --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
+flutter run -d <iOS シミュレータ／実機> --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
 ```
 
-- `Firebase の … が空です` という `StateError` で落ちたら `dart_defines.json` が
-  埋まっていない（`lib/main.dart` の `_assertFirebaseOptionsComplete`）
-- ホーム画面から地点検索して候補が返れば、`PROXY_BASE_URL` と App Check まで通っている
+各ターゲットで見るところ:
 
-この起動確認は復元する人が用意した値に依存するため、凍結時点で実測したのは上の
-4コマンドまで。
+| 見るところ | 通れば分かること |
+| --- | --- |
+| 起動時に `Firebase の … が空です`（`StateError`）が出ない | そのターゲットの Firebase キーが入っている（`lib/main.dart` の `_assertFirebaseOptionsComplete`） |
+| 実地図が描画される | Maps キー（Web: `MAPS_WEB_API_KEY` / Android: `secrets.properties` / iOS: `ios/Flutter/Secrets.xcconfig`） |
+| 地点検索が候補を返す | `PROXY_BASE_URL` と App Check |
+
+**この起動確認は凍結時点では実測していない**——復元する人が用意した値に依存するため。
+ネイティブ2つを省く場合は、**ネイティブの実行時設定は未検証のまま**であることを
+承知の上で行う。
 
 ---
 
