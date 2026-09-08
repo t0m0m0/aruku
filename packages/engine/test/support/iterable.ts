@@ -16,3 +16,17 @@ export function last<T>(items: readonly T[]): T {
   if (items.length === 0) throw new Error('expected a non-empty list');
   return items[items.length - 1];
 }
+
+/// Dart の `Iterable.firstWhere`（該当が無ければ投げる）に対応する。
+/// `Array.find` は `undefined` を返すので、そのままだと「1件も無い」ことが
+/// 後段の別のエラーになって現れ、失敗の理由が読めなくなる。
+export function firstWhere<T>(
+  items: readonly T[],
+  test: (item: T) => boolean,
+): T {
+  const found = items.find(test);
+  if (found === undefined) {
+    throw new Error('no element satisfies the predicate');
+  }
+  return found;
+}
