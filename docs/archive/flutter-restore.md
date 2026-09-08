@@ -53,7 +53,7 @@ git -C <flutter-sdk> checkout 3.38.5
 | --- | --- | --- |
 | Maps キー（Android） | `secrets.properties` | `secrets.properties.example` を複製して実値を入れる |
 | Maps キー（iOS） | `ios/Flutter/Secrets.xcconfig` | `ios/Flutter/Secrets.xcconfig.example` を複製 |
-| Maps / Firebase / プロキシ URL（Web） | `dart_defines.json` | `dart_defines.example.json` を複製 |
+| Firebase の API キー（**3ターゲットぶん**）・Maps キー（Web）・プロキシ URL | `dart_defines.json` | `dart_defines.example.json` を複製し、実値を Firebase / Google Cloud Console から入れる |
 | Firebase 設定（Android） | `android/app/google-services.json` | **テンプレートが無い。** Firebase Console から取得（§3.1） |
 
 上3つは `.example` が凍結先ツリーに入っているが、**`google-services.json` は雛形すら無い**。
@@ -76,10 +76,15 @@ Firebase Console → プロジェクト `aruku-app` → プロジェクトの設
 `ios/Runner.xcodeproj/project.pbxproj` にファイル参照も Resources エントリも無く、
 アプリバンドルに同梱されない。`lib/main.dart` が
 `Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)` で追跡済みの値を
-明示注入しているため、plist を読む経路自体が無い。Firebase Console にアクセスできない人でも
-iOS は復元できる。
+明示注入しているため、plist を読む経路自体が無い。**Web ビルドにも要らない**（同じ理由）。
 
-**Web ビルドにも要らない**（Firebase の値は `lib/firebase_options.dart` から入る）。
+**ただし「plist が要らない」は「Firebase Console が要らない」ではない。** iOS も
+`lib/firebase_options.dart` が `apiKey` を `String.fromEnvironment('FIREBASE_IOS_API_KEY')`
+で受けており、実値は Console から取って `dart_defines.json` に入れる（`.example` は
+プレースホルダのみ）。空のままだとビルドは通るが、`lib/main.dart` の
+`_assertFirebaseOptionsComplete` が `Firebase.initializeApp` の前で `StateError` を投げる
+（release ビルドでは assert が外れるので、代わりに Firebase 側が実行時に失敗する）。
+Console アクセスはどのターゲットでも要る。iOS で不要なのは plist という**ファイル**だけ。
 
 **`flutterfire configure` を使ってはいけない。** ネイティブ設定を落とすついでに、
 追跡済みの `lib/firebase_options.dart` を生成しなおして上書きする。このファイルは
