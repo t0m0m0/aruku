@@ -32,9 +32,14 @@ ruleset で掛けている——`main` が既に ruleset で守られており�
 | 固定される | 固定されない |
 | --- | --- |
 | Flutter 3.38.5（§2 のワークフロー pin） | ホストの Xcode・JDK・macOS |
-| pub パッケージ（`pubspec.lock`） | pub.dev・CocoaPods CDN・Maven の可用性 |
-| CocoaPods（`ios/Podfile.lock`） | 各レジストリからのパッケージ取り下げ |
-| Gradle wrapper・AGP・Kotlin（`android/settings.gradle.kts` ほか） | |
+| pub パッケージ（`pubspec.lock`） | **CocoaPods 実行ファイルそのもの**（下記） |
+| Pod の解決結果（`ios/Podfile.lock`） | pub.dev・CocoaPods CDN・Maven の可用性 |
+| Gradle wrapper・AGP・Kotlin（`android/settings.gradle.kts` ほか） | 各レジストリからのパッケージ取り下げ |
+
+`ios/Podfile.lock` が固定するのは**解決された Pod のバージョンだけ**。末尾の
+`COCOAPODS: 1.16.2` は解決に使われたバージョンの記録であって、その版を選びも入れもしない。
+`Gemfile` / `Gemfile.lock` は凍結先ツリーに無いので、`flutter build ios` はホストに入っている
+CocoaPods をそのまま使う。版が違えば導入時の挙動や生成される Pods プロジェクトが変わり得る。
 
 右側が動いた場合、**赤くなる場所が無いまま**復元できなくなる。復元性は凍結時点での
 best-effort であり、いま生きているかは §5 を走らせて初めて分かる。
@@ -195,7 +200,15 @@ flutter run -d <iOS シミュレータ／実機> --dart-define-from-file=dart_de
 | --- | --- |
 | 起動時に `Firebase の … が空です`（`StateError`）が出ない | そのターゲットの Firebase キーが入っている（`lib/main.dart` の `_assertFirebaseOptionsComplete`） |
 | 実地図が描画される | Maps キー（Web: `MAPS_WEB_API_KEY` / Android: `secrets.properties` / iOS: `ios/Flutter/Secrets.xcconfig`） |
-| 地点検索が候補を返す | `PROXY_BASE_URL` と App Check |
+| 地点検索が候補を返す（**デプロイ済みプロキシ相手**） | `PROXY_BASE_URL`・App Check の資格情報 |
+
+**エミュレータ相手の検索は App Check を検証しない。** `dart_defines.example.json` の
+`PROXY_BASE_URL` はローカルの Functions エミュレータを指しており、`functions/src/index.ts` の
+`verifyAppCheck` は `FUNCTIONS_EMULATOR` が true なら無条件に通す。さらに
+`lib/core/services/app_check_http_client.dart` の `_tokenFrom` はトークン取得の失敗を
+握り潰してヘッダ無しのまま送る。この2つが重なるため、資格情報がプレースホルダ・無効・
+未登録のいずれでも検索は成功し、デプロイ済みプロキシでは 401 になる。**デプロイ済みの
+プロキシに向けて1回検索するまで、App Check の資格情報は未検証のまま。**
 
 **この起動確認は凍結時点では実測していない**——復元する人が用意した値に依存するため。
 ネイティブ2つを省く場合は、**ネイティブの実行時設定は未検証のまま**であることを
