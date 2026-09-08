@@ -125,11 +125,17 @@ git checkout -- lib/firebase_options.dart    # 追跡ファイルへの上書き
 
 | 外部依存 | 欠けるとどうなる | 復旧の手掛かり |
 | --- | --- | --- |
-| Firebase プロジェクト `aruku-app`（App Check 登録・Firestore） | 検索が 401 になる | README「レートリミッタ（Firestore）」 |
+| Firebase プロジェクト `aruku-app` の App Check 登録 | 検索が 401 になる（**失敗として現れる**） | README「レートリミッタ（Firestore）」 |
+| Firestore（`rateLimits` コレクションと TTL ポリシー） | **検索は通ったまま、レート制限だけが黙って無効になる**（下記） | 同上（API 有効・DB 実在・HMAC 鍵の確認コマンドがある） |
 | デプロイ済みの `placesProxy` / `googleWalkProxy` / `googleWalkMatrixProxy` | 地点検索と徒歩実測が失敗 | `functions/` を再デプロイ |
 | Secret Manager の `GOOGLE_MAPS_API_KEY`（`functions/src/index.ts`） | プロキシが上流を叩けない | README・[security_hardening.md](../security_hardening.md) |
 | Secret Manager の `RATE_LIMIT_HMAC_KEY`（`functions/src/rate-limiter.ts`） | レート制限が**黙ってフェイルオープン**する（保護が無効のまま気付けない） | 同上 |
 | **Transit API（`https://api.transit.ls8h.com`）** | **ルートが一切出ない** | 代替なし（下記） |
+
+**Firestore の欠落は検索の失敗として現れない。** `functions/src/rate-limiter.ts` の
+`checkRateLimitFirestore` は設定不備を catch してフェイルオープン（`true` を返す）する
+——レート制限の障害で課金 API 全体を落とさないための意図的な設計。したがって
+「検索が通る＝レート制限が効いている」ではない。App Check の欠落（401）と混同しない。
 
 **Transit API は凍結の対象外であり、復元性の上限を決めている。** 公共交通のプロキシは
 このリポジトリに無く、クライアントが第三者サービスを直接叩く（`lib/core/config/app_config.dart`
@@ -231,6 +237,12 @@ flutter run -d <iOS シミュレータ／実機> --dart-define-from-file=dart_de
 未登録のいずれでも検索は成功し、デプロイ済みプロキシでは 401 になる。**デプロイ済みの
 プロキシに向けて1回検索するまで、App Check の資格情報は未検証のまま。**
 
+**ルートが返っても徒歩プロキシは検証されていない。** `googleWalkProxy` /
+`googleWalkMatrixProxy` が 401 や 5xx を返しても、`fetchWalkMatrix` は失敗を `null` にして
+直線距離の推定へ、`_fetchWalkLeg` は `RouteException` を `null` にして推定値のまま先へ進む。
+これも意図的な縮退で、「ルートは出るが徒歩の実測が一切効いていない」状態が成立する。
+確かめるならネットワーク側で両エンドポイントの応答が 200 であることを見る。
+
 **debug 起動では release の App Check 資格情報は検証されない。** `lib/main.dart` は
 `useDebugAppCheckProvider` が真なら `WebDebugProvider` / `AndroidDebugProvider` /
 `AppleDebugProvider` を選ぶ。通るのは登録済みのデバッグトークンだけで、release Web が使う
@@ -241,6 +253,22 @@ release ビルドだけが 401 になる。そこまで確かめるなら releas
 **この起動確認は凍結時点では実測していない**——復元する人が用意した値に依存するため。
 ネイティブ2つを省く場合は、**ネイティブの実行時設定は未検証のまま**であることを
 承知の上で行う。
+
+### 5.3 §5 が検証しないもの
+
+意図的なフェイルオープン・縮退があるため、§5 が全部通っても以下は分からない。
+**復元の目的がこれらなら、別途確かめる。**
+
+| 検証されないもの | なぜ通ってしまうか |
+| --- | --- |
+| **ネイティブ専用機能**（§6 の歩数計測・HealthKit・ローカル通知） | `lib/core/state/app_state.dart` の `_startActivityTracking` / `_syncStreakReminder` / `_writeWorkout` がプラグインのエラーを `crashReporter` へ流して握り潰す。起動にも UI にも出ない |
+| 徒歩プロキシ（`googleWalkProxy` / `googleWalkMatrixProxy`） | 失敗が直線推定へ縮退する（§5.2） |
+| release の App Check 資格情報（`RECAPTCHA_SITE_KEY` ほか） | debug 実行は Debug プロバイダを使う（§5.2） |
+| レート制限が実際に効いているか | Firestore 障害はフェイルオープンする（§3.2） |
+
+ネイティブ専用機能は **`archive/flutter` を残す動機そのもの**（§6）なので、そこが目的で
+復元したなら実機で「歩数が増える」「HealthKit に Workout が書かれる」「通知が届く」の
+3点を確かめるまで復元成功と見なさない。
 
 ---
 
