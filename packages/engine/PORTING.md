@@ -78,10 +78,17 @@ describe('plan: 入力ガード', () => {
 | `closeTo(v, delta)` | `.toBeCloseTo(v, digits)`（**引数の意味が違う**・下記） |
 | `allOf(a, b)` | 2 つの `expect` に分ける |
 | `expect(x, y, reason: 'なぜ')` | `expect(x, 'なぜ').toEqual(y)` |
+| `expect(list, [a, b, c])`（要素が `==` 未定義のクラス） | `expectSameList(list, [a, b, c])`（同一性・下記） |
 | `throwsA(isA<E>())` | `expectThrowsA(action, E)`（`test/support/expect.ts`） |
 | `throwsA(isA<E>().having((e) => e.f, 'f', v))` | `const e = await expectThrowsA(...); expect(e.f).toBe(v)` |
 | `expectLater(future, completes)` | `await expect(p).resolves.toBeDefined()` 等（文脈ごと） |
 | `fail('...')` | `expect.fail('...')` |
+
+Dart の `equals` はリストの要素を `==` で比べる。`RouteCandidate` のように `==` を
+定義していないクラスではそれが**同一性**の比較になるので、`toEqual`（構造比較）へ落とすと
+「構造は同じだが別インスタンス」を返す実装を通してしまう。候補プールの同一性に依存する
+検証（#318 の先行実測対象）が骨抜きになるため `expectSameList` を使う。`GeoPoint` は
+`==` を値で定義しているので `toEqual` のままでよい。
 
 `closeTo` は **delta**（絶対誤差）、`toBeCloseTo` は **digits**（小数第 n 位）。機械変換
 できないので、`closeTo(v, d)` は `expect(Math.abs(x - v)).toBeLessThanOrEqual(d)` へ移す。
