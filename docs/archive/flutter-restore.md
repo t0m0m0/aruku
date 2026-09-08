@@ -197,7 +197,8 @@ flutter build ios --release --no-codesign --dart-define-from-file=dart_defines.j
 **リリース署名は判定条件に要らない。** Android は `android/key.properties` が無ければ
 debug 鍵にフォールバックし（`android/app/build.gradle.kts` の `signingConfig` 分岐）、
 iOS は `--no-codesign` で署名を飛ばせる。上記は署名鍵を一切置かずに通した。
-実機配布まで行う場合の署名手順は README の「リリースビルド（Android 署名）」。
+実機配布まで行う場合の署名手順は、Android は README の「リリースビルド（Android 署名）」、
+iOS は `DEVELOPMENT_TEAM` の設定（§5.3）。
 
 ### 5.2 起動確認（設定値の検証）
 
@@ -215,10 +216,15 @@ Maps キーも Web は `MAPS_WEB_API_KEY`（dart-define）、ネイティブは 
 Web が正常でもネイティブが使えない状態が成立する。
 
 ```bash
-flutter run -d chrome --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
+flutter run -d chrome --web-port=5555 --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
 flutter run -d <Android エミュレータ／実機> --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
 flutter run -d <iOS シミュレータ／実機> --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
 ```
+
+`--web-port` を付けるのは、Maps の Web キーのリファラー制限が**ポートまで含む**ため。
+Flutter は指定しないと毎回違うポートを選ぶので、正しいキーでも弾かれて実地図が出ない
+（README「実地図（GoogleMap）の表示」。5555 はそこでの例で、実際にはキーの許可リストに
+登録した値に合わせる）。
 
 各ターゲットで見るところ:
 
@@ -269,6 +275,13 @@ release ビルドだけが 401 になる。そこまで確かめるなら releas
 ネイティブ専用機能は **`archive/flutter` を残す動機そのもの**（§6）なので、そこが目的で
 復元したなら実機で「歩数が増える」「HealthKit に Workout が書かれる」「通知が届く」の
 3点を確かめるまで復元成功と見なさない。
+
+**iOS の実機確認には署名の用意が要る。** 歩数計測（CMPedometer）と HealthKit は
+シミュレータでは確かめられず実機が要るが、`ios/Flutter/Secrets.xcconfig` の
+`DEVELOPMENT_TEAM` は `.example` を複製したままだと `YOUR_APPLE_DEVELOPER_TEAM_ID` で、
+`ios/Runner.xcodeproj/project.pbxproj` がこの値を署名に使う。Apple Developer の Team ID を
+入れてプロビジョニングを通すまで、実機では起動前に失敗する。§5.1 の iOS ビルドが
+`--no-codesign` で通っていたのは署名を飛ばしていたからで、ここは飛ばせない。
 
 ---
 
