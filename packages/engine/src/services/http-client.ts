@@ -17,3 +17,22 @@ export interface HttpClient {
   get(url: URL): Promise<HttpResponse>;
   close(): void;
 }
+
+/// Dart の `http.ClientException` に対応する。閉じられたクライアントを叩いた
+/// in-flight が倒れるときの素の通信エラー。
+export class ClientException extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ClientException';
+  }
+}
+
+/// Dart の `TimeoutException`（`dart:async`）に対応する。1本あたりの上限を張る
+/// クライアント（`TimeoutHttpClient` 相当）が投げ、[TransitApiClient] が
+/// `RouteException('TIMEOUT')` へ変換する。
+export class TimeoutException extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TimeoutException';
+  }
+}
