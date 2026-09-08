@@ -14,10 +14,12 @@
 | | 用途 |
 | --- | --- |
 | タグ `flutter-final` | 「あの時点」を指す不変の名前。参照・引用はこちら |
-| ブランチ `archive/flutter` | チェックアウトして触る用。branch protection で削除不可 |
+| ブランチ `archive/flutter` | チェックアウトして触る用。ruleset で削除・force push を禁止 |
 
 両者は同一コミットを指す。ブランチを別に置くのは、タグが GitHub の UI 上で目に入りにくく、
-ローカルの `git push --delete` 事故にも弱いため。
+ローカルの `git push --delete` 事故にも弱いため。保護は旧来の branch protection ではなく
+ruleset で掛けている——`main` が既に ruleset で守られており、2系統を併存させるとどちらが
+効いているのか読めなくなるため。
 
 **別リポジトリには切り出していない。** 誰も `flutter pub get` を回さないリポジトリは依存が
 腐り、CI が赤くなっても直す動機が無く、「動く状態で残した」という前提だけが嘘になる。
@@ -43,7 +45,42 @@ git -C <flutter-sdk> checkout 3.38.5
 
 ---
 
-## 3. 復元
+## 3. 凍結先ツリーに入っていないもの
+
+タグが固定するのは**追跡されているファイルだけ**で、以下は含まれない。復元時に別途用意する。
+
+| 要るもの | 置き場所 | 入手元 |
+| --- | --- | --- |
+| Maps キー（Android） | `secrets.properties` | `secrets.properties.example` を複製して実値を入れる |
+| Maps キー（iOS） | `ios/Flutter/Secrets.xcconfig` | `ios/Flutter/Secrets.xcconfig.example` を複製 |
+| Maps / Firebase / プロキシ URL（Web） | `dart_defines.json` | `dart_defines.example.json` を複製 |
+| Firebase 設定（Android） | `android/app/google-services.json` | **テンプレートが無い。** Firebase Console から取得（§3.1） |
+| Firebase 設定（iOS） | `ios/Runner/GoogleService-Info.plist` | 同上 |
+
+前3つは `.example` が凍結先ツリーに入っているが、**Firebase の2ファイルは雛形すら無い**。
+`.gitignore` で除外されているため、クリーンチェックアウトには存在しない。
+
+### 3.1 Firebase 設定ファイルの取得
+
+Firebase プロジェクトは **`aruku-app`**（出所は `lib/firebase_options.dart` の `projectId`。
+このファイルは追跡されているので凍結先ツリーから読める）。
+
+```bash
+# FlutterFire CLI で両方生成させる（推奨）
+flutterfire configure --project=aruku-app
+```
+
+手で取得する場合は Firebase Console → プロジェクト `aruku-app` → プロジェクトの設定 →
+マイアプリ から、Android アプリの `google-services.json` を `android/app/` へ、
+iOS アプリの `GoogleService-Info.plist` を `ios/Runner/` へ置く。
+
+**Android は `google-services.json` が無いとビルドが通らない。** `android/app/build.gradle.kts`
+が `com.google.gms.google-services` プラグインを適用しており、その処理が設定ファイルを要求する。
+Web ビルドだけなら不要（Firebase の値は追跡済みの `lib/firebase_options.dart` から入る）。
+
+---
+
+## 4. 復元
 
 ```bash
 # 1. 取り出す
@@ -51,10 +88,11 @@ git fetch origin
 git checkout archive/flutter        # 触る場合
 git checkout flutter-final          # 参照だけなら（detached HEAD）
 
-# 2. secrets を用意する（いずれも .gitignore 済み。中身は README を参照）
-cp secrets.properties.example secrets.properties               # Android の Maps キー
-cp ios/Flutter/Secrets.xcconfig.example ios/Flutter/Secrets.xcconfig  # iOS の Maps キー
-cp dart_defines.example.json dart_defines.json                 # Web の Maps キー・Firebase・プロキシ URL
+# 2. §3 のファイルを用意する
+cp secrets.properties.example secrets.properties
+cp ios/Flutter/Secrets.xcconfig.example ios/Flutter/Secrets.xcconfig
+cp dart_defines.example.json dart_defines.json
+flutterfire configure --project=aruku-app   # Firebase の2ファイル
 
 # 3. 依存を入れる
 flutter pub get
@@ -63,26 +101,37 @@ flutter pub get
 各ファイルに何を入れるかは README の「Google Maps セットアップ」（キーの発行・配置・
 `dart_defines.json` の用意）と「秘匿情報の取り扱い」に書いてある。
 
-Firebase の設定ファイル（`android/app/google-services.json` /
-`ios/Runner/GoogleService-Info.plist`）は凍結先ツリーに入っている。
-
 ---
 
-## 4. 復元できたことの確認
+## 5. 復元できたことの確認
 
-凍結時点で通ることを確認したコマンド:
+凍結時点（Flutter 3.38.5）で3ターゲットすべて通ることを実測した。同じものが通れば復元成功。
 
 ```bash
 flutter test
 flutter build web --release --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
+flutter build apk --release --dart-define-from-file=dart_defines.json
+flutter build ios --release --no-codesign --dart-define-from-file=dart_defines.json
 ```
 
-`✓ Built build/web` が出れば復元成功。iOS / Android は署名が要るため、ビルドの成否を
-凍結の判定条件には入れていない（手順は README の「リリースビルド（Android 署名）」）。
+| | 成功時の出力 | 追加の前提 |
+| --- | --- | --- |
+| Web | `✓ Built build/web` | 無し |
+| Android | `✓ Built build/app/outputs/flutter-apk/app-release.apk` | `google-services.json`（§3.1） |
+| iOS | `✓ Built build/ios/iphoneos/Runner.app` | `GoogleService-Info.plist`（§3.1）・Xcode・CocoaPods |
+
+**Web ビルドだけを判定条件にしない。** Android の Gradle・マニフェスト・プラグイン周りの
+壊れ方は Web ビルドを一切通らない——実際、§3.1 の `google-services.json` が凍結先ツリーに
+無いという欠陥は、Web ビルドでは永久に検出されない（プラグインが起動しないため）。
+
+**リリース署名は判定条件に要らない。** Android は `android/key.properties` が無ければ
+debug 鍵にフォールバックし（`android/app/build.gradle.kts` の `signingConfig` 分岐）、
+iOS は `--no-codesign` で署名を飛ばせる。上記は署名鍵を一切置かずに通した。
+実機配布まで行う場合の署名手順は README の「リリースビルド（Android 署名）」。
 
 ---
 
-## 5. Flutter 版にしか無い機能
+## 6. Flutter 版にしか無い機能
 
 React SPA（Web 専用）へ移行すると恒久的に落ちる。復元する動機はたいていここにある。
 
