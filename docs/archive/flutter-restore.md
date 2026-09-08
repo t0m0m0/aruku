@@ -21,10 +21,23 @@
 ruleset で掛けている——`main` が既に ruleset で守られており、2系統を併存させるとどちらが
 効いているのか読めなくなるため。
 
-**別リポジトリには切り出していない。** 誰も `flutter pub get` を回さないリポジトリは依存が
-腐り、CI が赤くなっても直す動機が無く、「動く状態で残した」という前提だけが嘘になる。
-secrets が2セット・CI が2本・Firebase 設定が2箇所に分岐する保守コストも乗る。
-Flutter のバージョンが CI に pin されている（§2）ため、git のタグで条件は足りている。
+**別リポジトリには切り出していない。** secrets が2セット・CI が2本・Firebase 設定が
+2箇所に分岐する保守コストに、復元性の見返りが無いため（#383）。
+
+**ただし「同じリポジトリに置いたから腐らない」ではない。** `archive/flutter` を定期的に
+検証する仕組みは無い——`.github/workflows/ci.yml` は `main` への push と pull request で
+しか走らず、Phase 4 で Flutter が `main` から消えた後、このブランチをビルドする経路は
+どこにも残らない。git が固定できるのは追跡ツリーと、そこに書かれたバージョン指定だけ:
+
+| 固定される | 固定されない |
+| --- | --- |
+| Flutter 3.38.5（§2 のワークフロー pin） | ホストの Xcode・JDK・macOS |
+| pub パッケージ（`pubspec.lock`） | pub.dev・CocoaPods CDN・Maven の可用性 |
+| CocoaPods（`ios/Podfile.lock`） | 各レジストリからのパッケージ取り下げ |
+| Gradle wrapper・AGP・Kotlin（`android/settings.gradle.kts` ほか） | |
+
+右側が動いた場合、**赤くなる場所が無いまま**復元できなくなる。復元性は凍結時点での
+best-effort であり、いま生きているかは §5 を走らせて初めて分かる。
 
 ---
 
@@ -149,6 +162,28 @@ flutter build ios --release --no-codesign --dart-define-from-file=dart_defines.j
 debug 鍵にフォールバックし（`android/app/build.gradle.kts` の `signingConfig` 分岐）、
 iOS は `--no-codesign` で署名を飛ばせる。上記は署名鍵を一切置かずに通した。
 実機配布まで行う場合の署名手順は README の「リリースビルド（Android 署名）」。
+
+### 5.1 ビルドが通っても設定値は検証されていない
+
+上の4コマンドは**`dart_defines.json` の中身を一切見ない**。`flutter test` は
+`lib/main.dart` を通らず（`test/widget_test.dart` は `ArukuApp` を直接 pump する）、
+release ビルドはコンパイルするだけで Firebase にも Maps にもプロキシにも接続しない。
+§3.1 のとおり release では `_assertFirebaseOptionsComplete` の assert も外れる。
+つまり値がプレースホルダのままでも4コマンドは全部通り、起動しないアプリを
+「復元成功」と判定できてしまう。
+
+設定値まで確かめるには debug で起動する:
+
+```bash
+flutter run -d chrome --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
+```
+
+- `Firebase の … が空です` という `StateError` で落ちたら `dart_defines.json` が
+  埋まっていない（`lib/main.dart` の `_assertFirebaseOptionsComplete`）
+- ホーム画面から地点検索して候補が返れば、`PROXY_BASE_URL` と App Check まで通っている
+
+この起動確認は復元する人が用意した値に依存するため、凍結時点で実測したのは上の
+4コマンドまで。
 
 ---
 
