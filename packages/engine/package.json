@@ -8,7 +8,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "count:parity": "node tool/count-tests.mjs"
+    "check:port": "node tool/check-port.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.5.0",

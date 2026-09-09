@@ -5803,8 +5803,8 @@ describe('plan: 独立IOの並列化 (#304)', () => {
     expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
   });
 
-  it('駅名確定は未命名 transit 区間を並列に照会する', async () => {
-    // 実時刻付き・駅名なしの2連 rail leg が勝者になり、駅名確定が
+  it('_finalizeStationNames は未命名 transit 区間を並列に照会する', async () => {
+    // 実時刻付き・駅名なしの2連 rail leg が勝者になり、_finalizeStationNames が
     // 2区間それぞれの乗降座標で引き直す状況を作る。照会は departureAt（time=09:00）で
     // 発行される——実時刻解決（boardAt > 09:00）と判別できる。
     const o = new GeoPoint(35.68, 139.76);

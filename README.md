@@ -11,9 +11,9 @@ Phase 2（#385）で、`packages/engine/src/` にあるのは型とシグネチ�
 
 ```bash
 npm --prefix packages/engine ci
-npm --prefix packages/engine run typecheck    # 緑であること（CI もこれを回す）
-npm --prefix packages/engine test             # 314 本すべて赤（#385 まで）
-npm --prefix packages/engine run count:parity # Dart 側との件数突き合わせ
+npm --prefix packages/engine run typecheck  # 緑であること（CI もこれを回す）
+npm --prefix packages/engine run check:port # Dart 側との名前照合＋赤の内訳検査（CI もこれ）
+npm --prefix packages/engine test           # 314 本すべて赤（#385 まで）
 ```
 
 移植の対応表（matcher・fake・型の写像）と、意図的に揃えた／揃えなかった点は

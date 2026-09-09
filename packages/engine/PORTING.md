@@ -11,12 +11,39 @@
 - **この Phase ではテストは全て赤で正しい。** 本体は Phase 2（#385）で実装する。
   `src/` にあるのは型とシグネチャだけで、ロジックは `notImplemented()` を投げる。
 
-## テスト件数の突き合わせ
+## テスト名の突き合わせ
 
-完了条件は Dart 側と移植後で件数が一致すること。基準値は **314**。
+完了条件は Dart 側と移植後で件数が一致すること。基準値は **314**。ただし件数だけでは
+足りない——「1本消して1本足す」改名が素通りし、テスト名＝仕様書という前提が静かに
+崩れる（実際に1本やった・PR #389 レビュー）。だから **名前で1対1に照合する**。
 
 ```bash
-npm --prefix packages/engine run count:parity
+npm --prefix packages/engine run check:port
+```
+
+照合の基準は `packages/engine/tool/dart-test-names.json` に固定してある（engine の CI は
+Flutter を持たないため、Dart 側を都度実行できない）。Dart のテスト名を変えたらここも
+同じコミットで取り直すこと:
+
+```bash
+flutter test test/core/services/{transit_route_service,hybrid_route_selector,route_plan_builder,\
+transit_plan_parser,transit_api_client,route_diagnostics}_test.dart --reporter=json \
+  | python3 -c "
+import sys, json, os, collections
+suites, out = {}, collections.defaultdict(list)
+for line in sys.stdin:
+    try: e = json.loads(line)
+    except ValueError: continue
+    if e.get('type') == 'suite':
+        suites[e['suite']['id']] = os.path.basename(e['suite']['path'])
+    elif e.get('type') == 'testStart':
+        t = e['test']
+        if t['name'].startswith('loading '): continue
+        out[suites[t['suiteID']]].append(t['name'])
+json.dump({k: out[k] for k in sorted(out)},
+          open('packages/engine/tool/dart-test-names.json', 'w'),
+          ensure_ascii=False, indent=2)
+"
 ```
 
 `flutter test --reporter=json` の `testStart` は 320 件出るが、6 件は各ファイルの
@@ -25,10 +52,21 @@ npm --prefix packages/engine run count:parity
 ## CI での扱い
 
 `packages/engine` は CI（`.github/workflows/ci.yml` の `engine-typecheck` ジョブ）で
-**`tsc --noEmit` だけ**回す。`vitest run` は繋がない——この Phase の完了条件が「全て赤」で、
-繋ぐと Phase 2 が終わるまで CI が永久に赤くなり、他 PR のシグナルが死ぬ。それでも型検査を
-繋いでおけば、移植した 11,086 行は毎 PR 機械的に検査される。`vitest run` の追加は
-Phase 2（#385）で緑にしてから。
+`tsc --noEmit` と `check:port` を回す。
+
+素の `vitest run` は繋がない——この Phase の完了条件が「全て赤」で、繋ぐと Phase 2 が
+終わるまで CI が永久に赤くなり、他 PR のシグナルが死ぬ。かといって素通しにすると、
+**部分実装が緑のまま入る**（PR #389 レビュー P1）。そこで「赤いから見ない」ではなく
+**期待する赤の内訳を検査する**形にした。`check:port` が落とすもの:
+
+- Dart 側とテスト名が1対1でない（移植漏れ・改名・対象外ファイルの混入）
+- 未実装（`NotImplementedError`）以外の理由で落ちているテストがある
+- 緑になってよい6本（既定値だけを主張するテスト）以外が緑になっている
+- その6本が赤い（移植が壊れている疑い）
+
+3つ目が P1 の答え。エンジン本体を部分的に実装すると、そのぶん緑が増えて CI が落ちる。
+Phase 2（#385）で本体を入れるときは `tool/check-port.mjs` の `PHASE` を `'all-green'` へ
+切り替え、素の `vitest run` を CI へ繋ぐ。
 
 ## 何を実装し、何をスタブにしたか
 
@@ -48,8 +86,9 @@ Phase 2（#385）で緑にしてから。
 なっているわけではない。赤にするにはデータ保持までスタブへ落とすことになり、移植そのものが
 成立しなくなる（フィクスチャが書けない）。
 
-該当するテストは `npm test` の passed をそのまま読めば判る。Phase 2（#385）で
-`notImplemented` が消えれば区別は無くなる。
+該当する6本は `tool/check-port.mjs` の `EXPECTED_GREEN` に**名前で**固定してある。本数
+ではなく「どれが緑か」を止めるのは、本数だけ見ると「1本実装して1本壊す」部分実装が
+素通りするため。Phase 2（#385）で `notImplemented` が消えれば区別は無くなる。
 
 ## `group` / `test` → `describe` / `it`
 

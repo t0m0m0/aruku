@@ -24,11 +24,17 @@ jobs:
         run: npm ci
         working-directory: packages/engine
 
-      # vitest はまだ繋がない。移植したテストは実装（#385）が入るまで全て赤で、
-      # それ自体が Phase 1 の完了条件だから（packages/engine/PORTING.md）。
-      # 型検査だけを繋いでおけば、移植した 11,086 行が毎 PR 機械的に検査される。
       - name: Typecheck
         run: npx tsc --noEmit
+        working-directory: packages/engine
+
+      # 素の `vitest run` は繋がない。移植したテストは実装（#385）が入るまで全て赤で、
+      # それ自体が Phase 1 の完了条件だから（packages/engine/PORTING.md）。代わりに
+      # **期待する赤の内訳**を検査する: Dart 側とテスト名が1対1か・落ちる理由が
+      # すべて未実装か・緑になってよいのは既定値だけを主張する6本か。素通しにすると
+      # 部分実装が緑のまま入る（PR #389 レビュー P1）。
+      - name: Check ported suite
+        run: npm run check:port
         working-directory: packages/engine
 
   analyze-and-test:
