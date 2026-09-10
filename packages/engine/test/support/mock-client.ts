@@ -19,7 +19,12 @@ export function mockClient(
   handler: (url: URL) => HttpResponse | Promise<HttpResponse>,
 ): HttpClient {
   return {
-    get: (url) => Promise.resolve(handler(url)),
+    // `async` にするのは、ハンドラが**同期的に**投げるテスト（TIMEOUT・キャンセル・
+    // ClientException）があるため。`Promise.resolve(handler(url))` だと throw が
+    // `Promise.resolve` より先に抜けて `get` 自体が同期例外になり、`.catch()` や
+    // `Promise.all` を経由する実装をすり抜ける。移植元の
+    // `MockClient((req) async => throw ...)` は常に**拒否された Future** を返す。
+    get: async (url) => handler(url),
     close: () => {},
   };
 }

@@ -39,7 +39,11 @@ export class SearchDeadline {
   }
 }
 
+/// 移植元の `Stopwatch` に対応する。`Date.now()` を使わないのは、それが壁時計で
+/// NTP 補正や手動の時刻変更で前後に飛ぶため——120 秒の締切が永久に切れない／即座に
+/// 切れるという、再現できない形で壊れる。`performance.now()` は単調で `Stopwatch` と
+/// 同じ性質を持つ。
 function realtimeElapsed(): () => Duration {
-  const start = Date.now();
-  return () => Date.now() - start;
+  const start = performance.now();
+  return () => performance.now() - start;
 }
