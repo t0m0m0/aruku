@@ -61,6 +61,26 @@ try {
   rmSync(outputFile, { force: true });
 }
 
+/// 名前の**多重度**つき差分。`includes` による集合比較だと、同じ名前を2本置いても
+/// どちらの差分も空になり「1対1」を主張したまま件数だけ増える（PR #389 レビュー）。
+function multisetDiff(expected, actual) {
+  const count = (names) => {
+    const m = new Map();
+    for (const n of names) m.set(n, (m.get(n) ?? 0) + 1);
+    return m;
+  };
+  const e = count(expected);
+  const a = count(actual);
+  const missing = [];
+  const extra = [];
+  for (const name of new Set([...e.keys(), ...a.keys()])) {
+    const diff = (a.get(name) ?? 0) - (e.get(name) ?? 0);
+    for (let i = 0; i < -diff; i++) missing.push(name);
+    for (let i = 0; i < diff; i++) extra.push(name);
+  }
+  return { missing, extra };
+}
+
 const problems = [];
 const actualByFile = new Map();
 const passed = new Set();
@@ -96,8 +116,7 @@ console.log(
 for (const [tsFile, dartFile] of Object.entries(FILE_MAP)) {
   const expected = DART_NAMES[dartFile] ?? [];
   const actual = actualByFile.get(tsFile) ?? [];
-  const missing = expected.filter((n) => !actual.includes(n));
-  const extra = actual.filter((n) => !expected.includes(n));
+  const { missing, extra } = multisetDiff(expected, actual);
   const ok = missing.length === 0 && extra.length === 0;
   console.log(
     tsFile.padEnd(32) +
@@ -106,7 +125,14 @@ for (const [tsFile, dartFile] of Object.entries(FILE_MAP)) {
       (ok ? '  ok' : `  MISMATCH (-${missing.length}/+${extra.length})`),
   );
   for (const n of missing) problems.push(`${tsFile}: 移植されていない: ${n}`);
-  for (const n of extra) problems.push(`${tsFile}: Dart 側に無い名前: ${n}`);
+  for (const n of extra) {
+    const duplicated = expected.includes(n);
+    problems.push(
+      duplicated
+        ? `${tsFile}: 同じ名前のテストが重複している: ${n}`
+        : `${tsFile}: Dart 側に無い名前: ${n}`,
+    );
+  }
 }
 
 // FILE_MAP に無いファイルは移植対象外の混入。黙って総数へ足すと帳尻だけ合ってしまう。
