@@ -65,6 +65,7 @@ const problems = [];
 const actualByFile = new Map();
 const passed = new Set();
 const badFailures = [];
+const disabled = [];
 
 for (const suite of report.testResults ?? []) {
   const file = basename(suite.name);
@@ -78,6 +79,12 @@ for (const suite of report.testResults ?? []) {
       if (!message.includes('NotImplementedError')) {
         badFailures.push([test.fullName, message.split('\n')[0]]);
       }
+    } else {
+      // `it.skip` / `it.todo` は名前が残るので**名前の照合を素通りする**。CI は素の
+      // vitest 終了コードではなくこの検査を見ているので、ここで落とさないと無効化した
+      // 仕様が緑で入る（PR #389 レビュー）。赤にできないテストは移植の失敗であって、
+      // 黙らせる対象ではない（.claude/docs/testing.md「Never suppress failing tests」）。
+      disabled.push([test.fullName, test.status]);
     }
   }
   actualByFile.set(file, names);
@@ -113,6 +120,10 @@ for (const [name, first] of badFailures) {
   problems.push(`未実装以外の理由で落ちている: ${name}\n    ${first}`);
 }
 
+for (const [name, status] of disabled) {
+  problems.push(`実行されていない（status=${status}）: ${name}`);
+}
+
 if (PHASE === 'red-except-defaults') {
   for (const name of passed) {
     if (!EXPECTED_GREEN.has(name)) {
@@ -138,7 +149,8 @@ console.log(
   'total'.padEnd(32) +
     String(dartTotal).padStart(6) +
     String(total).padStart(8) +
-    `  (red ${total - passed.size} / green ${passed.size})`,
+    `  (red ${total - passed.size - disabled.length} / green ${passed.size}` +
+    `${disabled.length > 0 ? ` / disabled ${disabled.length}` : ''})`,
 );
 
 if (problems.length > 0) {

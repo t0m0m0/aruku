@@ -63,6 +63,9 @@ json.dump({k: out[k] for k in sorted(out)},
 - 未実装（`NotImplementedError`）以外の理由で落ちているテストがある
 - 緑になってよい6本（既定値だけを主張するテスト）以外が緑になっている
 - その6本が赤い（移植が壊れている疑い）
+- `it.skip` / `it.todo` で**実行されていない**テストがある——名前は残るので名前照合を
+  素通りする。赤にできないテストは移植の失敗であって、黙らせる対象ではない
+  （`.claude/docs/testing.md`「Never suppress failing tests」）
 
 3つ目が P1 の答え。エンジン本体を部分的に実装すると、そのぶん緑が増えて CI が落ちる。
 Phase 2（#385）で本体を入れるときは `tool/check-port.mjs` の `PHASE` を `'all-green'` へ
