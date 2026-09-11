@@ -605,11 +605,15 @@ const CORS_ALLOWED_DEV_HOSTS = new Set(["localhost", "127.0.0.1"]);
 const CORS_PREFLIGHT_MAX_AGE_S = 3600;
 
 /**
- * Origin が配信元（本番・プレビュー・ローカル開発）かを判定する。
+ * Origin が配信元（本番・そのデプロイごとのハッシュ別名・ローカル開発）かを判定する。
  *
  * pages.dev は誰でもプロジェクトを作れる共有ドメインのため、前方一致・部分一致では
  * `evil.pages.dev` や `evil-aruku.pages.dev` を通してしまう。ホスト名を URL として
  * 解析し、完全一致かサブドメインかだけを見る。
+ *
+ * サブドメインを一律に許すのはハッシュ別名のためで、プレビュー配信を想定した緩和では
+ * ない。プレビューが出ればここも素通りするので、プレビュー抑止の境界として数えないこと
+ * （docs/security_hardening.md ⑧）。
  */
 export function isAllowedOrigin(origin: string): boolean {
   let url: URL;
