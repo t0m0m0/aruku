@@ -24,6 +24,7 @@ const FILE_MAP = {
   'transit-api-client.test.ts': 'transit_api_client_test.dart',
   'route-diagnostics.test.ts': 'route_diagnostics_test.dart',
   'time-value.test.ts': 'time_value_test.dart',
+  'frontier-stations.test.ts': 'frontier_stations_test.dart',
 };
 
 /// Phase 1 で**緑になってよい**テスト。データクラスのフィールド既定値だけを主張する

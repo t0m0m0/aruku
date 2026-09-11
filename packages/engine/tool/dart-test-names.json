@@ -1,4 +1,11 @@
 {
+  "frontier_stations_test.dart": [
+    "frontierStations 予算が十分大きければ全駅を両側の候補にする",
+    "frontierStations maxPerSide 超は均等間引きで両端を残す",
+    "frontierStations maxPerSide 超の長大路線でも中間駅を残し b<a の乗降ペアを保つ",
+    "frontierStations 直線徒歩が予算を超える駅は feasible から外す（左右非対称）",
+    "frontierStations 空の駅配列なら両側とも空"
+  ],
   "hybrid_route_selector_test.dart": [
     "selectBestRoute 全徒歩が予算内なら全徒歩（徒歩最大）を選ぶ",
     "selectBestRoute 予算内でハイブリッド（徒歩最大）を選ぶ",
