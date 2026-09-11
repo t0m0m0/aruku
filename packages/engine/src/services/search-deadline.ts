@@ -1,7 +1,6 @@
 // 移植元: lib/core/services/search_deadline.dart
 
-import { notImplemented } from '../not-implemented';
-import type { Duration } from '../time';
+import { durationZero, type Duration } from '../time';
 
 /// 検索1回分の締切（#300）。開始からの経過を持ち、残予算と期限切れを答える。
 ///
@@ -30,12 +29,16 @@ export class SearchDeadline {
 
   /// 残予算。使い切ったら 0（負にはしない）。[SearchDeadline.none] は null。
   get remaining(): Duration | null {
-    return notImplemented('SearchDeadline.remaining');
+    const total = this.total;
+    if (total === null) return null;
+    const left = total - this.elapsed!();
+    return left < 0 ? durationZero : left;
   }
 
-  /// 残予算を使い切ったか。[SearchDeadline.none] は常に false。
+  /// 残予算を使い切ったか。[SearchDeadline.none] は常に false
+  /// （[remaining] が null で、0 とは一致しない）。
   get isExpired(): boolean {
-    return notImplemented('SearchDeadline.isExpired');
+    return this.remaining === durationZero;
   }
 }
 

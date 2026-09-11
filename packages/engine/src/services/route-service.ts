@@ -7,9 +7,8 @@
 import type { GeoPoint } from '../models/geo-point';
 import type { RoutePlan } from '../models/route-plan';
 import type { TimeValue } from '../models/time-value';
-import { notImplemented } from '../not-implemented';
 import { seconds, type Duration } from '../time';
-import type { CancellationToken } from './cancellation';
+import { CancellationToken } from './cancellation';
 
 /// ルート計算の進捗段階。ローディング表示の3ステップに対応する。
 export const RoutePhase = {
@@ -64,12 +63,35 @@ export class RouteException extends Error {
 export class SearchScopedRouteService implements RouteService {
   constructor(private readonly buildEngine: SearchEngineFactory) {}
 
-  plan(
+  async plan(
     args: PlanArgs & { cancellation?: CancellationToken | null },
   ): Promise<RoutePlan> {
-    return notImplemented(
-      `SearchScopedRouteService.plan(${String(args.destination)})`,
-    );
+    const token = args.cancellation ?? new CancellationToken();
+    const engine = this.buildEngine(token);
+
+    let closed = false;
+    const closeOnce = (): void => {
+      if (closed) return;
+      closed = true;
+      engine.close();
+    };
+
+    // キャンセルは plan の完了を待たずに即 close する。await 中に走っている
+    // fetch のソケットをその場で落とすのが中断の本体（#259）。
+    token.onCancel(closeOnce);
+    try {
+      const result = await engine.plan(args);
+      token.throwIfCanceled();
+      return result;
+    } catch (error) {
+      // close で in-flight が落ちると get は任意の通信例外になる。キャンセル済みなら
+      // それを [SearchCanceledException] へ揃え、呼び出し側が通信障害と取り違えない
+      // ようにする。未キャンセルの素の失敗はそのまま伝播する。
+      token.throwIfCanceled();
+      throw error;
+    } finally {
+      closeOnce();
+    }
   }
 }
 

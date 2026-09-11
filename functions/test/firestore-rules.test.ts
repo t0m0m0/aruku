@@ -10,6 +10,10 @@ import {
 import { deleteDoc, doc, getDoc, setDoc } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+// 同期スキーマの契約はクライアントと共有する（#385）。firestore.rules の isValidSettings が
+// 許可するキー集合はこの型が出す JSON と厳密に一致していなければならない。
+import { AppSettings } from "../../packages/engine/src/models/app-settings";
+
 // エミュレータ起動は `npm run test:rules`（firebase emulators:exec 経由）で行う。
 // FIRESTORE_EMULATOR_HOST が未設定ならエミュレータが立っていないので失敗させる。
 const EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST;
@@ -21,15 +25,16 @@ const OTHER = "other-uid";
 let testEnv: RulesTestEnvironment;
 
 /**
- * 実クライアント `AppSettings.toJson()`（lib/core/models/app_settings.dart）が
- * 送出する settings の形。ルールの許可キーはこれと一致していなければならない。
+ * 実クライアントが送出する settings の形。ルールの許可キーはこれと一致していなければ
+ * ならない。
+ *
+ * **手で書き写さず `AppSettings.toJson()` から組み立てる**（#385）。値をルール側から
+ * コピーすると、クライアントが実際に何を送るかと無関係に「ルールが自分自身を検証する」
+ * 偽の緑になる（#257 の真因）。共有の型から作れば、契約にフィールドを足したのに
+ * firestore.rules の hasOnly を直し忘れた瞬間、この fixture が拒否されて落ちる。
  */
 function validSettings(): Record<string, unknown> {
-  return {
-    notificationsEnabled: true,
-    weeklyGoalKm: 10.0,
-    healthKitEnabled: false,
-  };
+  return { ...AppSettings.defaults.toJson() };
 }
 
 /** ルールを満たす正常な同期ドキュメント。各テストはここから逸脱を作る。 */

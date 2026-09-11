@@ -11,8 +11,11 @@ export interface HttpResponse {
 /// `fetch` + `AbortController` に置き換えていない。中断は「検索1回分の寿命で所有した
 /// クライアントを [close] して in-flight のソケットごと落とす」設計で（#259。
 /// lib/core/services/cancellation.dart）、その意味論に依存したテストがある。
-/// Phase 1（#384）でここを作り替えると、移植ミスと設計変更が混ざって切り分けられない。
-/// `fetch` への適合は実装側（#385）の仕事。
+///
+/// この抽象を満たす実装（`fetch` アダプタ・タイムアウト・App Check）はエンジンに置かない
+/// ——どれも「どこから設定を取るか」の配線で、エンジンの仕様ではないため。組み立ては
+/// Phase 3（#386）のフロント側で行う（`route-service.ts` の冒頭も同じ理由で Riverpod の
+/// provider を移していない）。
 export interface HttpClient {
   get(url: URL): Promise<HttpResponse>;
   close(): void;

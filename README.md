@@ -5,21 +5,23 @@
 ## packages/engine（React 移行の受け皿・#382）
 
 Flutter を廃して React + TypeScript の SPA へ移行する epic（#382）の受け皿。Phase 1（#384）
-でエンジンのテスト 314 本（`test/core/services/` の 6 ファイル・11,086 行）を vitest へ移植
-してある。**現時点は 308 本が赤・6 本が緑で、それが正しい状態**——エンジン本体の移植は
-Phase 2（#385）で、`packages/engine/src/` にあるのは型とシグネチャだけ。緑の6本は
-データクラスのフィールド既定値だけを主張するテストで、実装したのがまさにそのフィールド
-宣言だから通る（`check:port` はこの6本が**赤いこと**も移植の破損として落とす）。
+でエンジンのテストを vitest へ移植し、Phase 2（#385）でエンジン本体（`lib/core/services/` と
+`lib/core/models/` のうちエンジンが使う範囲）を `packages/engine/src/` へ移植した。
+**382 本すべて緑が正しい状態。**
 
 ```bash
 npm --prefix packages/engine ci
-npm --prefix packages/engine run typecheck  # 緑であること（CI もこれを回す）
-npm --prefix packages/engine run check:port # Dart 側との名前照合＋赤の内訳検査（CI もこれ）
-npm --prefix packages/engine test           # 308 red / 6 green（#385 まで）
+npm --prefix packages/engine run typecheck  # 型（CI もこれを回す）
+npm --prefix packages/engine test           # 382 本すべて緑（CI もこれ）
+npm --prefix packages/engine run check:port # Dart 側との名前照合（CI もこれ）
 ```
 
-移植の対応表（matcher・fake・型の写像）と、意図的に揃えた／揃えなかった点は
-[packages/engine/PORTING.md](packages/engine/PORTING.md) が正本。
+`check:port` は素の `vitest run` と**別に**要る。vitest は「落ちているテストがあるか」しか
+答えず、**移植されていないテストがあるか**には答えない——移植漏れは vitest から見れば存在
+しないファイルでしかなく、静かに緑になる。
+
+移植の対応表（matcher・fake・型の写像）、意図的に揃えた／揃えなかった点、Dart 側との
+出力突き合わせの結果は [packages/engine/PORTING.md](packages/engine/PORTING.md) が正本。
 
 ## Google Maps セットアップ
 

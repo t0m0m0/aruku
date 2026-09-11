@@ -1,4 +1,34 @@
 {
+  "app_settings_test.dart": [
+    "defaults は通知オン・週間目標 10km・HealthKit連携オフ",
+    "copyWith は指定項目のみ差し替える",
+    "toJson / fromJson でラウンドトリップする",
+    "healthKitEnabled 欠損・非boolは false にフォールバック",
+    "healthKitEnabled が違えば == で非等価",
+    "欠損フィールドは defaults を採用する",
+    "不正な週間目標（0以下・非数値）は defaults にフォールバック",
+    "週間目標は int でも double として読める",
+    "値が等しければ == で等価",
+    "週間目標が違えば == で非等価",
+    "firestore.rules との同期スキーマ契約 toJson のキー集合はルールの許可キーと厳密に一致する",
+    "firestore.rules との同期スキーマ契約 toJson は常に全キーを出力する（ルールが hasAll を課すため）",
+    "firestore.rules との同期スキーマ契約 週間目標プリセットはすべてルールの許可範囲(0 < km <= 1000)に収まる"
+  ],
+  "cancellation_test.dart": [
+    "CancellationToken 初期状態は未キャンセルで throwIfCanceled が通る",
+    "CancellationToken cancel すると isCanceled が立ち throwIfCanceled が投げる",
+    "CancellationToken 登録済みのコールバックは cancel で発火する",
+    "CancellationToken 複数のコールバックが登録順に全て発火する",
+    "CancellationToken cancel 済みトークンへの onCancel は即座に発火する",
+    "CancellationToken cancel は冪等でコールバックを二度発火しない"
+  ],
+  "frontier_stations_test.dart": [
+    "frontierStations 予算が十分大きければ全駅を両側の候補にする",
+    "frontierStations maxPerSide 超は均等間引きで両端を残す",
+    "frontierStations maxPerSide 超の長大路線でも中間駅を残し b<a の乗降ペアを保つ",
+    "frontierStations 直線徒歩が予算を超える駅は feasible から外す（左右非対称）",
+    "frontierStations 空の駅配列なら両側とも空"
+  ],
   "hybrid_route_selector_test.dart": [
     "selectBestRoute 全徒歩が予算内なら全徒歩（徒歩最大）を選ぶ",
     "selectBestRoute 予算内でハイブリッド（徒歩最大）を選ぶ",
@@ -65,6 +95,12 @@
     "prewarmFront 予算内ハイブリッドが閾値未満なら勝者だけを温める",
     "prewarmFront allowSinglePass=false なら閾値以上でも勝者のみへ抑制する",
     "prewarmFront single-pass の温め対象は maxMeasureShortlist 件で頭打ち"
+  ],
+  "rail_line_names_test.dart": [
+    "railLineLabel 私鉄の路線記号コードを和名へ写す",
+    "railLineLabel 既に和名のもの（JR など）はそのまま返す",
+    "railLineLabel 未知コードはそのまま返す",
+    "railLineLabel null は null"
   ],
   "route_diagnostics_test.dart": [
     "segSummary 徒歩区間は walk{分}m 形式",
@@ -152,6 +188,52 @@
     "budgetMinutes 同日内は到着−出発の差をそのまま返す",
     "budgetMinutes 到着が翌日(dateOffset:1)なら日跨ぎ分を加算する",
     "budgetMinutes 出発が isNow なら dateOffset を無視して当日扱いにする"
+  ],
+  "search_deadline_test.dart": [
+    "SearchDeadline 経過が予算未満なら残予算を返し、期限切れにならない",
+    "SearchDeadline 経過が予算ちょうどで期限切れになる",
+    "SearchDeadline 予算超過でも残予算は負にならない",
+    "SearchDeadline 既定の経過は実時間で進む",
+    "SearchDeadline 無期限の締切は期限切れにならず残予算を持たない"
+  ],
+  "search_scoped_route_service_test.dart": [
+    "SearchScopedRouteService plan ごとにエンジンを組み立てる",
+    "SearchScopedRouteService 正常終了でもエンジンを閉じる",
+    "SearchScopedRouteService 例外で終わってもエンジンを閉じる",
+    "SearchScopedRouteService キャンセルすると plan の完了を待たずにエンジンを閉じる",
+    "SearchScopedRouteService キャンセル後に湧いた通信エラーは SearchCanceledException へ揃える",
+    "SearchScopedRouteService キャンセルしなければ通信エラーはそのまま伝播する",
+    "SearchScopedRouteService エンジンにキャンセルトークンを渡す"
+  ],
+  "time_value_test.dart": [
+    "TimeValue dateOffset のデフォルトは 0（今日）",
+    "TimeValue dateOffset=1 で明日を指定できる",
+    "TimeValue dateOffset は 1 より大きい任意の日数を指定できる",
+    "TimeValue dateOffset が負の場合は assert で弾かれる",
+    "TimeValue copyWith で dateOffset を変更できる",
+    "TimeValue copyWith で他フィールドを変更しても dateOffset は引き継がれる",
+    "TimeValue isNow=true の場合 dateOffset は無視される（値は保持）",
+    "TimeValue.fullDateLabel 当日（dateOffset=0）は「M月D日 (曜)」",
+    "TimeValue.fullDateLabel isNow=true は dateOffset を無視して当日",
+    "TimeValue.fullDateLabel 翌日（dateOffset=1）は翌日の日付",
+    "TimeValue.fullDateLabel 月をまたぐ dateOffset も正しく算出",
+    "TimeValue.formatBudget 60分未満は「分」のみ",
+    "TimeValue.formatBudget 60分以上は「時間」と「分」（分は2桁ゼロ埋め）",
+    "TimeValue.formatBudget ちょうど時間単位でも分は2桁で表示",
+    "TimeValue.formatBudget 0以下はプレースホルダ",
+    "TimeValue.dateLabel isNow=true は null（「今すぐ」なので日付不要）",
+    "TimeValue.dateLabel 当日（dateOffset=0）は null（非表示）",
+    "TimeValue.dateLabel 翌日（dateOffset=1）は「明日」",
+    "TimeValue.dateLabel 2日先は M/D(曜) 形式",
+    "TimeValue.dateLabel 数日先は M/D(曜) 形式（曜日は月〜日で算出）",
+    "TimeValue.dateLabel 月をまたぐ dateOffset も正しく算出",
+    "dateOffsetFrom 同じ日は 0",
+    "dateOffsetFrom 時刻が残っていても日付だけで数える",
+    "dateOffsetFrom 月をまたいでも日数で数える",
+    "dateOffsetFrom 上限の日は kMaxDateOffsetDays",
+    "dateOffsetFrom 過去の日付は 0 へ丸める",
+    "dateOffsetFrom 上限より先の日付は kMaxDateOffsetDays へ丸める",
+    "dateOffsetFrom maxOffset を渡すとその上限で丸める"
   ],
   "transit_api_client_test.dart": [
     "fetchGuidanceAt /api/v1/guidance/plan へ from/to/date/time/type/numItineraries を渡す",
