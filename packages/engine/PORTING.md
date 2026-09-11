@@ -8,18 +8,22 @@
 
 - 移植元: `test/core/services/*_test.dart` の 6 ファイル・314 テスト
 - 移植先: `packages/engine/test/services/*.test.ts`
-- #385 で2ファイルが加わった。どちらも「#384 の6ファイルを全て緑にしても一度も
+- #385 で6ファイルが加わった。いずれも「#384 の6ファイルを全て緑にしても一度も
   実行されない」エンジンの一部で、理由は移植先ファイルの冒頭に書いてある
-  - `test/core/models/time_value_test.dart`（28本）→ `test/models/time-value.test.ts`
-  - `test/core/services/frontier_stations_test.dart`（5本）→
-    `test/services/frontier-stations.test.ts`
+  - `time_value_test.dart`（28本）→ `test/models/time-value.test.ts`
+  - `frontier_stations_test.dart`（5本）→ `test/services/frontier-stations.test.ts`
+  - `cancellation_test.dart`（6本）→ `test/services/cancellation.test.ts`
+  - `search_deadline_test.dart`（5本）→ `test/services/search-deadline.test.ts`
+  - `rail_line_names_test.dart`（4本）→ `test/services/rail-line-names.test.ts`
+  - `search_scoped_route_service_test.dart`（7本）→
+    `test/services/search-scoped-route-service.test.ts`
 - **この Phase ではテストは全て赤で正しい。** 本体は Phase 2（#385）で実装する。
   `src/` にあるのは型とシグネチャだけで、ロジックは `notImplemented()` を投げる。
 
 ## テスト名の突き合わせ
 
 完了条件は Dart 側と移植後で件数が一致すること。基準値は #384 時点で **314**（#385 で
-加えた2ファイルを含めて 347）。ただし件数だけでは
+加えた6ファイルを含めて 369）。ただし件数だけでは
 足りない——「1本消して1本足す」改名が素通りし、テスト名＝仕様書という前提が静かに
 崩れる（実際に1本やった・PR #389 レビュー）。だから **名前で1対1に照合する**。
 

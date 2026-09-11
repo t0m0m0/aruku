@@ -1,4 +1,12 @@
 {
+  "cancellation_test.dart": [
+    "CancellationToken 初期状態は未キャンセルで throwIfCanceled が通る",
+    "CancellationToken cancel すると isCanceled が立ち throwIfCanceled が投げる",
+    "CancellationToken 登録済みのコールバックは cancel で発火する",
+    "CancellationToken 複数のコールバックが登録順に全て発火する",
+    "CancellationToken cancel 済みトークンへの onCancel は即座に発火する",
+    "CancellationToken cancel は冪等でコールバックを二度発火しない"
+  ],
   "frontier_stations_test.dart": [
     "frontierStations 予算が十分大きければ全駅を両側の候補にする",
     "frontierStations maxPerSide 超は均等間引きで両端を残す",
@@ -72,6 +80,12 @@
     "prewarmFront 予算内ハイブリッドが閾値未満なら勝者だけを温める",
     "prewarmFront allowSinglePass=false なら閾値以上でも勝者のみへ抑制する",
     "prewarmFront single-pass の温め対象は maxMeasureShortlist 件で頭打ち"
+  ],
+  "rail_line_names_test.dart": [
+    "railLineLabel 私鉄の路線記号コードを和名へ写す",
+    "railLineLabel 既に和名のもの（JR など）はそのまま返す",
+    "railLineLabel 未知コードはそのまま返す",
+    "railLineLabel null は null"
   ],
   "route_diagnostics_test.dart": [
     "segSummary 徒歩区間は walk{分}m 形式",
@@ -159,6 +173,22 @@
     "budgetMinutes 同日内は到着−出発の差をそのまま返す",
     "budgetMinutes 到着が翌日(dateOffset:1)なら日跨ぎ分を加算する",
     "budgetMinutes 出発が isNow なら dateOffset を無視して当日扱いにする"
+  ],
+  "search_deadline_test.dart": [
+    "SearchDeadline 経過が予算未満なら残予算を返し、期限切れにならない",
+    "SearchDeadline 経過が予算ちょうどで期限切れになる",
+    "SearchDeadline 予算超過でも残予算は負にならない",
+    "SearchDeadline 既定の経過は実時間で進む",
+    "SearchDeadline 無期限の締切は期限切れにならず残予算を持たない"
+  ],
+  "search_scoped_route_service_test.dart": [
+    "SearchScopedRouteService plan ごとにエンジンを組み立てる",
+    "SearchScopedRouteService 正常終了でもエンジンを閉じる",
+    "SearchScopedRouteService 例外で終わってもエンジンを閉じる",
+    "SearchScopedRouteService キャンセルすると plan の完了を待たずにエンジンを閉じる",
+    "SearchScopedRouteService キャンセル後に湧いた通信エラーは SearchCanceledException へ揃える",
+    "SearchScopedRouteService キャンセルしなければ通信エラーはそのまま伝播する",
+    "SearchScopedRouteService エンジンにキャンセルトークンを渡す"
   ],
   "time_value_test.dart": [
     "TimeValue dateOffset のデフォルトは 0（今日）",

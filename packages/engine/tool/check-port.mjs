@@ -25,6 +25,10 @@ const FILE_MAP = {
   'route-diagnostics.test.ts': 'route_diagnostics_test.dart',
   'time-value.test.ts': 'time_value_test.dart',
   'frontier-stations.test.ts': 'frontier_stations_test.dart',
+  'cancellation.test.ts': 'cancellation_test.dart',
+  'search-deadline.test.ts': 'search_deadline_test.dart',
+  'rail-line-names.test.ts': 'rail_line_names_test.dart',
+  'search-scoped-route-service.test.ts': 'search_scoped_route_service_test.dart',
 };
 
 /// Phase 1 で**緑になってよい**テスト。データクラスのフィールド既定値だけを主張する
