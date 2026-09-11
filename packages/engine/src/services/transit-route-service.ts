@@ -1607,14 +1607,20 @@ export class TransitRouteService implements SearchEngine {
     measured: Map<string, number>,
   ): Promise<void> {
     // 乗車側・降車側のマトリクスは互いに独立なので並列に投げる（#163）。
+    //
+    // 移植元は2本を順に await しているが、`Promise.all` で**両方に同時にハンドラを付ける**。
+    // 片方ずつ await すると、先に待つ側が倒れた時点で関数を抜け、もう一方の拒否を誰も
+    // 観測しないまま残る——キャンセルで共有クライアントを閉じると両方が
+    // [SearchCanceledException] で倒れるので、これは実際に起こる。Dart は未処理の非同期
+    // エラーをゾーンへ報告するだけだが、Node はプロセスを落とし、ブラウザは
+    // `unhandledrejection` を上げる。同じコードの形が処理系で違う結末になる箇所。
     const boardDests = [...boardStops, goal];
-    const boardFuture = this.api.fetchWalkMatrix([origin], boardDests);
-    const alightFuture =
+    const [boardRows, alightRows] = await Promise.all([
+      this.api.fetchWalkMatrix([origin], boardDests),
       alightStops.length === 0
         ? Promise.resolve<unknown[] | null>(null)
-        : this.api.fetchWalkMatrix(alightStops, [goal]);
-    const boardRows = await boardFuture;
-    const alightRows = await alightFuture;
+        : this.api.fetchWalkMatrix(alightStops, [goal]),
+    ]);
     if (boardRows !== null) {
       for (const e of boardRows) {
         if (!isRecord(e)) continue;

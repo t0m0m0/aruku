@@ -16,6 +16,15 @@ on:
       - 'firestore.rules'
       - 'firestore.indexes.json'
       - '.github/workflows/deploy-functions.yml'
+      # 同期スキーマの契約はクライアントと共有している（#385）。firestore-rules.test.ts の
+      # fixture は AppSettings.toJson() から組み立てるので、ここを外すと**契約だけを変えて
+      # ルールを直し忘れた**変更——このジョブが唯一捕まえられる事故——でエミュレータ検証が
+      # 一度も走らないまま通る。
+      #
+      # push 側へは足さない。あちらは deploy ジョブの入口も兼ねており、エンジンだけの変更で
+      # 本番の functions / rules デプロイ（承認待ち）を起こしてしまう。main へ入るのは PR
+      # 経由だけなので（CLAUDE.md「Never commit directly to main」）、検証はここで足りる。
+      - 'packages/engine/src/models/**'
 
 env:
   # latest を使わないのは、ルールテストとデプロイで CLI が食い違うと

@@ -11,7 +11,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync, rmSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 /// 移植元（Dart）のテスト名。取り直す手順は PORTING.md「テスト名の突き合わせ」。
@@ -78,16 +78,25 @@ function multisetDiff(expected, actual) {
 
 const problems = [];
 const actualByFile = new Map();
+/// ファイル名 → そのファイルが居たディレクトリ（`test/runtime/` の除外判定に使う）。
+const actualDirByFile = new Map();
+/// 移植したファイルで緑だったテスト名。`test/runtime/`（移植元を持たない）は数えない
+/// ——下の集計は Dart 側の件数と並べて読むためのもので、対応物の無い本数を混ぜると
+/// 「382 中 383 緑」のような読めない行になる。
 const passed = new Set();
+let runtimeTests = 0;
 const disabled = [];
 
 for (const suite of report.testResults ?? []) {
   const file = basename(suite.name);
+  actualDirByFile.set(file, dirname(suite.name));
+  const ported = file in FILE_MAP;
   const names = actualByFile.get(file) ?? [];
   for (const test of suite.assertionResults ?? []) {
     names.push(test.fullName);
+    if (!ported) runtimeTests++;
     if (test.status === 'passed') {
-      passed.add(test.fullName);
+      if (ported) passed.add(test.fullName);
     } else if (test.status !== 'failed') {
       // `it.skip` / `it.todo` は名前が残るので**名前の照合を素通りする**。素の vitest も
       // skip を失敗にはしないので、ここで落とさないと無効化した仕様が緑で入る
@@ -125,10 +134,15 @@ for (const [tsFile, dartFile] of Object.entries(FILE_MAP)) {
 }
 
 // FILE_MAP に無いファイルは移植対象外の混入。黙って総数へ足すと帳尻だけ合ってしまう。
-for (const file of actualByFile.keys()) {
-  if (!(file in FILE_MAP)) {
-    problems.push(`${file}: 移植対象外のテストファイルが混ざっている`);
-  }
+//
+// 例外は `test/runtime/`——Dart に対応物を持たない、**JavaScript ランタイム固有**の回帰
+// テスト（未処理の拒否など、同じコードの形が処理系で違う結末になる箇所）。移植元が無い
+// 以上 Dart 側と照合しようがないが、置き場所を分けてあるので「移植したはずのテストが
+// 名前を変えて紛れ込んだ」とは混ざらない。件数の表からも外す。
+for (const [file, dir] of actualDirByFile) {
+  if (file in FILE_MAP) continue;
+  if (dir.endsWith('/test/runtime')) continue;
+  problems.push(`${file}: 移植対象外のテストファイルが混ざっている`);
 }
 
 for (const [name, status] of disabled) {
@@ -136,7 +150,9 @@ for (const [name, status] of disabled) {
 }
 
 console.log('-'.repeat(48));
-const total = [...actualByFile.values()].reduce((a, v) => a + v.length, 0);
+const total = [...actualByFile.entries()]
+  .filter(([file]) => file in FILE_MAP)
+  .reduce((a, [, v]) => a + v.length, 0);
 const dartTotal = Object.values(DART_NAMES).reduce((a, v) => a + v.length, 0);
 console.log(
   'total'.padEnd(32) +
@@ -145,6 +161,11 @@ console.log(
     `  (green ${passed.size} / red ${total - passed.size - disabled.length}` +
     `${disabled.length > 0 ? ` / disabled ${disabled.length}` : ''})`,
 );
+if (runtimeTests > 0) {
+  console.log(
+    `${'test/runtime (移植元なし)'.padEnd(32)}${'-'.padStart(6)}${String(runtimeTests).padStart(8)}`,
+  );
+}
 
 if (problems.length > 0) {
   console.error(`\n${problems.length} problem(s):`);
