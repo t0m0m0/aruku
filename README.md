@@ -7,12 +7,12 @@
 Flutter を廃して React + TypeScript の SPA へ移行する epic（#382）の受け皿。Phase 1（#384）
 でエンジンのテストを vitest へ移植し、Phase 2（#385）でエンジン本体（`lib/core/services/` と
 `lib/core/models/` のうちエンジンが使う範囲）を `packages/engine/src/` へ移植した。
-**382 本すべて緑が正しい状態。**
+**383 本すべて緑が正しい状態。**
 
 ```bash
 npm --prefix packages/engine ci
 npm --prefix packages/engine run typecheck  # 型（CI もこれを回す）
-npm --prefix packages/engine test           # 382 本すべて緑（CI もこれ）
+npm --prefix packages/engine test           # 383 本すべて緑（CI もこれ）
 npm --prefix packages/engine run check:port # Dart 側との名前照合（CI もこれ）
 ```
 
@@ -22,6 +22,25 @@ npm --prefix packages/engine run check:port # Dart 側との名前照合（CI �
 
 移植の対応表（matcher・fake・型の写像）、意図的に揃えた／揃えなかった点、Dart 側との
 出力突き合わせの結果は [packages/engine/PORTING.md](packages/engine/PORTING.md) が正本。
+
+## apps/web（React 移行の本体・#386）
+
+Phase 3（#386）で React + Vite の SPA を作る。最初のスライスとして土台とエンジンの配線
+（fetch アダプタ・タイムアウト・App Check・検索エンジンの組み立て）まで入っている。
+**画面はまだ無い**——現在の `apps/web` を起動しても空のプレースホルダが出るだけで、
+本番の配信は当面 Flutter のまま（`deploy-web.yml` は未切替）。
+
+```bash
+npm --prefix apps/web ci
+npm --prefix apps/web run typecheck  # 型（CI もこれを回す）
+npm --prefix apps/web test           # CI もこれ
+npm --prefix apps/web run build      # 本番バンドルの解決まで見る（CI もこれ）
+```
+
+Node は 22.22.0 以上が要る（`react-router` の要求）。`packages/engine` より厳しい。
+
+決定（React Router 一本化・Zustand・workspaces を置かない理由）と Dart 側との対応表は
+[apps/web/PORTING.md](apps/web/PORTING.md) が正本。
 
 ## Google Maps セットアップ
 
