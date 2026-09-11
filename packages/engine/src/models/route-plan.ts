@@ -1,6 +1,5 @@
 // 移植元: lib/core/models/route_plan.dart
 
-import { notImplemented } from '../not-implemented';
 import type { GeoPoint } from './geo-point';
 
 /// Dart の `enum SegmentType` に対応する。
@@ -72,9 +71,15 @@ export class RouteSegment {
   /// この区間の到着（電車は降車）絶対時刻。設定条件は [depTime] と同じ。
   readonly arrTime: Date | null;
 
-  /// 表示上 0.0km・0分に丸まる徒歩区間か。
+  /// 表示上 0.0km・0分に丸まる徒歩区間か。同一駅乗換などで挿入される無意味な
+  /// レッグ（#225）の判定に使う。閾値 0.05km は小数第1位への丸めで "0.0km" に
+  /// なる上限。
   get isZeroWalk(): boolean {
-    return notImplemented('RouteSegment.isZeroWalk');
+    return (
+      this.type === SegmentType.walk &&
+      this.minutes === 0 &&
+      (this.km ?? 0) < 0.05
+    );
   }
 
   /// Dart 版と同じく null への差し戻しはできない（`?? this.x` 相当）。
