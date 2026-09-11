@@ -16,6 +16,18 @@ on:
 # 本番と同じ MAPS_WEB_API_KEY を焼いた成果物になるが、リファラー制限は
 # デプロイごとに変わるサブドメインを追随できず、`*.pages.dev` を許可すれば
 # 他人の Pages プロジェクトからも使えるキーになる（docs/security_hardening.md ①）。
+# `isAllowedOrigin()`（functions/src/index.ts）も `*.aruku.pages.dev` を通すため、
+# プレビューが出ればプロキシの Origin 許可リストは素通りする。
+#
+# **この方針はこのファイルでは担保できない。** 配信経路はここの wrangler だけではなく、
+# Cloudflare Pages の Git 連携（GitHub App）が第二の経路として繋がっている。そちらは
+# push を直接ビルドして配信し、PR レビューも下の Environment ゲートも通らない。
+# Cloudflare は Git 連携済みプロジェクトを Direct Upload に戻せないため、この経路は
+# 残り続ける前提で塞ぐ——Branch control（README「Web 公開（Cloudflare Pages）」）で
+# `Preview branch` を `None (Disable automatic branch deployments)` にし、
+# `Enable automatic production branch deployments` を OFF にする。後者を有効のまま
+# にすると、下の paths フィルタでこのワークフローが走らない push のあと Git 連携側の
+# ビルドが本番エイリアスを取る（#392 で本番が空デプロイに差し替わり3日間 404 だった）。
 #
 # workflow_dispatch は main 以外の ref からも起動でき、そのとき**実行されるのは
 # その ref のワークフロー定義**である。したがってこのファイルに書いた

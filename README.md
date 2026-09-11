@@ -341,6 +341,26 @@ npx --yes wrangler@latest pages project create aruku --production-branch=main
 
 名前を変える場合は `deploy-web.yml` の `PAGES_PROJECT` も合わせてください。
 
+#### Git 連携の自動デプロイを止める（**必須**）
+
+Pages プロジェクトに Cloudflare の Git 連携（GitHub App）が繋がっていると、**このワークフローを
+通らない第二の配信経路**ができます。push が直接ビルド・配信され、PR レビューも下の
+production Environment のゲートも効きません。Cloudflare は Git 連携済みプロジェクトを
+Direct Upload に戻せない（[Git integration](https://developers.cloudflare.com/pages/configuration/git-integration/)）ため、
+連携を切る形では閉じられません。`Workers & Pages → aruku → Build → Branch control` で
+自動デプロイを両方止めます。
+
+| 設定 | 値 | 止めているもの |
+|---|---|---|
+| `Enable automatic production branch deployments` | OFF | Git 連携のビルドが本番エイリアスを奪うこと |
+| `Preview branch` | `None (Disable automatic branch deployments)` | PR ごとのプレビュー配信（鍵の露出。「4. 公開ドメインの登録」参照）|
+
+この状態でも `wrangler pages deploy`（`deploy-web.yml` の deploy ジョブ）は従来どおり動きます。
+
+production 側を止め忘れると、`deploy-web.yml` の paths フィルタに掛からない push——
+`lib/**` `web/**` を触らない変更——のあと、Git 連携側のビルドが本番として配信されます。
+実際にこれで本番が空のデプロイに差し替わり、3日間 404 になりました（#392）。
+
 ### 2. GitHub 側の設定
 
 **置き場所が2種類あります。取り違えると防御が無くなるので、表のとおりに分けてください。**
@@ -407,8 +427,12 @@ Settings → Environments → production → Deployment branches and tags で **
 Firebase Authentication は使っていない（`firebase_auth` に依存していない）ため、
 「承認済みドメイン」の設定は不要です。
 
-同じ理由で、このワークフローは PR ごとのプレビュー配信を作りません。プレビューは
-デプロイのたびにサブドメインが変わり、リファラー制限で追随できないためです。
+同じ理由で PR ごとのプレビュー配信を作りません。プレビューはデプロイのたびに
+サブドメインが変わり、リファラー制限で追随できないためです。`deploy-web.yml` が
+プレビューを作らないだけでは足りず、**「1. Pages プロジェクトの作成」の Branch control を
+設定して初めて成立します**。Cloud Functions プロキシの Origin 許可リストは
+`*.aruku.pages.dev` を通すので、プレビューが出れば CORS 側も素通りします
+（[docs/security_hardening.md](docs/security_hardening.md) ⑧）。
 
 ### 5. マージ前の確認（dry run）
 
