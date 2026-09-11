@@ -76,6 +76,37 @@ Phase の完了条件が「全て赤」だったためで、素直に繋ぐと #
 なり他 PR のシグナルが死ぬ。#385 で全て緑になったのでその検査は撤去し、素の `vitest run`
 へ戻した。
 
+## Dart ↔ TypeScript の出力突き合わせ（#385 完了条件）
+
+移植したテストが緑なだけでは足りない——**両方の実装が同じ嘘をついている**可能性を
+テストは否定しない。移植元と移植先へ同一入力を与え、出力を機械で突き合わせた。
+
+方法: 実機構造の `/guidance/plan` 応答1本（2 transit leg・乗換徒歩・access/egress・
+`routeName` が私鉄コードと和名の混在）を両側へ食わせ、6グループの出力を JSON へ書き出して
+比較した。**182 個のスカラ値がすべて一致**（浮動小数は 1e-12 まで）。
+
+| グループ | 通した関数 | 値の数 |
+| --- | --- | ---: |
+| parse | `parseGuidancePlan` | 69 |
+| plan | `buildRoutePlan`（区間・タイムラインノード） | 86 |
+| time | `arrivalMinutes` / `firstMissedTransit` / `maxBoardingWait` / `budgetMinutes` / `formatClock` | 7 |
+| select | `selectBestRoute` / `measureShortlist` | 6 |
+| geo | `haversineKm` / `evenSample` / `frontierStations` / `walkFeasiblePrefixCount` | 9 |
+| format | `stripStationRomaji` / `transitSecsToJst` / 座標の文字列化 / `TimeValue` の整形 | 5 |
+
+移植で最も壊れやすい箇所が一致していることを確認できた:
+
+- `transitSecsToJst('20260627', 90000)` → `2026-06-28 01:00:00.000`（86400 超の翌日繰り上がり）
+- 座標のワイヤーフォーマット → `35.0,139.0`（`String(35)` なら `35` になる箇所）
+- `arrivalMinutes` が待ち込み 78 分・待ち抜き 70 分（`_advance` の乗車待ち吸収）
+- `haversineKm` が `45.54279110090217`（倍精度の下位桁まで）
+- 路線名 `IN` → `京王井の頭線`、駅名 `東京 Tokyo` → `東京`
+
+**突き合わせ用のハーネスは残していない。** Dart 側は `flutter test` からしか起動できず
+（`dart run` は `dart:ui` を解決できない）、`test/` に置けば `check:port` の対象外ファイル
+検査に引っかかる。何より Phase 4 で Dart 側が消えるので、置けば確実に腐る。再現したいときは
+この節の入力と関数の一覧から組み直すこと。
+
 ## `group` / `test` → `describe` / `it`
 
 ```dart
