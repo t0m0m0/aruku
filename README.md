@@ -2,6 +2,25 @@
 
 「電車に乗らず、時間内で最大限歩く」ルート案内アプリ（Flutter）。
 
+## packages/engine（React 移行の受け皿・#382）
+
+Flutter を廃して React + TypeScript の SPA へ移行する epic（#382）の受け皿。Phase 1（#384）
+でエンジンのテスト 314 本（`test/core/services/` の 6 ファイル・11,086 行）を vitest へ移植
+してある。**現時点は 308 本が赤・6 本が緑で、それが正しい状態**——エンジン本体の移植は
+Phase 2（#385）で、`packages/engine/src/` にあるのは型とシグネチャだけ。緑の6本は
+データクラスのフィールド既定値だけを主張するテストで、実装したのがまさにそのフィールド
+宣言だから通る（`check:port` はこの6本が**赤いこと**も移植の破損として落とす）。
+
+```bash
+npm --prefix packages/engine ci
+npm --prefix packages/engine run typecheck  # 緑であること（CI もこれを回す）
+npm --prefix packages/engine run check:port # Dart 側との名前照合＋赤の内訳検査（CI もこれ）
+npm --prefix packages/engine test           # 308 red / 6 green（#385 まで）
+```
+
+移植の対応表（matcher・fake・型の写像）と、意図的に揃えた／揃えなかった点は
+[packages/engine/PORTING.md](packages/engine/PORTING.md) が正本。
+
 ## Google Maps セットアップ
 
 地図・ルート・検索機能は Google Maps Platform の API キーを必要とします。
