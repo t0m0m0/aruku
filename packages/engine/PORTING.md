@@ -1,8 +1,8 @@
-# Dart テスト → vitest 移植ガイド（#384 / epic #382 Phase 1）
+# Dart テスト → vitest 移植ガイド（epic #382 Phase 1〜2 / #384・#385）
 
 エンジンの仕様は**テストにしか書かれていない**（CLAUDE.md「テストコードに What を書く」）。
-だから Phase 1 はテストを先に運ぶ。ここはその移植で使う対応表と、意図的に揃えた／揃え
-なかった点の記録。
+だから Phase 1（#384）はテストを先に運び、Phase 2（#385）で本体を実装して全て緑にした。
+ここはその移植で使う対応表と、意図的に揃えた／揃えなかった点の記録。
 
 ## 位置づけ
 
@@ -18,14 +18,13 @@
   - `search_scoped_route_service_test.dart`（7本）→
     `test/services/search-scoped-route-service.test.ts`
   - `app_settings_test.dart`（13本）→ `test/models/app-settings.test.ts`
-- **この Phase ではテストは全て赤で正しい。** 本体は Phase 2（#385）で実装する。
-  `src/` にあるのは型とシグネチャだけで、ロジックは `notImplemented()` を投げる。
+- #385 でエンジン本体（`lib/core/services/` と `lib/core/models/` のうちエンジンが
+  使う範囲）を `src/` へ移植し、382 本すべてが緑になった。
 
 ## テスト名の突き合わせ
 
 完了条件は Dart 側と移植後で件数が一致すること。基準値は #384 時点で **314**（#385 で
-加えた7ファイルを含めて 382）。ただし件数だけでは
-足りない——「1本消して1本足す」改名が素通りし、テスト名＝仕様書という前提が静かに
+加えた7ファイルを含めて 382）。ただし件数だけでは足りない——「1本消して1本足す」改名が素通りし、テスト名＝仕様書という前提が静かに
 崩れる（実際に1本やった・PR #389 レビュー）。だから **名前で1対1に照合する**。
 
 ```bash
@@ -62,47 +61,20 @@ json.dump({k: out[k] for k in sorted(out)},
 
 ## CI での扱い
 
-`packages/engine` は CI（`.github/workflows/ci.yml` の `engine-typecheck` ジョブ）で
-`tsc --noEmit` と `check:port` を回す。
+`packages/engine` は CI（`.github/workflows/ci.yml` の `engine` ジョブ）で
+`tsc --noEmit`・`vitest run`・`check:port` を回す。
 
-素の `vitest run` は繋がない——この Phase の完了条件が「全て赤」で、繋ぐと Phase 2 が
-終わるまで CI が永久に赤くなり、他 PR のシグナルが死ぬ。かといって素通しにすると、
-**部分実装が緑のまま入る**（PR #389 レビュー P1）。そこで「赤いから見ない」ではなく
-**期待する赤の内訳を検査する**形にした。`check:port` が落とすもの:
+3つとも要る。`vitest run` は「落ちているテストがあるか」だけを答え、**移植されていない
+テストがあるか**には答えない——移植漏れは vitest から見れば存在しないファイルでしかなく、
+静かに緑になる。`check:port` はそこだけを見る（Dart 側と名前で1対1か・`it.skip` で実行を
+止めていないか）。逆に `check:port` は失敗理由を見ないので、素の `vitest run` を繋がないと
+赤いテストが素通りする。
 
-- Dart 側とテスト名が1対1でない（移植漏れ・改名・重複・対象外ファイルの混入）
-- 未実装（`NotImplementedError`）以外の理由で落ちているテストがある
-- 緑になってよい6本（既定値だけを主張するテスト）以外が緑になっている
-- その6本が赤い（移植が壊れている疑い）
-- `it.skip` / `it.todo` で**実行されていない**テストがある——名前は残るので名前照合を
-  素通りする。赤にできないテストは移植の失敗であって、黙らせる対象ではない
-  （`.claude/docs/testing.md`「Never suppress failing tests」）
-
-3つ目が P1 の答え。エンジン本体を部分的に実装すると、そのぶん緑が増えて CI が落ちる。
-Phase 2（#385）で本体を入れるときは `tool/check-port.mjs` の `PHASE` を `'all-green'` へ
-切り替え、素の `vitest run` を CI へ繋ぐ。
-
-## 何を実装し、何をスタブにしたか
-
-| 区分 | 扱い | 例 |
-| --- | --- | --- |
-| データ保持（コンストラクタ・フィールド・`copyWith`） | **実装する** | `RouteSegment` / `RoutePlan` / `TimeValue` |
-| 2つ以上のフィールドを読む・閾値を当てる getter | スタブ | `RouteSegment.isZeroWalk` / `RouteCandidate.walkMinutes` |
-| 自由関数・サービスのメソッド | スタブ | `parseGuidancePlan` / `selectBestRoute` / `TransitRouteService.plan` |
-
-データ保持まで落とすとテストの**フィクスチャすら書けない**（`new RouteSegment({...})` が
-投げる）ので、そこは実装する。線引きは「フィールドを写すだけか、ドメインの規則が入るか」。
-
-## 「全て赤」の例外——既定値だけを主張するテスト
-
-完了条件は「未実装ゆえに全て赤」だが、**データクラスのフィールド既定値だけを主張する
-テストは緑になる**。実装したのがまさにそのフィールド宣言だからで、テストが骨抜きに
-なっているわけではない。赤にするにはデータ保持までスタブへ落とすことになり、移植そのものが
-成立しなくなる（フィクスチャが書けない）。
-
-該当する6本は `tool/check-port.mjs` の `EXPECTED_GREEN` に**名前で**固定してある。本数
-ではなく「どれが緑か」を止めるのは、本数だけ見ると「1本実装して1本壊す」部分実装が
-素通りするため。Phase 2（#385）で `notImplemented` が消えれば区別は無くなる。
+#384 の間は `vitest run` を繋がず、代わりに `check:port` が**期待する赤の内訳**（落ちる
+理由がすべて未実装か・緑になってよいのは既定値だけを主張する6本か）を検査していた。あの
+Phase の完了条件が「全て赤」だったためで、素直に繋ぐと #385 が終わるまで CI が永久に赤く
+なり他 PR のシグナルが死ぬ。#385 で全て緑になったのでその検査は撤去し、素の `vitest run`
+へ戻した。
 
 ## `group` / `test` → `describe` / `it`
 
@@ -182,7 +154,7 @@ Dart の `equals` はリストの要素を `==` で比べる。`RouteCandidate` 
 | `d1.difference(d2).inMinutes` | `differenceInMinutes(d1, d2)` | 切り捨て・負あり |
 | 名前付き引数 | 単一のオプションオブジェクト | 呼び出し側の見た目を Dart に寄せる |
 | `int?` / `double?` | `number \| null` | `undefined` に散らさず `null` へ寄せる |
-| sealed class / union | discriminated union | Phase 2 で使う |
+| sealed class / union | discriminated union | |
 
 ## 意図的に揃えなかった点
 
@@ -201,7 +173,7 @@ Dart の `equals` はリストの要素を `==` で比べる。`RouteCandidate` 
 - **座標の文字列化**。Dart の `double.toString()` は整数値でも `35.0` と小数点を出すが、
   JavaScript の `String(35.0)` は `35` になる。上流へ送る `geo:35.0,139.0` /
   `origins=35.0,139.0` は**ワイヤーフォーマット**なので、期待値は Dart のまま運んだ。
-  Phase 2 は Dart の書式を再現する整形関数を書くこと——`String(n)` で済ませると、
-  テストが赤いまま「JS ではこうなる」で通してしまいがちな箇所。
+  書式を再現するのは `src/dart-number.ts` の `dartDouble`。`String(n)` で済ませると
+  送信内容が変わる。
 - **`Date` の naive 扱い**。Dart の非 UTC `DateTime` と JS の `Date` はどちらも
   「ローカル壁時計から作った絶対時刻」で、#121 の TZ 依存もそのまま残る。揃えている。
