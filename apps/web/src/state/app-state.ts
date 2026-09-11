@@ -30,6 +30,10 @@ export type RouteErrorKind =
 /// この場合は経路を無効化して現在時刻での再検索を促す（#264）。
 export const routeFreshness: Duration = minutes(5);
 
+/// 起動時の初期到着時刻を「出発 + この分数」で算出する。ユーザーはホーム画面で
+/// いつでも調整できるため、設定では持たず固定のシード値とする。
+export const kInitialBudgetMinutes = 60;
+
 /// 画面の表示前提になるデータ一式。
 export interface RouteCore {
   destination: string | null;

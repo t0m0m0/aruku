@@ -7,8 +7,11 @@
 const defaultTransitApiBaseUrl = 'https://api.transit.ls8h.com';
 
 export interface AppConfig {
-  /// Cloud Functions プロキシのベース URL。未設定だとプロキシ経由の徒歩実測が
-  /// 全て失敗し、経路は直線推定へ縮退する。
+  /// Cloud Functions プロキシのベース URL。
+  ///
+  /// 未設定は縮退ではなく**起動時のエラー**になる（`createRouteService`）。移植元は
+  /// `Uri.parse('/googleWalkProxy')` が相対 URI を作れたが、`new URL` は投げるため
+  /// 検索の途中で TypeError になり、縮退では吸収されない。
   readonly proxyBaseUrl: string;
 
   readonly transitApiBaseUrl: string;

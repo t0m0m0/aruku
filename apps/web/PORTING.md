@@ -24,6 +24,22 @@ Phase 3（アプリ側）の決定と対応表。
 | npm workspaces | **置かない** | `functions/` が独自の package-lock と `firebase deploy` を持つ。hoisting で `functions/node_modules` が痩せるとデプロイが壊れる |
 | エンジンの参照 | **ソース直参照**（alias + paths） | `packages/engine` を `noEmit` のまま使え、ビルド段が増えない |
 
+### 戻り挙動（settings/search/result/error→home）
+
+移植元は go_router の**ネスト構造そのもの**が Navigator の pop スタックだった。React Router の
+ネストは `<Outlet>` の入れ子であって履歴を積まないので、URL の前置きだけでは戻り先にならない
+（PR #391 レビュー）。`navigator.ts` で明示的に作っている。
+
+- **home から子へだけ push、それ以外は replace。** 履歴を常に高々 `[home, 子]` に保つ
+- **子を直接開いたときは、ルーターを作る前に生の History API で home を敷く。**
+  ルーターは `RouterProvider` がマウントするまで履歴に繋がらず、それ以前の `navigate` は
+  履歴に現れない（実ブラウザで確認）。マウント後に遷移で積む手もあるが、home を1フレーム
+  描いてから子へ跳ぶちらつきが出る
+
+`PopScope(canPop: false)`（home・loading で戻るを無効化）は**再現しない**。あれは「戻るでアプリが
+終了しない」というモバイルの要請で、web では戻ってサイトを離れるのが当然の挙動。ただし loading から
+戻ったときに検索を止める必要はあり、それは検索のライフサイクルと対なので後続スライスで入れる。
+
 ### ルーティング一本化で失うもの
 
 移植元は画面と表示前提データを同じ `copyWith` で書くため、両者は**構造的に**乖離し得なかった。
@@ -69,6 +85,14 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 - 歩数・週間実績・HealthKit・ローカル通知・OS 設定 — Web で恒久的に落ちる機能として
   #386 が UI ごと作らないと決めたもの。**運ばないことが決定であって、保留ではない**
 - 行程 handoff（`JourneyProgress`）— 上の歩数同期に依存する。結果画面のスライスで判断する
+- loading から戻ったときの検索中断 — 上記のとおり検索のライフサイクルと対
+
+### 既知の劣化
+
+`go()` を遷移の決着前に続けて呼ぶと、2本目が現在地を古いまま読んで push してしまう
+（`router.state.location` の更新が非同期のため）。home→loading→error が一気に起きる経路で
+履歴が `[home, loading, error]` になりうるが、戻り先の loading は routePhase を失っており
+ガードが home へ寄せるので安全側に倒れる。テストに事実として残してある。
 
 ## 動かす
 

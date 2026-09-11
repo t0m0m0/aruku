@@ -67,6 +67,9 @@ export interface RouteServiceOptions {
 /// では keep-alive が効き、捨てるのは検索をまたぐ接続再利用だけ。キャンセル時に
 /// close して in-flight を切るには、この per-search 所有が要る。
 export function createRouteService(options: RouteServiceOptions): RouteService {
+  requireAbsoluteBase(options.transitBaseUrl, 'VITE_TRANSIT_API_BASE_URL');
+  requireAbsoluteBase(options.proxyBaseUrl, 'VITE_PROXY_BASE_URL');
+
   return new SearchScopedRouteService((cancellation: CancellationToken) => {
     return new TransitRouteService({
       transitClient: createTransitClient({ fetch: options.fetch }),
@@ -82,4 +85,21 @@ export function createRouteService(options: RouteServiceOptions): RouteService {
       deadline: new SearchDeadline(searchDeadlineBudget),
     });
   });
+}
+
+/// ベース URL が絶対 URL であることを組み立て時に確かめる。
+///
+/// 空のまま渡すとエンジンが `new URL('/googleWalkMatrixProxy')` を評価する瞬間に
+/// TypeError で倒れる。移植元は `Uri.parse` が相対 URI を作れたので同じ穴が無い。
+///
+/// RouteException にしないのはエンジンの先例に倣う——配線漏れを RouteException に
+/// すると縮退パス（候補ドロップ・直線推定）に握り潰され、設定漏れが「徒歩が長い経路」
+/// として静かに出てしまう（transit-api-client.ts の 'no HTTP client was injected'）。
+/// 環境変数名を載せるのは、バンドル後のスタックからは出どころが読めないため。
+function requireAbsoluteBase(base: string, envName: string): void {
+  if (base !== '' && URL.canParse(base)) return;
+  throw new Error(
+    `createRouteService: ${envName} が絶対 URL ではありません（受け取った値: ${JSON.stringify(base)}）。` +
+      'dart_defines.example.json 相当の設定を .env へ用意してください。',
+  );
 }

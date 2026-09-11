@@ -84,6 +84,45 @@ describe('クライアントの組み立て', () => {
   });
 });
 
+describe('ベース URL の検証', () => {
+  // 空の base で組み立てると、エンジンが徒歩実測の URL を作る瞬間に
+  // `new URL('/googleWalkMatrixProxy')` が TypeError で倒れる（Dart の Uri.parse は
+  // 相対 URI を作れたので移植元では起きない）。縮退で吸収されないため、成功する
+  // はずだった検索がまるごと落ちる（PR #391 レビュー）。
+  //
+  // RouteException にしないのはエンジンの先例に倣う——配線漏れを RouteException に
+  // すると縮退パスに握り潰され、「徒歩が長い経路」として静かに出る
+  // （transit-api-client.ts の 'no HTTP client was injected'）。
+  const valid = {
+    transitBaseUrl: 'https://api.transit.example',
+    proxyBaseUrl: 'https://proxy.example',
+    appCheck,
+    fetch: okFetch(),
+  };
+
+  it('プロキシのベース URL が空なら組み立てを拒む', () => {
+    expect(() => createRouteService({ ...valid, proxyBaseUrl: '' })).toThrow(
+      /VITE_PROXY_BASE_URL/,
+    );
+  });
+
+  it('Transit のベース URL が空なら組み立てを拒む', () => {
+    expect(() => createRouteService({ ...valid, transitBaseUrl: '' })).toThrow(
+      /VITE_TRANSIT_API_BASE_URL/,
+    );
+  });
+
+  it('絶対 URL でないベースも拒む', () => {
+    expect(() =>
+      createRouteService({ ...valid, proxyBaseUrl: '/api' }),
+    ).toThrow(/VITE_PROXY_BASE_URL/);
+  });
+
+  it('両方そろっていれば組み立てられる', () => {
+    expect(() => createRouteService(valid)).not.toThrow();
+  });
+});
+
 describe('createRouteService', () => {
   const planArgs = {
     destination: '東京駅',

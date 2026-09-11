@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { RoutePhase } from '@aruku/engine/services/route-service';
+import { budgetMinutes } from '@aruku/engine/services/route-plan-builder';
 import type { RoutePlan } from '@aruku/engine/models/route-plan';
 
 import { resolveRedirect } from '../../src/navigation/guard';
@@ -76,7 +77,49 @@ describe('go', () => {
 });
 
 describe('初期状態', () => {
-  it('出発は「今すぐ」で、経路も失敗も持たない', () => {
+  // 移植元は AppState.initial の 00:00 リテラルを AppNotifier.build() が現在時刻と
+  // 「+ kInitialBudgetMinutes」で上書きする。リテラルだけ運ぶと予算 0 分の検索に
+  // なり、isNow の出発も深夜 0 時に固定される。
+  it('出発は現在時刻の「今すぐ」になる', () => {
+    const now = new Date(2026, 8, 11, 14, 23);
+    const store = createAppStore({}, () => now);
+
+    expect(store.getState().departure).toMatchObject({
+      h: 14,
+      m: 23,
+      isNow: true,
+      dateOffset: 0,
+    });
+  });
+
+  it('到着は出発の60分後になる', () => {
+    const store = createAppStore({}, () => new Date(2026, 8, 11, 14, 23));
+
+    expect(store.getState().arrival).toMatchObject({
+      h: 15,
+      m: 23,
+      dateOffset: 0,
+    });
+  });
+
+  it('日跨ぎは到着の dateOffset へ繰り上げる', () => {
+    const store = createAppStore({}, () => new Date(2026, 8, 11, 23, 30));
+
+    expect(store.getState().arrival).toMatchObject({
+      h: 0,
+      m: 30,
+      dateOffset: 1,
+    });
+  });
+
+  it('初期の予算は60分', () => {
+    const store = createAppStore({}, () => new Date(2026, 8, 11, 23, 30));
+    const { departure, arrival } = store.getState();
+
+    expect(budgetMinutes(departure, arrival)).toBe(60);
+  });
+
+  it('経路も失敗も持たない', () => {
     const store = createAppStore();
     const state = store.getState();
 

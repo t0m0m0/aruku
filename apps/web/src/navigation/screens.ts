@@ -15,7 +15,12 @@ export const Screen = {
 } as const;
 export type Screen = (typeof Screen)[keyof typeof Screen];
 
-/// ネスト構造は戻り先を表す（settings/search/result/error→home）。
+/// パスの前置きは戻り先の**意図**を表す（settings/search/result/error→home）。
+///
+/// ただし React Router ではこれだけでは戻り先にならない。ネストは `<Outlet>` の入れ子で
+/// あって履歴を積まないためで、実際に [home, 子] を保つのは navigator.ts の push /
+/// replace の使い分け。移植元は go_router のネスト構造が pop スタックを兼ねていた
+/// （PR #391 レビュー）。
 export const screenPath: Readonly<Record<Screen, string>> = {
   [Screen.home]: '/home',
   [Screen.settings]: '/home/settings',

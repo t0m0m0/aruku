@@ -2,6 +2,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 
 import { TimeValue } from '@aruku/engine/models/time-value';
 
+import { kInitialBudgetMinutes } from './app-state';
 import { screenPath, type Screen } from '../navigation/screens';
 import type { RouteCore } from './app-state';
 
@@ -23,15 +24,33 @@ export interface AppActions {
 
 export type AppStore = RouteCore & AppActions;
 
-/// 移植元 `AppState.initial` と同じ初期値。
-function initialCore(): RouteCore {
+/// 現在時刻の供給元。テストで初期値を固定できるよう注入可能にする。
+export type Now = () => Date;
+
+/// 移植元の `AppState.initial` + `AppNotifier.build()` の初期値。
+///
+/// 00:00 のリテラルをそのまま運んではいけない。移植元はそれを build() で現在時刻と
+/// 「出発 + [kInitialBudgetMinutes]」へ差し替えており、リテラルのままだと予算 0 分の
+/// 検索になり、isNow の出発も深夜 0 時に固定される（PR #391 レビュー）。
+function initialCore(now: Now): RouteCore {
+  const at = now();
+  // 日跨ぎ（深夜出発）は arrival の dateOffset に繰り上げる。
+  const arrivalTotal = at.getHours() * 60 + at.getMinutes() + kInitialBudgetMinutes;
   return {
     destination: null,
     destinationLatLng: null,
     origin: null,
     originLatLng: null,
-    departure: new TimeValue({ h: 0, m: 0, isNow: true }),
-    arrival: new TimeValue({ h: 0, m: 0 }),
+    departure: new TimeValue({
+      h: at.getHours(),
+      m: at.getMinutes(),
+      isNow: true,
+    }),
+    arrival: new TimeValue({
+      h: Math.floor(arrivalTotal / 60) % 24,
+      m: arrivalTotal % 60,
+      dateOffset: Math.floor(arrivalTotal / (24 * 60)),
+    }),
     route: null,
     routeAsOf: null,
     routeErrorKind: null,
@@ -41,11 +60,12 @@ function initialCore(): RouteCore {
 
 export function createAppStore(
   initial: Partial<RouteCore> = {},
+  now: Now = () => new Date(),
 ): StoreApi<AppStore> {
   let navigate: Navigate | null = null;
 
   return createStore<AppStore>()((set) => ({
-    ...initialCore(),
+    ...initialCore(now),
     ...initial,
 
     attachNavigator(next: Navigate) {
