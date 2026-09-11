@@ -178,7 +178,18 @@ export function evenSample<T>(items: T[], maxCount: number): T[] {
   return notImplemented(`evenSample(${items.length}, ${maxCount})`);
 }
 
-/// 2点間の大円距離（km）。
+/// 2点間の大圏距離（km）。徒歩区間の距離概算に用いる。
 export function haversineKm(a: GeoPoint, b: GeoPoint): number {
-  return notImplemented(`haversineKm(${a.lat}, ${b.lat})`);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * earthRadiusKm * Math.asin(Math.min(1, Math.sqrt(h)));
 }
+
+const earthRadiusKm = 6371.0088;
+
+const toRad = (deg: number): number => (deg * Math.PI) / 180;

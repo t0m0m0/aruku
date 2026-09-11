@@ -1,7 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    // Node 22（package.json の engines）も Phase 3 のブラウザも ES2023 の配列メソッド
+    // （findLast/findLastIndex）を持つ。target を上げないのは出力構文の話で、
+    // lib は「実行環境にどの API があるか」の宣言。
+    "lib": ["ES2023"],
     "module": "preserve",
     "moduleResolution": "bundler",
     "types": ["node"],
