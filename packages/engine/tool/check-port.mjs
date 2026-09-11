@@ -29,6 +29,7 @@ const FILE_MAP = {
   'search-deadline.test.ts': 'search_deadline_test.dart',
   'rail-line-names.test.ts': 'rail_line_names_test.dart',
   'search-scoped-route-service.test.ts': 'search_scoped_route_service_test.dart',
+  'app-settings.test.ts': 'app_settings_test.dart',
 };
 
 /// Phase 1 で**緑になってよい**テスト。データクラスのフィールド既定値だけを主張する
