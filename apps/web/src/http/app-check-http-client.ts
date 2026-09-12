@@ -1,3 +1,5 @@
+import { ClientException } from '@aruku/engine/services/http-client';
+
 import { BaseHttpClient, type HttpHeaders, type StreamedResponse } from './http';
 
 /// App Check トークンを取得する関数。テストでは Firebase に触れない fake を注入して
@@ -35,6 +37,8 @@ export class AppCheckHttpClient extends BaseHttpClient {
     super();
   }
 
+  private readonly aborter = new AbortController();
+
   /// このリクエストにリプレイ保護（使い捨て limited-use トークン）を要求するか。
   ///
   /// 重要（#155・#366）: この判定はサーバ側の consume 対象と**厳密に**一致させること。
@@ -57,10 +61,11 @@ export class AppCheckHttpClient extends BaseHttpClient {
 
   async send(url: URL, headers: HttpHeaders): Promise<StreamedResponse> {
     const needsLimitedUse = AppCheckHttpClient.requiresLimitedUseToken(url);
-    let token = await tokenFrom(
+    let token = await this.tokenOrClosed(
       needsLimitedUse
         ? this.options.limitedUseTokenProvider
         : this.options.tokenProvider,
+      url,
     );
 
     // 使い捨ての取得に失敗したら標準トークンへ縮退する。
@@ -74,7 +79,7 @@ export class AppCheckHttpClient extends BaseHttpClient {
     // 停止していない場合でも劣化に留まる: 1 回目は通り、同じトークンの 2 回目以降が
     // リプレイとして 401 になる。全要求 401 よりは良い。
     if (token === null && needsLimitedUse) {
-      token = await tokenFrom(this.options.tokenProvider);
+      token = await this.tokenOrClosed(this.options.tokenProvider, url);
     }
 
     return this.inner.send(
@@ -84,7 +89,43 @@ export class AppCheckHttpClient extends BaseHttpClient {
   }
 
   close(): void {
+    this.aborter.abort();
     this.inner.close();
+  }
+
+  /// トークンを取りに行く。取得中に [close] されたら待たずに倒れる。
+  ///
+  /// 待ち続けると、検索の離脱後もタイムアウト（既定15秒）まで送信前の要求が残る。
+  /// 内側の fetch を閉じても、まだ fetch に達していないこの待ちは止まらない。
+  /// アテステーションも走り続けるのでクォータを無駄に焼く（#259・PR #391 レビュー）。
+  private async tokenOrClosed(
+    provider: AppCheckTokenProvider,
+    url: URL,
+  ): Promise<string | null> {
+    if (this.aborter.signal.aborted) {
+      throw new ClientException(`Client is already closed: ${url.href}`);
+    }
+
+    let onAbort: (() => void) | null = null;
+    const closed = new Promise<never>((_resolve, reject) => {
+      onAbort = () =>
+        reject(
+          new ClientException(
+            `Client was closed while acquiring an App Check token: ${url.href}`,
+          ),
+        );
+      this.aborter.signal.addEventListener('abort', onAbort, { once: true });
+    });
+
+    try {
+      return await Promise.race([tokenFrom(provider), closed]);
+    } finally {
+      // 決着後にリスナを残さない。1リクエストごとに積むので、外さないと
+      // 検索1回（最大13本）ぶんが close まで居座る。
+      if (onAbort !== null) {
+        this.aborter.signal.removeEventListener('abort', onAbort);
+      }
+    }
   }
 }
 

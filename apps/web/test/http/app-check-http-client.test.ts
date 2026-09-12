@@ -14,7 +14,10 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { TimeoutException } from '@aruku/engine/services/http-client';
+import {
+  ClientException,
+  TimeoutException,
+} from '@aruku/engine/services/http-client';
 
 import { AppCheckHttpClient } from '../../src/http/app-check-http-client';
 import { BaseHttpClient, type HttpHeaders, type StreamedResponse } from '../../src/http/http';
@@ -223,6 +226,38 @@ describe('使い捨てトークン取得の失敗時は標準トークンへ縮�
 
     expect(limitedUseCalls).toBe(0);
     expect(inner.lastHeaders).not.toHaveProperty(headerName);
+  });
+});
+
+describe('AppCheckHttpClient.close によるトークン待ちの打ち切り (#259)', () => {
+  // キャンセル時に scoped client が閉じられても、トークン取得中の send は待ち続け、
+  // 上位のタイムアウト（15秒）まで残る。離脱後に走り続けない契約に合わせる
+  // （PR #391 レビュー）。
+  const hangingProviders = {
+    tokenProvider: () => new Promise<string>(() => {}),
+    limitedUseTokenProvider: () => new Promise<string>(() => {}),
+  };
+
+  it('トークン待ちの最中に close すると ClientException で倒れる', async () => {
+    const client = new AppCheckHttpClient(
+      new FakeInnerClient(),
+      hangingProviders,
+    );
+
+    const pending = client.send(url(), {});
+    client.close();
+
+    await expect(pending).rejects.toThrow(ClientException);
+  });
+
+  it('close 後の send はトークンを待たずに倒れる', async () => {
+    const inner = new FakeInnerClient();
+    const client = new AppCheckHttpClient(inner, hangingProviders);
+
+    client.close();
+
+    await expect(client.send(url(), {})).rejects.toThrow(ClientException);
+    expect(inner.lastHeaders).toBeNull();
   });
 });
 

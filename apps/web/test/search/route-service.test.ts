@@ -118,6 +118,39 @@ describe('ベース URL の検証', () => {
     ).toThrow(/VITE_PROXY_BASE_URL/);
   });
 
+  // URL.canParse は「絶対 URL か」しか見ない。エンジンは base と path を**文字列連結**
+  // してから new URL するので、連結してなお意図した経路になる形だけを通す必要がある
+  // （PR #391 レビュー）。
+  it('クエリを持つベース URL を拒む', () => {
+    // 'https://proxy.example?tenant=a' + '/googleWalkProxy' は
+    // パスが '/'、クエリが 'tenant=a/googleWalkProxy' になり、プロキシに届かない。
+    expect(() =>
+      createRouteService({
+        ...valid,
+        proxyBaseUrl: 'https://proxy.example?tenant=a',
+      }),
+    ).toThrow(/VITE_PROXY_BASE_URL/);
+  });
+
+  it('フラグメントを持つベース URL を拒む', () => {
+    expect(() =>
+      createRouteService({ ...valid, proxyBaseUrl: 'https://proxy.example#x' }),
+    ).toThrow(/VITE_PROXY_BASE_URL/);
+  });
+
+  it('http / https 以外のスキームを拒む', () => {
+    // canParse は通すが、fetch まで行って初めて失敗する。
+    expect(() =>
+      createRouteService({ ...valid, proxyBaseUrl: 'mailto:a@example.com' }),
+    ).toThrow(/VITE_PROXY_BASE_URL/);
+  });
+
+  it('パス前置きのあるベース URL は通す（リライト運用）', () => {
+    expect(() =>
+      createRouteService({ ...valid, proxyBaseUrl: 'https://example.com/api' }),
+    ).not.toThrow();
+  });
+
   it('両方そろっていれば組み立てられる', () => {
     expect(() => createRouteService(valid)).not.toThrow();
   });

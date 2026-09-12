@@ -87,19 +87,39 @@ export function createRouteService(options: RouteServiceOptions): RouteService {
   });
 }
 
-/// ベース URL が絶対 URL であることを組み立て時に確かめる。
+/// ベース URL が、エンドポイントのパスを前置きできる形であることを組み立て時に確かめる。
 ///
 /// 空のまま渡すとエンジンが `new URL('/googleWalkMatrixProxy')` を評価する瞬間に
 /// TypeError で倒れる。移植元は `Uri.parse` が相対 URI を作れたので同じ穴が無い。
+///
+/// 「絶対 URL か」だけでは足りない。エンジンは base とパスを**文字列連結**してから
+/// `new URL` するため（transit-api-client.ts の `buildUri`）、連結してなお意図した
+/// 経路になる形だけを通す必要がある。`https://proxy.example?tenant=a` は絶対 URL だが、
+/// 連結すると `?tenant=a/googleWalkProxy` というクエリになりパスは `/` のまま——
+/// プロキシに届かないのに素通りする。`mailto:` も同様で、fetch まで行って初めて失敗する。
+///
+/// パスの前置き（`https://example.com/api`）は通す。リライト運用で実際に使う形のため。
 ///
 /// RouteException にしないのはエンジンの先例に倣う——配線漏れを RouteException に
 /// すると縮退パス（候補ドロップ・直線推定）に握り潰され、設定漏れが「徒歩が長い経路」
 /// として静かに出てしまう（transit-api-client.ts の 'no HTTP client was injected'）。
 /// 環境変数名を載せるのは、バンドル後のスタックからは出どころが読めないため。
 function requireAbsoluteBase(base: string, envName: string): void {
-  if (base !== '' && URL.canParse(base)) return;
+  if (isUsableBase(base)) return;
   throw new Error(
-    `createRouteService: ${envName} が絶対 URL ではありません（受け取った値: ${JSON.stringify(base)}）。` +
+    `createRouteService: ${envName} がエンドポイントの前置きに使えません` +
+      `（受け取った値: ${JSON.stringify(base)}）。` +
+      'http(s) の絶対 URL で、クエリとフラグメントを含まないこと。' +
       'apps/web/.env.example をコピーして .env を作ってください。',
+  );
+}
+
+function isUsableBase(base: string): boolean {
+  if (base === '' || !URL.canParse(base)) return false;
+  const url = new URL(base);
+  return (
+    (url.protocol === 'https:' || url.protocol === 'http:') &&
+    url.search === '' &&
+    url.hash === ''
   );
 }
