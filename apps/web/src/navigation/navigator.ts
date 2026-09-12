@@ -6,6 +6,9 @@ import { Screen, screenFromLocation, screenPath } from './screens';
 export interface RouterLike {
   currentPath(): string;
   navigate(path: string, options?: { replace?: boolean }): void;
+
+  /// 履歴を1つ戻る。子から home へ帰るときに、積んだ子を降ろすために使う。
+  back(): void;
 }
 
 /// ブラウザ履歴のうち、[seedInitialHistory] が要るもの。
@@ -23,23 +26,36 @@ export interface HistoryLike {
   pushState(url: string): void;
 }
 
-/// 移植元の戻り挙動（settings/search/result/error→home）を再現する push / replace の選択。
+/// 移植元の戻り挙動（settings/search/result/error→home）を再現する履歴操作の選択。
 ///
 /// 移植元は go_router のネスト構造で Navigator の pop スタックを作っていた。React Router
 /// のネストは `<Outlet>` の入れ子であって履歴を積まないので、URL の前置きだけでは戻り先に
-/// ならない。だからここで明示的に積む——home から子へだけ push し、それ以外は replace
-/// することで、履歴は常に高々 [home, 子] に保たれる。
-export function navigationIntent(from: Screen, to: Screen): 'push' | 'replace' {
-  return from === Screen.home && to !== Screen.home ? 'push' : 'replace';
+/// ならない。だからここで明示的に積み降ろしする。履歴は常に高々 [home, 子] に保たれる。
+///
+/// 子から home へ `replace` しないのは、それが [home, home] を作るため——最初の「戻る」が
+/// home を再表示するだけでアプリを離れられない。積んだ子を降ろす `pop` が移植元の挙動。
+///
+/// `pop` は「子に居るなら真下は home」という不変条件に依る。それを保っているのは
+/// このテーブル自身と [seedInitialHistory]（直接開いた子の下に home を敷く）。
+export function navigationIntent(
+  from: Screen,
+  to: Screen,
+): 'push' | 'replace' | 'pop' {
+  if (from === to) return 'replace';
+  if (from === Screen.home) return 'push';
+  return to === Screen.home ? 'pop' : 'replace';
 }
 
 export function createNavigator(router: RouterLike): Navigate {
   return (path: string) => {
     const from = screenFromLocation(router.currentPath());
     const to = screenFromLocation(path);
-    router.navigate(path, {
-      replace: navigationIntent(from, to) === 'replace',
-    });
+    const intent = navigationIntent(from, to);
+    if (intent === 'pop') {
+      router.back();
+      return;
+    }
+    router.navigate(path, { replace: intent === 'replace' });
   };
 }
 
@@ -56,11 +72,19 @@ export function createNavigator(router: RouterLike): Navigate {
 /// 未知のパスでは何もしない。[resolveRedirect] が home へ寄せるので、ここで敷くと
 /// 同じ home が2つ積まれるだけになる。
 ///
+/// [canSeed] が偽の画面にも敷かない。/home/result のように表示前提データを要る画面を
+/// 直接開くと、起動直後のストアはまだそれを持たずガードが home へ寄せる。先に [home, 子]
+/// を積むとその下に余分な home が残り、最初の「戻る」が home を再表示するだけになる
+/// （実ブラウザで履歴が +2 になるのを確認。PR #391 レビュー）。
+///
 /// ルーター由来のエントリでも何もしない。アプリ内で home→子と遷移した後のリロードが
 /// これにあたり、履歴は既に [home, 子] になっている。敷き直すとリロードのたびに home が
 /// 1つ増え、home へ戻った後に重複した home を何度も戻らないと離脱できなくなる
 /// （PR #391 レビュー。実ブラウザで history.length が 3→4 になるのを確認）。
-export function seedInitialHistory(history: HistoryLike): void {
+export function seedInitialHistory(
+  history: HistoryLike,
+  canSeed: (url: string) => boolean,
+): void {
   if (history.isRouterEntry()) return;
 
   // replaceState の前に控える。積み直す URL はクエリ・ハッシュごと元のまま——
@@ -69,6 +93,7 @@ export function seedInitialHistory(history: HistoryLike): void {
   const path = history.currentPath();
   const screen = screenFromLocation(path);
   if (screen === Screen.home || screenPath[screen] !== path) return;
+  if (!canSeed(url)) return;
   history.replaceState(screenPath[Screen.home]);
   history.pushState(url);
 }

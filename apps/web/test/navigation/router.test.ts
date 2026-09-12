@@ -54,6 +54,16 @@ describe('loader に配線されたガード', () => {
     expect(response?.headers.get('Location')).toBe(screenPath.home);
   });
 
+  it('跳ね返しは履歴を積まずに差し替える', () => {
+    // 積むと、弾かれた URL が履歴に残る。home へ着いた後の最初の「戻る」が
+    // home を再表示するだけになり、アプリを離れられない。
+    const routes = appRoutes(createAppStore(), () => now);
+
+    const response = run(routes, screenPath.result);
+
+    expect(response?.headers.get('X-Remix-Replace')).toBe('true');
+  });
+
   it('表示前提データが揃っていれば素通しする', () => {
     const routes = appRoutes(createAppStore({ route: someRoute }), () => now);
 

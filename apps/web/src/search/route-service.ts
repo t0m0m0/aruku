@@ -100,6 +100,6 @@ function requireAbsoluteBase(base: string, envName: string): void {
   if (base !== '' && URL.canParse(base)) return;
   throw new Error(
     `createRouteService: ${envName} が絶対 URL ではありません（受け取った値: ${JSON.stringify(base)}）。` +
-      'dart_defines.example.json 相当の設定を .env へ用意してください。',
+      'apps/web/.env.example をコピーして .env を作ってください。',
   );
 }

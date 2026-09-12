@@ -27,6 +27,9 @@ function fakeRouter(startPath: string) {
         path = next;
       }, 0);
     },
+    back() {
+      calls.push({ path: '(back)', replace: false });
+    },
   };
   return { router, calls };
 }
@@ -61,9 +64,16 @@ describe('navigationIntent', () => {
     expect(navigationIntent(Screen.loading, Screen.error)).toBe('replace');
   });
 
-  it('子から home へは replace する', () => {
+  it('子から home へは pop する', () => {
     // push すると [home, settings, home] になり、戻ると閉じた settings が出る。
-    expect(navigationIntent(Screen.settings, Screen.home)).toBe('replace');
+    // replace でも [home, home] になり、最初の「戻る」が home を再表示するだけで
+    // アプリを離れられない（実ブラウザで確認。PR #391 レビュー）。積んだ子を
+    // 降ろすのが移植元の pop に対応する。
+    expect(navigationIntent(Screen.settings, Screen.home)).toBe('pop');
+  });
+
+  it('home から home へは replace する（降ろす子が無い）', () => {
+    expect(navigationIntent(Screen.home, Screen.home)).toBe('replace');
   });
 });
 
@@ -84,7 +94,7 @@ describe('createNavigator', () => {
     expect(calls).toEqual([
       { path: screenPath.search, replace: false },
       { path: screenPath.result, replace: true },
-      { path: screenPath.home, replace: true },
+      { path: '(back)', replace: false },
     ]);
   });
 
@@ -109,7 +119,7 @@ describe('seedInitialHistory', () => {
     // deep link では履歴にその1件しか無く、戻るとアプリの外へ出てしまう。
     const { history, calls } = fakeHistory(screenPath.settings);
 
-    seedInitialHistory(history);
+    seedInitialHistory(history, () => true);
 
     expect(calls).toEqual([
       { path: screenPath.home, replace: true },
@@ -120,7 +130,7 @@ describe('seedInitialHistory', () => {
   it('home で開いたときは何もしない', () => {
     const { history, calls } = fakeHistory(screenPath.home);
 
-    seedInitialHistory(history);
+    seedInitialHistory(history, () => true);
 
     expect(calls).toEqual([]);
   });
@@ -128,7 +138,7 @@ describe('seedInitialHistory', () => {
   it('未知のパスで開いたときは何もしない（ガードが home へ寄せる）', () => {
     const { history, calls } = fakeHistory('/home/nav');
 
-    seedInitialHistory(history);
+    seedInitialHistory(history, () => true);
 
     expect(calls).toEqual([]);
   });
@@ -138,7 +148,18 @@ describe('seedInitialHistory', () => {
     // ここで敷き直すと [home, home, 子] になり、リロードのたびに home が増える。
     const { history, calls } = fakeHistory(screenPath.settings, true);
 
-    seedInitialHistory(history);
+    seedInitialHistory(history, () => true);
+
+    expect(calls).toEqual([]);
+  });
+
+  it('初回のガードを通れない画面には敷かない', () => {
+    // /home/result を直接開くと、まだ経路を持たないストアではガードが home へ
+    // 寄せる。先に [home, result] を積むと、その下に余分な home が残り、最初の
+    // 「戻る」が home を再表示するだけになる（実ブラウザで履歴が +2 になるのを確認）。
+    const { history, calls } = fakeHistory(screenPath.result);
+
+    seedInitialHistory(history, () => false);
 
     expect(calls).toEqual([]);
   });
@@ -148,7 +169,7 @@ describe('seedInitialHistory', () => {
     // 状態が黙って消える（screenFromLocation はクエリ付きを明示的に扱う）。
     const { history, calls } = fakeHistory('/home/settings?tab=a#section');
 
-    seedInitialHistory(history);
+    seedInitialHistory(history, () => true);
 
     expect(calls).toEqual([
       { path: screenPath.home, replace: true },

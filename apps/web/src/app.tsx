@@ -1,5 +1,6 @@
 import { createBrowserRouter, RouterProvider } from 'react-router';
 
+import { resolveRedirect } from './navigation/guard';
 import {
   browserHistory,
   createNavigator,
@@ -13,8 +14,10 @@ export const appStore = createAppStore();
 
 // ルーターを作る前に敷く。ルーターは RouterProvider がマウントするまで履歴に
 // 繋がらないので、作った後では履歴に現れない（navigator.ts 参照）。
-// ルーター由来のエントリ（＝リロード）では何もしない。
-seedInitialHistory(browserHistory());
+// ルーター由来のエントリ（＝リロード）と、起動直後のガードを通れない画面は除く。
+seedInitialHistory(browserHistory(), (url) =>
+  resolveRedirect(url, appStore.getState(), new Date()) === null,
+);
 
 const router = createBrowserRouter(appRoutes(appStore));
 
@@ -22,6 +25,9 @@ const routerLike: RouterLike = {
   currentPath: () => router.state.location.pathname,
   navigate: (path, options) => {
     void router.navigate(path, options);
+  },
+  back: () => {
+    void router.navigate(-1);
   },
 };
 

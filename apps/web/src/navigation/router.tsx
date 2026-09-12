@@ -1,4 +1,4 @@
-import { redirect, type RouteObject } from 'react-router';
+import { replace, type RouteObject } from 'react-router';
 import type { StoreApi } from 'zustand/vanilla';
 
 import type { AppStore } from '../state/store';
@@ -27,9 +27,13 @@ export function appRoutes(
   store: StoreApi<AppStore>,
   now: Now = () => new Date(),
 ): RouteObject[] {
+  // `redirect` ではなく `replace` を投げる。`redirect` は跳ね返し先を**積む**ので、
+  // 弾かれた URL が履歴に残り、home へ着いた後の最初の「戻る」が home を再表示する
+  // だけになる（実ブラウザで確認。PR #391 レビュー）。ガードが拒んだ location は
+  // 履歴に残してはいけない。
   const guard = ({ request }: { request: Request }): null => {
     const to = resolveRedirect(request.url, store.getState(), now());
-    if (to !== null) throw redirect(to);
+    if (to !== null) throw replace(to);
     return null;
   };
 

@@ -1,2 +1,8 @@
 node_modules/
 dist/
+
+# Vite が読む環境変数ファイル。VITE_PROXY_BASE_URL などの実値が入る。
+# 置き場所の作法は dart_defines.json と同じ——実ファイルは追跡せず、雛形だけ配る。
+.env
+.env.*
+!.env.example

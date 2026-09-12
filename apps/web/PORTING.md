@@ -30,7 +30,12 @@ Phase 3（アプリ側）の決定と対応表。
 ネストは `<Outlet>` の入れ子であって履歴を積まないので、URL の前置きだけでは戻り先にならない
 （PR #391 レビュー）。`navigator.ts` で明示的に作っている。
 
-- **home から子へだけ push、それ以外は replace。** 履歴を常に高々 `[home, 子]` に保つ
+- **home から子へは push、子から子へは replace、子から home へは pop。**
+  履歴を常に高々 `[home, 子]` に保つ。子から home へ `replace` すると `[home, home]` になり、
+  最初の「戻る」が home を再表示するだけでアプリを離れられない（実ブラウザで確認）。
+  積んだ子を降ろす pop が移植元の Navigator.pop に対応する
+- **ガードの跳ね返しは `redirect` ではなく `replace`。** `redirect` は跳ね返し先を積むので、
+  弾かれた URL が履歴に残る。ガードが拒んだ location を履歴に残してはいけない
 - **子を直接開いたときは、ルーターを作る前に生の History API で home を敷く。**
   ルーターは `RouterProvider` がマウントするまで履歴に繋がらず、それ以前の `navigate` は
   履歴に現れない（実ブラウザで確認）。マウント後に遷移で積む手もあるが、home を1フレーム
@@ -40,6 +45,9 @@ Phase 3（アプリ側）の決定と対応表。
   増える（実ブラウザで `history.length` が 3→4 になるのを確認）。判定は `history.state` の
   有無——React Router は自分の作ったエントリに `{idx, key, usr}` を刻み、アドレスバー
   直打ちや外部からの deep link は null で入ってくる
+- **起動直後のガードを通れない画面には敷かない。** `/home/result` のように表示前提データを
+  要る画面を直接開くと、まだ経路を持たないストアではガードが home へ寄せる。先に
+  `[home, result]` を積むとその下に余分な home が残る
 - **積み直す URL はクエリ・ハッシュごと保つ。** 分類は `pathname` で行うが、`pathname` だけを
   push すると `?tab=a#section` が黙って消える（`screenFromLocation` はクエリ付きを明示的に扱う）
 
@@ -110,6 +118,18 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 （`router.state.location` の更新が非同期のため）。home→loading→error が一気に起きる経路で
 履歴が `[home, loading, error]` になりうるが、戻り先の loading は routePhase を失っており
 ガードが home へ寄せるので安全側に倒れる。テストに事実として残してある。
+
+## 設定
+
+`.env` はコミットしない（`apps/web/.gitignore` が `.env*` を除外し、`.env.example` だけ通す）。
+`dart_defines.json` / `dart_defines.example.json` と同じ作法。
+
+```bash
+cp apps/web/.env.example apps/web/.env
+```
+
+`VITE_` の値はバンドルへ焼かれブラウザから読める。秘匿値を置かないこと
+（`docs/security_hardening.md`）。
 
 ## 動かす
 
