@@ -40,6 +40,37 @@ jobs:
         run: npm run check:port
         working-directory: packages/engine
 
+  web:
+    name: web typecheck / test / build (apps/web)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: apps/web
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+        working-directory: apps/web
+
+      - name: Test
+        run: npm test
+        working-directory: apps/web
+
+      # 型解決（tsconfig の paths）とバンドル解決（vite.config.ts の alias）は
+      # 別々に書くので食い違いうる。tsc と vitest だけでは本番ビルドの解決が
+      # 壊れていても気付けないため、ここで実際に束ねる。
+      - name: Build
+        run: npx vite build
+        working-directory: apps/web
+
   analyze-and-test:
     name: format / analyze / test
     runs-on: ubuntu-latest
