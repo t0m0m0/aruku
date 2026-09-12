@@ -22,6 +22,12 @@ export interface HistoryLike {
   /// 現在のエントリがこのアプリのルーターの作ったものか。
   isRouterEntry(): boolean;
 
+  /// このアプリの履歴に、現在のエントリより手前があるか。
+  hasParentEntry(): boolean;
+
+  /// 1つ戻る。
+  back(): void;
+
   replaceState(url: string): void;
   pushState(url: string): void;
 }
@@ -85,14 +91,22 @@ export function seedInitialHistory(
   history: HistoryLike,
   canSeed: (url: string) => boolean,
 ): void {
-  if (history.isRouterEntry()) return;
-
   // replaceState の前に控える。積み直す URL はクエリ・ハッシュごと元のまま——
   // pathname だけにすると deep link の状態が黙って消える。
   const url = history.currentUrl();
   const path = history.currentPath();
   const screen = screenFromLocation(path);
   if (screen === Screen.home || screenPath[screen] !== path) return;
+
+  if (history.isRouterEntry()) {
+    // リロードでここへ来る。表示前提データはメモリ上のストアにしか無いので、
+    // アプリ内で開いた result / loading / error をリロードすると通らなくなる。
+    // ガードに差し替えさせると真下の home と重なって [home, home] になるため、
+    // 既にある home へ降りる。降りるだけならエントリは増えない。
+    if (!canSeed(url) && history.hasParentEntry()) history.back();
+    return;
+  }
+
   if (!canSeed(url)) return;
   history.replaceState(screenPath[Screen.home]);
   history.pushState(url);
@@ -110,7 +124,18 @@ export function browserHistory(): HistoryLike {
     currentUrl: () =>
       `${window.location.pathname}${window.location.search}${window.location.hash}`,
     isRouterEntry: () => window.history.state !== null,
+    // React Router は自分の履歴の深さを `idx` に持つ。0 は「このアプリで最初に開いた
+    // エントリ」で、手前へ降りるとアプリの外へ出る。
+    hasParentEntry: () => {
+      const state: unknown = window.history.state;
+      const idx =
+        typeof state === 'object' && state !== null && 'idx' in state
+          ? state.idx
+          : null;
+      return typeof idx === 'number' && idx > 0;
+    },
     replaceState: (url) => window.history.replaceState(null, '', url),
     pushState: (url) => window.history.pushState(null, '', url),
+    back: () => window.history.back(),
   };
 }

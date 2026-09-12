@@ -34,16 +34,21 @@ function fakeRouter(startPath: string) {
   return { router, calls };
 }
 
-function fakeHistory(startUrl: string, isRouterEntry = false) {
+function fakeHistory(
+  startUrl: string,
+  options: { isRouterEntry?: boolean; hasParentEntry?: boolean } = {},
+) {
   const calls: { path: string; replace: boolean }[] = [];
   const url = new URL(startUrl, 'https://app.test');
   return {
     history: {
       currentPath: () => url.pathname,
       currentUrl: () => `${url.pathname}${url.search}${url.hash}`,
-      isRouterEntry: () => isRouterEntry,
+      isRouterEntry: () => options.isRouterEntry === true,
+      hasParentEntry: () => options.hasParentEntry === true,
       replaceState: (path: string) => calls.push({ path, replace: true }),
       pushState: (path: string) => calls.push({ path, replace: false }),
+      back: () => calls.push({ path: '(back)', replace: false }),
     } satisfies HistoryLike,
     calls,
   };
@@ -146,9 +151,35 @@ describe('seedInitialHistory', () => {
   it('ルーター由来のエントリでは敷き直さない', () => {
     // アプリ内で home→子と遷移した後にリロードすると、履歴は既に [home, 子]。
     // ここで敷き直すと [home, home, 子] になり、リロードのたびに home が増える。
-    const { history, calls } = fakeHistory(screenPath.settings, true);
+    const { history, calls } = fakeHistory(screenPath.settings, {
+      isRouterEntry: true,
+    });
 
     seedInitialHistory(history, () => true);
+
+    expect(calls).toEqual([]);
+  });
+
+  it('リロードで通らなくなった子からは真下の home へ降りる', () => {
+    // アプリ内で開いた result をリロードすると、経路はメモリ上にしか無いので
+    // ガードが弾く。差し替えさせると真下の home と重なって [home, home] になる。
+    const { history, calls } = fakeHistory(screenPath.result, {
+      isRouterEntry: true,
+      hasParentEntry: true,
+    });
+
+    seedInitialHistory(history, () => false);
+
+    expect(calls).toEqual([{ path: '(back)', replace: false }]);
+  });
+
+  it('手前が無いなら降りない（アプリの外へ出てしまう）', () => {
+    const { history, calls } = fakeHistory(screenPath.result, {
+      isRouterEntry: true,
+      hasParentEntry: false,
+    });
+
+    seedInitialHistory(history, () => false);
 
     expect(calls).toEqual([]);
   });

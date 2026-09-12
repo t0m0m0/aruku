@@ -145,6 +145,40 @@ describe('ベース URL の検証', () => {
     ).toThrow(/VITE_PROXY_BASE_URL/);
   });
 
+  // 素の区切り文字だけが末尾に付いた値は、URL API では search も hash も空文字に
+  // なるため「クエリ無し」の検査を素通りする。連結して初めて壊れる（PR #391 レビュー）。
+  it('末尾が素の ? のベース URL を拒む', () => {
+    // 連結すると search が '?/googleWalkProxy' になり、パスは '/api' のまま。
+    expect(() =>
+      createRouteService({
+        ...valid,
+        proxyBaseUrl: 'https://proxy.example/api?',
+      }),
+    ).toThrow(/VITE_PROXY_BASE_URL/);
+  });
+
+  it('末尾が素の # のベース URL を拒む', () => {
+    expect(() =>
+      createRouteService({
+        ...valid,
+        proxyBaseUrl: 'https://proxy.example/api#',
+      }),
+    ).toThrow(/VITE_PROXY_BASE_URL/);
+  });
+
+  it('末尾に空白のあるベース URL を拒む', () => {
+    // URL のパースは空白を落とすので単体では通るが、連結した URL は例外になる。
+    expect(() =>
+      createRouteService({ ...valid, proxyBaseUrl: 'https://proxy.example ' }),
+    ).toThrow(/VITE_PROXY_BASE_URL/);
+  });
+
+  it('末尾スラッシュのあるベース URL は通す', () => {
+    expect(() =>
+      createRouteService({ ...valid, proxyBaseUrl: 'https://proxy.example/' }),
+    ).not.toThrow();
+  });
+
   it('パス前置きのあるベース URL は通す（リライト運用）', () => {
     expect(() =>
       createRouteService({ ...valid, proxyBaseUrl: 'https://example.com/api' }),

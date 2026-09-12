@@ -114,12 +114,24 @@ function requireAbsoluteBase(base: string, envName: string): void {
   );
 }
 
+/// エンジンと同じ文字列連結を実際に試して確かめる。
+///
+/// 個別の性質（クエリの有無など）を URL API に尋ねるだけでは足りない。素の区切り文字
+/// だけが末尾に付いた `https://proxy.example/api?` は `search` も `hash` も空文字で返り、
+/// 検査を素通りするのに、連結すると `?/googleWalkProxy` というクエリになってパスは
+/// `/api` のまま。末尾の空白は逆に、単体ではパースできるのに連結した URL が例外になる。
+/// 壊れ方が連結後にしか現れない以上、連結して確かめるのが唯一の確実な検査。
 function isUsableBase(base: string): boolean {
   if (base === '' || !URL.canParse(base)) return false;
-  const url = new URL(base);
+  const { protocol } = new URL(base);
+  if (protocol !== 'https:' && protocol !== 'http:') return false;
+
+  const probePath = '/__endpoint_probe__';
+  if (!URL.canParse(`${base}${probePath}`)) return false;
+  const built = new URL(`${base}${probePath}`);
   return (
-    (url.protocol === 'https:' || url.protocol === 'http:') &&
-    url.search === '' &&
-    url.hash === ''
+    built.pathname.endsWith(probePath) &&
+    built.search === '' &&
+    built.hash === ''
   );
 }
