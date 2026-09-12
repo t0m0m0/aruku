@@ -98,6 +98,45 @@ describe('表示前提データが揃っていれば素通しする', () => {
   });
 });
 
+describe('undefined の前提データ', () => {
+  // RouteCore のフィールドは `X | null` だが、go() / createAppStore() が受ける
+  // Partial<RouteCore> には `{ route: undefined }` を渡せてしまう（型では防げない
+  // ——防ぐには exactOptionalPropertyTypes が要るが、それは packages/engine の
+  // ソースにも掛かる。PR #391 レビュー）。undefined を「在る」と読むと、データを
+  // 持たない result / loading / error が描画される。
+  it('undefined の route では result を表示しない', () => {
+    const state = { ...core(), route: undefined } as unknown as RouteCore;
+
+    expect(resolveRedirect('/home/result', state, now)).toBe('/home');
+  });
+
+  it('undefined の routePhase では loading を表示しない', () => {
+    const state = { ...core(), routePhase: undefined } as unknown as RouteCore;
+
+    expect(resolveRedirect('/home/loading', state, now)).toBe('/home');
+  });
+
+  it('undefined の routeErrorKind では error を表示しない', () => {
+    const state = {
+      ...core(),
+      routeErrorKind: undefined,
+    } as unknown as RouteCore;
+
+    expect(resolveRedirect('/home/error', state, now)).toBe('/home');
+  });
+
+  it('undefined の routeAsOf でも失効判定が落ちない', () => {
+    // `=== null` だと undefined を素通しし、getTime() で TypeError になる。
+    const state = {
+      ...core(),
+      route: someRoute,
+      routeAsOf: undefined,
+    } as unknown as RouteCore;
+
+    expect(resolveRedirect('/home/result', state, now)).toBeNull();
+  });
+});
+
 describe('isNow 経路の失効 (#264)', () => {
   const withRoute = (ageMs: number): RouteCore =>
     core({ route: someRoute, routeAsOf: new Date(now.getTime() - ageMs) });

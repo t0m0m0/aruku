@@ -60,9 +60,11 @@ export interface RouteCore {
 /// 不変条件を保つ（固定出発の検索・リルートでは null）。フォームを見ると、now 経路を
 /// 残したまま出発を固定へ変えた後などに、保持中の now 経路が失効判定から外れてしまう。
 export function isNowRouteExpired(state: RouteCore, now: Date): boolean {
+  // `!= null` で undefined も「無い」に含める。`!== null` だと undefined を素通しし、
+  // 直後の getTime() が TypeError になる（guard.ts の同じ注記を参照）。
   return (
-    state.route !== null &&
-    state.routeAsOf !== null &&
+    state.route != null &&
+    state.routeAsOf != null &&
     now.getTime() - state.routeAsOf.getTime() >= routeFreshness
   );
 }

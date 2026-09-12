@@ -35,6 +35,13 @@ Phase 3（アプリ側）の決定と対応表。
   ルーターは `RouterProvider` がマウントするまで履歴に繋がらず、それ以前の `navigate` は
   履歴に現れない（実ブラウザで確認）。マウント後に遷移で積む手もあるが、home を1フレーム
   描いてから子へ跳ぶちらつきが出る
+- **ただしルーター由来のエントリでは敷き直さない。** アプリ内で home→子と遷移した後の
+  リロードがこれにあたり、履歴は既に `[home, 子]`。敷き直すとリロードのたびに home が1つ
+  増える（実ブラウザで `history.length` が 3→4 になるのを確認）。判定は `history.state` の
+  有無——React Router は自分の作ったエントリに `{idx, key, usr}` を刻み、アドレスバー
+  直打ちや外部からの deep link は null で入ってくる
+- **積み直す URL はクエリ・ハッシュごと保つ。** 分類は `pathname` で行うが、`pathname` だけを
+  push すると `?tab=a#section` が黙って消える（`screenFromLocation` はクエリ付きを明示的に扱う）
 
 `PopScope(canPop: false)`（home・loading で戻るを無効化）は**再現しない**。あれは「戻るでアプリが
 終了しない」というモバイルの要請で、web では戻ってサイトを離れるのが当然の挙動。ただし loading から
@@ -86,6 +93,16 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
   #386 が UI ごと作らないと決めたもの。**運ばないことが決定であって、保留ではない**
 - 行程 handoff（`JourneyProgress`）— 上の歩数同期に依存する。結果画面のスライスで判断する
 - loading から戻ったときの検索中断 — 上記のとおり検索のライフサイクルと対
+
+### exactOptionalPropertyTypes は入れていない
+
+`go()` が受ける `Partial<RouteCore>` には `{ route: undefined }` を渡せてしまい、
+`X | null` を `=== null` で見ている箇所が「在る」と誤読する。型で塞ぐには
+`exactOptionalPropertyTypes` だが、`apps/web` の tsconfig はエンジンのソースにも掛かる
+（`paths` で直参照しているため）。`packages/engine` 側は有効にしていないので、
+その設定下では通らないコードが 8 箇所出る。パッケージを跨いで厳しさを持ち込むことになるので
+見送り、描画の可否を決める最後の関門（`guard.ts` と `isNowRouteExpired`）を `== null` で
+受け止める形にした。エンジン側で有効化する判断は #385 の範囲。
 
 ### 既知の劣化
 

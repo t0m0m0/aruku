@@ -31,11 +31,14 @@ function fakeRouter(startPath: string) {
   return { router, calls };
 }
 
-function fakeHistory(startPath: string) {
+function fakeHistory(startUrl: string, isRouterEntry = false) {
   const calls: { path: string; replace: boolean }[] = [];
+  const url = new URL(startUrl, 'https://app.test');
   return {
     history: {
-      currentPath: () => startPath,
+      currentPath: () => url.pathname,
+      currentUrl: () => `${url.pathname}${url.search}${url.hash}`,
+      isRouterEntry: () => isRouterEntry,
       replaceState: (path: string) => calls.push({ path, replace: true }),
       pushState: (path: string) => calls.push({ path, replace: false }),
     } satisfies HistoryLike,
@@ -128,5 +131,28 @@ describe('seedInitialHistory', () => {
     seedInitialHistory(history);
 
     expect(calls).toEqual([]);
+  });
+
+  it('ルーター由来のエントリでは敷き直さない', () => {
+    // アプリ内で home→子と遷移した後にリロードすると、履歴は既に [home, 子]。
+    // ここで敷き直すと [home, home, 子] になり、リロードのたびに home が増える。
+    const { history, calls } = fakeHistory(screenPath.settings, true);
+
+    seedInitialHistory(history);
+
+    expect(calls).toEqual([]);
+  });
+
+  it('クエリとハッシュを保ったまま積み直す', () => {
+    // 分類は pathname で行うが、積み直す URL は元のまま。落とすと deep link の
+    // 状態が黙って消える（screenFromLocation はクエリ付きを明示的に扱う）。
+    const { history, calls } = fakeHistory('/home/settings?tab=a#section');
+
+    seedInitialHistory(history);
+
+    expect(calls).toEqual([
+      { path: screenPath.home, replace: true },
+      { path: '/home/settings?tab=a#section', replace: false },
+    ]);
   });
 });

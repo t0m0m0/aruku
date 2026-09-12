@@ -13,6 +13,7 @@ export const appStore = createAppStore();
 
 // ルーターを作る前に敷く。ルーターは RouterProvider がマウントするまで履歴に
 // 繋がらないので、作った後では履歴に現れない（navigator.ts 参照）。
+// ルーター由来のエントリ（＝リロード）では何もしない。
 seedInitialHistory(browserHistory());
 
 const router = createBrowserRouter(appRoutes(appStore));

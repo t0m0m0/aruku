@@ -8,11 +8,19 @@ export interface RouterLike {
   navigate(path: string, options?: { replace?: boolean }): void;
 }
 
-/// ブラウザ履歴のうち、[seedInitialHistory] が要る3つ。
+/// ブラウザ履歴のうち、[seedInitialHistory] が要るもの。
 export interface HistoryLike {
+  /// 画面の分類に使う。クエリ・ハッシュを含まない。
   currentPath(): string;
-  replaceState(path: string): void;
-  pushState(path: string): void;
+
+  /// 積み直しに使う。クエリ・ハッシュを保つ。
+  currentUrl(): string;
+
+  /// 現在のエントリがこのアプリのルーターの作ったものか。
+  isRouterEntry(): boolean;
+
+  replaceState(url: string): void;
+  pushState(url: string): void;
 }
 
 /// 移植元の戻り挙動（settings/search/result/error→home）を再現する push / replace の選択。
@@ -47,19 +55,37 @@ export function createNavigator(router: RouterLike): Navigate {
 ///
 /// 未知のパスでは何もしない。[resolveRedirect] が home へ寄せるので、ここで敷くと
 /// 同じ home が2つ積まれるだけになる。
+///
+/// ルーター由来のエントリでも何もしない。アプリ内で home→子と遷移した後のリロードが
+/// これにあたり、履歴は既に [home, 子] になっている。敷き直すとリロードのたびに home が
+/// 1つ増え、home へ戻った後に重複した home を何度も戻らないと離脱できなくなる
+/// （PR #391 レビュー。実ブラウザで history.length が 3→4 になるのを確認）。
 export function seedInitialHistory(history: HistoryLike): void {
+  if (history.isRouterEntry()) return;
+
+  // replaceState の前に控える。積み直す URL はクエリ・ハッシュごと元のまま——
+  // pathname だけにすると deep link の状態が黙って消える。
+  const url = history.currentUrl();
   const path = history.currentPath();
   const screen = screenFromLocation(path);
   if (screen === Screen.home || screenPath[screen] !== path) return;
   history.replaceState(screenPath[Screen.home]);
-  history.pushState(path);
+  history.pushState(url);
 }
 
 /// `window.history` を [HistoryLike] へ寄せる。
+///
+/// ルーター由来かどうかを `history.state` の有無で見るのは、React Router が自分の作った
+/// エントリに `{idx, key, usr}` を刻むため。アドレスバー直打ち・外部からの deep link は
+/// null で入ってくる（実ブラウザで確認）。リロードでは刻まれた state が保たれるので、
+/// 「一度このアプリが積んだ履歴か」の判定になる。
 export function browserHistory(): HistoryLike {
   return {
     currentPath: () => window.location.pathname,
-    replaceState: (path) => window.history.replaceState(null, '', path),
-    pushState: (path) => window.history.pushState(null, '', path),
+    currentUrl: () =>
+      `${window.location.pathname}${window.location.search}${window.location.hash}`,
+    isRouterEntry: () => window.history.state !== null,
+    replaceState: (url) => window.history.replaceState(null, '', url),
+    pushState: (url) => window.history.pushState(null, '', url),
   };
 }
