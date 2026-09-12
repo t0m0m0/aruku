@@ -38,7 +38,7 @@ function fakeHistory(
   startUrl: string,
   options: { isRouterEntry?: boolean; hasParentEntry?: boolean } = {},
 ) {
-  const calls: { path: string; replace: boolean }[] = [];
+  const calls: { path: string; replace: boolean; index?: number }[] = [];
   const url = new URL(startUrl, 'https://app.test');
   return {
     history: {
@@ -46,8 +46,10 @@ function fakeHistory(
       currentUrl: () => `${url.pathname}${url.search}${url.hash}`,
       isRouterEntry: () => options.isRouterEntry === true,
       hasParentEntry: () => options.hasParentEntry === true,
-      replaceState: (path: string) => calls.push({ path, replace: true }),
-      pushState: (path: string) => calls.push({ path, replace: false }),
+      replaceState: (path: string, index: number) =>
+        calls.push({ path, replace: true, index }),
+      pushState: (path: string, index: number) =>
+        calls.push({ path, replace: false, index }),
       back: () => calls.push({ path: '(back)', replace: false }),
     } satisfies HistoryLike,
     calls,
@@ -127,9 +129,21 @@ describe('seedInitialHistory', () => {
     seedInitialHistory(history, () => true);
 
     expect(calls).toEqual([
-      { path: screenPath.home, replace: true },
-      { path: screenPath.settings, replace: false },
+      { path: screenPath.home, replace: true, index: 0 },
+      { path: screenPath.settings, replace: false, index: 1 },
     ]);
+  });
+
+  it('敷いた子には深さ1を書く（後のリロードで親を見つけられる）', () => {
+    // ルーターは履歴の深さを state.idx に持ち、無ければ 0 を書き込む。深さを書かずに
+    // 敷くと、敷いた子が idx 0 のまま「手前が無い」と読まれる。子から子への遷移は
+    // replace で idx を保つので、その後 result へ移ってリロードすると、真下に home が
+    // あるのに降りられず [home, home] になる（実ブラウザで確認。PR #391 レビュー）。
+    const { history, calls } = fakeHistory(screenPath.settings);
+
+    seedInitialHistory(history, () => true);
+
+    expect(calls.map((c) => c.index)).toEqual([0, 1]);
   });
 
   it('home で開いたときは何もしない', () => {
@@ -203,8 +217,8 @@ describe('seedInitialHistory', () => {
     seedInitialHistory(history, () => true);
 
     expect(calls).toEqual([
-      { path: screenPath.home, replace: true },
-      { path: '/home/settings?tab=a#section', replace: false },
+      { path: screenPath.home, replace: true, index: 0 },
+      { path: '/home/settings?tab=a#section', replace: false, index: 1 },
     ]);
   });
 });

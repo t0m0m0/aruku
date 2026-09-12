@@ -28,8 +28,14 @@ export interface HistoryLike {
   /// 1つ戻る。
   back(): void;
 
-  replaceState(url: string): void;
-  pushState(url: string): void;
+  /// 履歴の深さ（React Router が `state.idx` に持つもの）を明示して書く。
+  ///
+  /// 敷いた履歴をルーター自身が作ったものと**区別できない形**にするため。深さを
+  /// 書かないとルーターが現在のエントリへ 0 を振り、敷いた子が「手前が無い」と
+  /// 読まれる。子から子への遷移は replace で idx を保つので、その後ガードを要る
+  /// 画面へ移ってリロードすると、真下に home があるのに降りられなくなる。
+  replaceState(url: string, index: number): void;
+  pushState(url: string, index: number): void;
 }
 
 /// 移植元の戻り挙動（settings/search/result/error→home）を再現する履歴操作の選択。
@@ -108,8 +114,8 @@ export function seedInitialHistory(
   }
 
   if (!canSeed(url)) return;
-  history.replaceState(screenPath[Screen.home]);
-  history.pushState(url);
+  history.replaceState(screenPath[Screen.home], 0);
+  history.pushState(url, 1);
 }
 
 /// `window.history` を [HistoryLike] へ寄せる。
@@ -134,8 +140,12 @@ export function browserHistory(): HistoryLike {
           : null;
       return typeof idx === 'number' && idx > 0;
     },
-    replaceState: (url) => window.history.replaceState(null, '', url),
-    pushState: (url) => window.history.pushState(null, '', url),
+    // ルーターが自分で書くのと同じ形（`{ idx }` だけ。usr / key は初期エントリでも
+    // 付かない）にする。react-router の createBrowserHistory は state.idx が在れば
+    // それを起点に採り、無いときだけ 0 を書き込む。
+    replaceState: (url, index) =>
+      window.history.replaceState({ idx: index }, '', url),
+    pushState: (url, index) => window.history.pushState({ idx: index }, '', url),
     back: () => window.history.back(),
   };
 }
