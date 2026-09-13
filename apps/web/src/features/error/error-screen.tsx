@@ -3,6 +3,7 @@
 // DesktopContent（デスクトップ幅の中央寄せ）は運んでいない。#372 の作り分けと対で、
 // 検索スライスで見送ったのと同じ理由（PORTING.md）。
 
+import { useEffect, useRef } from 'react';
 import { useStore } from 'zustand';
 import type { StoreApi } from 'zustand/vanilla';
 
@@ -28,6 +29,17 @@ export function ErrorScreen({ store }: ErrorScreenProps) {
 
   const view = routeErrorView(kind);
 
+  // 測位の待ちを跨いで離脱したときの続きを止める。移植元の `if (!mounted) return;`
+  // に相当する（検索画面で同じ穴を塞いだのと同じ型）。止めないと、home や検索へ
+  // 移った後に検索が始まり、待ち画面へ引きずられる。
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
   const retry = {
     label: ja.errorRetry,
     onPress: () => {
@@ -45,6 +57,7 @@ export function ErrorScreen({ store }: ErrorScreenProps) {
   /// 無関係な失敗では取り直さない。権限ダイアログを出す理由が無い。
   async function retrySearch(): Promise<void> {
     if (kind === RouteErrorKind.noLocation) await refreshLocation();
+    if (!alive.current) return;
     await startSearch();
   }
   const changeConditions = {

@@ -41,8 +41,8 @@ function setup(kind: RouteErrorKind | null, located = false) {
   // 初回取得は済んでいる（拒否されて denied で止まっている）状態から始める。
   store.setState({ locationState: locationDenied });
   store.getState().attachNavigator(navigate);
-  render(<ErrorScreen store={store} />);
-  return { navigate, plan, request };
+  const view = render(<ErrorScreen store={store} />);
+  return { navigate, plan, request, view };
 }
 
 describe('失敗の説明', () => {
@@ -162,3 +162,35 @@ describe('現在地が取れなかったときの再試行', () => {
     expect(plan).toHaveBeenCalledOnce();
   });
 });
+
+// 測位の待ちを跨いで離脱したときの続きを止める。移植元の `if (!mounted) return;`
+// に相当し、検索画面で同じ穴を塞いだのと同じ型（PR #395 レビュー）。
+describe('画面を離れた後の再試行', () => {
+  it('検索を始めない', async () => {
+    let resolve!: (state: ReturnType<typeof locationDenied2>) => void;
+    const navigate = vi.fn();
+    const plan = vi.fn(async (_args: PlanArgs) => ({}) as RoutePlan);
+    store = createAppStore(
+      { routeErrorKind: RouteErrorKind.noLocation, destination: '渋谷駅' },
+      () => new Date(2026, 8, 13, 12, 0, 0),
+      { request: () => new Promise((r) => (resolve = r)) },
+      { plan: plan as RouteService['plan'] },
+    );
+    store.setState({ locationState: locationDenied });
+    store.getState().attachNavigator(navigate);
+    const view = render(<ErrorScreen store={store} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '再試行' }));
+    view.unmount();
+    await act(async () => {
+      resolve(locationAvailable(here));
+    });
+
+    expect(plan).not.toHaveBeenCalled();
+  });
+});
+
+/// 型合わせのためのヘルパ（LocationState を返す）。
+function locationDenied2() {
+  return locationDenied;
+}

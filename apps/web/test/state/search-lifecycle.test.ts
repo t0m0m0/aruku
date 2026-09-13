@@ -340,6 +340,38 @@ describe('中断', () => {
     expect(store.getState().routeErrorKind).toBeNull();
   });
 
+  // 表示前提（routePhase）を残すと、戻る→進むで待ち画面の loader が通してしまう。
+  // 誰も完了させない待ち画面に入れてしまう（PR #398 の Codex レビュー）。
+  it('離脱で捨てたら待ち画面の表示前提も落とす', async () => {
+    const { store } = harness({
+      initial: withDestination,
+      respond: () => new Promise<RoutePlan>(() => {}),
+    });
+    void store.getState().startSearch();
+    expect(store.getState().routePhase).toBe(RoutePhase.routing);
+
+    store.getState().abandonSearch();
+
+    expect(store.getState().routePhase).toBeNull();
+    expect(
+      resolveRedirect(screenPath[Screen.loading], store.getState(), noon),
+    ).toBe(screenPath[Screen.home]);
+  });
+
+  // 遷移はブラウザが済ませている。ここから動かすと二重になる。
+  it('離脱で捨てても遷移はしない', async () => {
+    const { store, seen } = harness({
+      initial: withDestination,
+      respond: () => new Promise<RoutePlan>(() => {}),
+    });
+    void store.getState().startSearch();
+    const before = seen.length;
+
+    store.getState().abandonSearch();
+
+    expect(seen).toHaveLength(before);
+  });
+
   // 世代だけでは進行中の HTTP が完了まで走り切る。通信そのものを切る（#259）。
   it('進行中の通信を切る', () => {
     const { store, plan } = harness({ initial: withDestination });
