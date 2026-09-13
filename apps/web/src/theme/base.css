@@ -1,0 +1,69 @@
+/* 移植元: lib/core/theme/aruku_theme.dart の ThemeData と、各画面が繰り返していた
+   ArukuCard の装飾。
+
+   Flutter では「カード」はウィジェットでしか表せなかったが、CSS ではクラスで足りる
+   ——ArukuCard の borderRadius / bordered / shadow / padding といった引数は、
+   すべて使う側の CSS が直接書ける。移植元の引数リストは持ち込まない。 */
+
+@import './tokens.css';
+
+/* レイヤーに入れる。CSS Modules はレイヤー無しで出るので、出力順に関わらず
+   コンポーネント側の指定が勝つ。
+
+   入れないと勝敗が main.tsx の import 順で決まり、import を並べ替えるだけで
+   デザインが変わる。実際 `.card` の border-radius 18px が目的地カードの 22px と
+   設定ボタンの 14px を上書きしていた（PR #394 レビュー、実ブラウザで確認）。 */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    margin: 0;
+    height: 100%;
+  }
+
+  body {
+    background: var(--ivory);
+    color: var(--ink);
+    font-family: var(--font-jp);
+    font-weight: 500;
+    /* 移植元の MediaQuery.textScaler と違い、ブラウザの文字サイズ設定は rem を
+       直接動かす。px 指定のままでは拡大に追従しないが、レイアウトの rem 化は
+       デスクトップ対応（#372 相当）のスライスでまとめて行う。 */
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #root {
+    min-height: 100%;
+  }
+
+  /* 数字の桁ぶれを止める。移植元の numStyle が FontFeature.tabularFigures() で
+     同じことをしている（等幅フォントへ替えるのではない）。 */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  .card {
+    background: var(--paper);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-md);
+  }
+
+  /* 見えないが読み上げられる文言。待ち表示のように、視覚的にはスピナーで足りて
+     いても読み上げには文言が要る場所で使う。 */
+  .srOnly {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}

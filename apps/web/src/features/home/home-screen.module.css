@@ -1,0 +1,239 @@
+/* 移植元: lib/features/home/home_screen.dart の余白定数（_gutter / _safeBottom /
+   8pt グリッド）と home_widgets.dart の装飾。
+
+   デスクトップ幅の作り分け（#372 の DesktopContent / DesktopTimeField /
+   DesktopTypeaheadField）は運んでいない。インライン入力は Places 検索の移植が
+   前提なので、検索のスライスで対に入れる。ここでは本文最大幅だけ効かせる。 */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 8px 20px 36px;
+  gap: 12px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.greeting {
+  flex: 1;
+  min-width: 0;
+}
+
+.greetingDate {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.greetingLead {
+  /* h1 の既定マージンを打ち消す。見出しレベルは読み上げの構造の話で、
+     余白はこの画面の都合。 */
+  margin: 2px 0 0;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.greetingHighlight {
+  color: var(--moss-600);
+}
+
+.settings {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  padding: 0;
+  border-radius: 14px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.places {
+  position: relative;
+  border-radius: 22px;
+  padding: 6px 14px;
+  box-shadow: var(--shadow-card-subtle);
+}
+
+/* 出発点と目的地を結ぶ線。移植元は Stack + Positioned で重ねている。 */
+.thread {
+  position: absolute;
+  left: 16px;
+  top: 24px;
+  bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--burnt);
+  pointer-events: none;
+}
+
+.threadDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--moss-500);
+  border: 3px solid var(--moss-100);
+}
+
+.threadLine {
+  flex: 1;
+  width: 2px;
+  margin: 4px 0;
+  background: var(--moss-200);
+}
+
+.placeRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.placeRow + .placeRow {
+  border-top: 1px solid var(--hairline);
+}
+
+.placeMain {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 0 12px 38px;
+  border: none;
+  border-radius: 12px;
+  background: none;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.placeLabel {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+
+.placeValue {
+  display: block;
+  margin-top: 2px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.placeValuePlaceholder {
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.searchChip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: var(--moss-50);
+  color: var(--moss-600);
+}
+
+.timeSection {
+  margin-top: 24px;
+}
+
+.timeHeading {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 4px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+}
+
+.timeHeadingLabel {
+  flex: 1;
+  min-width: 0;
+}
+
+.budget {
+  font-weight: 600;
+  letter-spacing: normal;
+  text-align: end;
+}
+
+.budgetValue {
+  color: var(--moss-600);
+  font-weight: 800;
+}
+
+.timeFields {
+  display: flex;
+  align-items: stretch;
+  padding: 6px;
+}
+
+.timeField {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+}
+
+.timeLabel {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+
+.timeDate {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--moss-700);
+}
+
+.timeValue {
+  display: block;
+  margin-top: 1px;
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.05;
+  color: var(--ink);
+}
+
+.timeSeparator {
+  display: flex;
+  align-items: center;
+  width: 28px;
+  color: var(--ink-3);
+}
+
+/* 目標カードを作らないぶん、CTA は下端へ寄せる（移植元の Spacer の位置）。 */
+.spacer {
+  flex: 1;
+  min-height: 24px;
+}
+
+.cta {
+  min-height: 60px;
+  border-radius: 20px;
+  font-size: 18px;
+  letter-spacing: 0.06em;
+  box-shadow: var(--shadow-cta-primary);
+}

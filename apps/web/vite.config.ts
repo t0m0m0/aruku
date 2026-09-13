@@ -15,7 +15,13 @@ export default defineConfig({
     alias: [{ find: /^@aruku\/engine\/(.*)$/, replacement: `${engineSrc}/$1` }],
   },
   test: {
-    include: ['test/**/*.test.ts'],
+    include: ['test/**/*.test.{ts,tsx}'],
+
+    // 既定を jsdom にする。画面のテストが大半を占めるようになるため、node を既定に
+    // してコンポーネントテスト側にだけ docblock を貼る形にすると、貼り忘れが
+    // 「document is not defined」という原因の遠いエラーで出る。
+    environment: 'jsdom',
+    setupFiles: ['./test/setup.ts'],
 
     // packages/engine/vitest.config.ts と同じ理由で固定する（naive JST 前提の
     // 時刻ロジックが実行環境の TZ でずれる）。エンジンを呼ぶ側も同じ壁時計で

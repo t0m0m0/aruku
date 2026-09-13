@@ -1,0 +1,29 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 16px;
+  background: var(--moss-600);
+  color: var(--ivory);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.outlined {
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+}

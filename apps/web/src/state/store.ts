@@ -4,11 +4,23 @@ import { TimeValue } from '@aruku/engine/models/time-value';
 
 import { kInitialBudgetMinutes } from './app-state';
 import { screenPath, type Screen } from '../navigation/screens';
+import {
+  browserLocationService,
+  type LocationService,
+} from '../location/geolocation';
+import {
+  locationLoading,
+  locationUnavailable,
+  type LocationState,
+} from '../location/location-state';
 import type { RouteCore } from './app-state';
 
 export type Navigate = (path: string) => void;
 
 export interface AppActions {
+  /// 現在地を取り直す。ホームのコンパスボタンと、起動直後の初回取得から呼ぶ。
+  refreshLocation(): Promise<void>;
+
   /// 画面と、その表示前提データを書き換える唯一の入口。
   ///
   /// 状態を先に確定してから遷移する。逆順にすると、遷移先のガードがまだ古い状態を
@@ -22,7 +34,16 @@ export interface AppActions {
   attachNavigator(navigate: Navigate): void;
 }
 
-export type AppStore = RouteCore & AppActions;
+/// 経路の表示前提（[RouteCore]）に含めない状態。
+///
+/// 現在地はガードの判定材料ではない——取得できていなくても home も検索も開ける。
+/// [RouteCore] に混ぜると、go() の update で書けてしまい「画面と一緒に書き換える
+/// もの」という [RouteCore] の意味が薄れる。
+export interface AppAmbient {
+  locationState: LocationState;
+}
+
+export type AppStore = RouteCore & AppAmbient & AppActions;
 
 /// 現在時刻の供給元。テストで初期値を固定できるよう注入可能にする。
 export type Now = () => Date;
@@ -61,12 +82,35 @@ function initialCore(now: Now): RouteCore {
 export function createAppStore(
   initial: Partial<RouteCore> = {},
   now: Now = () => new Date(),
+  location: LocationService = browserLocationService(),
 ): StoreApi<AppStore> {
   let navigate: Navigate | null = null;
 
+  // 取得中の要求。StrictMode が effect を二度走らせるため、素通しすると権限
+  // ダイアログが 2 回出る。移植元に相当物が無いのはこの事情が無いから。
+  let inFlight: Promise<void> | null = null;
+
   return createStore<AppStore>()((set) => ({
     ...initialCore(now),
+    locationState: locationLoading,
     ...initial,
+
+    refreshLocation() {
+      if (inFlight !== null) return inFlight;
+
+      inFlight = location
+        .request()
+        // 失敗理由は LocationState として返る設計だが、想定外の例外は権限拒否と
+        // 断定できないため再試行可能な側へ寄せる。
+        .catch(() => locationUnavailable)
+        .then((result) => {
+          set({ locationState: result });
+        })
+        .finally(() => {
+          inFlight = null;
+        });
+      return inFlight;
+    },
 
     attachNavigator(next: Navigate) {
       navigate = next;
