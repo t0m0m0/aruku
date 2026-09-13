@@ -58,9 +58,19 @@ export function HomeScreen({
 
   // 移植元は AppNotifier.build() で取りに行っていた。ストア生成時に呼ぶと、
   // モジュール読み込みだけで権限ダイアログが出る（store.ts の注記を参照）。
+  //
+  // まだ一度も取っていないときだけ走らせる。この画面は子画面から戻るたびに
+  // 再マウントされるので、素通しすると戻るたびに測位し、一度きりの許可を使う
+  // ブラウザでは毎回ダイアログが出る（PR #394 レビュー）。取り直しはコンパスと
+  // いう明示の導線がある。
+  //
+  // 判定はストアから直に読む。locationState を依存に入れると、取得の完了で
+  // 効果自体が再実行される——「一度だけ」を状態の変化で壊すことになる。
   useEffect(() => {
-    void refreshLocation();
-  }, [refreshLocation]);
+    const { locationState: current, refreshLocation: refresh } = store.getState();
+    if (current.kind !== 'loading') return;
+    void refresh();
+  }, [store]);
 
   const goSearch = () => {
     go(Screen.search);

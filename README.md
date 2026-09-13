@@ -25,10 +25,13 @@ npm --prefix packages/engine run check:port # Dart 側との名前照合（CI �
 
 ## apps/web（React 移行の本体・#386）
 
-Phase 3（#386）で React + Vite の SPA を作る。最初のスライスとして土台とエンジンの配線
-（fetch アダプタ・タイムアウト・App Check・検索エンジンの組み立て）まで入っている。
-**画面はまだ無い**——現在の `apps/web` を起動しても空のプレースホルダが出るだけで、
-本番の配信は当面 Flutter のまま（`deploy-web.yml` は未切替）。
+Phase 3（#386）で React + Vite の SPA を作る。土台とエンジンの配線（fetch アダプタ・
+タイムアウト・App Check・検索エンジンの組み立て）に続き、**home 画面まで入っている**。
+検索・結果・設定など**残り6画面はプレースホルダ**——起動すると home は動くが、そこから
+先へ進むと空の div が出る。本番の配信は当面 Flutter のまま（`deploy-web.yml` は未切替）。
+
+スライスの範囲・移植元との対応・運ばないと決めたものは
+[apps/web/PORTING.md](apps/web/PORTING.md) が正本。
 
 ```bash
 npm --prefix apps/web ci
