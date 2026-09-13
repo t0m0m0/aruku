@@ -11,6 +11,7 @@ import type { StoreApi } from 'zustand/vanilla';
 import type { GeoPoint } from '@aruku/engine/models/geo-point';
 
 import { ja, searchErrorWithStatus } from '../../i18n/ja';
+import { useInitialLocation } from '../../location/use-initial-location';
 import { Screen } from '../../navigation/screens';
 import type { PlacePrediction } from '../../places/place-prediction';
 import type { PlacesService } from '../../places/places-service';
@@ -51,6 +52,22 @@ export function SearchScreen({ store, mode, places, recents }: SearchScreenProps
 
   const history = recents[mode];
 
+  // home を経由せず直接開かれた場合、home の effect は走らない。取りに行かないと
+  // 位置が loading のまま固まり、位置バイアスも「近くの店」も永久に出ない
+  // （PR #395 の Codex レビュー）。決着済みなら何もしない。
+  useInitialLocation(store);
+
+  // 移植元の `State.mounted` に対応する（search_screen.dart の `if (!mounted) return;`）。
+  // 座標解決の await を跨いで離脱されたとき、続きを走らせてはいけない——届いた座標が
+  // 目的地を書き換え、その後に開いた画面から home へ飛ばす。
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
   const search = useMemo(
     () =>
       createSearchState({
@@ -89,6 +106,7 @@ export function SearchScreen({ store, mode, places, recents }: SearchScreenProps
     setPickFailed(false);
 
     const resolved = await resolvePlacePrediction(places, prediction);
+    if (!alive.current) return;
     setSelecting(false);
     if (resolved === null) {
       setPickFailed(true);

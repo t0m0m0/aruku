@@ -28,6 +28,9 @@ export const ja = {
   homeTimeSectionLabel: '時間',
   homeWalkableSuffix: ' 歩ける',
   homeSearchRoute: 'ルートを検索',
+
+  /// 経路検索のライフサイクルが未移植の間の CTA。押せない状態と対で出す。
+  homeSearchRouteNotReady: '経路検索は準備中',
   homeChooseDestination: '目的地を選ぶ',
 
   commonBack: '戻る',

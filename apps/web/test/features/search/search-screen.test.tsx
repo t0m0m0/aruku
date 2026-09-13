@@ -101,7 +101,7 @@ function setup(options: Options = {}) {
     close() {},
   };
 
-  render(
+  const view = render(
     <SearchScreen
       store={store}
       mode={options.mode ?? 'destination'}
@@ -109,7 +109,7 @@ function setup(options: Options = {}) {
       recents={recents}
     />,
   );
-  return { navigate, store, recents };
+  return { navigate, store, recents, view };
 }
 
 /// 入力して、待ち合わせと問い合わせの解決まで進める。
@@ -399,6 +399,66 @@ describe('候補の確定', () => {
       resolve(shibuya);
     });
     expect(store.getState().destination).toBe('渋谷駅');
+  });
+});
+
+// 移植元の `if (!mounted) return;`（search_screen.dart）に対応する。落とすと、離脱後に
+// 届いた座標が目的地を書き換え、開いていた画面から home へ飛ばす。
+describe('画面を離れた後に届いた確定', () => {
+  it('目的地も履歴も書き換えず、遷移もしない', async () => {
+    let resolve!: (value: GeoPoint | null) => void;
+    const { navigate, view } = setup({
+      autocomplete: async () => [prediction('渋谷駅')],
+      fetchLatLng: () => new Promise<GeoPoint | null>((r) => (resolve = r)),
+    });
+    await type('渋谷');
+    fireEvent.click(screen.getByRole('button', { name: '渋谷駅 渋谷駅の住所' }));
+
+    view.unmount();
+    await act(async () => {
+      resolve(shibuya);
+    });
+
+    expect(store.getState().destination).toBeNull();
+    expect(recents.destination.load()).toEqual([]);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+// home を経由せず直接開かれた場合、home の effect は走らない。取りに行かないと
+// 位置バイアスも「近くの店」も永久に出ない。
+describe('直接開かれたときの測位', () => {
+  it('まだ取っていなければ取りに行く', async () => {
+    const request = vi.fn(async () => locationAvailable(here));
+    const navigate = vi.fn();
+    store = createAppStore({}, () => new Date(2026, 8, 13, 12, 0, 0), { request });
+    store.getState().attachNavigator(navigate);
+    const kv = memoryStore();
+    recents = {
+      destination: createRecentsRepository(kv, destinationsKey),
+      origin: createRecentsRepository(kv, originsKey),
+    };
+
+    await act(async () => {
+      render(
+        <SearchScreen
+          store={store}
+          mode="destination"
+          places={{ autocomplete: async () => [], fetchLatLng: async () => null, close() {} }}
+          recents={recents}
+        />,
+      );
+    });
+
+    expect(request).toHaveBeenCalledOnce();
+    expect(screen.getByRole('switch', { name: '近くの店' })).toBeTruthy();
+  });
+
+  it('すでに決着していれば取り直さない', async () => {
+    const request = vi.fn(async () => locationAvailable(here));
+    setup({ located: false });
+
+    expect(request).not.toHaveBeenCalled();
   });
 });
 

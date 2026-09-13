@@ -9,7 +9,6 @@
 // 時刻フィールドは表示だけで、押しても開かない。日時ピッカーが未移植のため、
 // 押せる見た目にすると何も起きないボタンになる。ピッカーのスライスで押下を足す。
 
-import { useEffect } from 'react';
 import { useStore } from 'zustand';
 import type { StoreApi } from 'zustand/vanilla';
 
@@ -17,6 +16,7 @@ import { TimeValue } from '@aruku/engine/models/time-value';
 import { budgetMinutes } from '@aruku/engine/services/route-plan-builder';
 
 import { todayGreeting } from '../../i18n/format';
+import { useInitialLocation } from '../../location/use-initial-location';
 import { ja } from '../../i18n/ja';
 import { Screen } from '../../navigation/screens';
 import { ArukuButton } from '../../shared/button';
@@ -38,7 +38,11 @@ interface HomeScreenProps {
   store: StoreApi<AppStore>;
 
   /// 経路検索の開始。目的地が決まっているときの CTA から呼ぶ。
-  onStartSearch: () => void;
+  ///
+  /// null は「経路検索のライフサイクルがまだ無い」。CTA を押せなくして、そう見える
+  /// ラベルにする。黙って何もしない関数を渡さないのは、繋ぎ忘れが「押しても反応
+  /// しないボタン」として残るため（router.tsx の同じ判断）。
+  onStartSearch: (() => void) | null;
 
   /// 挨拶に使う現在時刻。テストで時刻帯を固定できるよう注入可能にする。
   now?: () => Date;
@@ -57,21 +61,9 @@ export function HomeScreen({
   const go = useStore(store, (s) => s.go);
   const refreshLocation = useStore(store, (s) => s.refreshLocation);
 
-  // 移植元は AppNotifier.build() で取りに行っていた。ストア生成時に呼ぶと、
-  // モジュール読み込みだけで権限ダイアログが出る（store.ts の注記を参照）。
-  //
-  // まだ一度も取っていないときだけ走らせる。この画面は子画面から戻るたびに
-  // 再マウントされるので、素通しすると戻るたびに測位し、一度きりの許可を使う
-  // ブラウザでは毎回ダイアログが出る（PR #394 レビュー）。取り直しはコンパスと
-  // いう明示の導線がある。
-  //
-  // 判定はストアから直に読む。locationState を依存に入れると、取得の完了で
-  // 効果自体が再実行される——「一度だけ」を状態の変化で壊すことになる。
-  useEffect(() => {
-    const { locationState: current, refreshLocation: refresh } = store.getState();
-    if (current.kind !== 'loading') return;
-    void refresh();
-  }, [store]);
+  // 子画面から戻るたびに再マウントされるので、まだ一度も取っていないときだけ走る
+  // （PR #394 レビュー）。取り直しはコンパスという明示の導線がある。
+  useInitialLocation(store);
 
   const goSearch = () => {
     go(Screen.search);
@@ -186,13 +178,26 @@ export function HomeScreen({
 
       <ArukuButton
         className={styles.cta}
-        label={destination !== null ? ja.homeSearchRoute : ja.homeChooseDestination}
+        label={ctaLabel(destination, onStartSearch)}
         icon={destination !== null ? <RoutesIcon size={20} /> : <SearchIcon size={19} />}
-        onPress={destination !== null ? onStartSearch : goSearch}
+        disabled={destination !== null && onStartSearch === null}
+        onPress={destination !== null ? (onStartSearch ?? noop) : goSearch}
       />
     </main>
   );
 }
+
+/// 目的地が決まっていなければ選びに行く CTA、決まっていれば検索の CTA。
+/// ただし検索そのものがまだ無いときは、それが分かるラベルにする。
+function ctaLabel(
+  destination: string | null,
+  onStartSearch: (() => void) | null,
+): string {
+  if (destination === null) return ja.homeChooseDestination;
+  return onStartSearch === null ? ja.homeSearchRouteNotReady : ja.homeSearchRoute;
+}
+
+function noop(): void {}
 
 function TimeField({ label, time }: { label: string; time: TimeValue }) {
   const date = time.dateLabel();
