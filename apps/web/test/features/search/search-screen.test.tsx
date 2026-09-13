@@ -358,6 +358,26 @@ describe('候補の確定', () => {
     ).toBeNull();
   });
 
+  // 行を淡くするだけでは読み上げに何も出ない（移植元はスピナーを重ねていた）。
+  it('確定中であることを読み上げへ出す', async () => {
+    let resolve!: (value: GeoPoint | null) => void;
+    setup({
+      autocomplete: async () => [prediction('渋谷駅')],
+      fetchLatLng: () => new Promise<GeoPoint | null>((r) => (resolve = r)),
+    });
+    await type('渋谷');
+
+    expect(screen.getByRole('status').textContent).toBe('');
+
+    fireEvent.click(screen.getByRole('button', { name: '渋谷駅 渋谷駅の住所' }));
+
+    expect(screen.getByRole('status').textContent).toBe('地点を確定中');
+
+    await act(async () => {
+      resolve(shibuya);
+    });
+  });
+
   // 座標解決の最中に別の候補を押せると、2件目の結果が1件目を上書きする。
   it('確定中は次の候補を受け付けない', async () => {
     let resolve!: (value: GeoPoint | null) => void;

@@ -285,6 +285,12 @@ function Results({
 
   return (
     <>
+      {/* 移植元は確定中に CircularProgressIndicator を重ねていた。ここでは行を
+          押せなくして淡くするだけなので、見えない代わりに読み上げへ出す
+          （base.css の .srOnly はこの用途のために置いてある）。 */}
+      <span className="srOnly" role="status">
+        {selecting ? ja.searchResolvingPlace : ''}
+      </span>
       {pickFailed && (
         <p className={styles.pickFailed} role="alert">
           {mode === 'origin'
