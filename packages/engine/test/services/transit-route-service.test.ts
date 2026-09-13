@@ -1471,10 +1471,11 @@ describe('plan: 乗車駅探索の実測駆動（#137 主因）', () => {
     // serial/parallel の両方へ等しく乗るので、同一 run の差だけを見れば別 run の A/B が
     // 抱える識別不能（#332）を避けられる。
     let captured: RouteSearchMetrics | null = null;
-    const svc = service(
-      inflatedFromMock({ walkDelay: 30, guidanceDelay: 60 }),
-      { onMetrics: (m) => (captured = m) },
-    );
+    const walkDelay = 30;
+    const guidanceDelay = 60;
+    const svc = service(inflatedFromMock({ walkDelay, guidanceDelay }), {
+      onMetrics: (m) => (captured = m),
+    });
     await svc.plan({
       destination: '目的駅',
       destinationLatLng: goal3,
@@ -1490,10 +1491,20 @@ describe('plan: 乗車駅探索の実測駆動（#137 主因）', () => {
     expect(m.boardSearchProbeSerialMs).toBeGreaterThan(
       m.boardSearchProbeParallelMs,
     );
-    // ラウンドは直列に積むので、各ラウンドの最遅プローブ（≥30+60ms）の和以上になる。
-    // endRound の配線を落とすと1ラウンドぶんしか出ず、ここが落ちる。
+    // ラウンドは直列に積むので、serial はラウンド数に比例して伸びる。endRound の配線を
+    // 落とすと進行中の1ラウンドぶん（≈公称1プローブ）しか出ず、ここが落ちる。
+    expect(
+      m.boardSearchRounds,
+      '前提: 2ラウンド以上回る（1ラウンドだと比例と非比例を区別できない）',
+    ).toBeGreaterThanOrEqual(2);
+    // 公称の総和そのものを下限に採らないのは、余裕が 0 でラウンドごとに 1ms 落ちる
+    // たびに割れるから——setTimeout は指定より早く発火し得るし、経過の計上も ms へ
+    // 丸められる（CI で 179 < 180 で赤くなった）。守りたいのはミリ秒の絶対下限では
+    // なく比例なので、公称の8割を下限にする。1ラウンドぶん（公称の100%）はこの下限を
+    // 下回るため、退行は変わらず捕まる。
+    const nominalProbeMs = walkDelay + guidanceDelay;
     expect(m.boardSearchProbeSerialMs).toBeGreaterThanOrEqual(
-      m.boardSearchRounds * 90,
+      m.boardSearchRounds * nominalProbeMs * 0.8,
     );
   });
 
