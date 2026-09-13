@@ -30,6 +30,27 @@ export const ja = {
   homeSearchRoute: 'ルートを検索',
   homeChooseDestination: '目的地を選ぶ',
 
+  commonBack: '戻る',
+
+  searchOriginHint: '出発地を検索',
+  searchDestinationHint: '目的地を検索',
+  searchClearInput: '入力を消去',
+  searchNearbyToggle: '近くの店',
+  searchUseCurrentLocation: '現在地を使う',
+  searchCurrentLocationName: '現在地',
+  searchRecentOrigins: '最近の出発地',
+  searchRecentDestinations: '最近の目的地',
+  searchClearHistory: '履歴を消去',
+  searchEmptyTitle: '候補が見つかりませんでした',
+  searchEmptyHint: '別のキーワードで試してください',
+  searchErrorGeneric: '検索できませんでした',
+  searchNetworkHint: '通信状況を確認してください',
+  searchPickFailedOrigin:
+    'この出発地は位置情報を取得できませんでした。別の候補を選んでください',
+  searchPickFailedDestination:
+    'この目的地は位置情報を取得できませんでした。別の候補を選んでください',
+  searchResolvingPlace: '地点を確定中',
+
   /// 出発地の表示名。移植元は app_state.dart に直書きしていた（ARB に無い）。
   /// 文言なので他と同じくここへ置く。
   departureCurrentLocationLoading: '現在地 · 取得中...',
@@ -37,3 +58,9 @@ export const ja = {
   departureNoLocation: '位置情報なし',
   departureCurrentLocationFailed: '現在地 · 取得失敗',
 } as const;
+
+/// 移植元の searchErrorWithStatus（プレースホルダ付き ARB）。gen-l10n を持ち込まない
+/// ので、置換は関数で表す——型が引数の有無を落とす。
+export function searchErrorWithStatus(status: string): string {
+  return `検索できませんでした (${status})`;
+}

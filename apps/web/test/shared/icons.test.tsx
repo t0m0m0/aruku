@@ -19,6 +19,7 @@ describe('アイコン', () => {
     expect(components.map(([name]) => name).sort()).toEqual([
       'ChevronIcon',
       'ClockIcon',
+      'CloseIcon',
       'CompassIcon',
       'PinIcon',
       'RoutesIcon',

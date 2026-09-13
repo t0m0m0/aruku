@@ -1,0 +1,276 @@
+/* 移植元: lib/features/search/search_screen.dart の装飾。
+
+   余白・角丸はそちらの EdgeInsets / BorderRadius をそのまま写している。 */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px 14px;
+}
+
+.back {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.back:active {
+  background: var(--sand);
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  padding: 0 14px;
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  color: var(--ink-3);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  caret-color: var(--moss-500);
+}
+
+.input:focus {
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+/* 検索欄の見た目は自前で組んでいる。ブラウザ既定の消去ボタンが重なるため落とす。 */
+.input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.clear {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.nearby {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin: 0 20px 10px;
+  padding: 8px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  background: var(--paper);
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nearbyOn {
+  background: var(--moss-500);
+  border-color: var(--moss-500);
+  color: var(--paper);
+}
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 22px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.row:active {
+  background: var(--sand);
+}
+
+.row:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.rowIcon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--r-sm);
+  background: var(--moss-50);
+  color: var(--moss-600);
+}
+
+.rowText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rowName {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowAddress {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.match {
+  background: var(--moss-100);
+  color: var(--moss-700);
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 22px 6px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-3);
+}
+
+.clearHistory {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pickFailed {
+  margin: 8px 22px 4px;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  background: var(--burnt-soft);
+  color: var(--burnt);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.notice {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 22px;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+.noticeTitle {
+  margin: 6px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.noticeHint {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* 取得中の当たり。移植元は ListView に 4 行の灰色ブロックを並べていた。 */
+.skeletonRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 22px;
+}
+
+.skeletonIcon {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--r-sm);
+  background: var(--hairline);
+}
+
+.skeletonLines {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.skeletonTitle {
+  height: 14px;
+  border-radius: 4px;
+  background: var(--hairline);
+}
+
+.skeletonSub {
+  width: 160px;
+  height: 10px;
+  border-radius: 4px;
+  background: var(--hairline);
+}
