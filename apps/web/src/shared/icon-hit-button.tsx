@@ -30,11 +30,16 @@ export function IconHitButton({
     // 同期処理なら待ち表示は出さない。即座に遷移するものが一瞬スピナーに化ける。
     if (!(result instanceof Promise)) return;
     setBusy(true);
-    // 失敗しても待ち表示のまま固まらせない。理由は呼び出し側が状態として出す
-    // （現在地なら「取得失敗」）ので、ここは押せる状態へ戻すことだけ担う。
-    void result.finally(() => {
+    // 成否どちらでも押せる状態へ戻す。
+    //
+    // 拒否を再送しない（`.finally` にしない）。ボタンには失敗を出す場所が無く、
+    // 出すのは呼び出し側の仕事だから——`refreshLocation` は失敗を unavailable へ
+    // 畳んで「取得失敗」と表示する。再送しても握る先が無く、unhandledrejection に
+    // なるだけで、誰も読まないログが増える。
+    const done = () => {
       setBusy(false);
-    });
+    };
+    void result.then(done, done);
   };
 
   return (

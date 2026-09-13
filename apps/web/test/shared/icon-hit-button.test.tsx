@@ -71,6 +71,8 @@ describe('IconHitButton', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 
+  // 失敗の表示は呼び出し側の仕事（現在地なら「取得失敗」）。ここが担うのは、
+  // 押せる状態へ戻すことと、拒否を握る先の無い unhandledrejection にしないこと。
   it('失敗しても待ち表示のまま固まらない', async () => {
     render(
       <IconHitButton label="現在地を再取得" onPress={() => Promise.reject(new Error('boom'))}>
