@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { RoutePhase } from '@aruku/engine/services/route-service';
 import { budgetMinutes } from '@aruku/engine/services/route-plan-builder';
 import type { RoutePlan } from '@aruku/engine/models/route-plan';
+import { GeoPoint } from '@aruku/engine/models/geo-point';
 
 import { resolveRedirect } from '../../src/navigation/guard';
 import { Screen, screenPath } from '../../src/navigation/screens';
@@ -141,5 +142,62 @@ describe('初期状態', () => {
     ]) {
       expect(resolveRedirect(path, store.getState(), new Date())).toBe('/home');
     }
+  });
+});
+
+// 移植元: AppNotifier.setDestination / setOrigin。
+//
+// Dart は copyWith の sentinel で「渡さない＝保つ / null を渡す＝消す」を区別して
+// いた。TypeScript では両フィールドを毎回明示して書くだけで同じ意味になる。
+describe('地点の設定', () => {
+  it('目的地を名前と座標で設定する', () => {
+    const store = createAppStore();
+
+    store.getState().setDestination('渋谷駅', new GeoPoint(35.6, 139.7));
+
+    expect(store.getState().destination).toBe('渋谷駅');
+    expect(store.getState().destinationLatLng).toEqual(new GeoPoint(35.6, 139.7));
+  });
+
+  // 経路照会は from/to とも座標必須。名前だけを上書きして前の座標が残ると、
+  // 表示は新しい目的地なのに検索は前の座標へ行く。
+  it('座標を渡さない設定は前の座標を消す', () => {
+    const store = createAppStore();
+    store.getState().setDestination('渋谷駅', new GeoPoint(35.6, 139.7));
+
+    store.getState().setDestination('新宿駅');
+
+    expect(store.getState().destinationLatLng).toBeNull();
+  });
+
+  it('出発地を名前と座標で設定する', () => {
+    const store = createAppStore();
+
+    store.getState().setOrigin('自宅', new GeoPoint(35.7, 139.6));
+
+    expect(store.getState().origin).toBe('自宅');
+    expect(store.getState().originLatLng).toEqual(new GeoPoint(35.7, 139.6));
+  });
+
+  // 出発地の null は「未設定」ではなく「現在地を使う」。home の表示名
+  // （departureLabelText）がこの null を現在地の取得状況へ読み替える。
+  it('出発地を null にすると現在地へ戻る', () => {
+    const store = createAppStore();
+    store.getState().setOrigin('自宅', new GeoPoint(35.7, 139.6));
+
+    store.getState().setOrigin(null);
+
+    expect(store.getState().origin).toBeNull();
+    expect(store.getState().originLatLng).toBeNull();
+  });
+
+  it('目的地と出発地は互いを書き換えない', () => {
+    const store = createAppStore();
+
+    store.getState().setOrigin('自宅', new GeoPoint(35.7, 139.6));
+    store.getState().setDestination('渋谷駅', new GeoPoint(35.6, 139.7));
+
+    expect(store.getState().origin).toBe('自宅');
+    expect(store.getState().originLatLng).toEqual(new GeoPoint(35.7, 139.6));
   });
 });
