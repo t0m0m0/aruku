@@ -3,16 +3,27 @@
 `packages/engine/PORTING.md` が Phase 1〜2（エンジン）の正本であるのに対し、ここは
 Phase 3（アプリ側）の決定と対応表。
 
-## このスライスの範囲
+## スライスの範囲
 
-#386 は 7 画面・約 8,700 行の作り直しで、1 セッションに収まらない。最初のスライスとして
-**土台とエンジンの配線まで**を入れた。画面はまだ無い。
+#386 は 7 画面・約 8,700 行の作り直しで、1 セッションに収まらない。スライスに割っている。
+
+**スライス1 — 土台とエンジンの配線**（PR #391）。画面は無く、ルートはプレースホルダ。
 
 - Vite + React + TypeScript の土台（`strict`）
 - Phase 2 が意図的にエンジンへ置かなかった配線——fetch アダプタ・タイムアウト・App Check
   （`packages/engine/src/services/http-client.ts` と `route-service.ts` の冒頭がその宣言）
 - `routeServiceProvider` 相当の組み立て
 - ルーティングと画面状態のストア
+
+**スライス2 — home 画面**。デザイン基盤と最初の実画面。
+
+- デザイントークン（`src/theme/`）・共有プリミティブ（`src/shared/`）・文言（`src/i18n/`）
+- 現在地の取得（`src/location/`）
+- home 画面（`src/features/home/`）。残り 6 画面はプレースホルダのまま
+- 画面のテスト環境（jsdom + Testing Library）
+
+未着手: search / searchOrigin / picker / loading / result / settings / error、地図、
+日本語フォントの同梱、Playwright。
 
 ## 決定
 
@@ -81,10 +92,26 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 | `lib/core/navigation/screen_paths.dart` | — | `test/navigation/screens.test.ts` |
 | `lib/core/navigation/app_router.dart` の `redirect` | — | `test/navigation/guard.test.ts` + `test/navigation/router.test.ts` |
 | `lib/core/state/app_state.dart`（経路検索の中核） | — | `test/state/store.test.ts` |
+| `lib/core/services/location_service.dart` | — | `test/location/geolocation.test.ts` |
+| `lib/core/state/app_state.dart` の現在地まわり | — | `test/state/location.test.ts` |
+| `lib/features/home/`（`testWidgets` は運ばない） | — | `test/features/home/home-screen.test.tsx` |
+| `lib/shared/widgets/aruku_button.dart` / `icons/ic.dart` | — | `test/shared/button.test.tsx` + `test/shared/icons.test.tsx` |
 
 `packages/engine` の `check:port` のような名前照合はここには入れていない。あちらの基準値は
 エンジンの 6 ファイルに固定されており、UI 側は「移植ではなく作り直す」（#386）ため
 1 対 1 の対応そのものが存在しない。上の表が対応の記録。
+
+### home スライスの決定
+
+| 論点 | 決定 | 理由 |
+| --- | --- | --- |
+| 色の正本 | `lib/core/theme/aruku_colors.dart` | ハンドオフの `tokens.css` 以降に実装側だけが動いた（`ink3` が `#8A9583` → `#5F6E58`）。原本から引くと現行 Web 版と色が変わる |
+| アイコンの正本 | `design_handoff_aruku_mvp/design-reference/icons.jsx` | Dart 版はこの SVG を Canvas 命令へ移したもの。戻り先はハンドオフのほう |
+| `ArukuCard` | CSS のクラスへ落とす | 角丸・影・余白は使う側が直接書ける。Flutter に引数しか入口が無かった都合を運ばない |
+| `ArukuButton` | 引数 12 個のうち 4 個だけ運ぶ | 同上。残りは `className` で足りる |
+| i18n | 型付き定数モジュール | ロケールは ja のみ。react-i18next 等は実在しない要件のためにバンドルと間接参照を増やす |
+| 読み上げ名 | `aria-label` で明示 | 中身から組ませると横並びか縦積みかで語の区切りが変わる。jsdom は CSS を読まないので、テストと実ブラウザで名前が食い違う |
+| 現在地の初回取得 | ストア生成ではなく home の effect | `appStore` はモジュール読み込み時に作られる。そこで取ると読み込みだけで権限ダイアログが出る |
 
 ### 移植元と意図的に変えた点
 
@@ -97,6 +124,18 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
   投げる例外で、テスト名が言っていることとずれていた。
 - **`'内側の App Check トークン取得がハングしても打ち切る'` は両プロバイダを遅くした。**
   片方だけだと、エンドポイントの分類（consume 対象か）を変える退行で巻き添えに赤くなる。
+- **geolocator の Web 向け回避策を運んでいない。** `location_service.dart` の
+  `timeoutWholeRequest` は、geolocator_web が `timeLimit` をマイクロ秒として渡し 10 秒指定が
+  約 2.8 時間になる件（#359）と、`checkPermission` が `'prompt'` を denied へ写す件への対処。
+  W3C の API を直接呼ぶなら前提ごと無い。むしろ包むと、W3C の `timeout` が権限ダイアログの
+  待ちを含まない規定である以上、ユーザーが考えている間に「取得できず」へ落ちる副作用だけが残る。
+- **現在地の取得に「取得中なら相乗り」を足した。** 移植元に相当物は無い。React StrictMode が
+  effect を二度走らせるため、素通しすると権限ダイアログが 2 回出る。
+- **時刻フィールドは表示だけで押せない。** 日時ピッカーが未移植のため、押せる見た目にすると
+  何も起きないボタンになる。ピッカーのスライスで押下を足す。
+- **現在地は `RouteCore` に入れず `AppAmbient` に置いた。** ガードの判定材料ではない。
+  `RouteCore` に混ぜると `go()` の update で書けてしまい、「画面と一緒に書き換えるもの」という
+  `RouteCore` の意味が薄れる。
 
 ### まだ運んでいないもの
 
@@ -109,6 +148,13 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
   #386 が UI ごと作らないと決めたもの。**運ばないことが決定であって、保留ではない**
 - 行程 handoff（`JourneyProgress`）— 上の歩数同期に依存する。結果画面のスライスで判断する
 - loading から戻ったときの検索中断 — 上記のとおり検索のライフサイクルと対
+- 経路検索の開始（`AppNotifier.startSearch`）— 同上。home の CTA は `onStartSearch` を呼ぶが、
+  ルート表が渡しているのは「届いたら落ちる」関数。目的地を設定できる検索画面がまだ無いので
+  到達しない。黙って何もしない実装を置くと、繋ぎ忘れが「押しても反応しないボタン」として残る
+- 日本語フォントの同梱 — 初回ロード gzip 500KB 未満（#386 の完了条件）との兼ね合いを実測して
+  から決める。`--font-jp` 1 行の差し替えで済む形にしてある
+- デスクトップ幅の作り分け（#372 の `DesktopContent` / `DesktopTimeField` /
+  `DesktopTypeaheadField`）— インライン入力は Places 検索の移植が前提。検索のスライスで対に入れる
 
 ### exactOptionalPropertyTypes は入れていない
 
