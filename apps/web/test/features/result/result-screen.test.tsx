@@ -65,7 +65,9 @@ function setup(initial: Partial<RouteCore> = {}) {
     routeService,
   );
   store.getState().attachNavigator(navigate);
-  render(<ResultScreen store={store} />);
+  // 実時刻を使わせない。fixture の日付と今日がたまたま一致している間しか通らない
+  // テストになる（fullDateLabel は now を基準に dateOffset を足す）。
+  render(<ResultScreen store={store} now={() => noon} />);
   return { navigate };
 }
 
@@ -176,9 +178,20 @@ describe('経路が無いとき', () => {
 });
 
 describe('見出し', () => {
-  it('出発の日付と時刻を出す', () => {
+  // dateLabel は home 用で、当日を null・翌日を「明日」にする。結果では実際に検索した
+  // 日付を常に出したい（移植元も fullDateLabel を使っている）。
+  it('当日でも暦の日付を出す', () => {
     setup({ departure: new TimeValue({ h: 12, m: 0 }) });
 
-    expect(screen.getByText(/12:00 出発/)).toBeTruthy();
+    const full = new TimeValue({ h: 12, m: 0 }).fullDateLabel(noon);
+    expect(screen.getByText(`${full} · 12:00 出発`)).toBeTruthy();
+    expect(screen.queryByText(/^今日 ·/)).toBeNull();
+  });
+
+  it('翌日の出発は翌日の日付として出す', () => {
+    setup({ departure: new TimeValue({ h: 9, m: 0, dateOffset: 1 }) });
+
+    const full = new TimeValue({ h: 9, m: 0, dateOffset: 1 }).fullDateLabel(noon);
+    expect(screen.getByText(`${full} · 09:00 出発`)).toBeTruthy();
   });
 });

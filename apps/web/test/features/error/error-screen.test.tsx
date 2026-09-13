@@ -3,34 +3,46 @@
 // DesktopContent（デスクトップ幅の中央寄せ）は運んでいない。#372 の作り分けと対で、
 // 検索スライスで見送ったのと同じ理由（PORTING.md）。
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { RoutePlan } from '@aruku/engine/models/route-plan';
-import type { RouteService } from '@aruku/engine/services/route-service';
+import type { PlanArgs, RouteService } from '@aruku/engine/services/route-service';
 
 import { ErrorScreen } from '../../../src/features/error/error-screen';
-import { locationDenied } from '../../../src/location/location-state';
+import { GeoPoint } from '@aruku/engine/models/geo-point';
+
+import {
+  locationAvailable,
+  locationDenied,
+} from '../../../src/location/location-state';
 import { Screen, screenPath } from '../../../src/navigation/screens';
 import { RouteErrorKind } from '../../../src/state/app-state';
 import { createAppStore, type AppStore } from '../../../src/state/store';
 import type { StoreApi } from 'zustand/vanilla';
 
+const here = new GeoPoint(35.681, 139.767);
+
 let store: StoreApi<AppStore>;
 
-function setup(kind: RouteErrorKind | null) {
+function setup(kind: RouteErrorKind | null, located = false) {
   const navigate = vi.fn();
-  const plan = vi.fn(async () => ({}) as RoutePlan);
+  const plan = vi.fn(async (_args: PlanArgs) => ({}) as RoutePlan);
   const routeService: RouteService = { plan: plan as RouteService['plan'] };
+  const request = vi.fn(async () =>
+    located ? locationAvailable(here) : locationDenied,
+  );
   store = createAppStore(
     { routeErrorKind: kind, destination: '渋谷駅' },
     () => new Date(2026, 8, 13, 12, 0, 0),
-    { request: async () => locationDenied },
+    { request },
     routeService,
   );
+  // 初回取得は済んでいる（拒否されて denied で止まっている）状態から始める。
+  store.setState({ locationState: locationDenied });
   store.getState().attachNavigator(navigate);
   render(<ErrorScreen store={store} />);
-  return { navigate, plan };
+  return { navigate, plan, request };
 }
 
 describe('失敗の説明', () => {
@@ -103,6 +115,50 @@ describe('復帰導線', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '再試行' }));
 
+    expect(plan).toHaveBeenCalledOnce();
+  });
+});
+
+// 現在地が取れずに失敗したときの再試行は、取り直してから引き直す。
+//
+// 取り直さないと、権限を許可し直しても・一時的な測位失敗が解消しても、同じ null の
+// 出発地を送り続けて同じ画面に戻る——主導線が永久に無意味になる。初回取得は
+// useInitialLocation が locationState === 'loading' のときしか走らないので、
+// denied / unavailable で止まった状態は誰も動かさない（PR #398 の Codex レビュー）。
+describe('現在地が取れなかったときの再試行', () => {
+  it('取り直してから引き直す', async () => {
+    const { request, plan } = setup(RouteErrorKind.noLocation, true);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '再試行' }));
+    });
+
+    expect(request).toHaveBeenCalledOnce();
+    expect(plan).toHaveBeenCalledOnce();
+    // 取り直した座標が出発地として届く。
+    expect(plan.mock.calls[0]![0].origin).toEqual(here);
+  });
+
+  it('取り直しても取れなければそのまま引き直す', async () => {
+    const { request, plan } = setup(RouteErrorKind.noLocation, false);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '再試行' }));
+    });
+
+    expect(request).toHaveBeenCalledOnce();
+    expect(plan).toHaveBeenCalledOnce();
+  });
+
+  // 現在地と無関係な失敗で測位し直す理由は無い。権限ダイアログを無駄に出さない。
+  it('現在地と無関係な失敗では取り直さない', async () => {
+    const { request, plan } = setup(RouteErrorKind.timeout);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '再試行' }));
+    });
+
+    expect(request).not.toHaveBeenCalled();
     expect(plan).toHaveBeenCalledOnce();
   });
 });

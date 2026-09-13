@@ -13,7 +13,11 @@ import {
 } from '@aruku/engine/services/route-plan-builder';
 
 import { ja } from '../i18n/ja';
-import { kInitialBudgetMinutes, routeFreshness } from './app-state';
+import {
+  isNowRouteExpired,
+  kInitialBudgetMinutes,
+  routeFreshness,
+} from './app-state';
 import { classifyRouteError } from './route-error';
 import { Screen, screenPath } from '../navigation/screens';
 import {
@@ -55,6 +59,13 @@ export interface AppActions {
   /// 同一 copyWith で書いていたが、こちらは 3 つの遷移すべてを [go] 経由にすることで
   /// 同じ不変条件を保つ。
   startSearch(): Promise<void>;
+
+  /// 開いたままの「今すぐ」経路が猶予を超えていれば捨てて home へ戻す（#264）。
+  ///
+  /// 移植元 `onAppResumed` に相当する。ガードは画面へ**入る**ときしか走らず、
+  /// 検索の完了時の砦も照会中の経過しか見ない——結果を開いたまま放置した経路は
+  /// どちらにも掛からない。
+  revalidateRoute(): void;
 
   /// 進行中の検索を捨てて home へ戻す（#221）。
   cancelSearch(): void;
@@ -128,6 +139,8 @@ function initialCore(now: Now): RouteCore {
 /// 黙って失敗する実装（例: 常に ZERO_RESULTS）を既定にすると、配線漏れが「ルートが
 /// 見つからない」という**もっともらしい結果**として出てしまい、上流の不調と区別が
 /// つかない（router.tsx の depsNotWired と同じ判断）。
+/// 経路検索が未配線であることを表す番人。同一性で判定するので中身は呼ばれない
+/// （呼ばれる前に [AppActions.startSearch] が落とす）。
 const routeServiceNotWired: RouteService = {
   plan: () => {
     throw new Error('RouteService が未配線（createAppStore の第4引数）');
@@ -193,6 +206,13 @@ export function createAppStore(
     },
 
     async startSearch() {
+      // 配線漏れは検索の失敗ではなく組み立ての誤り。下の try に拾わせると
+      // `unknown` へ分類され、「ルートを取得できませんでした」という**もっともらしい
+      // 画面**になって上流の不調と区別がつかなくなる（PR #398 の Codex レビュー）。
+      if (routeService === routeServiceNotWired) {
+        throw new Error('RouteService が未配線（createAppStore の第4引数）');
+      }
+
       const generation = ++searchGeneration;
       // キャンセルを挟まない連打でも、古い通信を放置せず切る（#259）。
       activeCancellation?.cancel();
@@ -262,6 +282,12 @@ export function createAppStore(
           routePhase: null,
         });
       }
+    },
+
+    revalidateRoute() {
+      const state = get();
+      if (!isNowRouteExpired(state, now())) return;
+      expireRoute(state, now());
     },
 
     cancelSearch() {

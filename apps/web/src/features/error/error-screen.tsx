@@ -24,15 +24,29 @@ export function ErrorScreen({ store }: ErrorScreenProps) {
   const kind = useStore(store, (s) => s.routeErrorKind) ?? RouteErrorKind.unknown;
   const go = useStore(store, (s) => s.go);
   const startSearch = useStore(store, (s) => s.startSearch);
+  const refreshLocation = useStore(store, (s) => s.refreshLocation);
 
   const view = routeErrorView(kind);
 
   const retry = {
     label: ja.errorRetry,
     onPress: () => {
-      void startSearch();
+      void retrySearch();
     },
   };
+
+  /// 現在地が取れずに失敗したときだけ、取り直してから引き直す。
+  ///
+  /// 取り直さないと、権限を許可し直しても一時的な測位失敗が解消しても、同じ null の
+  /// 出発地を送り続けて同じ画面へ戻る——主導線が永久に無意味になる。初回取得
+  /// （useInitialLocation）は locationState が 'loading' のときしか走らないので、
+  /// denied / unavailable で止まった状態は誰も動かさない。
+  ///
+  /// 無関係な失敗では取り直さない。権限ダイアログを出す理由が無い。
+  async function retrySearch(): Promise<void> {
+    if (kind === RouteErrorKind.noLocation) await refreshLocation();
+    await startSearch();
+  }
   const changeConditions = {
     label: ja.resultChangeConditions,
     onPress: () => {

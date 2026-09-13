@@ -8,6 +8,10 @@ import {
   type RouterLike,
 } from './navigation/navigator';
 import { appRoutes, type ScreenDeps } from './navigation/router';
+import {
+  documentVisibility,
+  watchRouteFreshness,
+} from './navigation/route-freshness';
 import { watchSearchAbandon } from './navigation/search-abandon';
 import { initializeFirebaseAppCheck } from './firebase/app-check';
 import {
@@ -71,6 +75,10 @@ appStore.getState().attachNavigator(createNavigator(routerLike));
 // 待ち画面を離れたら進行中の検索を止める。購読をルーターに張るのは、コンポーネントの
 // アンマウントを合図にすると StrictMode の二重マウントで本物の検索を殺すため
 // （navigation/search-abandon.ts）。
+// 開いたままの「今すぐ」経路は、ガードにも検索完了時の砦にも掛からない（どちらも
+// 画面を跨ぐときにしか走らない）。復帰のたびに検算する（移植元 onAppResumed）。
+watchRouteFreshness(documentVisibility(), appStore);
+
 watchSearchAbandon(
   {
     snapshot: () => ({

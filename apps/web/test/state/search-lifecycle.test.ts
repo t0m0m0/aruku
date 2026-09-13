@@ -378,6 +378,81 @@ describe('中断', () => {
   });
 });
 
+// 配線漏れは検索の失敗ではなく組み立ての誤り。分類の対象にすると「ルートを取得でき
+// ませんでした」という**もっともらしい画面**になり、上流の不調と区別がつかなくなる。
+describe('RouteService が未配線', () => {
+  it('エラー画面へ落とさず、その場で倒れる', async () => {
+    const store = createAppStore({ ...withDestination }, () => noon, {
+      request: async () => locationDenied,
+    });
+    const navigate = vi.fn();
+    store.getState().attachNavigator(navigate);
+
+    await expect(store.getState().startSearch()).rejects.toThrow(/未配線/);
+    expect(store.getState().routeErrorKind).toBeNull();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+// 移植元 onAppResumed（app_state.dart）。結果を開いたまま放置・タブを背面にして
+// 猶予を超えると、古い前提の経路を見せ続けることになる。
+describe('開いたままの経路の失効', () => {
+  it('猶予を超えた「今すぐ」経路を捨てて home へ戻す', async () => {
+    const { store, seen, setNow } = harness({
+      initial: {
+        ...withDestination,
+        departure: new TimeValue({ h: 12, m: 0, isNow: true }),
+      },
+    });
+    await store.getState().startSearch();
+    expect(store.getState().route).toBe(aRoute);
+
+    setNow(new Date(noon.getTime() + routeFreshness));
+    store.getState().revalidateRoute();
+
+    expect(store.getState().route).toBeNull();
+    expect(seen.at(-1)?.path).toBe(screenPath[Screen.home]);
+  });
+
+  it('猶予内なら何もしない', async () => {
+    const { store, seen, setNow } = harness({
+      initial: {
+        ...withDestination,
+        departure: new TimeValue({ h: 12, m: 0, isNow: true }),
+      },
+    });
+    await store.getState().startSearch();
+    const before = seen.length;
+
+    setNow(new Date(noon.getTime() + routeFreshness - 1));
+    store.getState().revalidateRoute();
+
+    expect(store.getState().route).toBe(aRoute);
+    expect(seen).toHaveLength(before);
+  });
+
+  it('固定出発の経路は時間が経っても捨てない', async () => {
+    const { store, setNow } = harness({
+      initial: { ...withDestination, departure: new TimeValue({ h: 9, m: 0 }) },
+    });
+    await store.getState().startSearch();
+
+    setNow(new Date(noon.getTime() + routeFreshness * 10));
+    store.getState().revalidateRoute();
+
+    expect(store.getState().route).toBe(aRoute);
+  });
+
+  it('経路が無ければ何もしない', () => {
+    const { store, seen, setNow } = harness({ initial: withDestination });
+
+    setNow(new Date(noon.getTime() + routeFreshness * 10));
+    store.getState().revalidateRoute();
+
+    expect(seen).toHaveLength(0);
+  });
+});
+
 // 照会中にバックグラウンド滞在などで猶予を超えると、古い前提の結果になる（#264）。
 // 完了時のここが最後の砦——ローディング中は画面遷移で無効化できない。
 describe('照会中の失効', () => {

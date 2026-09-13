@@ -31,9 +31,12 @@ import styles from './result-screen.module.css';
 
 interface ResultScreenProps {
   store: StoreApi<AppStore>;
+
+  /// 日付の表示に使う現在時刻。テストで日付を固定できるよう注入可能にする。
+  now?: () => Date;
 }
 
-export function ResultScreen({ store }: ResultScreenProps) {
+export function ResultScreen({ store, now = () => new Date() }: ResultScreenProps) {
   const route = useStore(store, (s) => s.route);
   const departure = useStore(store, (s) => s.departure);
   const go = useStore(store, (s) => s.go);
@@ -71,7 +74,10 @@ export function ResultScreen({ store }: ResultScreenProps) {
           <ChevronIcon size={20} dir="left" />
         </button>
         <p className={styles.departure}>
-          {resultDepartureLabel(departure.dateLabel() ?? '今日', departure.format())}
+          {/* dateLabel ではなく fullDateLabel。前者は home 用で当日を null・翌日を
+              「明日」にするが、結果では実際に検索した日付を常に出したい（移植元も
+              こちらを使っている。PR #398 の Codex レビュー）。 */}
+          {resultDepartureLabel(departure.fullDateLabel(now()), departure.format())}
         </p>
       </header>
 
