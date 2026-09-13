@@ -22,8 +22,18 @@ Phase 3（アプリ側）の決定と対応表。
 - home 画面（`src/features/home/`）。残り 6 画面はプレースホルダのまま
 - 画面のテスト環境（jsdom + Testing Library）
 
-未着手: search / searchOrigin / picker / loading / result / settings / error、地図、
-日本語フォントの同梱、Playwright。
+**スライス3 — 検索画面**。home の地点の導線が着地する先と、その裏側。
+
+- 地点検索（`src/places/`）——`placesProxy` 越しの autocomplete / details、検索履歴の
+  永続化（localStorage）、候補から座標付きの地点への解決
+- 検索の状態（`src/features/search/search-state.ts`）——待ち合わせ・世代ガード・
+  「近くの店」の距離並べ替え
+- search / searchOrigin 画面（`src/features/search/`）
+- Firebase の初期化と App Check の有効化（`src/firebase/`）。placesProxy が
+  consume 対象（#155）なので、これが無いと検索は全要求 401 になる
+
+未着手: picker / loading / result / settings / error、地図、日本語フォントの同梱、
+Playwright。
 
 ## 決定
 
@@ -96,6 +106,13 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 | `lib/core/state/app_state.dart` の現在地まわり | — | `test/state/location.test.ts` |
 | `lib/features/home/`（`testWidgets` は運ばない） | — | `test/features/home/home-screen.test.tsx` |
 | `lib/shared/widgets/aruku_button.dart` / `icons/ic.dart` | — | `test/shared/button.test.tsx` + `test/shared/icons.test.tsx` |
+| `test/core/services/places_service_test.dart` | — | `test/places/places-service.test.ts` |
+| `test/core/services/recents_repository_test.dart` | — | `test/places/recents-repository.test.ts` |
+| `test/core/models/recent_place_test.dart` | — | `test/places/recent-place.test.ts` |
+| `test/features/search/place_selection_test.dart` | — | `test/places/resolve-prediction.test.ts` |
+| `test/features/search/places_provider_test.dart` | — | `test/features/search/search-state.test.ts` |
+| `lib/features/search/`（`testWidgets` は運ばない） | — | `test/features/search/search-screen.test.tsx` |
+| `test/core/config/app_check_provider_test.dart` | — | `test/firebase/app-check.test.ts` |
 
 `packages/engine` の `check:port` のような名前照合はここには入れていない。あちらの基準値は
 エンジンの 6 ファイルに固定されており、UI 側は「移植ではなく作り直す」（#386）ため
@@ -112,6 +129,32 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 | i18n | 型付き定数モジュール | ロケールは ja のみ。react-i18next 等は実在しない要件のためにバンドルと間接参照を増やす |
 | 読み上げ名 | `aria-label` で明示 | 中身から組ませると横並びか縦積みかで語の区切りが変わる。jsdom は CSS を読まないので、テストと実ブラウザで名前が食い違う |
 | 現在地の初回取得 | ストア生成ではなく home の effect | `appStore` はモジュール読み込み時に作られる。そこで取ると読み込みだけで権限ダイアログが出る |
+
+### 検索スライスの決定
+
+| 論点 | 決定 | 理由 |
+| --- | --- | --- |
+| 履歴の永続化 | `localStorage`（同期 API） | SharedPreferences が非同期だったために要った書き込みの直列化（`_writeLock`）が、同期なら丸ごと不要になる。`load→変更→save` の間に割り込む余地が無い |
+| 検索状態の寿命 | 画面ごとに作って捨てる | 入力・候補・モードはこの画面の外に意味が無い。provider（アプリ寿命）に置くと、次に開いたとき前回の候補が一瞬見える |
+| 履歴リポジトリの選択 | 画面が `mode` から選ぶ | 呼ぶ側に選ばせると mode と渡されたリポジトリが食い違っても型が通り、目的地の履歴に出発地が混ざる |
+| 未配線の依存 | 描画した時点で落とす | 何も返さない `PlacesService` を既定に置くと、配線漏れが「候補が出ない検索画面」として残り、上流の不調と区別がつかない（`startSearchNotPorted` と同じ扱い） |
+| 空のベース URL | 組み立てで拒む | 移植元は「候補なし」へ縮退させていた。設定漏れが正常な見た目で出てしまう。`createRouteService` と同じ判断で、検査は `src/http/base-url.ts` に1つ置いて共有する |
+
+#### App Check を Vite で組む
+
+- **デバッグトークンを書き込む分岐は `import.meta.env.DEV` を直に書く。** 移植元が release を
+  バイパスの対象外にして作っていた「配布物には入り得ない」という保証（#297）を、Vite では
+  定数畳み込みで作る。**引数や変数を1つでも経由させると畳めない**——`isDev` を既定引数に
+  していたときは、書き込む行が本番バンドルに残っていた（`dist` を grep して確認）。実行時に
+  到達しないだけの安全は、移植元が避けた形そのもの。そのぶん注入できず、この1点は
+  `dist` の中身でしか反証できない。
+- **サイトキーが無いとき（＝デバッグ時）は `CustomProvider` を渡す。** `ReCaptchaV3Provider('')`
+  ではない——`initializeAppCheck` はデバッグモードでも `provider.initialize()` を必ず呼ぶため、
+  reCAPTCHA の読み込みが `Missing required parameters: sitekey` で倒れる（実ブラウザで確認）。
+  短絡するのはトークン**取得**だけで初期化はしない。移植元の `WebDebugProvider` に相当する器が
+  JS SDK に無く、`initialize` が何もしない `CustomProvider` がその代わりになる。
+- **有効化できないときはトークンの取れないプロバイダを返す。** プロキシは 401 を返す（＝安全側）。
+  握り潰して素通しにはしない——課金 API が素通しで開くほうが、検索が失敗するよりはるかに悪い。
 
 ### 移植元と意図的に変えた点
 
@@ -136,6 +179,14 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 - **現在地は `RouteCore` に入れず `AppAmbient` に置いた。** ガードの判定材料ではない。
   `RouteCore` に混ぜると `go()` の update で書けてしまい、「画面と一緒に書き換えるもの」という
   `RouteCore` の意味が薄れる。
+- **履歴の打刻はリポジトリが行う。** 移植元も `add` で打っていたが、`resolvePlacePrediction` は
+  「確定した地点」を返すだけで、それが履歴に入る時刻を知らない。解決側で打つと、確定した時刻と
+  記録した時刻という2つの意味が1つの項目に混ざる。
+- **壊れた `usedAt` を落とす。** Dart の `DateTime.parse` は投げるので上位の捕捉に入るが、
+  `new Date` は静かに Invalid Date を返し、書き戻す `toISOString()` が後から RangeError になる
+  ——壊れた1件が履歴の保存全体を、原因から遠い場所で落とす。
+- **`dispose()` が世代を進める。** 移植元は provider の寿命に任せていた。debounce を落とすだけ
+  では、すでに走り出した取得が解決して閉じた画面の状態へ書き戻る。
 
 ### まだ運んでいないもの
 
@@ -143,7 +194,8 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 
 - `classifyRouteError`（`lib/core/models/route_error.dart`・テスト
   `test/core/models/route_error_test.dart`）— 文言と復帰導線と対で意味を持つ。エラー画面で運ぶ
-- Firebase の初期化と App Check の有効化 — アプリ起動の配線。画面のスライスで入る
+- 履歴のクラウド同期（`RecentsRepository.replaceAll`）— 同期の相手（認証と Firestore）が
+  まだ無く、運んでも呼ぶ側が存在しない
 - 歩数・週間実績・HealthKit・ローカル通知・OS 設定 — Web で恒久的に落ちる機能として
   #386 が UI ごと作らないと決めたもの。**運ばないことが決定であって、保留ではない**
 - 行程 handoff（`JourneyProgress`）— 上の歩数同期に依存する。結果画面のスライスで判断する
@@ -154,7 +206,10 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 - 日本語フォントの同梱 — 初回ロード gzip 500KB 未満（#386 の完了条件）との兼ね合いを実測して
   から決める。`--font-jp` 1 行の差し替えで済む形にしてある
 - デスクトップ幅の作り分け（#372 の `DesktopContent` / `DesktopTimeField` /
-  `DesktopTypeaheadField`）— インライン入力は Places 検索の移植が前提。検索のスライスで対に入れる
+  `DesktopTypeaheadField`）— 以前ここには「検索のスライスで対に入れる」と書いていたが、
+  スライス3 では入れていない。`DesktopTypeaheadField` だけ先に入れても、同じ画面の
+  時刻フィールドがまだ押せない以上ホームは片肺のまま——3 つは #372 の 1 つの作り分け
+  であって、Places の移植が済んだかどうかで割れる単位ではなかった
 
 ### exactOptionalPropertyTypes は入れていない
 
