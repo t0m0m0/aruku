@@ -227,6 +227,29 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 退行させてもどのテストも赤くならず、調べると守れている case が実在しないうえ、本当に
 危ない interleaving では逆に効かないものだった。落とした。
 
+### await を跨ぐ操作には `mounted` 相当のガードが要る
+
+移植元の `if (!mounted) return;`（`search_screen.dart:62`）に相当するもの。画面で
+`await` の後に状態や遷移を書くなら、`await` 直後に生存を確かめる。
+
+```ts
+const alive = useRef(true);
+useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+// ...
+const resolved = await something();
+if (!alive.current) return;
+```
+
+**同じ穴を 2 回開けている。** 1 回目は検索画面の座標解決（移植漏れ・PR #395 レビュー）、
+2 回目は失敗画面の再試行が測位を跨ぐところ（新規に書いたコード・PR #398 レビュー）。
+どちらも「離脱後に届いた結果がストアを書き換え、`go()` で画面を引きずる」という同じ壊れ方。
+picker / settings でも `await` を跨ぐ操作が出たら、**先にここを確認すること。**
+
+**ただしアンマウントを「離脱」の合図にしてよいのはこの用途だけ。** 「離れたら止める」
+という能動的な処理をアンマウントに紐づけると StrictMode の二重マウントで誤爆する
+（上の「検索が自分の遷移に殺される」）。ここは続きを**書かない**ための受け身の確認なので、
+偽のアンマウントで早期 return しても実害が無い。
+
 ### 移植元と意図的に変えた点
 
 - **App Check のトークンプロバイダを必須にした。** Dart は `FirebaseAppCheck.instance` から
