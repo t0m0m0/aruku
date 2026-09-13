@@ -84,6 +84,15 @@
      `localhost` と同じく「所有を証明しないドメイン」であり、防御にならない。
    - 同じ理由で **PR ごとのプレビュー配信を作らない**。プレビューはデプロイのたびに
      サブドメインが変わり、個別に登録して追随することができない。
+   - **これを止めているのは Cloudflare 側の設定であって、ワークフローではない。**
+     `.github/workflows/deploy-web.yml` は wrangler でしか配信しないが、Pages プロジェクトには
+     Git 連携（GitHub App）が繋がっており、push を直接ビルドして配信する第二の経路がある。
+     そちらはダッシュボードで Build command を設定した時点で、コードレビューを通らずに
+     鍵入りのプレビューを `*.pages.dev` へ出す。Cloudflare は Git 連携済みプロジェクトを
+     Direct Upload に戻せないため、経路を消すことはできない。Branch control で
+     `Preview branch` を `None (Disable automatic branch deployments)` に、
+     `Enable automatic production branch deployments` を OFF に保つこと
+     （README「Web 公開（Cloudflare Pages）」）。
 
    **共通**
    - **API の制限**: 「キーを制限」→ **Maps JavaScript API のみ**。
@@ -448,9 +457,14 @@ Origin ヘッダの無いリクエスト（モバイル・curl）はサーバー
 サブドメインを許すのは ① の「`*.pages.dev` を入れてはならない」と矛盾しない。
 ① が禁じているのは Cloudflare 全ユーザーの共有サフィックスを許すことで、ここで
 許可するのは `aruku.pages.dev` の下——このプロジェクトのデプロイだけが名乗れる
-名前に限られる。PR ごとのプレビュー配信は `.github/workflows/deploy-web.yml` の
-方針どおり作らないが、本番デプロイにも Cloudflare がハッシュ別名を割り当てるため、
-サブドメイン形は本番だけの運用でも必要になる。
+名前に限られる。サブドメイン形が必要なのは、本番デプロイにも Cloudflare が
+ハッシュ別名を割り当てるためで、プレビュー配信を想定しているからではない。
+
+**ただしこの許可は、プレビューが出たときにそれも通してしまう。** ① のとおり
+プレビューを止めているのは Cloudflare の Branch control であり、そこが緩むと
+リファラー制限と Origin 許可リストの両方が同時に無効化される。この関数は
+`aruku.pages.dev` の下という以上の区別をしないので、**プレビュー抑止の境界として
+数えてはならない**。
 
 本番デプロイでも `localhost` を許可しているのは、開発手順がデプロイ済み Functions を
 叩くため。localhost オリジンを持てるのは開発者自身の端末で動くページだけで、攻撃者が
