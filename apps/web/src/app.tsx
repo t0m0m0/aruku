@@ -8,6 +8,7 @@ import {
   type RouterLike,
 } from './navigation/navigator';
 import { appRoutes, type ScreenDeps } from './navigation/router';
+import { watchSearchAbandon } from './navigation/search-abandon';
 import { initializeFirebaseAppCheck } from './firebase/app-check';
 import {
   createRecentsRepository,
@@ -52,6 +53,14 @@ const routerLike: RouterLike = {
 // ストアとルーターは互いを要る（ガードはストアを読み、遷移はルーターを呼ぶ）。
 // 片方を後から差してほどく。
 appStore.getState().attachNavigator(createNavigator(routerLike));
+
+// 待ち画面を離れたら進行中の検索を止める。購読をルーターに張るのは、コンポーネントの
+// アンマウントを合図にすると StrictMode の二重マウントで本物の検索を殺すため
+// （navigation/search-abandon.ts）。
+watchSearchAbandon(
+  { currentPath: () => router.state.location.pathname, subscribe: (l) => router.subscribe(l) },
+  appStore,
+);
 
 export function App() {
   return <RouterProvider router={router} />;

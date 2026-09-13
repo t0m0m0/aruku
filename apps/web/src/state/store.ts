@@ -59,6 +59,18 @@ export interface AppActions {
   /// 進行中の検索を捨てて home へ戻す（#221）。
   cancelSearch(): void;
 
+  /// 進行中の検索を捨てる。**遷移はしない。**
+  ///
+  /// 待ち画面から離れたときに呼ぶ。移植元は PopScope で戻るを塞いでいたが、web では
+  /// 戻ってサイトを離れるのが当然の挙動なので塞がない——代わりに離脱で止める。
+  /// 遷移は既にブラウザが済ませているので、ここから動かすと二重になる。
+  ///
+  /// 走っていなければ実質何もしない（世代を進めるだけ）。「どの検索を止めてよいか」の
+  /// 判断はここには無く、呼ぶ側——離脱の**時点**で現在地を読み直す購読——が持つ
+  /// （navigation/search-abandon.ts）。新しい検索が待ち画面へ入り直していれば、
+  /// そちらの購読が早期に戻るので巻き添えにならない。
+  abandonSearch(): void;
+
   /// ルーターを繋ぐ。
   ///
   /// コンストラクタ引数にしないのは循環のため——ルーターはガードのためにストアを
@@ -138,6 +150,13 @@ export function createAppStore(
   // 進行中の検索のキャンセル境界（#259）。世代は「古い応答を書かない」を担うが、
   // それだけでは進行中の HTTP が完了まで走り切る。倒すと通信自体を切る。
   let activeCancellation: CancellationToken | null = null;
+
+  /// 進行中の探索を破棄する。世代を進めて結果の反映を止め、通信そのものも切る。
+  function discardSearch(): void {
+    searchGeneration++;
+    activeCancellation?.cancel();
+    activeCancellation = null;
+  }
 
   // 取得中の要求。StrictMode が effect を二度走らせるため、素通しすると権限
   // ダイアログが 2 回出る。移植元に相当物が無いのはこの事情が無いから。
@@ -246,10 +265,12 @@ export function createAppStore(
     },
 
     cancelSearch() {
-      searchGeneration++;
-      activeCancellation?.cancel();
-      activeCancellation = null;
+      discardSearch();
       get().go(Screen.home, { routePhase: null, routeErrorKind: null });
+    },
+
+    abandonSearch() {
+      discardSearch();
     },
 
     attachNavigator(next: Navigate) {
