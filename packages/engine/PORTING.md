@@ -19,7 +19,8 @@
     `test/services/search-scoped-route-service.test.ts`
   - `app_settings_test.dart`（13本）→ `test/models/app-settings.test.ts`
 - #385 でエンジン本体（`lib/core/services/` と `lib/core/models/` のうちエンジンが
-  使う範囲）を `src/` へ移植し、382 本すべてが緑になった。
+  使う範囲）を `src/` へ移植し、382 本すべてが緑になった。#385 のレビュー指摘対応で
+  `test/runtime/unhandled-rejection.test.ts` が加わり、現在は 383 本。
 
 ## テスト名の突き合わせ
 

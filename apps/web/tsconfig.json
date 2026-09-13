@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    // packages/engine/tsconfig.json と同じ ES2023。加えてブラウザの API を入れる
+    // （engine は DOM を宣言せずに済んでいるが、こちらは fetch / AbortController を使う）。
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "strict": true,
+    "noEmit": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    // エンジンはビルド成果物ではなくソースを直接見る。packages/engine は noEmit の
+    // ままでよく、ビルド段が1つ増えない。vite.config.ts の alias と対で維持する。
+    "paths": {
+      "@aruku/engine/*": ["../../packages/engine/src/*"]
+    }
+  },
+  "include": ["src", "test", "vite.config.ts"]
+}
