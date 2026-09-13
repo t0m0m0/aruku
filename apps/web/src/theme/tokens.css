@@ -1,0 +1,63 @@
+/* 移植元: lib/core/theme/aruku_colors.dart（ArukuColors.wakaba）と
+   lib/core/theme/aruku_tokens.dart。
+
+   design_handoff_aruku_mvp/design-reference/tokens.css が原本だが、値はそちらでは
+   なく実装済みの Dart 側を正とする。ハンドオフ以降に実装側だけが動いた箇所があり
+   （--ink-3 が #8A9583 → #5F6E58 など）、原本から引くと現行 Web 版と色が変わる。
+
+   地図の配色（--map-*）はここに持たない。lib/core/theme/aruku_map_style.dart が
+   Google Maps のスタイル JSON として別に持っており、地図を入れるスライスで対に
+   運ぶほうが、対応関係を見失わない。 */
+
+:root {
+  --moss-50: #eef8e0;
+  --moss-100: #dbf0b7;
+  --moss-200: #b9e27c;
+  --moss-300: #92cc4a;
+  --moss-400: #6fb342;
+  --moss-500: #4f9527;
+  --moss-600: #387418;
+  --moss-700: #2a5511;
+  --moss-800: #1b3a0b;
+
+  --ivory: #fbfcec;
+  --paper: #fffff4;
+  --sand: #eef1dc;
+
+  --ink: #1d2418;
+  --ink-2: #4a5645;
+  --ink-3: #5f6e58;
+  --ink-4: #c8cfc1;
+  --hairline: rgb(29 36 24 / 0.08);
+
+  --walk: #4f9527;
+  --train: #3e6792;
+  --train-soft: #c9d8e8;
+  --burnt: #f08338;
+  --burnt-soft: #fce2ce;
+  --danger: #c8412f;
+  --danger-soft: #f8dad4;
+  --gold: #d2a03a;
+
+  /* 日本語フォントはまだ同梱していない。同梱は初回ロード gzip 500KB 未満（#386 の
+     完了条件）との兼ね合いを実測してから決めるため、この 1 行の差し替えで済む形に
+     留めている。移植元は GoogleFonts.notoSansJp のランタイム取得で、それは #382 が
+     やめると決めたもの——フォールバックのまま放置してよいという意味ではない。 */
+  --font-jp: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP',
+    sans-serif;
+
+  --r-xs: 8px;
+  --r-sm: 12px;
+  --r-md: 18px;
+  --r-lg: 24px;
+  --r-pill: 999px;
+
+  /* アルファはコンポーネントごとの「浮き具合」。Dart 側は 0x0F22361E のような
+     ARGB リテラルで持っており、上位 2 桁がここの不透明度に対応する。 */
+  --shadow-card-subtle: 0 8px 24px rgb(34 54 30 / 0.06);
+  --shadow-card: 0 8px 24px rgb(34 54 30 / 0.08);
+  --shadow-cta-primary: 0 10px 28px rgb(53 80 26 / 0.36);
+
+  /* HIG のタップ最小寸法。移植元の _IconHit が同じ値で領域を広げている。 */
+  --tap-min: 44px;
+}

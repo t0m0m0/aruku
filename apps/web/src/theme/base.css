@@ -1,0 +1,48 @@
+/* 移植元: lib/core/theme/aruku_theme.dart の ThemeData と、各画面が繰り返していた
+   ArukuCard の装飾。
+
+   Flutter では「カード」はウィジェットでしか表せなかったが、CSS ではクラスで足りる
+   ——ArukuCard の borderRadius / bordered / shadow / padding といった引数は、
+   すべて使う側の CSS が直接書ける。移植元の引数リストは持ち込まない。 */
+
+@import './tokens.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--ivory);
+  color: var(--ink);
+  font-family: var(--font-jp);
+  font-weight: 500;
+  /* 移植元の MediaQuery.textScaler と違い、ブラウザの文字サイズ設定は rem を
+     直接動かす。px 指定のままでは拡大に追従しないが、レイアウトの rem 化は
+     デスクトップ対応（#372 相当）のスライスでまとめて行う。 */
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100%;
+}
+
+/* 数字の桁ぶれを止める。移植元の numStyle が FontFeature.tabularFigures() で
+   同じことをしている（等幅フォントへ替えるのではない）。 */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.card {
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+}
