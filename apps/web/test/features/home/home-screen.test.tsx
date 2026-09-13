@@ -20,6 +20,7 @@ import {
   locationDenied,
   type LocationState,
 } from '../../../src/location/location-state';
+import { Screen, screenPath } from '../../../src/navigation/screens';
 import type { RouteCore } from '../../../src/state/app-state';
 import { createAppStore, type AppStore } from '../../../src/state/store';
 
@@ -28,7 +29,7 @@ const somewhere = new GeoPoint(35.681, 139.767);
 
 interface Options {
   now?: Date;
-  onStartSearch?: () => void;
+  onStartSearch?: (() => void) | null;
   locations?: LocationState[];
 }
 
@@ -47,7 +48,9 @@ function setup(initial: Partial<RouteCore> = {}, options: Options = {}) {
     <HomeScreen
       store={store}
       now={() => at}
-      onStartSearch={options.onStartSearch ?? (() => {})}
+      onStartSearch={
+        options.onStartSearch === undefined ? () => {} : options.onStartSearch
+      }
     />,
   );
   return { navigate, store, request };
@@ -239,5 +242,34 @@ describe('ホームの CTA', () => {
 
     expect(onStartSearch).toHaveBeenCalledOnce();
     expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+// 検索画面が目的地を設定できるようになったため、この CTA は実際に押せる（PR #395 の
+// Codex レビュー P1）。経路検索のライフサイクルはまだ無いので、押して落ちるのでは
+// なく「まだ押せない」と分かる形で止める。
+describe('経路検索が未配線のときの CTA', () => {
+  it('目的地があっても押せない', () => {
+    setup({ destination: '渋谷駅' }, { onStartSearch: null });
+
+    const cta = screen.getByRole('button', { name: '経路検索は準備中' });
+    expect((cta as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('目的地が無ければ今までどおり目的地を選びに行く', () => {
+    const { navigate } = setup({}, { onStartSearch: null });
+
+    fireEvent.click(screen.getByRole('button', { name: '目的地を選ぶ' }));
+
+    expect(navigate).toHaveBeenCalledWith(screenPath[Screen.search]);
+  });
+
+  it('配線されていれば押せる', () => {
+    const onStartSearch = vi.fn();
+    setup({ destination: '渋谷駅' }, { onStartSearch });
+
+    fireEvent.click(screen.getByRole('button', { name: 'ルートを検索' }));
+
+    expect(onStartSearch).toHaveBeenCalledOnce();
   });
 });

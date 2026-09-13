@@ -16,6 +16,9 @@ interface ArukuButtonProps {
   icon?: ReactNode;
   variant?: ArukuButtonVariant;
 
+  /// 押せない状態。移植元は onPressed: null で表していた。
+  disabled?: boolean;
+
   /// 呼び出し側の見た目の上書き（CTA の高さ・影など）。
   className?: string;
 }
@@ -25,6 +28,7 @@ export function ArukuButton({
   onPress,
   icon,
   variant = 'filled',
+  disabled = false,
   className,
 }: ArukuButtonProps) {
   const classes = [styles.button, variant === 'outlined' ? styles.outlined : null, className]
@@ -32,7 +36,12 @@ export function ArukuButton({
     .join(' ');
 
   return (
-    <button type="button" className={classes} onClick={onPress}>
+    <button
+      type="button"
+      className={classes}
+      disabled={disabled}
+      onClick={onPress}
+    >
       {/* アイコンは装飾。読み上げ名はラベルだけが作る（移植元の MergeSemantics）。 */}
       {icon !== undefined && (
         <span className={styles.icon} aria-hidden="true">

@@ -1,5 +1,6 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
+import type { GeoPoint } from '@aruku/engine/models/geo-point';
 import { TimeValue } from '@aruku/engine/models/time-value';
 
 import { kInitialBudgetMinutes } from './app-state';
@@ -20,6 +21,16 @@ export type Navigate = (path: string) => void;
 export interface AppActions {
   /// 現在地を取り直す。ホームのコンパスボタンと、起動直後の初回取得から呼ぶ。
   refreshLocation(): Promise<void>;
+
+  /// 目的地を設定する。名前と座標は必ず対で入れ替える。
+  ///
+  /// 座標を省いた呼び出しは前の座標を**消す**（移植元の sentinel なし copyWith と
+  /// 同じ）。残すと、表示は新しい目的地なのに検索は前の座標へ行く。
+  setDestination(name: string | null, latLng?: GeoPoint | null): void;
+
+  /// 出発地を設定する。null は「未設定」ではなく**現在地を使う**の意味で、
+  /// home の表示名（departureLabelText）がそれを取得状況へ読み替える。
+  setOrigin(name: string | null, latLng?: GeoPoint | null): void;
 
   /// 画面と、その表示前提データを書き換える唯一の入口。
   ///
@@ -110,6 +121,14 @@ export function createAppStore(
           inFlight = null;
         });
       return inFlight;
+    },
+
+    setDestination(name: string | null, latLng: GeoPoint | null = null) {
+      set({ destination: name, destinationLatLng: latLng });
+    },
+
+    setOrigin(name: string | null, latLng: GeoPoint | null = null) {
+      set({ origin: name, originLatLng: latLng });
     },
 
     attachNavigator(next: Navigate) {

@@ -34,6 +34,19 @@ export function SearchIcon({ size = 20 }: IconProps) {
   );
 }
 
+export function CloseIcon({ size = 18 }: IconProps) {
+  return (
+    <svg {...svgProps(size)}>
+      <path
+        d="M6 6l12 12M18 6L6 18"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function ClockIcon({ size = 18 }: IconProps) {
   return (
     <svg {...svgProps(size)}>
