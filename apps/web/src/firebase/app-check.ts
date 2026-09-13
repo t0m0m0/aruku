@@ -52,7 +52,7 @@ let firebaseApp: FirebaseApp | null = null;
 export function initializeFirebaseAppCheck(): AppCheckProviders {
   if (appCheck !== null) return providersFor(appCheck);
 
-  const { recaptchaSiteKey, appCheckDebugToken } = appConfig;
+  const { recaptchaSiteKey } = appConfig;
 
   if (
     !canActivateAppCheck({
@@ -72,11 +72,16 @@ export function initializeFirebaseAppCheck(): AppCheckProviders {
   // 引数や変数を1つでも経由させてはいけない。`isDev` を既定引数にしていたときは
   // 畳めず、デバッグトークンを書き込む行が本番バンドルに残っていた（dist を
   // grep して確認）。実行時に到達しないだけの「安全」は、移植元が避けた形そのもの。
+  //
+  // トークン**そのもの**もこの中で読む。`appConfig` のプロパティにすると、分岐が
+  // 消えても値だけが平文で残る——生きた export のプロパティは落ちないため
+  // （config.ts の注記。実トークンで本番ビルドして確認済み）。
   if (import.meta.env.DEV) {
+    const debugToken = (import.meta.env.VITE_APP_CHECK_DEBUG_TOKEN ?? '').trim();
     // SDK はこのグローバルを initializeAppCheck の中で読む。後から置いても効かない。
     // 文字列なら固定トークン、true なら SDK が生成してコンソールへ出す。
     (globalThis as Record<string, unknown>)['FIREBASE_APPCHECK_DEBUG_TOKEN'] =
-      appCheckDebugToken.trim() !== '' ? appCheckDebugToken.trim() : true;
+      debugToken !== '' ? debugToken : true;
   }
 
   appCheck = initializeAppCheck(firebaseApp, {
