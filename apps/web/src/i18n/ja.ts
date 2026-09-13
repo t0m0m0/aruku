@@ -7,6 +7,25 @@
 // 差し替えればよい。
 
 export const ja = {
+  weekdays: ['月', '火', '水', '木', '金', '土', '日'],
+  greetingMorning: 'おはようございます',
+  greetingAfternoon: 'こんにちは',
+  greetingEvening: 'こんばんは',
+
+  homeGreetingLead: '今日も、',
+  homeGreetingHighlight: '歩こう。',
+  homeOpenSettings: '設定を開く',
+  homeDepartureLabel: '出発',
+  homeArrivalLabel: '到着',
+  homeDestinationLabel: '目的地',
+  homeDestinationPlaceholder: 'どこへ歩く?',
+  homeRefreshLocation: '現在地を再取得',
+  homeSearchDestination: '目的地を検索',
+  homeTimeSectionLabel: '時間',
+  homeWalkableSuffix: ' 歩ける',
+  homeSearchRoute: 'ルートを検索',
+  homeChooseDestination: '目的地を選ぶ',
+
   /// 出発地の表示名。移植元は app_state.dart に直書きしていた（ARB に無い）。
   /// 文言なので他と同じくここへ置く。
   departureCurrentLocationLoading: '現在地 · 取得中...',

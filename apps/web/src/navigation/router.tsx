@@ -1,17 +1,29 @@
 import { replace, type RouteObject } from 'react-router';
 import type { StoreApi } from 'zustand/vanilla';
 
+import { HomeScreen } from '../features/home/home-screen';
 import type { AppStore } from '../state/store';
 import { resolveRedirect } from './guard';
-import { screenPath, type Screen } from './screens';
+import { Screen, screenPath } from './screens';
 
 /// 現在時刻の供給元。テストで失効（#264）を制御できるよう注入可能にする。
 export type Now = () => Date;
 
-/// 画面はまだ無い。ルーティングが先に入るスライスなので、どの画面に着いたかだけを
-/// 出す（#386 の後続スライスで実体に差し替わる）。
+/// 実体がまだ無い画面。どの画面に着いたかだけを出す（#386 の後続スライスで
+/// 差し替わる）。home は差し替え済み。
 function ScreenPlaceholder({ screen }: { screen: Screen }) {
   return <div data-screen={screen} />;
+}
+
+/// 経路検索の開始（移植元の `AppNotifier.startSearch`）はまだ運んでいない。検索の
+/// ライフサイクル（loading / result / error）と対で入るため、それらの画面を作る
+/// スライスで繋ぐ。
+///
+/// 現時点では到達しない——CTA がここへ来るのは目的地が決まっているときだけで、
+/// 目的地を設定できる検索画面がまだ無い。到達し得なくなった時点で黙って何もしない
+/// 実装を置くと、繋ぎ忘れが「押しても反応しないボタン」として残る。
+function startSearchNotPorted(): never {
+  throw new Error('経路検索の開始は未移植（#386 の後続スライス）');
 }
 
 /// アプリ全体のルート表。
@@ -41,7 +53,16 @@ export function appRoutes(
     ([screen, path]) => ({
       path,
       loader: guard,
-      Component: () => <ScreenPlaceholder screen={screen as Screen} />,
+      Component:
+        screen === Screen.home
+          ? () => (
+              <HomeScreen
+                store={store}
+                now={now}
+                onStartSearch={startSearchNotPorted}
+              />
+            )
+          : () => <ScreenPlaceholder screen={screen as Screen} />,
     }),
   );
 
