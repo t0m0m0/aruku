@@ -54,6 +54,27 @@ export const ja = {
     'この目的地は位置情報を取得できませんでした。別の候補を選んでください',
   searchResolvingPlace: '地点を確定中',
 
+  loadingSearchingMessage: '歩ける道を、探しています',
+  loadingCancelButton: 'キャンセル',
+
+  routeErrorNetworkTitle: '通信に失敗しました',
+  routeErrorNetworkDescription: '通信状況を確認してもう一度お試しください',
+  routeErrorTimeoutTitle: '経路サービスの応答が遅れています',
+  routeErrorTimeoutDescription:
+    '混み合っているようです。少し時間をおいてもう一度お試しください',
+  routeErrorNoResultsTitle: 'ルートが見つかりませんでした',
+  routeErrorNoResultsDescription: '目的地や出発・到着時刻を変えてお試しください',
+  routeErrorNoLocationTitle: '現在地を取得できませんでした',
+  routeErrorNoLocationDescription: '位置情報を有効にしてもう一度お試しください',
+  routeErrorNoDestinationTitle: '目的地が選ばれていません',
+  routeErrorNoDestinationDescription: '目的地を選んでもう一度検索してください',
+  routeErrorUnknownTitle: 'ルートを取得できませんでした',
+  routeErrorUnknownDescription: '時間をおいてもう一度お試しください',
+  errorRetry: '再試行',
+
+  resultChangeConditions: '条件を変更',
+  resultBackToSearch: '検索に戻る',
+
   /// 出発地の表示名。移植元は app_state.dart に直書きしていた（ARB に無い）。
   /// 文言なので他と同じくここへ置く。
   departureCurrentLocationLoading: '現在地 · 取得中...',
