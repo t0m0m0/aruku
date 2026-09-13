@@ -85,12 +85,12 @@ export function HomeScreen({
       <header className={styles.header}>
         <div className={styles.greeting}>
           <p className={styles.greetingDate}>{todayGreeting(now())}</p>
-          <p className={styles.greetingLead}>
+          <h1 className={styles.greetingLead}>
             {ja.homeGreetingLead}
             <span className={styles.greetingHighlight}>
               {ja.homeGreetingHighlight}
             </span>
-          </p>
+          </h1>
         </div>
         <button
           type="button"
@@ -131,6 +131,7 @@ export function HomeScreen({
               待ち表示になる（移植元の _IconHit と同じ）。 */}
           <IconHitButton
             label={ja.homeRefreshLocation}
+            busyLabel={ja.homeRefreshingLocation}
             onPress={refreshLocation}
           >
             <CompassIcon size={20} />

@@ -64,6 +64,16 @@ describe('ホームの見出し', () => {
     expect(screen.getByText(`9月11日 (金) · ${greeting}`)).toBeDefined();
   });
 
+  // 見出しで辿る読者にとって、この画面の主見出しはここ。段落のままだと最初に
+  // 読み上げられる見出しが従属セクションの「時間」（h2）になる。
+  it('主見出しは見出しレベル1で出る', () => {
+    setup();
+
+    const heading = screen.getByRole('heading', { level: 1 });
+
+    expect(heading.textContent).toBe('今日も、歩こう。');
+  });
+
   it('設定へ行ける', () => {
     const { navigate } = setup();
 

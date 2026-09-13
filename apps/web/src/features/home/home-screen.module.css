@@ -34,6 +34,8 @@
 }
 
 .greetingLead {
+  /* h1 の既定マージンを打ち消す。見出しレベルは読み上げの構造の話で、
+     余白はこの画面の都合。 */
   margin: 2px 0 0;
   font-size: 26px;
   font-weight: 800;

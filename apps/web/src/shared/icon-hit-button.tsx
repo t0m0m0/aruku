@@ -5,11 +5,15 @@
 
 import { useState, type ReactNode } from 'react';
 
+import { ja } from '../i18n/ja';
 import styles from './icon-hit-button.module.css';
 
 interface IconHitButtonProps {
   /// 読み上げ名。中身はアイコンなので、名前はここだけが持つ。
   label: string;
+
+  /// 待っている間に読み上げる文言。スピナーは見える読者にしか届かない。
+  busyLabel?: string;
 
   onPress: () => void | Promise<void>;
   children: ReactNode;
@@ -18,6 +22,7 @@ interface IconHitButtonProps {
 
 export function IconHitButton({
   label,
+  busyLabel = ja.busyDefault,
   onPress,
   children,
   className,
@@ -50,7 +55,15 @@ export function IconHitButton({
       disabled={busy}
       onClick={handleClick}
     >
-      {busy ? <span role="status" className={styles.spinner} /> : children}
+      {busy ? (
+        <span className={styles.spinner}>
+          <span role="status" className="srOnly">
+            {busyLabel}
+          </span>
+        </span>
+      ) : (
+        children
+      )}
     </button>
   );
 }

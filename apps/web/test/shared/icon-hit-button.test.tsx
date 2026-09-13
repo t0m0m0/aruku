@@ -40,6 +40,25 @@ describe('IconHitButton', () => {
     ).toBe(false);
   });
 
+  // 空の role="status" は読み上げるものが無い。スピナーが見えない読者には、
+  // ボタンが disabled になったことしか伝わらない。
+  it('待ち表示は読み上げる文言を持つ', () => {
+    const { promise } = deferred();
+    render(
+      <IconHitButton
+        label="現在地を再取得"
+        busyLabel="現在地を取得中"
+        onPress={() => promise}
+      >
+        <span />
+      </IconHitButton>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '現在地を再取得' }));
+
+    expect(screen.getByRole('status').textContent).toBe('現在地を取得中');
+  });
+
   it('待っている間の再押下は無視する', () => {
     const { promise } = deferred();
     const onPress = vi.fn(() => promise);
