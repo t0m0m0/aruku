@@ -53,7 +53,11 @@ export function browserLocationService(
               // 拒否以外（測位失敗・打ち切り・未知のコード）は権限拒否に丸めず、
               // 再試行可能な unavailable として区別する。
               resolve(error.code === permissionDenied ? locationDenied : locationUnavailable),
-            { timeout: timeoutMs },
+            // 移植元は LocationSettings() の既定 LocationAccuracy.best で呼んで
+            // おり、geolocator_web はそれを enableHighAccuracy: true へ写す。
+            // W3C の既定は false なので、渡さないと粗い推定を掴む——この座標は
+            // 経路の出発地になるため、別の通りや駅から歩き始めることになる。
+            { timeout: timeoutMs, enableHighAccuracy: true },
           );
         } catch {
           resolve(locationUnavailable);

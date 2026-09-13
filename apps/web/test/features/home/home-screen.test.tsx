@@ -103,6 +103,32 @@ describe('ホームの出発地', () => {
     expect(request).toHaveBeenCalledOnce();
   });
 
+  // 測位は 10 秒かかり得る。押した手応えが無いと、効かなかったように見える。
+  it('取り直している間はコンパスが待ち表示になる', async () => {
+    let settle!: (state: LocationState) => void;
+    const pending = new Promise<LocationState>((resolve) => {
+      settle = resolve;
+    });
+    const request = vi
+      .fn<() => Promise<LocationState>>()
+      .mockResolvedValueOnce(locationDenied)
+      .mockReturnValueOnce(pending);
+    const s = createAppStore({}, () => noon, { request });
+    s.getState().attachNavigator(vi.fn());
+    render(<HomeScreen store={s} now={() => noon} onStartSearch={() => {}} />);
+    await screen.findByText('位置情報なし');
+
+    fireEvent.click(screen.getByRole('button', { name: '現在地を再取得' }));
+
+    expect(screen.getByRole('status')).toBeDefined();
+    expect(
+      screen.getByRole('button', { name: '現在地を再取得' }).hasAttribute('disabled'),
+    ).toBe(true);
+
+    settle(locationAvailable(somewhere));
+    expect(await screen.findByText('現在地')).toBeDefined();
+  });
+
   it('コンパスで取り直せる', async () => {
     setup({}, { locations: [locationDenied, locationAvailable(somewhere)] });
     await screen.findByText('位置情報なし');

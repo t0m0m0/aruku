@@ -20,6 +20,7 @@ import { todayGreeting } from '../../i18n/format';
 import { ja } from '../../i18n/ja';
 import { Screen } from '../../navigation/screens';
 import { ArukuButton } from '../../shared/button';
+import { IconHitButton } from '../../shared/icon-hit-button';
 import {
   ChevronIcon,
   ClockIcon,
@@ -126,16 +127,14 @@ export function HomeScreen({
             <span className={styles.placeLabel}>{ja.homeDepartureLabel}</span>
             <span className={styles.placeValue}>{departureText}</span>
           </button>
-          <button
-            type="button"
-            className={styles.iconHit}
-            aria-label={ja.homeRefreshLocation}
-            onClick={() => {
-              void refreshLocation();
-            }}
+          {/* 取り直しの promise をそのまま渡す。ボタンはこれが解決するまで
+              待ち表示になる（移植元の _IconHit と同じ）。 */}
+          <IconHitButton
+            label={ja.homeRefreshLocation}
+            onPress={refreshLocation}
           >
             <CompassIcon size={20} />
-          </button>
+          </IconHitButton>
         </div>
 
         <div className={styles.placeRow}>
@@ -152,16 +151,11 @@ export function HomeScreen({
               {destinationText}
             </span>
           </button>
-          <button
-            type="button"
-            className={styles.iconHit}
-            aria-label={ja.homeSearchDestination}
-            onClick={goSearch}
-          >
+          <IconHitButton label={ja.homeSearchDestination} onPress={goSearch}>
             <span className={styles.searchChip}>
               <SearchIcon size={17} />
             </span>
-          </button>
+          </IconHitButton>
         </div>
       </section>
 

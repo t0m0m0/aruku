@@ -97,6 +97,22 @@ describe('browserLocationService', () => {
     expect(state.kind).toBe('denied');
   });
 
+  // 移植元は LocationSettings() の既定 LocationAccuracy.best で呼んでおり、
+  // geolocator_web はそれを enableHighAccuracy: true へ写す。W3C の既定は false
+  // なので、渡さないと粗い推定を掴み、経路の出発地が別の通りから始まる。
+  it('高精度を要求する（移植元の既定と揃える）', async () => {
+    const getCurrentPosition = vi.fn<Geolocation['getCurrentPosition']>();
+    const spy = {
+      getCurrentPosition,
+      watchPosition: () => 0,
+      clearWatch: () => {},
+    } satisfies Geolocation;
+
+    void browserLocationService(spy).request();
+
+    expect(getCurrentPosition.mock.calls[0]?.[2]?.enableHighAccuracy).toBe(true);
+  });
+
   it('W3C の timeout はミリ秒で渡す', async () => {
     const getCurrentPosition = vi.fn<Geolocation['getCurrentPosition']>();
     const spy = {

@@ -136,22 +136,6 @@
   color: var(--ink-3);
 }
 
-/* HIG のタップ最小寸法を満たしつつ、見た目は中身の大きさに留める。
-   移植元の _IconHit に対応する。 */
-.iconHit {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: var(--tap-min);
-  height: var(--tap-min);
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--ink-2);
-  cursor: pointer;
-}
-
 .searchChip {
   display: inline-flex;
   align-items: center;
