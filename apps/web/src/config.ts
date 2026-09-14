@@ -62,3 +62,15 @@ export const appConfig: AppConfig = {
   },
   recaptchaSiteKey: import.meta.env.VITE_RECAPTCHA_SITE_KEY ?? '',
 };
+
+/// 移植元: lib/core/constants/app_constants.dart の termsOfServiceUrl /
+/// privacyPolicyUrl。
+///
+/// 値は移植元と同じプレースホルダのまま。実 URL への差し替えは #386 の範囲外で、
+/// 先に本物らしい URL を置くと「配線済み」と読めてしまう。
+///
+/// 環境変数にしない。`appConfig` に置いているのはデプロイごとに変わる設定で、
+/// これは両者とも同じ値を指す固定のリンク先——env にすると設定漏れが「規約が
+/// 開かない」という遠い失敗になる。
+export const termsOfServiceUrl = 'https://example.com/aruku/terms';
+export const privacyPolicyUrl = 'https://example.com/aruku/privacy';

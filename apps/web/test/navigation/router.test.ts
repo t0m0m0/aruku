@@ -3,6 +3,8 @@
 // guard.test.ts は純粋関数としての判定を見る。そちらが緑でも loader に配線され
 // ていなければ何も守らないので、ここは「ルート表を通ったときに跳ね返るか」を見る。
 
+import { createElement } from 'react';
+import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import type { RouteObject } from 'react-router';
@@ -19,6 +21,12 @@ function loaderFor(routes: RouteObject[], path: string) {
   const route = routes.find((r) => r.path === path);
   if (route?.loader === undefined) throw new Error(`no loader for ${path}`);
   return route.loader as (args: { request: Request }) => null;
+}
+
+function componentFor(routes: RouteObject[], path: string) {
+  const component = routes.find((r) => r.path === path)?.Component;
+  if (component == null) throw new Error(`no component for ${path}`);
+  return component;
 }
 
 function run(routes: RouteObject[], path: string): Response | null {
@@ -74,5 +82,18 @@ describe('loader に配線されたガード', () => {
     const response = run(appRoutes(createAppStore(), () => now), '/');
 
     expect(response?.headers.get('Location')).toBe(screenPath.home);
+  });
+});
+
+describe('画面の配線', () => {
+  // 配線を忘れてプレースホルダのまま残しても、ガードのテストは緑のままになる
+  // ——跳ね返さないことしか見ていないため。ルート表が実物を指していることは
+  // 別に確かめる。JSX を使わないのは、このファイルが .ts だから。
+  it('settings は設定画面を出す', () => {
+    const routes = appRoutes(createAppStore(), () => now);
+
+    render(createElement(componentFor(routes, screenPath.settings)));
+
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('設定');
   });
 });
