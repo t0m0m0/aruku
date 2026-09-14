@@ -1,0 +1,186 @@
+/* 移植元: lib/features/result/result_timeline.dart の装飾と
+   design_handoff_aruku_mvp/design-reference/screens-result.jsx の TimelineNode /
+   TimelineSegment。 */
+
+.timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 移植元は各行が [44px 時刻][14 隙間][16 トラック][残り] の Row だった。行ごとに同じ
+   幅指定を書くと、片方だけ直したときにトラックの縦線が折れる。1 つのグリッドに乗せて
+   列を共有する——ノード行とレッグ行が同じ li の中にあるのはそのため。 */
+.step {
+  display: grid;
+  grid-template-columns: 44px 16px 1fr;
+  column-gap: 14px;
+  align-items: start;
+}
+
+.time {
+  grid-column: 1;
+  padding-top: 1px;
+  text-align: right;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-3);
+}
+
+.nodeTrack {
+  grid-column: 2;
+  position: relative;
+  height: 100%;
+  min-height: 12px;
+}
+
+.dot {
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--ink-2);
+}
+
+.nodeText {
+  grid-column: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding-bottom: 4px;
+}
+
+.place {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.sub {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+/* 直結乗換の「着」行と「発」行のあいだ。カードが入らないぶん縦線が切れるので、
+   短い実線で繋ぐ。 */
+.connector {
+  grid-column: 2;
+  height: 12px;
+  border-left: 3px solid var(--train);
+  margin-left: 6.5px;
+}
+
+.legTrack {
+  grid-column: 2;
+  align-self: stretch;
+  margin: 6px 0;
+}
+
+/* 徒歩は破線、乗り物は実線。移植元の _SegLinePainter の dashed がこの差だった。 */
+.trackWalk {
+  border-left: 3px dotted var(--moss-600);
+  margin-left: 6.5px;
+}
+
+.trackRide {
+  border-left: 3px solid var(--train);
+  margin-left: 6.5px;
+}
+
+.card {
+  grid-column: 3;
+  margin: 6px 0;
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+}
+
+.cardWalk {
+  background: var(--moss-50);
+  border-color: var(--moss-100);
+}
+
+.cardRide {
+  background: color-mix(in srgb, var(--train) 8%, transparent);
+  border-color: color-mix(in srgb, var(--train) 18%, transparent);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legIcon {
+  display: flex;
+  flex: none;
+}
+
+.cardWalk .legIcon {
+  color: var(--moss-600);
+}
+
+/* バス専用のアイコン・色は未デザインのため、当面は電車と同じ見た目を流用する（#249）。 */
+.cardRide .legIcon {
+  color: var(--train);
+}
+
+.legLabel {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.duration {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+}
+
+.cardWalk .duration {
+  color: var(--moss-600);
+}
+
+.cardRide .duration {
+  color: var(--train);
+}
+
+.durationValue {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.durationUnit {
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.cardMeta {
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.metaPart {
+  display: inline-flex;
+  align-items: center;
+}
+
+.metaSeparator {
+  margin: 0 8px;
+  color: var(--ink-4);
+}
+
+.kcal {
+  font-weight: 800;
+  color: var(--burnt);
+}
