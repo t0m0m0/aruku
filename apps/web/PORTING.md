@@ -51,7 +51,13 @@ Phase 3（アプリ側）の決定と対応表。
   権限をどこで変えるかの案内だけ
 - 法的情報の URL（`src/config.ts`）
 
-未着手: result のタイムライン作り込みと区間 CTA、地図、日本語フォントの同梱、Playwright。
+**スライス7 — result のタイムライン**。最後の画面の作り込み。
+
+- タイムライン（`src/features/result/result-timeline.tsx`）——ノード行・直結乗換の
+  コネクタ・区間カード。結果画面のフラットな区間一覧を置き換える
+- 歩行・電車アイコン（`src/shared/icons.tsx`）と区間の文言（`src/i18n/ja.ts`）
+
+未着手: 区間 CTA、地図、日本語フォントの同梱、Playwright。
 
 ## 決定
 
@@ -134,6 +140,7 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 | `test/core/models/route_error_test.dart` | — | `test/state/route-error.test.ts` |
 | `lib/core/state/app_state.dart` の `startSearch` まわり | — | `test/state/search-lifecycle.test.ts` |
 | `lib/features/loading/` / `error/` / `result/`（`testWidgets` は運ばない） | — | `test/features/loading/` / `error/` / `result/` |
+| `lib/features/result/result_timeline.dart` | — | `test/features/result/result-timeline.test.tsx` |
 | `test/core/state/app_state_time_revalidation_test.dart`（`applyPickedTime` まわり） | — | `test/state/picked-time.test.ts` |
 | `test/features/picker/desktop_time_field_test.dart` | — | `test/features/picker/time-field.test.tsx` + `time-field-range.test.ts` |
 | `lib/features/settings/`（`testWidgets` は運ばない） | — | `test/features/settings/settings-screen.test.tsx` |
@@ -305,9 +312,8 @@ picker / settings でも `await` を跨ぐ操作が出たら、**先にここを
 - 歩数・週間実績・HealthKit・ローカル通知・OS 設定 — Web で恒久的に落ちる機能として
   #386 が UI ごと作らないと決めたもの。**運ばないことが決定であって、保留ではない**
 - 行程 handoff（`JourneyProgress`）— 上の歩数同期に依存する。結果画面のスライスで判断する
-- 結果画面のタイムライン作り込み（`result_timeline.dart`）と区間 CTA（`result_leg_cta.dart`）
-  — 前者は表示の作り込み、後者は行程（`JourneyProgress`）＝歩数同期に依存する。
-  区間そのものは一覧で出している
+- 区間 CTA（`result_leg_cta.dart`）— 行程（`JourneyProgress`）＝歩数同期に依存する。
+  タイムライン本体はスライス7 で運んだ
 - 経路の共有（`resultShareText`）— 外部連携で、経路検索の正しさとは独立
 - 日本語フォントの同梱 — 初回ロード gzip 500KB 未満（#386 の完了条件）との兼ね合いを実測して
   から決める。`--font-jp` 1 行の差し替えで済む形にしてある
@@ -479,6 +485,33 @@ blur が時刻だけを確定する。09:00 は今日の過去時刻なので現
 揃う）。移植元も同じで、あちらの日付ラベルも `onAppResumed` や再描画が来るまで古い
 ままだった。**意図して揃えていない**——直すには真夜中に起きるタイマーが要り、それは
 経路の失効（`navigation/route-freshness.ts`）と同じ仕掛けを別の目的で足すことになる。
+
+### タイムラインのスライスの決定
+
+**journey 進捗は運ばない。** 移植元の `_LegState`（done / current / upcoming）と
+`_LegStateBadge` は `JourneyProgress` を読む（#305）。それは歩数同期に依存し、#386 が
+UI ごと作らないと決めた側。移植元で言えば `journey == null` の `_LegState.none` だけが
+残った形になる。**運ばないことが決定であって、保留ではない。**
+
+**図案の戻り先は Dart ではなくハンドオフ。** `result_timeline.dart` は
+`CustomPaint` と `_SegLinePainter` で線を引いているが、原本は
+`design_handoff_aruku_mvp/design-reference/screens-result.jsx` の CSS（徒歩は
+`3px dotted`、乗り物は `3px solid`）。Dart 版がそれを Canvas へ移したもので、そこから
+起こし直すと二重の写しになる（`src/shared/icons.tsx` 冒頭と同じ理由）。
+
+**行は 1 つのグリッドに乗せる。** 移植元は各行が `[44px 時刻][14 隙間][16 トラック][残り]`
+の `Row` で、幅指定を行ごとに繰り返していた。同じことを CSS でやると、片方だけ直したときに
+トラックの縦線が折れる。`li` を 3 列のグリッドにして列を共有させている——ノード行と
+レッグ行が同じ `li` の中にあるのはそのため。
+
+**徒歩の km/kcal が欠けても描く。** 移植元は `seg.km!` で、null なら落ちた。TypeScript 側の
+型は `number | null` を明示している。経路生成は徒歩レッグに必ず埋めるが、描画で落とす価値は
+無いので、欠けている側だけ出さない（区切りの中黒も一緒に落ちる）。
+
+**所要時間はテストから 1 本の文字列として見えない。** 数字と単位で書体・字送りが違うため
+別のスパンに割れており、`getByText` は要素の直下テキストしか見ない。読み手に届く形は
+連結後なので、行の `textContent` で見ている。この見方は「割った断片が隙間も入れ替わりも
+無く並ぶ」ことまで押さえる。
 
 ## 動かす
 
