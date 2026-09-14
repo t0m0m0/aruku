@@ -17,6 +17,7 @@ import {
   Map,
   useApiLoadingStatus,
   useMap,
+  useMapsLibrary,
 } from '@vis.gl/react-google-maps';
 
 import type { RoutePlan } from '@aruku/engine/models/route-plan';
@@ -179,19 +180,25 @@ function toPolylineOptions(
 ///
 /// 移植元は BitmapDescriptor.defaultMarkerWithHue の緑／橙で、これは Google の既定ピンを
 /// 色相回転したもの。同じ絵は JS 側に無いので、作り物の地図と同じ walk / burnt で描く。
+///
+/// **marker ライブラリの取り込みを待つ。** `<Map>` が在ることで保証されるのは core と maps
+/// までで、Marker はそこに入っていない。待たずに new すると、結果画面が出た瞬間に undefined を
+/// 呼んで落ちる。Polyline のほうは maps ライブラリなので、地図が在る時点で必ず在る。
 function useRouteEndpoints(
   map: google.maps.Map | null,
   endpoints: { start: LatLng; end: LatLng } | null,
 ) {
+  const markerLibrary = useMapsLibrary('marker');
+
   useEffect(() => {
-    if (map === null || endpoints === null) return;
+    if (map === null || endpoints === null || markerLibrary === null) return;
     const markers = [
-      new google.maps.Marker({
+      new markerLibrary.Marker({
         map,
         position: endpoints.start,
         icon: endpointIcon('#4F9527'),
       }),
-      new google.maps.Marker({
+      new markerLibrary.Marker({
         map,
         position: endpoints.end,
         icon: endpointIcon('#F08338'),
@@ -200,7 +207,7 @@ function useRouteEndpoints(
     return () => {
       for (const marker of markers) marker.setMap(null);
     };
-  }, [map, endpoints]);
+  }, [map, endpoints, markerLibrary]);
 }
 
 function endpointIcon(fillColor: string): google.maps.Symbol {

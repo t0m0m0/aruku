@@ -565,6 +565,12 @@ UI ごと作らないと決めた側。移植元で言えば `journey == null` �
 `LOADED` になり、Google が地図の中へ自前のエラー面を描く。こちらから見分ける術は無い
 ——リファラー制限の設定は `docs/security_hardening.md` の側の話。
 
+**始終点の印は marker ライブラリの取り込みを待つ。** `<Map>` が在ることで保証されるのは
+core と maps までで、legacy `Marker` はそこに入っていない。待たずに `new` すると結果画面が
+出た瞬間に undefined を呼んで落ちる（PR #402 の Codex レビュー P1）。`useMapsLibrary('marker')`
+が返してから作る。`Polyline` のほうは maps ライブラリなので、地図が在る時点で必ず在る
+——同じ扱いに見えて、要る待ちが違う。
+
 **loading の背景は `inert`。** `aria-hidden` が外すのは読み上げの木だけで、実キーがあると
 ここは本物の地図になり、canvas と Google が差し込む帰属表示のリンクはフォーカスを受け、
 ジェスチャーは入力を飲む。読み上げから隠れたままタブで入れる的が残る。

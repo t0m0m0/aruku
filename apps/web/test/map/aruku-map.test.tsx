@@ -23,6 +23,9 @@ let currentMap: google.maps.Map | null = null;
 /// Maps JS API の読み込み状態。既定は読み込み済み。
 let currentStatus = 'LOADED';
 
+/// useMapsLibrary が返す marker ライブラリ。読み込みが済むまで null で来る。
+let currentMarkerLibrary: unknown = null;
+
 vi.mock('@vis.gl/react-google-maps', () => ({
   APILoadingStatus: {
     NOT_LOADED: 'NOT_LOADED',
@@ -32,6 +35,8 @@ vi.mock('@vis.gl/react-google-maps', () => ({
     AUTH_FAILURE: 'AUTH_FAILURE',
   },
   useApiLoadingStatus: () => currentStatus,
+  useMapsLibrary: (name: string) =>
+    name === 'marker' ? currentMarkerLibrary : null,
   APIProvider: ({ children, apiKey }: { children?: unknown; apiKey: string }) => (
     <div data-testid="api-provider" data-api-key={apiKey}>
       {children as never}
@@ -73,6 +78,7 @@ beforeEach(() => {
   mapProps.mockClear();
   currentMap = null;
   currentStatus = 'LOADED';
+  currentMarkerLibrary = null;
 });
 
 describe('ArukuMap', () => {
@@ -270,7 +276,9 @@ describe('経路の描き直し', () => {
     vi.stubGlobal('google', {
       maps: { Polyline, Marker, SymbolPath: { CIRCLE: 0 } },
     });
-    return { polylines, markers };
+    // marker ライブラリは既定で「読み込み済み」にしておく。既存の検証は印が出る前提。
+    currentMarkerLibrary = { Marker };
+    return { polylines, markers, Marker };
   }
 
   function fakeMap() {
@@ -336,5 +344,76 @@ describe('経路の描き直し', () => {
     unmount();
 
     expect(markers[0]!.setMap).toHaveBeenCalledWith(null);
+  });
+});
+
+
+// 始終点の印は google.maps.Marker（legacy）で描く。Polyline と違い、これは marker
+// ライブラリに入っている——<Map> が保証するのは core / maps までで、marker は別物。
+// 取り込みを待たずに new すると、結果画面が出た瞬間に undefined を呼んで落ちる
+// （PR #402 の Codex レビュー P1）。
+describe('marker ライブラリの取り込み待ち', () => {
+  function stubPolylineOnly() {
+    const markers: { setMap: ReturnType<typeof vi.fn> }[] = [];
+    const Marker = vi.fn(function () {
+      const self = { setMap: vi.fn() };
+      markers.push(self);
+      return self;
+    });
+    vi.stubGlobal('google', {
+      maps: { Polyline: vi.fn(function () { return { setMap: vi.fn() }; }), SymbolPath: { CIRCLE: 0 } },
+    });
+    return { markers, Marker };
+  }
+
+  function fakeMap() {
+    return { fitBounds: vi.fn() } as unknown as google.maps.Map;
+  }
+
+  beforeEach(() => {
+    currentMap = fakeMap();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('marker ライブラリが来るまで印を作らない', () => {
+    const { markers } = stubPolylineOnly();
+    currentMarkerLibrary = null;
+
+    render(<ArukuMap apiKey="maps-key" route={route()} />);
+
+    expect(markers).toHaveLength(0);
+  });
+
+  it('marker ライブラリが来たら印を作る', () => {
+    const { markers, Marker } = stubPolylineOnly();
+    currentMarkerLibrary = { Marker };
+
+    render(<ArukuMap apiKey="maps-key" route={route()} />);
+
+    expect(markers).toHaveLength(2);
+  });
+
+  // グローバルの google.maps.Marker ではなく、取り込んだライブラリの側を使う。
+  it('取り込んだライブラリの Marker を使う', () => {
+    const { Marker } = stubPolylineOnly();
+    currentMarkerLibrary = { Marker };
+
+    render(<ArukuMap apiKey="maps-key" route={route()} />);
+
+    expect(Marker).toHaveBeenCalledTimes(2);
+  });
+
+  it('後から来た marker ライブラリでも印を作る', () => {
+    const { markers, Marker } = stubPolylineOnly();
+    currentMarkerLibrary = null;
+    const { rerender } = render(<ArukuMap apiKey="maps-key" route={route()} />);
+
+    currentMarkerLibrary = { Marker };
+    rerender(<ArukuMap apiKey="maps-key" route={route()} />);
+
+    expect(markers).toHaveLength(2);
   });
 });
