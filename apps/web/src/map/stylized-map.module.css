@@ -1,0 +1,61 @@
+/* 移植元: lib/shared/widgets/aruku_map.dart の _StylizedMapPainter。
+   Canvas の Paint 設定（色・strokeWidth・cap）がここへ来ている。 */
+
+.map {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.bg {
+  fill: var(--map-bg);
+}
+
+.park {
+  fill: var(--map-park);
+}
+
+.water {
+  fill: var(--map-water);
+}
+
+.build {
+  fill: var(--map-build);
+}
+
+.major {
+  stroke: var(--map-major);
+  stroke-width: 10;
+}
+
+.road {
+  stroke: var(--map-road);
+  stroke-width: 5;
+}
+
+.walk {
+  stroke: var(--walk);
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-dasharray: 6 4;
+}
+
+.train {
+  stroke: var(--train);
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+
+.pinHalo {
+  fill: #fff;
+}
+
+.pinCore {
+  fill: var(--walk);
+}
+
+.endPin {
+  fill: var(--burnt);
+  stroke: #fff;
+  stroke-width: 2;
+}

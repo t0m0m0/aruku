@@ -5,9 +5,10 @@
    なく実装済みの Dart 側を正とする。ハンドオフ以降に実装側だけが動いた箇所があり
    （--ink-3 が #8A9583 → #5F6E58 など）、原本から引くと現行 Web 版と色が変わる。
 
-   地図の配色（--map-*）はここに持たない。lib/core/theme/aruku_map_style.dart が
-   Google Maps のスタイル JSON として別に持っており、地図を入れるスライスで対に
-   運ぶほうが、対応関係を見失わない。 */
+   地図の配色（--map-*）は下に置いてある。移植元では作り物の地図（aruku_colors.dart の
+   map* トークン）と実地図（aruku_map_style.dart のスタイル JSON）が別々に色を持ち、
+   同じ色を二度書いていた。こちらでは前者をトークンにし、後者（map-style.ts）が
+   それを読む。 */
 
 :root {
   --moss-50: #eef8e0;
@@ -38,6 +39,16 @@
   --danger: #c8412f;
   --danger-soft: #f8dad4;
   --gold: #d2a03a;
+
+  /* 作り物の地図と実地図のスタイル JSON が共有する配色。移植元は aruku_colors.dart の
+     mapBg / mapRoad / mapMajor / mapPark / mapWater / mapBuild / mapLabel。 */
+  --map-bg: #efebdd;
+  --map-road: #ffffff;
+  --map-major: #f7e4a0;
+  --map-park: #dde7c7;
+  --map-water: #bfd3dd;
+  --map-build: #e5dfcc;
+  --map-label: #6e6a57;
 
   /* 日本語フォントはまだ同梱していない。同梱は初回ロード gzip 500KB 未満（#386 の
      完了条件）との兼ね合いを実測してから決めるため、この 1 行の差し替えで済む形に
