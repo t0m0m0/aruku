@@ -1,7 +1,11 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
 import type { GeoPoint } from '@aruku/engine/models/geo-point';
-import { PickerMode, TimeValue } from '@aruku/engine/models/time-value';
+import {
+  PickerMode,
+  TimeValue,
+  calendarDaysBetween,
+} from '@aruku/engine/models/time-value';
 import { CancellationToken } from '@aruku/engine/services/cancellation';
 import {
   RoutePhase,
@@ -76,6 +80,11 @@ export interface AppActions {
   /// 古びは引き上げが要る。[now] を受け取るのは、呼び出し側が [days] を数えた時計と
   /// 揃えるため——ここで読み直すと、その隙に日が変われば基準が食い違う。
   rebaseDates(days: number, now: Date): void;
+
+  /// 保持している出発・到着が数えている基準日を、実時刻の「今日」へ揃える。
+  ///
+  /// 跨いでいなければ何もしない。跨いでいたら [rebaseDates] と同じ詰め直しが走る。
+  rebaseToToday(at: Date): void;
 
   /// 経路を検索する。home の CTA と、エラー画面の再試行から呼ぶ。
   ///
@@ -272,6 +281,17 @@ export function createAppStore(
       });
     },
 
+    /// 保持値が数えている「今日」を実時刻へ合わせる。ズレていなければ何もしない。
+    ///
+    /// dateOffset を絶対日付へ直すのは、この state ではなく**照会側**（エンジンの
+    /// `departureDateTime`）と**欄**で、どちらも自分の時計の「今日」から数える。
+    /// 開いたまま日を跨いだ保持値をそのまま渡すと、明日の予定が明後日として照会
+    /// され、戻ってきた欄は今日の予定を昨日基準で描く（PR #399 の Codex レビュー）。
+    rebaseToToday(at: Date) {
+      const drift = calendarDaysBetween({ from: get().dateBasis, to: at });
+      if (drift !== 0) get().rebaseDates(drift, at);
+    },
+
     async startSearch() {
       // 配線漏れは検索の失敗ではなく組み立ての誤り。下の try に拾わせると
       // `unknown` へ分類され、「ルートを取得できませんでした」という**もっともらしい
@@ -289,6 +309,9 @@ export function createAppStore(
       // ただし state への確定は成功時まで遅らせる——失敗して旧経路を残す場合に、
       // ヘッダー（出発）だけ新時刻へ動いて旧経路のタイムラインとズレるため。
       const at = now();
+      // 詰め直しは refreshedNowTimes より**先**。あちらは isNow の時刻を今日基準で
+      // 組み直すので、基準がずれたままだと新旧の基準が混ざる。
+      get().rebaseToToday(at);
       const refreshed = refreshedNowTimes(get(), at);
 
       get().go(Screen.loading, {
@@ -326,7 +349,9 @@ export function createAppStore(
           refreshed.departure.isNow &&
           now().getTime() - at.getTime() >= routeFreshness
         ) {
-          expireRoute(get(), now());
+          const closed = now();
+          get().rebaseToToday(closed);
+          expireRoute(get(), closed);
           return;
         }
 
@@ -337,6 +362,8 @@ export function createAppStore(
           routeAsOf: refreshed.departure.isNow ? at : null,
           departure: refreshed.departure,
           arrival: refreshed.arrival,
+          // 出発・到着を書くなら基準日も同じ更新で書く（[RouteCore.dateBasis]）。
+          dateBasis: at,
           routeErrorKind: null,
           routePhase: null,
         });
@@ -353,8 +380,10 @@ export function createAppStore(
 
     revalidateRoute() {
       const state = get();
-      if (!isNowRouteExpired(state, now())) return;
-      expireRoute(state, now());
+      const at = now();
+      if (!isNowRouteExpired(state, at)) return;
+      get().rebaseToToday(at);
+      expireRoute(get(), at);
     },
 
     cancelSearch() {
@@ -387,6 +416,11 @@ export function createAppStore(
 }
 
 /// 失効した経路を捨てて home へ戻す（#264）。出発・到着は現在時刻基準へ寄せ直す。
+///
+/// 呼ぶ側が先に [AppActions.rebaseToToday] を通しておくこと。ここが組む isNow の時刻は
+/// 今日基準なので、基準がずれたままだと固定側の offset と混ざる。詰め直しをここへ
+/// 入れないのは、それが state を書き換えて、受け取った [state] を古くするため——
+/// 書き換える側と読む側を1つの関数に同居させない。
 function expireRoute(state: AppStore, at: Date): void {
   const refreshed = refreshedNowTimes(state, at);
   state.go(Screen.home, {
@@ -396,6 +430,7 @@ function expireRoute(state: AppStore, at: Date): void {
     routeErrorKind: null,
     departure: refreshed.departure,
     arrival: refreshed.arrival,
+    dateBasis: at,
   });
 }
 

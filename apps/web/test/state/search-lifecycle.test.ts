@@ -538,3 +538,47 @@ describe('照会中の失効', () => {
     expect(store.getState().route).toBe(aRoute);
   });
 });
+
+// Codex レビュー（PR #399）。開いたまま日を跨ぐと、保持している dateOffset が指す日が
+// 黙って1日ずれる——照会側（TransitRouteService.departureDateTime）はそれを自分の
+// 時計の「今日」から数え直すため。
+describe('開いたまま日を跨いだ検索', () => {
+  it('照会へ渡す前に、保持値を今日基準へ詰め直す', () => {
+    // 11日に「明日 10:00 発」（offset 1 = 12日）と決めて放置し、12日に検索する。
+    // 詰め直さないと offset 1 のまま渡り、照会側は 13 日として解決する。
+    const { store, plan, setNow } = harness({
+      initial: {
+        ...withDestination,
+        dateBasis: new Date(2026, 8, 11, 22, 0, 0),
+        departure: new TimeValue({ h: 10, m: 0, dateOffset: 1 }),
+        arrival: new TimeValue({ h: 12, m: 0, dateOffset: 1 }),
+      },
+    });
+    setNow(new Date(2026, 8, 12, 9, 0, 0));
+
+    void store.getState().startSearch();
+
+    const args = plan.mock.calls[0]?.[0] as { departure: TimeValue; arrival: TimeValue };
+    expect(args.departure.dateOffset).toBe(0);
+    expect(args.departure.format()).toBe('10:00');
+    expect(args.arrival.dateOffset).toBe(0);
+  });
+
+  it('検索したあとの基準日は、その検索の時計に揃う', async () => {
+    // 揃えないと、home へ戻った欄が今日の予定を「昨日」基準で描く。
+    const at = new Date(2026, 8, 12, 9, 0, 0);
+    const { store, setNow } = harness({
+      initial: {
+        ...withDestination,
+        dateBasis: new Date(2026, 8, 11, 22, 0, 0),
+        departure: new TimeValue({ h: 10, m: 0, isNow: true }),
+        arrival: new TimeValue({ h: 11, m: 0 }),
+      },
+    });
+    setNow(at);
+
+    await store.getState().startSearch();
+
+    expect(store.getState().dateBasis.getDate()).toBe(at.getDate());
+  });
+});
