@@ -31,14 +31,15 @@ import styles from './result-screen.module.css';
 
 interface ResultScreenProps {
   store: StoreApi<AppStore>;
-
-  /// 日付の表示に使う現在時刻。テストで日付を固定できるよう注入可能にする。
-  now?: () => Date;
 }
 
-export function ResultScreen({ store, now = () => new Date() }: ResultScreenProps) {
+// 現在時刻は受け取らない。この画面が出す日付は「いつ描いたか」ではなく「どの基準で
+// 数えた予定か」で決まり、それは state の dateBasis が持っている。注入口を残すと、
+// テストが制御しているつもりで何も制御していない引数になる。
+export function ResultScreen({ store }: ResultScreenProps) {
   const route = useStore(store, (s) => s.route);
   const departure = useStore(store, (s) => s.departure);
+  const dateBasis = useStore(store, (s) => s.dateBasis);
   const go = useStore(store, (s) => s.go);
 
   // ガードが通す以上ここへは経路付きでしか来ないが、欠けていても空の画面を見せない。
@@ -76,8 +77,13 @@ export function ResultScreen({ store, now = () => new Date() }: ResultScreenProp
         <p className={styles.departure}>
           {/* dateLabel ではなく fullDateLabel。前者は home 用で当日を null・翌日を
               「明日」にするが、結果では実際に検索した日付を常に出したい（移植元も
-              こちらを使っている。PR #398 の Codex レビュー）。 */}
-          {resultDepartureLabel(departure.fullDateLabel(now()), departure.format())}
+              こちらを使っている。PR #398 の Codex レビュー）。
+
+              基準は描画時刻ではなく state の dateBasis。固定出発の経路は routeAsOf を
+              持たない＝失効しないので、日を跨いでも開いたまま残る——描画時刻から
+              数えると、旅程は変わっていないのに日付だけ1日進む
+              （PR #399 の Codex レビュー）。 */}
+          {resultDepartureLabel(departure.fullDateLabel(dateBasis), departure.format())}
         </p>
       </header>
 

@@ -186,37 +186,6 @@
   padding: 6px;
 }
 
-.timeField {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 12px;
-}
-
-.timeLabel {
-  display: block;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--ink-2);
-}
-
-.timeDate {
-  display: block;
-  margin-top: 2px;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--moss-700);
-}
-
-.timeValue {
-  display: block;
-  margin-top: 1px;
-  font-size: 21px;
-  font-weight: 600;
-  line-height: 1.05;
-  color: var(--ink);
-}
-
 .timeSeparator {
   display: flex;
   align-items: center;

@@ -1,7 +1,11 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
 import type { GeoPoint } from '@aruku/engine/models/geo-point';
-import { TimeValue } from '@aruku/engine/models/time-value';
+import {
+  PickerMode,
+  TimeValue,
+  calendarDaysBetween,
+} from '@aruku/engine/models/time-value';
 import { CancellationToken } from '@aruku/engine/services/cancellation';
 import {
   RoutePhase,
@@ -16,6 +20,7 @@ import { ja } from '../i18n/ja';
 import {
   isNowRouteExpired,
   kInitialBudgetMinutes,
+  kMinBudgetMinutes,
   routeFreshness,
 } from './app-state';
 import { classifyRouteError } from './route-error';
@@ -52,6 +57,34 @@ export interface AppActions {
   /// 状態を先に確定してから遷移する。逆順にすると、遷移先のガードがまだ古い状態を
   /// 読み、表示前提データが揃っているのに home へ跳ね返される（#386 の不変条件）。
   go(screen: Screen, update?: Partial<RouteCore>): void;
+
+  /// ピッカーが確定した時刻を出発／到着へ反映する。
+  ///
+  /// どちらを動かしても「出発 < 到着」を保つ: 出発を変えたときは到着を予算幅ごと
+  /// 後ろへ押し出し、到着を変えたときは出発 + [kMinBudgetMinutes] へ寄せる。
+  /// 押し出した到着は [kMaxDateOffsetDays] の外に立ち得る——選べる範囲を越えたから
+  /// といって丸めると、丸めた先が出発より前になる。
+  applyPickedTime(picked: {
+    mode: PickerMode;
+    h: number;
+    m: number;
+    dateOffset: number;
+  }): void;
+
+  /// 基準日が [days] 日進んだぶん、出発・到着を詰め直す。
+  ///
+  /// [TimeValue.dateOffset] は state に基準日を持たず常に「今日」から数えられる。
+  /// 日付を選んでいる最中に日が変われば、保持している値は黙って1日先を指す。
+  ///
+  /// [days] が 0 でも素通しにしない。跨いでいなくても、今日の過ぎた時刻と「今すぐ」の
+  /// 古びは引き上げが要る。[now] を受け取るのは、呼び出し側が [days] を数えた時計と
+  /// 揃えるため——ここで読み直すと、その隙に日が変われば基準が食い違う。
+  rebaseDates(days: number, now: Date): void;
+
+  /// 保持している出発・到着が数えている基準日を、実時刻の「今日」へ揃える。
+  ///
+  /// 跨いでいなければ何もしない。跨いでいたら [rebaseDates] と同じ詰め直しが走る。
+  rebaseToToday(at: Date): void;
 
   /// 経路を検索する。home の CTA と、エラー画面の再試行から呼ぶ。
   ///
@@ -116,6 +149,7 @@ function initialCore(now: Now): RouteCore {
   // 日跨ぎ（深夜出発）は arrival の dateOffset に繰り上げる。
   const arrivalTotal = at.getHours() * 60 + at.getMinutes() + kInitialBudgetMinutes;
   return {
+    dateBasis: at,
     destination: null,
     destinationLatLng: null,
     origin: null,
@@ -208,6 +242,56 @@ export function createAppStore(
       set({ origin: name, originLatLng: latLng });
     },
 
+    applyPickedTime({ mode, h, m, dateOffset }) {
+      const picked = new TimeValue({ h, m, dateOffset });
+      const state = get();
+      // 出発と到着は必ず同じ set で書く。片方ずつ通すと、途中の食い違い
+      // （出発だけ動いて到着を追い越した状態）を次の更新が本物の値として読む。
+      set(
+        mode === PickerMode.depart
+          ? {
+              ...discardedRoute,
+              departure: picked,
+              arrival: arrivalAfterDeparture(
+                picked,
+                state.departure,
+                state.arrival,
+              ),
+            }
+          : {
+              ...discardedRoute,
+              arrival: clampArrivalAfterDeparture(state.departure, picked),
+            },
+      );
+    },
+
+    rebaseDates(days: number, at: Date) {
+      const state = get();
+      // 予算幅を先に測る。詰めてから測ると、引き上げられた出発と古い到着の差を
+      // 「変更前の予算」として引き継いでしまう。
+      const budget = budgetMinutes(state.departure, state.arrival);
+      const departure = rebasedTime(state.departure, days, at);
+      set({
+        ...discardedRoute,
+        departure,
+        arrival: timeValueFromAbs(absoluteMinutes(departure) + budget),
+        // 基準日は、それが数えている出発・到着と**同じ更新で**動かす。別々に書くと、
+        // 間に挟まる描画が新しい基準で古い offset を読む。
+        dateBasis: at,
+      });
+    },
+
+    /// 保持値が数えている「今日」を実時刻へ合わせる。ズレていなければ何もしない。
+    ///
+    /// dateOffset を絶対日付へ直すのは、この state ではなく**照会側**（エンジンの
+    /// `departureDateTime`）と**欄**で、どちらも自分の時計の「今日」から数える。
+    /// 開いたまま日を跨いだ保持値をそのまま渡すと、明日の予定が明後日として照会
+    /// され、戻ってきた欄は今日の予定を昨日基準で描く（PR #399 の Codex レビュー）。
+    rebaseToToday(at: Date) {
+      const drift = calendarDaysBetween({ from: get().dateBasis, to: at });
+      if (drift !== 0) get().rebaseDates(drift, at);
+    },
+
     async startSearch() {
       // 配線漏れは検索の失敗ではなく組み立ての誤り。下の try に拾わせると
       // `unknown` へ分類され、「ルートを取得できませんでした」という**もっともらしい
@@ -225,6 +309,9 @@ export function createAppStore(
       // ただし state への確定は成功時まで遅らせる——失敗して旧経路を残す場合に、
       // ヘッダー（出発）だけ新時刻へ動いて旧経路のタイムラインとズレるため。
       const at = now();
+      // 詰め直しは refreshedNowTimes より**先**。あちらは isNow の時刻を今日基準で
+      // 組み直すので、基準がずれたままだと新旧の基準が混ざる。
+      get().rebaseToToday(at);
       const refreshed = refreshedNowTimes(get(), at);
 
       get().go(Screen.loading, {
@@ -262,7 +349,9 @@ export function createAppStore(
           refreshed.departure.isNow &&
           now().getTime() - at.getTime() >= routeFreshness
         ) {
-          expireRoute(get(), now());
+          const closed = now();
+          get().rebaseToToday(closed);
+          expireRoute(get(), closed);
           return;
         }
 
@@ -273,6 +362,8 @@ export function createAppStore(
           routeAsOf: refreshed.departure.isNow ? at : null,
           departure: refreshed.departure,
           arrival: refreshed.arrival,
+          // 出発・到着を書くなら基準日も同じ更新で書く（[RouteCore.dateBasis]）。
+          dateBasis: at,
           routeErrorKind: null,
           routePhase: null,
         });
@@ -289,8 +380,10 @@ export function createAppStore(
 
     revalidateRoute() {
       const state = get();
-      if (!isNowRouteExpired(state, now())) return;
-      expireRoute(state, now());
+      const at = now();
+      if (!isNowRouteExpired(state, at)) return;
+      get().rebaseToToday(at);
+      expireRoute(get(), at);
     },
 
     cancelSearch() {
@@ -323,6 +416,11 @@ export function createAppStore(
 }
 
 /// 失効した経路を捨てて home へ戻す（#264）。出発・到着は現在時刻基準へ寄せ直す。
+///
+/// 呼ぶ側が先に [AppActions.rebaseToToday] を通しておくこと。ここが組む isNow の時刻は
+/// 今日基準なので、基準がずれたままだと固定側の offset と混ざる。詰め直しをここへ
+/// 入れないのは、それが state を書き換えて、受け取った [state] を古くするため——
+/// 書き換える側と読む側を1つの関数に同居させない。
 function expireRoute(state: AppStore, at: Date): void {
   const refreshed = refreshedNowTimes(state, at);
   state.go(Screen.home, {
@@ -332,6 +430,7 @@ function expireRoute(state: AppStore, at: Date): void {
     routeErrorKind: null,
     departure: refreshed.departure,
     arrival: refreshed.arrival,
+    dateBasis: at,
   });
 }
 
@@ -358,6 +457,57 @@ function timeValueFromAbs(abs: number): TimeValue {
     m: abs % 60,
     dateOffset: Math.floor(abs / (24 * 60)),
   });
+}
+
+/// 時刻が動いたら保持中の経路は捨てる。
+///
+/// 移植元には無い。あちらに「進む」が無かったからで、web では result から戻っても
+/// その履歴エントリが前方に残る。ガードは `route` が在れば通すので、捨てないと
+/// 新しい出発のヘッダーの下に古い時刻で組んだ経路が出る（PR #399 の Codex レビュー）。
+const discardedRoute = { route: null, routeAsOf: null } as const;
+
+/// 出発を変更したときの到着。移植元 `_arrivalAfterDeparture`。
+///
+/// 予算が [kMinBudgetMinutes] を割るときだけ、変更前の予算を保ったまま後ろへずらす。
+/// 前へ動かして予算が広がる場合は据え置く——広がったぶんを詰めると、出発を戻すだけの
+/// 操作が到着まで巻き込む。
+function arrivalAfterDeparture(
+  newDeparture: TimeValue,
+  oldDeparture: TimeValue,
+  arrival: TimeValue,
+): TimeValue {
+  const newDepAbs = absoluteMinutes(newDeparture);
+  if (absoluteMinutes(arrival) - newDepAbs >= kMinBudgetMinutes) return arrival;
+
+  const oldBudget = absoluteMinutes(arrival) - absoluteMinutes(oldDeparture);
+  const keep = oldBudget >= kMinBudgetMinutes ? oldBudget : kMinBudgetMinutes;
+  return timeValueFromAbs(newDepAbs + keep);
+}
+
+/// 到着を変更したときの到着。移植元 `_clampArrivalAfterDeparture`。
+function clampArrivalAfterDeparture(
+  departure: TimeValue,
+  arrival: TimeValue,
+): TimeValue {
+  const minAbs = absoluteMinutes(departure) + kMinBudgetMinutes;
+  return absoluteMinutes(arrival) >= minAbs ? arrival : timeValueFromAbs(minAbs);
+}
+
+/// 基準日が [days] 進んだときの時刻。移植元 `_rebased`。
+function rebasedTime(t: TimeValue, days: number, now: Date): TimeValue {
+  // 「今すぐ」も h/m は applyPickedTime の比較に使われる。据え置くと、直後に確定した
+  // 到着が古い出発の1分後へ潰れる。
+  if (t.isNow) return t.copyWith({ h: now.getHours(), m: now.getMinutes() });
+
+  const atNow = () => new TimeValue({ h: now.getHours(), m: now.getMinutes() });
+  // 指していた日が過ぎ去ったなら、詰めた先は負になる。過去は選べないので現在時刻へ。
+  if (t.dateOffset < days) return atNow();
+
+  const shifted = t.dateOffset - days;
+  if (shifted === 0 && t.totalMinutes < now.getHours() * 60 + now.getMinutes()) {
+    return atNow();
+  }
+  return t.copyWith({ dateOffset: shifted });
 }
 
 /// 経路照会へ渡す出発地の名前。移植元 `departureNameForRoute`。

@@ -1,0 +1,56 @@
+/* home の時刻フィールドの見た目。移植元 desktop_time_field.dart の欄に当たる。 */
+
+.field {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+}
+
+.label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+
+.relative {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--moss-700);
+}
+
+/* 枠も背景も持たせない。欄が並ぶのはカード1枚の中で、境界はカードが引いている。 */
+.time,
+.date {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+
+.time {
+  margin-top: 1px;
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.05;
+}
+
+.date {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.time:focus-visible,
+.date:focus-visible {
+  outline: 2px solid var(--moss-700);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
