@@ -40,6 +40,17 @@ export const ja = {
 
   commonBack: '戻る',
 
+  /// 設定画面。移植元の通知・週間目標・ヘルスケア連携は Web に無い機能なので
+  /// 文言ごと移していない（#386）。
+  settingsTitle: '設定',
+  settingsPermissionsSection: '権限',
+  /// 移植元の settingsOsSettingsUnavailable に当たるが、通知を指す語を落としている
+  /// ——Web では通知そのものを作らないため、権限も存在しない。
+  settingsPermissionsNote: '位置情報の権限はブラウザのサイト設定から変更してください',
+  settingsLegalSection: '法的情報',
+  settingsTermsOfService: '利用規約',
+  settingsPrivacyPolicy: 'プライバシーポリシー',
+
   searchOriginHint: '出発地を検索',
   searchDestinationHint: '目的地を検索',
   searchClearInput: '入力を消去',

@@ -1,0 +1,93 @@
+/* 移植元: lib/features/settings/settings_screen.dart / settings_widgets.dart の装飾。
+
+   デスクトップ幅の作り分け（DesktopContent とラベルを左列へ出す _SettingsSection の
+   Row 分岐）は運んでいない。#372 の作り分けと対で、他の画面と同じ理由（PORTING.md）。 */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 100dvh;
+  padding: env(safe-area-inset-top) 20px env(safe-area-inset-bottom);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-top: 4px;
+  /* 見出しの文字位置を本文の左端へ揃える。戻るボタンは領域だけ左へはみ出す。 */
+  margin-left: -6px;
+}
+
+.back {
+  display: grid;
+  place-items: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  flex: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sectionTitle {
+  margin: 0 0 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-3);
+}
+
+.sectionCard {
+  padding: 4px 16px;
+}
+
+.note {
+  margin: 0;
+  padding: 10px 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* 行の高さを HIG の最小タップ寸法に届かせる。移植元の _LinkRow は上下 14px の
+     padding で同じ高さを作っていた。 */
+  min-height: var(--tap-min);
+  padding: 14px 0;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.link + .link {
+  border-top: 1px solid var(--hairline);
+}
+
+.linkLabel {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.link > svg {
+  flex: none;
+  color: var(--ink-3);
+}
