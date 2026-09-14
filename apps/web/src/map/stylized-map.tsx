@@ -57,6 +57,11 @@ export function StylizedMap({ showRoute = true }: StylizedMapProps) {
 
       <rect className={styles.water} x="0" y={y(0.82)} width={w} height={y(0.18)} />
 
+      <g className={styles.major}>
+        <line x1="0" y1={y(0.45)} x2={w} y2={y(0.55)} />
+        <line x1={x(0.6)} y1="0" x2={x(0.5)} y2={h} />
+      </g>
+
       <g className={styles.road}>
         {minorRoads.map((i) => (
           <line
@@ -76,11 +81,6 @@ export function StylizedMap({ showRoute = true }: StylizedMapProps) {
             y2={h}
           />
         ))}
-      </g>
-
-      <g className={styles.major}>
-        <line x1="0" y1={y(0.45)} x2={w} y2={y(0.55)} />
-        <line x1={x(0.6)} y1="0" x2={x(0.5)} y2={h} />
       </g>
 
       {buildings.map((r) => (
