@@ -1,8 +1,4 @@
 // 移植元: lib/features/loading/loading_screen.dart
-//
-// 地図を敷いた背景（ArukuMap + カラーフィルタ + 放射グラデーションのベール、
-// 約 40 行）は運んでいない。地図そのものが未移植で、これは装飾——対になる相手が
-// 来てから運ぶ。
 
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
@@ -13,6 +9,7 @@ import { budgetMinutes } from '@aruku/engine/services/route-plan-builder';
 import { RoutePhase } from '@aruku/engine/services/route-service';
 
 import { ja } from '../../i18n/ja';
+import { ArukuMap } from '../../map/aruku-map';
 import { ArukuButton } from '../../shared/button';
 import type { AppStore } from '../../state/store';
 import styles from './loading-screen.module.css';
@@ -66,6 +63,13 @@ export function LoadingScreen({ store }: LoadingScreenProps) {
 
   return (
     <main className={styles.screen}>
+      {/* 地図を敷いた背景。装飾であって進捗の一部ではないので、読み上げへは出さない。
+          経路はまだ出ていないので描かない（移植元も ArukuMap(showRoute: false)）。 */}
+      <div className={styles.backdrop} data-testid="loading-map" aria-hidden="true">
+        <ArukuMap showRoute={false} />
+      </div>
+      <div className={styles.veil} aria-hidden="true" />
+
       <div className={styles.center}>
         <span className={styles.pulse} aria-hidden="true" />
         <p className={styles.subtitle}>{subtitle}</p>

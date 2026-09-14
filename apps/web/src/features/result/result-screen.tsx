@@ -19,6 +19,7 @@ import {
   resultOverBudgetTitle,
   resultWalkRatioLabel,
 } from '../../i18n/ja';
+import { ArukuMap } from '../../map/aruku-map';
 import { Screen } from '../../navigation/screens';
 import { ArukuButton } from '../../shared/button';
 import { ChevronIcon, RoutesIcon } from '../../shared/icons';
@@ -83,6 +84,12 @@ export function ResultScreen({ store }: ResultScreenProps) {
           {resultDepartureLabel(departure.fullDateLabel(dateBasis), departure.format())}
         </p>
       </header>
+
+      {/* 経路全体を俯瞰する固定高のプレビュー。代替案の切り替えで route が差し替わると
+          ArukuMap 側が矩形の変化を見てカメラを合わせ直す。 */}
+      <div className={styles.map} data-testid="result-map">
+        <ArukuMap route={route} />
+      </div>
 
       <section className={`card ${styles.totals}`}>
         <Metric

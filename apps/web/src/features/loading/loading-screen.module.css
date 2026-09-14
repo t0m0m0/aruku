@@ -1,6 +1,7 @@
 /* 移植元: lib/features/loading/loading_screen.dart の装飾。 */
 
 .screen {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -8,9 +9,29 @@
   gap: 28px;
   min-height: 100dvh;
   padding: 24px;
+  overflow: hidden;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  opacity: 0.35;
+  /* 移植元は ColorFilter.matrix の 3x3 で、彩度を落として少し暖色へ寄せている。
+     saturate(0.7) の行列とは小数第2位で違うが、CSS に任意の行列は filter: url() で
+     SVG を1枚挟むしかない——0.35 の不透明度とベールの下に敷く絵の差としては釣り合わない。 */
+  filter: saturate(0.7);
+}
+
+/* 中心を抜いて周縁を ivory で覆う。移植元の RadialGradient（radius 0.7）相当。 */
+.veil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at center, rgb(251 252 236 / 0) 0%, var(--ivory) 70%);
 }
 
 .center {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -79,6 +100,7 @@
 }
 
 .cancel {
+  position: relative;
   width: 100%;
   max-width: 320px;
 }

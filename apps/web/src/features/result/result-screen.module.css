@@ -32,6 +32,16 @@
   padding-top: 4px;
 }
 
+/* 移植元 _RouteMapPreview の ClipRRect + SizedBox(height: 180)。 */
+.map {
+  flex: none;
+  height: 180px;
+  /* 16px はトークンに無い（--r-sm 12 / --r-md 18 / --r-lg 24）。移植元の
+     BorderRadius.circular(16) をそのまま置く。 */
+  border-radius: 16px;
+  overflow: hidden;
+}
+
 .back {
   display: grid;
   place-items: center;

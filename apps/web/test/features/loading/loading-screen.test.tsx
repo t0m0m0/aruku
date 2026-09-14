@@ -1,7 +1,4 @@
 // 移植元: lib/features/loading/loading_screen.dart
-//
-// 地図を敷いた背景（ArukuMap + 放射グラデーションのベール、約 40 行）は運んでいない。
-// 地図そのものが未移植で、装飾なので対になる相手が来てから運ぶ。
 
 import { StrictMode } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
@@ -172,5 +169,31 @@ describe('中断', () => {
     view.unmount();
 
     expect(store.getState().route).toBe(aRoute);
+  });
+});
+
+
+// 移植元の「地図を敷いた背景」。装飾であって進捗の一部ではない。
+describe('地図の背景', () => {
+  it('地図を敷く', () => {
+    setup();
+
+    expect(screen.getByTestId('loading-map')).toBeDefined();
+  });
+
+  // 移植元は ArukuMap(showRoute: false)。ここで経路を描くと、まだ出ていない検索結果が
+  // 背景に描かれていることになる。
+  it('まだ出ていない経路を背景に描かない', () => {
+    setup();
+
+    expect(
+      screen.getByTestId('loading-map').querySelector('[data-part="route"]'),
+    ).toBeNull();
+  });
+
+  it('装飾なので読み上げへ出さない', () => {
+    setup();
+
+    expect(screen.getByTestId('loading-map').getAttribute('aria-hidden')).toBe('true');
   });
 });

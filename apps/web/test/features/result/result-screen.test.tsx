@@ -5,6 +5,8 @@
 // 運んでいないもの（いずれも対になる相手が来てから）:
 // - 区間 CTA と外部地図への handoff（result_leg_cta.dart）。行程＝歩数依存
 // - 共有（resultShareText）。外部連携で、経路検索の正しさとは独立
+//
+// 地図に何が描かれるかは test/map/ が見る。ここが見るのは画面に地図が在ることだけ。
 
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
@@ -223,5 +225,27 @@ describe('日を跨いでから見た固定出発の日付', () => {
 
     const full = new TimeValue({ h: 9, m: 0, dateOffset: 1 }).fullDateLabel(searchedOn);
     expect(screen.getByText(`${full} · 09:00 出発`)).toBeTruthy();
+  });
+});
+
+
+describe('地図のプレビュー', () => {
+  it('経路の地図を出す', () => {
+    setup();
+
+    expect(screen.getByTestId('result-map')).toBeDefined();
+  });
+
+  // 移植元では地図が合計の上にある。タイムラインの下へ落ちると、経路の全体像が
+  // スクロールしないと見えない位置になる。
+  it('合計より前に置く', () => {
+    setup();
+
+    const map = screen.getByTestId('result-map');
+    const totals = screen.getByText('所要時間');
+
+    expect(
+      map.compareDocumentPosition(totals) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });
