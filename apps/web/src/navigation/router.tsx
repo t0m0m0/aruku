@@ -6,6 +6,7 @@ import { HomeScreen } from '../features/home/home-screen';
 import { LoadingScreen } from '../features/loading/loading-screen';
 import { ResultScreen } from '../features/result/result-screen';
 import { SearchScreen, type SearchMode } from '../features/search/search-screen';
+import { SettingsScreen } from '../features/settings/settings-screen';
 import type { PlacesService } from '../places/places-service';
 import type { RecentsRepository } from '../places/recents-repository';
 import type { AppStore } from '../state/store';
@@ -20,12 +21,6 @@ export interface ScreenDeps {
 
 /// 現在時刻の供給元。テストで失効（#264）を制御できるよう注入可能にする。
 export type Now = () => Date;
-
-/// 実体がまだ無い画面。どの画面に着いたかだけを出す（#386 の後続スライスで
-/// 差し替わる）。残るは settings のみ。
-function ScreenPlaceholder({ screen }: { screen: Screen }) {
-  return <div data-screen={screen} />;
-}
 
 /// 依存を渡さずに組んだルート表の既定。描画した時点で落ちる。
 ///
@@ -99,6 +94,9 @@ function componentFor(
   now: Now,
   deps: ScreenDeps,
 ): () => React.JSX.Element {
+  // default 節は置かない。置くと画面が増えたときに黙ってそこへ落ちる。網羅して
+  // いなければ tsc が TS2366（返り値に undefined を含まない）で落とす——#386 の
+  // 間ずっと出ていたプレースホルダは、まさにその default 節だった。
   switch (screen) {
     case Screen.home:
       return () => (
@@ -127,7 +125,7 @@ function componentFor(
       return () => <ResultScreen store={store} />;
     case Screen.error:
       return () => <ErrorScreen store={store} />;
-    default:
-      return () => <ScreenPlaceholder screen={screen} />;
+    case Screen.settings:
+      return () => <SettingsScreen store={store} />;
   }
 }
