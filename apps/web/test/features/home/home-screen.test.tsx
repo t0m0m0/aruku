@@ -195,8 +195,9 @@ describe('ホームの時刻', () => {
       arrival: new TimeValue({ h: 10, m: 30 }),
     });
 
-    expect(screen.getByText('09:05')).toBeDefined();
-    expect(screen.getByText('10:30')).toBeDefined();
+    // 値は入力欄が持つ（#386 スライス5 で表示だけの欄を置き換えた）。
+    expect((screen.getByLabelText('出発の時刻') as HTMLInputElement).value).toBe('09:05');
+    expect((screen.getByLabelText('到着の時刻') as HTMLInputElement).value).toBe('10:30');
   });
 
   it('予算は出発と到着の差から出す', () => {
@@ -271,5 +272,37 @@ describe('経路検索が未配線のときの CTA', () => {
     fireEvent.click(screen.getByRole('button', { name: 'ルートを検索' }));
 
     expect(onStartSearch).toHaveBeenCalledOnce();
+  });
+});
+
+// 時刻フィールドは #386 スライス2 から表示だけで、押しても何も起きなかった。
+// ここで押さえるのは、欄が状態へ届くことと、その結果が予算の表示へ反映されること。
+describe('時刻フィールド', () => {
+  it('入れた時刻が状態と予算の表示へ届く', () => {
+    setup({
+      departure: new TimeValue({ h: 13, m: 0 }),
+      arrival: new TimeValue({ h: 14, m: 0 }),
+    });
+
+    // 確定は欄を離れたとき（打ちかけを確定しない・time-field.test.tsx 参照）。
+    const time = screen.getByLabelText('出発の時刻');
+    fireEvent.change(time, { target: { value: '13:30' } });
+    fireEvent.blur(time);
+
+    expect(store.getState().departure.format()).toBe('13:30');
+    expect(screen.getByText('30分')).toBeTruthy();
+  });
+
+  it('到着の日付も選べる', () => {
+    setup({
+      departure: new TimeValue({ h: 13, m: 0 }),
+      arrival: new TimeValue({ h: 14, m: 0 }),
+    });
+
+    const date = screen.getByLabelText('到着の日付');
+    fireEvent.change(date, { target: { value: '2026-09-12' } });
+    fireEvent.blur(date);
+
+    expect(store.getState().arrival.dateOffset).toBe(1);
   });
 });

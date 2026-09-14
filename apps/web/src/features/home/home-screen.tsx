@@ -5,14 +5,11 @@
 // ブラウザに歩数 API が無く、加速度から自作してもタブが背面で止まるため、#386 が
 // 「歩数まわりの導線は最初から作らない」と決めている。非対応の理由を出す注記も
 // 一緒に消える——出す相手の機能が無い。
-//
-// 時刻フィールドは表示だけで、押しても開かない。日時ピッカーが未移植のため、
-// 押せる見た目にすると何も起きないボタンになる。ピッカーのスライスで押下を足す。
 
 import { useStore } from 'zustand';
 import type { StoreApi } from 'zustand/vanilla';
 
-import { TimeValue } from '@aruku/engine/models/time-value';
+import { PickerMode, TimeValue } from '@aruku/engine/models/time-value';
 import { budgetMinutes } from '@aruku/engine/services/route-plan-builder';
 
 import { todayGreeting } from '../../i18n/format';
@@ -30,6 +27,7 @@ import {
   SearchIcon,
   SettingsIcon,
 } from '../../shared/icons';
+import { TimeField } from '../picker/time-field';
 import { departureLabelText } from '../../state/derived';
 import type { AppStore } from '../../state/store';
 import styles from './home-screen.module.css';
@@ -166,11 +164,21 @@ export function HomeScreen({
           </span>
         </h2>
         <div className={`card ${styles.timeFields}`}>
-          <TimeField label={ja.homeDepartureLabel} time={departure} />
+          <TimeField
+            store={store}
+            mode={PickerMode.depart}
+            label={ja.homeDepartureLabel}
+            now={now}
+          />
           <span className={styles.timeSeparator} aria-hidden="true">
             <ChevronIcon size={14} />
           </span>
-          <TimeField label={ja.homeArrivalLabel} time={arrival} />
+          <TimeField
+            store={store}
+            mode={PickerMode.arrival}
+            label={ja.homeArrivalLabel}
+            now={now}
+          />
         </div>
       </section>
 
@@ -199,13 +207,3 @@ function ctaLabel(
 
 function noop(): void {}
 
-function TimeField({ label, time }: { label: string; time: TimeValue }) {
-  const date = time.dateLabel();
-  return (
-    <div className={styles.timeField}>
-      <span className={styles.timeLabel}>{label}</span>
-      {date !== null && <span className={styles.timeDate}>{date}</span>}
-      <span className={`tabular ${styles.timeValue}`}>{time.format()}</span>
-    </div>
-  );
-}

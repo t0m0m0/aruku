@@ -29,6 +29,11 @@ export const ja = {
   homeWalkableSuffix: ' 歩ける',
   homeSearchRoute: 'ルートを検索',
 
+  /// 時刻・日付の入力欄の読み上げ名。移植元 app_ja.arb の `timeField*`（プレースホルダ
+  /// 付きメッセージ）に当たる。gen-l10n が生成していた関数をここでは直に書く。
+  timeFieldTime: (label: string) => `${label}の時刻`,
+  timeFieldDate: (label: string) => `${label}の日付`,
+
   /// 経路検索のライフサイクルが未移植の間の CTA。押せない状態と対で出す。
   homeSearchRouteNotReady: '経路検索は準備中',
   homeChooseDestination: '目的地を選ぶ',
