@@ -32,8 +32,15 @@ Phase 3（アプリ側）の決定と対応表。
 - Firebase の初期化と App Check の有効化（`src/firebase/`）。placesProxy が
   consume 対象（#155）なので、これが無いと検索は全要求 401 になる
 
-未着手: picker / loading / result / settings / error、地図、日本語フォントの同梱、
-Playwright。
+**スライス4 — 検索ライフサイクル**。移植したエンジンが実際に経路を返すところまで通す。
+
+- 例外 → エラー種別の分類（`src/state/route-error.ts`）
+- `startSearch` / `cancelSearch` / `abandonSearch`（`src/state/store.ts`）
+- loading / error / result 画面（`src/features/`）。result は合計と区間一覧まで
+- home の CTA を押せる状態へ戻す（スライス3 で塞いでいたもの）
+
+未着手: picker / settings、result のタイムライン作り込みと区間 CTA、地図、
+日本語フォントの同梱、Playwright。
 
 ## 決定
 
@@ -113,6 +120,9 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 | `test/features/search/places_provider_test.dart` | — | `test/features/search/search-state.test.ts` |
 | `lib/features/search/`（`testWidgets` は運ばない） | — | `test/features/search/search-screen.test.tsx` |
 | `test/core/config/app_check_provider_test.dart` | — | `test/firebase/app-check.test.ts` |
+| `test/core/models/route_error_test.dart` | — | `test/state/route-error.test.ts` |
+| `lib/core/state/app_state.dart` の `startSearch` まわり | — | `test/state/search-lifecycle.test.ts` |
+| `lib/features/loading/` / `error/` / `result/`（`testWidgets` は運ばない） | — | `test/features/loading/` / `error/` / `result/` |
 
 `packages/engine` の `check:port` のような名前照合はここには入れていない。あちらの基準値は
 エンジンの 6 ファイルに固定されており、UI 側は「移植ではなく作り直す」（#386）ため
@@ -137,7 +147,7 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 | 履歴の永続化 | `localStorage`（同期 API） | SharedPreferences が非同期だったために要った書き込みの直列化（`_writeLock`）が、同期なら丸ごと不要になる。`load→変更→save` の間に割り込む余地が無い |
 | 検索状態の寿命 | 画面ごとに作って捨てる | 入力・候補・モードはこの画面の外に意味が無い。provider（アプリ寿命）に置くと、次に開いたとき前回の候補が一瞬見える |
 | 履歴リポジトリの選択 | 画面が `mode` から選ぶ | 呼ぶ側に選ばせると mode と渡されたリポジトリが食い違っても型が通り、目的地の履歴に出発地が混ざる |
-| 未配線の依存 | 描画した時点で落とす | 何も返さない `PlacesService` を既定に置くと、配線漏れが「候補が出ない検索画面」として残り、上流の不調と区別がつかない（`startSearchNotPorted` と同じ扱い） |
+| 未配線の依存 | 描画した時点で落とす | 何も返さない `PlacesService` を既定に置くと、配線漏れが「候補が出ない検索画面」として残り、上流の不調と区別がつかない |
 | 空のベース URL | 組み立てで拒む | 移植元は「候補なし」へ縮退させていた。設定漏れが正常な見た目で出てしまう。`createRouteService` と同じ判断で、検査は `src/http/base-url.ts` に1つ置いて共有する |
 
 #### App Check を Vite で組む
@@ -165,6 +175,80 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
   バンドルを検査する。空振りで緑にならないよう、「VITE_ の値が焼かれること」と
   「本番バンドルであること」を先に確かめてから不在を主張している
   （vitest の `NODE_ENV=test` が漏れて開発バンドルを検査していた事故を踏んだため）。
+
+### 検索ライフサイクルのスライスの決定
+
+| 論点 | 決定 | 理由 |
+| --- | --- | --- |
+| 離脱で検索を止める合図 | ルーターの **POP** | アンマウントは StrictMode の二重マウントで偽物が混ざる。「loading から離れた」だけでも足りない（下記） |
+| result の範囲 | 合計と区間一覧まで | #386 の完了条件は「経路検索が現行 Web 版と同じ結果を出す」。突き合わせに要るのは数字で、タイムラインの作り込みはそれを待たせる理由にならない |
+| 未配線の `RouteService` | 呼ばれた時点で落とす | 黙って失敗する既定（例: 常に ZERO_RESULTS）だと、配線漏れが「ルートが見つからない」ともっともらしく出て上流の不調と区別がつかない |
+| `classifyRouteError` の入力 | `ClientException` だけ見る | 移植元が `IOException` と両方見ていたのは dart2js の `dart:io` がスタブだから（#359）。こちらは `FetchHttpClient` が全て `ClientException` へ寄せる |
+| 開いたままの経路の失効 | `visibilitychange` **＋締切タイマー** | 背面から戻ったときと、前面に置いたまま猶予を跨いだときの両方が要る。前者だけでは可視性が変わらない経路を塞げない |
+| 現在地で失敗した再試行 | 測位し直してから引き直す | **移植元より進めた点。** あちらの再試行も `startSearch()` だけで、許可し直しても同じ null の出発地を送り続ける。主導線が永久に無意味になるため直した |
+
+#### #264 の失効判定は 3 箇所で要る
+
+1. 画面へ**入る**とき — ルートの loader（`guard.ts`）
+2. 照会が**終わった**とき — `startSearch` の最後の砦
+3. 開いたまま**居続けた**とき — `navigation/route-freshness.ts`（移植元 `onAppResumed`）
+
+3 を落としていた（PR #398 の Codex レビュー P1）。結果を開いて放置した経路やタブを
+背面にして戻ってきた経路が、猶予を超えても出たままになる——乗るはずだった便には
+既に乗れない。1 と 2 はどちらも**画面を跨ぐときにしか走らない**ので、居続ける経路は
+どちらにも掛からない。
+
+さらに 3 は**合図が 2 つ要る**。最初は `visibilitychange` だけで塞いだつもりになって
+いたが、前面に置いたまま見続けているときは可視性が変わらないので一生検算されない
+（同レビューの追指摘）。猶予の締切にタイマーを張って両方を塞いでいる。
+
+**離脱で検索を捨てるときは `routePhase` も落とす。** 残すと待ち画面の loader が
+「前提は揃っている」と読んで通し、戻る→進むで**誰も完了させない待ち画面**へ入れる。
+
+#### 検索が自分の遷移に殺される
+
+待ち画面からの離脱で検索を止める仕組みは、**2 回作り直している**。どちらも実際に
+本物の検索を殺してから分かった。
+
+1. **アンマウントを合図にした** → StrictMode の mount→unmount→mount で、開いた直後に
+   殺される。`main.tsx` が全体を StrictMode で包んでいるので開発ビルドでは必ず起きる。
+   ルーターの購読（React の外）へ移した
+2. **「現在地が loading でなくなったこと」を合図にした** → ルーターの購読は遷移の
+   **途中**でも呼ばれ、そのとき location はまだ遷移前。`go(loading)` の最中に
+   「loading から離れた」と読んで世代を進め、その検索自身の結果が stale として捨てられ、
+   待ち画面から永久に動かなくなる。**実ブラウザで発覚**——購読の治具で location を
+   原子的に変えていた単体テストは緑のままだった
+
+現在は **POP（戻る／進む）だけ**を見る。移植元の `PopScope` が塞いでいたのは戻る操作
+そのもので、アプリ側の遷移（push / replace）は検索の成否と対で起きるため止める理由が無い。
+治具も「途中で 1 回・決着で 1 回」通知する形に直してある。
+
+**反証できないガードは置かない。** 当初ストアに `searchInFlight` フラグも持たせていたが、
+退行させてもどのテストも赤くならず、調べると守れている case が実在しないうえ、本当に
+危ない interleaving では逆に効かないものだった。落とした。
+
+### await を跨ぐ操作には `mounted` 相当のガードが要る
+
+移植元の `if (!mounted) return;`（`search_screen.dart:62`）に相当するもの。画面で
+`await` の後に状態や遷移を書くなら、`await` 直後に生存を確かめる。
+
+```ts
+const alive = useRef(true);
+useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+// ...
+const resolved = await something();
+if (!alive.current) return;
+```
+
+**同じ穴を 2 回開けている。** 1 回目は検索画面の座標解決（移植漏れ・PR #395 レビュー）、
+2 回目は失敗画面の再試行が測位を跨ぐところ（新規に書いたコード・PR #398 レビュー）。
+どちらも「離脱後に届いた結果がストアを書き換え、`go()` で画面を引きずる」という同じ壊れ方。
+picker / settings でも `await` を跨ぐ操作が出たら、**先にここを確認すること。**
+
+**ただしアンマウントを「離脱」の合図にしてよいのはこの用途だけ。** 「離れたら止める」
+という能動的な処理をアンマウントに紐づけると StrictMode の二重マウントで誤爆する
+（上の「検索が自分の遷移に殺される」）。ここは続きを**書かない**ための受け身の確認なので、
+偽のアンマウントで早期 return しても実害が無い。
 
 ### 移植元と意図的に変えた点
 
@@ -202,20 +286,15 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 
 いずれも「対になる相手が来てから運ぶ」もので、移植漏れではない。
 
-- `classifyRouteError`（`lib/core/models/route_error.dart`・テスト
-  `test/core/models/route_error_test.dart`）— 文言と復帰導線と対で意味を持つ。エラー画面で運ぶ
 - 履歴のクラウド同期（`RecentsRepository.replaceAll`）— 同期の相手（認証と Firestore）が
   まだ無く、運んでも呼ぶ側が存在しない
 - 歩数・週間実績・HealthKit・ローカル通知・OS 設定 — Web で恒久的に落ちる機能として
   #386 が UI ごと作らないと決めたもの。**運ばないことが決定であって、保留ではない**
 - 行程 handoff（`JourneyProgress`）— 上の歩数同期に依存する。結果画面のスライスで判断する
-- loading から戻ったときの検索中断 — 上記のとおり検索のライフサイクルと対
-- 経路検索の開始（`AppNotifier.startSearch`）— 同上。ルート表は `onStartSearch` に `null` を
-  渡し、home の CTA は押せない状態（ラベルで準備中と分かる）になる。
-  **スライス2 まではここに「届いたら落ちる」関数を置いていた**——目的地を設定できる画面が
-  無く到達しなかったため。スライス3 がその前提を崩し、目的地を選んで戻った先の CTA が実際に
-  落ちるようになっていた（PR #395 の Codex レビュー P1）。黙って何もしない実装を置かないのは
-  変わらない: 繋ぎ忘れが「押しても反応しないボタン」として残る
+- 結果画面のタイムライン作り込み（`result_timeline.dart`）と区間 CTA（`result_leg_cta.dart`）
+  — 前者は表示の作り込み、後者は行程（`JourneyProgress`）＝歩数同期に依存する。
+  区間そのものは一覧で出している
+- 経路の共有（`resultShareText`）— 外部連携で、経路検索の正しさとは独立
 - 日本語フォントの同梱 — 初回ロード gzip 500KB 未満（#386 の完了条件）との兼ね合いを実測して
   から決める。`--font-jp` 1 行の差し替えで済む形にしてある
 - デスクトップ幅の作り分け（#372 の `DesktopContent` / `DesktopTimeField` /

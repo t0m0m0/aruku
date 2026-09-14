@@ -1,7 +1,10 @@
 import { replace, type RouteObject } from 'react-router';
 import type { StoreApi } from 'zustand/vanilla';
 
+import { ErrorScreen } from '../features/error/error-screen';
 import { HomeScreen } from '../features/home/home-screen';
+import { LoadingScreen } from '../features/loading/loading-screen';
+import { ResultScreen } from '../features/result/result-screen';
 import { SearchScreen, type SearchMode } from '../features/search/search-screen';
 import type { PlacesService } from '../places/places-service';
 import type { RecentsRepository } from '../places/recents-repository';
@@ -19,21 +22,10 @@ export interface ScreenDeps {
 export type Now = () => Date;
 
 /// 実体がまだ無い画面。どの画面に着いたかだけを出す（#386 の後続スライスで
-/// 差し替わる）。home / search / searchOrigin は差し替え済み。
+/// 差し替わる）。残るは settings のみ。
 function ScreenPlaceholder({ screen }: { screen: Screen }) {
   return <div data-screen={screen} />;
 }
-
-/// 経路検索の開始（移植元の `AppNotifier.startSearch`）はまだ運んでいない。検索の
-/// ライフサイクル（loading / result / error）と対で入るため、それらの画面を作る
-/// スライスで繋ぐ。
-///
-/// かつてはここに「呼ばれたら落ちる」関数を置いていた。目的地を設定できる画面が
-/// 無く到達し得なかったためだが、検索画面（#386 スライス3）がその前提を崩した
-/// ——目的地が入るようになり、home の CTA から実際に落ちるようになっていた
-/// （PR #395 の Codex レビュー）。null を渡して CTA を押せなくする。黙って何もしない
-/// 関数にしないのは変わらない: 繋ぎ忘れが「押しても反応しないボタン」として残る。
-const startSearchNotPorted = null;
 
 /// 依存を渡さずに組んだルート表の既定。描画した時点で落ちる。
 ///
@@ -110,7 +102,13 @@ function componentFor(
   switch (screen) {
     case Screen.home:
       return () => (
-        <HomeScreen store={store} now={now} onStartSearch={startSearchNotPorted} />
+        <HomeScreen
+          store={store}
+          now={now}
+          onStartSearch={() => {
+            void store.getState().startSearch();
+          }}
+        />
       );
     // 検索は目的地／出発地で同じ画面。違うのはモードと、書き込む先・履歴の系統だけ。
     case Screen.search:
@@ -123,6 +121,12 @@ function componentFor(
           recents={deps.recents}
         />
       );
+    case Screen.loading:
+      return () => <LoadingScreen store={store} />;
+    case Screen.result:
+      return () => <ResultScreen store={store} />;
+    case Screen.error:
+      return () => <ErrorScreen store={store} />;
     default:
       return () => <ScreenPlaceholder screen={screen} />;
   }

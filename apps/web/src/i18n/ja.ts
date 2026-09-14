@@ -54,6 +54,34 @@ export const ja = {
     'この目的地は位置情報を取得できませんでした。別の候補を選んでください',
   searchResolvingPlace: '地点を確定中',
 
+  loadingSearchingMessage: '歩ける道を、探しています',
+  loadingCancelButton: 'キャンセル',
+
+  routeErrorNetworkTitle: '通信に失敗しました',
+  routeErrorNetworkDescription: '通信状況を確認してもう一度お試しください',
+  routeErrorTimeoutTitle: '経路サービスの応答が遅れています',
+  routeErrorTimeoutDescription:
+    '混み合っているようです。少し時間をおいてもう一度お試しください',
+  routeErrorNoResultsTitle: 'ルートが見つかりませんでした',
+  routeErrorNoResultsDescription: '目的地や出発・到着時刻を変えてお試しください',
+  routeErrorNoLocationTitle: '現在地を取得できませんでした',
+  routeErrorNoLocationDescription: '位置情報を有効にしてもう一度お試しください',
+  routeErrorNoDestinationTitle: '目的地が選ばれていません',
+  routeErrorNoDestinationDescription: '目的地を選んでもう一度検索してください',
+  routeErrorUnknownTitle: 'ルートを取得できませんでした',
+  routeErrorUnknownDescription: '時間をおいてもう一度お試しください',
+  errorRetry: '再試行',
+
+  resultChangeConditions: '条件を変更',
+  resultBackToSearch: '検索に戻る',
+  resultNoRouteMessage: 'ルートがありません',
+  resultMetricDuration: '所要時間',
+  resultMetricWalkDistance: '徒歩距離',
+  resultMetricCalories: '消費カロリー',
+  resultOverBudgetHint:
+    '時間内に到達できる経路がないため、最短の経路を表示しています',
+  resultSegmentsHeading: '区間',
+
   /// 出発地の表示名。移植元は app_state.dart に直書きしていた（ARB に無い）。
   /// 文言なので他と同じくここへ置く。
   departureCurrentLocationLoading: '現在地 · 取得中...',
@@ -66,4 +94,26 @@ export const ja = {
 /// ので、置換は関数で表す——型が引数の有無を落とす。
 export function searchErrorWithStatus(status: string): string {
   return `検索できませんでした (${status})`;
+}
+
+export function resultDepartureLabel(dateLabel: string, time: string): string {
+  return `${dateLabel} · ${time} 出発`;
+}
+
+export function resultWalkRatioLabel(percent: number): string {
+  return `距離の ${percent}% を歩いて移動`;
+}
+
+/// 移植元 resultBudgetSummary。ARB の select（over / other）を分岐で表す。
+export function resultBudgetSummary(
+  budget: string,
+  total: string,
+  slackMinutes: number,
+  over: boolean,
+): string {
+  return `制限 ${budget}のうち ${total} で到着 · ${slackMinutes}分 ${over ? '超過' : '余裕'}`;
+}
+
+export function resultOverBudgetTitle(overMinutes: number): string {
+  return `制限時間を${overMinutes}分超過しています`;
 }

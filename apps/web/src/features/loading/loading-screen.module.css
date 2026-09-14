@@ -1,0 +1,84 @@
+/* 移植元: lib/features/loading/loading_screen.dart の装飾。 */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  min-height: 100dvh;
+  padding: 24px;
+}
+
+.center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 320px;
+  text-align: center;
+}
+
+/* 移植元の pulse ring 相当。減光設定では止める。 */
+.pulse {
+  width: 120px;
+  height: 120px;
+  margin-bottom: 18px;
+  border-radius: 50%;
+  background: var(--moss-100);
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    transform: scale(0.9);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse {
+    animation: none;
+  }
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.message {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.track {
+  width: 100%;
+  height: 6px;
+  margin-top: 8px;
+  border-radius: var(--r-pill);
+  background: var(--sand);
+  overflow: hidden;
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--moss-500);
+}
+
+.cancel {
+  width: 100%;
+  max-width: 320px;
+}

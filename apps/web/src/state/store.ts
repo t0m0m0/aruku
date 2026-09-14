@@ -2,9 +2,24 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 
 import type { GeoPoint } from '@aruku/engine/models/geo-point';
 import { TimeValue } from '@aruku/engine/models/time-value';
+import { CancellationToken } from '@aruku/engine/services/cancellation';
+import {
+  RoutePhase,
+  type RouteService,
+} from '@aruku/engine/services/route-service';
+import {
+  absoluteMinutes,
+  budgetMinutes,
+} from '@aruku/engine/services/route-plan-builder';
 
-import { kInitialBudgetMinutes } from './app-state';
-import { screenPath, type Screen } from '../navigation/screens';
+import { ja } from '../i18n/ja';
+import {
+  isNowRouteExpired,
+  kInitialBudgetMinutes,
+  routeFreshness,
+} from './app-state';
+import { classifyRouteError } from './route-error';
+import { Screen, screenPath } from '../navigation/screens';
 import {
   browserLocationService,
   type LocationService,
@@ -37,6 +52,38 @@ export interface AppActions {
   /// 状態を先に確定してから遷移する。逆順にすると、遷移先のガードがまだ古い状態を
   /// 読み、表示前提データが揃っているのに home へ跳ね返される（#386 の不変条件）。
   go(screen: Screen, update?: Partial<RouteCore>): void;
+
+  /// 経路を検索する。home の CTA と、エラー画面の再試行から呼ぶ。
+  ///
+  /// 画面は home→loading→result / error と進む。移植元は screen と表示前提データを
+  /// 同一 copyWith で書いていたが、こちらは 3 つの遷移すべてを [go] 経由にすることで
+  /// 同じ不変条件を保つ。
+  startSearch(): Promise<void>;
+
+  /// 開いたままの「今すぐ」経路が猶予を超えていれば捨てて home へ戻す（#264）。
+  ///
+  /// 移植元 `onAppResumed` に相当する。ガードは画面へ**入る**ときしか走らず、
+  /// 検索の完了時の砦も照会中の経過しか見ない——結果を開いたまま放置した経路は
+  /// どちらにも掛からない。
+  revalidateRoute(): void;
+
+  /// 進行中の検索を捨てて home へ戻す（#221）。
+  cancelSearch(): void;
+
+  /// 進行中の検索を捨てる。**遷移はしない。**
+  ///
+  /// 待ち画面から離れたときに呼ぶ。移植元は PopScope で戻るを塞いでいたが、web では
+  /// 戻ってサイトを離れるのが当然の挙動なので塞がない——代わりに離脱で止める。
+  /// 遷移は既にブラウザが済ませているので、ここから動かすと二重になる。
+  ///
+  /// 待ち画面の表示前提（routePhase）も落とす——残すとガードが通し、戻る→進むで
+  /// 誰も完了させない待ち画面へ入れてしまう。
+  ///
+  /// 走っていなければ実質何もしない（世代を進めるだけ）。「どの検索を止めてよいか」の
+  /// 判断はここには無く、呼ぶ側——離脱の**時点**で現在地を読み直す購読——が持つ
+  /// （navigation/search-abandon.ts）。新しい検索が待ち画面へ入り直していれば、
+  /// そちらの購読が早期に戻るので巻き添えにならない。
+  abandonSearch(): void;
 
   /// ルーターを繋ぐ。
   ///
@@ -90,18 +137,48 @@ function initialCore(now: Now): RouteCore {
   };
 }
 
+/// 経路検索が未配線のときの成り行き。呼ばれた時点で落ちる。
+///
+/// 黙って失敗する実装（例: 常に ZERO_RESULTS）を既定にすると、配線漏れが「ルートが
+/// 見つからない」という**もっともらしい結果**として出てしまい、上流の不調と区別が
+/// つかない（router.tsx の depsNotWired と同じ判断）。
+/// 経路検索が未配線であることを表す番人。同一性で判定するので中身は呼ばれない
+/// （呼ばれる前に [AppActions.startSearch] が落とす）。
+const routeServiceNotWired: RouteService = {
+  plan: () => {
+    throw new Error('RouteService が未配線（createAppStore の第4引数）');
+  },
+};
+
 export function createAppStore(
   initial: Partial<RouteCore> = {},
   now: Now = () => new Date(),
   location: LocationService = browserLocationService(),
+  routeService: RouteService = routeServiceNotWired,
 ): StoreApi<AppStore> {
   let navigate: Navigate | null = null;
+
+  // 検索の世代。startSearch / cancelSearch のたびに繰り上げ、結果の反映前に一致を
+  // 確認する。一致しなければその探索は破棄済み——古い応答が home から result へ
+  // 引き戻すのを防ぐ（#221）。
+  let searchGeneration = 0;
+
+  // 進行中の検索のキャンセル境界（#259）。世代は「古い応答を書かない」を担うが、
+  // それだけでは進行中の HTTP が完了まで走り切る。倒すと通信自体を切る。
+  let activeCancellation: CancellationToken | null = null;
+
+  /// 進行中の探索を破棄する。世代を進めて結果の反映を止め、通信そのものも切る。
+  function discardSearch(): void {
+    searchGeneration++;
+    activeCancellation?.cancel();
+    activeCancellation = null;
+  }
 
   // 取得中の要求。StrictMode が effect を二度走らせるため、素通しすると権限
   // ダイアログが 2 回出る。移植元に相当物が無いのはこの事情が無いから。
   let inFlight: Promise<void> | null = null;
 
-  return createStore<AppStore>()((set) => ({
+  return createStore<AppStore>()((set, get) => ({
     ...initialCore(now),
     locationState: locationLoading,
     ...initial,
@@ -131,6 +208,104 @@ export function createAppStore(
       set({ origin: name, originLatLng: latLng });
     },
 
+    async startSearch() {
+      // 配線漏れは検索の失敗ではなく組み立ての誤り。下の try に拾わせると
+      // `unknown` へ分類され、「ルートを取得できませんでした」という**もっともらしい
+      // 画面**になって上流の不調と区別がつかなくなる（PR #398 の Codex レビュー）。
+      if (routeService === routeServiceNotWired) {
+        throw new Error('RouteService が未配線（createAppStore の第4引数）');
+      }
+
+      const generation = ++searchGeneration;
+      // キャンセルを挟まない連打でも、古い通信を放置せず切る（#259）。
+      activeCancellation?.cancel();
+      const cancellation = (activeCancellation = new CancellationToken());
+
+      // isNow 出発は起動時刻のまま腐るので、照会直前に現在時刻へ更新する（#264）。
+      // ただし state への確定は成功時まで遅らせる——失敗して旧経路を残す場合に、
+      // ヘッダー（出発）だけ新時刻へ動いて旧経路のタイムラインとズレるため。
+      const at = now();
+      const refreshed = refreshedNowTimes(get(), at);
+
+      get().go(Screen.loading, {
+        routeErrorKind: null,
+        routePhase: RoutePhase.routing,
+      });
+
+      const state = get();
+      const origin =
+        state.originLatLng ??
+        (state.locationState.kind === 'available'
+          ? state.locationState.position
+          : null);
+
+      try {
+        const plan = await routeService.plan({
+          destination: state.destination,
+          destinationLatLng: state.destinationLatLng,
+          departure: refreshed.departure,
+          arrival: refreshed.arrival,
+          origin,
+          originName: departureNameForRoute(state),
+          cancellation,
+          onProgress: (phase) => {
+            if (generation !== searchGeneration) return;
+            set({ routePhase: phase });
+          },
+        });
+        if (generation !== searchGeneration) return;
+
+        // 照会中に猶予を超えた（isNow で古びた）場合は、古い前提の結果を出さず
+        // home へ戻して再検索を促す。ローディング中は画面遷移で無効化できないので、
+        // 完了時のここが最後の砦（#264）。
+        if (
+          refreshed.departure.isNow &&
+          now().getTime() - at.getTime() >= routeFreshness
+        ) {
+          expireRoute(get(), now());
+          return;
+        }
+
+        // 成功時に出発・到着・経路・失効基準をまとめて確定する。routeAsOf を持つのは
+        // isNow 経路だけ（固定出発は時間経過で腐らない）。
+        get().go(Screen.result, {
+          route: plan,
+          routeAsOf: refreshed.departure.isNow ? at : null,
+          departure: refreshed.departure,
+          arrival: refreshed.arrival,
+          routeErrorKind: null,
+          routePhase: null,
+        });
+      } catch (error) {
+        if (generation !== searchGeneration) return;
+        // 出発・到着も旧経路も routeAsOf も触らない。出発を確定していないので、
+        // 旧経路を残してもヘッダーとタイムラインの前提時刻は一致したまま。
+        get().go(Screen.error, {
+          routeErrorKind: classifyRouteError(error),
+          routePhase: null,
+        });
+      }
+    },
+
+    revalidateRoute() {
+      const state = get();
+      if (!isNowRouteExpired(state, now())) return;
+      expireRoute(state, now());
+    },
+
+    cancelSearch() {
+      discardSearch();
+      get().go(Screen.home, { routePhase: null, routeErrorKind: null });
+    },
+
+    abandonSearch() {
+      discardSearch();
+      // 表示前提も落とす。残すと、戻る→進むで待ち画面の loader が「前提は揃って
+      // いる」と読んで通してしまい、誰も完了させない待ち画面に入れる
+      // （PR #398 の Codex レビュー）。遷移はブラウザが済ませているので set だけ。
+      set({ routePhase: null });
+    },
+
     attachNavigator(next: Navigate) {
       navigate = next;
     },
@@ -145,4 +320,54 @@ export function createAppStore(
       navigate(screenPath[screen]);
     },
   }));
+}
+
+/// 失効した経路を捨てて home へ戻す（#264）。出発・到着は現在時刻基準へ寄せ直す。
+function expireRoute(state: AppStore, at: Date): void {
+  const refreshed = refreshedNowTimes(state, at);
+  state.go(Screen.home, {
+    route: null,
+    routeAsOf: null,
+    routePhase: null,
+    routeErrorKind: null,
+    departure: refreshed.departure,
+    arrival: refreshed.arrival,
+  });
+}
+
+/// 照会に使う出発・到着。isNow なら現在時刻へ更新し、予算幅を保って到着も追従させる。
+///
+/// 移植元 `_refreshedNowTimes`。呼び出し側が [now] を渡すのは、遷移や失効判定と
+/// 同じ時計で数えるため——ここで読み直すと、その隙に分が変われば基準がずれる。
+function refreshedNowTimes(
+  state: RouteCore,
+  at: Date,
+): { departure: TimeValue; arrival: TimeValue } {
+  const { departure, arrival } = state;
+  if (!departure.isNow) return { departure, arrival };
+
+  const budget = budgetMinutes(departure, arrival);
+  const next = new TimeValue({ h: at.getHours(), m: at.getMinutes(), isNow: true });
+  return { departure: next, arrival: timeValueFromAbs(absoluteMinutes(next) + budget) };
+}
+
+/// 移植元 `_timeValueFromAbs`。日跨ぎぶんを dateOffset へ繰り上げる。
+function timeValueFromAbs(abs: number): TimeValue {
+  return new TimeValue({
+    h: Math.floor(abs / 60) % 24,
+    m: abs % 60,
+    dateOffset: Math.floor(abs / (24 * 60)),
+  });
+}
+
+/// 経路照会へ渡す出発地の名前。移植元 `departureNameForRoute`。
+///
+/// 手動指定が無いときは現在地を使うが、その名前を付けられるのは実際に測位できて
+/// いるときだけ。取得中・拒否・失敗で「現在地」と名乗らせると、座標の無い出発地が
+/// 名前だけ持って照会へ行く。
+function departureNameForRoute(state: AppStore): string | null {
+  if (state.origin !== null) return state.origin;
+  return state.locationState.kind === 'available'
+    ? ja.searchCurrentLocationName
+    : null;
 }
