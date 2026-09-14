@@ -1,6 +1,12 @@
 /* 移植元: lib/shared/widgets/aruku_map.dart の _StylizedMapPainter。
    Canvas の Paint 設定（色・strokeWidth・cap）がここへ来ている。 */
 
+/* svg は測った実寸で描くので、枠のほうが大きさを決める。 */
+.frame {
+  width: 100%;
+  height: 100%;
+}
+
 .map {
   display: block;
   width: 100%;
