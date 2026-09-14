@@ -38,6 +38,36 @@ function setup(
   };
 }
 
+function setupBoth(initial: Partial<RouteCore>, clock: () => Date) {
+  store = createAppStore(initial, clock);
+  render(
+    <>
+      <TimeField
+        store={store}
+        mode={PickerMode.depart}
+        label={ja.homeDepartureLabel}
+        now={clock}
+      />
+      <TimeField
+        store={store}
+        mode={PickerMode.arrival}
+        label={ja.homeArrivalLabel}
+        now={clock}
+      />
+    </>,
+  );
+  const field = (label: string, kind: '時刻' | '日付') =>
+    screen.getByLabelText(
+      kind === '時刻' ? ja.timeFieldTime(label) : ja.timeFieldDate(label),
+    ) as HTMLInputElement;
+  return {
+    departTime: field(ja.homeDepartureLabel, '時刻'),
+    departDate: field(ja.homeDepartureLabel, '日付'),
+    arrivalTime: field(ja.homeArrivalLabel, '時刻'),
+    arrivalDate: field(ja.homeArrivalLabel, '日付'),
+  };
+}
+
 const at = (h: number, m: number, dateOffset = 0) =>
   new TimeValue({ h, m, dateOffset });
 
@@ -209,5 +239,88 @@ describe('開いたまま日を跨いだとき', () => {
       absoluteMinutes(store.getState().arrival) -
         absoluteMinutes(store.getState().departure),
     ).toBeGreaterThan(0);
+  });
+});
+
+
+// Codex レビュー（PR #399）。いずれも「開いたまま時間が経つ」経路で、単発の操作では
+// 現れない。
+describe('開いたまま時間が経ったとき', () => {
+  it('同じ日でも「今すぐ」の出発は現在時刻へ追従する', () => {
+    // 09:00 に開いて正午に到着 13:00 を選ぶと、出発は 09:00 のまま予算 4 時間として
+    // 記録される。startSearch は出発だけを正午へ更新して予算を保つので、選んだ
+    // 13:00 ではなく 16:00 着を探しに行く。
+    let clock = new Date(2026, 8, 11, 9, 0, 0);
+    const { time } = setup(
+      { departure: new TimeValue({ h: 9, m: 0, isNow: true }), arrival: at(10, 0) },
+      PickerMode.arrival,
+      () => clock,
+    );
+
+    clock = new Date(2026, 8, 11, 12, 0, 0);
+    type(time, '13:00');
+
+    expect(store.getState().departure.format()).toBe('12:00');
+    expect(store.getState().departure.isNow).toBe(true);
+    expect(store.getState().arrival.format()).toBe('13:00');
+    expect(budgetMinutes(store.getState().departure, store.getState().arrival)).toBe(60);
+  });
+
+  it('値の変わらない blur は「今すぐ」を固定しない', () => {
+    // タブで通り抜けただけ・native のピッカーを何も選ばずに閉じただけでも blur は
+    // 来る。そこで確定すると isNow が落ち、検索は blur した時刻で凍る。
+    const clock = new Date(2026, 8, 11, 9, 0, 0);
+    const { time } = setup(
+      { departure: new TimeValue({ h: 9, m: 0, isNow: true }), arrival: at(10, 0) },
+      PickerMode.depart,
+      () => clock,
+    );
+
+    fireEvent.blur(time);
+
+    expect(store.getState().departure.isNow).toBe(true);
+  });
+
+  it('日を跨いだ詰め直しは、もう片方の欄にも効く', () => {
+    // 欄ごとに基準日を持つと、片方を確定したときにもう片方の基準が古いまま残る。
+    // その欄は詰め直し済みの offset を昨日基準で描き、確定すると同じ1日をもう一度
+    // 適用する。
+    let clock = new Date(2026, 8, 11, 23, 59, 0);
+    const fields = setupBoth(
+      { departure: at(23, 59, 0), arrival: at(0, 30, 1) },
+      () => clock,
+    );
+
+    clock = new Date(2026, 8, 12, 0, 1, 0);
+    type(fields.departTime, '00:05');
+
+    // 到着の欄も新しい今日で描き直る（12日の 00:32。13日ではない）。
+    expect(fields.arrivalDate.value).toBe('2026-09-12');
+
+    type(fields.arrivalTime, '01:00');
+
+    expect(store.getState().arrival.dateOffset).toBe(0);
+    expect(store.getState().arrival.format()).toBe('01:00');
+  });
+
+  it('選び終える前に過ぎてしまった日は、今日へ丸めない', () => {
+    // 23:55 に日付を選んで閉じたのが 00:05 だと、選んだ絶対日付はもう昨日。
+    // dateOffsetFrom は負を 0 へ丸めるので、そのまま確定すると詰め直した予定を
+    // 引きずり降ろす（ここでは 13 日 12:00 着が 13 日 10:01 着へ潰れる）。
+    let clock = new Date(2026, 8, 11, 23, 55, 0);
+    const { date } = setup(
+      { departure: at(10, 0, 2), arrival: at(12, 0, 2) },
+      PickerMode.arrival,
+      () => clock,
+    );
+
+    fireEvent.change(date, { target: { value: '2026-09-11' } });
+    clock = new Date(2026, 8, 12, 0, 5, 0);
+    fireEvent.blur(date);
+
+    // 詰め直しだけが効いて、選んだ日は捨てる（13 日を指したまま）。
+    expect(store.getState().arrival.format()).toBe('12:00');
+    expect(store.getState().arrival.dateOffset).toBe(1);
+    expect(date.value).toBe('2026-09-13');
   });
 });

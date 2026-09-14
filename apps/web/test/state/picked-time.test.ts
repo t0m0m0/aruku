@@ -8,7 +8,11 @@ import { describe, expect, it } from 'vitest';
 import { TimeValue, PickerMode, kMaxDateOffsetDays } from '@aruku/engine/models/time-value';
 import { budgetMinutes, absoluteMinutes } from '@aruku/engine/services/route-plan-builder';
 
+import { resolveRedirect } from '../../src/navigation/guard';
+import { Screen, screenPath } from '../../src/navigation/screens';
 import { createAppStore } from '../../src/state/store';
+
+import type { RoutePlan } from '@aruku/engine/models/route-plan';
 
 function storeWith(departure: TimeValue, arrival: TimeValue) {
   return createAppStore({ departure, arrival });
@@ -151,5 +155,28 @@ describe('rebaseDates', () => {
     expect(store.getState().departure.isNow).toBe(true);
     expect(store.getState().departure.format()).toBe('09:30');
     expect(budgetMinutes(store.getState().departure, store.getState().arrival)).toBe(60);
+  });
+});
+
+// Codex レビュー（PR #399）。web では「戻る」で降りた result が**進む**の先に残る。
+describe('時刻を変えたときの保持中の経路', () => {
+  it('捨てる。進むで戻れる result が、新しい出発の下に古い経路を出すため', () => {
+    const store = createAppStore({
+      departure: at(10, 0),
+      arrival: at(11, 0),
+      route: {} as RoutePlan,
+      routeAsOf: new Date(2026, 8, 11, 10, 0),
+    });
+
+    store
+      .getState()
+      .applyPickedTime({ mode: PickerMode.depart, h: 15, m: 0, dateOffset: 0 });
+
+    expect(store.getState().route).toBeNull();
+    expect(store.getState().routeAsOf).toBeNull();
+    // ガードは route の有無で result を通す。捨てれば進むが home へ跳ね返る。
+    expect(
+      resolveRedirect(screenPath[Screen.result], store.getState(), new Date()),
+    ).toBe(screenPath[Screen.home]);
   });
 });

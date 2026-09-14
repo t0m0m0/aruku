@@ -15,6 +15,7 @@ import type { StoreApi } from 'zustand/vanilla';
 
 import {
   PickerMode,
+  TimeValue,
   calendarDaysBetween,
   dateOffsetFrom,
 } from '@aruku/engine/models/time-value';
@@ -44,15 +45,13 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
   const arrival = useStore(store, (s) => s.arrival);
   const current = mode === PickerMode.depart ? departure : arrival;
 
-  // 状態の dateOffset が数えている「今日」。dateOffset は state に基準日を持たない
-  // ので、日が変わると保持値は黙って1日先を指す。ここに基準を留めておき、確定の
-  // たびに実時刻との差を数えて詰め直す。
+  // 状態の dateOffset が数えている起点の日。ストアが持つ（[RouteCore.dateBasis]）。
   //
-  // 描画のたびに読み直してはいけない。打鍵による再描画で基準だけが新しい日へ進み、
-  // 状態の側は古い日のまま取り残される——差が 0 に見えるので詰め直しが走らず、
-  // 触っていない側（出発を打っているときの到着）が1日先を指したまま残る。
-  const basisRef = useRef(now());
-  const basis = basisRef.current;
+  // 欄の中で `now()` を読んではいけない。打鍵による再描画で基準だけが新しい日へ進み、
+  // 状態の側は古い日のまま取り残される——差が 0 に見えるので詰め直しが走らない。
+  // 欄ごとに ref で留めるのも足りない。出発の欄が詰め直しても到着の欄の基準は
+  // 古いままで、そちらを確定すると同じ1日をもう一度適用する（PR #399 のレビュー）。
+  const basis = useStore(store, (s) => s.dateBasis);
 
   const first = firstSelectableOffset(mode, departure);
   const last = lastSelectableOffset(mode, departure, current);
@@ -60,26 +59,66 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
   const [time, setTime] = useSyncedInput(current.format());
   const [date, setDate] = useSyncedInput(isoDate(dateAt(basis, current.dateOffset)));
 
-  /// 欄の値を状態へ確定する。日付は**絶対日付**で受ける——基準日が動いても
-  /// 意味が変わらないのは絶対日付だけで、今日からの日数は詰め直しの前後で別の日を指す。
-  function commit(h: number, m: number, pickedDate: Date): void {
+  /// 詰め直してから、確定に使う時計を返す。
+  ///
+  /// 跨いでいなくても（0 でも）通す。「今すぐ」の出発は保持している h/m が起動時刻の
+  /// まま古び、applyPickedTime の「出発 < 到着」の比較がその古い値を見る——09:00 に
+  /// 開いて正午に 13:00 着を選ぶと予算 4 時間として記録され、startSearch が出発だけを
+  /// 正午へ更新した結果 16:00 着を探しに行く（PR #399 のレビュー）。
+  function rebased(): Date {
     const closed = now();
-    const elapsed = calendarDaysBetween({ from: basis, to: closed });
-    basisRef.current = closed;
-    // 跨いだときだけ詰め直す。移植元は跨がなくても（0 でも）通して過ぎた時刻を
-    // 引き上げていたが、あれは日付ダイアログを閉じるという「区切り」があっての
-    // こと。区切りの無い native の欄で毎回通すと、到着を打つたびに出発が現在時刻へ
-    // 飛ぶ。過ぎた時刻の引き上げは下の clampDepartureMinutes が受け持つ。
-    if (elapsed !== 0) store.getState().rebaseDates(elapsed, closed);
+    store
+      .getState()
+      .rebaseDates(calendarDaysBetween({ from: basis, to: closed }), closed);
+    return closed;
+  }
 
+  /// 時刻の確定。日付は**相対**で受ける——欄が指定したのは時刻だけで、どの日かは
+  /// 詰め直した後の状態が持っている。絶対日付で持ち回ると、跨いだ直後の確定が
+  /// 「もう過ぎた日」を指すことになる。
+  function commitTime(h: number, m: number, dayShift: number): void {
+    const closed = rebased();
     const state = store.getState();
-    const maxOffset = lastSelectableOffset(
-      mode,
-      state.departure,
-      mode === PickerMode.depart ? state.departure : state.arrival,
-    );
-    const dateOffset = dateOffsetFrom({ picked: pickedDate, now: closed, maxOffset });
+    const settled = currentOf(state);
+    const dateOffset = settled.dateOffset + dayShift;
+    // 選べる範囲の外へは動かさない。上端を素通しさせると、カレンダーでは作れない
+    // 日が時刻側から作れてしまう。
+    if (
+      dateOffset < firstSelectableOffset(mode, state.departure) ||
+      dateOffset > lastSelectableOffset(mode, state.departure, settled)
+    ) {
+      syncFromState();
+      return;
+    }
+    apply(h, m, dateOffset, closed);
+  }
 
+  /// 日付の確定。こちらは**絶対日付**で受ける——カレンダーが指したのは日そのもので、
+  /// 時刻は動かさない。
+  function commitDate(picked: Date): void {
+    const closed = rebased();
+    // 選んでいる間に過ぎてしまった日は捨てる。dateOffsetFrom は負を 0 へ丸めるので、
+    // そのまま確定すると古い時刻と新しい今日が組み合わさり、詰め直した予定を
+    // 引きずり降ろす。
+    if (calendarDaysBetween({ from: closed, to: picked }) < 0) {
+      syncFromState();
+      return;
+    }
+    const state = store.getState();
+    const settled = currentOf(state);
+    apply(
+      settled.h,
+      settled.m,
+      dateOffsetFrom({
+        picked,
+        now: closed,
+        maxOffset: lastSelectableOffset(mode, state.departure, settled),
+      }),
+      closed,
+    );
+  }
+
+  function apply(h: number, m: number, dateOffset: number, closed: Date): void {
     let total = h * 60 + m;
     // 到着の下限（出発 + 最小ギャップ）は applyPickedTime が持っている。
     // ここで見るのは出発の下限だけ。
@@ -90,21 +129,28 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
         nowMinutes: closed.getHours() * 60 + closed.getMinutes(),
       });
     }
-    state.applyPickedTime({
+    store.getState().applyPickedTime({
       mode,
       h: Math.floor(total / 60),
       m: total % 60,
       dateOffset,
     });
-    // 確定した値を欄へ書き戻す（移植元 `_syncFromState`）。寄せた先が元の値と同じ
-    // ときは state が変わらず、描画中の同期が働かない——打った値が欄に残り、
-    // 状態と食い違ったまま検索へ行く。
-    const settled =
-      mode === PickerMode.depart
-        ? store.getState().departure
-        : store.getState().arrival;
+    syncFromState();
+  }
+
+  function currentOf(state: { departure: TimeValue; arrival: TimeValue }): TimeValue {
+    return mode === PickerMode.depart ? state.departure : state.arrival;
+  }
+
+  /// 確定した値を欄へ書き戻す（移植元 `_syncFromState`）。
+  ///
+  /// 寄せた先が元の値と同じときは state が変わらず、描画中の同期が働かない——打った
+  /// 値が欄に残り、状態と食い違ったまま検索へ行く。
+  function syncFromState(): void {
+    const state = store.getState();
+    const settled = currentOf(state);
     setTime(settled.format());
-    setDate(isoDate(dateAt(closed, settled.dateOffset)));
+    setDate(isoDate(dateAt(state.dateBasis, settled.dateOffset)));
   }
 
   /// 欄を離れたときに確定する（移植元 `_commitText`）。
@@ -119,7 +165,10 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
       setTime(current.format());
       return;
     }
-    commit(parsed.h, parsed.m, dateAt(basis, current.dateOffset));
+    // 値が変わっていない blur は選択ではない。タブで通り抜けただけでも来るので、
+    // 確定すると「今すぐ」の出発がその時刻で凍り、以後の検索が現在時刻へ追従しない。
+    if (parsed.h === current.h && parsed.m === current.m) return;
+    commitTime(parsed.h, parsed.m, 0);
   }
 
   function onDateBlur(): void {
@@ -128,7 +177,8 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
       setDate(isoDate(dateAt(basis, current.dateOffset)));
       return;
     }
-    commit(current.h, current.m, picked);
+    if (isoDate(picked) === isoDate(dateAt(basis, current.dateOffset))) return;
+    commitDate(picked);
   }
 
   /// ↑↓ を横取りして、日をまたぐ刻みでは日付も一緒に動かす。
@@ -151,14 +201,10 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
       base,
       key === 'ArrowUp' ? kTimeStepMinutes : -kTimeStepMinutes,
     );
-    const offset = current.dateOffset + stepped.dayDelta;
-    // 選べる範囲の外へは動かさない。上端を素通しさせると、カレンダーでは作れない
-    // 日が時刻側から作れてしまう。
-    if (offset < first || offset > last) return;
-    commit(
+    commitTime(
       Math.floor(stepped.totalMinutes / 60),
       stepped.totalMinutes % 60,
-      dateAt(basis, offset),
+      stepped.dayDelta,
     );
   }
 

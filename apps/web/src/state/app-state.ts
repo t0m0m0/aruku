@@ -46,6 +46,16 @@ export interface RouteCore {
   originLatLng: GeoPoint | null;
   departure: TimeValue;
   arrival: TimeValue;
+
+  /// [departure] と [arrival] の dateOffset が数えている起点の日。
+  ///
+  /// dateOffset は「今日からの日数」だが、その基準日は保持していると黙って古びる
+  /// ——開いたまま日を跨いだ保持値は1日先を指す。基準を明示して持ち、詰め直し
+  /// （`rebaseDates`）のときだけ両者を**同じ更新で**動かす。
+  ///
+  /// 欄ごとに持たせてはいけない。片方の欄が詰め直しても、もう片方は古い基準で
+  /// 描き続け、確定すると同じ1日をもう一度適用する（PR #399 の Codex レビュー）。
+  dateBasis: Date;
   route: RoutePlan | null;
 
   /// isNow 経路が前提とする「現在時刻」。確定時に設定し、この時刻から

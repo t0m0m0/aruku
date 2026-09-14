@@ -27,6 +27,7 @@ function core(overrides: Partial<RouteCore> = {}): RouteCore {
     originLatLng: null,
     departure: new TimeValue({ h: 9, m: 0 }),
     arrival: new TimeValue({ h: 10, m: 0 }),
+    dateBasis: now,
     route: null,
     routeAsOf: null,
     routeErrorKind: null,

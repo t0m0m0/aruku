@@ -140,6 +140,7 @@ function initialCore(now: Now): RouteCore {
   // 日跨ぎ（深夜出発）は arrival の dateOffset に繰り上げる。
   const arrivalTotal = at.getHours() * 60 + at.getMinutes() + kInitialBudgetMinutes;
   return {
+    dateBasis: at,
     destination: null,
     destinationLatLng: null,
     origin: null,
@@ -240,6 +241,7 @@ export function createAppStore(
       set(
         mode === PickerMode.depart
           ? {
+              ...discardedRoute,
               departure: picked,
               arrival: arrivalAfterDeparture(
                 picked,
@@ -247,7 +249,10 @@ export function createAppStore(
                 state.arrival,
               ),
             }
-          : { arrival: clampArrivalAfterDeparture(state.departure, picked) },
+          : {
+              ...discardedRoute,
+              arrival: clampArrivalAfterDeparture(state.departure, picked),
+            },
       );
     },
 
@@ -258,8 +263,12 @@ export function createAppStore(
       const budget = budgetMinutes(state.departure, state.arrival);
       const departure = rebasedTime(state.departure, days, at);
       set({
+        ...discardedRoute,
         departure,
         arrival: timeValueFromAbs(absoluteMinutes(departure) + budget),
+        // 基準日は、それが数えている出発・到着と**同じ更新で**動かす。別々に書くと、
+        // 間に挟まる描画が新しい基準で古い offset を読む。
+        dateBasis: at,
       });
     },
 
@@ -414,6 +423,13 @@ function timeValueFromAbs(abs: number): TimeValue {
     dateOffset: Math.floor(abs / (24 * 60)),
   });
 }
+
+/// 時刻が動いたら保持中の経路は捨てる。
+///
+/// 移植元には無い。あちらに「進む」が無かったからで、web では result から戻っても
+/// その履歴エントリが前方に残る。ガードは `route` が在れば通すので、捨てないと
+/// 新しい出発のヘッダーの下に古い時刻で組んだ経路が出る（PR #399 の Codex レビュー）。
+const discardedRoute = { route: null, routeAsOf: null } as const;
 
 /// 出発を変更したときの到着。移植元 `_arrivalAfterDeparture`。
 ///
