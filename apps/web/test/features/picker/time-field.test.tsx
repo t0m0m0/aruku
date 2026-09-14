@@ -324,3 +324,43 @@ describe('開いたまま時間が経ったとき', () => {
     expect(date.value).toBe('2026-09-13');
   });
 });
+
+// Codex レビュー（PR #399）。時刻→日付と、並んでいる順に触ったときの経路。
+describe('時刻を打ってから日付を選ぶ', () => {
+  it('打った時刻が、選んだ日付と一緒に確定する', () => {
+    // 正午に「明日 09:00 発」と決めたい。時刻を先に打つと、日付欄へ移る blur が
+    // それだけを確定し、今日の過去時刻として 12:00 へ切り上げてしまう——続く日付の
+    // 確定は切り上げ後の値を読むので、明日 12:00 発になる。
+    const { time, date } = setup({ departure: at(13, 0), arrival: at(14, 0) });
+
+    fireEvent.change(time, { target: { value: '09:00' } });
+    fireEvent.blur(time, { relatedTarget: date });
+    fireEvent.change(date, { target: { value: '2026-09-12' } });
+    fireEvent.blur(date);
+
+    expect(store.getState().departure.format()).toBe('09:00');
+    expect(store.getState().departure.dateOffset).toBe(1);
+  });
+
+  it('日付を選んでから時刻を打っても同じ', () => {
+    const { time, date } = setup({ departure: at(13, 0), arrival: at(14, 0) });
+
+    fireEvent.change(date, { target: { value: '2026-09-12' } });
+    fireEvent.blur(date, { relatedTarget: time });
+    fireEvent.change(time, { target: { value: '09:00' } });
+    fireEvent.blur(time);
+
+    expect(store.getState().departure.format()).toBe('09:00');
+    expect(store.getState().departure.dateOffset).toBe(1);
+  });
+
+  it('日付へ移らずに欄を出たら、今日の過去時刻として切り上げる', () => {
+    // 日付を変える気が無いなら、過去のまま照会へ渡さない従来の保証が要る。
+    const { time } = setup({ departure: at(13, 0), arrival: at(14, 0) });
+
+    fireEvent.change(time, { target: { value: '09:00' } });
+    fireEvent.blur(time);
+
+    expect(store.getState().departure.format()).toBe('12:00');
+  });
+});
