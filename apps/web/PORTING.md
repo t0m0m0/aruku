@@ -39,7 +39,13 @@ Phase 3（アプリ側）の決定と対応表。
 - loading / error / result 画面（`src/features/`）。result は合計と区間一覧まで
 - home の CTA を押せる状態へ戻す（スライス3 で塞いでいたもの）
 
-未着手: picker / settings、result のタイムライン作り込みと区間 CTA、地図、
+**スライス5 — 日時ピッカー**。home で唯一まだ動かない操作を塞ぐ。
+
+- `applyPickedTime` / `rebaseDates`（`src/state/store.ts`）
+- 欄の値域（`src/features/picker/time-field-range.ts`）
+- 時刻・日付の入力欄（`src/features/picker/time-field.tsx`）。home の表示だけの欄を置き換える
+
+未着手: settings、result のタイムライン作り込みと区間 CTA、地図、
 日本語フォントの同梱、Playwright。
 
 ## 決定
@@ -123,6 +129,8 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 | `test/core/models/route_error_test.dart` | — | `test/state/route-error.test.ts` |
 | `lib/core/state/app_state.dart` の `startSearch` まわり | — | `test/state/search-lifecycle.test.ts` |
 | `lib/features/loading/` / `error/` / `result/`（`testWidgets` は運ばない） | — | `test/features/loading/` / `error/` / `result/` |
+| `test/core/state/app_state_time_revalidation_test.dart`（`applyPickedTime` まわり） | — | `test/state/picked-time.test.ts` |
+| `test/features/picker/desktop_time_field_test.dart` | — | `test/features/picker/time-field.test.tsx` + `time-field-range.test.ts` |
 
 `packages/engine` の `check:port` のような名前照合はここには入れていない。あちらの基準値は
 エンジンの 6 ファイルに固定されており、UI 側は「移植ではなく作り直す」（#386）ため
@@ -347,6 +355,45 @@ cp apps/web/.env.example apps/web/.env
 
 `VITE_` の値はバンドルへ焼かれブラウザから読める。秘匿値を置かないこと
 （`docs/security_hardening.md`）。
+
+### 日時ピッカーのスライスの決定
+
+| 論点 | 決定 | 理由 |
+| --- | --- | --- |
+| ピッカーの実体 | native の `<input type="time">` / `<input type="date">` | 移植元の2実装（モバイルのホイールシート・デスクトップの自作カレンダー）は、ブラウザが端末に合わせて出すものの再実装。出し分けごと要らなくなる |
+| 入力文字列の解釈（`parseTimeInput`） | 運ばない | 任意の文字列が来ない。確定した値は必ず `HH:MM` で、打ちかけは空文字 |
+| 確定の契機 | **blur**（と Enter） | time 入力は打鍵ごとに change を上げる（下記）。移植元が「焦点が外れて初めて確定する」と書いていたのと同じ理由 |
+| ↑↓ の刻み | 横取りして自前で持つ | native の刻みは同日内で折り返す。日をまたぐ刻みで日付を据え置くと予算が 25 時間近くへ膨らむ |
+| 値域の保証 | `applyPickedTime` 側 | `min` / `max` は案内であって保証ではない。キー入力もオートフィルも範囲外を渡せる |
+| 基準日 | ref に留める | 描画のたびに読み直すと、打鍵の再描画で基準だけが進む（下記） |
+| `rebaseDates(0)` の素通し | しない | 移植元は日付ダイアログを閉じる区切りで通していた。区切りの無い欄で毎回通すと、到着を打つたびに出発が現在時刻へ飛ぶ |
+
+#### time 入力は打鍵ごとに change を上げる
+
+既に値のある欄へ `2358` と打つと、実ブラウザ（Chrome）は `02:00` → `23:00` →
+`23:05` → `23:58` と**4回**の change を上げる。セグメントが空にならないので、途中の
+値もすべて「完全な時刻」として来る。
+
+change で確定すると、最初の `02:00` に過去時刻の切り上げが割り込み、打った値ごと
+現在時刻へ差し替わる。**jsdom では見えない**——テストは change を1回しか起こさない
+ので、確定の契機を change に置いても緑のまま通る。実ブラウザで観測して初めて分かる。
+
+#### 基準日を描画のたびに読み直してはいけない
+
+`dateOffset` は state に基準日を持たず、常に「今日」から数えられる。開いたまま日を
+跨ぐと保持値は黙って1日先を指すので、確定の前に跨いだぶんを詰め直す。
+
+その差を「描画時の今日」と実時刻で測ると 0 になる——打鍵で再描画された時点で基準
+だけが新しい日へ進み、状態の側は古い日に取り残されるため。詰め直しが走らず、触って
+いない側（出発を打っているときの到着）が1日先を指したまま残る。基準は ref に留めて、
+詰め直したときだけ進める。
+
+#### 日跨ぎの表示は、開いたまま放置しても直らない
+
+基準を ref に留めた結果、日が変わっても欄の日付は勝手に書き変わらない（触った時点で
+揃う）。移植元も同じで、あちらの日付ラベルも `onAppResumed` や再描画が来るまで古い
+ままだった。**意図して揃えていない**——直すには真夜中に起きるタイマーが要り、それは
+経路の失効（`navigation/route-freshness.ts`）と同じ仕掛けを別の目的で足すことになる。
 
 ## 動かす
 
