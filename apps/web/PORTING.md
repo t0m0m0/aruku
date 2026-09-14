@@ -45,8 +45,13 @@ Phase 3（アプリ側）の決定と対応表。
 - 欄の値域（`src/features/picker/time-field-range.ts`）
 - 時刻・日付の入力欄（`src/features/picker/time-field.tsx`）。home の表示だけの欄を置き換える
 
-未着手: settings、result のタイムライン作り込みと区間 CTA、地図、
-日本語フォントの同梱、Playwright。
+**スライス6 — settings 画面**。7 画面目で、ルート表からプレースホルダが消える。
+
+- settings 画面（`src/features/settings/`）。規約・プライバシーポリシーへのリンクと、
+  権限をどこで変えるかの案内だけ
+- 法的情報の URL（`src/config.ts`）
+
+未着手: result のタイムライン作り込みと区間 CTA、地図、日本語フォントの同梱、Playwright。
 
 ## 決定
 
@@ -131,6 +136,7 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 | `lib/features/loading/` / `error/` / `result/`（`testWidgets` は運ばない） | — | `test/features/loading/` / `error/` / `result/` |
 | `test/core/state/app_state_time_revalidation_test.dart`（`applyPickedTime` まわり） | — | `test/state/picked-time.test.ts` |
 | `test/features/picker/desktop_time_field_test.dart` | — | `test/features/picker/time-field.test.tsx` + `time-field-range.test.ts` |
+| `lib/features/settings/`（`testWidgets` は運ばない） | — | `test/features/settings/settings-screen.test.tsx` |
 
 `packages/engine` の `check:port` のような名前照合はここには入れていない。あちらの基準値は
 エンジンの 6 ファイルに固定されており、UI 側は「移植ではなく作り直す」（#386）ため
@@ -355,6 +361,26 @@ cp apps/web/.env.example apps/web/.env
 
 `VITE_` の値はバンドルへ焼かれブラウザから読める。秘匿値を置かないこと
 （`docs/security_hardening.md`）。
+
+### 設定スライスの決定
+
+移植元（`lib/features/settings/`、483 行）の5セクションのうち4つは、#386 が「Web で
+落ちる機能の UI を作らない」と決めた機能の設定だった。**この画面には永続化する設定が
+1つも無い**——`AppSettings` の3フィールドがすべて非対応機能のものなので、
+`SettingsRepository`・lost update を防ぐ書き込みの直列化（`_queue`）・保存失敗の
+SnackBar という移植元の複雑さの中心が、まるごと移植対象から外れる。
+
+| 論点 | 決定 | 理由 |
+| --- | --- | --- |
+| 通知・週間目標・ヘルスケア連携 | セクションごと作らない | Web で恒久的に落ちる機能。非対応の理由を出す注記も、機能を作らない以上は書く相手がいない |
+| 権限の案内 | **1行だけ残す** | 位置情報は Web でも実在し、拒否されると出発地と経路検索が詰む。非対応機能の言い訳ではなく、対応している機能の操作方法。ただし移植元の「位置情報・通知の権限」から通知を落とした |
+| OS 設定を開く導線 | 作らない | 開く先が無い。押しても無反応の導線を残すと、権限を変えられない理由が画面から復元できない |
+| 外部リンク | 素の `<a target="_blank" rel="noopener noreferrer">` | `url_launcher` と「開けませんでした」の通知は運ばない。ブラウザではリンクを開くことが失敗し得る操作ではなく、`launcher` が false を返すという概念が無い。`rel` は暗黙の noopener に任せず明示する |
+| 規約・プライバシーの URL | `src/config.ts` に定数（移植元と同じプレースホルダのまま） | デプロイごとに変わらない固定のリンク先。env にすると設定漏れが「規約が開かない」という遠い失敗になる。実 URL への差し替えは #386 の範囲外 |
+| `ScreenPlaceholder` と `default` 節 | 撤去する | 残すと次に画面が増えたときに黙ってそこへ落ちる。網羅していなければ `tsc` が TS2366 で落とす（`case` を1つ外して確認） |
+
+セクションの一覧はテストで**完全一致**に固定した。「通知スイッチが無いこと」のような
+不在のアサーションは、実装していない間ずっと緑のままで何も検証しない。
 
 ### 日時ピッカーのスライスの決定
 
