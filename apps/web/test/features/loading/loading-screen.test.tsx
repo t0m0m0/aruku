@@ -196,4 +196,13 @@ describe('地図の背景', () => {
 
     expect(screen.getByTestId('loading-map').getAttribute('aria-hidden')).toBe('true');
   });
+
+  // 実キーがあるとここは本物の地図になる。aria-hidden が外すのは読み上げの木だけで、
+  // canvas と Google が差し込む帰属表示のリンクは依然フォーカスを受け、ジェスチャーは
+  // 入力を飲む。装飾の背景にタブで入れてしまう（PR #402 の Codex レビュー）。
+  it('装飾なので操作もできない', () => {
+    setup();
+
+    expect(screen.getByTestId('loading-map').hasAttribute('inert')).toBe(true);
+  });
 });

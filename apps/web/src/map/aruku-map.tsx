@@ -4,12 +4,20 @@
 // 既定の full）、寄り視点を使う nav 画面は Web に無い。連れてくると、使われない分岐の
 // ぶんだけ「この画面はどの variant か」を読む側が考えることになる。
 //
-// Maps JS API の読み込み待ち（maps_js_loader.dart の mapsJsLoadedProvider）も運んでいない。
-// あれは google_maps_flutter_web が window.google.maps の存在を前提に buildView する
-// ための足場で、APIProvider が同じ役目を内側で持つ。
+// Maps JS API の読み込み待ち（maps_js_loader.dart の mapsJsLoadedProvider）は形を変えて
+// 残してある。スクリプトを読みに行くのは APIProvider がやるが、読めるまでの間と読めなかった
+// ときに代わりの絵を出すところまでは持たない——素通しにすると、その間 result のプレビューと
+// loading の背景が空白になる。移植元の supportsRealMap と同じく、読み込みが済むまでは
+// 作り物の地図を描き続ける。
 
 import { useEffect, useMemo, useRef } from 'react';
-import { APIProvider, Map, useMap } from '@vis.gl/react-google-maps';
+import {
+  APILoadingStatus,
+  APIProvider,
+  Map,
+  useApiLoadingStatus,
+  useMap,
+} from '@vis.gl/react-google-maps';
 
 import type { RoutePlan } from '@aruku/engine/models/route-plan';
 
@@ -43,16 +51,45 @@ export function ArukuMap({
 
   return (
     <APIProvider apiKey={apiKey}>
-      <Map
-        className={styles.map}
-        defaultCenter={defaultCenter}
-        defaultZoom={defaultZoom}
-        styles={arukuWakabaMapStyle}
-        disableDefaultUI={true}
-      >
-        {route === null ? null : <RouteOverlays route={route} />}
-      </Map>
+      <RealMapWhenLoaded route={route} showRoute={showRoute} />
     </APIProvider>
+  );
+}
+
+/// 読み込みが済むまで——そして済まなかったときはずっと——作り物の地図を描く。
+///
+/// FAILED はスクリプト自体を取れなかったとき（オフライン・CSP による遮断）。AUTH_FAILURE は
+/// ライブラリが型に持つだけで、1.10.0 は**どこからも設定しない**（遷移するのは LOADING /
+/// LOADED / FAILED の3つ）。将来出るようになったときに素通ししないよう、LOADED 以外は
+/// まとめて作り物の地図へ倒している。
+///
+/// 逆に、**キーが無効・制限違反のときはここへ来ない**。スクリプトは正常に読めるので状態は
+/// LOADED になり、Google が地図の中へ自前のエラー面（「このページでは Google マップが
+/// 正しく読み込まれませんでした」）を描く。こちらから見分ける術は無く、DOM を覗いて
+/// 当てにいく価値も無い——リファラー制限の設定は docs/security_hardening.md の側の話。
+function RealMapWhenLoaded({
+  route,
+  showRoute,
+}: {
+  route: RoutePlan | null;
+  showRoute: boolean;
+}) {
+  const status = useApiLoadingStatus();
+
+  if (status !== APILoadingStatus.LOADED) {
+    return <StylizedMap showRoute={showRoute} />;
+  }
+
+  return (
+    <Map
+      className={styles.map}
+      defaultCenter={defaultCenter}
+      defaultZoom={defaultZoom}
+      styles={arukuWakabaMapStyle}
+      disableDefaultUI={true}
+    >
+      {route === null ? null : <RouteOverlays route={route} />}
+    </Map>
   );
 }
 

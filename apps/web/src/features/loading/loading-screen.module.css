@@ -20,6 +20,9 @@
      saturate(0.7) の行列とは小数第2位で違うが、CSS に任意の行列は filter: url() で
      SVG を1枚挟むしかない——0.35 の不透明度とベールの下に敷く絵の差としては釣り合わない。 */
   filter: saturate(0.7);
+  /* inert はフォーカスとヒットテストを外すが、対応していないブラウザでも実地図の
+     ジェスチャーが背景で動かないようにする。 */
+  pointer-events: none;
 }
 
 /* 中心を抜いて周縁を ivory で覆う。移植元の RadialGradient（radius 0.7）相当。 */

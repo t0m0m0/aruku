@@ -20,7 +20,18 @@ const mapProps = vi.fn();
 /// と「もう在る」を切り替えられるよう、モジュール変数越しに返す。
 let currentMap: google.maps.Map | null = null;
 
+/// Maps JS API の読み込み状態。既定は読み込み済み。
+let currentStatus = 'LOADED';
+
 vi.mock('@vis.gl/react-google-maps', () => ({
+  APILoadingStatus: {
+    NOT_LOADED: 'NOT_LOADED',
+    LOADING: 'LOADING',
+    LOADED: 'LOADED',
+    FAILED: 'FAILED',
+    AUTH_FAILURE: 'AUTH_FAILURE',
+  },
+  useApiLoadingStatus: () => currentStatus,
   APIProvider: ({ children, apiKey }: { children?: unknown; apiKey: string }) => (
     <div data-testid="api-provider" data-api-key={apiKey}>
       {children as never}
@@ -61,6 +72,7 @@ function route(polyline: GeoPoint[] = [new GeoPoint(35.6, 139.7), new GeoPoint(3
 beforeEach(() => {
   mapProps.mockClear();
   currentMap = null;
+  currentStatus = 'LOADED';
 });
 
 describe('ArukuMap', () => {
@@ -109,6 +121,67 @@ describe('ArukuMap', () => {
     render(<ArukuMap apiKey="maps-key" />);
 
     expect(mapProps.mock.calls[0]![0].disableDefaultUI).toBe(true);
+  });
+});
+
+// 移植元は supportsRealMap(isWeb, flagEnabled, mapsJsLoaded) で、Maps JS API の読み込みが
+// 済むまで作り物の地図を描き続ける。APIProvider はスクリプトを読みに行くだけで、読めるまでの
+// 間や読めなかったときに代わりの絵を出してはくれない——素通しにすると、result の 180px の
+// プレビューと loading の背景がその間まるごと空白になる。
+describe('Maps API が使えるまでの繋ぎ', () => {
+  it('読み込み中は作り物の地図を出す', () => {
+    currentStatus = 'LOADING';
+
+    const { container } = render(<ArukuMap apiKey="maps-key" />);
+
+    expect(container.querySelector('svg')).not.toBeNull();
+    expect(screen.queryByTestId('google-map')).toBeNull();
+  });
+
+  it('まだ読み始めていなくても作り物の地図を出す', () => {
+    currentStatus = 'NOT_LOADED';
+
+    const { container } = render(<ArukuMap apiKey="maps-key" />);
+
+    expect(container.querySelector('svg')).not.toBeNull();
+  });
+
+  // オフライン・CSP での遮断。
+  it('読み込みに失敗したら作り物の地図のまま', () => {
+    currentStatus = 'FAILED';
+
+    const { container } = render(<ArukuMap apiKey="maps-key" />);
+
+    expect(container.querySelector('svg')).not.toBeNull();
+    expect(screen.queryByTestId('google-map')).toBeNull();
+  });
+
+  // ライブラリ 1.10.0 はこの状態へ遷移しない（LOADING / LOADED / FAILED の3つだけ）。
+  // 将来出るようになったときに素通ししないための一本で、いま何かを守ってはいない。
+  it('認証に失敗したら作り物の地図のまま', () => {
+    currentStatus = 'AUTH_FAILURE';
+
+    const { container } = render(<ArukuMap apiKey="maps-key" />);
+
+    expect(container.querySelector('svg')).not.toBeNull();
+  });
+
+  it('読み込めたら実地図へ替える', () => {
+    currentStatus = 'LOADED';
+
+    const { container } = render(<ArukuMap apiKey="maps-key" />);
+
+    expect(screen.getByTestId('google-map')).toBeDefined();
+    expect(container.querySelector('svg')).toBeNull();
+  });
+
+  // 繋ぎの間も loading の背景は経路を描かない。
+  it('繋ぎの作り物の地図にも showRoute を通す', () => {
+    currentStatus = 'LOADING';
+
+    const { container } = render(<ArukuMap apiKey="maps-key" showRoute={false} />);
+
+    expect(container.querySelector('[data-part="route"]')).toBeNull();
   });
 });
 

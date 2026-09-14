@@ -64,8 +64,12 @@ export function LoadingScreen({ store }: LoadingScreenProps) {
   return (
     <main className={styles.screen}>
       {/* 地図を敷いた背景。装飾であって進捗の一部ではないので、読み上げへは出さない。
-          経路はまだ出ていないので描かない（移植元も ArukuMap(showRoute: false)）。 */}
-      <div className={styles.backdrop} data-testid="loading-map" aria-hidden="true">
+          経路はまだ出ていないので描かない（移植元も ArukuMap(showRoute: false)）。
+
+          aria-hidden だけでは足りず inert も要る。実キーがあるとここは本物の地図になり、
+          canvas と Google が差し込む帰属表示のリンクはフォーカスを受け、ジェスチャーは
+          入力を飲む——読み上げから隠れたままタブで入れる的が残る。 */}
+      <div className={styles.backdrop} data-testid="loading-map" aria-hidden="true" inert>
         <ArukuMap showRoute={false} />
       </div>
       <div className={styles.veil} aria-hidden="true" />
