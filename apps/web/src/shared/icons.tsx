@@ -47,6 +47,47 @@ export function CloseIcon({ size = 18 }: IconProps) {
   );
 }
 
+export function WalkIcon({ size = 16 }: IconProps) {
+  return (
+    <svg {...svgProps(size)}>
+      <circle cx="14" cy="4.5" r="2" fill="currentColor" />
+      <path
+        d="M9 21l2.5-5.5L9 12l-2 5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M11.5 15.5l2.5 1.5.8 4"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7.5 11.5L10 8.5h3.5l2.5 2.5L18 13"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function TrainIcon({ size = 16 }: IconProps) {
+  return (
+    <svg {...svgProps(size)}>
+      <rect x="5" y="3" width="14" height="14" rx="3.5" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M5 11h14" stroke="currentColor" strokeWidth="1.7" />
+      <circle cx="9" cy="14" r="1" fill="currentColor" />
+      <circle cx="15" cy="14" r="1" fill="currentColor" />
+      <path d="M8 17l-2 4M16 17l2 4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function ClockIcon({ size = 18 }: IconProps) {
   return (
     <svg {...svgProps(size)}>

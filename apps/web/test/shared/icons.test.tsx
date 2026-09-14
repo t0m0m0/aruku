@@ -25,6 +25,8 @@ describe('アイコン', () => {
       'RoutesIcon',
       'SearchIcon',
       'SettingsIcon',
+      'TrainIcon',
+      'WalkIcon',
     ]);
   });
 

@@ -1,14 +1,20 @@
 // 移植元: lib/features/result/result_screen.dart と result_totals.dart。
+// タイムラインそのものは result-timeline.test.tsx が見る。ここが見るのは合計・予算・
+// 見出しと、経路をタイムラインへ渡せていること。
 //
 // 運んでいないもの（いずれも対になる相手が来てから）:
-// - タイムラインの描画作り込み（result_timeline.dart）。区間は一覧で出す
 // - 区間 CTA と外部地図への handoff（result_leg_cta.dart）。行程＝歩数依存
 // - 共有（resultShareText）。外部連携で、経路検索の正しさとは独立
 
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { RoutePlan, RouteSegment, SegmentType } from '@aruku/engine/models/route-plan';
+import {
+  RoutePlan,
+  RouteSegment,
+  SegmentType,
+  TimelineNode,
+} from '@aruku/engine/models/route-plan';
 import { TimeValue } from '@aruku/engine/models/time-value';
 import type { RouteService } from '@aruku/engine/services/route-service';
 
@@ -27,8 +33,19 @@ function segment(overrides: Partial<ConstructorParameters<typeof RouteSegment>[0
     fromName: '出発',
     toName: '渋谷駅',
     minutes: 20,
+    km: 1.4,
+    kcal: 70,
     ...overrides,
   });
+}
+
+// タイムラインは区間ではなくノードを辿る（route-plan-builder が 1:1 で組む）。空の
+// timelineNodes を既定にすると、画面が経路を渡せていなくてもテストが緑のままになる。
+function nodes(...places: [string, string][]) {
+  return places.map(
+    ([place, sub], index) =>
+      new TimelineNode({ time: `09:${String(index * 10).padStart(2, '0')}`, place, sub }),
+  );
 }
 
 function plan(overrides: Partial<RoutePlan> = {}): RoutePlan {
@@ -42,7 +59,7 @@ function plan(overrides: Partial<RoutePlan> = {}): RoutePlan {
     walkKm: 4.1,
     walkRatio: 0.79,
     segments: [segment()],
-    timelineNodes: [],
+    timelineNodes: nodes(['現在地', '出発'], ['渋谷駅', '到着']),
     ...overrides,
   } as RoutePlan;
 }
@@ -132,36 +149,20 @@ describe('予算の超過', () => {
 });
 
 describe('区間', () => {
-  it('区間を順に出す', () => {
+  // 描画の中身は result-timeline.test.tsx が見る。ここが見るのは、画面が保持している
+  // 経路をそのままタイムラインへ渡していること。
+  it('保持している経路をタイムラインへ渡す', () => {
     setup({
       route: plan({
         segments: [
-          segment({ fromName: '現在地', toName: '渋谷駅', minutes: 12 }),
-          segment({
-            type: SegmentType.train,
-            fromName: '渋谷駅',
-            toName: '新宿駅',
-            minutes: 8,
-            line: '山手線',
-          }),
+          segment({ type: SegmentType.train, fromName: '渋谷駅', toName: '新宿駅', line: '山手線' }),
         ],
-      }),
-    });
-
-    expect(screen.getByText('現在地 → 渋谷駅')).toBeTruthy();
-    expect(screen.getByText('渋谷駅 → 新宿駅')).toBeTruthy();
-  });
-
-  it('電車の区間は路線名を出す', () => {
-    setup({
-      route: plan({
-        segments: [
-          segment({ type: SegmentType.train, line: '山手線', fromName: 'A', toName: 'B' }),
-        ],
+        timelineNodes: nodes(['渋谷駅', '出発'], ['新宿駅', '到着']),
       }),
     });
 
     expect(screen.getByText('山手線')).toBeTruthy();
+    expect(screen.getByText('渋谷駅 → 新宿駅')).toBeTruthy();
   });
 });
 
