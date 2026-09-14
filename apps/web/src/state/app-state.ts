@@ -34,6 +34,10 @@ export const routeFreshness: Duration = minutes(5);
 /// いつでも調整できるため、設定では持たず固定のシード値とする。
 export const kInitialBudgetMinutes = 60;
 
+/// 出発と到着の最小の隔たり（分）。「出発 < 到着」を保つための下限で、予算として
+/// 妥当な長さではない——ユーザーが到着を出発より前へ動かしたときの寄せ先にだけ使う。
+export const kMinBudgetMinutes = 1;
+
 /// 画面の表示前提になるデータ一式。
 export interface RouteCore {
   destination: string | null;
