@@ -97,6 +97,9 @@ export const ja = {
   resultOverBudgetHint:
     '時間内に到達できる経路がないため、最短の経路を表示しています',
   resultSegmentsHeading: '区間',
+  resultWalkLabel: '徒歩',
+  resultTrainDefaultLabel: '電車',
+  resultBusDefaultLabel: 'バス',
 
   /// 出発地の表示名。移植元は app_state.dart に直書きしていた（ARB に無い）。
   /// 文言なので他と同じくここへ置く。
@@ -132,4 +135,35 @@ export function resultBudgetSummary(
 
 export function resultOverBudgetTitle(overMinutes: number): string {
   return `制限時間を${overMinutes}分超過しています`;
+}
+
+/// 区間所要分の構成要素。移植元 _durationParts は Text ウィジェットの並びを返し、数字と
+/// 単位で書体・字送りを変えていた（numStyle / jpStyle）。組み上がった 1 本の文字列では
+/// その差を付ける取っ掛かりが無いので、単位の境目を保ったまま返す。
+export interface DurationPart {
+  readonly text: string;
+  readonly unit: boolean;
+}
+
+/// 移植元 _durationParts（ARB の resultHourUnit / resultMinuteUnit）。60 分以上は
+/// n時間mm分 へ分解し、分をゼロ詰めする。
+export function resultSegmentDuration(minutes: number): DurationPart[] {
+  if (minutes >= 60) {
+    return [
+      { text: String(Math.floor(minutes / 60)), unit: false },
+      { text: '時間', unit: true },
+      { text: String(minutes % 60).padStart(2, '0'), unit: false },
+      { text: '分', unit: true },
+    ];
+  }
+  return [
+    { text: String(minutes), unit: false },
+    { text: '分', unit: true },
+  ];
+}
+
+/// 徒歩レッグの消費カロリー。移植元は RichText で「+」「数値」「 kcal」を別スパンに
+/// 割っていたが、色も字体も同じで割る理由が無かったため 1 本にしている。
+export function resultLegKcal(kcal: number): string {
+  return `+${kcal} kcal`;
 }
