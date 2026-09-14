@@ -66,8 +66,9 @@ function setup(initial: Partial<RouteCore> = {}) {
   );
   store.getState().attachNavigator(navigate);
   // 実時刻を使わせない。fixture の日付と今日がたまたま一致している間しか通らない
-  // テストになる（fullDateLabel は now を基準に dateOffset を足す）。
-  render(<ResultScreen store={store} now={() => noon} />);
+  // テストになる（fullDateLabel は基準日に dateOffset を足す）。基準は store が
+  // 持つので、ストアの時計を固定すれば足りる。
+  render(<ResultScreen store={store} />);
   return { navigate };
 }
 
@@ -192,6 +193,34 @@ describe('見出し', () => {
     setup({ departure: new TimeValue({ h: 9, m: 0, dateOffset: 1 }) });
 
     const full = new TimeValue({ h: 9, m: 0, dateOffset: 1 }).fullDateLabel(noon);
+    expect(screen.getByText(`${full} · 09:00 出発`)).toBeTruthy();
+  });
+});
+
+// Codex レビュー（PR #399）。固定出発の経路は routeAsOf を持たない＝失効しないので、
+// 日を跨いでも開いたまま残る。
+describe('日を跨いでから見た固定出発の日付', () => {
+  it('検索した日ではなく、保持している基準日から数える', () => {
+    // 11 日に「12 日 09:00 発」を検索し、12 日に result を開き直す。描画時刻から
+    // 数えると 13 日と出る——旅程は変わっていないのに。
+    const searchedOn = new Date(2026, 8, 11, 22, 0, 0);
+    const store = createAppStore(
+      {
+        destination: '渋谷駅',
+        dateBasis: searchedOn,
+        departure: new TimeValue({ h: 9, m: 0, dateOffset: 1 }),
+        arrival: new TimeValue({ h: 11, m: 0, dateOffset: 1 }),
+        route: plan(),
+      },
+      () => searchedOn,
+      { request: async () => locationDenied },
+      { plan: (async () => plan()) as RouteService['plan'] },
+    );
+    store.getState().attachNavigator(vi.fn());
+
+    render(<ResultScreen store={store} />);
+
+    const full = new TimeValue({ h: 9, m: 0, dateOffset: 1 }).fullDateLabel(searchedOn);
     expect(screen.getByText(`${full} · 09:00 出発`)).toBeTruthy();
   });
 });
