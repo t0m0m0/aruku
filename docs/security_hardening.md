@@ -40,8 +40,8 @@
 |---|---|---|---|---|
 | 地図表示用（Android） | アプリ（Maps SDK） | `secrets.properties` | Android: パッケージ名 + SHA-1 | **Maps SDK for Android のみ** |
 | 地図表示用（iOS） | アプリ（Maps SDK） | `ios/Flutter/Secrets.xcconfig` | iOS: Bundle ID | **Maps SDK for iOS のみ** |
-| 地図表示用（Web・本番） | ブラウザ（Maps JavaScript API） | 公開ビルドの `MAPS_WEB_API_KEY` | ウェブサイト: 配信ドメインのみ | **Maps JavaScript API のみ** |
-| 地図表示用（Web・開発） | ブラウザ（Maps JavaScript API） | ローカルの `dart_defines.json` | ウェブサイト: `localhost`（下記のとおり防御にならない） | **Maps JavaScript API のみ** |
+| 地図表示用（Web・本番） | ブラウザ（Maps JavaScript API） | 公開ビルドの `MAPS_WEB_API_KEY` / `VITE_MAPS_WEB_API_KEY` | ウェブサイト: 配信ドメインのみ | **Maps JavaScript API のみ** |
+| 地図表示用（Web・開発） | ブラウザ（Maps JavaScript API） | ローカルの `dart_defines.json`（Flutter）・`apps/web/.env`（React SPA） | ウェブサイト: `localhost`（下記のとおり防御にならない） | **Maps JavaScript API のみ** |
 | プロキシ用（`GOOGLE_MAPS_API_KEY`） | Cloud Functions | Secret Manager | **なし**（下記） | **Places API (New) + Routes API のみ** |
 
 1. [GCP Console > API とサービス > 認証情報](https://console.cloud.google.com/apis/credentials) を開く。
@@ -76,7 +76,8 @@
 
    **本番用キー**
    - **アプリケーションの制限**: 「ウェブサイト」→ 配信ドメインのみ。**`localhost` を入れない。**
-   - 公開ビルドの `MAPS_WEB_API_KEY` にはこちらを渡す。
+   - 公開ビルドの `MAPS_WEB_API_KEY`（Flutter）と `VITE_MAPS_WEB_API_KEY`（React SPA、
+     `apps/web`）にはこちらを渡す。どちらも同じキーでよい。
    - 配信先は Cloudflare Pages（README「Web 公開（Cloudflare Pages）」）。登録するのは
      `aruku.pages.dev/*` か独自ドメインで、**`*.pages.dev` を入れてはならない。**
      `pages.dev` は Cloudflare の全ユーザーが自分のプロジェクトを持つ共有サフィックスで、
