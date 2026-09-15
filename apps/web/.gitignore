@@ -1,6 +1,12 @@
 node_modules/
 dist/
 
+# E2E のビルド成果物と走った跡。dist/ と分けてあるのは、偽の上流を指す URL が
+# 焼かれたバンドルだから（e2e/upstream/endpoints.ts）。
+dist-e2e/
+test-results/
+playwright-report/
+
 # Vite が読む環境変数ファイル。VITE_PROXY_BASE_URL などの実値が入る。
 # 置き場所の作法は dart_defines.json と同じ——実ファイルは追跡せず、雛形だけ配る。
 .env
