@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
+import { arukuFontSubset } from './vite/font-subset';
+
 /// エンジンのソースを直接解決する。tsconfig.json の `paths` と同じ対応を貼る
 /// （型解決とバンドル解決が割れると、tsc は通るのに実行時だけ落ちる）。
 const engineSrc = fileURLToPath(
@@ -10,7 +12,7 @@ const engineSrc = fileURLToPath(
 );
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), arukuFontSubset()],
   resolve: {
     alias: [{ find: /^@aruku\/engine\/(.*)$/, replacement: `${engineSrc}/$1` }],
   },

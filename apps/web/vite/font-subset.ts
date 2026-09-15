@@ -6,7 +6,9 @@
 // （実測: UI 文言 297 文字のために 474 KB を引く）。絞ると 114 KB になる。
 
 import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+
+import type { Plugin } from 'vite';
 
 type ScanState =
   | 'code'
@@ -251,4 +253,105 @@ export function buildFontFaceCss(faces: EmittedFace[]): string {
 }`,
     )
     .join('\n');
+}
+
+/// 語彙フォントを配る仮想モジュール。main.tsx がこれを取り込む。
+export const fontsModuleId = 'virtual:aruku-fonts.css';
+const resolvedFontsModuleId = `\0${fontsModuleId}`;
+
+/// 絞ったフォントの family 名。tokens.css の `--font-jp` が先頭に置く名前と対。
+export const subsetFamily = 'Noto Sans JP Subset';
+
+/// 配信パス。ビルドでも dev でも同じ URL にする。dev だけ別経路にすると、
+/// 本番で初めて 404 が出る類の食い違いが残る。
+const fontDir = 'assets/fonts';
+
+interface SubsetOutput {
+  css: string;
+  files: Map<string, Uint8Array>;
+}
+
+async function buildSubsets(root: string): Promise<SubsetOutput> {
+  const { createRequire } = await import('node:module');
+  const { createHash } = await import('node:crypto');
+  const subsetFont = (await import('subset-font')).default;
+
+  const require = createRequire(import.meta.url);
+  const indexCss = require.resolve('@fontsource-variable/noto-sans-jp/index.css');
+  const filesDir = join(dirname(indexCss), 'files');
+
+  const vocabulary = collectVocabulary(root);
+  const plan = subsetPlan(parseFontFaces(readFileSync(indexCss, 'utf8')), vocabulary);
+
+  const files = new Map<string, Uint8Array>();
+  const faces: EmittedFace[] = [];
+  for (const { file, chars } of plan) {
+    const source = readFileSync(join(filesDir, file));
+    const subset = await subsetFont(source, chars, { targetFormat: 'woff2' });
+    const hash = createHash('sha256').update(subset).digest('hex').slice(0, 8);
+    const name = `${file.replace(/\.woff2$/u, '')}-${hash}.woff2`;
+    files.set(name, subset);
+    faces.push({ family: subsetFamily, url: `/${fontDir}/${name}`, chars });
+  }
+  return { css: buildFontFaceCss(faces), files };
+}
+
+/// 日本語フォントを語彙ぶんへ絞って配る Vite プラグイン。
+///
+/// prebuild の npm script にはしない。CI は `npm run build` ではなく `npx vite build` を
+/// 直に叩くので（.github/workflows/ci.yml）、script に置くと CI では黙って飛び、
+/// フォントの無い dist が「成功」として出てしまう。ビルドの内側に置けば外せない。
+export function arukuFontSubset(): Plugin {
+  let root = process.cwd();
+  let pending: Promise<SubsetOutput> | undefined;
+  const subsets = () => (pending ??= buildSubsets(root));
+
+  return {
+    name: 'aruku:font-subset',
+
+    configResolved(config) {
+      root = config.root;
+    },
+
+    resolveId(id) {
+      return id === fontsModuleId ? resolvedFontsModuleId : undefined;
+    },
+
+    async load(id) {
+      if (id !== resolvedFontsModuleId) return undefined;
+      return (await subsets()).css;
+    },
+
+    // dev には emitFile が無い。同じ URL を自前で返す。
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const name = req.url?.split('?')[0]?.replace(`/${fontDir}/`, '');
+        if (req.url === undefined || !req.url.startsWith(`/${fontDir}/`)) {
+          next();
+          return;
+        }
+        void subsets().then(({ files }) => {
+          const body = name === undefined ? undefined : files.get(name);
+          if (body === undefined) {
+            next();
+            return;
+          }
+          res.setHeader('Content-Type', 'font/woff2');
+          res.end(body);
+        }, next);
+      });
+    },
+
+    async buildEnd() {
+      // 取り込み側が1つでもあれば load が走っているが、走っていなくても
+      // ここで作っておく。emitFile は generateBundle より前に済ませる。
+      await subsets();
+    },
+
+    async generateBundle() {
+      for (const [name, source] of (await subsets()).files) {
+        this.emitFile({ type: 'asset', fileName: `${fontDir}/${name}`, source });
+      }
+    },
+  };
 }
