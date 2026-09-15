@@ -50,12 +50,22 @@
   --map-build: #e5dfcc;
   --map-label: #6e6a57;
 
-  /* 日本語フォントはまだ同梱していない。同梱は初回ロード gzip 500KB 未満（#386 の
-     完了条件）との兼ね合いを実測してから決めるため、この 1 行の差し替えで済む形に
-     留めている。移植元は GoogleFonts.notoSansJp のランタイム取得で、それは #382 が
-     やめると決めたもの——フォールバックのまま放置してよいという意味ではない。 */
-  --font-jp: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP',
-    sans-serif;
+  /* 二段構えで同梱する。移植元の GoogleFonts.notoSansJp はランタイム取得で、
+     それは #382 がやめると決めたもの。
+
+     Fontsource の 124 分割をそのまま先頭へ置く手は採れない。あの分割は日本語の
+     「文章」向けで、散らばった UI 文言には噛み合わない——実測で UI 文言 297 文字の
+     ために 474 KB を引き、現行バンドル 165.6 KB との合計が #386 の完了条件
+     （初回ロード gzip 500 KB 未満）を割る。「遅」1文字のために 18.8 KB を取る。
+
+     そこで語彙ぶんへ絞ったものを先に当て（123 KB、vite/font-subset.ts が生成）、
+     語彙外の文字——地点名のような Places API 由来の任意の漢字——だけを Fontsource へ
+     渡す。同じ書体なので継ぎ目は出ず、遅延段は実際に描かれた塊しか取得されない。
+
+     並びが本体で、入れ替えても豆腐にはならないぶん静かに壊れる。
+     test/theme/font-stack.test.ts が順序を反証している。 */
+  --font-jp: 'Noto Sans JP Subset', 'Noto Sans JP Variable', system-ui,
+    -apple-system, 'Hiragino Sans', sans-serif;
 
   --r-xs: 8px;
   --r-sm: 12px;

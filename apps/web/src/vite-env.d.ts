@@ -1,5 +1,8 @@
 /// <reference types="vite/client" />
 
+/// 語彙ぶんへ絞ったフォントの @font-face。vite/font-subset.ts が生成する。
+declare module 'virtual:aruku-fonts.css';
+
 /// ビルド時に焼かれる設定。移植元は lib/core/config/app_config.dart の
 /// `String.fromEnvironment`（`--dart-define`）で、Vite では `VITE_` 接頭辞の
 /// 環境変数がこれに対応する。
