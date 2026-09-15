@@ -153,3 +153,102 @@ function* sourceFiles(dir: string): Generator<string> {
     else if (/\.tsx?$/u.test(entry.name)) yield path;
   }
 }
+
+export interface FontFace {
+  /// Fontsource の woff2 のファイル名。`files/` 配下の名前だけを持つ。
+  file: string;
+  ranges: [number, number][];
+}
+
+export interface SubsetEntry {
+  file: string;
+  chars: string;
+}
+
+const faceBlock = /@font-face\s*\{([^}]*)\}/gu;
+const srcFile = /url\([^)]*?([\w-]+\.woff2)\)/u;
+const rangeDecl = /unicode-range:\s*([^;]+);/u;
+
+/// Fontsource の index.css を読んで、各 @font-face のファイル名と unicode-range を
+/// 宣言順のまま返す。順序は捨てない——後勝ちの判定がこの順に乗っている。
+export function parseFontFaces(css: string): FontFace[] {
+  const faces: FontFace[] = [];
+  for (const [, body] of css.matchAll(faceBlock)) {
+    const file = srcFile.exec(body!)?.[1];
+    const declared = rangeDecl.exec(body!)?.[1];
+    if (file === undefined || declared === undefined) continue;
+    faces.push({ file, ranges: parseRanges(declared) });
+  }
+  return faces;
+}
+
+function parseRanges(declared: string): [number, number][] {
+  return declared.split(',').map((part) => {
+    const body = part.trim().replace(/^U\+/iu, '');
+    const [lo, hi] = body.split('-');
+    const start = Number.parseInt(lo!, 16);
+    return [start, hi === undefined ? start : Number.parseInt(hi, 16)];
+  });
+}
+
+/// どの woff2 をどの文字ぶんへ絞るかを決める。
+///
+/// 文字ごとに1つの face へ割り振る形にはしない。unicode-range が重なったとき当たる
+/// face を決めるのは CSS の後勝ちであって、こちらの割り振りではない——自前で決めると
+/// 本家が当てる face とずれ、当たった側にグリフが無い状態を作り得る。積を取れば、
+/// 当たる face がどれであれ必ずその文字を持っている。
+export function subsetPlan(faces: FontFace[], vocabulary: string): SubsetEntry[] {
+  const entries: SubsetEntry[] = [];
+  for (const face of faces) {
+    const chars = [...vocabulary]
+      .filter((ch) => {
+        const cp = ch.codePointAt(0)!;
+        return face.ranges.some(([lo, hi]) => cp >= lo && cp <= hi);
+      })
+      .join('');
+    if (chars.length > 0) entries.push({ file: face.file, chars });
+  }
+  return entries;
+}
+
+/// 連続したコードポイントを `U+3042-3045` の形へ畳む。畳まないと宣言が語彙の
+/// 長さぶん伸び、CSS 自体が絞った甲斐を食う。
+export function formatUnicodeRange(chars: string): string {
+  const points = [...new Set([...chars])]
+    .map((ch) => ch.codePointAt(0)!)
+    .sort((a, b) => a - b);
+  const parts: string[] = [];
+  for (let i = 0; i < points.length; i++) {
+    const start = points[i]!;
+    while (i + 1 < points.length && points[i + 1] === points[i]! + 1) i++;
+    const end = points[i]!;
+    const hex = (cp: number) => cp.toString(16).toUpperCase();
+    parts.push(start === end ? `U+${hex(start)}` : `U+${hex(start)}-${hex(end)}`);
+  }
+  return parts.join(',');
+}
+
+export interface EmittedFace {
+  family: string;
+  url: string;
+  chars: string;
+}
+
+/// 絞ったフォントを指す @font-face を組む。
+///
+/// unicode-range は語彙ちょうどにする。省くと語彙外の文字にもこの family が当たり、
+/// 遅延段（Fontsource の 124 分割）へ落ちずに豆腐で止まる。
+export function buildFontFaceCss(faces: EmittedFace[]): string {
+  return faces
+    .map(
+      ({ family, url, chars }) => `@font-face {
+  font-family: '${family}';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(${url}) format('woff2-variations');
+  unicode-range: ${formatUnicodeRange(chars)};
+}`,
+    )
+    .join('\n');
+}
