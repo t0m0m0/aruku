@@ -12,7 +12,9 @@ const engineSrc = fileURLToPath(
 );
 
 export default defineConfig({
-  plugins: [react(), arukuFontSubset()],
+  // 同じ engineSrc を alias と語彙収集の両方へ渡す。別々に書くと、
+  // エンジンの文言だけが同梱フォントから抜ける形で食い違う。
+  plugins: [react(), arukuFontSubset({ extraSourceDirs: [engineSrc] })],
   resolve: {
     alias: [{ find: /^@aruku\/engine\/(.*)$/, replacement: `${engineSrc}/$1` }],
   },

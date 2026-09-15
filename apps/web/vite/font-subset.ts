@@ -3,7 +3,7 @@
 // 移植元は GoogleFonts.notoSansJp のランタイム取得で、#382 がやめると決めたもの。
 // 素直な代わりは @fontsource-variable/noto-sans-jp をそのまま読み込むことだが、
 // あの 124 分割は日本語の「文章」向けで、散らばった UI 文言には噛み合わない
-// （実測: UI 文言 297 文字のために 474 KB を引く）。絞ると 114 KB になる。
+// （実測: 描画される 432 文字のために 839 KB を引く）。絞ると 179 KB になる。
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -145,16 +145,25 @@ function collectFromHtml(html: string): string[] {
   return [...[text, ...attributes].join(' ').matchAll(/\S/gu)].map((m) => m[0]);
 }
 
-/// `root` 配下のソースから語彙を集める。
+/// `root` 配下のソースと `extraSourceDirs` から語彙を集める。
 ///
 /// i18n のモジュールだけを見る実装にはしない。描画される日本語はテンプレート
 /// リテラルの形で他へも散っている——`src/i18n/format.ts` の「月」「日」、
 /// `src/features/loading/loading-screen.tsx` の「まで · 制限」がそれで、
 /// 見落とすとその画面だけが豆腐になる。
-export function collectVocabulary(root: string): string {
+///
+/// `extraSourceDirs` には `packages/engine/src` が入る。エンジンは alias で
+/// ソース直参照され同じバンドルへ入るので、その文字列リテラルは apps/web 自身の
+/// ものと同じだけ描かれる——`TimeValue.dateLabel()` の「明日」、
+/// `rail-line-names.ts` の路線名がそれ。
+export function collectVocabulary(
+  root: string,
+  extraSourceDirs: readonly string[] = [],
+): string {
   const sources: string[] = [];
-  for (const file of sourceFiles(join(root, 'src'))) {
-    sources.push(readFileSync(file, 'utf8'));
+  const dirs = [join(root, 'src'), ...extraSourceDirs];
+  for (const dir of dirs) {
+    for (const file of sourceFiles(dir)) sources.push(readFileSync(file, 'utf8'));
   }
   const html = readFileSync(join(root, 'index.html'), 'utf8');
   return collectVocabularyFromSources([
@@ -287,7 +296,16 @@ interface SubsetOutput {
   files: Map<string, Uint8Array>;
 }
 
-async function buildSubsets(root: string): Promise<SubsetOutput> {
+export interface FontSubsetOptions {
+  /// `root/src` の外にある、同じバンドルへ入るソース。エンジンのソース直参照が
+  /// これにあたる（vite.config.ts の alias と同じ場所を指す）。
+  extraSourceDirs?: readonly string[];
+}
+
+async function buildSubsets(
+  root: string,
+  extraSourceDirs: readonly string[],
+): Promise<SubsetOutput> {
   const { createRequire } = await import('node:module');
   const { createHash } = await import('node:crypto');
   const subsetFont = (await import('subset-font')).default;
@@ -296,7 +314,7 @@ async function buildSubsets(root: string): Promise<SubsetOutput> {
   const indexCss = require.resolve('@fontsource-variable/noto-sans-jp/index.css');
   const filesDir = join(dirname(indexCss), 'files');
 
-  const vocabulary = collectVocabulary(root);
+  const vocabulary = collectVocabulary(root, extraSourceDirs);
   const plan = subsetPlan(parseFontFaces(readFileSync(indexCss, 'utf8')), vocabulary);
 
   const files = new Map<string, Uint8Array>();
@@ -317,10 +335,11 @@ async function buildSubsets(root: string): Promise<SubsetOutput> {
 /// prebuild の npm script にはしない。CI は `npm run build` ではなく `npx vite build` を
 /// 直に叩くので（.github/workflows/ci.yml）、script に置くと CI では黙って飛び、
 /// フォントの無い dist が「成功」として出てしまう。ビルドの内側に置けば外せない。
-export function arukuFontSubset(): Plugin {
+export function arukuFontSubset(options: FontSubsetOptions = {}): Plugin {
   let root = process.cwd();
   let pending: Promise<SubsetOutput> | undefined;
-  const subsets = () => (pending ??= buildSubsets(root));
+  const subsets = () =>
+    (pending ??= buildSubsets(root, options.extraSourceDirs ?? []));
 
   return {
     name: 'aruku:font-subset',
