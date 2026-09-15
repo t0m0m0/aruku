@@ -32,6 +32,15 @@ export interface AppConfig {
   /// reCAPTCHA v3 のサイトキー。空だと App Check を有効化できず、プロキシは
   /// 401 を返す（＝安全側）。移植元の RECAPTCHA_SITE_KEY と同じ値。
   readonly recaptchaSiteKey: string;
+
+  /// Maps JavaScript API のブラウザキー。移植元の MAPS_WEB_API_KEY と同じ値。
+  ///
+  /// 空だと作り物の地図へ倒れる。移植元も USE_REAL_MAP が既定 false で同じ絵を出す
+  /// ——実地図が出ないことは設定漏れの兆候であって、画面の故障ではない。
+  ///
+  /// 秘匿値ではない（バンドルへ焼かれ、ブラウザから読める）。保護は Google Cloud 側の
+  /// HTTP リファラー制限が担う。docs/security_hardening.md 参照。
+  readonly mapsApiKey: string;
 }
 
 // App Check のデバッグトークンはここに**置かない**。
@@ -61,6 +70,7 @@ export const appConfig: AppConfig = {
     storageBucket: 'aruku-app.firebasestorage.app',
   },
   recaptchaSiteKey: import.meta.env.VITE_RECAPTCHA_SITE_KEY ?? '',
+  mapsApiKey: import.meta.env.VITE_MAPS_WEB_API_KEY ?? '',
 };
 
 /// 移植元: lib/core/constants/app_constants.dart の termsOfServiceUrl /

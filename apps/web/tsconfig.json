@@ -7,7 +7,10 @@
     "module": "preserve",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "types": ["vite/client"],
+    // google.maps は @vis.gl/react-google-maps の dependencies に入っている（devDep では
+    // ない）ので、ライブラリが在れば必ず在る。types を明示している以上、
+    // node_modules/@types の自動取り込みは効かず、ここへ並べないと解決しない。
+    "types": ["vite/client", "google.maps"],
     "strict": true,
     "noEmit": true,
     "verbatimModuleSyntax": true,

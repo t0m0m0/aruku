@@ -22,6 +22,10 @@ interface ImportMetaEnv {
   /// reCAPTCHA v3 のサイトキー。App Check の本番プロバイダに要る。
   readonly VITE_RECAPTCHA_SITE_KEY?: string;
 
+  /// Maps JavaScript API のブラウザキー。MAPS_WEB_API_KEY（dart_defines.json）と
+  /// 同じ値。未設定だと作り物の地図へ倒れる。
+  readonly VITE_MAPS_WEB_API_KEY?: string;
+
   /// App Check のデバッグトークン。開発でのみ読まれる（本番バンドルでは分岐ごと
   /// 消える。src/firebase/app-check.ts 参照）。
   readonly VITE_APP_CHECK_DEBUG_TOKEN?: string;
