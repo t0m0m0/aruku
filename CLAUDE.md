@@ -21,7 +21,7 @@ After reviewing:
 - `lib/features/` — feature-first UI (home, search, picker, loading, result, settings, error)
 - `lib/shared/` — reusable widgets, extensions, icons
 - `packages/engine/` — 経路エンジンの **TypeScript** 移植（#385 完了）。`lib/core/services/` の対応物
-- `apps/web/` — React + Vite の SPA（#386 進行中）。7画面とも実装済みでプレースホルダは残っていない。地図・日本語フォントの同梱・E2E は未着手。範囲は `apps/web/PORTING.md`
+- `apps/web/` — React + Vite の SPA（#386 進行中）。7画面・地図・日本語フォントの同梱・E2E まで実装済みで、`#386` の「やること」の項目は埋まっている。配信の差し替えと Flutter 撤去は #387。範囲は `apps/web/PORTING.md`
 - `functions/` — Cloud Functions **TypeScript** backend. Google Places / Routes proxies (`placesProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`) + Firestore rate limiter. **公共交通のプロキシは無い** — Transit API はクライアント直叩き（`docs/spec/route-optimization.md` §2.1）
 - Run the app: `flutter run` (add `--dart-define=USE_REAL_MAP=true` for the real map). Setup: see README.
 
@@ -127,6 +127,10 @@ When `apps/web/` changes, also run in `apps/web/`:
 - `npx tsc --noEmit`
 - `npm test`
 - `npx vite build`
+- `npm run e2e`   (Playwright)
+
+`npm run e2e` は自分でビルドしてプレビューを起こすので、`npx vite build` とは別に走らせる。
+初回だけブラウザの取得が要る（`npx playwright install chromium`）。
 
 When `lib/` changes, also run:
 
