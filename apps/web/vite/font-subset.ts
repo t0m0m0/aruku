@@ -104,10 +104,19 @@ function* scanStringLiterals(source: string): Generator<string> {
   }
 }
 
-/// グリフを持たない文字を落とす。空白・制御文字は @font-face が要らない。
+/// 描かれ得ない文字を落とす。
+///
+/// 空白（U+0020 など）は残す。「余白にグリフは要らない」と落とすと、語彙段が
+/// その文字を覆わなくなり、ブラウザは空白を描くためのフォントを **次の family へ
+/// 探しに行く**——遅延段の latin と 117 を引いて、空白1文字のために 92 KB を
+/// 落とした（実ブラウザの network で確認）。描画は成立するので目視では見えない。
+///
+/// 落とすのは改行・タブ・制御文字だけ。これらはソースの整形であって、
+/// テキストとして描かれる位置には出てこない。
 function hasGlyph(ch: string): boolean {
   const cp = ch.codePointAt(0)!;
-  return !/\s/u.test(ch) && cp >= 0x20 && cp !== 0x7f;
+  if (cp < 0x20 || cp === 0x7f) return false;
+  return !/[\t\n\r\f\v]/u.test(ch);
 }
 
 /// ソース片の集まりから語彙を作る。並びは決定的（コードポイント順）で、
@@ -122,11 +131,18 @@ export function collectVocabularyFromSources(sources: Iterable<string>): string 
   return [...chars].sort().join('');
 }
 
-/// index.html から描かれうる文字を拾う。`<title>` と `<meta name="description">` は
-/// タブやブラウザ UI 側に出るが、`lang="ja"` のような属性値は出ない——とはいえ
-/// 属性の大半は ASCII で、選り分ける労力に見合わない。タグだけ落として残りを取る。
+/// index.html から描かれうる文字を拾う。
+///
+/// タグを丸ごと落とすだけでは足りない。この app で index.html にある日本語は
+/// `<meta name="description">` の content 属性の中**だけ**にあり、属性値ごと消える。
+/// 抜けるとブラウザはその文字列のために遅延段を引く（実ブラウザで確認。
+/// 「電車に乗らず、時間内で最大限歩く」のために 80 KB を取っていた）。
 function collectFromHtml(html: string): string[] {
-  return [...html.replace(/<[^>]*>/gu, ' ').matchAll(/\S/gu)].map((m) => m[0]);
+  const attributes = [...html.matchAll(/content\s*=\s*"([^"]*)"/gu)].map(
+    (m) => m[1]!,
+  );
+  const text = html.replace(/<[^>]*>/gu, ' ');
+  return [...[text, ...attributes].join(' ').matchAll(/\S/gu)].map((m) => m[0]);
 }
 
 /// `root` 配下のソースから語彙を集める。
