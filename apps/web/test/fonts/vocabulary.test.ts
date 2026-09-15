@@ -50,6 +50,25 @@ describe('collectVocabularyFromSources', () => {
     expect(vocab).toContain('路');
   });
 
+  // `.tsx` の閉じタグ `</span>` は `<` の直後に `/` が来る。ここを正規表現の
+  // 始まりと読むと、次の `/` まで走査が飛び、その間の文字列リテラルが丸ごと
+  // 語彙から落ちる（PR #403 の Codex 指摘。result-timeline.tsx の「→」が実際に
+  // 落ちていた）。自己終了タグ `/>` も直前が `}` や `"` になる。
+  it('JSX の閉じタグを正規表現の始まりと読まない', () => {
+    const vocab = collectVocabularyFromSources([
+      `const el = <span>{\`\${a} → \${b}\`}</span>; const label = '区間';`,
+    ]);
+    expect(vocab).toContain('→');
+    for (const ch of '区間') expect(vocab).toContain(ch);
+  });
+
+  it('JSX の自己終了タグを正規表現の始まりと読まない', () => {
+    const vocab = collectVocabularyFromSources([
+      `const el = <Foo bar={baz} />; const label = '徒歩';`,
+    ]);
+    for (const ch of '徒歩') expect(vocab).toContain(ch);
+  });
+
   it('正規表現リテラルの中の引用符で状態を崩さない', () => {
     const vocab = collectVocabularyFromSources([
       `const q = /['"]/u; const label = '出口';`,
@@ -126,7 +145,7 @@ describe('collectVocabulary', () => {
 
   it('コメントに埋もれた漢字まで引き込まない', () => {
     // 移植メモの散文は全ソースに渡って厚い。拾うと語彙が膨らみ、絞る意味が
-    // 薄れる（実測: 432 文字 → 1,105 文字）。
+    // 薄れる（実測: 431 文字 → 1,105 文字）。
     expect(vocab.length).toBeLessThan(700);
   });
 });

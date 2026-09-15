@@ -3,7 +3,7 @@
 // 移植元は GoogleFonts.notoSansJp のランタイム取得で、#382 がやめると決めたもの。
 // 素直な代わりは @fontsource-variable/noto-sans-jp をそのまま読み込むことだが、
 // あの 124 分割は日本語の「文章」向けで、散らばった UI 文言には噛み合わない
-// （実測: 描画される 432 文字のために 839 KB を引く）。絞ると 179 KB になる。
+// （実測: 描画される 431 文字のために 839 KB を引く）。絞ると 179 KB になる。
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -21,9 +21,19 @@ type ScanState =
 
 const stringStates = new Set<ScanState>(['single', 'double', 'template']);
 
-/// `/` が正規表現の始まりか除算かは、直前の意味のあるトークンでしか決まらない。
-/// 識別子・リテラル・閉じ括弧の後なら除算、それ以外なら正規表現。
-const dividendEnd = /[\w$)\]]/u;
+/// `/` を正規表現の始まりと読んでよい直前の文字。
+///
+/// 「除算になる文字」を挙げて残りを正規表現とする書き方は採れない。`.tsx` では
+/// 閉じタグ `</span>` の `/` が `<` の直後に、自己終了タグ `/>` の `/` が `}` や
+/// `"` の直後に来る——どれも「除算になる文字」には入らないので正規表現と読まれ、
+/// 次の `/` まで走査が飛んで、その間の文字列リテラルが丸ごと語彙から落ちる
+/// （PR #403 の Codex 指摘。`result-timeline.tsx` の「→」が実際に落ちていた）。
+///
+/// 許可する側を挙げると、判断がつかない文字は「正規表現ではない」へ倒れる。
+/// 外した場合の損害が非対称なのでこちらを選ぶ——正規表現を見逃しても、その中に
+/// 引用符があるときだけ状態がずれる（現在のソースには無い）のに対し、正規表現と
+/// 誤読すると任意の長さのソースを黙って飲み込む。
+const regexCanFollow = /[(,;=:!&|?\[{]/u;
 
 /// 文字列リテラルの中身だけを取り出す。
 ///
@@ -86,7 +96,7 @@ function* scanStringLiterals(source: string): Generator<string> {
     } else if (ch === '/' && next === '*') {
       state = 'block';
       i++;
-    } else if (ch === '/' && !dividendEnd.test(lastSignificant)) {
+    } else if (ch === '/' && regexCanFollow.test(lastSignificant)) {
       state = 'regex';
     } else if (ch === "'") state = 'single';
     else if (ch === '"') state = 'double';
