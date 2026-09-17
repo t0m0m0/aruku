@@ -25,10 +25,9 @@ npm --prefix packages/engine run check:port # Dart 側との名前照合（CI �
 
 ## apps/web（React 移行の本体・#386）
 
-Phase 3（#386）で React + Vite の SPA を作る。土台とエンジンの配線（fetch アダプタ・
-タイムアウト・App Check・検索エンジンの組み立て）に続き、**home 画面まで入っている**。
-検索・結果・設定など**残り6画面はプレースホルダ**——起動すると home は動くが、そこから
-先へ進むと空の div が出る。本番の配信は当面 Flutter のまま（`deploy-web.yml` は未切替）。
+Phase 3（#386）で React + Vite の SPA を作る。7画面・地図・日本語フォントの同梱・E2E まで
+入っていて、プレースホルダの画面はもう無い。本番の配信は当面 Flutter のまま
+（`deploy-web.yml` は未切替。差し替えは #387）。
 
 スライスの範囲・移植元との対応・運ばないと決めたものは
 [apps/web/PORTING.md](apps/web/PORTING.md) が正本。
@@ -38,7 +37,11 @@ npm --prefix apps/web ci
 npm --prefix apps/web run typecheck  # 型（CI もこれを回す）
 npm --prefix apps/web test           # CI もこれ
 npm --prefix apps/web run build      # 本番バンドルの解決まで見る（CI もこれ）
+npm --prefix apps/web run e2e        # Playwright（CI もこれ）
 ```
+
+E2E は初回だけブラウザの取得が要る（`npm --prefix apps/web exec playwright install chromium`）。
+自分でビルドしてプレビューを起こすので、`run build` とは別に走らせる。
 
 Node は 22.22.0 以上が要る（`react-router` の要求）。`packages/engine` より厳しい。
 
