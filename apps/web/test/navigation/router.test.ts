@@ -17,14 +17,21 @@ import { createAppStore } from '../../src/state/store';
 const now = new Date(2026, 8, 11, 12, 0, 0);
 const someRoute = {} as RoutePlan;
 
+/// 画面は共通シェル（レイアウトルート）の子として並ぶ。シェルはパスを持たず、
+/// デスクトップ幅でだけ上部バーを描く（src/layout/desktop-shell.tsx）。
+function screenRoutes(routes: RouteObject[]): RouteObject[] {
+  if (routes.length !== 1) throw new Error('レイアウトルートが1つでない');
+  return routes[0]?.children ?? [];
+}
+
 function loaderFor(routes: RouteObject[], path: string) {
-  const route = routes.find((r) => r.path === path);
+  const route = screenRoutes(routes).find((r) => r.path === path);
   if (route?.loader === undefined) throw new Error(`no loader for ${path}`);
   return route.loader as (args: { request: Request }) => null;
 }
 
 function componentFor(routes: RouteObject[], path: string) {
-  const component = routes.find((r) => r.path === path)?.Component;
+  const component = screenRoutes(routes).find((r) => r.path === path)?.Component;
   if (component == null) throw new Error(`no component for ${path}`);
   return component;
 }
@@ -41,14 +48,31 @@ function run(routes: RouteObject[], path: string): Response | null {
 
 describe('ルート表', () => {
   it('画面のパスをすべて含む', () => {
-    const paths = appRoutes(createAppStore()).map((r) => r.path);
+    const paths = screenRoutes(appRoutes(createAppStore())).map((r) => r.path);
     for (const path of Object.values(screenPath)) {
       expect(paths).toContain(path);
     }
   });
 
   it('未知の location を受ける catch-all を持つ', () => {
-    expect(appRoutes(createAppStore()).map((r) => r.path)).toContain('*');
+    expect(screenRoutes(appRoutes(createAppStore())).map((r) => r.path)).toContain(
+      '*',
+    );
+  });
+
+  it('すべての画面が共通シェルの下にある', () => {
+    // シェルの外に置いた画面はデスクトップ幅で上部バーを失う。パスを足すときに
+    // 配列の階層を間違えても、ガードのテストは children を辿るので緑のまま。
+    const routes = appRoutes(createAppStore());
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0]?.path).toBeUndefined();
+    expect(routes[0]?.Component).toBeDefined();
+    expect(screenRoutes(routes).map((r) => r.path)).toEqual([
+      '/',
+      ...Object.values(screenPath),
+      '*',
+    ]);
   });
 });
 

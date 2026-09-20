@@ -7,6 +7,7 @@ import { LoadingScreen } from '../features/loading/loading-screen';
 import { ResultScreen } from '../features/result/result-screen';
 import { SearchScreen, type SearchMode } from '../features/search/search-screen';
 import { SettingsScreen } from '../features/settings/settings-screen';
+import { DesktopShell } from '../layout/desktop-shell';
 import type { PlacesService } from '../places/places-service';
 import type { RecentsRepository } from '../places/recents-repository';
 import type { AppStore } from '../state/store';
@@ -81,10 +82,18 @@ export function appRoutes(
     }),
   );
 
+  // 画面をレイアウトルートの下へ置く。ネストは `<Outlet>` の入れ子であって履歴を
+  // 積まない（戻り先を作るのは navigator.ts）ので、包んでも戻り挙動には触れない。
+  // guard は子に残す——親へ移すと、跳ね返し先の判定が画面ごとの表示前提から離れる。
   return [
-    { path: '/', loader: guard },
-    ...screens,
-    { path: '*', loader: guard },
+    {
+      Component: () => <DesktopShell store={store} />,
+      children: [
+        { path: '/', loader: guard },
+        ...screens,
+        { path: '*', loader: guard },
+      ],
+    },
   ];
 }
 

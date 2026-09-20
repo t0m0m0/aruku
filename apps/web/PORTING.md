@@ -517,7 +517,8 @@ picker / settings でも `await` を跨ぐ操作が出たら、**先にここを
   `DesktopTypeaheadField`）— 以前ここには「検索のスライスで対に入れる」と書いていたが、
   スライス3 では入れていない。`DesktopTypeaheadField` だけ先に入れても、同じ画面の
   時刻フィールドがまだ押せない以上ホームは片肺のまま——3 つは #372 の 1 つの作り分け
-  であって、Places の移植が済んだかどうかで割れる単位ではなかった
+  であって、Places の移植が済んだかどうかで割れる単位ではなかった。**#386 の外に出して
+  #406 で運んでいる**（下の「デスクトップ幅の作り分け」）
 
 ### exactOptionalPropertyTypes は入れていない
 
@@ -772,6 +773,61 @@ core と maps までで、legacy `Marker` はそこに入っていない。待�
 始終点の印は実 API 越しに描かれることまでは確かめた（タイルだけが認証エラーで灰色になる）。
 配色・カメラの寄りは実キーでないと見えない。キーのリファラー制限に開発中のオリジンが
 入っていないと、実地図だけが `RefererNotAllowedMapError` で出ない。
+
+## デスクトップ幅の作り分け（#406）
+
+#372 で Flutter 版へ入れた `>= 820px` のレイアウトは #386 では運んでいない。#387 が
+`lib/` を消すと参照元が `archive/flutter` にしか無くなり、配信を React へ差し替えた時点で
+デスクトップ利用者から見た劣化になるので、**撤去より先に**運ぶ。
+
+### 幅の判定は matchMedia を useSyncExternalStore で読む
+
+移植元は実測幅（`MediaQuery`）を Riverpod の provider へ流し込む注入点を1つ作っていた
+（`ResponsiveScope`）。web では `matchMedia` がその1点なので、provider に当たるものは
+置いていない。
+
+`useState` + `useEffect` で持たないのは、初回描画が必ずモバイル側になり、デスクトップ幅で
+1フレームだけモバイル UI が出てから入れ替わるため。`useSyncExternalStore` は描画の中で
+現在値を読む。
+
+**jsdom は `matchMedia` を実装しない**（CSSOM View 未対応。29.1.1 で確認）。本体側で
+`typeof` を見て庇うと本番のブラウザでも静かにモバイルへ倒れる経路ができるので、
+`test/setup.ts` が「幅を答えない」実装を敷いている。既存の画面テストはこの経路で走る
+——デスクトップ分岐を足してもモバイル側の検証はモバイルのまま残る。
+
+### 共通シェルはレイアウトルートに置く
+
+移植元は `DesktopShell` を Navigator の**外**へ置いた。go_router のネスト構造が戻り先
+（settings/search/result/error→home）そのもので、`ShellRoute` で包むとその構造に手を
+入れることになるからだった。React Router ではネストは `<Outlet>` の入れ子であって履歴を
+積まない——戻り先を作っているのは `navigator.ts` の push / replace / pop の使い分けなので、
+レイアウトルートで包んでも戻り挙動には触れない。`loader` のガードは子に残す。
+
+タブは `go()` を通す。`router.navigate` を直に呼ぶと子から子への replace も子から home への
+pop も失われ、履歴が伸びる。
+
+**待ち画面からタブで離れるときは明示的に打ち切る。** `watchSearchAbandon` は POP だけを
+見ており（移植元の `PopScope` が塞いでいた操作そのもの）、push で出ていくタブには掛からない。
+移植元の `DesktopShell` が `leave()` で `cancelSearch` を呼んでいたのと同じ穴。
+
+### 画面の「1画面ぶん」は `--screen-min-height`
+
+各画面の `min-height` は `100dvh` 直書きだった。シェルは上部バー（64px）を持っていくので、
+そのままだとデスクトップ幅で全画面がバーの高さぶん縦にはみ出す。既定を `theme/base.css` の
+`:root` に置き、シェルの本文領域が `100%` へ差し替える。
+
+### 幅の両側は Playwright で見る
+
+jsdom は CSS を読まないので、幅による出し分けは単体テストから原理的に見えない
+（`useIsDesktop` の両側は `test/layout/` が押さえるが、それが実際の 820px で切り替わることは
+別の話）。`e2e/desktop-shell.spec.ts` がブレークポイントの両側・縦のはみ出し・タブ往復後の
+履歴の深さを見る。
+
+### まだ入っていない画面
+
+シェルと中央寄せの器（`DesktopContent`）まで。home の設定ボタンがシェルのタブと重複した
+まま残っており、settings / error の中央寄せ、result の2カラム、search のインライン
+タイプアヘッド、時刻欄の作り直しは #406 の残りのスライス。
 
 ## 動かす
 

@@ -5,7 +5,7 @@
 .screen {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  min-height: var(--screen-min-height);
   padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
 }
 

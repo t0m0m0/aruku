@@ -1,14 +1,13 @@
 /* 移植元: lib/features/home/home_screen.dart の余白定数（_gutter / _safeBottom /
    8pt グリッド）と home_widgets.dart の装飾。
 
-   デスクトップ幅の作り分け（#372 の DesktopContent / DesktopTimeField /
-   DesktopTypeaheadField）は運んでいない。インライン入力は Places 検索の移植が
-   前提なので、検索のスライスで対に入れる。ここでは本文最大幅だけ効かせる。 */
+   デスクトップ幅の作り分け（#372）は #406 で運んでいる途中で、この画面ぶんは
+   まだ入っていない——本文最大幅 620px だけが幅に関わらず効いている状態。 */
 
 .screen {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
+  min-height: var(--screen-min-height);
   max-width: 620px;
   margin: 0 auto;
   padding: 8px 20px 36px;
