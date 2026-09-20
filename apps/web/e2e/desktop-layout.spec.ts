@@ -4,6 +4,7 @@
 import type { Locator } from '@playwright/test';
 
 import { expect, test } from './fixtures';
+import { goToResult } from './flows';
 
 const desktop = { width: 1280, height: 900 };
 const mobile = { width: 375, height: 812 };
@@ -65,4 +66,65 @@ test('モバイル幅の設定はラベルをカードの上へ積む', async ({
   const card = await box(page.getByRole('link', { name: '利用規約' }));
 
   expect(label.y + label.height).toBeLessThanOrEqual(card.y);
+});
+
+test('デスクトップ幅の結果は左パネルと全面地図の2カラムになる', async ({
+  page,
+  upstream,
+}) => {
+  expect(upstream.unmatched).toEqual([]);
+  await page.setViewportSize(desktop);
+  await goToResult(page);
+
+  const panel = await box(page.getByTestId('result-panel'));
+  const map = await box(page.getByTestId('result-map'));
+
+  // 移植元の splitPanelWidth は 380、ハンドオフは minmax(340px, 400px)。
+  expect(panel.width).toBeGreaterThanOrEqual(340);
+  expect(panel.width).toBeLessThanOrEqual(400);
+
+  // 地図は右の残り全部で、ビューポートの高さいっぱい。
+  expect(map.x).toBeGreaterThanOrEqual(panel.x + panel.width);
+  expect(Math.round(map.x + map.width)).toBe(desktop.width);
+  expect(map.height).toBeGreaterThan(desktop.height * 0.8);
+});
+
+test('デスクトップ幅の結果はページごとではなく左パネルだけがスクロールする', async ({
+  page,
+  upstream,
+}) => {
+  // 移植元が #262 で踏んだ形。一括スクロールにすると、ビューポート固定の分割
+  // ビューから下部の導線が押し出される。
+  expect(upstream.unmatched).toEqual([]);
+  await page.setViewportSize({ width: 1280, height: 420 });
+  await goToResult(page);
+
+  const scrolled = await page
+    .getByTestId('result-panel')
+    .evaluate((el) => {
+      el.scrollTop = 120;
+      return el.scrollTop;
+    });
+  const pageScrolls = await page.evaluate(() => {
+    const root = document.scrollingElement;
+    if (root === null) throw new Error('scrollingElement が無い');
+    return root.scrollHeight > root.clientHeight;
+  });
+
+  expect(scrolled).toBeGreaterThan(0);
+  expect(pageScrolls).toBe(false);
+});
+
+test('モバイル幅の結果は地図を挟んだ縦積みのまま', async ({ page, upstream }) => {
+  expect(upstream.unmatched).toEqual([]);
+  await page.setViewportSize(mobile);
+  await goToResult(page);
+
+  const map = await box(page.getByTestId('result-map'));
+  const panel = await box(page.getByTestId('result-panel'));
+
+  // 移植元 _RouteMapPreview の固定高 180px。
+  expect(Math.round(map.height)).toBe(180);
+  expect(panel.y).toBeGreaterThanOrEqual(map.y + map.height);
+  expect(Math.round(map.width)).toBe(mobile.width - 36);
 });
