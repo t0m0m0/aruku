@@ -7,7 +7,8 @@ import {
   seedInitialHistory,
   type RouterLike,
 } from './navigation/navigator';
-import { appRoutes, type ScreenDeps } from './navigation/router';
+import { appRoutes } from './navigation/router';
+import type { ScreenDeps } from './navigation/screen-deps';
 import {
   documentVisibility,
   watchRouteFreshness,

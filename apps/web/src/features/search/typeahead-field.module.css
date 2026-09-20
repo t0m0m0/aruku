@@ -1,0 +1,89 @@
+/* 移植元: lib/features/search/desktop_typeahead_field.dart の装飾。 */
+
+.wrap {
+  position: relative;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: var(--ivory);
+  color: var(--ink-3);
+}
+
+.fieldOpen {
+  border-color: var(--moss-400);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15.5px;
+  font-weight: 700;
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--ink-3);
+  font-weight: 600;
+}
+
+/* 一覧は欄の下に重ねる。条件カードを押し広げると、開くたびに下の時刻ブロックと
+   CTA が動く。 */
+.list {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  max-height: 320px;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: var(--paper);
+  box-shadow: 0 18px 40px rgb(20 30 14 / 0.12);
+  list-style: none;
+}
+
+.option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.optionActive {
+  background: var(--moss-50);
+}
+
+.optionName {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.optionDetail {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.message {
+  margin: 8px 2px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+}

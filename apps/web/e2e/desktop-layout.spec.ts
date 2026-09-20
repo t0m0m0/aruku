@@ -118,7 +118,7 @@ test('デスクトップ幅の結果はページごとではなく左パネル�
 test('モバイル幅の結果は地図を挟んだ縦積みのまま', async ({ page, upstream }) => {
   expect(upstream.unmatched).toEqual([]);
   await page.setViewportSize(mobile);
-  await goToResult(page);
+  await goToResult(page, 'screen');
 
   const map = await box(page.getByTestId('result-map'));
   const panel = await box(page.getByTestId('result-panel'));

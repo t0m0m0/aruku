@@ -8,17 +8,11 @@ import { ResultScreen } from '../features/result/result-screen';
 import { SearchScreen, type SearchMode } from '../features/search/search-screen';
 import { SettingsScreen } from '../features/settings/settings-screen';
 import { DesktopShell } from '../layout/desktop-shell';
-import type { PlacesService } from '../places/places-service';
 import type { RecentsRepository } from '../places/recents-repository';
+import type { ScreenDeps } from './screen-deps';
 import type { AppStore } from '../state/store';
 import { resolveRedirect } from './guard';
 import { Screen, screenPath } from './screens';
-
-/// 画面が要る外部依存。合成のルート（app.tsx）が組み立てて渡す。
-export interface ScreenDeps {
-  readonly places: PlacesService;
-  readonly recents: Record<SearchMode, RecentsRepository>;
-}
 
 /// 現在時刻の供給元。テストで失効（#264）を制御できるよう注入可能にする。
 export type Now = () => Date;
@@ -111,6 +105,7 @@ function componentFor(
       return () => (
         <HomeScreen
           store={store}
+          deps={deps}
           now={now}
           onStartSearch={() => {
             void store.getState().startSearch();

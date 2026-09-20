@@ -214,3 +214,12 @@
     display: none;
   }
 }
+
+/* デスクトップ幅の目的地欄。ラベルは行の上に置き、欄そのものは
+   typeahead-field.module.css が持つ。 */
+.destinationField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0 12px 38px;
+}
