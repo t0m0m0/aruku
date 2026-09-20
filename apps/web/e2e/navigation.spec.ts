@@ -8,6 +8,12 @@
 
 import { expect, test } from './fixtures';
 
+/// このファイルは**モバイル幅**で走らせる。主題は履歴の積み方で、home から子へ出る
+/// 導線に設定ボタンを使っている——デスクトップ幅ではシェルの上部バーが同じ行き先を
+/// 持つため、そのボタンは出ない（#406）。デスクトップ側のタブ往復で履歴が伸びない
+/// ことは desktop-shell.spec.ts が見る。
+test.use({ viewport: { width: 375, height: 812 } });
+
 /// Playwright の新しいページが最初から居る about:blank の1エントリ。goto はこれを
 /// 置き換えず**積む**ので、素の `history.length` はアプリのぶんより常に1多い。
 /// 前提が変わったら beforeEach が落ちる。

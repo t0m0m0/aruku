@@ -205,3 +205,12 @@
   letter-spacing: 0.06em;
   box-shadow: var(--shadow-cta-primary);
 }
+
+@media (min-width: 820px) {
+  /* 設定への導線はシェルの上部バーが持つ。同じ行き先のボタンを2つ出さない
+     ——移植元（lib/features/home/home_screen.dart）はデスクトップでも歯車を
+     残していたが、ハンドオフのルート計画に歯車は無い。 */
+  .settings {
+    display: none;
+  }
+}

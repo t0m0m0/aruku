@@ -513,7 +513,7 @@ picker / settings でも `await` を跨ぐ操作が出たら、**先にここを
   （gzip）なので、残りは約 340KB
 - `ArukuMap` の variant（`nav` / `thumb`）— 移植元でもどこからも指定されておらず、全 3 箇所が
   既定の `full`。寄り視点を使う nav 画面は Web に無い
-- デスクトップ幅の作り分け（#372 の `DesktopContent` / `DesktopTimeField` /
+- デスクトップ幅の作り分け（#372 の `DesktopContent` / `DesktopTimeField` / <!-- doc-consistency:keep: 移植元（Dart）の widget 名。lib/shared/widgets/desktop_content.dart は健在 -->
   `DesktopTypeaheadField`）— 以前ここには「検索のスライスで対に入れる」と書いていたが、
   スライス3 では入れていない。`DesktopTypeaheadField` だけ先に入れても、同じ画面の
   時刻フィールドがまだ押せない以上ホームは片肺のまま——3 つは #372 の 1 つの作り分け
@@ -816,6 +816,20 @@ pop も失われ、履歴が伸びる。
 そのままだとデスクトップ幅で全画面がバーの高さぶん縦にはみ出す。既定を `theme/base.css` の
 `:root` に置き、シェルの本文領域が `100%` へ差し替える。
 
+### 幅の出し分けの入口は2つに分ける
+
+- **DOM から消えるもの・挙動が変わるもの**は `useIsDesktop`（JS）。上部バーそのもの、
+  この先の検索欄の作り替えや時刻欄がこれにあたる
+- **見た目だけのもの**は CSS のメディアクエリ。中央寄せ・最大幅・列の並べ替え
+
+**移植元の `DesktopContent` に当たる器は作らない。** Flutter は「デスクトップ幅のときだけ <!-- doc-consistency:keep: 移植元（Dart）の widget 名。lib/shared/widgets/desktop_content.dart は健在 -->
+最大幅を掛けて中央へ寄せる」をウィジェットでしか表せなかったが、CSS では画面自身の
+`.screen` に 3 行書けば済む。`ArukuCard` の引数リストを持ち込まなかったのと同じ判断。
+
+境界の数値は JS と CSS の両方に書くことになるので、`test/layout/breakpoint-css.test.ts` が
+一致を固定する——片方だけ動かしても、jsdom は CSS を読まず Playwright は一方の幅しか
+見ていないので、どちらの層のテストも赤くならない。
+
 ### 幅の両側は Playwright で見る
 
 jsdom は CSS を読まないので、幅による出し分けは単体テストから原理的に見えない
@@ -823,11 +837,22 @@ jsdom は CSS を読まないので、幅による出し分けは単体テスト
 別の話）。`e2e/desktop-shell.spec.ts` がブレークポイントの両側・縦のはみ出し・タブ往復後の
 履歴の深さを見る。
 
+### home の設定ボタンはデスクトップで出さない
+
+移植元（`lib/features/home/home_screen.dart`）はデスクトップ幅でも歯車を残していたが、
+ハンドオフのルート計画に歯車は無く、シェルのタブが同じ行き先を持つ。**移植元とハンドオフが
+食い違う箇所で、ハンドオフを採った。**
+
+副作用として `e2e/navigation.spec.ts` はモバイル幅に固定した。あのファイルの主題は履歴の
+積み方で、home から子へ出る導線にこの設定ボタンを使っている。既定のビューポートは
+Desktop Chrome（1280px）なので、そのままだと押せる要素が無くなって 30 秒待って落ちる。
+
 ### まだ入っていない画面
 
-シェルと中央寄せの器（`DesktopContent`）まで。home の設定ボタンがシェルのタブと重複した
-まま残っており、settings / error の中央寄せ、result の2カラム、search のインライン
-タイプアヘッド、時刻欄の作り直しは #406 の残りのスライス。
+シェル・settings（760px・ラベル左列）・error（520px）・home の設定ボタンまで。
+result の2カラム、search のインラインタイプアヘッド、時刻欄の作り直し、loading の
+全面地図は #406 の残りのスライス。home 自体のデスクトップ版（ハンドオフの条件カード・
+「よく歩く目的地」）は、移植元も入れていないので #406 の範囲外。
 
 ## 動かす
 

@@ -5,7 +5,7 @@
 // matchMedia そのものが担う。差し替える先が1つなので、幅の両側を作るテストは
 // このスタブだけで書ける——各画面が window.innerWidth を直読みしない限りは。
 
-import { act, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -13,44 +13,10 @@ import {
   desktopMediaQuery,
 } from '../../src/layout/breakpoints';
 import { useIsDesktop } from '../../src/layout/use-is-desktop';
+import { stubViewport } from './viewport';
 
 function Probe() {
   return <p>{useIsDesktop() ? 'desktop' : 'mobile'}</p>;
-}
-
-/// `desktopMediaQuery` に対してだけ [matches] を返す matchMedia を立てる。
-/// 別のクエリを問い合わせたら落とす——問い合わせ先が増えたことに気付けるように。
-function stubMatchMedia(matches: boolean) {
-  const listeners = new Set<() => void>();
-  const mql = {
-    matches,
-    media: desktopMediaQuery,
-    addEventListener: (_type: 'change', listener: () => void) => {
-      listeners.add(listener);
-    },
-    removeEventListener: (_type: 'change', listener: () => void) => {
-      listeners.delete(listener);
-    },
-  };
-  vi.stubGlobal(
-    'matchMedia',
-    vi.fn((query: string) => {
-      if (query !== desktopMediaQuery) {
-        throw new Error(`想定外のメディアクエリ: ${query}`);
-      }
-      return mql;
-    }),
-  );
-  return {
-    /// ウィンドウ幅が境界を跨いだときにブラウザがするのと同じ通知を送る。
-    cross(next: boolean) {
-      mql.matches = next;
-      act(() => {
-        for (const listener of listeners) listener();
-      });
-    },
-    listenerCount: () => listeners.size,
-  };
 }
 
 afterEach(() => {
@@ -64,7 +30,7 @@ describe('デスクトップ幅の判定', () => {
   });
 
   it('境界以上の幅ではデスクトップと判定する', () => {
-    stubMatchMedia(true);
+    stubViewport(true);
 
     render(<Probe />);
 
@@ -72,7 +38,7 @@ describe('デスクトップ幅の判定', () => {
   });
 
   it('境界未満の幅ではモバイルと判定する', () => {
-    stubMatchMedia(false);
+    stubViewport(false);
 
     render(<Probe />);
 
@@ -80,7 +46,7 @@ describe('デスクトップ幅の判定', () => {
   });
 
   it('ウィンドウ幅が境界を跨ぐと判定が切り替わる', () => {
-    const media = stubMatchMedia(false);
+    const media = stubViewport(false);
     render(<Probe />);
 
     media.cross(true);
@@ -89,7 +55,7 @@ describe('デスクトップ幅の判定', () => {
   });
 
   it('外したコンポーネントは幅の変化を購読し続けない', () => {
-    const media = stubMatchMedia(false);
+    const media = stubViewport(false);
     const view = render(<Probe />);
     expect(media.listenerCount()).toBe(1);
 

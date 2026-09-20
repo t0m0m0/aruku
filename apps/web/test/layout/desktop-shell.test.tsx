@@ -14,21 +14,11 @@ import type { StoreApi } from 'zustand/vanilla';
 import { RoutePhase } from '@aruku/engine/services/route-service';
 
 import { DesktopShell } from '../../src/layout/desktop-shell';
+import { stubViewport } from './viewport';
 import { createNavigator } from '../../src/navigation/navigator';
 import { Screen, screenPath } from '../../src/navigation/screens';
 import { createAppStore, type AppStore } from '../../src/state/store';
 
-function stubWidth(desktop: boolean) {
-  vi.stubGlobal(
-    'matchMedia',
-    vi.fn((query: string) => ({
-      matches: desktop,
-      media: query,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    })),
-  );
-}
 
 /// シェルをレイアウトルートに置いた最小のルート表で描く。画面の中身は
 /// 差し替えている——ここで見るのはシェルと、シェルが起こす遷移だけ。
@@ -67,7 +57,7 @@ afterEach(() => {
 
 describe('DesktopShell', () => {
   it('モバイル幅では上部バーを出さず、画面だけを出す', () => {
-    stubWidth(false);
+    stubViewport(false);
 
     renderShell([screenPath[Screen.home]]);
 
@@ -76,7 +66,7 @@ describe('DesktopShell', () => {
   });
 
   it('デスクトップ幅では上部バーと2つのタブを画面の上に出す', () => {
-    stubWidth(true);
+    stubViewport(true);
 
     renderShell([screenPath[Screen.home]]);
 
@@ -87,7 +77,7 @@ describe('DesktopShell', () => {
   });
 
   it('設定以外の画面では「ルートを計画」を現在地として示す', () => {
-    stubWidth(true);
+    stubViewport(true);
 
     renderShell([screenPath[Screen.home]]);
 
@@ -100,7 +90,7 @@ describe('DesktopShell', () => {
   });
 
   it('設定画面では「設定」を現在地として示す', () => {
-    stubWidth(true);
+    stubViewport(true);
 
     renderShell([screenPath[Screen.home], screenPath[Screen.settings]]);
 
@@ -110,7 +100,7 @@ describe('DesktopShell', () => {
   });
 
   it('タブを押すと画面が移る', async () => {
-    stubWidth(true);
+    stubViewport(true);
     const { router } = renderShell([screenPath[Screen.home]]);
 
     screen.getByRole('button', { name: '設定' }).click();
@@ -122,7 +112,7 @@ describe('DesktopShell', () => {
   it('待ち画面からタブで離れると進行中の検索を打ち切る', async () => {
     // 上部バーは移植元の PopScope も watchSearchAbandon も塞げない出口。前者は
     // モバイルの戻る操作、後者は POP だけを見るのに対し、タブは push で出ていく。
-    stubWidth(true);
+    stubViewport(true);
     const { store, router } = renderShell([
       screenPath[Screen.home],
       screenPath[Screen.loading],
@@ -137,7 +127,7 @@ describe('DesktopShell', () => {
   });
 
   it('待ち画面から「ルートを計画」を押すと、検索を打ち切って home へ降りる', async () => {
-    stubWidth(true);
+    stubViewport(true);
     const { store, router } = renderShell([
       screenPath[Screen.home],
       screenPath[Screen.loading],

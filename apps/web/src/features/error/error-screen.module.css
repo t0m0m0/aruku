@@ -49,3 +49,10 @@
 .action {
   width: 100%;
 }
+
+@media (min-width: 820px) {
+  .screen {
+    max-width: 520px;
+    margin-inline: auto;
+  }
+}
