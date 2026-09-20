@@ -41,6 +41,10 @@ export const ja = {
   timeFieldTime: (label: string) => `${label}の時刻`,
   timeFieldDate: (label: string) => `${label}の日付`,
 
+  /// デスクトップ幅のステッパー。移植元 app_ja.arb の timeFieldLater / timeFieldEarlier。
+  timeFieldLater: (label: string) => `${label}を5分あとにする`,
+  timeFieldEarlier: (label: string) => `${label}を5分まえにする`,
+
   /// 経路検索のライフサイクルが未移植の間の CTA。押せない状態と対で出す。
   homeSearchRouteNotReady: '経路検索は準備中',
   homeChooseDestination: '目的地を選ぶ',
