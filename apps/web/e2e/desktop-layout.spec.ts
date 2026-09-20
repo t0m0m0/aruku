@@ -128,3 +128,36 @@ test('モバイル幅の結果は地図を挟んだ縦積みのまま', async ({
   expect(panel.y).toBeGreaterThanOrEqual(map.y + map.height);
   expect(Math.round(map.width)).toBe(mobile.width - 36);
 });
+
+test('デスクトップ幅の待ち画面は上部バーの下を地図で埋める', async ({
+  page,
+  upstream,
+}) => {
+  expect(upstream.unmatched).toEqual([]);
+  await page.setViewportSize(desktop);
+
+  // 上流をわざと遅らせて待ち画面に留める。fallback で偽の上流へ渡すので、
+  // 記録も応答も普段どおり。
+  await page.route(
+    (url) => url.pathname.includes('/guidance/plan'),
+    async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await route.fallback();
+    },
+  );
+
+  await page.goto('/');
+  await page.getByRole('combobox', { name: '目的地を検索' }).fill('テスト');
+  await page.getByRole('option', { name: /テスト公園/ }).click();
+  await page.getByRole('button', { name: 'ルートを検索' }).click();
+  await expect(page).toHaveURL('/home/loading');
+
+  const map = await box(page.getByTestId('loading-map'));
+  const bar = await box(page.getByRole('banner'));
+
+  // 上部バーの真下から、ビューポートの下端まで。
+  expect(Math.round(map.y)).toBe(Math.round(bar.y + bar.height));
+  expect(Math.round(map.x)).toBe(0);
+  expect(Math.round(map.width)).toBe(desktop.width);
+  expect(Math.round(map.y + map.height)).toBe(desktop.height);
+});
