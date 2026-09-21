@@ -78,3 +78,27 @@ test('IME の変換中の Enter で目的地が決まらない', async ({ page, 
   await expect(page.getByRole('button', { name: 'ルートを検索' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '目的地を選ぶ' })).toBeVisible();
 });
+
+test('Escape で閉じても、焦点の在処は見えたまま', async ({ page, upstream }) => {
+  // 欄の輪郭は一覧の開閉ではなく焦点に紐づける。入力側の outline は消してあるので、
+  // open だけに紐づけると Escape の直後に焦点の在処が消える（PR #407 のレビュー）。
+  expect(upstream.unmatched).toEqual([]);
+  await page.goto('/');
+  const field = page.getByRole('combobox', { name: '目的地を検索' });
+  const border = () =>
+    field.evaluate((el) => {
+      const box = el.parentElement;
+      if (box === null) throw new Error('欄の枠が無い');
+      return getComputedStyle(box).borderColor;
+    });
+
+  await field.fill('テスト');
+  await expect(page.getByRole('option', { name: /テスト公園/ })).toBeVisible();
+  const opened = await border();
+
+  await field.press('Escape');
+
+  await expect(page.getByRole('listbox')).toHaveCount(0);
+  await expect(field).toBeFocused();
+  expect(await border()).toBe(opened);
+});

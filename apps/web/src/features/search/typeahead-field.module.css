@@ -16,7 +16,11 @@
   color: var(--ink-3);
 }
 
-.fieldOpen {
+/* 一覧が開いているとき「と」焦点があるとき。open だけに紐づけると、Escape で
+   閉じた直後の欄は焦点を持ったまま輪郭を失う——入力側の outline は消してある
+   （PR #407 の Codex レビュー）。 */
+.fieldOpen,
+.field:focus-within {
   border-color: var(--moss-400);
 }
 

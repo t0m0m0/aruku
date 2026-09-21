@@ -124,8 +124,12 @@ export function TypeaheadField({
     selecting.current = true;
 
     const resolved = await resolvePlacePrediction(places, prediction);
+    if (!alive.current) return;
+    // 錠を解くのは、今の世代を持っているこの確定だけ。追い越された古い確定が
+    // 解くと、走っている新しい確定の横で重複した照会を始められてしまい、
+    // 後から来た本命の結果がその世代ずれで捨てられる（PR #407 の Codex レビュー）。
+    if (gen !== generation.current) return;
     selecting.current = false;
-    if (!alive.current || gen !== generation.current) return;
 
     // 座標を引けない候補は確定させない。黙って無反応にすると「押しても何も起きない
     // 候補」になるので、理由を出して選び直させる。

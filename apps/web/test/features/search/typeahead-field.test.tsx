@@ -323,6 +323,46 @@ describe('インラインのタイプアヘッド', () => {
     expect(store.getState().destination).toBe('新しい');
   });
 
+  it('追い越された確定は、走っている確定の錠を解かない', async () => {
+    // 古い確定が錠を解くと、その横で重複した照会を始められ、後から来た本命の
+    // 結果が世代ずれで捨てられる（PR #407 の Codex レビュー）。
+    const pending = new Map<string, (value: GeoPoint | null) => void>();
+    const fetchLatLng = vi.fn(
+      (placeId: string) =>
+        new Promise<GeoPoint | null>((resolve) => pending.set(placeId, resolve)),
+    );
+    setup({
+      autocomplete: async (query) => [prediction(query === 'ふ' ? '古い' : '新しい')],
+      fetchLatLng,
+    });
+
+    fireEvent.focus(field());
+    await type('ふ');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: /古い/ }));
+    });
+
+    // 打ち替えて新しい確定を走らせる。古いほうは世代で無効になっている。
+    await type('あ');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: /新しい/ }));
+    });
+    await act(async () => {
+      pending.get('id-古い')?.(shibuya);
+    });
+
+    // ここで錠が空いていると、同じ候補でもう1本走ってしまう。
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: /新しい/ }));
+    });
+    expect(fetchLatLng.mock.calls.filter(([id]) => id === 'id-新しい')).toHaveLength(1);
+
+    await act(async () => {
+      pending.get('id-新しい')?.(shibuya);
+    });
+    expect(store.getState().destination).toBe('新しい');
+  });
+
   it('確定したあとの選択位置は先頭へ戻る', async () => {
     // 確定で並びが候補から履歴へ替わる。位置を残すと、開き直したときに
     // aria-activedescendant が存在しない行を指し、Enter が何もしない（同レビュー）。

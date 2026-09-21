@@ -109,6 +109,26 @@ describe('DesktopShell', () => {
     expect(router.state.location.pathname).toBe(screenPath[Screen.settings]);
   });
 
+  it('画面が移ったら本文のスクロール位置を先頭へ戻す', async () => {
+    // 本文の器は遷移で作り直されない（替わるのは <Outlet> の中身だけ）。この器が
+    // スクローラなので、前の画面の scrollTop を次の画面が引き継ぐ。ブラウザの
+    // 復元は document のスクロールしか見ない（PR #407 の Codex レビュー）。
+    //
+    // 今は本文の器でスクロールする画面が home しか無く、短い画面へ移ると
+    // scrollTop は自然に 0 へ丸まる——実ブラウザでは再現できないので、ここでは
+    // 機構そのものを見る。
+    stubViewport(true);
+    const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
+    renderShell([screenPath[Screen.home]]);
+    scrollTo.mockClear();
+
+    screen.getByRole('button', { name: '設定' }).click();
+
+    expect(await screen.findByText('設定本文')).toBeDefined();
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
+    scrollTo.mockRestore();
+  });
+
   it('待ち画面からタブで離れると進行中の検索を打ち切る', async () => {
     // 上部バーは移植元の PopScope も watchSearchAbandon も塞げない出口。前者は
     // モバイルの戻る操作、後者は POP だけを見るのに対し、タブは push で出ていく。

@@ -5,6 +5,7 @@
 // タブは移植元と同じ2つに留める。
 
 import type { StoreApi } from 'zustand/vanilla';
+import { useEffect, useRef } from 'react';
 import { Outlet, useLocation } from 'react-router';
 
 import { ja } from '../i18n/ja';
@@ -27,7 +28,17 @@ interface DesktopShellProps {
 /// navigator.ts）ので、ここで包んでも戻り挙動には触れない。
 export function DesktopShell({ store }: DesktopShellProps) {
   const isDesktop = useIsDesktop();
-  const screen = screenFromLocation(useLocation().pathname);
+  const pathname = useLocation().pathname;
+  const screen = screenFromLocation(pathname);
+
+  // 本文の器は遷移で作り直されない（替わるのは <Outlet> の中身だけ）。この器が
+  // スクローラなので、前の画面の scrollTop を次の画面が引き継ぎ、開いた瞬間に
+  // 途中から始まって見える。ブラウザの復元は document のスクロールしか見ない
+  // （PR #407 の Codex レビュー）。
+  const body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    body.current?.scrollTo({ top: 0 });
+  }, [pathname]);
   if (!isDesktop) return <Outlet />;
 
   // 設定以外はすべて「ルートを計画」の下にある導線。
@@ -69,7 +80,7 @@ export function DesktopShell({ store }: DesktopShellProps) {
           </nav>
         </div>
       </header>
-      <div className={styles.body}>
+      <div className={styles.body} ref={body} data-testid="shell-body">
         <Outlet />
       </div>
     </div>
