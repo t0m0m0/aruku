@@ -203,6 +203,11 @@ export function TypeaheadField({
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    // IME の変換中は1つも横取りしない。↑↓ は変換候補を選ぶ操作、Enter は変換の
+    // 確定で、どちらもこの欄の操作ではない——奪うと日本語が打てない欄になる
+    // （PR #407 の Codex レビュー）。
+    if (event.nativeEvent.isComposing) return;
+
     switch (event.key) {
       case 'ArrowDown':
       case 'ArrowUp':

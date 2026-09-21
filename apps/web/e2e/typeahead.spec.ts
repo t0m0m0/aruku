@@ -54,3 +54,27 @@ test('目的地が未選択のときの CTA は、その場の欄を開く', asy
   await expect(page).toHaveURL('/home');
   await expect(page.getByRole('combobox', { name: '目的地を検索' })).toBeFocused();
 });
+
+test('IME の変換中の Enter で目的地が決まらない', async ({ page, upstream }) => {
+  // jsdom の isComposing はこちらが立てた旗にすぎない。実際に変換中のキーが
+  // どう届くかはブラウザにしか無いので、CDP で合成入力を起こして確かめる。
+  expect(upstream.unmatched).toEqual([]);
+  await page.goto('/');
+  const field = page.getByRole('combobox', { name: '目的地を検索' });
+  await field.click();
+
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.imeSetComposition', {
+    text: 'テスト',
+    selectionStart: 3,
+    selectionEnd: 3,
+  });
+  await expect(page.getByRole('option', { name: /テスト公園/ })).toBeVisible();
+
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+
+  // 変換の確定であって候補の決定ではない。目的地はまだ決まらない。
+  await expect(page.getByRole('button', { name: 'ルートを検索' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '目的地を選ぶ' })).toBeVisible();
+});

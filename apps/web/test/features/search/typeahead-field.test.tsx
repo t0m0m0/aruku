@@ -165,6 +165,36 @@ describe('インラインのタイプアヘッド', () => {
     expect(screen.queryByRole('listbox')).toBeNull();
   });
 
+  it('IME の変換中は Enter で確定しない', async () => {
+    // 変換中の Enter は「変換を確定する」であって候補の決定ではない。横取りすると、
+    // 打っている途中の読みで目的地が決まる（PR #407 の Codex レビュー）。
+    setup({ autocomplete: async () => [prediction('美術館')] });
+
+    fireEvent.focus(field());
+    await type('び');
+    await act(async () => {
+      fireEvent.keyDown(field(), { key: 'Enter', isComposing: true });
+    });
+
+    expect(store.getState().destination).toBeNull();
+  });
+
+  it('IME の変換中は ↓ で選択位置を動かさない', () => {
+    // 変換中の ↑↓ は IME の候補を選ぶ操作。preventDefault で奪うと変換できない。
+    setup({
+      seed: [
+        { name: '公園', placeId: 'id-公園', latLng: shibuya, address: null, usedAt: null },
+        { name: '会館', placeId: 'id-会館', latLng: shibuya, address: null, usedAt: null },
+      ],
+    });
+
+    fireEvent.focus(field());
+    const before = field().getAttribute('aria-activedescendant');
+    fireEvent.keyDown(field(), { key: 'ArrowDown', isComposing: true });
+
+    expect(field().getAttribute('aria-activedescendant')).toBe(before);
+  });
+
   it('Escape で閉じたあとの Enter では確定しない', async () => {
     // 閉じても候補と選択位置は残る。素通しすると、aria-expanded が false の欄で
     // 見えていない候補が確定する（PR #407 の Codex レビュー）。
