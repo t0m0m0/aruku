@@ -4,7 +4,11 @@
 .shell {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  /* dvh にするのは、820px を跨ぐ幅の端末（大きめのタブレット・横向きの携帯）では
+     ブラウザの UI が伸び縮みするため。100vh は大きい側のまま固定されるので、
+     overflow を切っているこの器では下端が届かなくなる（PR #407 の Codex レビュー）。
+     他の画面が 100dvh を使っているのと揃える。 */
+  height: 100dvh;
   overflow: hidden;
   background: var(--ivory);
 }

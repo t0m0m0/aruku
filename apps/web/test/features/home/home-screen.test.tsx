@@ -374,6 +374,18 @@ describe('デスクトップ幅の目的地', () => {
     expect(screen.queryByRole('button', { name: /^目的地 / })).toBeNull();
   });
 
+  it('目的地が未選択のとき、CTA はその場の欄へ焦点を移す', () => {
+    // 全画面の検索へ飛ばすと、この幅で作ったインラインの導線を自分で迂回する
+    // （PR #407 の Codex レビュー）。
+    stubViewport(true);
+    const { navigate } = setup();
+
+    fireEvent.click(screen.getByRole('button', { name: '目的地を選ぶ' }));
+
+    expect(document.activeElement).toBe(screen.getByRole('combobox'));
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('モバイル幅では今までどおり検索画面へ渡す', () => {
     stubViewport(false);
     const { navigate } = setup();

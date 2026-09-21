@@ -68,3 +68,32 @@ test('タブで設定と行き来しても履歴は [home, 子] のまま', asyn
 
   expect(await page.evaluate(() => window.history.length)).toBe(before + 1);
 });
+
+test('待ち画面からタブで設定へ移ると、設定に留まる', async ({ page, upstream }) => {
+  // 実ブラウザの `history.back()` は非同期。打ち切りの戻りと、タブが要求した遷移が
+  // 二重に走ると、保留中の POP が後から勝って home へ落ちる。MemoryRouter は同期に
+  // 更新するのでこの競合を再現しない（PR #407 の Codex レビュー）。
+  expect(upstream.unmatched).toEqual([]);
+  await page.setViewportSize(desktop);
+  await page.route(
+    (url) => url.pathname.includes('/guidance/plan'),
+    async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await route.fallback();
+    },
+  );
+
+  await page.goto('/');
+  await page.getByRole('combobox', { name: '目的地を検索' }).fill('テスト');
+  await page.getByRole('option', { name: /テスト公園/ }).click();
+  await page.getByRole('button', { name: 'ルートを検索' }).click();
+  await expect(page).toHaveURL('/home/loading');
+
+  await page.getByRole('button', { name: '設定', exact: true }).click();
+
+  await expect(page).toHaveURL('/home/settings');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('設定');
+  // 保留中の戻りが後から勝たないこと。遷移が落ち着くまで見る。
+  await page.waitForTimeout(500);
+  await expect(page).toHaveURL('/home/settings');
+});

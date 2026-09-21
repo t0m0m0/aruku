@@ -6,7 +6,7 @@
 // いたが、それは全画面検索と検索状態を共有していたため——ここは自前の検索状態を持つ
 // ので、引き継ぐモードがそもそも無い。
 
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import { useStore } from 'zustand';
 import type { StoreApi } from 'zustand/vanilla';
 
@@ -29,6 +29,10 @@ interface TypeaheadFieldProps {
   mode: SearchMode;
   places: PlacesService;
   recents: RecentsRepository;
+
+  /// 欄そのものへの参照。目的地が未選択のときの CTA が焦点を移すのに使う
+  /// （home の CTA は、この幅では全画面の検索へ飛ばさない）。
+  inputRef?: RefObject<HTMLInputElement | null>;
 }
 
 interface Entry {
@@ -43,6 +47,7 @@ export function TypeaheadField({
   mode,
   places,
   recents,
+  inputRef,
 }: TypeaheadFieldProps) {
   const locationState = useStore(store, (s) => s.locationState);
   const selected = useStore(store, (s) =>
@@ -173,6 +178,12 @@ export function TypeaheadField({
       case 'ArrowUp':
         // 既定の「行頭／行末へ移動」を止める。単一行の入力では文字カーソルが飛ぶ。
         event.preventDefault();
+        // 閉じているときは開き直す合図。Escape のあと、打ち替えるまで二度と
+        // 開けない欄にしない。
+        if (!open) {
+          setOpen(true);
+          return;
+        }
         move(event.key === 'ArrowDown' ? 1 : -1);
         return;
       case 'Escape':
@@ -180,6 +191,10 @@ export function TypeaheadField({
         return;
       case 'Enter':
         event.preventDefault();
+        // 閉じている一覧からは確定しない。候補と選択位置は閉じても残るので、
+        // 素通しすると aria-expanded=false の欄で見えていない候補が入る
+        // （PR #407 の Codex レビュー）。
+        if (!open) return;
         entries[highlighted]?.select();
         return;
       default:
@@ -218,7 +233,13 @@ export function TypeaheadField({
             mode === 'origin' ? ja.homeDepartureLabel : ja.homeDestinationPlaceholder
           }
           value={query ?? selected ?? ''}
+          ref={inputRef}
           onFocus={() => {
+            setOpen(true);
+          }}
+          // 確定しても焦点は欄に残る（候補の押下で blur を止めているため）。
+          // focus だけを開く合図にすると、二度目に押しても開かない。
+          onClick={() => {
             setOpen(true);
           }}
           onBlur={() => {

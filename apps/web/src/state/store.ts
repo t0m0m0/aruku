@@ -395,7 +395,11 @@ export function createAppStore(
       discardSearch();
       // 表示前提も落とす。残すと、戻る→進むで待ち画面の loader が「前提は揃って
       // いる」と読んで通してしまい、誰も完了させない待ち画面に入れる
-      // （PR #398 の Codex レビュー）。遷移はブラウザが済ませているので set だけ。
+      // （PR #398 の Codex レビュー）。
+      //
+      // **遷移はしない。** 戻る操作の後始末（watchSearchAbandon）では既にブラウザが
+      // 済ませており、デスクトップのシェルのタブでは呼び手が続けて1回だけ遷移する
+      // ——ここで home へ動くと、その2本が競合する（PR #407 の Codex レビュー）。
       set({ routePhase: null });
     },
 

@@ -6,6 +6,7 @@
 // 「歩数まわりの導線は最初から作らない」と決めている。非対応の理由を出す注記も
 // 一緒に消える——出す相手の機能が無い。
 
+import { useRef } from 'react';
 import { useStore } from 'zustand';
 import type { StoreApi } from 'zustand/vanilla';
 
@@ -72,7 +73,16 @@ export function HomeScreen({
   // （PR #394 レビュー）。取り直しはコンパスという明示の導線がある。
   useInitialLocation(store);
 
+  const destinationField = useRef<HTMLInputElement>(null);
+
+  /// 目的地を決めに行く。デスクトップ幅ではその場の欄へ焦点を移すだけで、
+  /// 全画面の検索へは飛ばさない——この幅のために作った導線を自分で迂回しない
+  /// （PR #407 の Codex レビュー）。
   const goSearch = () => {
+    if (isDesktop) {
+      destinationField.current?.focus();
+      return;
+    }
     go(Screen.search);
   };
 
@@ -147,6 +157,7 @@ export function HomeScreen({
               mode="destination"
               places={deps.places}
               recents={deps.recents.destination}
+              inputRef={destinationField}
             />
           </div>
         ) : (

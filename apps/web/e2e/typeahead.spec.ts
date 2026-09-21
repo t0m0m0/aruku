@@ -42,3 +42,15 @@ test('Escape で一覧だけ閉じる', async ({ page, upstream }) => {
   await expect(page.getByRole('listbox')).toHaveCount(0);
   await expect(field).toHaveValue('テスト');
 });
+
+test('目的地が未選択のときの CTA は、その場の欄を開く', async ({ page, upstream }) => {
+  expect(upstream.unmatched).toEqual([]);
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: '出発 現在地' })).toBeVisible();
+
+  await page.getByRole('button', { name: '目的地を選ぶ' }).click();
+
+  // 全画面の検索へは行かない。欄に焦点が移り、履歴（まだ空）ぶんの一覧が開く。
+  await expect(page).toHaveURL('/home');
+  await expect(page.getByRole('combobox', { name: '目的地を検索' })).toBeFocused();
+});

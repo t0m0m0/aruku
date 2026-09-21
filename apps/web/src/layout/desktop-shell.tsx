@@ -36,12 +36,14 @@ export function DesktopShell({ store }: DesktopShellProps) {
   // 待ち画面からの離脱は go だけでは足りない。画面を移しても探索は走り続け、
   // 完了時に startSearch が result / error へ引き戻す。戻る操作なら
   // watchSearchAbandon が拾うが、タブは push で出ていくので掛からない。
+  //
+  // 打ち切りに **遷移を伴わせない**（cancelSearch ではなく abandonSearch）。
+  // cancelSearch は home への go を含み、待ち画面からのそれは履歴の back
+  // ——実ブラウザでは非同期に解決する。続けてタブの遷移を投げると、保留中の POP が
+  // 後から勝って設定ではなく home に着く（e2e で再現。PR #407 の Codex レビュー）。
   const leave = (target: Screen) => {
     const state = store.getState();
-    if (screen === Screen.loading) {
-      state.cancelSearch(); // home へ降ろすところまでやる
-      if (target === Screen.home) return;
-    }
+    if (screen === Screen.loading) state.abandonSearch();
     state.go(target);
   };
 

@@ -165,6 +165,49 @@ describe('インラインのタイプアヘッド', () => {
     expect(screen.queryByRole('listbox')).toBeNull();
   });
 
+  it('Escape で閉じたあとの Enter では確定しない', async () => {
+    // 閉じても候補と選択位置は残る。素通しすると、aria-expanded が false の欄で
+    // 見えていない候補が確定する（PR #407 の Codex レビュー）。
+    setup({ autocomplete: async () => [prediction('美術館')] });
+
+    fireEvent.focus(field());
+    await type('び');
+    press('Escape');
+    await act(async () => {
+      press('Enter');
+    });
+
+    expect(store.getState().destination).toBeNull();
+  });
+
+  it('Escape で閉じたあとも ↓ で開き直せる', async () => {
+    setup({ autocomplete: async () => [prediction('美術館')] });
+
+    fireEvent.focus(field());
+    await type('び');
+    press('Escape');
+    press('ArrowDown');
+
+    expect(screen.getByRole('listbox')).toBeTruthy();
+  });
+
+  it('確定したあと、もう一度押すと履歴が開く', async () => {
+    // 候補を押しても焦点は欄に残る（blur を止めているため）。focus だけを開く合図に
+    // すると、二度目に押しても focus が起きず二度と開かない（同レビュー）。
+    setup({ autocomplete: async () => [prediction('美術館')] });
+
+    fireEvent.focus(field());
+    await type('び');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: /美術館/ }));
+    });
+    expect(screen.queryByRole('listbox')).toBeNull();
+
+    fireEvent.click(field());
+
+    expect(screen.getByRole('option', { name: /美術館/ })).toBeTruthy();
+  });
+
   it('打ち替えると確定済みの目的地が外れる', async () => {
     // 表示は新しいクエリ・状態は古い座標、というズレを作らせない。残すと検索の
     // CTA が有効なまま前の目的地へ経路を引く（移植元 _clearSelection）。
