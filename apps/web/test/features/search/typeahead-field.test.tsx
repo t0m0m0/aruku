@@ -328,6 +328,42 @@ describe('インラインのタイプアヘッド', () => {
     scroll.mockRestore();
   });
 
+  it('確定した目的地は消去ボタンで外せる', async () => {
+    // 移植元は selected != null のときに専用の消去ボタンを出す。無いと、確定名を
+    // 手で選択して消すしか戻す手が無い（PR #407 の Codex レビュー）。
+    setup({ autocomplete: async () => [prediction('美術館')] });
+
+    fireEvent.focus(field());
+    await type('び');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: /美術館/ }));
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '入力を消去' }));
+
+    expect(store.getState().destination).toBeNull();
+    expect((field() as HTMLInputElement).value).toBe('');
+  });
+
+  it('打ちかけの文字も消去ボタンで消せる', async () => {
+    setup({ autocomplete: async () => [prediction('美術館')] });
+
+    fireEvent.focus(field());
+    await type('び');
+
+    fireEvent.click(screen.getByRole('button', { name: '入力を消去' }));
+
+    expect((field() as HTMLInputElement).value).toBe('');
+  });
+
+  it('消すものが無ければ消去ボタンを出さない', () => {
+    setup();
+
+    fireEvent.focus(field());
+
+    expect(screen.queryByRole('button', { name: '入力を消去' })).toBeNull();
+  });
+
   it('選んだ地点は履歴へ積む', async () => {
     setup({ autocomplete: async () => [prediction('美術館')] });
 

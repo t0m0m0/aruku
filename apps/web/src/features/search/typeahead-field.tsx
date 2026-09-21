@@ -18,7 +18,7 @@ import type { PlacesService } from '../../places/places-service';
 import type { RecentPlace } from '../../places/recent-place';
 import type { RecentsRepository } from '../../places/recents-repository';
 import { resolvePlacePrediction } from '../../places/resolve-prediction';
-import { SearchIcon } from '../../shared/icons';
+import { CloseIcon, SearchIcon } from '../../shared/icons';
 import type { AppStore } from '../../state/store';
 import { createSearchState } from './search-state';
 import type { SearchMode } from './search-screen';
@@ -156,6 +156,25 @@ export function TypeaheadField({
           },
         }));
 
+  /// 確定済みの地点と打ちかけの文字を落とす（移植元の searchClearInput）。
+  ///
+  /// 無いと、確定名を手で選択して消すしか戻す手が無い。読み上げから辿れる導線も
+  /// 同時に失われる（PR #407 の Codex レビュー）。
+  function clear() {
+    if (selected !== null) {
+      if (mode === 'origin') setOrigin(null, null);
+      else setDestination(null, null);
+    }
+    generation.current++;
+    selecting.current = false;
+    setQuery('');
+    setHighlighted(0);
+    setPickFailed(false);
+    setOpen(true);
+    search.getState().search('');
+    inputRef?.current?.focus();
+  }
+
   function onChange(next: string) {
     // 打ち替えを始めた時点で、確定済みの地点は「今その欄が指しているもの」でなくなる。
     // 残すと表示は新しいクエリ・状態は古い座標というズレになり、CTA が有効なまま
@@ -216,6 +235,8 @@ export function TypeaheadField({
   // 並びは打鍵のたびに入れ替わり、確定した行より短くなることもある。移動時の
   // クランプ（move）だけでは足りないので、描画のたびに丸める。
   const activeIndex = Math.min(highlighted, Math.max(entries.length - 1, 0));
+  /// 欄が映しているもの。打ちかけがあればそれ、無ければ確定済みの地点。
+  const shown = query ?? selected ?? '';
   const showList = open && entries.length > 0;
   // 選択位置が変わるたびに、その行を一覧の中へ送る。`block: 'nearest'` は
   // 既に見えている行では何もしない——押すたびに一覧が跳ねるのを避ける。
@@ -253,7 +274,7 @@ export function TypeaheadField({
           placeholder={
             mode === 'origin' ? ja.homeDepartureLabel : ja.homeDestinationPlaceholder
           }
-          value={query ?? selected ?? ''}
+          value={shown}
           ref={inputRef}
           onFocus={() => {
             setOpen(true);
@@ -271,6 +292,21 @@ export function TypeaheadField({
           }}
           onKeyDown={onKeyDown}
         />
+        {shown !== '' && (
+          <button
+            type="button"
+            className={styles.clear}
+            aria-label={ja.searchClearInput}
+            // 押した瞬間に入力から焦点が外れると、blur が先に一覧を閉じて
+            // ちらつく。焦点は clear() が戻す。
+            onMouseDown={(event) => {
+              event.preventDefault();
+            }}
+            onClick={clear}
+          >
+            <CloseIcon size={18} />
+          </button>
+        )}
       </div>
 
       {showList && (
