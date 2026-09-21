@@ -26,3 +26,9 @@ window.matchMedia = (query: string): MediaQueryList => ({
   removeEventListener: () => {},
   dispatchEvent: () => false,
 });
+
+
+// jsdom はレイアウトを持たないので scrollIntoView も実装しない（呼ぶと TypeError）。
+// matchMedia と同じ理由でここに敷く——本体側で存在を確かめて庇うと、本番でも
+// 静かに「送らない」経路ができ、それがどのテストからも見えなくなる。
+Element.prototype.scrollIntoView = () => {};

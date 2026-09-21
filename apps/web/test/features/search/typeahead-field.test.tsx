@@ -266,6 +266,68 @@ describe('インラインのタイプアヘッド', () => {
     expect(screen.getByText('候補が見つかりませんでした')).toBeTruthy();
   });
 
+  it('確定を待っている間に打ち替えたら、新しい候補が確定できる', async () => {
+    // 古い確定は世代で無効化されるが、確定中の錠を持ったままだと、新しい候補を
+    // 押しても無反応な数秒が残る（PR #407 の Codex レビュー）。
+    const pending = new Map<string, (value: GeoPoint | null) => void>();
+    setup({
+      autocomplete: async (query) => [prediction(query === 'ふ' ? '古い' : '新しい')],
+      fetchLatLng: async (placeId) =>
+        new Promise((resolve) => pending.set(placeId, resolve)),
+    });
+
+    fireEvent.focus(field());
+    await type('ふ');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: /古い/ }));
+    });
+
+    await type('あ');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: /新しい/ }));
+    });
+    await act(async () => {
+      pending.get('id-新しい')?.(shibuya);
+    });
+
+    expect(store.getState().destination).toBe('新しい');
+  });
+
+  it('確定したあとの選択位置は先頭へ戻る', async () => {
+    // 確定で並びが候補から履歴へ替わる。位置を残すと、開き直したときに
+    // aria-activedescendant が存在しない行を指し、Enter が何もしない（同レビュー）。
+    setup({ autocomplete: async () => [prediction('一番目'), prediction('二番目')] });
+
+    fireEvent.focus(field());
+    await type('て');
+    press('ArrowDown');
+    await act(async () => {
+      press('Enter');
+    });
+    expect(store.getState().destination).toBe('二番目');
+
+    fireEvent.click(field());
+    const active = field().getAttribute('aria-activedescendant');
+
+    expect(active).not.toBeNull();
+    expect(document.getElementById(active ?? '')).not.toBeNull();
+  });
+
+  it('選択位置の行を見えるところへ送る', async () => {
+    // 一覧は 320px で頭打ち。↓ を押し続けると、見えていない行が選ばれたまま
+    // Enter することになる（同レビュー）。
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
+    setup({ autocomplete: async () => [prediction('一番目'), prediction('二番目')] });
+
+    fireEvent.focus(field());
+    await type('て');
+    scroll.mockClear();
+    press('ArrowDown');
+
+    expect(scroll).toHaveBeenCalledWith({ block: 'nearest' });
+    scroll.mockRestore();
+  });
+
   it('選んだ地点は履歴へ積む', async () => {
     setup({ autocomplete: async () => [prediction('美術館')] });
 

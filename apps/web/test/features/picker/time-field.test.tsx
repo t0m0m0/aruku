@@ -399,6 +399,23 @@ describe('デスクトップ幅のステッパー', () => {
     expect(store.getState().departure.format()).toBe('12:55');
   });
 
+  it('ステッパーを経由して欄の外へ出ても、打った値が確定する', () => {
+    // 欄の中（時刻↔日付↔ステッパー）の移動では確定しない。ステッパー自身が
+    // blur を見ていないと、そこから Tab で出た打鍵が黙って捨てられ、検索は
+    // 古い時刻で走る（PR #407 の Codex レビュー）。
+    stubViewport(true);
+    const { time } = setup({ departure: at(13, 0), arrival: at(14, 0) });
+    const later = screen.getByRole('button', { name: '出発を5分あとにする' });
+
+    fireEvent.change(time, { target: { value: '15:30' } });
+    fireEvent.blur(time, { relatedTarget: later });
+    expect(store.getState().departure.format()).toBe('13:00');
+
+    fireEvent.blur(later, { relatedTarget: null });
+
+    expect(store.getState().departure.format()).toBe('15:30');
+  });
+
   it('日をまたぐ刻みは日付も一緒に動かす', () => {
     stubViewport(true);
     const { date } = setup({ departure: at(23, 58), arrival: at(23, 59) });

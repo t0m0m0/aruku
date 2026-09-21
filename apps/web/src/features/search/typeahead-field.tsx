@@ -100,6 +100,10 @@ export function TypeaheadField({
   const typed = query ?? '';
   const listId = useId();
 
+  /// 選択位置の行。一覧は 320px で頭打ちなので、↓ を押し続けると見えない行が
+  /// 選ばれたままになる（PR #407 の Codex レビュー）。
+  const activeOption = useRef<HTMLLIElement>(null);
+
   function apply(place: RecentPlace) {
     recents.add(place);
     setSaved(recents.load());
@@ -108,6 +112,9 @@ export function TypeaheadField({
     setQuery(null);
     setPickFailed(false);
     setOpen(false);
+    // 並びが候補から履歴へ替わる。位置を残すと、開き直したときに存在しない行を
+    // 指したままになる（PR #407 の Codex レビュー）。
+    setHighlighted(0);
     search.getState().search('');
   }
 
@@ -158,6 +165,10 @@ export function TypeaheadField({
       else setDestination(null, null);
     }
     generation.current++;
+    // 確定中の錠も解く。古い確定は世代で無効化されるので、待たせる理由が無い
+    // ——持ったままだと、新しい候補を押しても無反応な数秒が残る
+    // （PR #407 の Codex レビュー）。
+    selecting.current = false;
     setQuery(next);
     setHighlighted(0);
     setPickFailed(false);
@@ -195,14 +206,24 @@ export function TypeaheadField({
         // 素通しすると aria-expanded=false の欄で見えていない候補が入る
         // （PR #407 の Codex レビュー）。
         if (!open) return;
-        entries[highlighted]?.select();
+        entries[activeIndex]?.select();
         return;
       default:
         return;
     }
   }
 
+  // 並びは打鍵のたびに入れ替わり、確定した行より短くなることもある。移動時の
+  // クランプ（move）だけでは足りないので、描画のたびに丸める。
+  const activeIndex = Math.min(highlighted, Math.max(entries.length - 1, 0));
   const showList = open && entries.length > 0;
+  // 選択位置が変わるたびに、その行を一覧の中へ送る。`block: 'nearest'` は
+  // 既に見えている行では何もしない——押すたびに一覧が跳ねるのを避ける。
+  useEffect(() => {
+    if (!showList) return;
+    activeOption.current?.scrollIntoView({ block: 'nearest' });
+  }, [showList, activeIndex, entries.length]);
+
   const message = messageFor({
     open,
     typed,
@@ -228,7 +249,7 @@ export function TypeaheadField({
           aria-expanded={showList}
           aria-controls={listId}
           aria-autocomplete="list"
-          aria-activedescendant={showList ? `${listId}-${highlighted}` : undefined}
+          aria-activedescendant={showList ? `${listId}-${activeIndex}` : undefined}
           placeholder={
             mode === 'origin' ? ja.homeDepartureLabel : ja.homeDestinationPlaceholder
           }
@@ -259,8 +280,9 @@ export function TypeaheadField({
               key={entry.key}
               id={`${listId}-${index}`}
               role="option"
-              aria-selected={index === highlighted}
-              className={`${styles.option} ${index === highlighted ? styles.optionActive : ''}`}
+              aria-selected={index === activeIndex}
+              className={`${styles.option} ${index === activeIndex ? styles.optionActive : ''}`}
+              ref={index === activeIndex ? activeOption : null}
               // 押した時点で入力から焦点が外れると、blur が先に一覧を閉じて
               // click が宙に浮く。既定の焦点移動だけ止める。
               onMouseDown={(event) => {

@@ -249,6 +249,9 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
           モバイル幅で出さないのは、端末のホイール UI が同じ役目を持つため。 */}
       {isDesktop && (
         <span className={styles.stepper}>
+          {/* blur を見るのは時刻・日付の欄だけでは足りない。ここへ Tab で入って
+              そのまま欄の外へ出ると、打った値が確定されないまま残り、検索は
+              古い時刻で走る（PR #407 の Codex レビュー）。 */}
           <button
             type="button"
             className={styles.step}
@@ -256,6 +259,7 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
             onClick={() => {
               stepBy(kTimeStepMinutes);
             }}
+            onBlur={(e) => onBlur(e.relatedTarget)}
           >
             <ChevronIcon size={12} dir="up" />
           </button>
@@ -266,6 +270,7 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
             onClick={() => {
               stepBy(-kTimeStepMinutes);
             }}
+            onBlur={(e) => onBlur(e.relatedTarget)}
           >
             <ChevronIcon size={12} dir="down" />
           </button>
