@@ -1,13 +1,10 @@
-/* 移植元: lib/features/settings/settings_screen.dart / settings_widgets.dart の装飾。
-
-   デスクトップ幅の作り分け（DesktopContent とラベルを左列へ出す _SettingsSection の
-   Row 分岐）は運んでいない。#372 の作り分けと対で、他の画面と同じ理由（PORTING.md）。 */
+/* 移植元: lib/features/settings/settings_screen.dart / settings_widgets.dart の装飾。 */
 
 .screen {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-height: 100dvh;
+  min-height: var(--screen-min-height);
   padding: env(safe-area-inset-top) 20px env(safe-area-inset-bottom);
 }
 
@@ -90,4 +87,27 @@
 .link > svg {
   flex: none;
   color: var(--ink-3);
+}
+
+@media (min-width: 820px) {
+  .screen {
+    max-width: 760px;
+    margin-inline: auto;
+  }
+
+  /* 移植元の _SettingsSection はデスクトップで Row になり、ラベルを幅 200px の
+     左列へ出す（settings_widgets.dart）。器のウィジェットは要らない——CSS では
+     同じ要素の並べ方をメディアクエリで差し替えられる。 */
+  .section {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    align-items: start;
+    gap: 0;
+  }
+
+  /* カードの内側 padding と行の文字位置を揃える（移植元の EdgeInsets(4,14,16,0)）。 */
+  .sectionTitle {
+    margin: 0;
+    padding: 14px 16px 0 4px;
+  }
 }

@@ -1,7 +1,7 @@
 // 移植元: lib/features/error/error_screen.dart
 //
-// DesktopContent（デスクトップ幅の中央寄せ）は運んでいない。#372 の作り分けと対で、
-// 検索スライスで見送ったのと同じ理由（PORTING.md）。
+// 移植元の DesktopContent に当たる中央寄せは、器のウィジェットではなく CSS の
+// メディアクエリで持つ（error-screen.module.css）。
 
 import { useEffect, useRef } from 'react';
 import { useStore } from 'zustand';

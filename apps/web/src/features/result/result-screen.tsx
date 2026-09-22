@@ -91,53 +91,57 @@ export function ResultScreen({ store }: ResultScreenProps) {
         <ArukuMap route={route} />
       </div>
 
-      <section className={`card ${styles.totals}`}>
-        <Metric
-          label={ja.resultMetricDuration}
-          value={TimeValue.formatBudget(route.totalMin)}
-        />
-        <Metric
-          label={ja.resultMetricWalkDistance}
-          value={`${route.walkKm.toFixed(1)} km`}
-        />
-        <Metric label={ja.resultMetricCalories} value={`${route.kcal} kcal`} />
-      </section>
-
-      <section className={styles.ratio}>
-        <p className={styles.ratioLabel}>
-          {resultWalkRatioLabel(Math.round(route.walkRatio * 100))}
-        </p>
-        <p className={styles.ratioSummary}>
-          {resultBudgetSummary(
-            TimeValue.formatBudget(route.budgetMin),
-            TimeValue.formatBudget(route.totalMin),
-            Math.abs(slack),
-            overBudget,
-          )}
-        </p>
-      </section>
-
-      {overBudget && (
-        <section className={styles.overBudget} role="status">
-          <p className={styles.overBudgetTitle}>
-            {resultOverBudgetTitle(route.totalMin - route.budgetMin)}
-          </p>
-          <p className={styles.overBudgetHint}>{ja.resultOverBudgetHint}</p>
-          <ArukuButton
-            className={styles.overBudgetAction}
-            variant="outlined"
-            label={ja.resultChangeConditions}
-            onPress={() => {
-              go(Screen.home);
-            }}
+      {/* 合計から下をひとまとめにする。デスクトップ幅ではここだけが内部スクロール
+          する左パネルになり、ヘッダと地図は動かない（result-screen.module.css）。 */}
+      <div className={styles.panel} data-testid="result-panel">
+        <section className={`card ${styles.totals}`}>
+          <Metric
+            label={ja.resultMetricDuration}
+            value={TimeValue.formatBudget(route.totalMin)}
           />
+          <Metric
+            label={ja.resultMetricWalkDistance}
+            value={`${route.walkKm.toFixed(1)} km`}
+          />
+          <Metric label={ja.resultMetricCalories} value={`${route.kcal} kcal`} />
         </section>
-      )}
 
-      <section className={styles.segments}>
-        <h2 className={styles.segmentsHeading}>{ja.resultSegmentsHeading}</h2>
-        <ResultTimeline route={route} />
-      </section>
+        <section className={styles.ratio}>
+          <p className={styles.ratioLabel}>
+            {resultWalkRatioLabel(Math.round(route.walkRatio * 100))}
+          </p>
+          <p className={styles.ratioSummary}>
+            {resultBudgetSummary(
+              TimeValue.formatBudget(route.budgetMin),
+              TimeValue.formatBudget(route.totalMin),
+              Math.abs(slack),
+              overBudget,
+            )}
+          </p>
+        </section>
+
+        {overBudget && (
+          <section className={styles.overBudget} role="status">
+            <p className={styles.overBudgetTitle}>
+              {resultOverBudgetTitle(route.totalMin - route.budgetMin)}
+            </p>
+            <p className={styles.overBudgetHint}>{ja.resultOverBudgetHint}</p>
+            <ArukuButton
+              className={styles.overBudgetAction}
+              variant="outlined"
+              label={ja.resultChangeConditions}
+              onPress={() => {
+                go(Screen.home);
+              }}
+            />
+          </section>
+        )}
+
+        <section className={styles.segments}>
+          <h2 className={styles.segmentsHeading}>{ja.resultSegmentsHeading}</h2>
+          <ResultTimeline route={route} />
+        </section>
+      </div>
     </main>
   );
 }

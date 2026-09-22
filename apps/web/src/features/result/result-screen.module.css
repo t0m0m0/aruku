@@ -4,7 +4,7 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  min-height: 100dvh;
+  min-height: var(--screen-min-height);
   padding: env(safe-area-inset-top) 18px env(safe-area-inset-bottom);
 }
 
@@ -14,7 +14,7 @@
   align-items: center;
   justify-content: center;
   gap: 14px;
-  min-height: 100dvh;
+  min-height: var(--screen-min-height);
   padding: 24px;
   color: var(--ink-3);
 }
@@ -132,6 +132,16 @@
   width: 100%;
 }
 
+/* 合計から下。モバイル幅では画面の縦積みの一部で、間隔は .screen の gap と揃える
+   ——包む要素が増えても `< 820px` の見た目が変わらないことが条件（#406）。 */
+.panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+}
+
 .segments {
   flex: 1;
 }
@@ -143,3 +153,41 @@
   color: var(--ink-3);
 }
 
+
+/* 移植元 result_screen.dart のデスクトップ分岐（splitPanelWidth 380）。左パネルは
+   ビューポート内に収め、内側だけをスクロールさせる。一括スクロールにすると下部の
+   導線がビューポート固定の分割ビューから押し出される（#262）。 */
+@media (min-width: 820px) {
+  .screen {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    grid-template-rows: auto 1fr;
+    height: var(--screen-min-height);
+    min-height: 0;
+    gap: 0;
+    padding: 0;
+  }
+
+  .header {
+    grid-area: 1 / 1;
+    padding: 18px 22px 14px;
+    background: var(--paper);
+    border-right: 1px solid var(--hairline);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .panel {
+    grid-area: 2 / 1;
+    padding: 14px 18px;
+    overflow-y: auto;
+    background: var(--paper);
+    border-right: 1px solid var(--hairline);
+  }
+
+  /* 右カラム全面。プレビューの固定高と角丸は、俯瞰用の 180px の枠に対するもの。 */
+  .map {
+    grid-area: 1 / 2 / 3 / 3;
+    height: auto;
+    border-radius: 0;
+  }
+}

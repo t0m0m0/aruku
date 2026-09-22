@@ -21,6 +21,8 @@ import {
 } from '@aruku/engine/models/time-value';
 
 import { ja } from '../../i18n/ja';
+import { useIsDesktop } from '../../layout/use-is-desktop';
+import { ChevronIcon } from '../../shared/icons';
 import type { AppStore, Now } from '../../state/store';
 import {
   clampDepartureMinutes,
@@ -41,6 +43,7 @@ interface TimeFieldProps {
 }
 
 export function TimeField({ store, mode, label, now = () => new Date() }: TimeFieldProps) {
+  const isDesktop = useIsDesktop();
   const departure = useStore(store, (s) => s.departure);
   const arrival = useStore(store, (s) => s.arrival);
   const current = mode === PickerMode.depart ? departure : arrival;
@@ -193,14 +196,16 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
     }
     if (key !== 'ArrowUp' && key !== 'ArrowDown') return;
     preventDefault();
+    stepBy(key === 'ArrowUp' ? kTimeStepMinutes : -kTimeStepMinutes);
+  }
+
+  /// 5 分刻みで動かす。↑↓ とステッパーの両方がここを通る。
+  function stepBy(deltaMinutes: number): void {
     // 基点は確定値ではなく打ちかけの表示値。確定値から動かすと、10:00 と打った
     // 直後の ↑ が打つ前の値を返し、打ったばかりの値が黙って捨てられる。
     const typed = parseIsoTime(timeDraft.text);
     const base = typed === null ? current.totalMinutes : typed.h * 60 + typed.m;
-    const stepped = stepTotalMinutes(
-      base,
-      key === 'ArrowUp' ? kTimeStepMinutes : -kTimeStepMinutes,
-    );
+    const stepped = stepTotalMinutes(base, deltaMinutes);
     commit({
       time: `${pad2(Math.floor(stepped.totalMinutes / 60))}:${pad2(stepped.totalMinutes % 60)}`,
       dayShift: stepped.dayDelta,
@@ -237,6 +242,40 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
         onChange={(e) => dateDraft.edit(e.target.value)}
         onBlur={(e) => onBlur(e.relatedTarget)}
       />
+      {/* マウスでも 5 分刻みで動かせるようにする（移植元 desktop_time_field.dart の
+          ステッパー）。native のスピナーでは分が 1 ずつ動き、しかも同日内で折り返す
+          ——23:58 から進めても翌日にならない。ここは stepTotalMinutes を通る。
+
+          モバイル幅で出さないのは、端末のホイール UI が同じ役目を持つため。 */}
+      {isDesktop && (
+        <span className={styles.stepper}>
+          {/* blur を見るのは時刻・日付の欄だけでは足りない。ここへ Tab で入って
+              そのまま欄の外へ出ると、打った値が確定されないまま残り、検索は
+              古い時刻で走る（PR #407 の Codex レビュー）。 */}
+          <button
+            type="button"
+            className={styles.step}
+            aria-label={ja.timeFieldLater(label)}
+            onClick={() => {
+              stepBy(kTimeStepMinutes);
+            }}
+            onBlur={(e) => onBlur(e.relatedTarget)}
+          >
+            <ChevronIcon size={12} dir="up" />
+          </button>
+          <button
+            type="button"
+            className={styles.step}
+            aria-label={ja.timeFieldEarlier(label)}
+            onClick={() => {
+              stepBy(-kTimeStepMinutes);
+            }}
+            onBlur={(e) => onBlur(e.relatedTarget)}
+          >
+            <ChevronIcon size={12} dir="down" />
+          </button>
+        </span>
+      )}
     </div>
   );
 }

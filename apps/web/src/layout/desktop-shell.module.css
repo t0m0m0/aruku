@@ -1,0 +1,86 @@
+/* 移植元: lib/shared/widgets/desktop_shell.dart と
+   design_handoff_aruku_web/README.md「0. 共通シェル」。 */
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  /* dvh にするのは、820px を跨ぐ幅の端末（大きめのタブレット・横向きの携帯）では
+     ブラウザの UI が伸び縮みするため。100vh は大きい側のまま固定されるので、
+     overflow を切っているこの器では下端が届かなくなる（PR #407 の Codex レビュー）。
+     他の画面が 100dvh を使っているのと揃える。 */
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--ivory);
+}
+
+.bar {
+  flex: none;
+  height: 64px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.barInner {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  height: 100%;
+  max-width: 1280px;
+  margin-inline: auto;
+  padding-inline: 24px;
+}
+
+.wordmark {
+  margin-inline-start: -10px;
+  font-size: 19px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding-inline: 16px;
+  border: none;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tab:hover {
+  background: var(--moss-50);
+  color: var(--moss-700);
+}
+
+/* 現在地は aria-current で表す。クラスを別に足すと、見た目と読み上げが別々の
+   条件で付くようになり、片方だけ落ちても気付けない。 */
+.tab[aria-current='page'] {
+  background: var(--moss-100);
+  color: var(--moss-700);
+}
+
+/* 本文側がスクロールする。シェルごとスクロールさせると上部バーが流れる
+   （ハンドオフは「固定・スクロールしない」）。min-height:0 が無いと flex の子が
+   内容の高さまで伸び、内部スクロールが効かない。 */
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+
+  /* 画面の「1画面ぶん」をバーの下の領域に読み替える（theme/base.css の既定は
+     100dvh）。差し替えないと、どの画面もバーの高さぶん縦にはみ出す。 */
+  --screen-min-height: 100%;
+}

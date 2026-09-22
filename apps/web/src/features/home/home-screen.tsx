@@ -6,6 +6,7 @@
 // 「歩数まわりの導線は最初から作らない」と決めている。非対応の理由を出す注記も
 // 一緒に消える——出す相手の機能が無い。
 
+import { useRef } from 'react';
 import { useStore } from 'zustand';
 import type { StoreApi } from 'zustand/vanilla';
 
@@ -13,8 +14,10 @@ import { PickerMode, TimeValue } from '@aruku/engine/models/time-value';
 import { budgetMinutes } from '@aruku/engine/services/route-plan-builder';
 
 import { todayGreeting } from '../../i18n/format';
+import { useIsDesktop } from '../../layout/use-is-desktop';
 import { useInitialLocation } from '../../location/use-initial-location';
 import { ja } from '../../i18n/ja';
+import type { ScreenDeps } from '../../navigation/screen-deps';
 import { Screen } from '../../navigation/screens';
 import { ArukuButton } from '../../shared/button';
 import { IconHitButton } from '../../shared/icon-hit-button';
@@ -28,12 +31,17 @@ import {
   SettingsIcon,
 } from '../../shared/icons';
 import { TimeField } from '../picker/time-field';
+import { TypeaheadField } from '../search/typeahead-field';
 import { departureLabelText } from '../../state/derived';
 import type { AppStore } from '../../state/store';
 import styles from './home-screen.module.css';
 
 interface HomeScreenProps {
   store: StoreApi<AppStore>;
+
+  /// デスクトップ幅のインライン検索欄が使う。モバイル幅では触らない——目的地は
+  /// 全画面の検索画面が決める。
+  deps: ScreenDeps;
 
   /// 経路検索の開始。目的地が決まっているときの CTA から呼ぶ。
   ///
@@ -48,9 +56,11 @@ interface HomeScreenProps {
 
 export function HomeScreen({
   store,
+  deps,
   onStartSearch,
   now = () => new Date(),
 }: HomeScreenProps) {
+  const isDesktop = useIsDesktop();
   const origin = useStore(store, (s) => s.origin);
   const destination = useStore(store, (s) => s.destination);
   const departure = useStore(store, (s) => s.departure);
@@ -63,7 +73,16 @@ export function HomeScreen({
   // （PR #394 レビュー）。取り直しはコンパスという明示の導線がある。
   useInitialLocation(store);
 
+  const destinationField = useRef<HTMLInputElement>(null);
+
+  /// 目的地を決めに行く。デスクトップ幅ではその場の欄へ焦点を移すだけで、
+  /// 全画面の検索へは飛ばさない——この幅のために作った導線を自分で迂回しない
+  /// （PR #407 の Codex レビュー）。
   const goSearch = () => {
+    if (isDesktop) {
+      destinationField.current?.focus();
+      return;
+    }
     go(Screen.search);
   };
 
@@ -128,26 +147,41 @@ export function HomeScreen({
           </IconHitButton>
         </div>
 
-        <div className={styles.placeRow}>
-          <button
-            type="button"
-            className={styles.placeMain}
-            aria-label={`${ja.homeDestinationLabel} ${destinationText}`}
-            onClick={goSearch}
-          >
+        {/* デスクトップ幅では全画面の検索へ飛ばさず、その場で打って決める（#372）。
+            これは見た目だけの差ではない——遷移が1つ消えるので CSS では表せない。 */}
+        {isDesktop ? (
+          <div className={styles.destinationField}>
             <span className={styles.placeLabel}>{ja.homeDestinationLabel}</span>
-            <span
-              className={`${styles.placeValue} ${destination === null ? styles.placeValuePlaceholder : ''}`}
+            <TypeaheadField
+              store={store}
+              mode="destination"
+              places={deps.places}
+              recents={deps.recents.destination}
+              inputRef={destinationField}
+            />
+          </div>
+        ) : (
+          <div className={styles.placeRow}>
+            <button
+              type="button"
+              className={styles.placeMain}
+              aria-label={`${ja.homeDestinationLabel} ${destinationText}`}
+              onClick={goSearch}
             >
-              {destinationText}
-            </span>
-          </button>
-          <IconHitButton label={ja.homeSearchDestination} onPress={goSearch}>
-            <span className={styles.searchChip}>
-              <SearchIcon size={17} />
-            </span>
-          </IconHitButton>
-        </div>
+              <span className={styles.placeLabel}>{ja.homeDestinationLabel}</span>
+              <span
+                className={`${styles.placeValue} ${destination === null ? styles.placeValuePlaceholder : ''}`}
+              >
+                {destinationText}
+              </span>
+            </button>
+            <IconHitButton label={ja.homeSearchDestination} onPress={goSearch}>
+              <span className={styles.searchChip}>
+                <SearchIcon size={17} />
+              </span>
+            </IconHitButton>
+          </div>
+        )}
       </section>
 
       <section className={styles.timeSection}>

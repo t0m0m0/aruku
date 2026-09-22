@@ -7,7 +7,7 @@
   align-items: center;
   justify-content: center;
   gap: 28px;
-  min-height: 100dvh;
+  min-height: var(--screen-min-height);
   padding: 24px;
   overflow: hidden;
 }

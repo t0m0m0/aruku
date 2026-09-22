@@ -7,8 +7,15 @@
 // 差し替えればよい。
 
 export const ja = {
+  appTitle: 'あるく',
+
   /// アイコンボタンの待ち表示の既定文言。呼び出し側が具体的に言えるなら上書きする。
   busyDefault: '処理中',
+
+  /// デスクトップ幅の共通シェルのタブ。ハンドオフにある「記録」タブは歩数に依る
+  /// ので作らない（#386）。
+  shellTabPlan: 'ルートを計画',
+  shellTabSettings: '設定',
 
   weekdays: ['月', '火', '水', '木', '金', '土', '日'],
   greetingMorning: 'おはようございます',
@@ -33,6 +40,10 @@ export const ja = {
   /// 付きメッセージ）に当たる。gen-l10n が生成していた関数をここでは直に書く。
   timeFieldTime: (label: string) => `${label}の時刻`,
   timeFieldDate: (label: string) => `${label}の日付`,
+
+  /// デスクトップ幅のステッパー。移植元 app_ja.arb の timeFieldLater / timeFieldEarlier。
+  timeFieldLater: (label: string) => `${label}を5分あとにする`,
+  timeFieldEarlier: (label: string) => `${label}を5分まえにする`,
 
   /// 経路検索のライフサイクルが未移植の間の CTA。押せない状態と対で出す。
   homeSearchRouteNotReady: '経路検索は準備中',

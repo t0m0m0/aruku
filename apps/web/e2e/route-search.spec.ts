@@ -8,6 +8,12 @@ import { destinationPlace, currentPosition } from './world';
 import { expect, test } from './fixtures';
 import { fakeRailLine } from './upstream/fake-upstream';
 
+/// このファイルは**モバイル幅**で走らせる。主題は主導線で、目的地は全画面の検索
+/// 画面で選んでいる——デスクトップ幅ではその画面を経由せず、条件カードの中の
+/// インライン欄で決める（#406）。デスクトップ側の主導線は desktop-layout.spec.ts と
+/// typeahead.spec.ts が通る。
+test.use({ viewport: { width: 375, height: 812 } });
+
 /// ブラウザの時計（Asia/Tokyo 固定）で今日。UTC の CI で走らせても、深夜に
 /// 日付が1日ずれた期待値にならないようにする。
 function todayInTokyo(): string {

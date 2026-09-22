@@ -7,7 +7,7 @@
 // そのまま「スクリーンリーダーがどう読むか」の仕様になる。
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { StoreApi } from 'zustand/vanilla';
 
@@ -20,7 +20,16 @@ import {
   locationDenied,
   type LocationState,
 } from '../../../src/location/location-state';
+import { stubViewport } from '../../layout/viewport';
+import type { ScreenDeps } from '../../../src/navigation/screen-deps';
 import { Screen, screenPath } from '../../../src/navigation/screens';
+import {
+  createRecentsRepository,
+  destinationsKey,
+  originsKey,
+  type KeyValueStore,
+} from '../../../src/places/recents-repository';
+import type { PlacePrediction } from '../../../src/places/place-prediction';
 import type { RouteCore } from '../../../src/state/app-state';
 import { createAppStore, type AppStore } from '../../../src/state/store';
 
@@ -31,6 +40,34 @@ interface Options {
   now?: Date;
   onStartSearch?: (() => void) | null;
   locations?: LocationState[];
+  deps?: ScreenDeps;
+}
+
+function memoryStore(): KeyValueStore {
+  const map = new Map<string, string>();
+  return {
+    getItem: (key) => map.get(key) ?? null,
+    setItem: (key, value) => void map.set(key, value),
+    removeItem: (key) => void map.delete(key),
+  };
+}
+
+/// home が要る外部依存。デスクトップ幅のインライン検索欄だけが使う。
+function screenDeps(
+  autocomplete: (query: string) => Promise<PlacePrediction[]> = async () => [],
+): ScreenDeps {
+  const kv = memoryStore();
+  return {
+    places: {
+      autocomplete,
+      fetchLatLng: async () => somewhere,
+      close() {},
+    },
+    recents: {
+      destination: createRecentsRepository(kv, destinationsKey),
+      origin: createRecentsRepository(kv, originsKey),
+    },
+  };
 }
 
 /// 再マウントの検証で同じストアへ描き直せるよう、直近の setup のストアを保つ。
@@ -44,16 +81,18 @@ function setup(initial: Partial<RouteCore> = {}, options: Options = {}) {
   store = createAppStore(initial, () => at, { request });
   store.getState().attachNavigator(navigate);
 
+  const deps = options.deps ?? screenDeps();
   render(
     <HomeScreen
       store={store}
+      deps={deps}
       now={() => at}
       onStartSearch={
         options.onStartSearch === undefined ? () => {} : options.onStartSearch
       }
     />,
   );
-  return { navigate, store, request };
+  return { navigate, store, request, deps };
 }
 
 describe('ホームの見出し', () => {
@@ -110,7 +149,14 @@ describe('ホームの出発地', () => {
     await screen.findByText('位置情報なし');
 
     cleanup();
-    render(<HomeScreen store={store} now={() => noon} onStartSearch={() => {}} />);
+    render(
+      <HomeScreen
+        store={store}
+        deps={screenDeps()}
+        now={() => noon}
+        onStartSearch={() => {}}
+      />,
+    );
 
     expect(await screen.findByText('位置情報なし')).toBeDefined();
     expect(request).toHaveBeenCalledOnce();
@@ -128,7 +174,14 @@ describe('ホームの出発地', () => {
       .mockReturnValueOnce(pending);
     const s = createAppStore({}, () => noon, { request });
     s.getState().attachNavigator(vi.fn());
-    render(<HomeScreen store={s} now={() => noon} onStartSearch={() => {}} />);
+    render(
+      <HomeScreen
+        store={s}
+        deps={screenDeps()}
+        now={() => noon}
+        onStartSearch={() => {}}
+      />,
+    );
     await screen.findByText('位置情報なし');
 
     fireEvent.click(screen.getByRole('button', { name: '現在地を再取得' }));
@@ -304,5 +357,42 @@ describe('時刻フィールド', () => {
     fireEvent.blur(date);
 
     expect(store.getState().arrival.dateOffset).toBe(1);
+  });
+});
+
+describe('デスクトップ幅の目的地', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('全画面の検索へ飛ばさず、その場で打てる欄を出す', () => {
+    stubViewport(true);
+
+    setup();
+
+    expect(screen.getByRole('combobox', { name: '目的地を検索' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^目的地 / })).toBeNull();
+  });
+
+  it('目的地が未選択のとき、CTA はその場の欄へ焦点を移す', () => {
+    // 全画面の検索へ飛ばすと、この幅で作ったインラインの導線を自分で迂回する
+    // （PR #407 の Codex レビュー）。
+    stubViewport(true);
+    const { navigate } = setup();
+
+    fireEvent.click(screen.getByRole('button', { name: '目的地を選ぶ' }));
+
+    expect(document.activeElement).toBe(screen.getByRole('combobox'));
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('モバイル幅では今までどおり検索画面へ渡す', () => {
+    stubViewport(false);
+    const { navigate } = setup();
+
+    fireEvent.click(screen.getByRole('button', { name: '目的地 どこへ歩く?' }));
+
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(navigate).toHaveBeenCalledWith(screenPath[Screen.search]);
   });
 });

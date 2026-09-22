@@ -1,7 +1,7 @@
 // 移植元: lib/features/error/error_screen.dart
 //
-// DesktopContent（デスクトップ幅の中央寄せ）は運んでいない。#372 の作り分けと対で、
-// 検索スライスで見送ったのと同じ理由（PORTING.md）。
+// デスクトップ幅の中央寄せは CSS のメディアクエリなので、ここ（jsdom）からは
+// 見えない。寸法は e2e/desktop-layout.spec.ts が実測する。
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';

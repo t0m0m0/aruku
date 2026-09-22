@@ -7,7 +7,7 @@
 // 自作 UI の都合に由来する検証は消えている。
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { StoreApi } from 'zustand/vanilla';
 
@@ -15,6 +15,7 @@ import { PickerMode, TimeValue, kMaxDateOffsetDays } from '@aruku/engine/models/
 import { absoluteMinutes, budgetMinutes } from '@aruku/engine/services/route-plan-builder';
 
 import { TimeField } from '../../../src/features/picker/time-field';
+import { stubViewport } from '../../layout/viewport';
 import { ja } from '../../../src/i18n/ja';
 import type { RouteCore } from '../../../src/state/app-state';
 import { createAppStore, type AppStore } from '../../../src/state/store';
@@ -362,5 +363,67 @@ describe('時刻を打ってから日付を選ぶ', () => {
     fireEvent.blur(time);
 
     expect(store.getState().departure.format()).toBe('12:00');
+  });
+});
+
+describe('デスクトップ幅のステッパー', () => {
+  // マウスでも 5 分刻みで動かせるようにする。native のスピナーは分を 1 ずつ動かし、
+  // しかも同日内で折り返す——23:58 から進めると翌日にならずに 00:00 になる。
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('モバイル幅では出さない', () => {
+    stubViewport(false);
+
+    setup({ departure: at(13, 0), arrival: at(14, 0) });
+
+    expect(screen.queryByRole('button', { name: '出発を5分あとにする' })).toBeNull();
+  });
+
+  it('5分あとにする', () => {
+    stubViewport(true);
+    setup({ departure: at(13, 0), arrival: at(14, 0) });
+
+    fireEvent.click(screen.getByRole('button', { name: '出発を5分あとにする' }));
+
+    expect(store.getState().departure.format()).toBe('13:05');
+  });
+
+  it('5分まえにする', () => {
+    stubViewport(true);
+    setup({ departure: at(13, 0), arrival: at(14, 0) });
+
+    fireEvent.click(screen.getByRole('button', { name: '出発を5分まえにする' }));
+
+    expect(store.getState().departure.format()).toBe('12:55');
+  });
+
+  it('ステッパーを経由して欄の外へ出ても、打った値が確定する', () => {
+    // 欄の中（時刻↔日付↔ステッパー）の移動では確定しない。ステッパー自身が
+    // blur を見ていないと、そこから Tab で出た打鍵が黙って捨てられ、検索は
+    // 古い時刻で走る（PR #407 の Codex レビュー）。
+    stubViewport(true);
+    const { time } = setup({ departure: at(13, 0), arrival: at(14, 0) });
+    const later = screen.getByRole('button', { name: '出発を5分あとにする' });
+
+    fireEvent.change(time, { target: { value: '15:30' } });
+    fireEvent.blur(time, { relatedTarget: later });
+    expect(store.getState().departure.format()).toBe('13:00');
+
+    fireEvent.blur(later, { relatedTarget: null });
+
+    expect(store.getState().departure.format()).toBe('15:30');
+  });
+
+  it('日をまたぐ刻みは日付も一緒に動かす', () => {
+    stubViewport(true);
+    const { date } = setup({ departure: at(23, 58), arrival: at(23, 59) });
+
+    fireEvent.click(screen.getByRole('button', { name: '出発を5分あとにする' }));
+
+    expect(store.getState().departure.format()).toBe('00:03');
+    expect(store.getState().departure.dateOffset).toBe(1);
+    expect(date.value).toBe('2026-09-12');
   });
 });

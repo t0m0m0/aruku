@@ -6,7 +6,7 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  min-height: 100dvh;
+  min-height: var(--screen-min-height);
   padding: 24px 32px;
   text-align: center;
 }
@@ -48,4 +48,11 @@
 
 .action {
   width: 100%;
+}
+
+@media (min-width: 820px) {
+  .screen {
+    max-width: 520px;
+    margin-inline: auto;
+  }
 }
