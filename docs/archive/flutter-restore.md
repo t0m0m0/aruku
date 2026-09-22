@@ -50,10 +50,17 @@ best-effort であり、いま生きているかは §5 を走らせて初めて
 
 **3.38.5（stable）。**
 
-値の出所は `.github/workflows/deploy-web.yml` の `FLUTTER_VERSION` と
-`.github/workflows/ci.yml` の `flutter-version`（同じ値が2箇所にある）。この手順書の数字と
-食い違ったらワークフロー側が正——凍結時点のワークフローは凍結先ツリーに入っているので、
-`git show flutter-final:.github/workflows/deploy-web.yml` で確認できる。
+値の出所は**凍結先ツリーの**ワークフロー——`.github/workflows/deploy-web.yml` の
+`FLUTTER_VERSION` と `.github/workflows/ci.yml` の `flutter-version`（凍結時点では同じ値が
+2箇所にあった）。この手順書の数字と食い違ったらワークフロー側が正:
+
+```bash
+git show flutter-final:.github/workflows/deploy-web.yml | grep FLUTTER_VERSION
+```
+
+`main` 側を見に行かないこと。#387 で配信を React ビルドへ差し替えたとき
+`deploy-web.yml` から `FLUTTER_VERSION` は消えており、Flutter 版のビルドに使う版は
+凍結先にしか残っていない。
 
 Flutter SDK 自体が git リポジトリなので、切り替えは SDK ディレクトリで:
 

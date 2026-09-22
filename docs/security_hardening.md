@@ -76,8 +76,9 @@
 
    **本番用キー**
    - **アプリケーションの制限**: 「ウェブサイト」→ 配信ドメインのみ。**`localhost` を入れない。**
-   - 公開ビルドの `MAPS_WEB_API_KEY`（Flutter）と `VITE_MAPS_WEB_API_KEY`（React SPA、
-     `apps/web`）にはこちらを渡す。どちらも同じキーでよい。
+   - 公開ビルドの `VITE_MAPS_WEB_API_KEY`（React SPA、`apps/web`）にこちらを渡す。
+     **配信しているのはこちらだけ**（#387 で `deploy-web.yml` を差し替えた）。Flutter 版の
+     `MAPS_WEB_API_KEY` はリポジトリに残っているが配信経路から外れている。
    - 配信先は Cloudflare Pages（README「Web 公開（Cloudflare Pages）」）。登録するのは
      `aruku.pages.dev/*` か独自ドメインで、**`*.pages.dev` を入れてはならない。**
      `pages.dev` は Cloudflare の全ユーザーが自分のプロジェクトを持つ共有サフィックスで、
@@ -97,8 +98,8 @@
 
    **共通**
    - **API の制限**: 「キーを制限」→ **Maps JavaScript API のみ**。
-   - **Web の地図キーは秘匿できない。** dart-define はコンパイル時定数として
-     `main.dart.js` に焼き込まれ、ブラウザから読める。`web/index.html` へ直書き
+   - **Web の地図キーは秘匿できない。** `VITE_` の値はビルド時に文字列リテラルへ
+     差し替えられてバンドルに焼き込まれ、ブラウザから読める。追跡ファイルへ直書き
      しないのは public リポジトリの履歴に残さないためであって、露出は同じ。
    - リファラー制限は `Referer` ヘッダを見ているだけで、ブラウザ外からは偽装できる。
      ネイティブの署名ベースの制限より構造的に弱いため、**GCP 側の予算アラートと
