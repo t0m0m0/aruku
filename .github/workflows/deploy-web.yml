@@ -4,11 +4,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'lib/**'
-      - 'web/**'
-      - 'pubspec.yaml'
-      - 'pubspec.lock'
-      - 'l10n.yaml'
+      - 'apps/web/**'
+      - 'packages/engine/**'
       - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
 
@@ -39,12 +36,12 @@ on:
 #   2. production Environment に deployment branch rule を張り、main のみ許可する。
 #      これで ref を偽ったジョブは Environment のゲートで拒否される。
 #
-# dart-define 用のシークレットはリポジトリ側に置く。これらは main.dart.js に焼かれて
+# VITE_ のシークレットはリポジトリ側に置く。これらはバンドルへ焼かれて
 # ブラウザから読める値であり、ブランチから参照できても権限の格上げにならないため。
 
 env:
   # ci.yml と同じ版に固定する。版が割れると CI が緑のまま配信物だけ壊れうる。
-  FLUTTER_VERSION: 3.38.5
+  NODE_VERSION: '22'
   # Cloudflare Pages のプロジェクト名。dashboard か `wrangler pages project create` で
   # 作った名前と一致させる（README「Web 公開（Cloudflare Pages）」）。
   PAGES_PROJECT: aruku
@@ -65,22 +62,27 @@ jobs:
     # environment を宣言しない。main 以外からも走るジョブに production の
     # 資格情報を渡さないための構造上の分離であり、上のコメントの (1) にあたる。
     env:
-      FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
-      FIREBASE_WEB_APP_ID: ${{ secrets.FIREBASE_WEB_APP_ID }}
-      RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY }}
-      MAPS_WEB_API_KEY: ${{ secrets.MAPS_WEB_API_KEY }}
-      PROXY_BASE_URL: ${{ vars.PROXY_BASE_URL }}
+      VITE_FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+      VITE_FIREBASE_WEB_APP_ID: ${{ secrets.FIREBASE_WEB_APP_ID }}
+      VITE_RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY }}
+      VITE_MAPS_WEB_API_KEY: ${{ secrets.MAPS_WEB_API_KEY }}
+      VITE_PROXY_BASE_URL: ${{ vars.PROXY_BASE_URL }}
     steps:
       - uses: actions/checkout@v6
 
-      # 空の dart-define はコンパイルを通り、壊れるのは実行時（Firebase 初期化・
-      # App Check・地図読み込み）。release では assert が落ちて main.dart 側の
-      # 検査も効かないため、配信前に落とせるのはここだけ。
+      # 空の VITE_ はビルドを通り、壊れるのは実行時（Firebase 初期化・App Check・
+      # 地図読み込み）。`import.meta.env.VITE_X` は未定義でも undefined になるだけで、
+      # src/config.ts の `?? ''` が空文字へ丸める。配信前に落とせるのはここだけ。
+      #
+      # 名前の取り違え（`VITE_` の付け忘れ）はこの検査を素通りする——空かどうかしか
+      # 見ていないため。そちらは apps/web/test/build/deploy-workflow.test.ts が
+      # このファイルと src/ を突き合わせて見る。
       - name: Verify required configuration
         run: |
           missing=()
-          for name in FIREBASE_WEB_API_KEY FIREBASE_WEB_APP_ID \
-                      RECAPTCHA_SITE_KEY MAPS_WEB_API_KEY PROXY_BASE_URL; do
+          for name in VITE_FIREBASE_WEB_API_KEY VITE_FIREBASE_WEB_APP_ID \
+                      VITE_RECAPTCHA_SITE_KEY VITE_MAPS_WEB_API_KEY \
+                      VITE_PROXY_BASE_URL; do
             [ -n "${!name}" ] || missing+=("$name")
           done
           if [ ${#missing[@]} -ne 0 ]; then
@@ -88,46 +90,48 @@ jobs:
             exit 1
           fi
 
-      # ci.yml と同じ検査をここでも走らせる。dart:io の混入は `flutter test`
-      # （VM 上で動くので dart:io が使える）でも `flutter build web`（dart2js が
-      # スタブを与えるのでコンパイルは通る）でも捕まらず、壊れるのはブラウザの
-      # 実行時（ci.yml:39-44）。ci.yml とこのワークフローに順序関係は無いため、
-      # ここで見ないと CI が赤くなる前に壊れた成果物が配信され得る。
-      - name: Web safety
-        run: |
-          python3 .claude/web_safety_test.py
-          python3 .claude/web_safety.py
-
-      - uses: subosito/flutter-action@v2
+      - uses: actions/setup-node@v6
         with:
-          channel: stable
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
 
       - name: Install dependencies
-        run: flutter pub get
+        run: npm ci
+        working-directory: apps/web
 
       # ci.yml とは別ワークフローで、CI の緑を待たずに走る。配信物にだけ
       # 退行が乗るのを防ぐため、deploy-functions.yml と同じくここでも検査する。
-      - name: Run tests
-        run: flutter test
+      - name: Typecheck
+        run: npx tsc --noEmit
+        working-directory: apps/web
 
+      - name: Test
+        run: npm test
+        working-directory: apps/web
+
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+
+      # 配信する成果物とは別の出力（dist-e2e）へ、偽の上流を焼いたビルドを作って
+      # 走る（playwright.config.ts）。下の Build web が作る dist は汚さない。
+      - name: E2E
+        run: npm run e2e
+        working-directory: apps/web
+
+      # USE_REAL_MAP に相当する切り替えは無い。実地図に倒れるかは
+      # VITE_MAPS_WEB_API_KEY が空かどうかで決まる（src/config.ts）。
       - name: Build web
-        run: >-
-          flutter build web --release
-          --dart-define=USE_REAL_MAP=true
-          --dart-define=FIREBASE_WEB_API_KEY="$FIREBASE_WEB_API_KEY"
-          --dart-define=FIREBASE_WEB_APP_ID="$FIREBASE_WEB_APP_ID"
-          --dart-define=RECAPTCHA_SITE_KEY="$RECAPTCHA_SITE_KEY"
-          --dart-define=MAPS_WEB_API_KEY="$MAPS_WEB_API_KEY"
-          --dart-define=PROXY_BASE_URL="$PROXY_BASE_URL"
+        run: npx vite build
+        working-directory: apps/web
 
       # deploy ジョブへの受け渡し。retention を切り詰めるのは、この成果物が
       # 公開ビルドそのもので、ジョブ間の受け渡し以外に用途が無いため。
       - uses: actions/upload-artifact@v7
         with:
           name: web-build
-          path: build/web
+          path: apps/web/dist
           retention-days: 1
 
       # 配信まで行かないことを結果に残す。緑のまま何も配信されていない状態を
@@ -152,7 +156,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: web-build
-          path: build/web
+          path: dist
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v4
@@ -162,6 +166,6 @@ jobs:
           # --branch を明示するのは、wrangler が git から推測した名前が main と
           # 食い違うと本番配信ではなくプレビュー扱いになるため。
           command: >-
-            pages deploy build/web
+            pages deploy dist
             --project-name=${{ env.PAGES_PROJECT }}
             --branch=main
