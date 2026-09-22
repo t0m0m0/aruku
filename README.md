@@ -26,8 +26,9 @@ npm --prefix packages/engine run check:port # Dart 側との名前照合（CI �
 ## apps/web（React 移行の本体・#386）
 
 Phase 3（#386）で React + Vite の SPA を作る。7画面・地図・日本語フォントの同梱・E2E まで
-入っていて、プレースホルダの画面はもう無い。本番の配信は当面 Flutter のまま
-（`deploy-web.yml` は未切替。差し替えは #387）。
+入っていて、プレースホルダの画面はもう無い。**本番（`aruku.pages.dev`）が配信しているのは
+これ**（#387）。リポジトリにはまだ Flutter 版が残っているが、配信からは外れている——
+撤去は #387 の残りで行う。
 
 スライスの範囲・移植元との対応・運ばないと決めたものは
 [apps/web/PORTING.md](apps/web/PORTING.md) が正本。
@@ -346,11 +347,15 @@ flutter build appbundle --release
 
 ## Web 公開（Cloudflare Pages）
 
-`main` への push で `.github/workflows/deploy-web.yml` が `flutter build web` の成果物を
-Cloudflare Pages へ配信します。静的配信先に Cloudflare を選んだのは、Flutter の web 出力が
-初回ロードで数 MB になり、転送量に上限のある無料枠（Firebase Hosting Spark は 10GB/月）だと
-先に頭を打つためです。Vercel Hobby は帯域では足りますが ToS が非商用限定で、収益化
-（#238〜#240）と両立しません。
+`main` への push で `.github/workflows/deploy-web.yml` が `apps/web` の Vite ビルド
+（`dist/`）を Cloudflare Pages へ配信します。静的配信先に Cloudflare を選んだのは、
+転送量に上限のある無料枠（Firebase Hosting Spark は 10GB/月）だと先に頭を打つためです。
+Vercel Hobby は帯域では足りますが ToS が非商用限定で、収益化（#238〜#240）と両立しません。
+
+この理由は React へ移っても残ります。初回に必ず取るのは 620KB 前後（JS + CSS）で
+Flutter の web 出力より小さいものの、配信物の総量は 6MB 強——大半は同梱した日本語
+フォントの分割 162 本（#386）で、`unicode-range` ごとに画面が実際に描く文字ぶんだけが
+取られます。取る量が利用者数に比例する点は変わりません。
 
 **配信の費用はこの構成では実質かかりません。** 課金が発生し得るのは Google Maps Platform
 （SKU ごとの月間無料枠を超えた分）と Cloud Functions（Blaze）で、いずれも配信先の選択とは
@@ -383,7 +388,8 @@ Direct Upload に戻せない（[Git integration](https://developers.cloudflare.
 この状態でも `wrangler pages deploy`（`deploy-web.yml` の deploy ジョブ）は従来どおり動きます。
 
 production 側を止め忘れると、`deploy-web.yml` の paths フィルタに掛からない push——
-`lib/**` `web/**` を触らない変更——のあと、Git 連携側のビルドが本番として配信されます。
+`apps/web/**` `packages/engine/**` を触らない変更——のあと、Git 連携側のビルドが本番として
+配信されます。
 実際にこれで本番が空のデプロイに差し替わり、3日間 404 になりました（#392）。
 
 ### 2. GitHub 側の設定
@@ -412,8 +418,12 @@ production 側を止め忘れると、`deploy-web.yml` の paths フィルタに
 `if: github.ref == ...` は利便のための分岐であって、防御ではありません。
 
 (a) の2つは配信を実行できる資格情報なので、Environment に置いて main 以外のジョブから
-構造的に届かないようにします。(b) は `main.dart.js` に焼かれてブラウザから読める値であり、
+構造的に届かないようにします。(b) はバンドルへ焼かれてブラウザから読める値であり、
 ブランチから参照できても権限の格上げになりません。
+
+シークレット名に `VITE_` は付けません。Vite はその接頭辞の付いた環境変数しかバンドルへ
+露出しないため、冠するのは `deploy-web.yml` が渡すときです（`VITE_MAPS_WEB_API_KEY:
+${{ secrets.MAPS_WEB_API_KEY }}`）。
 
 `PROXY_BASE_URL` だけ Variable なのは公開 URL で秘匿対象ではないためです。(b) はいずれも
 未設定だと空文字がバンドルに焼かれて実行時に壊れるため、ワークフロー冒頭で存在検査をして
@@ -471,9 +481,14 @@ Firebase Authentication は使っていない（`firebase_auth` に依存して�
 
 ### 6. 注意
 
-`--dart-define` で渡した値はコンパイル時定数として `main.dart.js` に焼き込まれ、
+`VITE_` で渡した値はビルド時に文字列リテラルへ差し替えられてバンドルに焼き込まれ、
 ブラウザから読めます。GitHub Secret にするのは履歴に残さず差し替えを効かせるためで、
 **公開後の露出は防げません。** 予算アラートと1日あたりのクォータ上限を併せて掛けてください。
+
+App Check のデバッグトークンだけは例外で、これは本物の秘密です。`deploy-web.yml` は
+渡さず、読むのは開発ビルドの分岐の中だけに閉じています——分岐が畳まれても**値だけが
+残る**ことが実際にあったためで（#395）、`apps/web/test/build/production-bundle.test.ts`
+が実際にビルドして見張っています。
 
 ## 秘匿情報の取り扱い
 

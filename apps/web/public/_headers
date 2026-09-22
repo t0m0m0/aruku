@@ -1,0 +1,21 @@
+# Cloudflare Pages は配信物の直下に置かれた `_headers` を読む。`vite build` は
+# `public/` の中身をそのまま `dist/` へ複製するため、ここに置けば配信物に載る。
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+
+# ここにしか Cache-Control を置かない。Pages は「複数の規則に当たった要求は
+# すべての規則のヘッダを継ぐ」規則で、同名のヘッダは上書きではなく**カンマ連結**
+# される。`/*` 側に no-cache を書くと /assets/* にも連結されて
+# `no-cache, public, max-age=31536000, immutable` になり、immutable が死ぬ。
+#
+# index.html 側に規則を足さないのも同じ理由と、足す必要が無いため——Pages の既定が
+# `public, max-age=0, must-revalidate` + ETag で、既に毎回再検証になっている。
+# 移植元が `/index.html` と `/flutter_bootstrap.js` を名指ししていたのは、Flutter の
+# web 出力がファイル名にハッシュを持たず、既定のままだと**一度焼き付くと次のデプロイが
+# 届かなくなる**ためだった。Vite は /assets/ の中身をすべてハッシュ付きで出すので、
+# 長期キャッシュを付けられる側と付けてはいけない側が入れ替わっている。
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
