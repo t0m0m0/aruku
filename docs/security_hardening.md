@@ -319,7 +319,7 @@ GitHub の secrets / vars から組み、空の値があればビルド前に落
 > | キー | 正本 |
 > | --- | --- |
 > | `settings` | `AppSettings.toJson()`（`packages/engine/src/models/app-settings.ts`） |
-> | `recents` / `recentOrigins` | `RecentPlace.toJson()`（`apps/web/src/places/recent-place.ts`） |
+> | `recents` / `recentOrigins` | `recentPlaceToJson()`（`apps/web/src/places/recent-place.ts`） |
 > | `activity` | Web 版には無い。撤去した Flutter 版の `DailyActivity.toJson()`（`flutter-final:lib/core/models/daily_activity.dart`） |
 > | `updatedAt` | 送出元は未定（同期を実装するときに決める） |
 >

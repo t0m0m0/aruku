@@ -100,6 +100,12 @@ DECL_RES = [
         rf"^\s*(?!(?:{STATEMENT_KEYWORDS})\b)(\w+)\s*(?:<[^>]*>)?"
         r"\((?:[^;]*\)\s*(?::\s*[^=;{]+)?\s*\{)?\s*$"
     ),
+    # interface のメソッド署名（`close(): void;`）。`;` で終わる点は呼び出しの文と同じだが、
+    # 文は `)` の直後に戻り値型の `:` を置けない。
+    re.compile(
+        rf"^\s*(?!(?:{STATEMENT_KEYWORDS})\b)(\w+)\s*\??\s*(?:<[^>]*>)?"
+        r"\([^;]*\)\s*:\s*[^=;{]+;\s*$"
+    ),
 ]
 
 # 宣言とみなす最大インデント。コメントが参照するのはトップレベル（0）と
@@ -396,15 +402,22 @@ def path_refs(path, text):
 PACKAGE_ROOT_RE = re.compile(r"^(?:apps|packages)/[^/]+/")
 
 
-def candidates(path, ref):
-    """参照 `ref` が指しうるリポジトリ相対パス。
+# パッケージの中でもリポジトリのルートから書く参照の先頭。
+REPO_ROOTED_PREFIXES = ("apps/", "packages/", "docs/", "functions/")
+
+
+def resolve(path, ref):
+    """`path` に書かれた参照 `ref` が指すリポジトリ相対パス。
 
     `apps/web` や `packages/engine` の中では `test/foo.test.ts` をパッケージの
-    ルートからの相対で書く慣習がある。リポジトリのルートだけで解決すると、
-    実在するファイルを「無い」と言い、ルートに同名のパスが在れば取り違える。
+    ルートからの相対で書く慣習がある。リポジトリのルートとパッケージのルートの
+    **どちらか**に在れば可とすると、パッケージ側を消してもルートの同名ファイルが
+    参照を生かしてしまう。先頭で一意に決める。
     """
     root = PACKAGE_ROOT_RE.match(path)
-    return [ref, root.group(0) + ref] if root else [ref]
+    if root and not ref.startswith(REPO_ROOTED_PREFIXES):
+        return root.group(0) + ref
+    return ref
 
 
 def check_deleted_files(snap, deleted, findings):
@@ -414,8 +427,8 @@ def check_deleted_files(snap, deleted, findings):
     gone = set(deleted)
     for path, line, text in snap.prose(snap.code_paths + snap.doc_paths):
         for ref in sorted(path_refs(path, text)):
-            options = candidates(path, ref)
-            if any(c in gone for c in options) and not any(snap.exists(c) for c in options):
+            target = resolve(path, ref)
+            if target in gone and not snap.exists(target):
                 findings.append((path, line, f"削除された `{ref}` への参照が残っている"))
 
 
@@ -423,7 +436,7 @@ def check_dangling_paths(snap, targets, findings):
     """コメント・ドキュメントが指すパスが実在するか。"""
     for path, line, text in snap.prose(targets):
         for ref in sorted(path_refs(path, text)):
-            if not any(snap.exists(c) for c in candidates(path, ref)):
+            if not snap.exists(resolve(path, ref)):
                 findings.append((path, line, f"存在しないパス `{ref}` を参照している"))
 
 
@@ -499,6 +512,11 @@ def main():
     ap.add_argument("--ci", action="store_true", help="追跡ファイル全体を検査して exit 1")
     ap.add_argument("--base", default="", help="CI で差分駆動の検査に使う基準 ref")
     ap.add_argument(
+        "--staged",
+        action="store_true",
+        help="コミット前の index を検査して exit 1（手で回す入口。フック用の JSON を読まない）",
+    )
+    ap.add_argument(
         "--two-dot",
         action="store_true",
         help="base..HEAD で比べる。push（特に force push）は旧 tip と新 tip を"
@@ -514,14 +532,17 @@ def main():
         targets = snap.code_paths + snap.doc_paths
         section_targets = targets
     else:
-        try:
-            payload = json.load(sys.stdin)
-        except (json.JSONDecodeError, ValueError):
-            sys.exit(0)
-        command = payload.get("tool_input", {}).get("command", "")
-        is_commit, takes_worktree = parse_git_commit(command)
-        if not is_commit:
-            sys.exit(0)
+        if args.staged:
+            takes_worktree = False
+        else:
+            try:
+                payload = json.load(sys.stdin)
+            except (json.JSONDecodeError, ValueError):
+                sys.exit(0)
+            command = payload.get("tool_input", {}).get("command", "")
+            is_commit, takes_worktree = parse_git_commit(command)
+            if not is_commit:
+                sys.exit(0)
         # `git commit -a` などは index に無い変更まで取り込む。その場合は index では
         # なく作業ツリーを HEAD と比べる（PR #358 レビュー）。
         scope = ["HEAD"] if takes_worktree else ["--cached"]
@@ -540,7 +561,7 @@ def main():
     if not findings:
         sys.exit(0)
     report(findings)
-    sys.exit(1 if args.ci else 2)
+    sys.exit(1 if args.ci or args.staged else 2)
 
 
 if __name__ == "__main__":

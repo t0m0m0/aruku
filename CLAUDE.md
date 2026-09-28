@@ -115,7 +115,7 @@ commit 前のエージェントフックが見る。**検査に引っかかっ�
 
 Before every commit, run:
 
-- `python3 .claude/doc_consistency.py`（commit フックも同じ検査を走らせる）
+- `python3 .claude/doc_consistency.py --staged`（index を検査する。commit フックも同じ検査を走らせる）
 
 When `packages/engine/` changes, also run in `packages/engine/`:
 

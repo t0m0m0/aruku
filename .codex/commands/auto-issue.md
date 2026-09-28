@@ -68,10 +68,10 @@ git checkout -b <type>/<issue番号>-<短いslug>
 `.codex/agents/worker.md` の流儀に従う:
 
 1. 対象パッケージの `test/` に失敗するテストを書く
-2. `npm test` で失敗を確認
+2. `npm --prefix <対象パッケージ> test` で失敗を確認
 3. 実装する
-4. `npm test` でパスを確認
-5. `npx tsc --noEmit` でエラーがないことを確認
+4. `npm --prefix <対象パッケージ> test` でパスを確認
+5. `npm --prefix <対象パッケージ> run typecheck` でエラーがないことを確認
 6. 論理単位ごとにコミット（`feat(#ISSUE): ...`）
 
 `functions/` を変更した場合は、その配下で `npm run build` と `npm test` も通す。

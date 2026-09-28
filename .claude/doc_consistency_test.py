@@ -143,6 +143,14 @@ class RemovedDeclarationsTest(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertIn(expected, dc.removed_declarations(line))
 
+    def test_picks_up_single_line_interface_method_signatures(self):
+        for line, expected in [
+            ("-  measureShortlist(input: RouteInput): number;", "measureShortlist"),
+            ("-  resolveBoardingTimes?(): Promise<void>;", "resolveBoardingTimes"),
+        ]:
+            with self.subTest(line=line):
+                self.assertIn(expected, dc.removed_declarations(line))
+
     def test_ignores_local_variables_inside_a_function_body(self):
         """局所名は散文の普通の英単語に当たる。コメントが指すのは API シンボル。"""
         diff = "-    const files = captured?.files ?? [];\n-      const bestIndex = 0;\n"
@@ -544,6 +552,45 @@ class HookTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 2)
             self.assertIn("walkBudgetCeiling", result.stderr)
+
+    def test_does_not_let_a_root_file_vouch_for_a_deleted_package_file(self):
+        with Repo() as repo:
+            write(repo.path, "test/a.test.ts", "export {};\n")
+            write(repo.path, "apps/web/test/a.test.ts", "export {};\n")
+            write(repo.path, "apps/web/PORTING.md", "移植先は `test/a.test.ts`。\n")
+            repo.commit("both")
+            (repo.path / "apps/web/test/a.test.ts").unlink()
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("test/a.test.ts", result.stderr)
+
+    def test_resolves_a_repository_rooted_path_from_inside_a_package(self):
+        with Repo() as repo:
+            write(repo.path, "apps/web/src/a.ts", "// docs/spec/route-optimization.md §2.3 を見る。\nexport const a = 1;\n")
+            repo.stage_all()
+
+            self.assertEqual(run_hook(repo.path).returncode, 0)
+
+    def test_checks_the_index_from_the_command_line(self):
+        """手で回す入口。フック用の JSON を渡さずに、コミット前の index を検査する。"""
+        with Repo() as repo:
+            (repo.path / "packages/engine/src/probe.ts").unlink()
+            repo.stage_all()
+
+            result = subprocess.run(
+                [sys.executable, SCRIPT, "--staged"],
+                stdin=subprocess.DEVNULL,
+                text=True,
+                capture_output=True,
+                cwd=str(repo.path),
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("probeThresholdValue", result.stderr)
 
     def test_resolves_a_path_relative_to_the_package_that_mentions_it(self):
         with Repo() as repo:
