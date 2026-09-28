@@ -12,7 +12,6 @@ DENY_PATTERNS = [
     (r'git\s+push\s+.*--force', 'force pushは禁止です'),
     (r'git\s+checkout\s+main\s*$', 'mainブランチへの直接チェックアウトの前に確認が必要です'),
     (r'git\s+merge\s+main', 'mainブランチへの直接マージは禁止です（PRを使うこと）'),
-    (r'flutter\s+clean\s*&&\s*rm', 'flutter clean後の連鎖削除は禁止です'),
     (r'curl\s+.*\|\s*(bash|sh)', 'curlの出力を直接シェルに渡すことは禁止です'),
     (r'>\s*/dev/null\s+2>&1\s*;\s*rm', '標準出力を捨てながらの削除は禁止です'),
 ]

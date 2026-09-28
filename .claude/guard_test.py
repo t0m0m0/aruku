@@ -23,20 +23,20 @@ guard = _load_guard_module()
 
 class ExtractFilePathsTest(unittest.TestCase):
     def test_uses_claude_code_file_path(self):
-        payload = {"tool_input": {"file_path": "lib/main.dart"}}
+        payload = {"tool_input": {"file_path": "apps/web/src/main.tsx"}}
 
-        self.assertEqual(guard.extract_file_paths(payload), ["lib/main.dart"])
+        self.assertEqual(guard.extract_file_paths(payload), ["apps/web/src/main.tsx"])
 
     def test_extracts_all_paths_from_a_codex_apply_patch_command(self):
         payload = {
             "tool_input": {
                 "command": """*** Begin Patch
-*** Update File: lib/main.dart
+*** Update File: apps/web/src/main.tsx
 @@
-*** Add File: test/main_test.dart
+*** Add File: apps/web/test/main.test.tsx
 *** Delete File: .env
-*** Update File: lib/old_name.dart
-*** Move to: lib/new_name.dart
+*** Update File: apps/web/src/old-name.ts
+*** Move to: apps/web/src/new-name.ts
 *** End Patch"""
             }
         }
@@ -44,11 +44,11 @@ class ExtractFilePathsTest(unittest.TestCase):
         self.assertEqual(
             guard.extract_file_paths(payload),
             [
-                "lib/main.dart",
-                "test/main_test.dart",
+                "apps/web/src/main.tsx",
+                "apps/web/test/main.test.tsx",
                 ".env",
-                "lib/old_name.dart",
-                "lib/new_name.dart",
+                "apps/web/src/old-name.ts",
+                "apps/web/src/new-name.ts",
             ],
         )
 

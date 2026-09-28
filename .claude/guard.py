@@ -14,18 +14,6 @@ DENY_PATTERNS = [
     # 秘密情報
     r'\.env$',
     r'\.env\..*',
-    r'lib/secrets/',
-    r'lib/config/secrets',
-    r'Secrets.xcconfig$',
-    r'secrets.properties$',
-    # プラットフォーム固有の認証ファイル
-    r'android/app/google-services\.json$',
-    r'ios/Runner/GoogleService-Info\.plist$',
-    r'ios/Runner/.*\.p12$',
-    r'ios/Runner/.*\.mobileprovision$',
-    # 依存関係（勝手な変更を防ぐ）
-    r'pubspec\.yaml$',
-    r'pubspec\.lock$',
     # Gitの設定
     r'\.git/',
     # Claude自身の設定（再帰的な変更を防ぐ）
@@ -97,7 +85,7 @@ def main():
                 message = (
                     f"[GUARD] アクセス拒否: {file_path}\n"
                     f"理由: パターン '{pattern}' に一致するファイルは変更禁止です。\n"
-                    f"pubspec.yamlを変更したい場合はユーザーに確認を取ってください。"
+                    f"変更したい場合はユーザーに確認を取ってください。"
                 )
                 sys.stderr.write(message + "\n")
                 sys.exit(2)

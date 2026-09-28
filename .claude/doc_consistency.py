@@ -26,15 +26,13 @@ import sys
 
 # 検査範囲。生成物は除く。
 #
-# `:(glob)` マジックを付けるのは、既定の pathspec だと `lib/**/*.dart` が
-# `lib/main.dart` のような直下のファイルに当たらないため（`**` が1階層以上を要求する）。
+# `:(glob)` マジックを付けるのは、既定の pathspec では `**/` が0階層に当たらず、
+# `functions/src/**/*.ts` が直下の `functions/src/index.ts` を取りこぼすため。
 # 付け忘れると検査対象から静かに漏れる。
 CODE_GLOBS = [
-    ":(glob)lib/**/*.dart",
     ":(glob)functions/src/**/*.ts",
     # テストのコメントも同じ規約の対象。生存判定にも効く——テストがまだ呼んでいる
     # シンボルは撤去されていない。
-    ":(glob)test/**/*.dart",
     ":(glob)functions/test/**/*.ts",
     ":(glob)apps/**/*.ts",
     ":(glob)apps/**/*.tsx",
@@ -43,13 +41,14 @@ CODE_GLOBS = [
 ]
 DOC_GLOBS = [
     ":(glob)docs/**/*.md",
-    ":(glob)test/**/*.md",
     ":(glob)*.md",
     ":(glob)apps/*/*.md",
     ":(glob)packages/*/*.md",
     "firestore.rules",
 ]
-EXCLUDE_RE = re.compile(r"(^lib/l10n/|^lib/firebase_options\.dart$|^functions/lib/)")
+# docs/archive/ は撤去した構成の記録で、指す先が作業ツリーに無いのが正しい
+# （Flutter 版は flutter-final タグにだけ残る・#387）。
+EXCLUDE_RE = re.compile(r"(^docs/archive/|^functions/lib/)")
 
 # 意図的に残す参照の抑制マーカー。撤去の経緯を書いた記述など、消すほうが損な参照がある。
 # 行のどこかにあれば、その行は検査しない。
@@ -83,19 +82,24 @@ STATEMENT_KEYWORDS = (
     "return|await|throw|yield|if|while|for|switch|assert|else|do|case|new|super|this|"
     "break|continue|rethrow|try|catch|finally|import|export|part"
 )
-TYPE = r"[A-Za-z_][\w<>,?.\[\]]*"
+
+MEMBER_MODIFIERS = r"(?:public|private|protected|static|readonly|declare|override|abstract|async|get|set)"
 
 DECL_RES = [
-    # Dart の型宣言。`sealed class` / `abstract interface class` のような修飾子付きを含む。
-    re.compile(r"^\s*(?:(?:abstract|sealed|base|final|interface|mixin)\s+)*(?:class|enum|mixin|extension|typedef)\s+(\w+)"),
-    # TypeScript の宣言。`export async function` はこのリポジトリで実際に使っている。
-    re.compile(r"^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:async\s+)?(?:function\*?|interface|type|class|enum)\s+(\w+)"),
+    # トップレベルの宣言。`export async function` はこのリポジトリで実際に使っている。
+    re.compile(
+        r"^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?"
+        r"(?:function\*?|interface|type|class|enum)\s+(\w+)"
+    ),
     re.compile(r"^\s*(?:export\s+)?(?:const|let)\s+(\w+)\s*[:=]"),
-    # Dart のフィールド・定数。`static const _pageCount = 3` のような型推論も拾う。
-    re.compile(rf"^\s*(?:static\s+)?(?:const|final|late|var)\s+(?:{TYPE}\s+)?(\w+)\s*[=;]"),
-    # Dart のメソッド・getter。戻り値型を必須にし、文の先頭語を除いて文と分ける。
-    # record 戻り値（`({int cum, int wait}) _advance(...)`）はこのリポジトリで実際に使う。
-    re.compile(rf"^\s*(?:@\w+\s+)*(?:static\s+)?(?!(?:{STATEMENT_KEYWORDS})\b)(?:{TYPE}|\([^)]*\)\??)\s+(?:get\s+)?(\w+)\s*[({{=]"),
+    # 修飾子付きのクラスメンバー。修飾子があれば文と取り違えない。
+    re.compile(rf"^\s*(?:{MEMBER_MODIFIERS}\s+)+\*?(\w+)\s*[?!]?\s*[:=;(<]"),
+    # 修飾子の無いメソッド。呼び出しの文と形が同じなので、引数が行を跨ぐ `name(` で
+    # 終わるか、戻り値型または本体の `{` まで1行で書いた形に限る。`foo(x);` は拾わない。
+    re.compile(
+        rf"^\s*(?!(?:{STATEMENT_KEYWORDS})\b)(\w+)\s*(?:<[^>]*>)?"
+        r"\((?:[^;]*\)\s*(?::\s*[^=;{]+)?\s*\{)?\s*$"
+    ),
 ]
 
 # 宣言とみなす最大インデント。コメントが参照するのはトップレベル（0）と
@@ -318,11 +322,26 @@ class Snapshot:
         return ref in self.ignored
 
 
+DIFF_FILE_RE = re.compile(r"^diff --git a/(\S+) ")
+SCANNED_SUFFIXES = (".ts", ".tsx")
+
+
 def removed_declarations(diff):
-    """diff の削除行から、宣言が消えたシンボル名を拾う。"""
+    """diff の削除行から、宣言が消えたシンボル名を拾う。
+
+    走査する言語のファイルだけを見る。撤去した言語（#387 の Dart）の宣言まで拾うと、
+    TS のコメントが来歴として名指しする移植元の名前（「移植元 `JourneyProgress`」）が
+    すべて腐り扱いになる。`class X {` は Dart と TS で同じ形なので、正規表現では
+    分けられない。ファイル見出しの無い diff 片は対象として扱う。
+    """
     names = set()
+    in_scope = True
     for line in diff.splitlines():
-        if not line.startswith("-") or line.startswith("---"):
+        header = DIFF_FILE_RE.match(line)
+        if header:
+            in_scope = header.group(1).endswith(SCANNED_SUFFIXES)
+            continue
+        if not in_scope or not line.startswith("-") or line.startswith("---"):
             continue
         body = line[1:]
         if body.strip().startswith(("//", "*", "///", "#")):

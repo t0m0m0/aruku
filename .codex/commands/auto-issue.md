@@ -1,7 +1,7 @@
 ---
 description: GitHub issueを1つ選んで実装→PR作成→reviewerで別コンテキストレビュー→指摘対応まで一気通貫。マージは手動。
 argument-hint: "[issue番号（省略時は一覧から選ぶ）]"
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(dart:*), Bash(flutter:*), Bash(npm:*), Read, Edit, Write, Grep, Glob, Task
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(npx:*), Bash(python3:*), Read, Edit, Write, Grep, Glob, Task
 ---
 
 # /auto-issue — issue実装からレビュー対応までの半自動フロー
@@ -14,10 +14,10 @@ allowed-tools: Bash(git:*), Bash(gh:*), Bash(dart:*), Bash(flutter:*), Bash(npm:
 - 1セッション1機能。TDD。小さな論理単位でコミット。
 - `main` へ直コミット禁止 / 失敗テストでコミット禁止 / 無関係ファイルを触らない。
 - コミット形式: `feat(#ISSUE): 要約`（tooling系は `chore(#ISSUE):` 等でも可）。
-- `dart format .` → `dart analyze` → `flutter test` を**コミット前に必ず**通す。
+- 変更したパッケージの検査（`CLAUDE.md`「Validation Commands」）を**コミット前に必ず**通す。
   `functions/` を変更したら `functions/` で `npm run build` と `npm test` も実行。
-- `.env` / `lib/secrets/` / `google-services.json` / `GoogleService-Info.plist` には触れない。
-- `pubspec.yaml` は guard 対象。依存追加はユーザー承認必須（Bash経由で適用）。
+- `.env`（`apps/web/.env` を含む）には触れない。
+- 依存追加（`package.json`）はユーザー承認必須。
 
 ---
 
@@ -67,11 +67,11 @@ git checkout -b <type>/<issue番号>-<短いslug>
 
 `.codex/agents/worker.md` の流儀に従う:
 
-1. `test/` に失敗するテストを書く
-2. `flutter test` で失敗を確認
+1. 対象パッケージの `test/` に失敗するテストを書く
+2. `npm test` で失敗を確認
 3. 実装する
-4. `flutter test` でパスを確認
-5. `dart analyze` でエラーがないことを確認
+4. `npm test` でパスを確認
+5. `npx tsc --noEmit` でエラーがないことを確認
 6. 論理単位ごとにコミット（`feat(#ISSUE): ...`）
 
 `functions/` を変更した場合は、その配下で `npm run build` と `npm test` も通す。
@@ -79,9 +79,9 @@ git checkout -b <type>/<issue番号>-<短いslug>
 ## 5. コミット前の検証（全部通す）
 
 ```
-dart format .
-dart analyze
-flutter test
+npm --prefix apps/web run typecheck && npm --prefix apps/web test && npm --prefix apps/web run build && npm --prefix apps/web run e2e
+npm --prefix packages/engine run typecheck && npm --prefix packages/engine test
+python3 .claude/doc_consistency.py --ci
 ```
 
 いずれか失敗したら**コミットしない**。修正して再実行する。

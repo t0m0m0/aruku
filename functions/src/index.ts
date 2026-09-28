@@ -590,11 +590,11 @@ function isRoutesMatrixSuccessBody(data: unknown): boolean {
 //   課金枠を食う」経路だけを塞ぐ多層防御として置いている。
 //
 // なぜ Origin 無しを拒否しないか:
-//   モバイルアプリと curl は Origin を送らない。拒否するとネイティブ版が壊れる
-//   一方、得られる防御は無い（上記のとおり CORS はブラウザ限定のため）。
+//   curl などブラウザ外のクライアントは Origin を送らない。拒否しても得られる
+//   防御は無い（上記のとおり CORS はブラウザ限定のため）。
 //
 // なぜ本番デプロイでも localhost を許可するか:
-//   README の開発手順（flutter run -d chrome --web-port=5555）はデプロイ済み
+//   README の開発手順（npm --prefix apps/web run dev）はデプロイ済み
 //   Functions を叩く。localhost オリジンを持てるのは開発者自身の端末で動く
 //   ページだけで、攻撃者が被害者のブラウザに localhost を名乗らせることは
 //   できないため、許可しても許可リストの目的は損なわれない。

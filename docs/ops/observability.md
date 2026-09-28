@@ -66,7 +66,7 @@ success_rate(upstream) = count(status="success")
 
 ### 3.5 Crashlytics クラッシュフリーユーザー率
 
-Flutter アプリ側（Firebase Crashlytics、PII フリーのクラッシュ・非致命的エラー報告）。データソースは Cloud Logging ではなく Firebase Console / Crashlytics API。
+クライアント側のクラッシュ報告。**Web 版（`apps/web`）には未導入**（#158）——撤去した Flutter 版は Firebase Crashlytics で PII フリーのクラッシュ・非致命的エラーを報告していたが、Crashlytics は Web を対象にしない。導入するまでこの指標は計測できない。
 
 ---
 

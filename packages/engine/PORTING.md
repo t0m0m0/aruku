@@ -63,8 +63,8 @@ Dart 側のテストは `flutter-final` タグに残っている。
 - 路線名 `IN` → `京王井の頭線`、駅名 `東京 Tokyo` → `東京`
 
 **突き合わせ用のハーネスは残していない。** Dart 側は `flutter test` からしか起動できず
-（`dart run` は `dart:ui` を解決できない）、何より Phase 4 で Dart 側が消えるので、
-置けば確実に腐る。再現したいときは
+（`dart run` は `dart:ui` を解決できない）、何より Phase 4（#387）で Dart 側が消えたので、
+置いていれば腐っていた。再現したいときは
 この節の入力と関数の一覧から組み直すこと。
 
 ## `group` / `test` → `describe` / `it`
