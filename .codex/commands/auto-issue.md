@@ -17,7 +17,7 @@ allowed-tools: Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(npx:*), Bash(python3:*
 - 変更したパッケージの検査（`CLAUDE.md`「Validation Commands」）を**コミット前に必ず**通す。
   `functions/` を変更したら `functions/` で `npm run build` と `npm test` も実行。
 - `.env`（`apps/web/.env` を含む）には触れない。
-- 依存追加（`package.json`）はユーザー承認必須。
+- `package.json` / `package-lock.json` は guard 対象。依存追加はユーザー承認必須（Bash経由で適用）。
 
 ---
 

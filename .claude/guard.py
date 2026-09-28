@@ -14,6 +14,8 @@ DENY_PATTERNS = [
     # 秘密情報
     r'\.env$',
     r'\.env\..*',
+    # 依存関係（追加・更新はユーザー承認が要る。勝手な変更を防ぐ）
+    r'(^|/)package(-lock)?\.json$',
     # Gitの設定
     r'\.git/',
     # Claude自身の設定（再帰的な変更を防ぐ）

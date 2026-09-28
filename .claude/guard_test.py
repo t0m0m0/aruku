@@ -67,5 +67,31 @@ class ExtractFilePathsTest(unittest.TestCase):
         self.assertIn("特定できない", result.stderr)
 
 
+def run_guard(file_path):
+    return subprocess.run(
+        [sys.executable, str(Path(guard.__file__))],
+        input=json.dumps({"tool_input": {"file_path": file_path}}),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+class DependencyManifestTest(unittest.TestCase):
+    def test_blocks_edits_to_npm_manifests(self):
+        for path in [
+            "/repo/apps/web/package.json",
+            "/repo/packages/engine/package-lock.json",
+            "functions/package.json",
+        ]:
+            with self.subTest(path=path):
+                self.assertEqual(run_guard(path).returncode, 2)
+
+    def test_allows_files_that_only_look_similar(self):
+        for path in ["/repo/apps/web/src/package-json.ts", "/repo/docs/package.json.md"]:
+            with self.subTest(path=path):
+                self.assertEqual(run_guard(path).returncode, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
