@@ -108,10 +108,13 @@ npm --prefix apps/web run dev
 **2 と 3 で入れる鍵は別物です。** Firebase 側はトークン検証にシークレットを使い、
 アプリ側は `ReCaptchaV3Provider` にサイトキーを渡します。取り違えると検証が通りません。
 
-> 開発サーバでは、`VITE_APP_CHECK_DEBUG_TOKEN` に Firebase Console → Security →
-> App Check → Apps タブ → 対象アプリの ⋮ → **デバッグトークンを管理** へ登録した値を置きます。
-> 空にすると SDK が起動ごとに新しいトークンを生成してコンソールへ出すため、登録し直しが
-> 要ります。固定の UUID を1回登録するほうが早い。**デバッグトークンはコミットしないこと。**
+> 開発サーバでは App Check のデバッグトークンを使います。`VITE_APP_CHECK_DEBUG_TOKEN` が空なら
+> SDK がトークンを生成してブラウザのコンソールへ出し、IndexedDB に保存して次回からも使い回します。
+> その値を Firebase Console → Security → App Check → Apps タブ → 対象アプリの ⋮ →
+> **デバッグトークンを管理** に1回登録すれば通ります。保存はオリジン（ポートを含む）ごとなので、
+> サイトデータを消す・ポートを変える・シークレットウィンドウで開くと作り直され、登録し直しが
+> 要ります。ブラウザやポートを問わず同じ値を使いたいときだけ、登録した値を
+> `VITE_APP_CHECK_DEBUG_TOKEN` に置きます。**デバッグトークンはコミットしないこと。**
 
 **ローカルのエミュレータなら App Check は要りません。** `functions/src/index.ts` の
 `verifyAppCheck` は `FUNCTIONS_EMULATOR` が立っているとき検証ごとスキップし、

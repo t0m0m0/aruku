@@ -169,6 +169,11 @@ class RemovedDeclarationsTest(unittest.TestCase):
         self.assertIn("none", dc.removed_declarations("-  static none(): SearchDeadline {"))
         self.assertIn("plan", dc.removed_declarations("-  private async plan<T>("))
 
+    def test_picks_up_a_method_whose_body_stays_on_the_declaration_line(self):
+        for line in ["-  uniqueMethod(): void {}", "-  uniqueMethod(): number { return 1; }"]:
+            with self.subTest(line=line):
+                self.assertIn("uniqueMethod", dc.removed_declarations(line))
+
     def test_keeps_a_short_method_name_confirmed_by_its_signature(self):
         self.assertIn("close", dc.removed_declarations("-  close(): void;"))
 
@@ -292,6 +297,9 @@ class PathPatternTest(unittest.TestCase):
         self.assertEqual(
             dc.PATH_RE.findall("移植元: lib/features/picker/ の入力"), ["lib/features/picker/"]
         )
+
+    def test_matches_a_path_under_tool(self):
+        self.assertEqual(dc.PATH_RE.findall("集計は tool/route_metrics_agg.dart が担う"), ["tool/route_metrics_agg.dart"])
 
     def test_ignores_a_path_qualified_by_a_git_revision(self):
         self.assertEqual(dc.PATH_RE.findall("移植元: flutter-final:lib/core/foo.dart"), [])
@@ -655,6 +663,19 @@ class HookTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 2)
             self.assertIn("apps/web/src/old/", result.stderr)
+
+    def test_flags_a_deleted_root_level_file_named_without_a_directory(self):
+        with Repo() as repo:
+            write(repo.path, "defines.example.json", "{}\n")
+            write(repo.path, "apps/web/src/b.ts", "// 値は defines.example.json の同名キーと同じ。\nexport const b = 1;\n")
+            repo.commit("root")
+            (repo.path / "defines.example.json").unlink()
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("defines.example.json", result.stderr)
 
     def test_accepts_a_directory_reference_that_still_has_files(self):
         with Repo() as repo:

@@ -556,7 +556,7 @@ picker / settings でも `await` を跨ぐ操作が出たら、**先にここを
 ## 設定
 
 `.env` はコミットしない（`apps/web/.gitignore` が `.env*` を除外し、`.env.example` だけ通す）。
-`dart_defines.json` / `dart_defines.example.json` と同じ作法。
+撤去した Flutter 版の `dart_defines.json` / `flutter-final:dart_defines.example.json` と同じ作法。
 
 ```bash
 cp apps/web/.env.example apps/web/.env

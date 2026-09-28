@@ -188,7 +188,7 @@ export class BestEffortLedger {
 /// 到着アンカー第2波（#376）の結末。`arrivalWaveOutcome=<index>` として1行ログに出す。
 ///
 /// 他の enum（`SegmentType`）と違い**数値**を値にしている。1行ログのコード（0〜3）は
-/// 集計器（tool/route_metrics_agg.dart）が読む契約そのもので、テストがその値を固定して
+/// 集計器（撤去した flutter-final:tool/route_metrics_agg.dart）が読む契約そのもので、テストがその値を固定して
 /// いるため——文字列にすると `index` に相当するものが消え、写像を別に持つことになる。
 export const ArrivalWaveOutcome = {
   /// 解析可能な非空応答。

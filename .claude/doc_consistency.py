@@ -64,7 +64,7 @@ KEEP_MARKER = "doc-consistency:keep"
 # `/` で終わる参照はディレクトリとみなす（`lib/features/picker/`）。ツリーごと消すと
 # ファイル名を含まない参照だけが残るので、拾わないとその撤去が検査を素通りする。
 PATH_RE = re.compile(
-    r"(?<![\w/:.-])((?:lib|test|functions|docs|android|ios|web|apps|packages)/"
+    r"(?<![\w/:.-])((?:lib|test|functions|docs|android|ios|web|apps|packages|tool)/"
     r"(?:[\w./-]+\.(?:dart|arb|tsx|ts|css|md|json|yaml|yml|rules|kts|kt|swift|gradle)(?![A-Za-z0-9_])"
     r"|(?:[\w.-]+/)+(?![\w.-])))"
 )
@@ -113,10 +113,11 @@ METHOD_DECL_RES = [
     # 修飾子付きのメソッド（`static none(): SearchDeadline {`）。
     re.compile(rf"^\s*(?:{MEMBER_MODIFIERS}\s+)+\*?(\w+)\s*[?!]?\s*[(<]"),
     # 修飾子の無いメソッド。呼び出しの文と形が同じなので、引数が行を跨ぐ `name(` で
-    # 終わるか、戻り値型または本体の `{` まで1行で書いた形に限る。`foo(x);` は拾わない。
+    # 終わるか、戻り値型または本体の `{`（`{}` まで1行に収めた形を含む）まで書いた形に
+    # 限る。`foo(x);` は拾わない。
     re.compile(
         rf"^\s*(?!(?:{STATEMENT_KEYWORDS})\b)(\w+)\s*(?:<[^>]*>)?"
-        r"\((?:[^;]*\)\s*(?::\s*[^=;{]+)?\s*\{)?\s*$"
+        r"\((?:[^;]*\)\s*(?::\s*[^=;{]+)?\s*\{(?:[^{}]*\})?)?\s*$"
     ),
     # interface のメソッド署名（`close(): void;`）。`;` で終わる点は呼び出しの文と同じだが、
     # 文は `)` の直後に戻り値型の `:` を置けない。
@@ -463,7 +464,14 @@ def check_deleted_files(snap, deleted, findings):
     if not deleted:
         return
     gone = set(deleted)
+    # ルート直下のファイルはディレクトリを持たないので PATH_RE に掛からない。一般の
+    # 単語（`package.json`）まで拾うとパッケージの同名ファイルと取り違えるため、
+    # このコミットで消えたものだけを名前で探す。
+    gone_root = {g: re.compile(rf"(?<![\w/:.-]){re.escape(g)}(?![\w-])") for g in gone if "/" not in g}
     for path, line, text in snap.prose(snap.code_paths + snap.doc_paths):
+        for name, pat in gone_root.items():
+            if pat.search(text) and not snap.exists(resolve(path, name)):
+                findings.append((path, line, f"削除された `{name}` への参照が残っている"))
         for ref in sorted(path_refs(path, text)):
             target = resolve(path, ref)
             removed = target in gone or (
