@@ -64,7 +64,7 @@ KEEP_MARKER = "doc-consistency:keep"
 # `/` で終わる参照はディレクトリとみなす（`lib/features/picker/`）。ツリーごと消すと
 # ファイル名を含まない参照だけが残るので、拾わないとその撤去が検査を素通りする。
 PATH_RE = re.compile(
-    r"(?<![\w/:.-])((?:lib|test|functions|docs|android|ios|web|apps|packages|tool)/"
+    r"(?<![\w/:.-])((?:lib|test|functions|docs|android|ios|web|apps|packages|tool|src|e2e|vite)/"
     r"(?:[\w./-]+\.(?:dart|arb|tsx|ts|mjs|js|css|html|md|json|yaml|yml|rules|kts|kt|swift|gradle)(?![A-Za-z0-9_])"
     r"|(?:[\w.-]+/)+(?![\w.-])))"
 )
@@ -110,6 +110,13 @@ DECL_RES = [
 # 散文の普通の語に当たるのを避けるためで、その心配はメソッド名の照合を
 # コードの形（`close()` / `` `close` `` / `.close`）に限ることで別に解く。
 METHOD_DECL_RES = [
+    # トップレベルの関数と、関数を束ねた const（`export const seconds = (n) => …`）。
+    # 値の const（`const files = 1`）は呼べないのでここに入れない。
+    re.compile(r"^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\*?\s+(\w+)"),
+    re.compile(
+        r"^\s*(?:export\s+)?(?:const|let)\s+(\w+)\s*(?::[^=]+)?=\s*(?:async\s+)?"
+        r"(?:function\b|(?:<[^>]*>)?\([^)]*\)\s*(?::\s*[^=]+)?=>|\w+\s*=>)"
+    ),
     # 修飾子付きのメソッド（`static none(): SearchDeadline {`）。
     re.compile(rf"^\s*(?:{MEMBER_MODIFIERS}\s+)+\*?(\w+)\s*[?!]?\s*[(<]"),
     # 修飾子の無いメソッド。呼び出しの文と形が同じなので、引数が行を跨ぐ `name(` で
@@ -429,6 +436,9 @@ def path_refs(path, text):
     相対リンクで書かれた参照だけ検査から漏れる（PR #358 レビュー）。
     """
     refs = {m.group(1) for m in PATH_RE.finditer(text)}
+    if not PACKAGE_ROOT_RE.match(path):
+        # パッケージの外では、どのパッケージの `src/` かを文脈でしか示せない。
+        refs = {r for r in refs if not r.startswith(PACKAGE_ONLY_PREFIXES)}
     if path.endswith(".md"):
         for m in MD_LINK_RE.finditer(text):
             target = m.group(1)
@@ -438,7 +448,10 @@ def path_refs(path, text):
     return refs
 
 
-PACKAGE_ROOT_RE = re.compile(r"^(?:apps|packages)/[^/]+/")
+PACKAGE_ROOT_RE = re.compile(r"^(?:(?:apps|packages)/[^/]+|functions)/")
+
+# パッケージのルートからの相対でしか書かれない先頭。
+PACKAGE_ONLY_PREFIXES = ("src/", "e2e/", "vite/")
 
 
 # パッケージの中でもリポジトリのルートから書く参照の先頭。

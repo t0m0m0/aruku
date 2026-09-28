@@ -174,6 +174,14 @@ class RemovedDeclarationsTest(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertIn("uniqueMethod", dc.removed_declarations(line))
 
+    def test_keeps_a_short_top_level_function_name(self):
+        for line, expected in [
+            ("-export function App() {", "App"),
+            ("-export const seconds = (n: number): number => n * 1000;", "seconds"),
+        ]:
+            with self.subTest(line=line):
+                self.assertIn(expected, dc.removed_declarations(line))
+
     def test_keeps_a_short_method_name_confirmed_by_its_signature(self):
         self.assertIn("close", dc.removed_declarations("-  close(): void;"))
 
@@ -685,6 +693,35 @@ class HookTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 2)
             self.assertIn("defines.example.json", result.stderr)
+
+    def test_flags_a_deleted_file_named_relative_to_the_package_source(self):
+        with Repo() as repo:
+            write(repo.path, "packages/engine/src/dart-number.ts", "export {};\n")
+            write(repo.path, "packages/engine/PORTING.md", "書式を再現するのは `src/dart-number.ts`。\n")
+            repo.commit("src")
+            (repo.path / "packages/engine/src/dart-number.ts").unlink()
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("src/dart-number.ts", result.stderr)
+
+    def test_leaves_package_only_prefixes_alone_outside_a_package(self):
+        """`src/` はどのパッケージかを文脈でしか示せない。ルートの文書では解決しない。"""
+        with Repo() as repo:
+            write(repo.path, "NOTES.md", "- `apps/web/` の `src/features/` に画面を置く\n")
+            repo.stage_all()
+
+            self.assertEqual(run_hook(repo.path).returncode, 0)
+
+    def test_resolves_a_functions_path_relative_to_the_functions_package(self):
+        with Repo() as repo:
+            write(repo.path, "functions/src/index.ts", "export {};\n")
+            write(repo.path, "functions/test/a.test.ts", "// src/index.ts の値と揃える。\nexport {};\n")
+            repo.stage_all()
+
+            self.assertEqual(run_hook(repo.path).returncode, 0)
 
     def test_accepts_a_directory_reference_that_still_has_files(self):
         with Repo() as repo:
