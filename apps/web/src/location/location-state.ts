@@ -1,4 +1,4 @@
-// 移植元: lib/core/models/location_state.dart。
+// 移植元: flutter-final:lib/core/models/location_state.dart。
 //
 // sealed class → discriminated union。payload を持つのは available だけだが、判別子を
 // 全ケースに置く（`'position' in state` のような構造での判別にしない）。switch の

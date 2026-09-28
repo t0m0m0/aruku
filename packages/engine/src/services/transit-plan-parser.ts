@@ -1,4 +1,4 @@
-// 移植元: lib/core/services/transit_plan_parser.dart
+// 移植元: flutter-final:lib/core/services/transit_plan_parser.dart
 
 import { dartRound } from '../dart-number';
 import type { JsonMap } from '../json';

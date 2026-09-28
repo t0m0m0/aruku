@@ -1,4 +1,4 @@
-// 移植元: lib/shared/widgets/aruku_map.dart
+// 移植元: flutter-final:lib/shared/widgets/aruku_map.dart
 //
 // variant は運んでいない。移植元の nav / thumb はどこからも指定されておらず（全 3 箇所が
 // 既定の full）、寄り視点を使う nav 画面は Web に無い。連れてくると、使われない分岐の

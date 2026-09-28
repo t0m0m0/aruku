@@ -1,4 +1,4 @@
-// 移植元: lib/features/search/desktop_typeahead_field.dart（#372）。
+// 移植元: flutter-final:lib/features/search/desktop_typeahead_field.dart（#372）。
 //
 // 全画面の検索へ飛ばさず、条件カードの中で目的地を決めきる欄。押さえるのは
 // 「遷移しないこと」と、キーボードだけで確定できること——移植元が InkWell を避けて

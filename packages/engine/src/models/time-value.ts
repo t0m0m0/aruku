@@ -1,4 +1,4 @@
-// 移植元: lib/core/models/time_value.dart
+// 移植元: flutter-final:lib/core/models/time_value.dart
 
 import { dateTime } from '../time';
 

@@ -1,4 +1,4 @@
-// 移植元: lib/features/result/result_screen.dart と result_totals.dart。
+// 移植元: flutter-final:lib/features/result/result_screen.dart と result_totals.dart。
 // タイムラインそのものは result-timeline.test.tsx が見る。ここが見るのは合計・予算・
 // 見出しと、経路をタイムラインへ渡せていること。
 //

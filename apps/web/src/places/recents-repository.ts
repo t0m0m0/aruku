@@ -1,4 +1,4 @@
-// 移植元: lib/core/services/recents_repository.dart
+// 移植元: flutter-final:lib/core/services/recents_repository.dart
 //
 // 書き込みの直列化（_writeLock）は運んでいない。SharedPreferences が非同期だった
 // ために load→変更→save の間へ別の操作が割り込めたが、localStorage は同期なので

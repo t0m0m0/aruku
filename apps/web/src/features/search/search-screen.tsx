@@ -1,4 +1,4 @@
-// 移植元: lib/features/search/search_screen.dart と search_widgets.dart。
+// 移植元: flutter-final:lib/features/search/search_screen.dart と search_widgets.dart。
 //
 // デスクトップ幅のタイプアヘッド（desktop_typeahead_field.dart）は運んでいない。
 // あれは #372 のデスクトップ作り分け（DesktopContent / DesktopTimeField と対）で、

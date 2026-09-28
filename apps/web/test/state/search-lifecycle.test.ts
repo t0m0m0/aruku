@@ -1,4 +1,4 @@
-// 移植元: lib/core/state/app_state.dart の `startSearch` / `cancelSearch` /
+// 移植元: flutter-final:lib/core/state/app_state.dart の `startSearch` / `cancelSearch` /
 // `_expireRoute` と、test/core/state/ の対応するテスト群。
 //
 // 守りたい不変条件は移植元と同じ——画面と表示前提データが揃っていること。ただし

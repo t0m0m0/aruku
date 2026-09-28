@@ -1,4 +1,4 @@
-// 移植元: lib/core/models/route_error.dart と test/core/models/route_error_test.dart
+// 移植元: flutter-final:lib/core/models/route_error.dart と flutter-final:test/core/models/route_error_test.dart
 
 import { describe, expect, it } from 'vitest';
 

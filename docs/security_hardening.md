@@ -138,7 +138,7 @@
 **目的:** Cloud Functions プロキシが App Check トークンを**必須化（enforce）**しており、
 正規アプリ以外からの呼び出し（API 課金の濫用）を遮断できていることを確認する。
 
-> アプリ側は `AppCheckHttpClient`（`lib/core/services/app_check_http_client.dart`）が
+> アプリ側は `AppCheckHttpClient`（`apps/web/src/http/app-check-http-client.ts`）が
 > 全リクエストに `X-Firebase-AppCheck` ヘッダを付与する。本節が扱うのは**サーバー側の enforce 設定**。
 
 ### 手順
@@ -197,7 +197,7 @@ Firebase 自身も「replay protection は往復が増えるため、**特に機
 #### クライアントとサーバーの対応
 
 - サーバー: `shouldConsumeAppCheckToken()`（`functions/src/index.ts`）
-- クライアント: `AppCheckHttpClient.requiresLimitedUseToken()`（`lib/core/services/app_check_http_client.dart`）
+- クライアント: `AppCheckHttpClient.requiresLimitedUseToken()`（`apps/web/src/http/app-check-http-client.ts`）
 
 **この2つは厳密に一致させること。** ずれは両方向とも実害がある。
 
@@ -286,7 +286,7 @@ dart-define**（`PROXY_BASE_URL` 等）で生成されることを確認する�
 
 ### 前提
 
-`android/app/build.gradle.kts` は `android/key.properties` があれば本番 keystore で
+`flutter-final:android/app/build.gradle.kts` は `android/key.properties` があれば本番 keystore で
 `release` を署名し、未配置の環境では debug 鍵へフォールバックする。**フォールバックは
 沈黙する**ので、本番ビルドで `key.properties` を置き忘れても署名は通る。以下の検証は
 それを検出するためのもの。
@@ -342,9 +342,9 @@ dart-define**（`PROXY_BASE_URL` 等）で生成されることを確認する�
 >
 > | キー | 正本 |
 > | --- | --- |
-> | `settings` | `AppSettings.toJson()`（`lib/core/models/app_settings.dart`） |
-> | `recents` / `recentOrigins` | `RecentPlace.toJson()`（`lib/core/models/recent_place.dart`） |
-> | `activity` | `DailyActivity.toJson()`（`lib/core/models/daily_activity.dart`） |
+> | `settings` | `AppSettings.toJson()`（`packages/engine/src/models/app-settings.ts`） |
+> | `recents` / `recentOrigins` | `RecentPlace.toJson()`（`apps/web/src/places/recent-place.ts`） |
+> | `activity` | `DailyActivity.toJson()`（`flutter-final:lib/core/models/daily_activity.dart`） |
 > | `updatedAt` | 送出元は未定（同期を実装するときに決める） |
 >
 > 同期を実装するときは、ルールテストの fixture ではなく上の serializer に合わせること。

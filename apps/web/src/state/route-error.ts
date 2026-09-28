@@ -1,4 +1,4 @@
-// 移植元: lib/core/models/route_error.dart
+// 移植元: flutter-final:lib/core/models/route_error.dart
 //
 // 文言と復帰導線と対で意味を持つので、エラー画面のスライスまで運んでいなかったもの
 // （PORTING.md の「まだ運んでいないもの」）。

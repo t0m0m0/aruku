@@ -1,4 +1,4 @@
-// 移植元: lib/core/services/places_service.dart の `placesServiceProvider`。
+// 移植元: flutter-final:lib/core/services/places_service.dart の `placesServiceProvider`。
 //
 // route-service.ts と同じく、これは DI の配線であってサービスの仕様ではない。
 

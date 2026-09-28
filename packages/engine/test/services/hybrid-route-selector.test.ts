@@ -1,4 +1,4 @@
-// 移植元: test/core/services/hybrid_route_selector_test.dart
+// 移植元: flutter-final:test/core/services/hybrid_route_selector_test.dart
 
 import { describe, expect, it } from 'vitest';
 

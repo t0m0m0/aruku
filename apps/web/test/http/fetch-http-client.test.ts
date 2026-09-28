@@ -1,4 +1,4 @@
-// 移植元: lib/core/services/route_service.dart の `http.Client()`（package:http）が
+// 移植元: flutter-final:lib/core/services/route_service.dart の `http.Client()`（package:http）が
 // 担っていた面のうち、エンジンの `HttpClient` 契約が要求する範囲。
 //
 // 1:1 の移植ではない。Dart 側は package:http の実装をそのまま使っており、独自の

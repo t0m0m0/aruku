@@ -1,4 +1,4 @@
-// 移植元: lib/core/services/rail_line_names.dart
+// 移植元: flutter-final:lib/core/services/rail_line_names.dart
 
 /// Transit API の `routeName` は路線名の表記がフィードによって割れる。JR スクレイプ系は
 /// 和名（`山手線（内回り）`・`湘南新宿ライン…`）を返すが、私鉄・地下鉄（odpt 系）は

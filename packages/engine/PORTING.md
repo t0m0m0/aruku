@@ -159,7 +159,7 @@ Dart の `equals` はリストの要素を `==` で比べる。`RouteCandidate` 
 
 - **`HttpClient` に `close()` を残す**。`fetch` + `AbortController` へ置き換えない。
   中断は「検索単位で作ったクライアントを閉じて in-flight ごと落とす」設計で、それに
-  依存したテストがある（`lib/core/services/cancellation.dart` のコメント参照）。ここを
+  依存したテストがある（`flutter-final:lib/core/services/cancellation.dart` のコメント参照）。ここを
   Phase 1 で作り替えると、移植ミスと設計変更が混ざって切り分けられなくなる。
 - **座標の文字列化**。Dart の `double.toString()` は整数値でも `35.0` と小数点を出すが、
   JavaScript の `String(35.0)` は `35` になる。上流へ送る `geo:35.0,139.0` /

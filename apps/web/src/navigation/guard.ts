@@ -1,4 +1,4 @@
-// 移植元: lib/core/navigation/app_router.dart の `redirect`。
+// 移植元: flutter-final:lib/core/navigation/app_router.dart の `redirect`。
 
 import { isNowRouteExpired, type RouteCore } from '../state/app-state';
 import {

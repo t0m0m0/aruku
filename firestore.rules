@@ -33,7 +33,7 @@ service cloud.firestore {
              && d.activity is list && d.activity.size() <= 800;
     }
 
-    // AppSettings.toJson()（lib/core/models/app_settings.dart）が送出するキー集合と
+    // AppSettings.toJson()（packages/engine/src/models/app-settings.ts）が送出するキー集合と
     // 厳密に一致させる。
     //
     // hasAll と `is number` は振る舞い上は冗長（欠落キーへのアクセスも型違いの

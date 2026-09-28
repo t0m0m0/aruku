@@ -1,4 +1,4 @@
-/* 移植元: lib/core/theme/aruku_theme.dart の ThemeData と、各画面が繰り返していた
+/* 移植元: flutter-final:lib/core/theme/aruku_theme.dart の ThemeData と、各画面が繰り返していた
    ArukuCard の装飾。
 
    Flutter では「カード」はウィジェットでしか表せなかったが、CSS ではクラスで足りる

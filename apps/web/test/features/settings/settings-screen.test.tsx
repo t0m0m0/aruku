@@ -1,4 +1,4 @@
-// 移植元: lib/features/settings/settings_screen.dart と settings_widgets.dart。
+// 移植元: flutter-final:lib/features/settings/settings_screen.dart と settings_widgets.dart。
 //
 // 移植元の5セクションのうち4つ（通知・ヘルスケア連携・週間目標・OS設定を開く導線）は
 // Web に載せない。#386 が「Web で落ちる機能の UI を作らない」と決めた側で、対応する

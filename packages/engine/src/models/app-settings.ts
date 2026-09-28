@@ -1,4 +1,4 @@
-// 移植元: lib/core/models/app_settings.dart（既定値は lib/core/constants/app_constants.dart）
+// 移植元: flutter-final:lib/core/models/app_settings.dart（既定値は flutter-final:lib/core/constants/app_constants.dart）
 
 /// ユーザー設定のクラウド同期 JSON の形。
 ///

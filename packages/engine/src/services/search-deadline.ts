@@ -1,4 +1,4 @@
-// 移植元: lib/core/services/search_deadline.dart
+// 移植元: flutter-final:lib/core/services/search_deadline.dart
 
 import { durationZero, type Duration } from '../time';
 

@@ -1,4 +1,4 @@
-// 移植元: lib/features/error/error_screen.dart
+// 移植元: flutter-final:lib/features/error/error_screen.dart
 //
 // デスクトップ幅の中央寄せは CSS のメディアクエリなので、ここ（jsdom）からは
 // 見えない。寸法は e2e/desktop-layout.spec.ts が実測する。

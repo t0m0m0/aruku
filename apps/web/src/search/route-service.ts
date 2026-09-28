@@ -62,7 +62,7 @@ export interface RouteServiceOptions {
   readonly fetch?: Fetch;
 }
 
-/// 移植元: lib/core/services/route_service.dart の `routeServiceProvider`。
+/// 移植元: flutter-final:lib/core/services/route_service.dart の `routeServiceProvider`。
 ///
 /// 検索1回ごとにクライアントを作って捨てる（#259）。検索内のファンアウト（最大13本）
 /// では keep-alive が効き、捨てるのは検索をまたぐ接続再利用だけ。キャンセル時に
