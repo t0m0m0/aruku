@@ -307,6 +307,9 @@ class PathPatternTest(unittest.TestCase):
             ["packages/engine/tool/check-port.mjs"],
         )
 
+    def test_matches_an_html_path(self):
+        self.assertEqual(dc.PATH_RE.findall("入口は apps/web/index.html"), ["apps/web/index.html"])
+
     def test_ignores_a_path_qualified_by_a_git_revision(self):
         self.assertEqual(dc.PATH_RE.findall("移植元: flutter-final:lib/core/foo.dart"), [])
 
