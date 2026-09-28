@@ -10,7 +10,7 @@
 | ② | App Check enforcement 確認 + リプレイ保護 | 手動（Firebase Console） + コード |
 | ③ | TLS 証明書ピンニング | 設計判断 |
 | ④ | リリースビルドの本番署名鍵・production dart-define 確認 | 手動検証 |
-| ⑥ | Firestore クラウド同期のセキュリティ（ルール デプロイ） | 手動デプロイ |
+| ⑥ | Firestore のクライアントアクセス（ルール デプロイ） | CI デプロイ + 手動検証 |
 | ⑦ | 関数を廃止するときの手順 | 手動（本番削除） |
 | ⑧ | Functions プロキシの CORS Origin 許可リスト | コード |
 
@@ -319,61 +319,46 @@ dart-define**（`PROXY_BASE_URL` 等）で生成されることを確認する�
 
 ---
 
-## ⑥ Firestore クラウド同期のセキュリティ（ルール デプロイ）
+## ⑥ Firestore のクライアントアクセス（ルール デプロイ）
 
-**目的:** クライアント SDK が `userSync/{uid}` を直接読み書きするようになったとき、
-**本人以外がアクセスできない**ことを保証する。
+**目的:** Firestore はサーバ専用（Cloud Functions の Admin SDK だけが使う）とし、
+クライアント SDK からの読み書きを**すべて**拒否した状態を本番に保つ。
 
-> **アプリ側にクラウド同期の実装は無い。** `cloud_firestore` は `pubspec.yaml` の依存に
-> 入っておらず、`userSync/{uid}` を読み書きするコードは `lib/` に無い。
+> **クライアントに開いている経路は無い。** `firestore.rules` は全パスを `if false` で拒否する。
+> 本番のクライアント（`apps/web`）は Firebase を App Check のためにしか使っておらず、
+> Firestore も Auth も持たない。ルールのテストは `functions/test/firestore-rules.test.ts`
+> （`npm run test:rules`・JDK21 必須）。
 >
-> **それでもルールは効いている。** デプロイ済みの環境では認証済み（匿名サインインを含む）
-> ユーザーが自分の `userSync/{uid}` を read / create / update / delete できる
-> （`firestore.rules` の `match /userSync/{uid}`）。公式クライアントがその経路を使って
-> いないだけで、**コレクションは到達可能**。
-
-> `firestore.rules` は既定で全面拒否を維持しつつ、`userSync/{uid}` のみ
-> `request.auth.uid == uid` の本人に read/write を許可する。書き込みは `isValidSyncData`
-> がトップレベルのキー集合・型・リスト長を検証する。ルールのテストは
-> `functions/test/firestore-rules.test.ts`（`npm run test:rules`・JDK21 必須）。
->
-> **要素の schema はルールではなくモデル側が正本。** ルールはリスト長と型しか見ないため、
-> 各要素の形を決めているのは既存の serializer のほう:
->
-> | キー | 正本 |
-> | --- | --- |
-> | `settings` | `AppSettings.toJson()`（`lib/core/models/app_settings.dart`） |
-> | `recents` / `recentOrigins` | `RecentPlace.toJson()`（`lib/core/models/recent_place.dart`） |
-> | `activity` | `DailyActivity.toJson()`（`lib/core/models/daily_activity.dart`） |
-> | `updatedAt` | 送出元は未定（同期を実装するときに決める） |
->
-> 同期を実装するときは、ルールテストの fixture ではなく上の serializer に合わせること。
-> fixture はルールを通すだけの緩い形で、そちらを正本と取り違えると、受理はされるのに
-> `fromJson` が読めないデータを書き込む。適用先は各リポジトリの `replaceAll`
-> （`recents_repository.dart` / `activity_log_repository.dart`）。
+> かつてはクラウド同期のために `userSync/{uid}` を本人へ開けていた。同期のコードは #285 で
+> 撤去したが、配布済みのクライアントを壊さないためにルールだけ残していた。UI から同期に
+> 届いたのは 2026-06-09〜11 の開発ビルドだけで、配布された版は無い。そのため #387 で閉じた。
 
 ### 手順
 
-1. Firebase Console / CLI で **Firestore データベースを有効化**する（未作成の場合）。
-2. ルールをデプロイする:
+1. Firebase Console / CLI で **Firestore データベースを有効化**する（未作成の場合。
+   レートリミッタが使う）。
+2. ルールは `main` へのマージで CI（`.github/workflows/deploy-functions.yml`）がデプロイする。
+   手で入れる場合:
    ```sh
    npx -y firebase-tools@latest deploy --only firestore:rules --project aruku-app
    ```
-3. インデックスが必要なクエリは無い（単一ドキュメント get/set のみ）が、念のため
-   `firestore.indexes.json` も併せてデプロイする場合は `--only firestore` を使う。
 
 ### 検証
 
-- 認証済みユーザー A が自分の `userSync/{A}` を読み書きできること。
-- ユーザー A が他人の `userSync/{B}` を読み書きできないこと（`permission-denied`）。
-- 未認証クライアントが `userSync/*` にアクセスできないこと。
-- 既存のサーバ専用コレクション（`rateLimits` 等）がクライアントから引き続き全面拒否であること。
+- 認証済みでも未認証でも、クライアントから任意のコレクションを読み書きできないこと
+  （`permission-denied`）。`rateLimits` も含む。
 
-### 今後の硬化候補（任意）
+### クライアント同期を作り直すとき
 
-- ルールでドキュメントサイズ/フィールドを検証する（例: `request.resource.size() < N`）。
-  自分のドキュメントへの過大書き込み（自クォータ内）を抑止する。
-- App Check を **Firestore** にも enforce する（現状は Cloud Functions のみ enforce、②参照）。
+ルールを開く前に次を満たすこと。
+
+- **App Check を Firestore にも enforce する**（現状は Cloud Functions のみ、②参照）。
+  匿名サインインを許すと本人一致だけでは濫用を防げない——匿名アカウントは無制限に作れ、
+  公開 API キーから REST で直接書ける。
+- 旧ルール（本人一致＋トップレベルのキー集合・型・リスト長の検証）は `userSync` を閉じる
+  直前の `firestore.rules` にある（`git log -- firestore.rules`）。ルールはリスト長と型しか
+  見られないので、要素の形の正本はクライアントの serializer に置き、ルールテストの fixture は
+  手で書き写さずその serializer から組み立てる（#257 の真因）。
 
 ---
 

@@ -1,11 +1,9 @@
 // 移植元: lib/core/models/app_settings.dart（既定値は lib/core/constants/app_constants.dart）
 
-/// ユーザー設定のクラウド同期 JSON の形。
+/// ユーザー設定の永続化 JSON の形。
 ///
-/// **この型は `firestore.rules` の `isValidSettings` と同じ契約の片側**で、両端が
-/// 揃っていないと同期書き込みが PERMISSION_DENIED になる（#257）。キーを増やしたら
-/// `firestore.rules` も同じコミットで直すこと——`functions/test/firestore-rules.test.ts`
-/// は fixture をこの型から組み立てるので、片方だけ変えるとエミュレータ越しに落ちる。
+/// 今は呼ぶ側が無い——書き出し先だったクラウド同期は #285 で撤去し、Web の設定画面は
+/// 永続化する設定を持たない。型ごと消すかは、使い道が戻るかと合わせて別に判断する。
 /// `interface` ではなく型エイリアスにしてあるのは、`fromJson` が受ける
 /// `Record<string, unknown>`（未検証の永続データ）へそのまま渡せるようにするため。
 /// TypeScript は interface に暗黙の添字シグネチャを与えないので、interface のままだと
@@ -56,8 +54,7 @@ export class AppSettings {
     });
   }
 
-  /// 常に全キーを出力する。`firestore.rules` が `hasAll` を課しているので、
-  /// 省略できるキーは1つも無い。
+  /// 常に全キーを出力する。
   toJson(): AppSettingsJson {
     return {
       notificationsEnabled: this.notificationsEnabled,

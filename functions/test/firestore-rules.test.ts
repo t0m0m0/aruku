@@ -3,16 +3,11 @@ import { resolve } from "node:path";
 
 import {
   assertFails,
-  assertSucceeds,
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from "@firebase/rules-unit-testing";
 import { deleteDoc, doc, getDoc, setDoc } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-
-// 同期スキーマの契約はクライアントと共有する（#385）。firestore.rules の isValidSettings が
-// 許可するキー集合はこの型が出す JSON と厳密に一致していなければならない。
-import { AppSettings } from "../../packages/engine/src/models/app-settings";
 
 // エミュレータ起動は `npm run test:rules`（firebase emulators:exec 経由）で行う。
 // FIRESTORE_EMULATOR_HOST が未設定ならエミュレータが立っていないので失敗させる。
@@ -20,38 +15,39 @@ const EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST;
 
 const PROJECT_ID = "demo-aruku-rules";
 const OWNER = "owner-uid";
-const OTHER = "other-uid";
 
 let testEnv: RulesTestEnvironment;
 
 /**
- * 実クライアントが送出する settings の形。ルールの許可キーはこれと一致していなければ
- * ならない。
+ * 旧 userSync ルールが受理していた形の同期ドキュメント。
  *
- * **手で書き写さず `AppSettings.toJson()` から組み立てる**（#385）。値をルール側から
- * コピーすると、クライアントが実際に何を送るかと無関係に「ルールが自分自身を検証する」
- * 偽の緑になる（#257 の真因）。共有の型から作れば、契約にフィールドを足したのに
- * firestore.rules の hasOnly を直し忘れた瞬間、この fixture が拒否されて落ちる。
+ * 拒否のテストに任意の値ではなくこれを使うのは、assertFails がスキーマ違反や
+ * 評価エラーでも通ってしまうから。「受理されていた形でも拒否される」ことを
+ * 見なければ、経路が閉じたことの証明にならない。
  */
-function validSettings(): Record<string, unknown> {
-  return { ...AppSettings.defaults.toJson() };
-}
-
-/** ルールを満たす正常な同期ドキュメント。各テストはここから逸脱を作る。 */
-function validSyncData(): Record<string, unknown> {
+function legacySyncData(): Record<string, unknown> {
   return {
     updatedAt: "2026-07-03T00:00:00.000Z",
-    settings: validSettings(),
+    settings: {
+      notificationsEnabled: true,
+      weeklyGoalKm: 10,
+      healthKitEnabled: false,
+    },
     recents: [{ name: "cafe" }],
     recentOrigins: [{ name: "office" }],
     activity: [{ date: "2026-07-03", steps: 1000 }],
   };
 }
 
-/** 指定 uid の認証済みコンテキストで userSync/{uid} 参照を得る。 */
-function ownerDoc(env: RulesTestEnvironment, uid: string) {
-  const db = env.authenticatedContext(uid).firestore();
-  return doc(db, "userSync", uid);
+function ownerDoc(env: RulesTestEnvironment, path: string, id: string) {
+  const db = env.authenticatedContext(OWNER).firestore();
+  return doc(db, path, id);
+}
+
+async function seed(path: string, id: string): Promise<void> {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), path, id), legacySyncData());
+  });
 }
 
 beforeAll(async () => {
@@ -75,232 +71,54 @@ beforeEach(async () => {
   await testEnv.clearFirestore();
 });
 
-describe("firestore.rules userSync", () => {
-  describe("認可（本人一致）", () => {
-    it("本人は自分のドキュメントを書き込める", async () => {
-      await assertSucceeds(setDoc(ownerDoc(testEnv, OWNER), validSyncData()));
-    });
-
-    it("本人は自分のドキュメントを読める", async () => {
-      // 事前にルールをバイパスして書き込んでおく。
-      await testEnv.withSecurityRulesDisabled(async (ctx) => {
-        await setDoc(
-          doc(ctx.firestore(), "userSync", OWNER),
-          validSyncData(),
-        );
-      });
-      await assertSucceeds(getDoc(ownerDoc(testEnv, OWNER)));
-    });
-
-    it("他人のドキュメントは書き込めない", async () => {
-      const db = testEnv.authenticatedContext(OTHER).firestore();
+describe("firestore.rules はクライアントからの読み書きを全面拒否する", () => {
+  describe("userSync（#285 で同期を撤去し、#387 で経路を閉じた）", () => {
+    it("本人でも自分のドキュメントを作成できない", async () => {
       await assertFails(
-        setDoc(doc(db, "userSync", OWNER), validSyncData()),
+        setDoc(ownerDoc(testEnv, "userSync", OWNER), legacySyncData()),
       );
     });
 
-    it("他人のドキュメントは読めない", async () => {
-      const db = testEnv.authenticatedContext(OTHER).firestore();
+    it("本人でも自分のドキュメントを読めない", async () => {
+      await seed("userSync", OWNER);
+      await assertFails(getDoc(ownerDoc(testEnv, "userSync", OWNER)));
+    });
+
+    it("本人でも自分のドキュメントを更新できない", async () => {
+      await seed("userSync", OWNER);
+      await assertFails(
+        setDoc(ownerDoc(testEnv, "userSync", OWNER), legacySyncData()),
+      );
+    });
+
+    it("本人でも自分のドキュメントを削除できない", async () => {
+      await seed("userSync", OWNER);
+      await assertFails(deleteDoc(ownerDoc(testEnv, "userSync", OWNER)));
+    });
+
+    it("未認証では読めない", async () => {
+      await seed("userSync", OWNER);
+      const db = testEnv.unauthenticatedContext().firestore();
       await assertFails(getDoc(doc(db, "userSync", OWNER)));
     });
-
-    it("未認証では書き込めない", async () => {
-      const db = testEnv.unauthenticatedContext().firestore();
-      await assertFails(
-        setDoc(doc(db, "userSync", OWNER), validSyncData()),
-      );
-    });
   });
 
-  describe("スキーマ検証", () => {
-    it("未知のトップレベルフィールドを拒否する", async () => {
+  describe("サーバ専用コレクション", () => {
+    it("認証済みでも rateLimits を読めない", async () => {
+      await seed("rateLimits", "some-bucket");
+      await assertFails(getDoc(ownerDoc(testEnv, "rateLimits", "some-bucket")));
+    });
+
+    it("認証済みでも rateLimits へ書き込めない", async () => {
       await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), {
-          ...validSyncData(),
-          hacked: "x".repeat(1000),
-        }),
+        setDoc(ownerDoc(testEnv, "rateLimits", "some-bucket"), { count: 0 }),
       );
     });
 
-    it("必須フィールド欠落（recents なし）を拒否する", async () => {
-      const data = validSyncData();
-      delete data.recents;
-      await assertFails(setDoc(ownerDoc(testEnv, OWNER), data));
-    });
-
-    it("旧フィールド（favorites）が残っていると未知フィールドとして拒否する", async () => {
+    it("認証済みでも任意のコレクションへ書き込めない", async () => {
       await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), {
-          ...validSyncData(),
-          favorites: [{ name: "home" }],
-        }),
+        setDoc(ownerDoc(testEnv, "anything", OWNER), { any: "value" }),
       );
-    });
-
-    it("updatedAt が文字列でないと拒否する", async () => {
-      await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), {
-          ...validSyncData(),
-          updatedAt: 12345,
-        }),
-      );
-    });
-  });
-
-  describe("settings スキーマ（実クライアント AppSettings.toJson() 形式）", () => {
-    /** validSettings() の 1 キーだけを差し替えた同期ドキュメントを作る。 */
-    function withSettings(
-      overrides: Record<string, unknown>,
-    ): Record<string, unknown> {
-      return {
-        ...validSyncData(),
-        settings: { ...validSettings(), ...overrides },
-      };
-    }
-
-    it("実クライアントが送る 3 キーすべてを許可する", async () => {
-      await assertSucceeds(setDoc(ownerDoc(testEnv, OWNER), validSyncData()));
-    });
-
-    it("未知のキーがあると拒否する", async () => {
-      await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), withSettings({ evil: "x" })),
-      );
-    });
-
-    it("notificationsEnabled が bool でないと拒否する", async () => {
-      await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), withSettings({ notificationsEnabled: 1 })),
-      );
-    });
-
-    it("healthKitEnabled が bool でないと拒否する", async () => {
-      await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), withSettings({ healthKitEnabled: "yes" })),
-      );
-    });
-
-    it("weeklyGoalKm が数値でないと拒否する", async () => {
-      await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), withSettings({ weeklyGoalKm: "10" })),
-      );
-    });
-
-    // AppSettings.fromJson は 0 以下を既定値へフォールバックする。ルールも同じ
-    // 契約（正の値のみ）を守り、壊れた値がそもそも書き込まれないようにする。
-    it("weeklyGoalKm が 0 だと拒否する", async () => {
-      await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), withSettings({ weeklyGoalKm: 0 })),
-      );
-    });
-
-    it("weeklyGoalKm が負だと拒否する", async () => {
-      await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), withSettings({ weeklyGoalKm: -1 })),
-      );
-    });
-
-    it("weeklyGoalKm が上限(1000)超だと拒否する", async () => {
-      await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), withSettings({ weeklyGoalKm: 1000.1 })),
-      );
-    });
-
-    // Firestore は NaN / ±Infinity を double として格納できる。範囲チェックが
-    // 「NaN との比較は常に false」に暗黙依存して弾いているため、ド・モルガン的な
-    // 書き換え（!(km <= 0) 等）で静かに通るようになりうる。ここで固定する。
-    it("weeklyGoalKm が NaN だと拒否する", async () => {
-      await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), withSettings({ weeklyGoalKm: NaN })),
-      );
-    });
-
-    it("weeklyGoalKm が Infinity だと拒否する", async () => {
-      await assertFails(
-        setDoc(
-          ownerDoc(testEnv, OWNER),
-          withSettings({ weeklyGoalKm: Number.POSITIVE_INFINITY }),
-        ),
-      );
-    });
-
-    it("weeklyGoalKm が -Infinity だと拒否する", async () => {
-      await assertFails(
-        setDoc(
-          ownerDoc(testEnv, OWNER),
-          withSettings({ weeklyGoalKm: Number.NEGATIVE_INFINITY }),
-        ),
-      );
-    });
-
-    it("weeklyGoalKm が上限(1000)ちょうどは許可する", async () => {
-      await assertSucceeds(
-        setDoc(ownerDoc(testEnv, OWNER), withSettings({ weeklyGoalKm: 1000 })),
-      );
-    });
-
-    it("プリセット値(5/10/15/20/30km)をすべて許可する", async () => {
-      for (const km of [5, 10, 15, 20, 30]) {
-        await assertSucceeds(
-          setDoc(ownerDoc(testEnv, OWNER), withSettings({ weeklyGoalKm: km })),
-        );
-      }
-    });
-
-    it("weeklyGoalKm が欠落していると拒否する", async () => {
-      const data = validSyncData();
-      const settings = validSettings();
-      delete settings.weeklyGoalKm;
-      data.settings = settings;
-      await assertFails(setDoc(ownerDoc(testEnv, OWNER), data));
-    });
-
-    it("healthKitEnabled が欠落していると拒否する", async () => {
-      const data = validSyncData();
-      const settings = validSettings();
-      delete settings.healthKitEnabled;
-      data.settings = settings;
-      await assertFails(setDoc(ownerDoc(testEnv, OWNER), data));
-    });
-  });
-
-  describe("サイズ上限", () => {
-    it("recents が上限(50)超で拒否する", async () => {
-      const recents = Array.from({ length: 51 }, (_, i) => ({ name: `p${i}` }));
-      await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), { ...validSyncData(), recents }),
-      );
-    });
-
-    it("activity が上限(800)超で拒否する", async () => {
-      const activity = Array.from({ length: 801 }, (_, i) => ({
-        date: "2026-07-03",
-        steps: i,
-      }));
-      await assertFails(
-        setDoc(ownerDoc(testEnv, OWNER), { ...validSyncData(), activity }),
-      );
-    });
-
-    it("上限内（recents=50）は許可する", async () => {
-      const recents = Array.from({ length: 50 }, (_, i) => ({
-        name: `p${i}`,
-      }));
-      await assertSucceeds(
-        setDoc(ownerDoc(testEnv, OWNER), { ...validSyncData(), recents }),
-      );
-    });
-  });
-
-  describe("削除", () => {
-    it("本人は自分のドキュメントを削除できる", async () => {
-      await testEnv.withSecurityRulesDisabled(async (ctx) => {
-        await setDoc(
-          doc(ctx.firestore(), "userSync", OWNER),
-          validSyncData(),
-        );
-      });
-      await assertSucceeds(deleteDoc(ownerDoc(testEnv, OWNER)));
     });
   });
 });
