@@ -36,8 +36,19 @@ CODE_GLOBS = [
     # シンボルは撤去されていない。
     ":(glob)test/**/*.dart",
     ":(glob)functions/test/**/*.ts",
+    ":(glob)apps/**/*.ts",
+    ":(glob)apps/**/*.tsx",
+    ":(glob)apps/**/*.css",
+    ":(glob)packages/**/*.ts",
 ]
-DOC_GLOBS = [":(glob)docs/**/*.md", ":(glob)test/**/*.md", ":(glob)*.md", "firestore.rules"]
+DOC_GLOBS = [
+    ":(glob)docs/**/*.md",
+    ":(glob)test/**/*.md",
+    ":(glob)*.md",
+    ":(glob)apps/*/*.md",
+    ":(glob)packages/*/*.md",
+    "firestore.rules",
+]
 EXCLUDE_RE = re.compile(r"(^lib/l10n/|^lib/firebase_options\.dart$|^functions/lib/)")
 
 # 意図的に残す参照の抑制マーカー。撤去の経緯を書いた記述など、消すほうが損な参照がある。
@@ -47,13 +58,15 @@ KEEP_MARKER = "doc-consistency:keep"
 # リポジトリ相対パスとみなす先頭ディレクトリ。`package:foo/bar.dart` を拾わないよう、
 # 直前がパス構成文字でないことを要求する。拡張子は長いものを先に並べる（`kts` を
 # `kt` で切ると末尾が余る）。後続は単語文字だけを禁じ、文末ピリオドは許す
-# （`See lib/core/gone.dart.` を取りこぼさないため）。
+# （`See lib/core/gone.dart.` を取りこぼさないため）。直前の `:` を禁じるのは、
+# `flutter-final:lib/foo.dart` のようにリビジョンで修飾したパス（撤去済みの移植元を
+# 指す書き方）が作業ツリーのパスではないため。
 PATH_RE = re.compile(
-    r"(?<![\w/:.-])((?:lib|test|functions|docs|android|ios|web)/[\w./-]+"
-    r"\.(?:dart|ts|md|json|yaml|yml|rules|kts|kt|swift|gradle))(?![A-Za-z0-9_])"
+    r"(?<![\w/:.-])((?:lib|test|functions|docs|android|ios|web|apps|packages)/[\w./-]+"
+    r"\.(?:dart|tsx|ts|css|md|json|yaml|yml|rules|kts|kt|swift|gradle))(?![A-Za-z0-9_])"
 )
 
-# lib/functions のコメント内 §N は docs/spec/route-optimization.md を指す慣習。
+# コードのコメント内 §N は docs/spec/route-optimization.md を指す慣習。
 # .md は各自の節番号を持つため対象外（docs/ops/observability.md の §6.1 など）。
 SPEC_PATH = "docs/spec/route-optimization.md"
 # `§2.2-6` の `-6` は節内の番号付き項目。base だけ見て切ると、消えた項目や打ち間違いを通す。
@@ -361,21 +374,37 @@ def path_refs(path, text):
     return refs
 
 
+PACKAGE_ROOT_RE = re.compile(r"^(?:apps|packages)/[^/]+/")
+
+
+def candidates(path, ref):
+    """参照 `ref` が指しうるリポジトリ相対パス。
+
+    `apps/web` や `packages/engine` の中では `test/foo.test.ts` をパッケージの
+    ルートからの相対で書く慣習がある。リポジトリのルートだけで解決すると、
+    実在するファイルを「無い」と言い、ルートに同名のパスが在れば取り違える。
+    """
+    root = PACKAGE_ROOT_RE.match(path)
+    return [ref, root.group(0) + ref] if root else [ref]
+
+
 def check_deleted_files(snap, deleted, findings):
     """削除されたファイルのパスが、コメント・ドキュメントに残っているもの。"""
     if not deleted:
         return
     gone = set(deleted)
     for path, line, text in snap.prose(snap.code_paths + snap.doc_paths):
-        for ref in sorted(path_refs(path, text) & gone):
-            findings.append((path, line, f"削除された `{ref}` への参照が残っている"))
+        for ref in sorted(path_refs(path, text)):
+            options = candidates(path, ref)
+            if any(c in gone for c in options) and not any(snap.exists(c) for c in options):
+                findings.append((path, line, f"削除された `{ref}` への参照が残っている"))
 
 
 def check_dangling_paths(snap, targets, findings):
     """コメント・ドキュメントが指すパスが実在するか。"""
     for path, line, text in snap.prose(targets):
         for ref in sorted(path_refs(path, text)):
-            if not snap.exists(ref):
+            if not any(snap.exists(c) for c in candidates(path, ref)):
                 findings.append((path, line, f"存在しないパス `{ref}` を参照している"))
 
 
@@ -407,7 +436,7 @@ def check_dangling_sections(snap, targets, findings):
     sections = spec_index(snap.text(SPEC_PATH))
     spec_name = posixpath.basename(SPEC_PATH)
     for path, line, text in snap.prose(targets):
-        is_code = path.startswith(("lib/", "functions/src/", "test/"))
+        is_code = path in snap.code_paths
         if not is_code and spec_name not in text:
             continue
         for m in SECTION_REF_RE.finditer(text):

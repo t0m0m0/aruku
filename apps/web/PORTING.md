@@ -163,7 +163,7 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 | `test/core/services/places_service_test.dart` | — | `test/places/places-service.test.ts` |
 | `test/core/services/recents_repository_test.dart` | — | `test/places/recents-repository.test.ts` |
 | `test/core/models/recent_place_test.dart` | — | `test/places/recent-place.test.ts` |
-| `test/features/search/place_selection_test.dart` | — | `test/places/resolve-prediction.test.ts` |
+| `lib/features/search/place_selection.dart`（Dart 側に直接のテストは無かった） | — | `test/places/resolve-prediction.test.ts` |
 | `test/features/search/places_provider_test.dart` | — | `test/features/search/search-state.test.ts` |
 | `lib/features/search/`（`testWidgets` は運ばない） | — | `test/features/search/search-screen.test.tsx` |
 | `test/core/config/app_check_provider_test.dart` | — | `test/firebase/app-check.test.ts` |

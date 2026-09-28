@@ -216,6 +216,20 @@ class PathPatternTest(unittest.TestCase):
     def test_ignores_a_package_uri(self):
         self.assertEqual(dc.PATH_RE.findall("import 'package:x/lib/foo.dart';"), [])
 
+    def test_matches_paths_under_the_web_app_and_the_engine(self):
+        self.assertEqual(
+            dc.PATH_RE.findall("apps/web/src/map/aruku-map.tsx と packages/engine/src/time.ts"),
+            ["apps/web/src/map/aruku-map.tsx", "packages/engine/src/time.ts"],
+        )
+
+    def test_matches_a_stylesheet_path(self):
+        self.assertEqual(
+            dc.PATH_RE.findall("apps/web/src/theme/tokens.css を見る"), ["apps/web/src/theme/tokens.css"]
+        )
+
+    def test_ignores_a_path_qualified_by_a_git_revision(self):
+        self.assertEqual(dc.PATH_RE.findall("移植元: flutter-final:lib/core/foo.dart"), [])
+
 
 class HookTest(unittest.TestCase):
     def test_blocks_a_commit_that_removes_a_symbol_still_named_in_a_comment(self):
@@ -447,6 +461,100 @@ class HookTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 2)
             self.assertIn("lib/missing.dart", result.stderr)
+
+    def test_checks_comments_in_web_app_sources(self):
+        with Repo() as repo:
+            write(repo.path, "apps/web/src/a.tsx", "// See apps/web/src/missing.ts\nexport const a = 1;\n")
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("apps/web/src/missing.ts", result.stderr)
+
+    def test_checks_comments_in_engine_sources(self):
+        with Repo() as repo:
+            write(repo.path, "packages/engine/src/a.ts", "// 移植元: lib/missing.dart\nexport const a = 1;\n")
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("lib/missing.dart", result.stderr)
+
+    def test_checks_comments_in_web_app_stylesheets(self):
+        with Repo() as repo:
+            write(repo.path, "apps/web/src/a.module.css", "/* apps/web/src/gone.tsx と揃える */\n.a {}\n")
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("apps/web/src/gone.tsx", result.stderr)
+
+    def test_checks_the_documents_that_live_next_to_a_package(self):
+        with Repo() as repo:
+            write(repo.path, "apps/web/PORTING.md", "`packages/engine/src/gone.ts` を参照。\n")
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("packages/engine/src/gone.ts", result.stderr)
+
+    def test_checks_spec_sections_cited_from_web_app_sources(self):
+        with Repo() as repo:
+            write(repo.path, "apps/web/src/a.ts", "// 詳細は §9.9 を見る。\nexport const a = 1;\n")
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("§9.9", result.stderr)
+
+    def test_blocks_removing_a_typescript_symbol_still_named_in_a_web_comment(self):
+        with Repo() as repo:
+            write(repo.path, "packages/engine/src/limits.ts", "export const walkBudgetCeiling = 3;\n")
+            write(repo.path, "apps/web/src/b.ts", "// walkBudgetCeiling を超えたら打ち切る。\nexport const b = 1;\n")
+            repo.commit("ts")
+            (repo.path / "packages/engine/src/limits.ts").unlink()
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("walkBudgetCeiling", result.stderr)
+
+    def test_resolves_a_path_relative_to_the_package_that_mentions_it(self):
+        with Repo() as repo:
+            write(repo.path, "apps/web/test/a.test.ts", "export {};\n")
+            write(repo.path, "apps/web/src/a.ts", "// test/a.test.ts が固定する。\nexport const a = 1;\n")
+            repo.stage_all()
+
+            self.assertEqual(run_hook(repo.path).returncode, 0)
+
+    def test_blocks_a_package_relative_path_that_exists_nowhere(self):
+        with Repo() as repo:
+            write(repo.path, "apps/web/src/a.ts", "// test/missing.test.ts が固定する。\nexport const a = 1;\n")
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("test/missing.test.ts", result.stderr)
+
+    def test_flags_a_deleted_file_named_relative_to_its_package(self):
+        with Repo() as repo:
+            write(repo.path, "packages/engine/test/a.test.ts", "export {};\n")
+            write(repo.path, "packages/engine/PORTING.md", "移植先は `test/a.test.ts`。\n")
+            repo.commit("pkg")
+            (repo.path / "packages/engine/test/a.test.ts").unlink()
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("test/a.test.ts", result.stderr)
 
     def test_stays_out_of_the_way_of_bash_commands_that_are_not_commits(self):
         with Repo() as repo:
