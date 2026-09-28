@@ -26,7 +26,7 @@
 
 件数だけでは足りない——「1本消して1本足す」改名が素通りし、テスト名＝仕様書という前提が
 静かに崩れる（実際に1本やった・PR #389 レビュー）。だから #384〜#387 の間は
-`check:port`（`tool/check-port.mjs`）が Dart のテスト名を凍結した一覧と**名前で1対1に**
+`check:port`（`flutter-final:packages/engine/tool/check-port.mjs`）が Dart のテスト名を凍結した一覧と**名前で1対1に**
 照合し、CI の `engine` ジョブで回していた。
 
 Phase 4（#387）で Dart 側を撤去する直前の最終結果は **382 対 382・全て緑・名前の差分なし**

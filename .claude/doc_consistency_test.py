@@ -301,6 +301,12 @@ class PathPatternTest(unittest.TestCase):
     def test_matches_a_path_under_tool(self):
         self.assertEqual(dc.PATH_RE.findall("集計は tool/route_metrics_agg.dart が担う"), ["tool/route_metrics_agg.dart"])
 
+    def test_matches_a_javascript_module_path(self):
+        self.assertEqual(
+            dc.PATH_RE.findall("照合は packages/engine/tool/check-port.mjs が担う"),
+            ["packages/engine/tool/check-port.mjs"],
+        )
+
     def test_ignores_a_path_qualified_by_a_git_revision(self):
         self.assertEqual(dc.PATH_RE.findall("移植元: flutter-final:lib/core/foo.dart"), [])
 

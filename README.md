@@ -126,7 +126,7 @@ npm --prefix apps/web run dev
 > （アプリ側の失敗ではありません）。一度拒否するとプロンプトは再表示されないため、
 > サイト設定から許可し直してください。
 
-**① Functions エミュレータを起動する。** `package.json` の `main` は `lib/index.js`
+**① Functions エミュレータを起動する。** `functions/package.json` の `main` は `functions/lib/index.js`
 （tsc の出力・gitignore 済み）なので、**ビルドしないとエミュレータは読み込む関数が無い状態で起動します**。
 
 ```sh

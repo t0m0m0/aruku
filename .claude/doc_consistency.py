@@ -65,7 +65,7 @@ KEEP_MARKER = "doc-consistency:keep"
 # ファイル名を含まない参照だけが残るので、拾わないとその撤去が検査を素通りする。
 PATH_RE = re.compile(
     r"(?<![\w/:.-])((?:lib|test|functions|docs|android|ios|web|apps|packages|tool)/"
-    r"(?:[\w./-]+\.(?:dart|arb|tsx|ts|css|md|json|yaml|yml|rules|kts|kt|swift|gradle)(?![A-Za-z0-9_])"
+    r"(?:[\w./-]+\.(?:dart|arb|tsx|ts|mjs|js|css|md|json|yaml|yml|rules|kts|kt|swift|gradle)(?![A-Za-z0-9_])"
     r"|(?:[\w.-]+/)+(?![\w.-])))"
 )
 
