@@ -96,8 +96,8 @@ DECL_RES = [
         r"(?:function\*?|interface|type|class|enum)\s+(\w+)"
     ),
     re.compile(r"^\s*(?:export\s+)?(?:const|let)\s+(\w+)\s*[:=]"),
-    # 修飾子付きのクラスメンバー。修飾子があれば文と取り違えない。
-    re.compile(rf"^\s*(?:{MEMBER_MODIFIERS}\s+)+\*?(\w+)\s*[?!]?\s*[:=;(<]"),
+    # 修飾子付きのフィールド。修飾子があれば文と取り違えない。
+    re.compile(rf"^\s*(?:{MEMBER_MODIFIERS}\s+)+(\w+)\s*[?!]?\s*[:=;]"),
     # 修飾子の無いフィールド（`name: Type;` / `name = value;`）。引数とオブジェクトの
     # プロパティは `,` で終わるので、`;` を要求すれば取り違えない。
     re.compile(rf"^\s*(?!(?:{STATEMENT_KEYWORDS})\b)(\w+)\s*[?!]?\s*:\s*[^=;(,]+;\s*$"),
@@ -110,6 +110,8 @@ DECL_RES = [
 # 散文の普通の語に当たるのを避けるためで、その心配はメソッド名の照合を
 # コードの形（`close()` / `` `close` `` / `.close`）に限ることで別に解く。
 METHOD_DECL_RES = [
+    # 修飾子付きのメソッド（`static none(): SearchDeadline {`）。
+    re.compile(rf"^\s*(?:{MEMBER_MODIFIERS}\s+)+\*?(\w+)\s*[?!]?\s*[(<]"),
     # 修飾子の無いメソッド。呼び出しの文と形が同じなので、引数が行を跨ぐ `name(` で
     # 終わるか、戻り値型または本体の `{` まで1行で書いた形に限る。`foo(x);` は拾わない。
     re.compile(
@@ -588,6 +590,10 @@ def main():
         snap = Snapshot(staged=not takes_worktree)
         diff = run(["git", "diff", *scope])
         deleted = gone_paths(scope)
+        if takes_worktree:
+            # 追跡集合は index から作るので、stage していない削除がまだ「在る」側に
+            # 残る。`git commit -a` はそれも取り込むので、存在の判定から外す。
+            snap.tracked -= set(deleted)
         changed = set(run(["git", "diff", *scope, "--name-only", "--diff-filter=d"]).splitlines())
         # ツリー全体の検査は、このコミットが触ったファイルに絞る。無関係な既存の
         # 腐りでコミットを止めると、フックごと無視されるようになるため。

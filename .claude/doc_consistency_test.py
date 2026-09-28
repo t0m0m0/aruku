@@ -165,6 +165,10 @@ class RemovedDeclarationsTest(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertEqual(dc.removed_declarations(line), set())
 
+    def test_keeps_a_short_method_name_that_has_modifiers(self):
+        self.assertIn("none", dc.removed_declarations("-  static none(): SearchDeadline {"))
+        self.assertIn("plan", dc.removed_declarations("-  private async plan<T>("))
+
     def test_keeps_a_short_method_name_confirmed_by_its_signature(self):
         self.assertIn("close", dc.removed_declarations("-  close(): void;"))
 
@@ -635,6 +639,19 @@ class HookTest(unittest.TestCase):
             repo.stage_all()
 
             result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("apps/web/src/old/", result.stderr)
+
+    def test_flags_a_directory_emptied_by_a_commit_that_takes_the_worktree(self):
+        with Repo() as repo:
+            write(repo.path, "apps/web/src/old/a.ts", "export {};\n")
+            write(repo.path, "apps/web/src/b.ts", "// 移植元: apps/web/src/old/ の入力\nexport const b = 1;\n")
+            repo.commit("dir")
+            (repo.path / "apps/web/src/old/a.ts").unlink()  # stage しない
+
+            payload = {"tool_name": "Bash", "tool_input": {"command": "git commit -am delete"}}
+            result = run_hook(repo.path, payload)
 
             self.assertEqual(result.returncode, 2)
             self.assertIn("apps/web/src/old/", result.stderr)
