@@ -13,12 +13,7 @@ Flutter を廃して React + TypeScript の SPA へ移行する epic（#382）�
 npm --prefix packages/engine ci
 npm --prefix packages/engine run typecheck  # 型（CI もこれを回す）
 npm --prefix packages/engine test           # 383 本すべて緑（CI もこれ）
-npm --prefix packages/engine run check:port # Dart 側との名前照合（CI もこれ）
 ```
-
-`check:port` は素の `vitest run` と**別に**要る。vitest は「落ちているテストがあるか」しか
-答えず、**移植されていないテストがあるか**には答えない——移植漏れは vitest から見れば存在
-しないファイルでしかなく、静かに緑になる。
 
 移植の対応表（matcher・fake・型の写像）、意図的に揃えた／揃えなかった点、Dart 側との
 出力突き合わせの結果は [packages/engine/PORTING.md](packages/engine/PORTING.md) が正本。

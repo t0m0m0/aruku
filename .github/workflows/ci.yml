@@ -30,14 +30,6 @@ jobs:
         run: npm test
         working-directory: packages/engine
 
-      # `npm test` とは別に要る。素の vitest は「落ちているテストがあるか」しか答えず、
-      # **移植されていないテストがあるか**には答えない——移植漏れは vitest から見れば
-      # 存在しないファイルでしかなく静かに緑になる。ここは Dart 側と名前で1対1かだけを
-      # 見る（PR #389 レビュー・packages/engine/PORTING.md「CI での扱い」）。
-      - name: Check ported suite
-        run: npm run check:port
-        working-directory: packages/engine
-
   web:
     name: web typecheck / test / build (apps/web)
     runs-on: ubuntu-latest

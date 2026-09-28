@@ -175,9 +175,9 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 | `test/features/picker/desktop_time_field_test.dart` | — | `test/features/picker/time-field.test.tsx` + `time-field-range.test.ts` |
 | `lib/features/settings/`（`testWidgets` は運ばない） | — | `test/features/settings/settings-screen.test.tsx` |
 
-`packages/engine` の `check:port` のような名前照合はここには入れていない。あちらの基準値は
-エンジンの 6 ファイルに固定されており、UI 側は「移植ではなく作り直す」（#386）ため
-1 対 1 の対応そのものが存在しない。上の表が対応の記録。
+`packages/engine` がかつて持っていた名前照合（`check:port`・#387 で撤去）はここには入れて
+いない。UI 側は「移植ではなく作り直す」（#386）ため 1 対 1 の対応そのものが存在しない。
+上の表が対応の記録。
 
 `e2e/` はこの表に載らない。移植元に相当物が無い——Flutter web はエージェント／
 ヘッドレスから操作できず（`visibilityState=hidden` で rAF が止まる・#382）、E2E そのものが
@@ -277,7 +277,7 @@ content 属性ごと消え、この app で index.html にある日本語はそ�
 
 | 層 | 何が根拠か |
 | --- | --- |
-| エンジンの選定ロジック | Dart 版のテストを移植した `packages/engine` の suite（#384・`check:port` が移植漏れを見る） |
+| エンジンの選定ロジック | Dart 版のテストを移植した `packages/engine` の suite（#384・撤去時点で Dart 側と名前で 382 対 382） |
 | 上流へ渡す照会の中身 | `e2e/route-search.spec.ts` が座標・日付・`numItineraries`・`avoidModes` を固定する |
 | 画面への出方 | 同 spec と `test/features/` |
 | **実データでの突き合わせ** | 実施済み（下の「実データでの突き合わせ」）。本物の Transit API とプロキシの応答を録り、Dart 版と TypeScript 版へ同じものを流して結果を比べた |

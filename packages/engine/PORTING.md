@@ -22,60 +22,19 @@
   使う範囲）を `src/` へ移植し、382 本すべてが緑になった。#385 のレビュー指摘対応で
   `test/runtime/unhandled-rejection.test.ts` が加わり、現在は 383 本。
 
-## テスト名の突き合わせ
+## テスト名の突き合わせ（Phase 4 で撤去）
 
-完了条件は Dart 側と移植後で件数が一致すること。基準値は #384 時点で **314**（#385 で
-加えた7ファイルを含めて 382）。ただし件数だけでは足りない——「1本消して1本足す」改名が素通りし、テスト名＝仕様書という前提が静かに
-崩れる（実際に1本やった・PR #389 レビュー）。だから **名前で1対1に照合する**。
+件数だけでは足りない——「1本消して1本足す」改名が素通りし、テスト名＝仕様書という前提が
+静かに崩れる（実際に1本やった・PR #389 レビュー）。だから #384〜#387 の間は
+`check:port`（`tool/check-port.mjs`）が Dart のテスト名を凍結した一覧と**名前で1対1に**
+照合し、CI の `engine` ジョブで回していた。
 
-```bash
-npm --prefix packages/engine run check:port
-```
+Phase 4（#387）で Dart 側を撤去する直前の最終結果は **382 対 382・全て緑・名前の差分なし**
+（`test/runtime/` の1本は移植元なしで照合の対象外）。移植元が消えたので照合は撤去した。
+残すと、エンジンにテストを足すたびに凍結した Dart の一覧へ書き足すことになり、
+移植の網羅を見る道具が新規テストの足かせへ変わる。
 
-照合の基準は `packages/engine/tool/dart-test-names.json` に固定してある（engine の CI は
-Flutter を持たないため、Dart 側を都度実行できない）。Dart のテスト名を変えたらここも
-同じコミットで取り直すこと:
-
-```bash
-flutter test test/core/services/{transit_route_service,hybrid_route_selector,route_plan_builder,\
-transit_plan_parser,transit_api_client,route_diagnostics}_test.dart --reporter=json \
-  | python3 -c "
-import sys, json, os, collections
-suites, out = {}, collections.defaultdict(list)
-for line in sys.stdin:
-    try: e = json.loads(line)
-    except ValueError: continue
-    if e.get('type') == 'suite':
-        suites[e['suite']['id']] = os.path.basename(e['suite']['path'])
-    elif e.get('type') == 'testStart':
-        t = e['test']
-        if t['name'].startswith('loading '): continue
-        out[suites[t['suiteID']]].append(t['name'])
-json.dump({k: out[k] for k in sorted(out)},
-          open('packages/engine/tool/dart-test-names.json', 'w'),
-          ensure_ascii=False, indent=2)
-"
-```
-
-`flutter test --reporter=json` の `testStart` は 320 件出るが、6 件は各ファイルの
-`loading …_test.dart` という擬似テストで実テストではない。**320 を目標値にしない。**
-
-## CI での扱い
-
-`packages/engine` は CI（`.github/workflows/ci.yml` の `engine` ジョブ）で
-`tsc --noEmit`・`vitest run`・`check:port` を回す。
-
-3つとも要る。`vitest run` は「落ちているテストがあるか」だけを答え、**移植されていない
-テストがあるか**には答えない——移植漏れは vitest から見れば存在しないファイルでしかなく、
-静かに緑になる。`check:port` はそこだけを見る（Dart 側と名前で1対1か・`it.skip` で実行を
-止めていないか）。逆に `check:port` は失敗理由を見ないので、素の `vitest run` を繋がないと
-赤いテストが素通りする。
-
-#384 の間は `vitest run` を繋がず、代わりに `check:port` が**期待する赤の内訳**（落ちる
-理由がすべて未実装か・緑になってよいのは既定値だけを主張する6本か）を検査していた。あの
-Phase の完了条件が「全て赤」だったためで、素直に繋ぐと #385 が終わるまで CI が永久に赤く
-なり他 PR のシグナルが死ぬ。#385 で全て緑になったのでその検査は撤去し、素の `vitest run`
-へ戻した。
+Dart 側のテストは `flutter-final` タグに残っている。
 
 ## Dart ↔ TypeScript の出力突き合わせ（#385 完了条件）
 
@@ -104,8 +63,8 @@ Phase の完了条件が「全て赤」だったためで、素直に繋ぐと #
 - 路線名 `IN` → `京王井の頭線`、駅名 `東京 Tokyo` → `東京`
 
 **突き合わせ用のハーネスは残していない。** Dart 側は `flutter test` からしか起動できず
-（`dart run` は `dart:ui` を解決できない）、`test/` に置けば `check:port` の対象外ファイル
-検査に引っかかる。何より Phase 4 で Dart 側が消えるので、置けば確実に腐る。再現したいときは
+（`dart run` は `dart:ui` を解決できない）、何より Phase 4 で Dart 側が消えるので、
+置けば確実に腐る。再現したいときは
 この節の入力と関数の一覧から組み直すこと。
 
 ## `group` / `test` → `describe` / `it`
