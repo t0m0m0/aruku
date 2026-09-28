@@ -113,9 +113,12 @@ commit 前のエージェントフックが見る。**検査に引っかかっ�
 
 Before every commit, run:
 
-- `dart format .`
-- `dart analyze`
-- `flutter test`
+- `python3 .claude/doc_consistency.py`（commit フックも同じ検査を走らせる）
+
+When `packages/engine/` changes, also run in `packages/engine/`:
+
+- `npx tsc --noEmit`
+- `npm test`
 
 When `functions/` changes, also run in `functions/`:
 
@@ -131,14 +134,6 @@ When `apps/web/` changes, also run in `apps/web/`:
 
 `npm run e2e` は自分でビルドしてプレビューを起こすので、`npx vite build` とは別に走らせる。
 初回だけブラウザの取得が要る（`npx playwright install chromium`）。
-
-When `lib/` changes, also run:
-
-- `python3 .claude/web_safety.py`
-
-`dart:io` の新規混入と `Platform` の直接評価を落とす（#359）。`flutter build web` では
-捕まらない——dart2js の `dart:io` はスタブでコンパイルは通り、触った瞬間に
-`UnsupportedError` になる。CI でも同じ検査が走る。
 
 ---
 
