@@ -151,6 +151,23 @@ class RemovedDeclarationsTest(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertIn(expected, dc.removed_declarations(line))
 
+    def test_picks_up_class_and_interface_fields_without_modifiers(self):
+        for line, expected in [
+            ("-  arrivalWaveOutcome: ArrivalWaveOutcome;", "arrivalWaveOutcome"),
+            ("-  enrichResolveDepth?: number;", "enrichResolveDepth"),
+            ("-  collapseFired = false;", "collapseFired"),
+        ]:
+            with self.subTest(line=line):
+                self.assertIn(expected, dc.removed_declarations(line))
+
+    def test_does_not_mistake_parameters_or_object_properties_for_fields(self):
+        for line in ["-  enrichResolveDepth: number,", "-  collapseFired: false,", "-  collapseFired,"]:
+            with self.subTest(line=line):
+                self.assertEqual(dc.removed_declarations(line), set())
+
+    def test_keeps_a_short_method_name_confirmed_by_its_signature(self):
+        self.assertIn("close", dc.removed_declarations("-  close(): void;"))
+
     def test_ignores_local_variables_inside_a_function_body(self):
         """局所名は散文の普通の英単語に当たる。コメントが指すのは API シンボル。"""
         diff = "-    const files = captured?.files ?? [];\n-      const bestIndex = 0;\n"
@@ -625,6 +642,29 @@ class HookTest(unittest.TestCase):
     def test_accepts_a_directory_reference_that_still_has_files(self):
         with Repo() as repo:
             write(repo.path, "apps/web/src/b.ts", "// 詳細は packages/engine/src/ を見る。\nexport const b = 1;\n")
+            repo.stage_all()
+
+            self.assertEqual(run_hook(repo.path).returncode, 0)
+
+    def test_flags_a_short_method_named_as_code_after_its_removal(self):
+        with Repo() as repo:
+            write(repo.path, "packages/engine/src/client.ts", "export interface HttpClient {\n  close(): void;\n}\n")
+            write(repo.path, "apps/web/src/c.ts", "// 検索を捨てるときは `close()` で in-flight ごと落とす。\nexport const c = 1;\n")
+            repo.commit("client")
+            write(repo.path, "packages/engine/src/client.ts", "export interface HttpClient {\n}\n")
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("close", result.stderr)
+
+    def test_does_not_match_a_short_method_name_used_as_a_plain_word(self):
+        with Repo() as repo:
+            write(repo.path, "packages/engine/src/client.ts", "export interface HttpClient {\n  close(): void;\n}\n")
+            write(repo.path, "apps/web/src/c.ts", "// 目的地に close な候補を先に出す。\nexport const c = 1;\n")
+            repo.commit("client")
+            write(repo.path, "packages/engine/src/client.ts", "export interface HttpClient {\n}\n")
             repo.stage_all()
 
             self.assertEqual(run_hook(repo.path).returncode, 0)

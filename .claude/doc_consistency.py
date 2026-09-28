@@ -98,6 +98,18 @@ DECL_RES = [
     re.compile(r"^\s*(?:export\s+)?(?:const|let)\s+(\w+)\s*[:=]"),
     # 修飾子付きのクラスメンバー。修飾子があれば文と取り違えない。
     re.compile(rf"^\s*(?:{MEMBER_MODIFIERS}\s+)+\*?(\w+)\s*[?!]?\s*[:=;(<]"),
+    # 修飾子の無いフィールド（`name: Type;` / `name = value;`）。引数とオブジェクトの
+    # プロパティは `,` で終わるので、`;` を要求すれば取り違えない。
+    re.compile(rf"^\s*(?!(?:{STATEMENT_KEYWORDS})\b)(\w+)\s*[?!]?\s*:\s*[^=;(,]+;\s*$"),
+    re.compile(
+        rf"^\s*(?!(?:{STATEMENT_KEYWORDS})\b)(\w+)\s*[?!]?(?:\s*:\s*[^=;,]+)?\s*=(?!=)[^;]*;\s*$"
+    ),
+]
+
+# 構文からメソッドと確かめられる宣言。短い名前（`close`）も残す——長さで落とすのは
+# 散文の普通の語に当たるのを避けるためで、その心配はメソッド名の照合を
+# コードの形（`close()` / `` `close` `` / `.close`）に限ることで別に解く。
+METHOD_DECL_RES = [
     # 修飾子の無いメソッド。呼び出しの文と形が同じなので、引数が行を跨ぐ `name(` で
     # 終わるか、戻り値型または本体の `{` まで1行で書いた形に限る。`foo(x);` は拾わない。
     re.compile(
@@ -111,6 +123,9 @@ DECL_RES = [
         r"\([^;]*\)\s*:\s*[^=;{]+;\s*$"
     ),
 ]
+
+# 短い名前として残してよい最小の長さ。`at` `of` のような名前は形を限っても誤検知する。
+MIN_METHOD_NAME_LEN = 3
 
 # 宣言とみなす最大インデント。コメントが参照するのはトップレベル（0）と
 # クラスメンバ（2）で、メソッド本体の局所変数（4 以上）ではない。深さで切らないと
@@ -364,11 +379,23 @@ def removed_declarations(diff):
             continue
         for r in DECL_RES:
             m = r.match(body)
-            if m:
+            if m and _is_symbol_like(m.group(1)):
+                names.add(m.group(1))
+        for r in METHOD_DECL_RES:
+            m = r.match(body)
+            if m and len(m.group(1).lstrip("_")) >= MIN_METHOD_NAME_LEN:
                 names.add(m.group(1))
     # private（`_` 始まり）も対象へ含める。このコードベースはコメントで `_advance`
     # `_boardSearchFanout` のような内部名を多用するため、外すと検査の射程が落ちる。
-    return {n for n in names if _is_symbol_like(n)}
+    return names
+
+
+def mention_re(name):
+    """散文中の言及を拾う形。短い名前は普通の語と紛れるので、コードとして書いた形に限る。"""
+    if _is_symbol_like(name):
+        return word_re(name)
+    n = re.escape(name)
+    return re.compile(rf"`{n}(?:\(\))?`|\.{n}(?![A-Za-z0-9_])|(?<![A-Za-z0-9_.]){n}\(")
 
 
 # --- 検査本体 -------------------------------------------------------------
@@ -379,12 +406,13 @@ def check_removed_symbols(snap, diff, findings):
     names = removed_declarations(diff)
     if not names:
         return
-    pats = {n: word_re(n) for n in names}
+    words = {n: word_re(n) for n in names}
+    mentions = {n: mention_re(n) for n in names}
     # コードのどこかに残っていれば、撤去ではなく移動か、まだ使われている。
-    live = {n for n, p in pats.items() if any(p.search(t) for _, _, t in snap.code())}
+    live = {n for n, p in words.items() if any(p.search(t) for _, _, t in snap.code())}
     for name in sorted(names - live):
         for path, line, text in snap.prose(snap.code_paths + snap.doc_paths):
-            if pats[name].search(text):
+            if mentions[name].search(text):
                 findings.append(
                     (path, line, f"削除された `{name}` への参照がコメント/ドキュメントに残っている")
                 )
