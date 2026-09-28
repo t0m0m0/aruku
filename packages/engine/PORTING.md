@@ -17,15 +17,18 @@
   - `rail_line_names_test.dart`（4本）→ `test/services/rail-line-names.test.ts`
   - `search_scoped_route_service_test.dart`（7本）→
     `test/services/search-scoped-route-service.test.ts`
-  - `app_settings_test.dart`（13本）→ `test/models/app-settings.test.ts`
+  - `app_settings_test.dart`（13本）も運んだが、#387 で型ごと撤去した。書き出し先の
+    クラウド同期（#285）も、読む側の Web の設定画面（永続化する設定を持たない）も無く、
+    engine 自身のテストしか呼んでいなかった
 - #385 でエンジン本体（`lib/core/services/` と `lib/core/models/` のうちエンジンが
   使う範囲）を `src/` へ移植し、382 本すべてが緑になった。#385 のレビュー指摘対応で
-  `test/runtime/unhandled-rejection.test.ts` が加わり、現在は 383 本。
+  `test/runtime/unhandled-rejection.test.ts` が加わった。#387 で `app_settings_test.dart`
+  の 13 本が抜け、移植分は 369 本（`test/runtime/` を含めて 370 本）。
 
 ## テスト名の突き合わせ
 
 完了条件は Dart 側と移植後で件数が一致すること。基準値は #384 時点で **314**（#385 で
-加えた7ファイルを含めて 382）。ただし件数だけでは足りない——「1本消して1本足す」改名が素通りし、テスト名＝仕様書という前提が静かに
+加えた7ファイルを含めて 382、#387 で `app_settings_test.dart` を外して 369）。ただし件数だけでは足りない——「1本消して1本足す」改名が素通りし、テスト名＝仕様書という前提が静かに
 崩れる（実際に1本やった・PR #389 レビュー）。だから **名前で1対1に照合する**。
 
 ```bash

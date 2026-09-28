@@ -1,16 +1,4 @@
 {
-  "app_settings_test.dart": [
-    "defaults は通知オン・週間目標 10km・HealthKit連携オフ",
-    "copyWith は指定項目のみ差し替える",
-    "toJson / fromJson でラウンドトリップする",
-    "healthKitEnabled 欠損・非boolは false にフォールバック",
-    "healthKitEnabled が違えば == で非等価",
-    "欠損フィールドは defaults を採用する",
-    "不正な週間目標（0以下・非数値）は defaults にフォールバック",
-    "週間目標は int でも double として読める",
-    "値が等しければ == で等価",
-    "週間目標が違えば == で非等価"
-  ],
   "cancellation_test.dart": [
     "CancellationToken 初期状態は未キャンセルで throwIfCanceled が通る",
     "CancellationToken cancel すると isCanceled が立ち throwIfCanceled が投げる",
