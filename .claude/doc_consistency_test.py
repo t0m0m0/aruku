@@ -189,6 +189,18 @@ class LineSplitTest(unittest.TestCase):
         self.assertEqual(code, [])
 
 
+class JsxCommentTest(unittest.TestCase):
+    def test_treats_a_jsx_comment_as_prose(self):
+        """コード扱いにすると、コメント中の名前が「まだ使われている」証拠になる。"""
+        prose, code = dc.split_lines(
+            "{/* dateLabel は親が持つ */}\n<div />\n{/* 複数行の\n   dateLabel */}\n",
+            "apps/web/src/a.tsx",
+        )
+
+        self.assertEqual([t for _, t in prose], ["{/* dateLabel は親が持つ */}", "{/* 複数行の", "dateLabel */}"])
+        self.assertEqual([t.strip() for _, t in code], ["<div />"])
+
+
 class InlineCommentTest(unittest.TestCase):
     def test_keeps_a_trailing_comment_out_of_the_code_line(self):
         """コード行にコメントが残ると、そのコメントが自分の検出を握り潰す。"""
@@ -253,6 +265,11 @@ class PathPatternTest(unittest.TestCase):
     def test_matches_a_stylesheet_path(self):
         self.assertEqual(
             dc.PATH_RE.findall("apps/web/src/theme/tokens.css を見る"), ["apps/web/src/theme/tokens.css"]
+        )
+
+    def test_matches_a_directory_reference(self):
+        self.assertEqual(
+            dc.PATH_RE.findall("移植元: lib/features/picker/ の入力"), ["lib/features/picker/"]
         )
 
     def test_ignores_a_path_qualified_by_a_git_revision(self):
@@ -591,6 +608,26 @@ class HookTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 1)
             self.assertIn("probeThresholdValue", result.stderr)
+
+    def test_flags_a_reference_to_a_directory_whose_files_were_all_deleted(self):
+        with Repo() as repo:
+            write(repo.path, "apps/web/src/old/a.ts", "export {};\n")
+            write(repo.path, "apps/web/src/b.ts", "// 移植元: apps/web/src/old/ の入力\nexport const b = 1;\n")
+            repo.commit("dir")
+            (repo.path / "apps/web/src/old/a.ts").unlink()
+            repo.stage_all()
+
+            result = run_hook(repo.path)
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("apps/web/src/old/", result.stderr)
+
+    def test_accepts_a_directory_reference_that_still_has_files(self):
+        with Repo() as repo:
+            write(repo.path, "apps/web/src/b.ts", "// 詳細は packages/engine/src/ を見る。\nexport const b = 1;\n")
+            repo.stage_all()
+
+            self.assertEqual(run_hook(repo.path).returncode, 0)
 
     def test_resolves_a_path_relative_to_the_package_that_mentions_it(self):
         with Repo() as repo:

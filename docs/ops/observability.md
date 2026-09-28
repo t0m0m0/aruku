@@ -8,7 +8,7 @@
 
 ## 1. 目的と対象範囲
 
-Places / Google Routes への薄いプロキシ（`placesProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`、いずれも 2nd gen Cloud Functions・`asia-northeast1`）の可用性・レイテンシ・保護機構（App Check・レート制限）の健全性を、構造化ログから機械的に測定・アラートできる状態にする。あわせて Flutter アプリ側の Crashlytics クラッシュフリー率も対象に含める（同一 PR でアプリに導入）。
+Places / Google Routes への薄いプロキシ（`placesProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`、いずれも 2nd gen Cloud Functions・`asia-northeast1`）の可用性・レイテンシ・保護機構（App Check・レート制限）の健全性を、構造化ログから機械的に測定・アラートできる状態にする。クライアント側のクラッシュ率は、Web 版に計測手段が無いため今は対象外（§3.5）。
 
 対象外: 個々のユーザー体験としての「ルートが妥当か」（これは [route-optimization.md](../spec/route-optimization.md) の責務）。ここではインフラ・上流 API の可観測性のみを扱う。
 
@@ -64,7 +64,7 @@ success_rate(upstream) = count(status="success")
 
 参考: `decision="blocked"` の件数も同じログから取得できる（正当なレート制限動作。急増は乱用 or クライアント側リトライ暴走の兆候として監視対象にはするが、SLO 対象ではない）。
 
-### 3.5 Crashlytics クラッシュフリーユーザー率
+### 3.5 クライアントのクラッシュ率（未計測）
 
 クライアント側のクラッシュ報告。**Web 版（`apps/web`）には未導入**（#158）——撤去した Flutter 版は Firebase Crashlytics で PII フリーのクラッシュ・非致命的エラーを報告していたが、Crashlytics は Web を対象にしない。導入するまでこの指標は計測できない。
 
@@ -83,7 +83,6 @@ success_rate(upstream) = count(status="success")
 | p95 レイテンシ — `routes-matrix` | ≤ 2500ms | ローリング7日 | 最大25要素の一括計算のため単一ルートより余裕を持たせる |
 | App Check 拒否件数 | 急増検知のみ（絶対閾値は§5） | 5分 | 定常的な少数拒否は許容。急増をアラート対象とする |
 | レート制限フェイルオープン | 0件 | 常時 | 発生即インシデント |
-| Crashlytics クラッシュフリーユーザー率 | ≥ 99.5% | 日次 | 一般的な モバイルアプリの初期目標値 |
 
 ---
 
@@ -389,4 +388,3 @@ gcloud alpha monitoring policies create --policy-from-file=policy_latency_routes
 - **IaC は無い:** 本リポジトリに Terraform 等は導入されていない。本書のログベース指標・アラートポリシーは `gcloud`／Console 上での手動作成が前提。定義の粒度は `google_logging_metric` / `google_monitoring_alert_policy` へそのまま移植できるよう揃えてある。
 - **ログ量・コストへの配慮:** `rate_limit` の `decision="allowed"` は `metrics.ts` の設計上意図的にログ出力されない（`logRateLimit` のコメント参照）。許可は毎リクエストで発生し件数が支配的なため、全件ログするとログ量・コストが膨らむ。運用上アラート対象になるのは `blocked`／`fail-open` のみであり、現状のログ契約で必要十分。
 - **成功率の分母欠落に注意:** App Check 拒否率（§3.3）はレート制限前で弾かれるため「保護前の全リクエスト数」がログに存在せず、真の「率」ではなく絶対件数ベースの近似にとどまる。分母を厳密化するには `verifyAppCheck` 呼び出し自体をカウントするログの追加が要る。
-- **Crashlytics 側は Cloud Logging 経路に乗らない:** クラッシュフリー率は Firebase Console の Crashlytics ダッシュボードで確認する。Cloud Monitoring 側でアラート化するには BigQuery エクスポートの構成が要る（未構成）。

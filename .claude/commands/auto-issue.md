@@ -81,7 +81,7 @@ git checkout -b <type>/<issue番号>-<短いslug>
 ```
 npm --prefix apps/web run typecheck && npm --prefix apps/web test && npm --prefix apps/web run build && npm --prefix apps/web run e2e
 npm --prefix packages/engine run typecheck && npm --prefix packages/engine test
-python3 .claude/doc_consistency.py --ci
+python3 .claude/doc_consistency.py --staged
 ```
 
 いずれか失敗したら**コミットしない**。修正して再実行する。

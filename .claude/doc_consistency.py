@@ -60,9 +60,13 @@ KEEP_MARKER = "doc-consistency:keep"
 # （`See lib/core/gone.dart.` を取りこぼさないため）。直前の `:` を禁じるのは、
 # `flutter-final:lib/foo.dart` のようにリビジョンで修飾したパス（撤去済みの移植元を
 # 指す書き方）が作業ツリーのパスではないため。
+#
+# `/` で終わる参照はディレクトリとみなす（`lib/features/picker/`）。ツリーごと消すと
+# ファイル名を含まない参照だけが残るので、拾わないとその撤去が検査を素通りする。
 PATH_RE = re.compile(
-    r"(?<![\w/:.-])((?:lib|test|functions|docs|android|ios|web|apps|packages)/[\w./-]+"
-    r"\.(?:dart|tsx|ts|css|md|json|yaml|yml|rules|kts|kt|swift|gradle))(?![A-Za-z0-9_])"
+    r"(?<![\w/:.-])((?:lib|test|functions|docs|android|ios|web|apps|packages)/"
+    r"(?:[\w./-]+\.(?:dart|arb|tsx|ts|css|md|json|yaml|yml|rules|kts|kt|swift|gradle)(?![A-Za-z0-9_])"
+    r"|(?:[\w.-]+/)+(?![\w.-])))"
 )
 
 # コードのコメント内 §N は docs/spec/route-optimization.md を指す慣習。
@@ -256,7 +260,9 @@ def split_lines(text, path):
             prose.append((i, s))
             if "*/" in s:
                 in_block = False
-        elif s.startswith("/*"):
+        elif s.startswith(("/*", "{/*")):
+            # `{/* … */}` は JSX のコメント。コードに数えると、中で名指しした名前が
+            # 「まだ使われている」証拠になり、その撤去の検出を握り潰す。
             prose.append((i, s))
             in_block = "*/" not in s
         elif s.startswith("//") or s.startswith("#"):
@@ -320,6 +326,8 @@ class Snapshot:
         作業ツリーの実在は見ない。未追跡ファイルを指すコメントを通してしまい、
         クリーンチェックアウトの CI とフックで判定が食い違う（PR #358 レビュー）。
         """
+        if ref.endswith("/"):
+            return any(t.startswith(ref) for t in self.tracked)
         if ref in self.tracked:
             return True
         if ref not in self.ignored:
@@ -428,7 +436,10 @@ def check_deleted_files(snap, deleted, findings):
     for path, line, text in snap.prose(snap.code_paths + snap.doc_paths):
         for ref in sorted(path_refs(path, text)):
             target = resolve(path, ref)
-            if target in gone and not snap.exists(target):
+            removed = target in gone or (
+                target.endswith("/") and any(g.startswith(target) for g in gone)
+            )
+            if removed and not snap.exists(target):
                 findings.append((path, line, f"削除された `{ref}` への参照が残っている"))
 
 

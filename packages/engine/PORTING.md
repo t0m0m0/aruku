@@ -6,7 +6,7 @@
 
 ## 位置づけ
 
-- 移植元: `test/core/services/*_test.dart` の 6 ファイル・314 テスト
+- 移植元: `flutter-final:test/core/services/*_test.dart` の 6 ファイル・314 テスト
 - 移植先: `packages/engine/test/services/*.test.ts`
 - #385 で7ファイルが加わった。いずれも「#384 の6ファイルを全て緑にしても一度も
   実行されない」エンジンの一部で、理由は移植先ファイルの冒頭に書いてある
@@ -18,7 +18,7 @@
   - `search_scoped_route_service_test.dart`（7本）→
     `test/services/search-scoped-route-service.test.ts`
   - `app_settings_test.dart`（13本）→ `test/models/app-settings.test.ts`
-- #385 でエンジン本体（`lib/core/services/` と `lib/core/models/` のうちエンジンが
+- #385 でエンジン本体（`flutter-final:lib/core/services/` と `flutter-final:lib/core/models/` のうちエンジンが
   使う範囲）を `src/` へ移植し、382 本すべてが緑になった。#385 のレビュー指摘対応で
   `test/runtime/unhandled-rejection.test.ts` が加わり、現在は 383 本。
 

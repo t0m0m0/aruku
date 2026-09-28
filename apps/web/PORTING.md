@@ -158,22 +158,22 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 | `flutter-final:lib/core/state/app_state.dart`（経路検索の中核） | — | `test/state/store.test.ts` |
 | `flutter-final:lib/core/services/location_service.dart` | — | `test/location/geolocation.test.ts` |
 | `flutter-final:lib/core/state/app_state.dart` の現在地まわり | — | `test/state/location.test.ts` |
-| `lib/features/home/`（`testWidgets` は運ばない） | — | `test/features/home/home-screen.test.tsx` |
+| `flutter-final:lib/features/home/`（`testWidgets` は運ばない） | — | `test/features/home/home-screen.test.tsx` |
 | `flutter-final:lib/shared/widgets/aruku_button.dart` / `icons/ic.dart` | — | `test/shared/button.test.tsx` + `test/shared/icons.test.tsx` |
 | `flutter-final:test/core/services/places_service_test.dart` | — | `test/places/places-service.test.ts` |
 | `flutter-final:test/core/services/recents_repository_test.dart` | — | `test/places/recents-repository.test.ts` |
 | `flutter-final:test/core/models/recent_place_test.dart` | — | `test/places/recent-place.test.ts` |
 | `flutter-final:lib/features/search/place_selection.dart`（Dart 側に直接のテストは無かった） | — | `test/places/resolve-prediction.test.ts` |
 | `flutter-final:test/features/search/places_provider_test.dart` | — | `test/features/search/search-state.test.ts` |
-| `lib/features/search/`（`testWidgets` は運ばない） | — | `test/features/search/search-screen.test.tsx` |
+| `flutter-final:lib/features/search/`（`testWidgets` は運ばない） | — | `test/features/search/search-screen.test.tsx` |
 | `flutter-final:test/core/config/app_check_provider_test.dart` | — | `test/firebase/app-check.test.ts` |
 | `flutter-final:test/core/models/route_error_test.dart` | — | `test/state/route-error.test.ts` |
 | `flutter-final:lib/core/state/app_state.dart` の `startSearch` まわり | — | `test/state/search-lifecycle.test.ts` |
-| `lib/features/loading/` / `error/` / `result/`（`testWidgets` は運ばない） | — | `test/features/loading/` / `error/` / `result/` |
+| `flutter-final:lib/features/loading/` / `error/` / `result/`（`testWidgets` は運ばない） | — | `test/features/loading/` / `error/` / `result/` |
 | `flutter-final:lib/features/result/result_timeline.dart` | — | `test/features/result/result-timeline.test.tsx` |
 | `flutter-final:test/core/state/app_state_time_revalidation_test.dart`（`applyPickedTime` まわり） | — | `test/state/picked-time.test.ts` |
 | `flutter-final:test/features/picker/desktop_time_field_test.dart` | — | `test/features/picker/time-field.test.tsx` + `time-field-range.test.ts` |
-| `lib/features/settings/`（`testWidgets` は運ばない） | — | `test/features/settings/settings-screen.test.tsx` |
+| `flutter-final:lib/features/settings/`（`testWidgets` は運ばない） | — | `test/features/settings/settings-screen.test.tsx` |
 
 `packages/engine` がかつて持っていた名前照合（`check:port`・#387 で撤去）はここには入れて
 いない。UI 側は「移植ではなく作り直す」（#386）ため 1 対 1 の対応そのものが存在しない。
@@ -513,7 +513,7 @@ picker / settings でも `await` を跨ぐ操作が出たら、**先にここを
   （gzip）なので、残りは約 340KB
 - `ArukuMap` の variant（`nav` / `thumb`）— 移植元でもどこからも指定されておらず、全 3 箇所が
   既定の `full`。寄り視点を使う nav 画面は Web に無い
-- デスクトップ幅の作り分け（#372 の `DesktopContent` / `DesktopTimeField` / <!-- doc-consistency:keep: 移植元（Dart）の widget 名。lib/shared/widgets/desktop_content.dart は健在 -->
+- デスクトップ幅の作り分け（#372 の `DesktopContent` / `DesktopTimeField` / <!-- 移植元（Dart）の widget 名。flutter-final:lib/shared/widgets/desktop_content.dart -->
   `DesktopTypeaheadField`）— 以前ここには「検索のスライスで対に入れる」と書いていたが、
   スライス3 では入れていない。`DesktopTypeaheadField` だけ先に入れても、同じ画面の
   時刻フィールドがまだ押せない以上ホームは片肺のまま——3 つは #372 の 1 つの作り分け
@@ -567,7 +567,7 @@ cp apps/web/.env.example apps/web/.env
 
 ### 設定スライスの決定
 
-移植元（`lib/features/settings/`、483 行）の5セクションのうち4つは、#386 が「Web で
+移植元（`flutter-final:lib/features/settings/`、483 行）の5セクションのうち4つは、#386 が「Web で
 落ちる機能の UI を作らない」と決めた機能の設定だった。**この画面には永続化する設定が
 1つも無い**——`AppSettings` の3フィールドがすべて非対応機能のものなので、
 `SettingsRepository`・lost update を防ぐ書き込みの直列化（`_queue`）・保存失敗の
@@ -834,7 +834,7 @@ pop も失われ、履歴が伸びる。
   この先の検索欄の作り替えや時刻欄がこれにあたる
 - **見た目だけのもの**は CSS のメディアクエリ。中央寄せ・最大幅・列の並べ替え
 
-**移植元の `DesktopContent` に当たる器は作らない。** Flutter は「デスクトップ幅のときだけ <!-- doc-consistency:keep: 移植元（Dart）の widget 名。lib/shared/widgets/desktop_content.dart は健在 -->
+**移植元の `DesktopContent` に当たる器は作らない。** Flutter は「デスクトップ幅のときだけ <!-- 移植元（Dart）の widget 名。flutter-final:lib/shared/widgets/desktop_content.dart -->
 最大幅を掛けて中央へ寄せる」をウィジェットでしか表せなかったが、CSS では画面自身の
 `.screen` に 3 行書けば済む。`ArukuCard` の引数リストを持ち込まなかったのと同じ判断。
 
