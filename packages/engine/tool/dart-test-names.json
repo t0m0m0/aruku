@@ -9,10 +9,7 @@
     "不正な週間目標（0以下・非数値）は defaults にフォールバック",
     "週間目標は int でも double として読める",
     "値が等しければ == で等価",
-    "週間目標が違えば == で非等価",
-    "firestore.rules との同期スキーマ契約 toJson のキー集合はルールの許可キーと厳密に一致する",
-    "firestore.rules との同期スキーマ契約 toJson は常に全キーを出力する（ルールが hasAll を課すため）",
-    "firestore.rules との同期スキーマ契約 週間目標プリセットはすべてルールの許可範囲(0 < km <= 1000)に収まる"
+    "週間目標が違えば == で非等価"
   ],
   "cancellation_test.dart": [
     "CancellationToken 初期状態は未キャンセルで throwIfCanceled が通る",
