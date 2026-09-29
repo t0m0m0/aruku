@@ -1,15 +1,10 @@
 // 移植元: flutter-final:test/core/models/app_settings_test.dart
-//
-// #384 の6ファイルはサービス層で、AppSettings に一度も触れない。この型は
-// `firestore.rules` と同じ契約の片側（#257）で、#385 で TS へ一本化した目的が
-// 「片方だけ変わる事故を型と失敗するテストで止める」ことなので、移植元のテストを運ぶ。
 
-import { describe, expect, it } from 'vitest';
+import { expect, it } from 'vitest';
 
 import {
   AppSettings,
   defaultWeeklyGoalKm,
-  weeklyGoalPresetsKm,
 } from '../../src/models/app-settings';
 
 it('defaults は通知オン・週間目標 10km・HealthKit連携オフ', () => {
@@ -93,32 +88,4 @@ it('週間目標が違えば == で非等価', () => {
       new AppSettings({ weeklyGoalKm: 20 }),
     ),
   ).toBe(false);
-});
-
-describe('firestore.rules との同期スキーマ契約', () => {
-  // firestore.rules の isValidSettings が許可するキー集合。これが崩れると
-  // 同期書き込みが PERMISSION_DENIED になる（#257）。フィールドを足すときは
-  // firestore.rules と functions/test/firestore-rules.test.ts も同時に直す。
-  it('toJson のキー集合はルールの許可キーと厳密に一致する', () => {
-    expect(new Set(Object.keys(AppSettings.defaults.toJson()))).toEqual(
-      new Set(['notificationsEnabled', 'weeklyGoalKm', 'healthKitEnabled']),
-    );
-  });
-
-  it('toJson は常に全キーを出力する（ルールが hasAll を課すため）', () => {
-    const s = new AppSettings({
-      notificationsEnabled: false,
-      weeklyGoalKm: 30,
-      healthKitEnabled: true,
-    });
-    expect(Object.values(s.toJson())).not.toContain(null);
-    expect(Object.keys(s.toJson())).toHaveLength(3);
-  });
-
-  it('週間目標プリセットはすべてルールの許可範囲(0 < km <= 1000)に収まる', () => {
-    for (const km of weeklyGoalPresetsKm) {
-      expect(km).toBeGreaterThan(0);
-      expect(km).toBeLessThanOrEqual(1000);
-    }
-  });
 });

@@ -18,7 +18,7 @@ TypeScript / React のコーディングスタイルは別の `reviewer` エー�
   トークンは `apps/web/src/http/app-check-http-client.ts` が `X-Firebase-AppCheck` ヘッダで送る
 - バックエンド: Cloud Functions の **HTTP** プロキシ（`functions/`、TypeScript）。Callable ではないので、
   App Check は `verifyAppCheck` で手動検証している
-- データ: Firestore はレート制限（Admin SDK のみ）と、クライアント未実装の `userSync/{uid}` ルール
+- データ: Firestore はレート制限（Admin SDK のみ）だけ。クライアントからは全面拒否
   （`firestore.rules`、`docs/security_hardening.md` ⑥）
 
 ## レビュー観点
