@@ -125,8 +125,8 @@
 
 1. [Firebase Console > App Check](https://console.firebase.google.com/) を開く。
 2. **Apps** タブで Web アプリが登録され、Attestation provider（reCAPTCHA v3）が
-   設定されていることを確認。Flutter 版の Android / iOS アプリの登録は #387 で撤去した
-   クライアントのもので、今は使われない。
+   設定されていることを確認。登録されているのは Web アプリ1つだけのはず。Flutter 版の
+   Android / iOS アプリの登録は #387 で削除した（2026-09-29）。
 3. **APIs** タブで対象（Cloud Functions 等）が **Enforced** になっていることを確認。
    - `Monitor`（計測のみ）ではなく `Enforce`（遮断）であること。
 4. Functions 側コードで App Check トークン検証が有効か確認:
