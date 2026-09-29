@@ -12,9 +12,9 @@ import { ja } from '../i18n/ja';
 import { Screen, screenFromLocation } from '../navigation/screens';
 import { ArukuLogo } from '../shared/logo';
 import { RoutesIcon, SettingsIcon } from '../shared/icons';
+import { Button } from '../shared/ui/button';
 import type { AppStore } from '../state/store';
 import { useIsDesktop } from './use-is-desktop';
-import styles from './desktop-shell.module.css';
 
 interface DesktopShellProps {
   store: StoreApi<AppStore>;
@@ -58,13 +58,20 @@ export function DesktopShell({ store }: DesktopShellProps) {
     state.go(target);
   };
 
+  // 移植元: design_handoff_aruku_web/README.md「0. 共通シェル」。
+  //
+  // 高さは 100vh ではなく 100dvh。820px を跨ぐ幅の端末（大きめのタブレット・横向きの
+  // 携帯）ではブラウザの UI が伸び縮みし、100vh は大きい側のまま固定される——overflow を
+  // 切っているこの器では下端が届かなくなる（PR #407 の Codex レビュー）。
   return (
-    <div className={styles.shell}>
-      <header className={styles.bar}>
-        <div className={styles.barInner}>
+    <div className="flex h-dvh flex-col overflow-hidden bg-ivory">
+      <header className="h-16 flex-none border-b border-hairline bg-paper">
+        <div className="mx-auto flex h-full max-w-[1280px] items-center gap-5 px-6">
           <ArukuLogo size={34} />
-          <span className={styles.wordmark}>{ja.appTitle}</span>
-          <nav className={styles.tabs}>
+          <span className="-ms-2.5 text-[19px] font-black tracking-[0.04em] text-ink">
+            {ja.appTitle}
+          </span>
+          <nav className="flex items-center gap-1">
             <Tab
               label={ja.shellTabPlan}
               icon={<RoutesIcon size={16} />}
@@ -80,7 +87,18 @@ export function DesktopShell({ store }: DesktopShellProps) {
           </nav>
         </div>
       </header>
-      <div className={styles.body} ref={body} data-testid="shell-body">
+      {/* 本文側がスクロールする。シェルごとスクロールさせると上部バーが流れる
+          （ハンドオフは「固定・スクロールしない」）。min-h-0 が無いと flex の子が
+          内容の高さまで伸び、内部スクロールが効かない。
+
+          --screen-min-height は画面の「1画面ぶん」をバーの下の領域に読み替える
+          （theme/base.css の既定は 100dvh）。差し替えないと、どの画面もバーの
+          高さぶん縦にはみ出す。 */}
+      <div
+        className="min-h-0 flex-1 overflow-y-auto [--screen-min-height:100%]"
+        ref={body}
+        data-testid="shell-body"
+      >
         <Outlet />
       </div>
     </div>
@@ -97,18 +115,23 @@ interface TabProps {
 /// 移植元は InkWell + Semantics(button:, selected:) で組んでいた。`<button>` を
 /// 使えば読み上げも Enter / Space も素で付く——移植元が GestureDetector を避けた
 /// 理由（キーボードだけの利用者が主要導線を辿れなくなる）はそのまま効いている。
+///
+/// shadcn の Tabs は使わない。あれは tablist / tabpanel の組で同じページ内の切り替えを
+/// 表す。これは画面を移る導線で、現在地は aria-current で表す。
+///
+/// 選択中の見た目も aria-current から引く。クラスを別に足すと、見た目と読み上げが
+/// 別々の条件で付くようになり、片方だけ落ちても気付けない。
 function Tab({ label, icon, selected, onPress }: TabProps) {
   return (
-    <button
-      type="button"
-      className={styles.tab}
+    <Button
+      variant="ghost"
+      size="sm"
+      className="aria-[current=page]:bg-moss-100 aria-[current=page]:text-moss-700"
       aria-current={selected ? 'page' : undefined}
       onClick={onPress}
     >
-      <span aria-hidden="true" style={{ display: 'inline-flex' }}>
-        {icon}
-      </span>
+      {icon}
       {label}
-    </button>
+    </Button>
   );
 }

@@ -19,9 +19,11 @@ const buttonVariants = cva(
         default: 'bg-primary font-extrabold text-primary-foreground hover:bg-primary/90',
         outline:
           'border border-border bg-card font-bold text-foreground hover:bg-accent hover:text-accent-foreground',
+        ghost: 'font-bold text-ink-2 hover:bg-accent hover:text-accent-foreground',
       },
       size: {
         default: 'min-h-13 w-full rounded-[16px] px-3 text-base',
+        sm: 'h-[38px] gap-[7px] rounded-[11px] px-4 text-sm',
       },
     },
     defaultVariants: {
