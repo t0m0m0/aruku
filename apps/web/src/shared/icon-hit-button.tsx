@@ -2,11 +2,14 @@
 //
 // アイコンだけのボタン。見た目は中身の大きさに留めつつ、タップ領域は HIG の最小
 // 寸法まで広げる。非同期の処理を渡すと、終わるまで待ち表示にして押せなくする。
+//
+// shadcn の Button（ghost / icon）には乗せない。あちらは hover で領域全体に背景を敷き、
+// 中身が自前の背景を持つ場合（home の検索チップ）に 44px 四方の四角が後ろへ浮く。
 
 import { useState, type ReactNode } from 'react';
 
 import { ja } from '../i18n/ja';
-import styles from './icon-hit-button.module.css';
+import { cn } from './utils';
 
 interface IconHitButtonProps {
   /// 読み上げ名。中身はアイコンなので、名前はここだけが持つ。
@@ -50,14 +53,18 @@ export function IconHitButton({
   return (
     <button
       type="button"
-      className={`${styles.button} ${className ?? ''}`}
+      className={cn(
+        'inline-flex size-tap-min flex-none cursor-pointer items-center justify-center text-ink-2 disabled:cursor-default',
+        className,
+      )}
       aria-label={label}
       disabled={busy}
       onClick={handleClick}
     >
       {busy ? (
-        <span className={styles.spinner}>
-          <span role="status" className="srOnly">
+        // 「動きを減らす」設定では回さない。待ち表示であることは色差で残す。
+        <span className="size-[18px] animate-spin rounded-full border-2 border-ink-4 border-t-ink-2 motion-reduce:animate-none">
+          <span role="status" className="sr-only">
             {busyLabel}
           </span>
         </span>
