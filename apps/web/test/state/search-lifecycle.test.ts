@@ -1,5 +1,5 @@
-// 移植元: lib/core/state/app_state.dart の `startSearch` / `cancelSearch` /
-// `_expireRoute` と、test/core/state/ の対応するテスト群。
+// 移植元: flutter-final:lib/core/state/app_state.dart の `startSearch` / `cancelSearch` /
+// `_expireRoute` と、flutter-final:test/core/state/ の対応するテスト群。
 //
 // 守りたい不変条件は移植元と同じ——画面と表示前提データが揃っていること。ただし
 // 権威が URL へ移ったので、`go()` が呼ばれた時点でストアが遷移先のガードを通ることで

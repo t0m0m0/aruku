@@ -1,4 +1,4 @@
-// 移植元: lib/core/navigation/screen_paths.dart
+// 移植元: flutter-final:lib/core/navigation/screen_paths.dart
 
 /// 画面の識別子。ルート表の語彙であって**状態ではない**——現在どの画面かの権威は
 /// URL（React Router）が持つ。移植元は `AppState.screen` にミラーを置き、go_router

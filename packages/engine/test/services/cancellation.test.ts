@@ -1,4 +1,4 @@
-// 移植元: test/core/services/cancellation_test.dart
+// 移植元: flutter-final:test/core/services/cancellation_test.dart
 //
 // #384 が移した6ファイルはキャンセルを TransitApiClient / TransitRouteService 越しにしか
 // 触らない。冪等な cancel・cancel 済みトークンへの onCancel・コールバックの発火順は

@@ -6,8 +6,6 @@ on:
   pull_request:
 
 jobs:
-  # Flutter を要さないので独立ジョブにする（並列で回り、TS 側の型崩れが Flutter の
-  # ビルド待ちに埋もれない）。
   engine:
     name: engine typecheck / test (packages/engine)
     runs-on: ubuntu-latest
@@ -30,14 +28,6 @@ jobs:
 
       - name: Test
         run: npm test
-        working-directory: packages/engine
-
-      # `npm test` とは別に要る。素の vitest は「落ちているテストがあるか」しか答えず、
-      # **移植されていないテストがあるか**には答えない——移植漏れは vitest から見れば
-      # 存在しないファイルでしかなく静かに緑になる。ここは Dart 側と名前で1対1かだけを
-      # 見る（PR #389 レビュー・packages/engine/PORTING.md「CI での扱い」）。
-      - name: Check ported suite
-        run: npm run check:port
         working-directory: packages/engine
 
   web:
@@ -108,8 +98,8 @@ jobs:
           path: apps/web/test-results/
           retention-days: 7
 
-  analyze-and-test:
-    name: format / analyze / test
+  doc-consistency:
+    name: doc / comment consistency
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -117,8 +107,6 @@ jobs:
           # doc-consistency の差分駆動の検査が base との共通祖先を要る（#357）。
           fetch-depth: 0
 
-      # Flutter より先に置く。python3 だけで走り、コメント・ドキュメントの
-      # 取り残しは早く落ちたほうが直しやすい。
       - name: Doc/comment consistency
         run: |
           python3 .claude/doc_consistency_test.py
@@ -137,34 +125,3 @@ jobs:
               python3 .claude/doc_consistency.py --ci
             fi
           fi
-
-      # dart:io の新規混入は web ビルドでは捕まらない（dart2js がスタブを提供する
-      # ためコンパイルは通り、触った瞬間に実行時例外になる）。静的に見るのはここ。
-      - name: Web safety
-        run: |
-          python3 .claude/web_safety_test.py
-          python3 .claude/web_safety.py
-
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          flutter-version: 3.38.5
-          cache: true
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Verify formatting
-        run: dart format --output=none --set-exit-if-changed .
-
-      - name: Static analysis
-        run: dart analyze --fatal-infos
-
-      - name: Run tests
-        run: flutter test
-
-      # Web を壊す変更を出す前に落とす（#359 Phase 3）。dart-define は渡さない——
-      # release ビルドでは assert が落ちるため鍵の検査は走らず、String.fromEnvironment
-      # は空文字を返すだけでコンパイルは通る。CI に秘密を持ち込まずに済む。
-      - name: Build web
-        run: flutter build web

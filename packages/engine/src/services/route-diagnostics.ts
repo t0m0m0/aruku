@@ -1,4 +1,4 @@
-// 移植元: lib/core/services/route_diagnostics.dart
+// 移植元: flutter-final:lib/core/services/route_diagnostics.dart
 
 import { kDebugMode, kReleaseMode } from '../build-mode';
 import { debugPrint } from '../debug-print';
@@ -95,7 +95,7 @@ export class EnrichLatencyLedger {
   /// 実測した候補数（キャッシュヒットを除く）＝上流ファンアウトの幅。
   candidates = 0;
 
-  /// 1候補が `_resolveBoardingTimes` で直列に積んだ guidance の最大段数。
+  /// 1候補が `resolveBoardingTimes` で直列に積んだ guidance の最大段数。
   resolveDepth = 0;
 
   /// 候補1件の実測を現在のパスへ記録する。
@@ -148,9 +148,9 @@ export class EnrichLatencyLedger {
   // 「1パスで決まった」最も一般的なケースがまるごと 0 になる。
 }
 
-/// best-effort 縮退（`_bestEffortResolved`）の費用を計上する台帳。
+/// best-effort 縮退（`bestEffortResolved`）の費用を計上する台帳。
 export class BestEffortLedger {
-  /// `_bestEffortResolved` に入った回数。
+  /// `bestEffortResolved` に入った回数。
   entries = 0;
 
   /// 実時刻解決したのべ候補数＝短リスト上限に縛られないファンアウト幅。
@@ -188,13 +188,13 @@ export class BestEffortLedger {
 /// 到着アンカー第2波（#376）の結末。`arrivalWaveOutcome=<index>` として1行ログに出す。
 ///
 /// 他の enum（`SegmentType`）と違い**数値**を値にしている。1行ログのコード（0〜3）は
-/// 集計器（tool/route_metrics_agg.dart）が読む契約そのもので、テストがその値を固定して
+/// 集計器（撤去した flutter-final:tool/route_metrics_agg.dart）が読む契約そのもので、テストがその値を固定して
 /// いるため——文字列にすると `index` に相当するものが消え、写像を別に持つことになる。
 export const ArrivalWaveOutcome = {
   /// 解析可能な非空応答。
   ok: 0,
 
-  /// departure 波の確定後、猶予（`_arrivalWaveGrace`）内に返らなかった。
+  /// departure 波の確定後、猶予（`arrivalWaveGrace`）内に返らなかった。
   timeout: 1,
 
   /// HTTP 失敗・パース不能。
@@ -208,7 +208,7 @@ export type ArrivalWaveOutcome =
 
 /// 1検索分の定量指標（#309）。
 export class RouteSearchMetrics {
-  /// 崩壊判定（`_isCollapse`）が true になったか（board-search を試みる契機）。
+  /// 崩壊判定（`isCollapse`）が true になったか（board-search を試みる契機）。
   collapseFired = false;
 
   /// board-search フォールバックが実際に候補を引きに走ったか。
@@ -278,7 +278,7 @@ export class RouteSearchMetrics {
   /// enrich が直列に走らせたパスの本数。
   enrichPasses = 0;
 
-  /// 1候補が `_resolveBoardingTimes` で直列に積んだ guidance の最大段数。
+  /// 1候補が `resolveBoardingTimes` で直列に積んだ guidance の最大段数。
   enrichResolveDepth = 0;
 
   /// 実測した候補数（キャッシュヒットを除く）＝上流ファンアウトの幅。

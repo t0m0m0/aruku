@@ -1,4 +1,4 @@
-// 移植元: lib/shared/widgets/desktop_shell.dart。
+// 移植元: flutter-final:lib/shared/widgets/desktop_shell.dart。
 //
 // 移植元が「記録」タブとストリークチップを持たないのは（ハンドオフには在る）、
 // どちらも歩数に依るため。#386 が Web で歩数まわりを作らないと決めているので、

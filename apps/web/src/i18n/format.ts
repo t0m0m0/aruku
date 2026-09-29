@@ -1,4 +1,4 @@
-// 移植元: lib/core/constants/app_constants.dart の todayDateLabel / todayGreeting。
+// 移植元: flutter-final:lib/core/constants/app_constants.dart の todayDateLabel / todayGreeting。
 //
 // 移植元は定数クラスに置いていたが、中身は文言の組み立てなので i18n の側へ寄せた。
 

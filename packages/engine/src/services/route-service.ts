@@ -1,4 +1,4 @@
-// 移植元: lib/core/services/route_service.dart
+// 移植元: flutter-final:lib/core/services/route_service.dart
 //
 // Riverpod の `routeServiceProvider` は移していない。あれは DI の配線（HTTP
 // クライアントの組み立てと App Check の適用）で、エンジンの仕様ではない。React 側の

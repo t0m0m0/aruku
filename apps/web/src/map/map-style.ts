@@ -1,4 +1,4 @@
-// 移植元: lib/core/theme/aruku_map_style.dart
+// 移植元: flutter-final:lib/core/theme/aruku_map_style.dart
 //
 // Wakaba の配色に寄せた Google Maps のスタイル。移植元は JSON 文字列だが、こちらは
 // 配列のまま持つ——ライブラリが受け取るのはオブジェクトで、文字列にすると読む側で

@@ -1,4 +1,4 @@
-// 移植元: lib/features/home/home_widgets.dart の _IconHit / _IconHitState。
+// 移植元: flutter-final:lib/features/home/home_widgets.dart の _IconHit / _IconHitState。
 //
 // 初回の移植ではタップ領域の確保だけを運び、非同期中の待ち表示と二度押し止めを
 // 落としていた（PR #394 レビュー）。10 秒かかり得る測位で、押しても何も起きて

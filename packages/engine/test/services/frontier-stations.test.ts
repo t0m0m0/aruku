@@ -1,4 +1,4 @@
-// 移植元: test/core/services/frontier_stations_test.dart
+// 移植元: flutter-final:test/core/services/frontier_stations_test.dart
 //
 // #384 が移した6ファイルに frontierStations は含まれず、エンジン本体（#385）を
 // 全て緑にしても一度も実行されない。移植したサービステストが呼ぶのは

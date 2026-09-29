@@ -1,4 +1,4 @@
-// 移植元: test/core/models/app_settings_test.dart
+// 移植元: flutter-final:test/core/models/app_settings_test.dart
 //
 // #384 の6ファイルはサービス層で、AppSettings に一度も触れない。この型は
 // `firestore.rules` と同じ契約の片側（#257）で、#385 で TS へ一本化した目的が

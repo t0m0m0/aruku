@@ -1,4 +1,4 @@
-// 移植元: lib/shared/extensions/route_map_overlays.dart。
+// 移植元: flutter-final:lib/shared/extensions/route_map_overlays.dart。
 //
 // 地図そのものは jsdom で描けないが、経路から何を描くかを決めるのはここの純関数で、
 // 描画側は受け取った値を Google Maps へ渡すだけ。取り違えが起きるのはこの層なので、

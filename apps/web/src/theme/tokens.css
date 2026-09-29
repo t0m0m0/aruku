@@ -1,5 +1,5 @@
-/* 移植元: lib/core/theme/aruku_colors.dart（ArukuColors.wakaba）と
-   lib/core/theme/aruku_tokens.dart。
+/* 移植元: flutter-final:lib/core/theme/aruku_colors.dart（ArukuColors.wakaba）と
+   flutter-final:lib/core/theme/aruku_tokens.dart。
 
    design_handoff_aruku_mvp/design-reference/tokens.css が原本だが、値はそちらでは
    なく実装済みの Dart 側を正とする。ハンドオフ以降に実装側だけが動いた箇所があり

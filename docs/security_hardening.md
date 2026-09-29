@@ -9,7 +9,7 @@
 | ① | API キーのアプリ制限 + API 制限 | 手動（GCP Console） |
 | ② | App Check enforcement 確認 + リプレイ保護 | 手動（Firebase Console） + コード |
 | ③ | TLS 証明書ピンニング | 設計判断 |
-| ④ | リリースビルドの本番署名鍵・production dart-define 確認 | 手動検証 |
+| ④ | 本番バンドルの設定確認 | 手動検証 + CI |
 | ⑥ | Firestore クラウド同期のセキュリティ（ルール デプロイ） | 手動デプロイ |
 | ⑦ | 関数を廃止するときの手順 | 手動（本番削除） |
 | ⑧ | Functions プロキシの CORS Origin 許可リスト | コード |
@@ -18,58 +18,38 @@
 
 ## ① API キーのアプリ制限 + API 制限（GCP Console）
 
-**目的:** API キーはアプリバイナリに埋め込まれる前提のため、デコンパイルで抽出されても
-他用途に転用できないよう、キーに「呼び出せるアプリ」と「呼び出せる API」の二重制限をかける。
+**目的:** 地図表示用キーは配信物（バンドル）に埋め込まれる前提のため、抜き出されても
+他用途に転用できないよう、キーに「呼び出せる場所」と「呼び出せる API」の二重制限をかける。
 
-> 補足: 地図表示用キー（`google_maps_flutter` が `AndroidManifest.xml` / `Info.plist` から
-> 読むキー）はアプリ内に存在せざるを得ない——ネイティブ Maps SDK が起動時にキーを読んで
-> 直接タイルを取得するため、アプリコードで制御できない。Routes/Places 等の REST 系は
-> Cloud Functions プロキシ側に隔離済みのため、ここで制限する主対象は **地図表示用キー**。
+> 補足: 地図表示用キーは配信物に存在せざるを得ない——ブラウザが Maps JavaScript API を
+> 読み込むときにキーを渡して直接タイルを取得するため、アプリコードで隠せない。Routes/Places 等の
+> REST 系は Cloud Functions プロキシ側に隔離済みのため、ここで制限する主対象は **地図表示用キー**。
 
 ### 手順
 
-**本番は4本（Android / iOS / Web / プロキシ）に分ける。制限の掛け方が違うので、混ぜないこと。**
-ローカル開発用の Web キーを別に1本持つため、手元では計5本になる（理由は④）。
+**本番は2本（地図表示用 Web / プロキシ）に分ける。制限の掛け方が違うので、混ぜないこと。**
+ローカル開発用の Web キーを別に1本持つため、手元では計3本になる（理由は下の手順 2）。
 
-**1本のキーにアプリケーション制限は1種類しか設定できない**（Android アプリ制限と iOS アプリ制限を
-同じキーに併記することはできない）ため、地図表示用キーはプラットフォームごとに分ける必要がある。
-これは Google の[セキュリティ ガイダンス](https://developers.google.com/maps/api-security-best-practices)
-が示すベストプラクティスでもある。
+> Flutter 版が使っていた地図表示用（Android）・（iOS）の2本は、#387 で Flutter 版を撤去して
+> 不要になった。GCP 側でキーを削除するまでは、使われないまま有効なキーとして残る。
 
 | キー | 使う主体 | 置き場所 | アプリケーションの制限 | API の制限 |
 |---|---|---|---|---|
-| 地図表示用（Android） | アプリ（Maps SDK） | `secrets.properties` | Android: パッケージ名 + SHA-1 | **Maps SDK for Android のみ** |
-| 地図表示用（iOS） | アプリ（Maps SDK） | `ios/Flutter/Secrets.xcconfig` | iOS: Bundle ID | **Maps SDK for iOS のみ** |
-| 地図表示用（Web・本番） | ブラウザ（Maps JavaScript API） | 公開ビルドの `MAPS_WEB_API_KEY` / `VITE_MAPS_WEB_API_KEY` | ウェブサイト: 配信ドメインのみ | **Maps JavaScript API のみ** |
-| 地図表示用（Web・開発） | ブラウザ（Maps JavaScript API） | ローカルの `dart_defines.json`（Flutter）・`apps/web/.env`（React SPA） | ウェブサイト: `localhost`（下記のとおり防御にならない） | **Maps JavaScript API のみ** |
+| 地図表示用（Web・本番） | ブラウザ（Maps JavaScript API） | 公開ビルドの `VITE_MAPS_WEB_API_KEY`（GitHub の secret `MAPS_WEB_API_KEY`） | ウェブサイト: 配信ドメインのみ | **Maps JavaScript API のみ** |
+| 地図表示用（Web・開発） | ブラウザ（Maps JavaScript API） | ローカルの `apps/web/.env` | ウェブサイト: `localhost`（下記のとおり防御にならない） | **Maps JavaScript API のみ** |
 | プロキシ用（`GOOGLE_MAPS_API_KEY`） | Cloud Functions | Secret Manager | **なし**（下記） | **Places API (New) + Routes API のみ** |
 
 1. [GCP Console > API とサービス > 認証情報](https://console.cloud.google.com/apis/credentials) を開く。
-2. **地図表示用キー（Android）** を選択し、次を設定する。
-   - **アプリケーションの制限**: 「Android アプリ」→ パッケージ名 `com.aruku.aruku` と
-     **本番署名鍵の SHA-1** を登録。SHA-1 は本番 keystore から取得する:
-     ```sh
-     keytool -list -v -keystore ~/aruku-release.jks -alias aruku
-     # 表示される SHA1: の値を登録（debug 用ではなく release 用を使うこと）
-     ```
-   - **API の制限**: 「キーを制限」→ **Maps SDK for Android のみ**。
-   - このキーは `secrets.properties` に入れる。
-3. **地図表示用キー（iOS）** を選択し、次を設定する。
-   - **アプリケーションの制限**: 「iOS アプリ」→ Bundle ID を登録。
-   - **API の制限**: 「キーを制限」→ **Maps SDK for iOS のみ**。
-   - このキーは `ios/Flutter/Secrets.xcconfig` に入れる。
-   - 地図表示用キーはいずれもアプリバイナリから抽出できる前提なので、地図タイル取得以外に転用させない。
-4. **地図表示用キー（Web）** は開発用と本番用で**別のキーを作る**。同じキーを使い回しては
+2. **地図表示用キー（Web）** は開発用と本番用で**別のキーを作る**。同じキーを使い回しては
    ならない——`localhost` を許可リストに含めたキーは、キーの文字列を知っている者なら
    誰でも使える。`localhost` は誰のマシンにもあり所有を証明しないため、公開バンドルに
    載るキーへ入れるとリファラー制限が丸ごと無効になる。
 
    **開発用キー**
-   - **アプリケーションの制限**: 「ウェブサイト」→ `http://localhost:5555/*`。
-     `flutter run -d chrome` はポートが毎回変わるため `--web-port=5555` で固定する。
-     5000 は macOS の AirPlay レシーバー（ControlCenter）が、5001 は Functions
-     エミュレータが使うため避ける。
-   - ローカルの `dart_defines.json` にだけ置き、**デプロイ成果物に載せない**。
+   - **アプリケーションの制限**: 「ウェブサイト」→ `http://localhost:5173/*`（Vite の開発サーバの
+     既定ポート）。5000 は macOS の AirPlay レシーバー（ControlCenter）が、5001 は Functions
+     エミュレータが使うため、ポートを変えるときも避ける。
+   - ローカルの `apps/web/.env` にだけ置き、**デプロイ成果物に載せない**。
    - このキーの防御はリファラー制限ではなく「公開しないこと」である。上記のとおり
      `localhost` の登録は誰でも名乗れるので防御にならない。漏洩時の被害を頭打ちに
      するため、**1日あたりのクォータ上限を低く**掛けておくこと。
@@ -77,8 +57,6 @@
    **本番用キー**
    - **アプリケーションの制限**: 「ウェブサイト」→ 配信ドメインのみ。**`localhost` を入れない。**
    - 公開ビルドの `VITE_MAPS_WEB_API_KEY`（React SPA、`apps/web`）にこちらを渡す。
-     **配信しているのはこちらだけ**（#387 で `deploy-web.yml` を差し替えた）。Flutter 版の
-     `MAPS_WEB_API_KEY` はリポジトリに残っているが配信経路から外れている。
    - 配信先は Cloudflare Pages（README「Web 公開（Cloudflare Pages）」）。登録するのは
      `aruku.pages.dev/*` か独自ドメインで、**`*.pages.dev` を入れてはならない。**
      `pages.dev` は Cloudflare の全ユーザーが自分のプロジェクトを持つ共有サフィックスで、
@@ -105,9 +83,9 @@
      ネイティブの署名ベースの制限より構造的に弱いため、**GCP 側の予算アラートと
      1日あたりのクォータ上限**を併せて掛けること。本番用キーでも省けない。
 
-5. **プロキシ用キー**を選択し、次を設定する。
+3. **プロキシ用キー**を選択し、次を設定する。
    - **アプリケーションの制限**: **設定しない**。
-     - Android/iOS アプリ制限は使えない（呼び出し元は Cloud Functions でありアプリではない）。
+     - ウェブサイト制限は使えない（呼び出し元は Cloud Functions でありブラウザではない）。
      - **IP アドレス制限も使えない。** プロキシは 2nd gen Cloud Functions（Cloud Run）で、
        VPC 下り + Cloud NAT を構成しない限り**下り IP が固定されない**。本リポジトリはその構成を
        持たないため、IP を許可リストに入れると Places / Routes の呼び出しが落ちる。
@@ -117,13 +95,13 @@
      アプリケーション制限を掛けられない分、**このキーの防御は API 制限が主**になる。
    - 併せて働く保護: キー自体は Secret Manager にありアプリへ出ない、プロキシは App Check 必須（②）、
      IP 単位のレート制限（README）。
-6. 保存後、本番ビルドで地図・各機能が正常動作することを確認する。
+4. 保存後、本番ビルドで地図・各機能が正常動作することを確認する。
 
 ### 検証
 
-- **地図表示用キー**: 登録外のパッケージ/Bundle ID からの呼び出しが拒否されること（別アプリでキーを使うと 403）。
-  **Android 用キーと iOS 用キーを取り違えていないこと**も確認する（取り違えるとそのプラットフォームで
-  地図だけが出ない。制限が効いている状態と区別がつきにくい）。
+- **地図表示用キー**: 登録外のオリジンからの呼び出しが拒否されること（`RefererNotAllowedMapError`）。
+  **開発用キーと本番用キーを取り違えていないこと**も確認する（本番に開発用キーを渡すと
+  `localhost` を許可したキーが公開される。逆だと本番で地図だけが出ない）。
 - **プロキシ用キー**: 制限後も `placesProxy` / `googleWalkProxy` / `googleWalkMatrixProxy` が 200 を返すこと。
   API 制限を絞りすぎると上流が 403 を返すが、プロキシはこれを **502** に変換して上流ボディを素通しする
   （`functions/src/index.ts` の `UPSTREAM_FAILED` 経路）。アプリ側からは「検索できない」としか見えず
@@ -138,14 +116,15 @@
 **目的:** Cloud Functions プロキシが App Check トークンを**必須化（enforce）**しており、
 正規アプリ以外からの呼び出し（API 課金の濫用）を遮断できていることを確認する。
 
-> アプリ側は `AppCheckHttpClient`（`lib/core/services/app_check_http_client.dart`）が
+> アプリ側は `AppCheckHttpClient`（`apps/web/src/http/app-check-http-client.ts`）が
 > 全リクエストに `X-Firebase-AppCheck` ヘッダを付与する。本節が扱うのは**サーバー側の enforce 設定**。
 
 ### 手順
 
 1. [Firebase Console > App Check](https://console.firebase.google.com/) を開く。
-2. **Apps** タブで Android / iOS が登録され、Attestation provider（Play Integrity / DeviceCheck/App Attest）が
-   設定されていることを確認。
+2. **Apps** タブで Web アプリが登録され、Attestation provider（reCAPTCHA v3）が
+   設定されていることを確認。Flutter 版の Android / iOS アプリの登録は #387 で撤去した
+   クライアントのもので、今は使われない。
 3. **APIs** タブで対象（Cloud Functions 等）が **Enforced** になっていることを確認。
    - `Monitor`（計測のみ）ではなく `Enforce`（遮断）であること。
 4. Functions 側コードで App Check トークン検証が有効か確認:
@@ -197,7 +176,7 @@ Firebase 自身も「replay protection は往復が増えるため、**特に機
 #### クライアントとサーバーの対応
 
 - サーバー: `shouldConsumeAppCheckToken()`（`functions/src/index.ts`）
-- クライアント: `AppCheckHttpClient.requiresLimitedUseToken()`（`lib/core/services/app_check_http_client.dart`）
+- クライアント: `AppCheckHttpClient.requiresLimitedUseToken()`（`apps/web/src/http/app-check-http-client.ts`）
 
 **この2つは厳密に一致させること。** ずれは両方向とも実害がある。
 
@@ -279,43 +258,39 @@ reCAPTCHA 側のクォータ画面で見る。**対象を増やす前に、現�
 
 ---
 
-## ④ リリースビルドの署名鍵・dart-define 確認
+## ④ 本番バンドルの設定確認
 
-**目的:** リリースビルドが **debug keystore ではなく本番署名鍵**で、かつ **production の
-dart-define**（`PROXY_BASE_URL` 等）で生成されることを確認する。
+**目的:** 配信されているバンドルが **本番の値**（`VITE_PROXY_BASE_URL`・本番用の地図キー等）で
+作られ、**開発専用の値**（App Check デバッグトークン・`localhost` を許可した開発用キー）を
+含まないことを確認する。
 
 ### 前提
 
-`android/app/build.gradle.kts` は `android/key.properties` があれば本番 keystore で
-`release` を署名し、未配置の環境では debug 鍵へフォールバックする。**フォールバックは
-沈黙する**ので、本番ビルドで `key.properties` を置き忘れても署名は通る。以下の検証は
-それを検出するためのもの。
+`VITE_` の値はビルド時にバンドルへ焼かれる。本番ビルドは `.github/workflows/deploy-web.yml` が
+GitHub の secrets / vars から組み、空の値があればビルド前に落とす。デバッグトークンが
+本番バンドルへ入らないことは `apps/web/test/build/production-bundle.test.ts` が CI で
+実際にビルドして見張る。**名前の取り違えと、開発用キーを本番の secret に入れる誤りは
+どちらの検査も素通りする**ので、以下はそれを検出するためのもの。
 
-### 手順（Android SDK のある環境で実施）
+### 手順
 
-1. 本番 keystore と `android/key.properties` を配置する（`android/key.properties.example` 参照）。
-2. 署名構成を確認:
+1. 配信中の `index.html` が参照するバンドルを取得する:
    ```sh
-   cd android && ./gradlew :app:signingReport
-   # release バリアントの Store が debug.keystore ではなく本番 keystore を指すこと
+   curl -s https://aruku.pages.dev/ | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js'
+   curl -s https://aruku.pages.dev/assets/index-<hash>.js -o bundle.js
    ```
-3. production の dart-define を与えてリリースビルド:
+2. プロキシの URL が本番を指すことを確認する:
    ```sh
-   flutter build appbundle --release \
-     --dart-define=PROXY_BASE_URL=https://asia-northeast1-{projectId}.cloudfunctions.net
-   # 必要に応じ USE_REAL_MAP 等も付与
+   grep -o 'https://asia-northeast1-[a-z0-9-]*\.cloudfunctions\.net' bundle.js | sort -u
    ```
-4. 生成された AAB の署名を確認:
-   ```sh
-   jarsigner -verify -verbose -certs build/app/outputs/bundle/release/app-release.aab
-   # 本番証明書（debug でない）で署名されていること
-   ```
+3. バンドルに入っている地図キーが**本番用キー**であることを GCP Console の認証情報と
+   突き合わせる（キーの末尾数文字で照合し、キーそのものをどこかへ貼らない）。
 
 ### 検証
 
-- `signingReport` の release が本番 keystore を指す。
-- AAB が本番証明書で署名されている。
-- アプリが本番プロキシ URL へ通信する（debug/ローカル URL でない）。
+- プロキシの URL が本番（ローカルのエミュレータ URL でない）。
+- 地図キーが本番用（許可リストに `localhost` を持たない）キーである。
+- 本番の画面で地図・地点検索・経路検索が動く。
 
 ---
 
@@ -324,8 +299,9 @@ dart-define**（`PROXY_BASE_URL` 等）で生成されることを確認する�
 **目的:** クライアント SDK が `userSync/{uid}` を直接読み書きするようになったとき、
 **本人以外がアクセスできない**ことを保証する。
 
-> **アプリ側にクラウド同期の実装は無い。** `cloud_firestore` は `pubspec.yaml` の依存に
-> 入っておらず、`userSync/{uid}` を読み書きするコードは `lib/` に無い。
+> **アプリ側にクラウド同期の実装は無い。** `apps/web` は Firestore のクライアントを持たず
+> （`firebase` パッケージは App Check のためだけに使う）、`userSync/{uid}` を読み書きする
+> コードは無い。
 >
 > **それでもルールは効いている。** デプロイ済みの環境では認証済み（匿名サインインを含む）
 > ユーザーが自分の `userSync/{uid}` を read / create / update / delete できる
@@ -342,15 +318,15 @@ dart-define**（`PROXY_BASE_URL` 等）で生成されることを確認する�
 >
 > | キー | 正本 |
 > | --- | --- |
-> | `settings` | `AppSettings.toJson()`（`lib/core/models/app_settings.dart`） |
-> | `recents` / `recentOrigins` | `RecentPlace.toJson()`（`lib/core/models/recent_place.dart`） |
-> | `activity` | `DailyActivity.toJson()`（`lib/core/models/daily_activity.dart`） |
+> | `settings` | `AppSettings.toJson()`（`packages/engine/src/models/app-settings.ts`） |
+> | `recents` / `recentOrigins` | `recentPlaceToJson()`（`apps/web/src/places/recent-place.ts`） |
+> | `activity` | Web 版には無い。撤去した Flutter 版の `DailyActivity.toJson()`（`flutter-final:lib/core/models/daily_activity.dart`） |
 > | `updatedAt` | 送出元は未定（同期を実装するときに決める） |
 >
 > 同期を実装するときは、ルールテストの fixture ではなく上の serializer に合わせること。
 > fixture はルールを通すだけの緩い形で、そちらを正本と取り違えると、受理はされるのに
-> `fromJson` が読めないデータを書き込む。適用先は各リポジトリの `replaceAll`
-> （`recents_repository.dart` / `activity_log_repository.dart`）。
+> `fromJson` が読めないデータを書き込む。同期の適用先（Flutter 版の `replaceAll`）は Web 版へ
+> 運んでいない（`apps/web/PORTING.md`）。
 
 ### 手順
 
@@ -450,7 +426,7 @@ Origin ヘッダの無いリクエスト（モバイル・curl）はサーバー
 | --- | --- |
 | `https://aruku.pages.dev` | 本番配信（Cloudflare Pages） |
 | `https://<hash>.aruku.pages.dev` | Cloudflare が各デプロイへ自動で割り当てる別名 |
-| `localhost` / `127.0.0.1`（http・https、任意のポート） | ローカル開発（README の `flutter run -d chrome --web-port=5555`） |
+| `localhost` / `127.0.0.1`（http・https、任意のポート） | ローカル開発（README の `npm --prefix apps/web run dev`） |
 
 `pages.dev` は誰でもプロジェクトを作れる共有ドメインのため、`evil.pages.dev` や
 `evil-aruku.pages.dev` を通さないよう、ホスト名は URL として解析し完全一致か

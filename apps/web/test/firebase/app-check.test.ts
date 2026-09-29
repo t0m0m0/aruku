@@ -1,5 +1,5 @@
-// 移植元: lib/core/config/app_check_provider.dart と
-// test/core/config/app_check_provider_test.dart。
+// 移植元: flutter-final:lib/core/config/app_check_provider.dart と
+// flutter-final:test/core/config/app_check_provider_test.dart。
 //
 // Firebase に触れる初期化そのものはここで見ない（実 SDK を起動してしまう）。
 // 押さえるのは「いつバイパスを許すか」「いつ有効化を見送るか」という security の芯。

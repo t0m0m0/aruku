@@ -17,19 +17,21 @@ After reviewing:
 
 ## Architecture
 
-- `lib/core/` — config, constants, models, services, state (Riverpod), navigation, theme
-- `lib/features/` — feature-first UI (home, search, picker, loading, result, settings, error)
-- `lib/shared/` — reusable widgets, extensions, icons
-- `packages/engine/` — 経路エンジンの **TypeScript** 移植（#385 完了）。`lib/core/services/` の対応物
-- `apps/web/` — React + Vite の SPA。**本番（`aruku.pages.dev`）が配信しているのはこれ**（#387 で `deploy-web.yml` を差し替えた）。7画面・地図・日本語フォントの同梱・E2E まで実装済み。Flutter 資産はまだ残っているが配信経路から外れている——撤去は #387 の残り。範囲は `apps/web/PORTING.md`
+- `apps/web/` — React + Vite の SPA。**本番（`aruku.pages.dev`）が配信しているのはこれ**。範囲と移植元との対応は `apps/web/PORTING.md`
+  - `src/features/` — 画面（home, search, picker, loading, result, settings, error）
+  - `src/state/` — アプリの状態（zustand の store）。`src/navigation/` — ルート表とガード
+  - `src/places/` `src/search/` `src/location/` — 地点検索・経路検索の配線・現在地
+  - `src/map/` `src/layout/` `src/shared/` `src/theme/` `src/i18n/` — 地図・レイアウト・共有部品・デザイントークン・文言
+- `packages/engine/` — 経路エンジン（**TypeScript**）。挙動の正本は `docs/spec/route-optimization.md`
 - `functions/` — Cloud Functions **TypeScript** backend. Google Places / Routes proxies (`placesProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`) + Firestore rate limiter. **公共交通のプロキシは無い** — Transit API はクライアント直叩き（`docs/spec/route-optimization.md` §2.1）
-- Run the app: `flutter run` (add `--dart-define=USE_REAL_MAP=true` for the real map). Setup: see README.
+- Flutter 版は #387 で撤去した。`flutter-final` タグと `archive/flutter` ブランチに残る（復元手順は `docs/archive/flutter-restore.md`）。コメントの `flutter-final:lib/...` はそのタグ内のパス
+- Run the app: `npm --prefix apps/web run dev`. Setup: see README.
 
 ### Navigation
 
-- go_router が画面遷移の権威（`lib/core/navigation/app_router.dart` の `goRouterProvider`）。ルートツリー・戻る挙動・遷移アニメはここに集約。
-- アプリ内遷移は今まで通り `ref.read(appStateProvider.notifier).go(Screen.x)`。`AppState.screen` は router のミラーで、pop / deep link は自動で書き戻される。
-- 画面と表示前提データ（loading↔routePhase、result/nav↔route、error↔routeErrorKind）は**必ず同一 `copyWith` で**更新する（redirect ガードの前提）。
+- react-router のルート表（`apps/web/src/navigation/router.tsx`）とガード（`apps/web/src/navigation/guard.ts` の `resolveRedirect`）が画面遷移の権威。deep link・ブラウザ履歴・アプリ内遷移はすべてガードを通る。
+- アプリ内遷移は store の `go(Screen.x, update)`。
+- 画面と表示前提データ（loading↔routePhase、result↔route、error↔routeErrorKind）は**必ず同じ `go()` の `update` で**更新する（ガードの前提）。
 
 ---
 
@@ -40,7 +42,7 @@ IMPORTANT:
 - Implement only ONE feature per session
 - Follow TDD
 - Commit in small logical units
-- When writing version tags for external tools (GitHub Actions, Flutter, packages, etc.), **always fetch the latest version via WebSearch before writing**. Never rely on training-data knowledge for version numbers.
+- When writing version tags for external tools (GitHub Actions, Node, npm packages, etc.), **always fetch the latest version via WebSearch before writing**. Never rely on training-data knowledge for version numbers.
 
 NEVER:
 
@@ -70,10 +72,10 @@ IMPORTANT:
 
 例:
 
-```dart
+```ts
 // 素直には depTime でソートしたいが、untimed 便は depTime が null で
 // 末尾に沈むため arrTime を採用している。#121 参照。
-candidates.sort((a, b) => a.arrTime.compareTo(b.arrTime));
+candidates.sort((a, b) => a.arrTime.getTime() - b.arrTime.getTime());
 ```
 
 ---
@@ -113,9 +115,12 @@ commit 前のエージェントフックが見る。**検査に引っかかっ�
 
 Before every commit, run:
 
-- `dart format .`
-- `dart analyze`
-- `flutter test`
+- `python3 .claude/doc_consistency.py --staged`（index を検査する。commit フックも同じ検査を走らせる）
+
+When `packages/engine/` changes, also run in `packages/engine/`:
+
+- `npx tsc --noEmit`
+- `npm test`
 
 When `functions/` changes, also run in `functions/`:
 
@@ -132,32 +137,18 @@ When `apps/web/` changes, also run in `apps/web/`:
 `npm run e2e` は自分でビルドしてプレビューを起こすので、`npx vite build` とは別に走らせる。
 初回だけブラウザの取得が要る（`npx playwright install chromium`）。
 
-When `lib/` changes, also run:
-
-- `python3 .claude/web_safety.py`
-
-`dart:io` の新規混入と `Platform` の直接評価を落とす（#359）。`flutter build web` では
-捕まらない——dart2js の `dart:io` はスタブでコンパイルは通り、触った瞬間に
-`UnsupportedError` になる。CI でも同じ検査が走る。
-
 ---
 
 ## Security Restrictions
 
 NEVER access:
 
-- `.env`
-- `lib/secrets/`
-
-NEVER modify:
-
-- `android/app/google-services.json`
-- `ios/Runner/GoogleService-Info.plist`
+- `.env`（`apps/web/.env` を含む）
 
 ---
 
 ## Additional Rules
 
 @.claude/docs/workflow.md
-@.claude/docs/flutter-conventions.md
+@.claude/docs/web-conventions.md
 @.claude/docs/testing.md

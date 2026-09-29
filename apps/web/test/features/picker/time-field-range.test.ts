@@ -1,4 +1,4 @@
-// 移植元: lib/features/picker/time_field_input.dart と desktop_time_field.dart の
+// 移植元: flutter-final:lib/features/picker/time_field_input.dart と desktop_time_field.dart の
 // 値域の算出。
 //
 // `parseTimeInput`（入力文字列の解釈）は運んでいない。`<input type="time">` は

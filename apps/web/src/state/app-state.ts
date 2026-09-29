@@ -1,4 +1,4 @@
-// 移植元: lib/core/state/app_state.dart のうち、経路検索の中核。
+// 移植元: flutter-final:lib/core/state/app_state.dart のうち、経路検索の中核。
 //
 // 歩数・週間実績・HealthKit・行程 handoff は運んでいない。Web で恒久的に動かない
 // 機能として #386 が UI ごと作らないと決めたもの（歩数）と、その歩数同期に依存する

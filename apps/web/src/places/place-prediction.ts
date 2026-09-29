@@ -1,4 +1,4 @@
-// 移植元: lib/core/models/place_prediction.dart
+// 移植元: flutter-final:lib/core/models/place_prediction.dart
 
 /// 地点検索（typeahead）の候補。座標は持たない——Google autocomplete が返さないため、
 /// 確定時に `PlacesService.fetchLatLng` で引く2段フロー。

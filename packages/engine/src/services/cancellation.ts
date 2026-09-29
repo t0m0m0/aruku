@@ -1,4 +1,4 @@
-// 移植元: lib/core/services/cancellation.dart
+// 移植元: flutter-final:lib/core/services/cancellation.dart
 
 /// 検索1回分のキャンセル境界（#259）。ユーザーがローディングを離脱した時点で、
 /// 進行中の HTTP を実際に切るために使う。

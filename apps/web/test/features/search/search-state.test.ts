@@ -1,5 +1,5 @@
-// 移植元: lib/features/search/places_provider.dart と
-// test/features/search/places_provider_test.dart
+// 移植元: flutter-final:lib/features/search/places_provider.dart と
+// flutter-final:test/features/search/places_provider_test.dart
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

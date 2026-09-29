@@ -26,19 +26,29 @@ import sys
 
 # 検査範囲。生成物は除く。
 #
-# `:(glob)` マジックを付けるのは、既定の pathspec だと `lib/**/*.dart` が
-# `lib/main.dart` のような直下のファイルに当たらないため（`**` が1階層以上を要求する）。
+# `:(glob)` マジックを付けるのは、既定の pathspec では `**/` が0階層に当たらず、
+# `functions/src/**/*.ts` が直下の `functions/src/index.ts` を取りこぼすため。
 # 付け忘れると検査対象から静かに漏れる。
 CODE_GLOBS = [
-    ":(glob)lib/**/*.dart",
     ":(glob)functions/src/**/*.ts",
     # テストのコメントも同じ規約の対象。生存判定にも効く——テストがまだ呼んでいる
     # シンボルは撤去されていない。
-    ":(glob)test/**/*.dart",
     ":(glob)functions/test/**/*.ts",
+    ":(glob)apps/**/*.ts",
+    ":(glob)apps/**/*.tsx",
+    ":(glob)apps/**/*.css",
+    ":(glob)packages/**/*.ts",
 ]
-DOC_GLOBS = [":(glob)docs/**/*.md", ":(glob)test/**/*.md", ":(glob)*.md", "firestore.rules"]
-EXCLUDE_RE = re.compile(r"(^lib/l10n/|^lib/firebase_options\.dart$|^functions/lib/)")
+DOC_GLOBS = [
+    ":(glob)docs/**/*.md",
+    ":(glob)*.md",
+    ":(glob)apps/*/*.md",
+    ":(glob)packages/*/*.md",
+    "firestore.rules",
+]
+# docs/archive/ は撤去した構成の記録で、指す先が作業ツリーに無いのが正しい
+# （Flutter 版は flutter-final タグにだけ残る・#387）。
+EXCLUDE_RE = re.compile(r"(^docs/archive/|^functions/lib/)")
 
 # 意図的に残す参照の抑制マーカー。撤去の経緯を書いた記述など、消すほうが損な参照がある。
 # 行のどこかにあれば、その行は検査しない。
@@ -47,13 +57,19 @@ KEEP_MARKER = "doc-consistency:keep"
 # リポジトリ相対パスとみなす先頭ディレクトリ。`package:foo/bar.dart` を拾わないよう、
 # 直前がパス構成文字でないことを要求する。拡張子は長いものを先に並べる（`kts` を
 # `kt` で切ると末尾が余る）。後続は単語文字だけを禁じ、文末ピリオドは許す
-# （`See lib/core/gone.dart.` を取りこぼさないため）。
+# （`See lib/core/gone.dart.` を取りこぼさないため）。直前の `:` を禁じるのは、
+# `flutter-final:lib/foo.dart` のようにリビジョンで修飾したパス（撤去済みの移植元を
+# 指す書き方）が作業ツリーのパスではないため。
+#
+# `/` で終わる参照はディレクトリとみなす（`lib/features/picker/`）。ツリーごと消すと
+# ファイル名を含まない参照だけが残るので、拾わないとその撤去が検査を素通りする。
 PATH_RE = re.compile(
-    r"(?<![\w/:.-])((?:lib|test|functions|docs|android|ios|web)/[\w./-]+"
-    r"\.(?:dart|ts|md|json|yaml|yml|rules|kts|kt|swift|gradle))(?![A-Za-z0-9_])"
+    r"(?<![\w/:.-])((?:lib|test|functions|docs|android|ios|web|apps|packages|tool|src|e2e|vite)/"
+    r"(?:[\w./-]+\.(?:dart|arb|tsx|ts|mjs|js|css|html|md|json|yaml|yml|rules|kts|kt|swift|gradle)(?![A-Za-z0-9_])"
+    r"|(?:[\w.-]+/)+(?![\w.-])))"
 )
 
-# lib/functions のコメント内 §N は docs/spec/route-optimization.md を指す慣習。
+# コードのコメント内 §N は docs/spec/route-optimization.md を指す慣習。
 # .md は各自の節番号を持つため対象外（docs/ops/observability.md の §6.1 など）。
 SPEC_PATH = "docs/spec/route-optimization.md"
 # `§2.2-6` の `-6` は節内の番号付き項目。base だけ見て切ると、消えた項目や打ち間違いを通す。
@@ -70,20 +86,56 @@ STATEMENT_KEYWORDS = (
     "return|await|throw|yield|if|while|for|switch|assert|else|do|case|new|super|this|"
     "break|continue|rethrow|try|catch|finally|import|export|part"
 )
-TYPE = r"[A-Za-z_][\w<>,?.\[\]]*"
+
+MEMBER_MODIFIERS = r"(?:public|private|protected|static|readonly|declare|override|abstract|async|get|set)"
 
 DECL_RES = [
-    # Dart の型宣言。`sealed class` / `abstract interface class` のような修飾子付きを含む。
-    re.compile(r"^\s*(?:(?:abstract|sealed|base|final|interface|mixin)\s+)*(?:class|enum|mixin|extension|typedef)\s+(\w+)"),
-    # TypeScript の宣言。`export async function` はこのリポジトリで実際に使っている。
-    re.compile(r"^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:async\s+)?(?:function\*?|interface|type|class|enum)\s+(\w+)"),
+    # トップレベルの宣言。`export async function` はこのリポジトリで実際に使っている。
+    re.compile(
+        r"^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?"
+        r"(?:function\*?|interface|type|class|enum)\s+(\w+)"
+    ),
     re.compile(r"^\s*(?:export\s+)?(?:const|let)\s+(\w+)\s*[:=]"),
-    # Dart のフィールド・定数。`static const _pageCount = 3` のような型推論も拾う。
-    re.compile(rf"^\s*(?:static\s+)?(?:const|final|late|var)\s+(?:{TYPE}\s+)?(\w+)\s*[=;]"),
-    # Dart のメソッド・getter。戻り値型を必須にし、文の先頭語を除いて文と分ける。
-    # record 戻り値（`({int cum, int wait}) _advance(...)`）はこのリポジトリで実際に使う。
-    re.compile(rf"^\s*(?:@\w+\s+)*(?:static\s+)?(?!(?:{STATEMENT_KEYWORDS})\b)(?:{TYPE}|\([^)]*\)\??)\s+(?:get\s+)?(\w+)\s*[({{=]"),
+    # 修飾子付きのフィールド。修飾子があれば文と取り違えない。
+    re.compile(rf"^\s*(?:{MEMBER_MODIFIERS}\s+)+(\w+)\s*[?!]?\s*[:=;]"),
+    # 修飾子の無いフィールド（`name: Type;` / `name = value;`）。引数とオブジェクトの
+    # プロパティは `,` で終わるので、`;` を要求すれば取り違えない。
+    re.compile(rf"^\s*(?!(?:{STATEMENT_KEYWORDS})\b)(\w+)\s*[?!]?\s*:\s*[^=;(,]+;\s*$"),
+    re.compile(
+        rf"^\s*(?!(?:{STATEMENT_KEYWORDS})\b)(\w+)\s*[?!]?(?:\s*:\s*[^=;,]+)?\s*=(?!=)[^;]*;\s*$"
+    ),
 ]
+
+# 構文からメソッドと確かめられる宣言。短い名前（`close`）も残す——長さで落とすのは
+# 散文の普通の語に当たるのを避けるためで、その心配はメソッド名の照合を
+# コードの形（`close()` / `` `close` `` / `.close`）に限ることで別に解く。
+METHOD_DECL_RES = [
+    # トップレベルの関数と、関数を束ねた const（`export const seconds = (n) => …`）。
+    # 値の const（`const files = 1`）は呼べないのでここに入れない。
+    re.compile(r"^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\*?\s+(\w+)"),
+    re.compile(
+        r"^\s*(?:export\s+)?(?:const|let)\s+(\w+)\s*(?::[^=]+)?=\s*(?:async\s+)?"
+        r"(?:function\b|(?:<[^>]*>)?\([^)]*\)\s*(?::\s*[^=]+)?=>|\w+\s*=>)"
+    ),
+    # 修飾子付きのメソッド（`static none(): SearchDeadline {`）。
+    re.compile(rf"^\s*(?:{MEMBER_MODIFIERS}\s+)+\*?(\w+)\s*[?!]?\s*[(<]"),
+    # 修飾子の無いメソッド。呼び出しの文と形が同じなので、引数が行を跨ぐ `name(` で
+    # 終わるか、戻り値型または本体の `{`（`{}` まで1行に収めた形を含む）まで書いた形に
+    # 限る。`foo(x);` は拾わない。
+    re.compile(
+        rf"^\s*(?!(?:{STATEMENT_KEYWORDS})\b)(\w+)\s*(?:<[^>]*>)?"
+        r"\((?:[^;]*\)\s*(?::\s*[^=;{]+)?\s*\{(?:[^{}]*\})?)?\s*$"
+    ),
+    # interface のメソッド署名（`close(): void;`）。`;` で終わる点は呼び出しの文と同じだが、
+    # 文は `)` の直後に戻り値型の `:` を置けない。
+    re.compile(
+        rf"^\s*(?!(?:{STATEMENT_KEYWORDS})\b)(\w+)\s*\??\s*(?:<[^>]*>)?"
+        r"\([^;]*\)\s*:\s*[^=;{]+;\s*$"
+    ),
+]
+
+# 短い名前として残してよい最小の長さ。`at` `of` のような名前は形を限っても誤検知する。
+MIN_METHOD_NAME_LEN = 3
 
 # 宣言とみなす最大インデント。コメントが参照するのはトップレベル（0）と
 # クラスメンバ（2）で、メソッド本体の局所変数（4 以上）ではない。深さで切らないと
@@ -233,7 +285,9 @@ def split_lines(text, path):
             prose.append((i, s))
             if "*/" in s:
                 in_block = False
-        elif s.startswith("/*"):
+        elif s.startswith(("/*", "{/*")):
+            # `{/* … */}` は JSX のコメント。コードに数えると、中で名指しした名前が
+            # 「まだ使われている」証拠になり、その撤去の検出を握り潰す。
             prose.append((i, s))
             in_block = "*/" not in s
         elif s.startswith("//") or s.startswith("#"):
@@ -297,6 +351,8 @@ class Snapshot:
         作業ツリーの実在は見ない。未追跡ファイルを指すコメントを通してしまい、
         クリーンチェックアウトの CI とフックで判定が食い違う（PR #358 レビュー）。
         """
+        if ref.endswith("/"):
+            return any(t.startswith(ref) for t in self.tracked)
         if ref in self.tracked:
             return True
         if ref not in self.ignored:
@@ -305,11 +361,26 @@ class Snapshot:
         return ref in self.ignored
 
 
+DIFF_FILE_RE = re.compile(r"^diff --git a/(\S+) ")
+SCANNED_SUFFIXES = (".ts", ".tsx")
+
+
 def removed_declarations(diff):
-    """diff の削除行から、宣言が消えたシンボル名を拾う。"""
+    """diff の削除行から、宣言が消えたシンボル名を拾う。
+
+    走査する言語のファイルだけを見る。撤去した言語（#387 の Dart）の宣言まで拾うと、
+    TS のコメントが来歴として名指しする移植元の名前（「移植元 `JourneyProgress`」）が
+    すべて腐り扱いになる。`class X {` は Dart と TS で同じ形なので、正規表現では
+    分けられない。ファイル見出しの無い diff 片は対象として扱う。
+    """
     names = set()
+    in_scope = True
     for line in diff.splitlines():
-        if not line.startswith("-") or line.startswith("---"):
+        header = DIFF_FILE_RE.match(line)
+        if header:
+            in_scope = header.group(1).endswith(SCANNED_SUFFIXES)
+            continue
+        if not in_scope or not line.startswith("-") or line.startswith("---"):
             continue
         body = line[1:]
         if body.strip().startswith(("//", "*", "///", "#")):
@@ -318,11 +389,23 @@ def removed_declarations(diff):
             continue
         for r in DECL_RES:
             m = r.match(body)
-            if m:
+            if m and _is_symbol_like(m.group(1)):
+                names.add(m.group(1))
+        for r in METHOD_DECL_RES:
+            m = r.match(body)
+            if m and len(m.group(1).lstrip("_")) >= MIN_METHOD_NAME_LEN:
                 names.add(m.group(1))
     # private（`_` 始まり）も対象へ含める。このコードベースはコメントで `_advance`
     # `_boardSearchFanout` のような内部名を多用するため、外すと検査の射程が落ちる。
-    return {n for n in names if _is_symbol_like(n)}
+    return names
+
+
+def mention_re(name):
+    """散文中の言及を拾う形。短い名前は普通の語と紛れるので、コードとして書いた形に限る。"""
+    if _is_symbol_like(name):
+        return word_re(name)
+    n = re.escape(name)
+    return re.compile(rf"`{n}(?:\(\))?`|\.{n}(?![A-Za-z0-9_])|(?<![A-Za-z0-9_.]){n}\(")
 
 
 # --- 検査本体 -------------------------------------------------------------
@@ -333,12 +416,13 @@ def check_removed_symbols(snap, diff, findings):
     names = removed_declarations(diff)
     if not names:
         return
-    pats = {n: word_re(n) for n in names}
+    words = {n: word_re(n) for n in names}
+    mentions = {n: mention_re(n) for n in names}
     # コードのどこかに残っていれば、撤去ではなく移動か、まだ使われている。
-    live = {n for n, p in pats.items() if any(p.search(t) for _, _, t in snap.code())}
+    live = {n for n, p in words.items() if any(p.search(t) for _, _, t in snap.code())}
     for name in sorted(names - live):
         for path, line, text in snap.prose(snap.code_paths + snap.doc_paths):
-            if pats[name].search(text):
+            if mentions[name].search(text):
                 findings.append(
                     (path, line, f"削除された `{name}` への参照がコメント/ドキュメントに残っている")
                 )
@@ -352,6 +436,9 @@ def path_refs(path, text):
     相対リンクで書かれた参照だけ検査から漏れる（PR #358 レビュー）。
     """
     refs = {m.group(1) for m in PATH_RE.finditer(text)}
+    if not PACKAGE_ROOT_RE.match(path):
+        # パッケージの外では、どのパッケージの `src/` かを文脈でしか示せない。
+        refs = {r for r in refs if not r.startswith(PACKAGE_ONLY_PREFIXES)}
     if path.endswith(".md"):
         for m in MD_LINK_RE.finditer(text):
             target = m.group(1)
@@ -361,21 +448,57 @@ def path_refs(path, text):
     return refs
 
 
+PACKAGE_ROOT_RE = re.compile(r"^(?:(?:apps|packages)/[^/]+|functions)/")
+
+# パッケージのルートからの相対でしか書かれない先頭。
+PACKAGE_ONLY_PREFIXES = ("src/", "e2e/", "vite/")
+
+
+# パッケージの中でもリポジトリのルートから書く参照の先頭。
+REPO_ROOTED_PREFIXES = ("apps/", "packages/", "docs/", "functions/")
+
+
+def resolve(path, ref):
+    """`path` に書かれた参照 `ref` が指すリポジトリ相対パス。
+
+    `apps/web` や `packages/engine` の中では `test/foo.test.ts` をパッケージの
+    ルートからの相対で書く慣習がある。リポジトリのルートとパッケージのルートの
+    **どちらか**に在れば可とすると、パッケージ側を消してもルートの同名ファイルが
+    参照を生かしてしまう。先頭で一意に決める。
+    """
+    root = PACKAGE_ROOT_RE.match(path)
+    if root and not ref.startswith(REPO_ROOTED_PREFIXES):
+        return root.group(0) + ref
+    return ref
+
+
 def check_deleted_files(snap, deleted, findings):
     """削除されたファイルのパスが、コメント・ドキュメントに残っているもの。"""
     if not deleted:
         return
     gone = set(deleted)
+    # ルート直下のファイルはディレクトリを持たないので PATH_RE に掛からない。一般の
+    # 単語（`package.json`）まで拾うとパッケージの同名ファイルと取り違えるため、
+    # このコミットで消えたものだけを名前で探す。
+    gone_root = {g: re.compile(rf"(?<![\w/:.-]){re.escape(g)}(?![\w-])") for g in gone if "/" not in g}
     for path, line, text in snap.prose(snap.code_paths + snap.doc_paths):
-        for ref in sorted(path_refs(path, text) & gone):
-            findings.append((path, line, f"削除された `{ref}` への参照が残っている"))
+        for name, pat in gone_root.items():
+            if pat.search(text) and not snap.exists(resolve(path, name)):
+                findings.append((path, line, f"削除された `{name}` への参照が残っている"))
+        for ref in sorted(path_refs(path, text)):
+            target = resolve(path, ref)
+            removed = target in gone or (
+                target.endswith("/") and any(g.startswith(target) for g in gone)
+            )
+            if removed and not snap.exists(target):
+                findings.append((path, line, f"削除された `{ref}` への参照が残っている"))
 
 
 def check_dangling_paths(snap, targets, findings):
     """コメント・ドキュメントが指すパスが実在するか。"""
     for path, line, text in snap.prose(targets):
         for ref in sorted(path_refs(path, text)):
-            if not snap.exists(ref):
+            if not snap.exists(resolve(path, ref)):
                 findings.append((path, line, f"存在しないパス `{ref}` を参照している"))
 
 
@@ -407,7 +530,7 @@ def check_dangling_sections(snap, targets, findings):
     sections = spec_index(snap.text(SPEC_PATH))
     spec_name = posixpath.basename(SPEC_PATH)
     for path, line, text in snap.prose(targets):
-        is_code = path.startswith(("lib/", "functions/src/", "test/"))
+        is_code = path in snap.code_paths
         if not is_code and spec_name not in text:
             continue
         for m in SECTION_REF_RE.finditer(text):
@@ -451,6 +574,11 @@ def main():
     ap.add_argument("--ci", action="store_true", help="追跡ファイル全体を検査して exit 1")
     ap.add_argument("--base", default="", help="CI で差分駆動の検査に使う基準 ref")
     ap.add_argument(
+        "--staged",
+        action="store_true",
+        help="コミット前の index を検査して exit 1（手で回す入口。フック用の JSON を読まない）",
+    )
+    ap.add_argument(
         "--two-dot",
         action="store_true",
         help="base..HEAD で比べる。push（特に force push）は旧 tip と新 tip を"
@@ -466,20 +594,27 @@ def main():
         targets = snap.code_paths + snap.doc_paths
         section_targets = targets
     else:
-        try:
-            payload = json.load(sys.stdin)
-        except (json.JSONDecodeError, ValueError):
-            sys.exit(0)
-        command = payload.get("tool_input", {}).get("command", "")
-        is_commit, takes_worktree = parse_git_commit(command)
-        if not is_commit:
-            sys.exit(0)
+        if args.staged:
+            takes_worktree = False
+        else:
+            try:
+                payload = json.load(sys.stdin)
+            except (json.JSONDecodeError, ValueError):
+                sys.exit(0)
+            command = payload.get("tool_input", {}).get("command", "")
+            is_commit, takes_worktree = parse_git_commit(command)
+            if not is_commit:
+                sys.exit(0)
         # `git commit -a` などは index に無い変更まで取り込む。その場合は index では
         # なく作業ツリーを HEAD と比べる（PR #358 レビュー）。
         scope = ["HEAD"] if takes_worktree else ["--cached"]
         snap = Snapshot(staged=not takes_worktree)
         diff = run(["git", "diff", *scope])
         deleted = gone_paths(scope)
+        if takes_worktree:
+            # 追跡集合は index から作るので、stage していない削除がまだ「在る」側に
+            # 残る。`git commit -a` はそれも取り込むので、存在の判定から外す。
+            snap.tracked -= set(deleted)
         changed = set(run(["git", "diff", *scope, "--name-only", "--diff-filter=d"]).splitlines())
         # ツリー全体の検査は、このコミットが触ったファイルに絞る。無関係な既存の
         # 腐りでコミットを止めると、フックごと無視されるようになるため。
@@ -492,7 +627,7 @@ def main():
     if not findings:
         sys.exit(0)
     report(findings)
-    sys.exit(1 if args.ci else 2)
+    sys.exit(1 if args.ci or args.staged else 2)
 
 
 if __name__ == "__main__":

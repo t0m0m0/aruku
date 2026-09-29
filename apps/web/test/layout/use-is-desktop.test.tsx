@@ -1,5 +1,5 @@
-// 移植元: lib/core/config/layout_breakpoints.dart（境界 820px）と
-// lib/shared/widgets/responsive_scope.dart（実測幅を1点へ流し込む注入点）。
+// 移植元: flutter-final:lib/core/config/layout_breakpoints.dart（境界 820px）と
+// flutter-final:lib/shared/widgets/responsive_scope.dart（実測幅を1点へ流し込む注入点）。
 //
 // 移植元が provider + ResponsiveScope の2枚で作っていた注入点は、web では
 // matchMedia そのものが担う。差し替える先が1つなので、幅の両側を作るテストは

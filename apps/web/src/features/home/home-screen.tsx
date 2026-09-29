@@ -1,4 +1,4 @@
-// 移植元: lib/features/home/home_screen.dart と home_widgets.dart。
+// 移植元: flutter-final:lib/features/home/home_screen.dart と home_widgets.dart。
 //
 // 週間目標カード（_WeeklyGoalCard / _WeeklyProgress / _TodayLine /
 // _GoalRingPainter / _ActivityUnsupportedNote、約 280 行）は運んでいない。

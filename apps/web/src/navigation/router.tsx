@@ -46,7 +46,7 @@ function notWiredRecents(): RecentsRepository {
 
 /// アプリ全体のルート表。
 ///
-/// 移植元（lib/core/navigation/app_router.dart）と違い、現在地の権威は URL だけが
+/// 移植元（flutter-final:lib/core/navigation/app_router.dart）と違い、現在地の権威は URL だけが
 /// 持つ。state → router / router → state の双方向同期とエコー遮断は要らなくなった。
 /// 残す不変条件は「画面と表示前提データが揃っていること」で、それは各ルートの
 /// loader が [resolveRedirect] で見る。

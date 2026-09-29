@@ -151,33 +151,33 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 
 | 移植元（Dart） | 本数 | 移植先 |
 | --- | ---: | --- |
-| `test/core/services/timeout_http_client_test.dart` | 6 | `test/http/timeout-http-client.test.ts`（5）+ `test/http/app-check-http-client.test.ts`（1） |
-| `test/core/services/app_check_http_client_test.dart` | 15 | `test/http/app-check-http-client.test.ts` |
-| `lib/core/navigation/screen_paths.dart` | — | `test/navigation/screens.test.ts` |
-| `lib/core/navigation/app_router.dart` の `redirect` | — | `test/navigation/guard.test.ts` + `test/navigation/router.test.ts` |
-| `lib/core/state/app_state.dart`（経路検索の中核） | — | `test/state/store.test.ts` |
-| `lib/core/services/location_service.dart` | — | `test/location/geolocation.test.ts` |
-| `lib/core/state/app_state.dart` の現在地まわり | — | `test/state/location.test.ts` |
-| `lib/features/home/`（`testWidgets` は運ばない） | — | `test/features/home/home-screen.test.tsx` |
-| `lib/shared/widgets/aruku_button.dart` / `icons/ic.dart` | — | `test/shared/button.test.tsx` + `test/shared/icons.test.tsx` |
-| `test/core/services/places_service_test.dart` | — | `test/places/places-service.test.ts` |
-| `test/core/services/recents_repository_test.dart` | — | `test/places/recents-repository.test.ts` |
-| `test/core/models/recent_place_test.dart` | — | `test/places/recent-place.test.ts` |
-| `test/features/search/place_selection_test.dart` | — | `test/places/resolve-prediction.test.ts` |
-| `test/features/search/places_provider_test.dart` | — | `test/features/search/search-state.test.ts` |
-| `lib/features/search/`（`testWidgets` は運ばない） | — | `test/features/search/search-screen.test.tsx` |
-| `test/core/config/app_check_provider_test.dart` | — | `test/firebase/app-check.test.ts` |
-| `test/core/models/route_error_test.dart` | — | `test/state/route-error.test.ts` |
-| `lib/core/state/app_state.dart` の `startSearch` まわり | — | `test/state/search-lifecycle.test.ts` |
-| `lib/features/loading/` / `error/` / `result/`（`testWidgets` は運ばない） | — | `test/features/loading/` / `error/` / `result/` |
-| `lib/features/result/result_timeline.dart` | — | `test/features/result/result-timeline.test.tsx` |
-| `test/core/state/app_state_time_revalidation_test.dart`（`applyPickedTime` まわり） | — | `test/state/picked-time.test.ts` |
-| `test/features/picker/desktop_time_field_test.dart` | — | `test/features/picker/time-field.test.tsx` + `time-field-range.test.ts` |
-| `lib/features/settings/`（`testWidgets` は運ばない） | — | `test/features/settings/settings-screen.test.tsx` |
+| `flutter-final:test/core/services/timeout_http_client_test.dart` | 6 | `test/http/timeout-http-client.test.ts`（5）+ `test/http/app-check-http-client.test.ts`（1） |
+| `flutter-final:test/core/services/app_check_http_client_test.dart` | 15 | `test/http/app-check-http-client.test.ts` |
+| `flutter-final:lib/core/navigation/screen_paths.dart` | — | `test/navigation/screens.test.ts` |
+| `flutter-final:lib/core/navigation/app_router.dart` の `redirect` | — | `test/navigation/guard.test.ts` + `test/navigation/router.test.ts` |
+| `flutter-final:lib/core/state/app_state.dart`（経路検索の中核） | — | `test/state/store.test.ts` |
+| `flutter-final:lib/core/services/location_service.dart` | — | `test/location/geolocation.test.ts` |
+| `flutter-final:lib/core/state/app_state.dart` の現在地まわり | — | `test/state/location.test.ts` |
+| `flutter-final:lib/features/home/`（`testWidgets` は運ばない） | — | `test/features/home/home-screen.test.tsx` |
+| `flutter-final:lib/shared/widgets/aruku_button.dart` / `icons/ic.dart` | — | `test/shared/button.test.tsx` + `test/shared/icons.test.tsx` |
+| `flutter-final:test/core/services/places_service_test.dart` | — | `test/places/places-service.test.ts` |
+| `flutter-final:test/core/services/recents_repository_test.dart` | — | `test/places/recents-repository.test.ts` |
+| `flutter-final:test/core/models/recent_place_test.dart` | — | `test/places/recent-place.test.ts` |
+| `flutter-final:lib/features/search/place_selection.dart`（Dart 側に直接のテストは無かった） | — | `test/places/resolve-prediction.test.ts` |
+| `flutter-final:test/features/search/places_provider_test.dart` | — | `test/features/search/search-state.test.ts` |
+| `flutter-final:lib/features/search/`（`testWidgets` は運ばない） | — | `test/features/search/search-screen.test.tsx` |
+| `flutter-final:test/core/config/app_check_provider_test.dart` | — | `test/firebase/app-check.test.ts` |
+| `flutter-final:test/core/models/route_error_test.dart` | — | `test/state/route-error.test.ts` |
+| `flutter-final:lib/core/state/app_state.dart` の `startSearch` まわり | — | `test/state/search-lifecycle.test.ts` |
+| `flutter-final:lib/features/loading/` / `error/` / `result/`（`testWidgets` は運ばない） | — | `test/features/loading/` / `error/` / `result/` |
+| `flutter-final:lib/features/result/result_timeline.dart` | — | `test/features/result/result-timeline.test.tsx` |
+| `flutter-final:test/core/state/app_state_time_revalidation_test.dart`（`applyPickedTime` まわり） | — | `test/state/picked-time.test.ts` |
+| `flutter-final:test/features/picker/desktop_time_field_test.dart` | — | `test/features/picker/time-field.test.tsx` + `time-field-range.test.ts` |
+| `flutter-final:lib/features/settings/`（`testWidgets` は運ばない） | — | `test/features/settings/settings-screen.test.tsx` |
 
-`packages/engine` の `check:port` のような名前照合はここには入れていない。あちらの基準値は
-エンジンの 6 ファイルに固定されており、UI 側は「移植ではなく作り直す」（#386）ため
-1 対 1 の対応そのものが存在しない。上の表が対応の記録。
+`packages/engine` がかつて持っていた名前照合（`check:port`・#387 で撤去）はここには入れて
+いない。UI 側は「移植ではなく作り直す」（#386）ため 1 対 1 の対応そのものが存在しない。
+上の表が対応の記録。
 
 `e2e/` はこの表に載らない。移植元に相当物が無い——Flutter web はエージェント／
 ヘッドレスから操作できず（`visibilityState=hidden` で rAF が止まる・#382）、E2E そのものが
@@ -277,7 +277,7 @@ content 属性ごと消え、この app で index.html にある日本語はそ�
 
 | 層 | 何が根拠か |
 | --- | --- |
-| エンジンの選定ロジック | Dart 版のテストを移植した `packages/engine` の suite（#384・`check:port` が移植漏れを見る） |
+| エンジンの選定ロジック | Dart 版のテストを移植した `packages/engine` の suite（#384・撤去時点で Dart 側と名前で 382 対 382） |
 | 上流へ渡す照会の中身 | `e2e/route-search.spec.ts` が座標・日付・`numItineraries`・`avoidModes` を固定する |
 | 画面への出方 | 同 spec と `test/features/` |
 | **実データでの突き合わせ** | 実施済み（下の「実データでの突き合わせ」）。本物の Transit API とプロキシの応答を録り、Dart 版と TypeScript 版へ同じものを流して結果を比べた |
@@ -345,7 +345,7 @@ content 属性ごと消え、この app で index.html にある日本語はそ�
 
 | 論点 | 決定 | 理由 |
 | --- | --- | --- |
-| 色の正本 | `lib/core/theme/aruku_colors.dart` | ハンドオフの `tokens.css` 以降に実装側だけが動いた（`ink3` が `#8A9583` → `#5F6E58`）。原本から引くと現行 Web 版と色が変わる |
+| 色の正本 | `flutter-final:lib/core/theme/aruku_colors.dart` | ハンドオフの `tokens.css` 以降に実装側だけが動いた（`ink3` が `#8A9583` → `#5F6E58`）。原本から引くと現行 Web 版と色が変わる |
 | アイコンの正本 | `design_handoff_aruku_mvp/design-reference/icons.jsx` | Dart 版はこの SVG を Canvas 命令へ移したもの。戻り先はハンドオフのほう |
 | `ArukuCard` | CSS のクラスへ落とす | 角丸・影・余白は使う側が直接書ける。Flutter に引数しか入口が無かった都合を運ばない |
 | `ArukuButton` | 引数 12 個のうち 4 個だけ運ぶ | 同上。残りは `className` で足りる |
@@ -513,7 +513,7 @@ picker / settings でも `await` を跨ぐ操作が出たら、**先にここを
   （gzip）なので、残りは約 340KB
 - `ArukuMap` の variant（`nav` / `thumb`）— 移植元でもどこからも指定されておらず、全 3 箇所が
   既定の `full`。寄り視点を使う nav 画面は Web に無い
-- デスクトップ幅の作り分け（#372 の `DesktopContent` / `DesktopTimeField` / <!-- doc-consistency:keep: 移植元（Dart）の widget 名。lib/shared/widgets/desktop_content.dart は健在 -->
+- デスクトップ幅の作り分け（#372 の `DesktopContent` / `DesktopTimeField` / <!-- 移植元（Dart）の widget 名。flutter-final:lib/shared/widgets/desktop_content.dart -->
   `DesktopTypeaheadField`）— 以前ここには「検索のスライスで対に入れる」と書いていたが、
   スライス3 では入れていない。`DesktopTypeaheadField` だけ先に入れても、同じ画面の
   時刻フィールドがまだ押せない以上ホームは片肺のまま——3 つは #372 の 1 つの作り分け
@@ -556,7 +556,7 @@ picker / settings でも `await` を跨ぐ操作が出たら、**先にここを
 ## 設定
 
 `.env` はコミットしない（`apps/web/.gitignore` が `.env*` を除外し、`.env.example` だけ通す）。
-`dart_defines.json` / `dart_defines.example.json` と同じ作法。
+撤去した Flutter 版の `dart_defines.json` / `flutter-final:dart_defines.example.json` と同じ作法。
 
 ```bash
 cp apps/web/.env.example apps/web/.env
@@ -567,7 +567,7 @@ cp apps/web/.env.example apps/web/.env
 
 ### 設定スライスの決定
 
-移植元（`lib/features/settings/`、483 行）の5セクションのうち4つは、#386 が「Web で
+移植元（`flutter-final:lib/features/settings/`、483 行）の5セクションのうち4つは、#386 が「Web で
 落ちる機能の UI を作らない」と決めた機能の設定だった。**この画面には永続化する設定が
 1つも無い**——`AppSettings` の3フィールドがすべて非対応機能のものなので、
 `SettingsRepository`・lost update を防ぐ書き込みの直列化（`_queue`）・保存失敗の
@@ -834,7 +834,7 @@ pop も失われ、履歴が伸びる。
   この先の検索欄の作り替えや時刻欄がこれにあたる
 - **見た目だけのもの**は CSS のメディアクエリ。中央寄せ・最大幅・列の並べ替え
 
-**移植元の `DesktopContent` に当たる器は作らない。** Flutter は「デスクトップ幅のときだけ <!-- doc-consistency:keep: 移植元（Dart）の widget 名。lib/shared/widgets/desktop_content.dart は健在 -->
+**移植元の `DesktopContent` に当たる器は作らない。** Flutter は「デスクトップ幅のときだけ <!-- 移植元（Dart）の widget 名。flutter-final:lib/shared/widgets/desktop_content.dart -->
 最大幅を掛けて中央へ寄せる」をウィジェットでしか表せなかったが、CSS では画面自身の
 `.screen` に 3 行書けば済む。`ArukuCard` の引数リストを持ち込まなかったのと同じ判断。
 
@@ -851,7 +851,7 @@ jsdom は CSS を読まないので、幅による出し分けは単体テスト
 
 ### home の設定ボタンはデスクトップで出さない
 
-移植元（`lib/features/home/home_screen.dart`）はデスクトップ幅でも歯車を残していたが、
+移植元（`flutter-final:lib/features/home/home_screen.dart`）はデスクトップ幅でも歯車を残していたが、
 ハンドオフのルート計画に歯車は無く、シェルのタブが同じ行き先を持つ。**移植元とハンドオフが
 食い違う箇所で、ハンドオフを採った。**
 

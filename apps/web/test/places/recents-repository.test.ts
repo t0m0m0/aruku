@@ -1,5 +1,5 @@
-// 移植元: lib/core/services/recents_repository.dart と
-// test/core/services/recents_repository_test.dart
+// 移植元: flutter-final:lib/core/services/recents_repository.dart と
+// flutter-final:test/core/services/recents_repository_test.dart
 //
 // 書き込みの直列化（_writeLock）は移植していない。localStorage が同期なので
 // load→変更→save の間に別の操作が割り込む余地が無い。その反証が

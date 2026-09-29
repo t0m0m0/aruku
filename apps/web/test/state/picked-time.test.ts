@@ -1,4 +1,4 @@
-// 移植元: lib/core/state/app_state.dart の `applyPickedTime` / `rebaseDates`。
+// 移植元: flutter-final:lib/core/state/app_state.dart の `applyPickedTime` / `rebaseDates`。
 //
 // 守りたい不変条件は「出発 < 到着」がどの入口からも壊れないこと。UI 側の min/max は
 // 案内であって保証ではない——キー入力・オートフィル・古いブラウザは範囲外を渡す。

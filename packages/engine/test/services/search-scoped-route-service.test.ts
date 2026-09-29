@@ -1,4 +1,4 @@
-// 移植元: test/core/services/search_scoped_route_service_test.dart
+// 移植元: flutter-final:test/core/services/search_scoped_route_service_test.dart
 //
 // SearchScopedRouteService は #384 の6ファイルに含まれず、エンジン本体を全て緑にしても
 // 一度も実行されない。plan 1回ごとにエンジンを組み立てて必ず閉じる境界（#259）そのものは

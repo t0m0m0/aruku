@@ -1,4 +1,4 @@
-// 移植元: lib/features/result/result_screen.dart と result_totals.dart。
+// 移植元: flutter-final:lib/features/result/result_screen.dart と result_totals.dart。
 // タイムラインは result-timeline.tsx にある。
 //
 // 運んでいないもの（いずれも対になる相手が来てから）:
