@@ -11,8 +11,8 @@
    それを読む。
 
    Tailwind の @theme が正本。`bg-moss-600` のようなユーティリティはここから生える。
-   `static` にしているのは、下の旧名の別名と shadcn の意味的トークンがクラス経由で
-   なく var() で参照するため——既定の「使われた変数だけ出す」だと落とされる。 */
+   `static` にしているのは、下の shadcn の意味的トークンや svg の属性（shared/logo.tsx）が
+   クラス経由でなく var() で参照するため——既定の「使われた変数だけ出す」だと落とされる。 */
 
 @theme static {
   /* 既定の色（red-500 など）を消す。配色は下に並べたものだけにし、パレット外の色が
@@ -156,56 +156,4 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-}
-
-/* 旧名の別名。CSS Modules から Tailwind への移行中（#413）だけ置く。まだ CSS Modules の
-   画面が var(--moss-600) のように旧名で参照しており、値を二重に持たないよう正本は
-   上の @theme に寄せてある。最後の画面を移したら消す。 */
-:root {
-  --moss-50: var(--color-moss-50);
-  --moss-100: var(--color-moss-100);
-  --moss-200: var(--color-moss-200);
-  --moss-300: var(--color-moss-300);
-  --moss-400: var(--color-moss-400);
-  --moss-500: var(--color-moss-500);
-  --moss-600: var(--color-moss-600);
-  --moss-700: var(--color-moss-700);
-  --moss-800: var(--color-moss-800);
-
-  --ivory: var(--color-ivory);
-  --paper: var(--color-paper);
-  --sand: var(--color-sand);
-
-  --ink: var(--color-ink);
-  --ink-2: var(--color-ink-2);
-  --ink-3: var(--color-ink-3);
-  --ink-4: var(--color-ink-4);
-  --hairline: var(--color-hairline);
-
-  --walk: var(--color-walk);
-  --train: var(--color-train);
-  --train-soft: var(--color-train-soft);
-  --burnt: var(--color-burnt);
-  --burnt-soft: var(--color-burnt-soft);
-  --danger: var(--color-danger);
-  --danger-soft: var(--color-danger-soft);
-  --gold: var(--color-gold);
-
-  --map-bg: var(--color-map-bg);
-  --map-road: var(--color-map-road);
-  --map-major: var(--color-map-major);
-  --map-park: var(--color-map-park);
-  --map-water: var(--color-map-water);
-  --map-build: var(--color-map-build);
-  --map-label: var(--color-map-label);
-
-  --font-jp: var(--font-sans);
-
-  --r-xs: var(--radius-xs);
-  --r-sm: var(--radius-sm);
-  --r-md: var(--radius-md);
-  --r-lg: var(--radius-lg);
-  --r-pill: 999px;
-
-  --tap-min: var(--spacing-tap-min);
 }
