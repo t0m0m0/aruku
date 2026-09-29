@@ -24,7 +24,6 @@ import { Screen } from '../../navigation/screens';
 import { Button } from '../../shared/ui/button';
 import { ChevronIcon, RoutesIcon } from '../../shared/icons';
 import type { AppStore } from '../../state/store';
-import styles from './result-screen.module.css';
 import { ResultTimeline } from './result-timeline';
 
 interface ResultScreenProps {
@@ -43,9 +42,9 @@ export function ResultScreen({ store }: ResultScreenProps) {
   // ガードが通す以上ここへは経路付きでしか来ないが、欠けていても空の画面を見せない。
   if (route === null) {
     return (
-      <main className={styles.empty}>
+      <main className="flex min-h-(--screen-min-height) flex-col items-center justify-center gap-3.5 p-6 text-ink-3">
         <RoutesIcon size={32} />
-        <p className={styles.emptyMessage}>{ja.resultNoRouteMessage}</p>
+        <p className="text-[15px] font-semibold">{ja.resultNoRouteMessage}</p>
         <Button
           onClick={() => {
             go(Screen.search);
@@ -61,11 +60,14 @@ export function ResultScreen({ store }: ResultScreenProps) {
   const overBudget = route.totalMin > route.budgetMin;
 
   return (
-    <main className={styles.screen}>
-      <header className={styles.header}>
+    // デスクトップ幅は移植元 result_screen.dart の分岐（splitPanelWidth 380）。左パネルは
+    // ビューポート内に収め、内側だけをスクロールさせる。一括スクロールにすると下部の
+    // 導線がビューポート固定の分割ビューから押し出される（#262）。
+    <main className="flex min-h-(--screen-min-height) flex-col gap-3.5 px-[18px] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] desktop:grid desktop:h-(--screen-min-height) desktop:min-h-0 desktop:grid-cols-[380px_1fr] desktop:grid-rows-[auto_1fr] desktop:gap-0 desktop:p-0">
+      <header className="flex items-center gap-1.5 pt-1 desktop:[grid-area:1/1] desktop:border-r desktop:border-b desktop:border-hairline desktop:bg-paper desktop:px-[22px] desktop:pt-[18px] desktop:pb-3.5">
         <button
           type="button"
-          className={styles.back}
+          className="grid size-10 flex-none cursor-pointer place-items-center rounded-sm text-ink"
           aria-label={ja.commonBack}
           onClick={() => {
             go(Screen.home);
@@ -73,7 +75,7 @@ export function ResultScreen({ store }: ResultScreenProps) {
         >
           <ChevronIcon size={20} dir="left" />
         </button>
-        <p className={styles.departure}>
+        <p className="text-[13px] font-semibold text-ink-3">
           {/* dateLabel ではなく fullDateLabel。前者は home 用で当日を null・翌日を
               「明日」にするが、結果では実際に検索した日付を常に出したい（移植元も
               こちらを使っている。PR #398 の Codex レビュー）。
@@ -87,15 +89,27 @@ export function ResultScreen({ store }: ResultScreenProps) {
       </header>
 
       {/* 経路全体を俯瞰する固定高のプレビュー。代替案の切り替えで route が差し替わると
-          ArukuMap 側が矩形の変化を見てカメラを合わせ直す。 */}
-      <div className={styles.map} data-testid="result-map">
+          ArukuMap 側が矩形の変化を見てカメラを合わせ直す。移植元 _RouteMapPreview の
+          ClipRRect + SizedBox(height: 180)。角丸 16px はトークンに無い（sm 12 / md 18）ので
+          移植元の BorderRadius.circular(16) をそのまま置く。
+
+          デスクトップ幅では右カラム全面。固定高と角丸は俯瞰用の 180px の枠に対するもの。 */}
+      <div
+        className="h-[180px] flex-none overflow-hidden rounded-[16px] desktop:[grid-area:1/2/3/3] desktop:h-auto desktop:rounded-none"
+        data-testid="result-map"
+      >
         <ArukuMap route={route} />
       </div>
 
       {/* 合計から下をひとまとめにする。デスクトップ幅ではここだけが内部スクロール
-          する左パネルになり、ヘッダと地図は動かない（result-screen.module.css）。 */}
-      <div className={styles.panel} data-testid="result-panel">
-        <section className={`card ${styles.totals}`}>
+          する左パネルになり、ヘッダと地図は動かない。モバイル幅では画面の縦積みの一部で、
+          間隔は main の gap と揃える——包む要素が増えても `< 820px` の見た目が変わらない
+          ことが条件（#406）。 */}
+      <div
+        className="flex min-h-0 flex-1 flex-col gap-3.5 desktop:[grid-area:2/1] desktop:overflow-y-auto desktop:border-r desktop:border-hairline desktop:bg-paper desktop:px-[18px] desktop:py-3.5"
+        data-testid="result-panel"
+      >
+        <section className="grid grid-cols-3 gap-2 rounded-md border border-border bg-card px-3.5 py-4">
           <Metric
             label={ja.resultMetricDuration}
             value={TimeValue.formatBudget(route.totalMin)}
@@ -107,11 +121,11 @@ export function ResultScreen({ store }: ResultScreenProps) {
           <Metric label={ja.resultMetricCalories} value={`${route.kcal} kcal`} />
         </section>
 
-        <section className={styles.ratio}>
-          <p className={styles.ratioLabel}>
+        <section className="px-1">
+          <p className="text-[12px] font-extrabold text-ink">
             {resultWalkRatioLabel(Math.round(route.walkRatio * 100))}
           </p>
-          <p className={styles.ratioSummary}>
+          <p className="mt-0.5 text-[11px] font-medium text-ink-3">
             {resultBudgetSummary(
               TimeValue.formatBudget(route.budgetMin),
               TimeValue.formatBudget(route.totalMin),
@@ -122,13 +136,13 @@ export function ResultScreen({ store }: ResultScreenProps) {
         </section>
 
         {overBudget && (
-          <section className={styles.overBudget} role="status">
-            <p className={styles.overBudgetTitle}>
+          <section className="rounded-sm bg-burnt-soft p-3.5" role="status">
+            <p className="text-[13px] font-bold text-burnt">
               {resultOverBudgetTitle(route.totalMin - route.budgetMin)}
             </p>
-            <p className={styles.overBudgetHint}>{ja.resultOverBudgetHint}</p>
+            <p className="mt-1 text-[12px] font-medium text-ink-3">{ja.resultOverBudgetHint}</p>
             <Button
-              className={styles.overBudgetAction}
+              className="mt-3"
               variant="outline"
               onClick={() => {
                 go(Screen.home);
@@ -139,8 +153,8 @@ export function ResultScreen({ store }: ResultScreenProps) {
           </section>
         )}
 
-        <section className={styles.segments}>
-          <h2 className={styles.segmentsHeading}>{ja.resultSegmentsHeading}</h2>
+        <section className="flex-1">
+          <h2 className="mx-1 mb-1.5 text-[12px] font-bold text-ink-3">{ja.resultSegmentsHeading}</h2>
           <ResultTimeline route={route} />
         </section>
       </div>
@@ -150,9 +164,9 @@ export function ResultScreen({ store }: ResultScreenProps) {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className={styles.metric}>
-      <span className={styles.metricLabel}>{label}</span>
-      <span className={`tabular ${styles.metricValue}`}>{value}</span>
+    <div className="flex flex-col items-center gap-1 text-center">
+      <span className="text-[11px] font-semibold text-ink-3">{label}</span>
+      <span className="tabular text-[17px] font-extrabold text-ink">{value}</span>
     </div>
   );
 }
