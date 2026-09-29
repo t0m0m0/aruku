@@ -3,9 +3,9 @@
 import type { RoutePlan } from '@aruku/engine/models/route-plan';
 import { SegmentType } from '@aruku/engine/models/route-plan';
 
-/// ArukuTokens.routeWalk / routeTrain。tokens.css の --moss-500 / --train と同じ値だが、
+/// ArukuTokens.routeWalk / routeTrain。tokens.css の --color-moss-500 / --color-train と同じ値だが、
 /// CSS 変数では解決しない——Google Maps は polyline の色を文字列で受け取り、
-/// `var(--moss-500)` を読める DOM の外に居る。
+/// `var(--color-moss-500)` を読める DOM の外に居る。
 const walkColor = '#4F9527';
 const transitColor = '#3E6792';
 

@@ -21,7 +21,7 @@ import {
 } from '../../i18n/ja';
 import { ArukuMap } from '../../map/aruku-map';
 import { Screen } from '../../navigation/screens';
-import { ArukuButton } from '../../shared/button';
+import { Button } from '../../shared/ui/button';
 import { ChevronIcon, RoutesIcon } from '../../shared/icons';
 import type { AppStore } from '../../state/store';
 import styles from './result-screen.module.css';
@@ -46,12 +46,13 @@ export function ResultScreen({ store }: ResultScreenProps) {
       <main className={styles.empty}>
         <RoutesIcon size={32} />
         <p className={styles.emptyMessage}>{ja.resultNoRouteMessage}</p>
-        <ArukuButton
-          label={ja.resultBackToSearch}
-          onPress={() => {
+        <Button
+          onClick={() => {
             go(Screen.search);
           }}
-        />
+        >
+          {ja.resultBackToSearch}
+        </Button>
       </main>
     );
   }
@@ -126,14 +127,15 @@ export function ResultScreen({ store }: ResultScreenProps) {
               {resultOverBudgetTitle(route.totalMin - route.budgetMin)}
             </p>
             <p className={styles.overBudgetHint}>{ja.resultOverBudgetHint}</p>
-            <ArukuButton
+            <Button
               className={styles.overBudgetAction}
-              variant="outlined"
-              label={ja.resultChangeConditions}
-              onPress={() => {
+              variant="outline"
+              onClick={() => {
                 go(Screen.home);
               }}
-            />
+            >
+              {ja.resultChangeConditions}
+            </Button>
           </section>
         )}
 

@@ -40,3 +40,21 @@ describe('CSS の幅の境界', () => {
     expect(widths.filter((w) => w.px !== desktopBreakpointPx)).toEqual([]);
   });
 });
+
+// Tailwind の `desktop:` は .tsx 側に書かれるので、上の @media の走査には掛からない。
+// 境界の数値は @theme の側で押さえる。既定の sm / md / lg を残すと、`md:`（768px）の
+// ような別の境界がクラス名だけで紛れ込むので、それらが消えていることも見る。
+const breakpoints = cssFiles('src').flatMap((path) =>
+  [...rules(path).matchAll(/--breakpoint-([\w*-]+):\s*([^;]+);/g)].map(
+    (match) => [match[1], match[2].trim()],
+  ),
+);
+
+describe('Tailwind のブレークポイント', () => {
+  it('既定を消し、desktop だけを desktopBreakpointPx で置く', () => {
+    expect(breakpoints).toEqual([
+      ['*', 'initial'],
+      ['desktop', `${desktopBreakpointPx}px`],
+    ]);
+  });
+});

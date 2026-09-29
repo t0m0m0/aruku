@@ -48,6 +48,11 @@
   color: var(--ink-2);
 }
 
+/* Chrome の UA 既定。Tailwind の preflight が 0 に均し、欄が 2px 縮むので明示して保つ。 */
+.date::-webkit-datetime-edit {
+  padding-block: 1px;
+}
+
 .time:focus-visible,
 .date:focus-visible {
   outline: 2px solid var(--moss-700);

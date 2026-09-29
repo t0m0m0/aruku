@@ -10,7 +10,7 @@ import { RoutePhase } from '@aruku/engine/services/route-service';
 
 import { ja } from '../../i18n/ja';
 import { ArukuMap } from '../../map/aruku-map';
-import { ArukuButton } from '../../shared/button';
+import { Button } from '../../shared/ui/button';
 import type { AppStore } from '../../state/store';
 import styles from './loading-screen.module.css';
 
@@ -91,12 +91,9 @@ export function LoadingScreen({ store }: LoadingScreenProps) {
         </div>
       </div>
 
-      <ArukuButton
-        className={styles.cancel}
-        variant="outlined"
-        label={ja.loadingCancelButton}
-        onPress={cancelSearch}
-      />
+      <Button className={styles.cancel} variant="outline" onClick={cancelSearch}>
+        {ja.loadingCancelButton}
+      </Button>
     </main>
   );
 }

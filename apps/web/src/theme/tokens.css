@@ -5,50 +5,60 @@
    なく実装済みの Dart 側を正とする。ハンドオフ以降に実装側だけが動いた箇所があり
    （--ink-3 が #8A9583 → #5F6E58 など）、原本から引くと現行 Web 版と色が変わる。
 
-   地図の配色（--map-*）は下に置いてある。移植元では作り物の地図（aruku_colors.dart の
+   地図の配色（map-*）もここに置く。移植元では作り物の地図（aruku_colors.dart の
    map* トークン）と実地図（aruku_map_style.dart のスタイル JSON）が別々に色を持ち、
    同じ色を二度書いていた。こちらでは前者をトークンにし、後者（map-style.ts）が
-   それを読む。 */
+   それを読む。
 
-:root {
-  --moss-50: #eef8e0;
-  --moss-100: #dbf0b7;
-  --moss-200: #b9e27c;
-  --moss-300: #92cc4a;
-  --moss-400: #6fb342;
-  --moss-500: #4f9527;
-  --moss-600: #387418;
-  --moss-700: #2a5511;
-  --moss-800: #1b3a0b;
+   Tailwind の @theme が正本。`bg-moss-600` のようなユーティリティはここから生える。
+   `static` にしているのは、下の旧名の別名と shadcn の意味的トークンがクラス経由で
+   なく var() で参照するため——既定の「使われた変数だけ出す」だと落とされる。 */
 
-  --ivory: #fbfcec;
-  --paper: #fffff4;
-  --sand: #eef1dc;
+@theme static {
+  /* 既定の色（red-500 など）を消す。配色は下に並べたものだけにし、パレット外の色が
+     クラス名だけで紛れ込まないようにする。 */
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-black: #000000;
 
-  --ink: #1d2418;
-  --ink-2: #4a5645;
-  --ink-3: #5f6e58;
-  --ink-4: #c8cfc1;
-  --hairline: rgb(29 36 24 / 0.08);
+  --color-moss-50: #eef8e0;
+  --color-moss-100: #dbf0b7;
+  --color-moss-200: #b9e27c;
+  --color-moss-300: #92cc4a;
+  --color-moss-400: #6fb342;
+  --color-moss-500: #4f9527;
+  --color-moss-600: #387418;
+  --color-moss-700: #2a5511;
+  --color-moss-800: #1b3a0b;
 
-  --walk: #4f9527;
-  --train: #3e6792;
-  --train-soft: #c9d8e8;
-  --burnt: #f08338;
-  --burnt-soft: #fce2ce;
-  --danger: #c8412f;
-  --danger-soft: #f8dad4;
-  --gold: #d2a03a;
+  --color-ivory: #fbfcec;
+  --color-paper: #fffff4;
+  --color-sand: #eef1dc;
+
+  --color-ink: #1d2418;
+  --color-ink-2: #4a5645;
+  --color-ink-3: #5f6e58;
+  --color-ink-4: #c8cfc1;
+  --color-hairline: rgb(29 36 24 / 0.08);
+
+  --color-walk: #4f9527;
+  --color-train: #3e6792;
+  --color-train-soft: #c9d8e8;
+  --color-burnt: #f08338;
+  --color-burnt-soft: #fce2ce;
+  --color-danger: #c8412f;
+  --color-danger-soft: #f8dad4;
+  --color-gold: #d2a03a;
 
   /* 作り物の地図と実地図のスタイル JSON が共有する配色。移植元は aruku_colors.dart の
      mapBg / mapRoad / mapMajor / mapPark / mapWater / mapBuild / mapLabel。 */
-  --map-bg: #efebdd;
-  --map-road: #ffffff;
-  --map-major: #f7e4a0;
-  --map-park: #dde7c7;
-  --map-water: #bfd3dd;
-  --map-build: #e5dfcc;
-  --map-label: #6e6a57;
+  --color-map-bg: #efebdd;
+  --color-map-road: #ffffff;
+  --color-map-major: #f7e4a0;
+  --color-map-park: #dde7c7;
+  --color-map-water: #bfd3dd;
+  --color-map-build: #e5dfcc;
+  --color-map-label: #6e6a57;
 
   /* 二段構えで同梱する。移植元の GoogleFonts.notoSansJp はランタイム取得で、
      それは #382 がやめると決めたもの。
@@ -64,14 +74,15 @@
 
      並びが本体で、入れ替えても豆腐にはならないぶん静かに壊れる。
      test/theme/font-stack.test.ts が順序を反証している。 */
-  --font-jp: 'Noto Sans JP Subset', 'Noto Sans JP Variable', system-ui,
+  --font-sans: 'Noto Sans JP Subset', 'Noto Sans JP Variable', system-ui,
     -apple-system, 'Hiragino Sans', sans-serif;
 
-  --r-xs: 8px;
-  --r-sm: 12px;
-  --r-md: 18px;
-  --r-lg: 24px;
-  --r-pill: 999px;
+  /* xs〜lg だけを差し替える。xl 以上は Tailwind の既定のまま残る——shadcn の部品が
+     rounded-xl などを使うので、消すと角丸が黙って 0 になる。 */
+  --radius-xs: 8px;
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 24px;
 
   /* アルファはコンポーネントごとの「浮き具合」。Dart 側は 0x0F22361E のような
      ARGB リテラルで持っており、上位 2 桁がここの不透明度に対応する。 */
@@ -80,5 +91,107 @@
   --shadow-cta-primary: 0 10px 28px rgb(53 80 26 / 0.36);
 
   /* HIG のタップ最小寸法。移植元の _IconHit が同じ値で領域を広げている。 */
-  --tap-min: 44px;
+  --spacing-tap-min: 44px;
+
+  /* 境界は src/layout/breakpoints.ts の desktopBreakpointPx と同じ値。既定の
+     sm / md / lg を消すのは、別の境界がクラス名だけで紛れ込むのを塞ぐため。
+     test/layout/breakpoint-css.test.ts が一致を固定している。 */
+  --breakpoint-*: initial;
+  --breakpoint-desktop: 820px;
+}
+
+/* shadcn/ui の部品が参照する意味的トークン。値は上の配色へ対応づけ、shadcn の
+   既定（無彩色）は持ち込まない。 */
+:root {
+  --background: var(--color-ivory);
+  --foreground: var(--color-ink);
+  --card: var(--color-paper);
+  --card-foreground: var(--color-ink);
+  --popover: var(--color-paper);
+  --popover-foreground: var(--color-ink);
+  --primary: var(--color-moss-600);
+  --primary-foreground: var(--color-ivory);
+  --secondary: var(--color-sand);
+  --secondary-foreground: var(--color-ink);
+  --muted: var(--color-sand);
+  --muted-foreground: var(--color-ink-3);
+  --accent: var(--color-moss-50);
+  --accent-foreground: var(--color-moss-700);
+  --destructive: var(--color-danger);
+  --border: var(--color-hairline);
+  --input: var(--color-hairline);
+  --ring: var(--color-moss-400);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+/* 旧名の別名。CSS Modules から Tailwind への移行中（#413）だけ置く。まだ CSS Modules の
+   画面が var(--moss-600) のように旧名で参照しており、値を二重に持たないよう正本は
+   上の @theme に寄せてある。最後の画面を移したら消す。 */
+:root {
+  --moss-50: var(--color-moss-50);
+  --moss-100: var(--color-moss-100);
+  --moss-200: var(--color-moss-200);
+  --moss-300: var(--color-moss-300);
+  --moss-400: var(--color-moss-400);
+  --moss-500: var(--color-moss-500);
+  --moss-600: var(--color-moss-600);
+  --moss-700: var(--color-moss-700);
+  --moss-800: var(--color-moss-800);
+
+  --ivory: var(--color-ivory);
+  --paper: var(--color-paper);
+  --sand: var(--color-sand);
+
+  --ink: var(--color-ink);
+  --ink-2: var(--color-ink-2);
+  --ink-3: var(--color-ink-3);
+  --ink-4: var(--color-ink-4);
+  --hairline: var(--color-hairline);
+
+  --walk: var(--color-walk);
+  --train: var(--color-train);
+  --train-soft: var(--color-train-soft);
+  --burnt: var(--color-burnt);
+  --burnt-soft: var(--color-burnt-soft);
+  --danger: var(--color-danger);
+  --danger-soft: var(--color-danger-soft);
+  --gold: var(--color-gold);
+
+  --map-bg: var(--color-map-bg);
+  --map-road: var(--color-map-road);
+  --map-major: var(--color-map-major);
+  --map-park: var(--color-map-park);
+  --map-water: var(--color-map-water);
+  --map-build: var(--color-map-build);
+  --map-label: var(--color-map-label);
+
+  --font-jp: var(--font-sans);
+
+  --r-xs: var(--radius-xs);
+  --r-sm: var(--radius-sm);
+  --r-md: var(--radius-md);
+  --r-lg: var(--radius-lg);
+  --r-pill: 999px;
+
+  --tap-min: var(--spacing-tap-min);
 }

@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 
+import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
@@ -11,12 +12,19 @@ const engineSrc = fileURLToPath(
   new URL('../../packages/engine/src', import.meta.url),
 );
 
+/// shadcn/ui の部品は `@/` から import する（components.json の aliases）。tsconfig.json の
+/// `paths` と対で維持する。
+const appSrc = fileURLToPath(new URL('./src', import.meta.url));
+
 export default defineConfig({
   // 同じ engineSrc を alias と語彙収集の両方へ渡す。別々に書くと、
   // エンジンの文言だけが同梱フォントから抜ける形で食い違う。
-  plugins: [react(), arukuFontSubset({ extraSourceDirs: [engineSrc] })],
+  plugins: [react(), tailwindcss(), arukuFontSubset({ extraSourceDirs: [engineSrc] })],
   resolve: {
-    alias: [{ find: /^@aruku\/engine\/(.*)$/, replacement: `${engineSrc}/$1` }],
+    alias: [
+      { find: /^@aruku\/engine\/(.*)$/, replacement: `${engineSrc}/$1` },
+      { find: /^@\/(.*)$/, replacement: `${appSrc}/$1` },
+    ],
   },
   test: {
     include: ['test/**/*.test.{ts,tsx}'],
