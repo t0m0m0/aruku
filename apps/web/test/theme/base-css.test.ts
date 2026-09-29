@@ -1,4 +1,4 @@
-// base.css が置く共通クラス（.card / .tabular）は、コンポーネント側の CSS Modules と
+// base.css が置く共通クラス（.card）は、コンポーネント側の CSS Modules と
 // 同じ詳細度で競合する。勝ち負けを決めるのは出力順で、出力順を決めるのは main.tsx の
 // import 順——つまり import を並べ替えるだけでデザインが変わる。
 //
@@ -23,7 +23,9 @@ const css = readFileSync('src/theme/base.css', 'utf8').replace(
 );
 
 describe('base.css', () => {
-  it.each(['.card', '.tabular'])(
+  // .tabular は Tailwind の @utility へ移した（utilities レイヤーに入り、競合の勝敗は
+  // Tailwind が決める）。
+  it.each(['.card'])(
     '%s は @layer の中にあり、コンポーネント側に負ける',
     (selector) => {
       const layerStart = css.indexOf('@layer');

@@ -63,16 +63,16 @@
     --screen-min-height: 100dvh;
   }
 
-  /* 数字の桁ぶれを止める。移植元の numStyle が FontFeature.tabularFigures() で
-     同じことをしている（等幅フォントへ替えるのではない）。 */
-  .tabular {
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.02em;
-  }
-
   .card {
     background: var(--color-card);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
   }
+}
+
+/* 数字の桁ぶれを止める。移植元の numStyle が FontFeature.tabularFigures() で
+   同じことをしている（等幅フォントへ替えるのではない）。 */
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }
