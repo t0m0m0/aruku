@@ -1,21 +1,15 @@
-/* 移植元: flutter-final:lib/core/theme/aruku_theme.dart の ThemeData と、各画面が繰り返していた
-   ArukuCard の装飾。
+/* 移植元: flutter-final:lib/core/theme/aruku_theme.dart の ThemeData。
 
-   Flutter では「カード」はウィジェットでしか表せなかったが、CSS ではクラスで足りる
-   ——ArukuCard の borderRadius / bordered / shadow / padding といった引数は、
-   すべて使う側の CSS が直接書ける。移植元の引数リストは持ち込まない。 */
+   各画面が繰り返していた ArukuCard の装飾は持ち込まない。borderRadius / bordered /
+   shadow / padding といった引数は、使う側がユーティリティで直接書ける。 */
 
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import './tokens.css';
 
-/* レイヤーに入れる。CSS Modules はレイヤー無しで出るので、出力順に関わらず
-   コンポーネント側の指定が勝つ。Tailwind の preflight も同じ base レイヤーにあり、
-   こちらが後に出るので preflight より勝つ。
-
-   入れないと勝敗が main.tsx の import 順で決まり、import を並べ替えるだけで
-   デザインが変わる。実際 `.card` の border-radius 18px が目的地カードの 22px と
-   設定ボタンの 14px を上書きしていた（PR #394 レビュー、実ブラウザで確認）。 */
+/* base レイヤーに入れる。ユーティリティ（utilities レイヤー）が常にこれに勝つ。
+   Tailwind の preflight も同じ base レイヤーにあり、こちらが後に出るので preflight
+   より勝つ。 */
 @layer base {
   *,
   *::before,
@@ -61,12 +55,6 @@
      ——各画面が 100dvh のままだと、バーのぶんだけ必ず縦にはみ出す。 */
   :root {
     --screen-min-height: 100dvh;
-  }
-
-  .card {
-    background: var(--color-card);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
   }
 }
 

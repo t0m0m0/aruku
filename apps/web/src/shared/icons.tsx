@@ -146,7 +146,7 @@ export function PinIcon({ size = 20, filled = false }: IconProps & { filled?: bo
         fill={filled ? 'currentColor' : 'none'}
         strokeLinejoin="round"
       />
-      <circle cx="12" cy="9.5" r="2.5" fill={filled ? 'var(--ivory)' : 'currentColor'} />
+      <circle cx="12" cy="9.5" r="2.5" fill={filled ? 'var(--color-ivory)' : 'currentColor'} />
     </svg>
   );
 }

@@ -9,16 +9,12 @@ export function ArukuLogo({ size = 44 }: ArukuLogoProps) {
   return (
     <span
       aria-hidden="true"
+      className="inline-flex flex-none items-center justify-center bg-moss-500 shadow-[0_4px_12px_rgb(54_80_30/0.22)]"
+      // 寸法と角丸は size から決まる。クラスでは実行時の値を組めない。
       style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flex: 'none',
         width: `${size}px`,
         height: `${size}px`,
         borderRadius: `${size / 3}px`,
-        background: 'var(--moss-500)',
-        boxShadow: '0 4px 12px rgb(54 80 30 / 0.22)',
       }}
     >
       <svg
@@ -26,13 +22,13 @@ export function ArukuLogo({ size = 44 }: ArukuLogoProps) {
         height={size * 0.65}
         viewBox="0 0 24 24"
         fill="none"
-        stroke="var(--ivory)"
+        stroke="var(--color-ivory)"
         strokeWidth="1.8"
         strokeLinecap="round"
         strokeLinejoin="round"
       >
         <path d="M19 5C9 5 5 11 5 16C6 10 11 7 17 6C16 10 15 13 12 14.5" />
-        <circle cx="7" cy="18.5" r="1.4" fill="var(--ivory)" stroke="none" />
+        <circle cx="7" cy="18.5" r="1.4" fill="var(--color-ivory)" stroke="none" />
       </svg>
     </span>
   );
