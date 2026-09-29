@@ -1,4 +1,4 @@
-// 移植元: lib/features/search/search_screen.dart と search_widgets.dart。
+// 移植元: flutter-final:lib/features/search/search_screen.dart と search_widgets.dart。
 //
 // 移植元の widget test は運んでいない（#386 の方針）。ここで押さえるのは、画面が
 // 状態から何を出し、操作が状態・履歴・遷移へどう届くか。

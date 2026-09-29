@@ -1,4 +1,4 @@
-// 移植元: test/core/models/time_value_test.dart
+// 移植元: flutter-final:test/core/models/time_value_test.dart
 //
 // #384 が移したのはサービス層6ファイルだけで、モデル層のテストは Dart 側に残った。
 // そのうち [TimeValue] の日付ラベル・予算整形・オフセット換算は**エンジンからは

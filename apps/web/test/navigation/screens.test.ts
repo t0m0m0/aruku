@@ -1,4 +1,4 @@
-// 移植元: lib/core/navigation/screen_paths.dart
+// 移植元: flutter-final:lib/core/navigation/screen_paths.dart
 
 import { describe, expect, it } from 'vitest';
 

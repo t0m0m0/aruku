@@ -1,4 +1,4 @@
-// 移植元: lib/core/state/app_state.dart の locationState / refreshLocation /
+// 移植元: flutter-final:lib/core/state/app_state.dart の locationState / refreshLocation /
 // departureLabelText。
 
 import { describe, expect, it, vi } from 'vitest';

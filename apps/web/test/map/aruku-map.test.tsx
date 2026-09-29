@@ -1,4 +1,4 @@
-// 移植元: lib/shared/widgets/aruku_map.dart。
+// 移植元: flutter-final:lib/shared/widgets/aruku_map.dart。
 //
 // 実地図そのものは jsdom に存在しない（Maps JS API は読み込まれない）。ここが押さえるのは
 // ライブラリへ渡す手前の分岐——どちらの地図を出すか、経路が差し替わったときカメラを

@@ -1,4 +1,4 @@
-// 移植元: lib/features/home/home_widgets.dart の _IconHit / _IconHitState。
+// 移植元: flutter-final:lib/features/home/home_widgets.dart の _IconHit / _IconHitState。
 //
 // アイコンだけのボタン。見た目は中身の大きさに留めつつ、タップ領域は HIG の最小
 // 寸法まで広げる。非同期の処理を渡すと、終わるまで待ち表示にして押せなくする。

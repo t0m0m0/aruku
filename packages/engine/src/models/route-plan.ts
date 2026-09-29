@@ -1,4 +1,4 @@
-// 移植元: lib/core/models/route_plan.dart
+// 移植元: flutter-final:lib/core/models/route_plan.dart
 
 import type { GeoPoint } from './geo-point';
 

@@ -1,4 +1,4 @@
-// 移植元: test/core/models/app_settings_test.dart
+// 移植元: flutter-final:test/core/models/app_settings_test.dart
 
 import { expect, it } from 'vitest';
 

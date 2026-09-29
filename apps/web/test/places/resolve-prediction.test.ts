@@ -1,5 +1,4 @@
-// 移植元: lib/features/search/place_selection.dart と
-// test/features/search/place_selection_test.dart
+// 移植元: flutter-final:lib/features/search/place_selection.dart（Dart 側に直接のテストは無かった）
 
 import { describe, expect, it, vi } from 'vitest';
 

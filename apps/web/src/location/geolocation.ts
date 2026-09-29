@@ -1,4 +1,4 @@
-// 移植元: lib/core/services/location_service.dart。
+// 移植元: flutter-final:lib/core/services/location_service.dart。
 //
 // geolocator を経由しないので、あちらが Web で抱えていた不具合は移植対象ではない。
 // timeLimit がマイクロ秒として渡され 10 秒指定が約 2.8 時間になる問題（#359）も、

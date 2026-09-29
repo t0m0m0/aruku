@@ -1,4 +1,4 @@
-// 移植元: lib/features/loading/loading_screen.dart
+// 移植元: flutter-final:lib/features/loading/loading_screen.dart
 
 import { StrictMode } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';

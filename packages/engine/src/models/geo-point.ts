@@ -1,4 +1,4 @@
-// 移植元: lib/core/models/geo_point.dart
+// 移植元: flutter-final:lib/core/models/geo_point.dart
 
 /// 緯度経度。[heading] は進行方向（度、真北基準）で、取得できない場合は null。
 ///

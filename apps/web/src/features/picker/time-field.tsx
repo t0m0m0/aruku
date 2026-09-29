@@ -1,4 +1,4 @@
-// 移植元: lib/features/picker/（date_time_picker_sheet.dart 全体と
+// 移植元: flutter-final:lib/features/picker/（date_time_picker_sheet.dart 全体と
 // desktop_time_field.dart の欄まわり）。
 //
 // 移植元はモバイルのホイールシートとデスクトップの自作欄・月グリッドを別々に

@@ -1,4 +1,4 @@
-// 移植元: lib/features/search/place_selection.dart
+// 移植元: flutter-final:lib/features/search/place_selection.dart
 
 import type { PlacePrediction } from './place-prediction';
 import type { PlacesService } from './places-service';

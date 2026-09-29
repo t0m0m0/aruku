@@ -1,4 +1,4 @@
-// 移植元: lib/core/state/app_state.dart の `AppNotifier`（経路検索の中核だけ）。
+// 移植元: flutter-final:lib/core/state/app_state.dart の `AppNotifier`（経路検索の中核だけ）。
 //
 // 守りたい不変条件は移植元と同じ——「画面と、その表示前提データを同一の更新で
 // 書き換える」。移植元は copyWith 1回でそれを表現していたが、権威が URL へ移った

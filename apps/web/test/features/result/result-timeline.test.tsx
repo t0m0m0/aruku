@@ -1,4 +1,4 @@
-// 移植元: lib/features/result/result_timeline.dart。
+// 移植元: flutter-final:lib/features/result/result_timeline.dart。
 //
 // journey 進捗（#305 の _LegState done/current/upcoming と _LegStateBadge）は運んでいない。
 // JourneyProgress は歩数同期に依存し、#386 が Web で作らないと決めた側——移植元で言えば

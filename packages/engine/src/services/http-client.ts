@@ -10,7 +10,7 @@ export interface HttpResponse {
 ///
 /// `fetch` + `AbortController` に置き換えていない。中断は「検索1回分の寿命で所有した
 /// クライアントを [close] して in-flight のソケットごと落とす」設計で（#259。
-/// lib/core/services/cancellation.dart）、その意味論に依存したテストがある。
+/// flutter-final:lib/core/services/cancellation.dart）、その意味論に依存したテストがある。
 ///
 /// この抽象を満たす実装（`fetch` アダプタ・タイムアウト・App Check）はエンジンに置かない
 /// ——どれも「どこから設定を取るか」の配線で、エンジンの仕様ではないため。組み立ては

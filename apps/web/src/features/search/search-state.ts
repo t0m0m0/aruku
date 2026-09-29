@@ -1,4 +1,4 @@
-// 移植元: lib/features/search/places_provider.dart
+// 移植元: flutter-final:lib/features/search/places_provider.dart
 //
 // 画面ごとに作って捨てる。移植元は provider（アプリ寿命）に置いていたが、検索の
 // 入力・候補・モードはこの画面の外に意味が無く、残しておくと次に開いたとき前回の

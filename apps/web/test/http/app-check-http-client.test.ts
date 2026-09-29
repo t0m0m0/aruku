@@ -1,4 +1,4 @@
-// 移植元: test/core/services/app_check_http_client_test.dart（#155・#366）
+// 移植元: flutter-final:test/core/services/app_check_http_client_test.dart（#155・#366）
 //
 // 加えて timeout_http_client_test.dart の
 // '内側の App Check トークン取得がハングしても打ち切る (#156)' をここへ置いている

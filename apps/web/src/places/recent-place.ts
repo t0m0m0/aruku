@@ -1,4 +1,4 @@
-// 移植元: lib/core/models/recent_place.dart
+// 移植元: flutter-final:lib/core/models/recent_place.dart
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
 

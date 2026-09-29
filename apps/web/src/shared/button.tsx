@@ -1,4 +1,4 @@
-// 移植元: lib/shared/widgets/aruku_button.dart。
+// 移植元: flutter-final:lib/shared/widgets/aruku_button.dart。
 //
 // 移植元の引数 12 個のうち運んだのは label / onPress / icon / variant だけ。色・角丸・
 // 高さ・影・文字スタイルの上書きは、CSS では使う側が className で直接書ける。

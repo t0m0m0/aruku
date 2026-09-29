@@ -1,4 +1,4 @@
-// 移植元: lib/core/services/transit_api_client.dart
+// 移植元: flutter-final:lib/core/services/transit_api_client.dart
 
 import { dartDouble } from '../dart-number';
 import type { JsonMap } from '../json';

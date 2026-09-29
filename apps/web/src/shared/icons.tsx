@@ -1,4 +1,4 @@
-// 移植元: lib/shared/icons/ic.dart。
+// 移植元: flutter-final:lib/shared/icons/ic.dart。
 //
 // ただし Dart 側は Canvas 命令で描いており、そこから起こし直してはいない。原本は
 // design_handoff_aruku_mvp/design-reference/icons.jsx の SVG で、Dart 版がそれを

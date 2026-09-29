@@ -1,4 +1,4 @@
-// 移植元: lib/shared/extensions/route_map_overlays.dart
+// 移植元: flutter-final:lib/shared/extensions/route_map_overlays.dart
 
 import type { RoutePlan } from '@aruku/engine/models/route-plan';
 import { SegmentType } from '@aruku/engine/models/route-plan';

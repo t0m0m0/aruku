@@ -1,4 +1,4 @@
-/// 移植元: lib/core/config/app_config.dart のうち Web で意味のあるもの。
+/// 移植元: flutter-final:lib/core/config/app_config.dart のうち Web で意味のあるもの。
 ///
 /// 歩数・HealthKit・ローカル通知まわりの設定は移していない。Web では恒久的に
 /// 動かない機能として #386 で UI ごと作らないと決めたため。
@@ -62,7 +62,7 @@ export const appConfig: AppConfig = {
   firebase: {
     apiKey: import.meta.env.VITE_FIREBASE_WEB_API_KEY ?? '',
     appId: import.meta.env.VITE_FIREBASE_WEB_APP_ID ?? '',
-    // 移植元 lib/firebase_options.dart の web と同じく、秘匿でない4つは直に置く。
+    // 移植元 flutter-final:lib/firebase_options.dart の web と同じく、秘匿でない4つは直に置く。
     // 環境変数にすると設定漏れで「プロジェクトが違う」という遠い失敗になる。
     projectId: 'aruku-app',
     messagingSenderId: '174669528481',
@@ -73,7 +73,7 @@ export const appConfig: AppConfig = {
   mapsApiKey: import.meta.env.VITE_MAPS_WEB_API_KEY ?? '',
 };
 
-/// 移植元: lib/core/constants/app_constants.dart の termsOfServiceUrl /
+/// 移植元: flutter-final:lib/core/constants/app_constants.dart の termsOfServiceUrl /
 /// privacyPolicyUrl。
 ///
 /// 値は移植元と同じプレースホルダのまま。実 URL への差し替えは #386 の範囲外で、

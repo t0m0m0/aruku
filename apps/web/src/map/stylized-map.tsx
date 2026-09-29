@@ -1,4 +1,4 @@
-// 移植元: lib/shared/widgets/aruku_map.dart の _StylizedMapPainter。
+// 移植元: flutter-final:lib/shared/widgets/aruku_map.dart の _StylizedMapPainter。
 //
 // 実地図が出せないときに敷く作り物の地図。移植元では useRealMap が既定で false
 // （--dart-define=USE_REAL_MAP=true で初めて実地図になる）なので、これは例外時の絵

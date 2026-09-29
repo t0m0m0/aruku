@@ -1,4 +1,4 @@
-// 移植元: lib/shared/widgets/aruku_button.dart。
+// 移植元: flutter-final:lib/shared/widgets/aruku_button.dart。
 //
 // 移植元が Semantics(button:) と MergeSemantics で手当てしていた読み上げは、
 // HTML では <button> を使うこと自体が満たす。テストはその「ネイティブ要素を

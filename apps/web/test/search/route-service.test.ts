@@ -1,4 +1,4 @@
-// 移植元: lib/core/services/route_service.dart の `routeServiceProvider`。
+// 移植元: flutter-final:lib/core/services/route_service.dart の `routeServiceProvider`。
 //
 // Phase 2 は「あれは DI の配線であってエンジンの仕様ではない」として移していない
 // （packages/engine/src/services/route-service.ts の冒頭）。ここがその置き換え。

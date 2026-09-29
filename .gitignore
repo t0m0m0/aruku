@@ -23,26 +23,16 @@ migrate_working_dir/
 # is commented out by default.
 #.vscode/
 
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
+# 撤去した Flutter 版（#387）のローカル残骸。追跡はしないが、秘密情報
+# （google-services.json / Secrets.xcconfig / dart_defines.json / secrets.properties）を
+# 含むので、誤ってコミットしないよう無視し続ける。
+/android/
+/ios/
+/build/
 .dart_tool/
 .flutter-plugins-dependencies
-.pub-cache/
-.pub/
-/build/
-/coverage/
-
-# Symbolication related
-app.*.symbols
-
-# Obfuscation related
-app.*.map.json
-
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
+dart_defines.json
+secrets.properties
 
 /design_handoff_aruku_mvp
 /design_handoff_aruku_web
@@ -55,25 +45,11 @@ app.*.map.json
 !.claude/guard.py
 !.claude/guard_test.py
 !.claude/bash_guard.py
-!.claude/dart_quality.sh
 !.claude/doc_consistency.py
 !.claude/doc_consistency_test.py
-!.claude/web_safety.py
-!.claude/web_safety_test.py
 .claude/settings.local.json
 .claude/worktrees/
 .claude/.DS_Store
-
-# Google Maps API key secrets (copy from *.example, never commit real keys)
-secrets.properties
-ios/Flutter/Secrets.xcconfig
-
-# Firebase config (contains project API keys; never commit)
-android/app/google-services.json
-ios/Runner/GoogleService-Info.plist
-
-# Real API keys for --dart-define-from-file (copy from dart_defines.example.json)
-dart_defines.json
 
 # Claude Code / FleetView
 # Ignore agent scratch dirs, but track installed Agent Skills and their lock file.
@@ -97,5 +73,3 @@ dart_defines.json
 .agents/skills/firebase-security-rules-auditor/
 .agents/skills/xcode-project-setup/
 # skills-lock.json is committed so `npx skills install` is reproducible.
-secrets.properties
-ios/Flutter/Secrets.xcconfig

@@ -1,4 +1,4 @@
-// 移植元: lib/l10n/app_ja.arb（gen-l10n）。
+// 移植元: flutter-final:lib/l10n/app_ja.arb（gen-l10n）。
 //
 // gen-l10n 相当の仕組みは持ち込まない。ロケールは ja だけで、移植元の 299 キーも
 // すべて ja のみ定義されている。react-i18next 等を入れると、実在しない多言語要件の

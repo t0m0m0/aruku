@@ -1,4 +1,4 @@
-// 移植元: lib/features/settings/settings_screen.dart と settings_widgets.dart。
+// 移植元: flutter-final:lib/features/settings/settings_screen.dart と settings_widgets.dart。
 //
 // 移植元の5セクションのうち、Web に載るのは権限（注記のみ）と法的情報だけ。通知・
 // 週間目標・ヘルスケア連携は #386 が「Web で落ちる機能の UI を作らない」と決めた側で、

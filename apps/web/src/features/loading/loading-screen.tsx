@@ -1,4 +1,4 @@
-// 移植元: lib/features/loading/loading_screen.dart
+// 移植元: flutter-final:lib/features/loading/loading_screen.dart
 
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';

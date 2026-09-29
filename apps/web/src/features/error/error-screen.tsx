@@ -1,4 +1,4 @@
-// 移植元: lib/features/error/error_screen.dart
+// 移植元: flutter-final:lib/features/error/error_screen.dart
 //
 // 移植元の DesktopContent に当たる中央寄せは、器のウィジェットではなく CSS の
 // メディアクエリで持つ（error-screen.module.css）。
