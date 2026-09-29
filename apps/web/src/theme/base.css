@@ -75,17 +75,4 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
   }
-
-  /* 見えないが読み上げられる文言。待ち表示のように、視覚的にはスピナーで足りて
-     いても読み上げには文言が要る場所で使う。 */
-  .srOnly {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    padding: 0;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
 }

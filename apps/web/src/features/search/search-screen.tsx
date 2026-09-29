@@ -21,7 +21,6 @@ import { resolvePlacePrediction } from '../../places/resolve-prediction';
 import { ChevronIcon, CloseIcon, CompassIcon, PinIcon, SearchIcon } from '../../shared/icons';
 import type { AppStore } from '../../state/store';
 import { createSearchState } from './search-state';
-import styles from './search-screen.module.css';
 
 export type SearchMode = 'destination' | 'origin';
 
@@ -150,11 +149,11 @@ export function SearchScreen({ store, mode, places, recents }: SearchScreenProps
   const showCurrentLocation = mode === 'origin' || located;
 
   return (
-    <main className={styles.screen}>
-      <header className={styles.header}>
+    <main className="flex min-h-(--screen-min-height) flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+      <header className="flex items-center gap-1.5 px-3.5 pt-1 pb-3.5">
         <button
           type="button"
-          className={styles.back}
+          className="grid size-10 flex-none cursor-pointer place-items-center rounded-sm text-ink active:bg-sand"
           aria-label={ja.commonBack}
           onClick={() => {
             go(Screen.home);
@@ -163,11 +162,12 @@ export function SearchScreen({ store, mode, places, recents }: SearchScreenProps
           <ChevronIcon size={20} dir="left" />
         </button>
 
-        <div className={styles.field}>
+        <div className="flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-[14px] border border-hairline bg-paper px-3.5 text-ink-3">
           <SearchIcon size={18} />
           <input
             type="search"
-            className={styles.input}
+            // 検索欄の見た目は自前で組んでいる。ブラウザ既定の消去ボタンが重なるため落とす。
+            className="min-w-0 flex-1 bg-transparent text-[16px] font-semibold text-ink caret-moss-500 placeholder:font-medium placeholder:text-ink-3 focus:outline-none [&::-webkit-search-cancel-button]:appearance-none"
             // 中身から名前を組ませない。placeholder だけだと、値が入った時点で
             // 読み上げ名が入力値へ差し替わる。
             aria-label={
@@ -185,7 +185,7 @@ export function SearchScreen({ store, mode, places, recents }: SearchScreenProps
           {query !== '' && (
             <button
               type="button"
-              className={styles.clear}
+              className="grid size-6 flex-none cursor-pointer place-items-center text-ink-3"
               aria-label={ja.searchClearInput}
               onClick={() => {
                 onQueryChange('');
@@ -203,7 +203,8 @@ export function SearchScreen({ store, mode, places, recents }: SearchScreenProps
           type="button"
           role="switch"
           aria-checked={nearby}
-          className={`${styles.nearby} ${nearby ? styles.nearbyOn : ''}`}
+          // オンの見た目は aria-checked から引く（読み上げと同じ条件で塗る）。
+          className="mx-5 mb-2.5 inline-flex cursor-pointer items-center gap-1.5 self-start rounded-full border border-hairline bg-paper px-3.5 py-2 text-[13px] font-bold text-ink-3 aria-checked:border-moss-500 aria-checked:bg-moss-500 aria-checked:text-paper"
           onClick={() => {
             search.getState().setNearby(!nearby);
           }}
@@ -263,13 +264,15 @@ function Results({
 
   if (status === 'loading') {
     return (
-      <div className={styles.list} aria-busy="true">
+      // 取得中の当たり。移植元は ListView に 4 行の灰色ブロックを並べていた。
+      // shadcn の Skeleton は animate-pulse で明滅させる。移植元は静止していたので使わない。
+      <div className={list} aria-busy="true">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className={styles.skeletonRow} aria-hidden="true">
-            <span className={styles.skeletonIcon} />
-            <span className={styles.skeletonLines}>
-              <span className={styles.skeletonTitle} />
-              <span className={styles.skeletonSub} />
+          <div key={i} className="flex items-center gap-3.5 px-[22px] py-2.5" aria-hidden="true">
+            <span className="size-[38px] flex-none rounded-sm bg-hairline" />
+            <span className="flex flex-1 flex-col gap-1.5">
+              <span className="h-3.5 rounded-[4px] bg-hairline" />
+              <span className="h-2.5 w-40 rounded-[4px] bg-hairline" />
             </span>
           </div>
         ))}
@@ -279,24 +282,24 @@ function Results({
 
   if (status === 'error') {
     return (
-      <div className={styles.notice}>
+      <div className={notice}>
         <SearchIcon size={32} />
-        <p className={styles.noticeTitle}>
+        <p className={noticeTitle}>
           {errorStatus !== null
             ? searchErrorWithStatus(errorStatus)
             : ja.searchErrorGeneric}
         </p>
-        <p className={styles.noticeHint}>{ja.searchNetworkHint}</p>
+        <p className={noticeHint}>{ja.searchNetworkHint}</p>
       </div>
     );
   }
 
   if (suggestions.length === 0) {
     return (
-      <div className={styles.notice}>
+      <div className={notice}>
         <PinIcon size={32} />
-        <p className={styles.noticeTitle}>{ja.searchEmptyTitle}</p>
-        <p className={styles.noticeHint}>{ja.searchEmptyHint}</p>
+        <p className={noticeTitle}>{ja.searchEmptyTitle}</p>
+        <p className={noticeHint}>{ja.searchEmptyHint}</p>
       </div>
     );
   }
@@ -305,18 +308,18 @@ function Results({
     <>
       {/* 移植元は確定中に CircularProgressIndicator を重ねていた。ここでは行を
           押せなくして淡くするだけなので、見えない代わりに読み上げへ出す
-          （base.css の .srOnly はこの用途のために置いてある）。 */}
-      <span className="srOnly" role="status">
+          */}
+      <span className="sr-only" role="status">
         {selecting ? ja.searchResolvingPlace : ''}
       </span>
       {pickFailed && (
-        <p className={styles.pickFailed} role="alert">
+        <p className="mx-[22px] mt-2 mb-1 rounded-sm bg-burnt-soft px-3.5 py-3 text-[13px] font-semibold text-burnt" role="alert">
           {mode === 'origin'
             ? ja.searchPickFailedOrigin
             : ja.searchPickFailedDestination}
         </p>
       )}
-      <div className={styles.list}>
+      <div className={list}>
         {suggestions.map((s) => (
           <PlaceRow
             key={s.placeId}
@@ -354,30 +357,34 @@ function Recents({
   if (!showCurrentLocation && places.length === 0) return null;
 
   return (
-    <div className={styles.list}>
+    <div className={list}>
       {showCurrentLocation && (
         <button
           type="button"
-          className={styles.row}
+          className={row}
           aria-label={ja.searchUseCurrentLocation}
           onClick={onUseCurrentLocation}
         >
-          <span className={styles.rowIcon}>
+          <span className={rowIcon}>
             <CompassIcon size={18} />
           </span>
-          <span className={styles.rowName}>{ja.searchUseCurrentLocation}</span>
+          <span className={rowName}>{ja.searchUseCurrentLocation}</span>
         </button>
       )}
 
       {places.length > 0 && (
         <>
-          <div className={styles.sectionHead}>
-            <h2 className={styles.sectionTitle}>
+          <div className="flex items-center justify-between px-[22px] pt-4 pb-1.5">
+            <h2 className="text-[12px] font-bold text-ink-3">
               {mode === 'origin'
                 ? ja.searchRecentOrigins
                 : ja.searchRecentDestinations}
             </h2>
-            <button type="button" className={styles.clearHistory} onClick={onClear}>
+            <button
+              type="button"
+              className="cursor-pointer text-[12px] font-semibold text-ink-3"
+              onClick={onClear}
+            >
               {ja.searchClearHistory}
             </button>
           </div>
@@ -397,6 +404,16 @@ function Recents({
   );
 }
 
+const list = 'flex-1 overflow-y-auto py-2';
+const notice =
+  'flex flex-1 flex-col items-center justify-center gap-1.5 px-[22px] text-center text-ink-3';
+const noticeTitle = 'mt-1.5 text-[14px] font-semibold';
+const noticeHint = 'text-[12px] font-medium';
+const row =
+  'flex w-full cursor-pointer items-center gap-3.5 px-[22px] py-3 text-start text-ink active:bg-sand disabled:cursor-default disabled:opacity-50';
+const rowIcon = 'grid size-[38px] flex-none place-items-center rounded-sm bg-moss-50 text-moss-600';
+const rowName = 'truncate text-[16px] font-bold text-ink';
+
 interface PlaceRowProps {
   name: string;
   address: string;
@@ -411,19 +428,21 @@ function PlaceRow({ name, address, query, disabled, onSelect }: PlaceRowProps) {
   return (
     <button
       type="button"
-      className={styles.row}
+      className={row}
       aria-label={address !== '' ? `${name} ${address}` : name}
       disabled={disabled ?? false}
       onClick={onSelect}
     >
-      <span className={styles.rowIcon}>
+      <span className={rowIcon}>
         <PinIcon size={18} />
       </span>
-      <span className={styles.rowText}>
-        <span className={styles.rowName}>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className={rowName}>
           <Highlighted text={name} query={query ?? ''} />
         </span>
-        {address !== '' && <span className={styles.rowAddress}>{address}</span>}
+        {address !== '' && (
+          <span className="truncate text-[12px] font-medium text-ink-3">{address}</span>
+        )}
       </span>
     </button>
   );
@@ -438,7 +457,7 @@ function Highlighted({ text, query }: { text: string; query: string }) {
   return (
     <>
       {text.slice(0, at)}
-      <mark className={styles.match}>{text.slice(at, at + query.length)}</mark>
+      <mark className="bg-moss-100 text-moss-700">{text.slice(at, at + query.length)}</mark>
       {text.slice(at + query.length)}
     </>
   );
