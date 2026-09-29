@@ -42,7 +42,7 @@ describe('--font-jp', () => {
 
   // 語彙段の family 名は vite/font-subset.ts が @font-face に書く名前と対になる。
   // 片方だけ変えても双方の単体テストは緑のまま、実ブラウザで当たらなくなる
-  // （AppSettings.toJson と firestore.rules が同じ形の契約だった。#257）。
+  // （設定の同期 JSON と firestore.rules が同じ形の契約だった。#257）。
   it('語彙段の名前が @font-face 側と一致する', () => {
     expect(families).toContain(subsetFamily);
   });

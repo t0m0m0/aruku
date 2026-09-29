@@ -92,7 +92,7 @@ describe('plan: 入力ガード', () => {
 
 | Dart (`package:matcher`) | vitest |
 | --- | --- |
-| `expect(x, y)`（素の値＝`equals`） | `expect(x).toEqual(y)` |
+| `expect(x, y)`（素の値＝`equals`） | `expect(x).toEqual(y)` <!-- doc-consistency:keep: Dart の matcher --> |
 | `expect(x, same(y))` | `expect(x).toBe(y)`（同一性） |
 | `isTrue` / `isFalse` | `.toBe(true)` / `.toBe(false)` |
 | `isNull` / `isNotNull` | `.toBeNull()` / `.not.toBeNull()` |
@@ -114,7 +114,7 @@ describe('plan: 入力ガード', () => {
 | `list.single` / `.first` / `.last` / `firstWhere` / `singleWhere` | 同名の helper（`packages/engine/test/support/iterable.ts`） |
 | `Foo()..a = 1..b = 2`（カスケード） | `cascade(new Foo(), (f) => { f.a = 1; f.b = 2; })` |
 
-Dart の `equals` はリストの要素を `==` で比べる。`RouteCandidate` のように `==` を
+Dart の `equals` はリストの要素を `==` で比べる。<!-- doc-consistency:keep: Dart の matcher -->`RouteCandidate` のように `==` を
 定義していないクラスではそれが**同一性**の比較になるので、`toEqual`（構造比較）へ落とすと
 「構造は同じだが別インスタンス」を返す実装を通してしまう。候補プールの同一性に依存する
 検証（#318 の先行実測対象）が骨抜きになるため `expectSameList` を使う。`GeoPoint` は

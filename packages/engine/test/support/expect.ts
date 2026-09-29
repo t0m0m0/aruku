@@ -20,7 +20,7 @@ export async function expectThrowsA<E>(
 
 /// Dart の `expect(list, [a, b, c])` に対応する。
 ///
-/// `toEqual` へ落とさないのは、Dart の `equals` が要素を `==` で比べるため。
+/// `toEqual` へ落とさないのは、Dart の `equals` が要素を `==` で比べるため。 doc-consistency:keep（Dart の matcher）
 /// `RouteCandidate` のように `==` を定義していないクラスではそれが**同一性**の比較に
 /// なり、「構造は同じだが別インスタンス」を返す実装は落ちる。`toEqual` は構造比較なので
 /// それを通してしまい、候補プールの同一性に依存する検証（#318 の先行実測対象など）が
