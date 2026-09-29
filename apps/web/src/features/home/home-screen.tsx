@@ -19,7 +19,7 @@ import { useInitialLocation } from '../../location/use-initial-location';
 import { ja } from '../../i18n/ja';
 import type { ScreenDeps } from '../../navigation/screen-deps';
 import { Screen } from '../../navigation/screens';
-import { ArukuButton } from '../../shared/button';
+import { Button } from '../../shared/ui/button';
 import { IconHitButton } from '../../shared/icon-hit-button';
 import {
   ChevronIcon,
@@ -218,13 +218,14 @@ export function HomeScreen({
 
       <div className={styles.spacer} />
 
-      <ArukuButton
+      <Button
         className={styles.cta}
-        label={ctaLabel(destination, onStartSearch)}
-        icon={destination !== null ? <RoutesIcon size={20} /> : <SearchIcon size={19} />}
         disabled={destination !== null && onStartSearch === null}
-        onPress={destination !== null ? (onStartSearch ?? noop) : goSearch}
-      />
+        onClick={destination !== null ? (onStartSearch ?? noop) : goSearch}
+      >
+        {destination !== null ? <RoutesIcon size={20} /> : <SearchIcon size={19} />}
+        {ctaLabel(destination, onStartSearch)}
+      </Button>
     </main>
   );
 }

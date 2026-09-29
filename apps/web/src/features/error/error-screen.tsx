@@ -9,7 +9,7 @@ import type { StoreApi } from 'zustand/vanilla';
 
 import { ja } from '../../i18n/ja';
 import { Screen } from '../../navigation/screens';
-import { ArukuButton } from '../../shared/button';
+import { Button } from '../../shared/ui/button';
 import { RoutesIcon } from '../../shared/icons';
 import { RouteErrorKind } from '../../state/app-state';
 import { RouteRecovery, routeErrorView } from '../../state/route-error';
@@ -88,17 +88,12 @@ export function ErrorScreen({ store }: ErrorScreenProps) {
       <p className={styles.description}>{view.description}</p>
 
       <div className={styles.actions}>
-        <ArukuButton
-          className={styles.action}
-          label={primary.label}
-          onPress={primary.onPress}
-        />
-        <ArukuButton
-          className={styles.action}
-          variant="outlined"
-          label={secondary.label}
-          onPress={secondary.onPress}
-        />
+        <Button className={styles.action} onClick={primary.onPress}>
+          {primary.label}
+        </Button>
+        <Button className={styles.action} variant="outline" onClick={secondary.onPress}>
+          {secondary.label}
+        </Button>
       </div>
     </main>
   );
