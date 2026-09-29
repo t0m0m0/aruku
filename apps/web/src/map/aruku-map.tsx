@@ -26,7 +26,6 @@ import { appConfig } from '../config';
 import { arukuWakabaMapStyle } from './map-style';
 import type { LatLng, RouteBounds, RouteOverlayPath } from './route-overlays';
 import { boundsEqual, toBounds, toEndpoints, toOverlayPaths } from './route-overlays';
-import styles from './aruku-map.module.css';
 import { StylizedMap } from './stylized-map';
 
 /// 渋谷駅付近（デザインの基準エリア）。経路が無いときの初期位置。
@@ -83,7 +82,7 @@ function RealMapWhenLoaded({
 
   return (
     <Map
-      className={styles.map}
+      className="size-full"
       defaultCenter={defaultCenter}
       defaultZoom={defaultZoom}
       styles={arukuWakabaMapStyle}
