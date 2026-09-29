@@ -294,7 +294,7 @@ export function buildFontFaceCss(faces: EmittedFace[]): string {
 export const fontsModuleId = 'virtual:aruku-fonts.css';
 const resolvedFontsModuleId = `\0${fontsModuleId}`;
 
-/// 絞ったフォントの family 名。tokens.css の `--font-jp` が先頭に置く名前と対。
+/// 絞ったフォントの family 名。tokens.css の `--font-sans` が先頭に置く名前と対。
 export const subsetFamily = 'Noto Sans JP Subset';
 
 /// 配信パス。ビルドでも dev でも同じ URL にする。dev だけ別経路にすると、

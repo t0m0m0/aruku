@@ -8,7 +8,7 @@
 // この配色は無視されて Cloud Console 側の設定が勝つ。配色をリポジトリの外へ出すと、
 // 移植元と同じ色かどうかがコードから確かめられなくなる。
 //
-// 色は tokens.css の --map-* と同じ値だが、CSS 変数では書けない。スタイルは Maps API へ
+// 色は tokens.css の --color-map-* と同じ値だが、CSS 変数では書けない。スタイルは Maps API へ
 // 渡すデータで、CSS のカスケードの外に居る。
 
 export const arukuWakabaMapStyle: google.maps.MapTypeStyle[] = [

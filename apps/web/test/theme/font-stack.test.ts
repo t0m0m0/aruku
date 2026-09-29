@@ -1,4 +1,4 @@
-// `--font-jp` は二段構えの境目そのもの。並びが本体で、入れ替えると静かに壊れる。
+// `--font-sans` は二段構えの境目そのもの。並びが本体で、入れ替えると静かに壊れる。
 //
 // - 語彙段を先に置かないと、UI 文言まで Fontsource の 124 分割から引かれる。
 //   実測でその経路は 474 KB（絞れば 123 KB）で、#386 の完了条件 500 KB を割る
@@ -19,13 +19,14 @@ const tokens = readFileSync('src/theme/tokens.css', 'utf8').replace(
   '',
 );
 
-const fontJp = /--font-jp:\s*([^;]+);/u.exec(tokens)?.[1] ?? '';
+// Tailwind の @theme に `--font-sans` として置く（preflight が html の書体をここから引く）。
+const fontJp = /--font-sans:\s*([^;]+);/u.exec(tokens)?.[1] ?? '';
 
 const families = fontJp
   .split(',')
   .map((name) => name.trim().replace(/^['"]|['"]$/gu, ''));
 
-describe('--font-jp', () => {
+describe('--font-sans', () => {
   it('宣言されている', () => {
     expect(fontJp).not.toBe('');
   });

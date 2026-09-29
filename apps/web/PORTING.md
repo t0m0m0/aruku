@@ -61,7 +61,7 @@ Phase 3（アプリ側）の決定と対応表。
 
 - 経路 → 図形の対応づけ（`src/map/route-overlays.ts`）——区間ごとの線・始終点・矩形
 - 作り物の地図（`src/map/stylized-map.tsx`）と地図の配色（`src/theme/tokens.css` の
-  `--map-*`）。キー未設定時の描画で、loading の背景もこれ
+  `--color-map-*`）。キー未設定時の描画で、loading の背景もこれ
 - 実地図（`src/map/aruku-map.tsx`・`src/map/map-style.ts`）——`@vis.gl/react-google-maps`
   越しの `<Map>`、polyline・始終点の印・経路全体へのカメラ合わせ
 - `VITE_MAPS_WEB_API_KEY`（`src/config.ts`）
@@ -72,7 +72,7 @@ Phase 3（アプリ側）の決定と対応表。
 
 - 語彙の収集と絞り込み（`vite/font-subset.ts`）——描画される文言から語彙を作り、
   Fontsource の分割をその積へ絞る Vite プラグイン
-- フォントスタック（`src/theme/tokens.css` の `--font-jp`）を二段構えへ
+- フォントスタック（`src/theme/tokens.css` の `--font-sans`）を二段構えへ
 - `@fontsource-variable/noto-sans-jp`（遅延段）と `subset-font`（ビルド時の絞り込み）
 
 **スライス10 — E2E（Playwright）**。移植で一度も自動にできなかった確認を自動にする。
@@ -973,6 +973,19 @@ Flutter 版は常に 24 時間表記だった。表示を固定するには欄�
 home 自体のデスクトップ版（ハンドオフの条件カード・「よく歩く目的地」）は、移植元も
 入れていないので #406 の範囲外。ナビ中の画面と「記録」タブも同じ——どちらも Web に
 無い機能（歩数・行程）に載っている。
+
+## スタイル: Tailwind CSS + shadcn/ui（#413）
+
+CSS Modules から Tailwind CSS v4 と shadcn/ui へ、画面ごとのスライスで移している。
+
+- **配色の正本は `src/theme/tokens.css` の `@theme`**。Tailwind 既定の色とブレークポイントは
+  消してあり、`bg-moss-600` や `desktop:` のように aruku の語彙だけが生える。`md:` や
+  `bg-red-500` と書いてもクラスが生成されない
+- shadcn の意味的トークン（`--primary` 等）は既存の配色へ対応づけた。部品は `npx shadcn add`
+  で `src/shared/ui/` に入る（`components.json`）
+- 移行中は `tokens.css` の末尾に旧名（`--moss-600` 等）の別名を置いている。CSS Modules は
+  レイヤー外に出るので、Tailwind のユーティリティ（`@layer utilities`）より常に勝つ——
+  呼び出し側が CSS Modules の `className` で上書きしている箇所は、その画面を移すまで効き続ける
 
 ## 動かす
 
