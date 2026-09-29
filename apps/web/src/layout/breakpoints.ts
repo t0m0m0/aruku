@@ -1,4 +1,4 @@
-/// 移植元: lib/core/config/layout_breakpoints.dart。
+/// 移植元: flutter-final:lib/core/config/layout_breakpoints.dart。
 ///
 /// プラットフォームではなく幅で切り替える。デスクトップブラウザのウィンドウを
 /// 狭めたらモバイル UI が出るのが正しい挙動で、逆に幅の広いタブレットは

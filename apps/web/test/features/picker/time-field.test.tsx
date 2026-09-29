@@ -1,4 +1,4 @@
-// 移植元: lib/features/picker/（date_time_picker_sheet.dart / desktop_time_field.dart /
+// 移植元: flutter-final:lib/features/picker/（date_time_picker_sheet.dart / desktop_time_field.dart /
 // time_field_input.dart）。widget test は運ばず、ここで押さえるのは「欄の操作が
 // 状態へどう届くか」と「欄が示す選べる範囲」。
 //

@@ -1,4 +1,4 @@
-// 移植元: test/core/services/route_diagnostics_test.dart
+// 移植元: flutter-final:test/core/services/route_diagnostics_test.dart
 
 import { describe, expect, it } from 'vitest';
 
@@ -205,7 +205,7 @@ describe('EnrichLatencyLedger', () => {
   });
 
   it('引き直し0段（標準乗換のみ）でも候補と時間は数える', () => {
-    // 実 depTime を持つ候補は _resolveBoardingTimes が即抜けるので段数0。
+    // 実 depTime を持つ候補は resolveBoardingTimes が即抜けるので段数0。
     // それでも徒歩 enrich の時間は払っているため chain は残る。
     const l = new EnrichLatencyLedger();
     l.record({ chainMs: 1500, walkMs: 375, resolveSteps: 0 });
@@ -575,7 +575,7 @@ describe('RouteSearchMetrics.toLogLine', () => {
   });
 
   it('到着波の結末は4値のコードとして1行ログに出る (#376)', () => {
-    // 集計器（tool/route_metrics_agg.dart）は key=<int> しか読まないので、内訳は
+    // 集計器（撤去した flutter-final:tool/route_metrics_agg.dart）は key=<int> しか読まないので、内訳は
     // 文字列ではなくコードで出す。値の対応が動くと過去ログの集計が黙って狂うため固定する。
     const codeOf = (o: ArrivalWaveOutcome): number => {
       const line = cascade(new RouteSearchMetrics(), (m) => {

@@ -1,4 +1,4 @@
-/* 移植元: lib/features/home/home_screen.dart の余白定数（_gutter / _safeBottom /
+/* 移植元: flutter-final:lib/features/home/home_screen.dart の余白定数（_gutter / _safeBottom /
    8pt グリッド）と home_widgets.dart の装飾。
 
    デスクトップ幅の作り分け（#372）は #406 で運んでいる途中で、この画面ぶんは
@@ -208,7 +208,7 @@
 
 @media (min-width: 820px) {
   /* 設定への導線はシェルの上部バーが持つ。同じ行き先のボタンを2つ出さない
-     ——移植元（lib/features/home/home_screen.dart）はデスクトップでも歯車を
+     ——移植元（flutter-final:lib/features/home/home_screen.dart）はデスクトップでも歯車を
      残していたが、ハンドオフのルート計画に歯車は無い。 */
   .settings {
     display: none;

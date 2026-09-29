@@ -1,5 +1,5 @@
-// 移植元: lib/features/picker/time_field_input.dart と
-// lib/features/picker/desktop_time_field.dart の値域の算出。
+// 移植元: flutter-final:lib/features/picker/time_field_input.dart と
+// flutter-final:lib/features/picker/desktop_time_field.dart の値域の算出。
 //
 // 入力文字列の解釈（移植元 `parseTimeInput`）は運んでいない。`<input type="time">`
 // は打ちかけを空文字で返し、確定した値は必ず `HH:MM` なので、任意の文字列から

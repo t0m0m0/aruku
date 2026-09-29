@@ -1,4 +1,4 @@
-// 移植元: lib/shared/widgets/desktop_shell.dart。
+// 移植元: flutter-final:lib/shared/widgets/desktop_shell.dart。
 //
 // 移植元はシェルを Navigator の**外**に置いた。go_router のネスト構造が戻り先
 // （settings/search/result/error→home）を表していて、ShellRoute で包むとその構造に

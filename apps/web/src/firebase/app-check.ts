@@ -1,4 +1,4 @@
-// 移植元: lib/main.dart の `_activateAppCheck` と lib/core/config/app_check_provider.dart。
+// 移植元: flutter-final:lib/main.dart の `_activateAppCheck` と flutter-final:lib/core/config/app_check_provider.dart。
 //
 // 判定だけを純関数に切り出してあるのは移植元と同じ形。Firebase に触れる部分は薄く
 // 保ち、「いつバイパスを許すか」という security の芯をテストで押さえる。

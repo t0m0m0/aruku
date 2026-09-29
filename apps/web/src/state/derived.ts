@@ -1,4 +1,4 @@
-// 移植元: lib/core/state/app_state.dart の getter 群。
+// 移植元: flutter-final:lib/core/state/app_state.dart の getter 群。
 //
 // 予算（budgetMinutes）はここに無い。移植元の getter は planner への委譲でしかなく、
 // その planner は既に packages/engine/src/services/route-plan-builder.ts にある。

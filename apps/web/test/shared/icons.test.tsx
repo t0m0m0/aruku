@@ -1,4 +1,4 @@
-// 移植元: lib/shared/icons/ic.dart。
+// 移植元: flutter-final:lib/shared/icons/ic.dart。
 //
 // 形は目で見るしかないので、テストが押さえるのは読み上げへの漏れだけ。アイコンを
 // 足すときに aria-hidden を忘れると、スクリーンリーダーが無名の graphic を読み上げ、

@@ -1,39 +1,24 @@
 # aruku（あるく）
 
-「電車に乗らず、時間内で最大限歩く」ルート案内アプリ（Flutter）。
+「電車に乗らず、時間内で最大限歩く」ルート案内アプリ。React + TypeScript の SPA で、
+本番は `aruku.pages.dev`。
 
-## packages/engine（React 移行の受け皿・#382）
+Flutter 版は #387 で撤去した。`flutter-final` タグと `archive/flutter` ブランチに残っている
+（復元手順は [docs/archive/flutter-restore.md](docs/archive/flutter-restore.md)）。
 
-Flutter を廃して React + TypeScript の SPA へ移行する epic（#382）の受け皿。Phase 1（#384）
-でエンジンのテストを vitest へ移植し、Phase 2（#385）でエンジン本体（`lib/core/services/` と
-`lib/core/models/` のうちエンジンが使う範囲）を `packages/engine/src/` へ移植した。
-**383 本すべて緑が正しい状態。**
+## 構成
+
+| ディレクトリ | 中身 | 正本 |
+|---|---|---|
+| `apps/web/` | React + Vite の SPA（本番が配信しているもの） | [apps/web/PORTING.md](apps/web/PORTING.md) |
+| `packages/engine/` | 経路エンジン（TypeScript） | [ルート最適化 仕様](docs/spec/route-optimization.md)・[packages/engine/PORTING.md](packages/engine/PORTING.md) |
+| `functions/` | Cloud Functions のプロキシ（Places・Routes）とレート制限 | [docs/security_hardening.md](docs/security_hardening.md) |
 
 ```bash
 npm --prefix packages/engine ci
 npm --prefix packages/engine run typecheck  # 型（CI もこれを回す）
 npm --prefix packages/engine test           # 383 本すべて緑（CI もこれ）
-npm --prefix packages/engine run check:port # Dart 側との名前照合（CI もこれ）
-```
 
-`check:port` は素の `vitest run` と**別に**要る。vitest は「落ちているテストがあるか」しか
-答えず、**移植されていないテストがあるか**には答えない——移植漏れは vitest から見れば存在
-しないファイルでしかなく、静かに緑になる。
-
-移植の対応表（matcher・fake・型の写像）、意図的に揃えた／揃えなかった点、Dart 側との
-出力突き合わせの結果は [packages/engine/PORTING.md](packages/engine/PORTING.md) が正本。
-
-## apps/web（React 移行の本体・#386）
-
-Phase 3（#386）で React + Vite の SPA を作る。7画面・地図・日本語フォントの同梱・E2E まで
-入っていて、プレースホルダの画面はもう無い。**本番（`aruku.pages.dev`）が配信しているのは
-これ**（#387）。リポジトリにはまだ Flutter 版が残っているが、配信からは外れている——
-撤去は #387 の残りで行う。
-
-スライスの範囲・移植元との対応・運ばないと決めたものは
-[apps/web/PORTING.md](apps/web/PORTING.md) が正本。
-
-```bash
 npm --prefix apps/web ci
 npm --prefix apps/web run typecheck  # 型（CI もこれを回す）
 npm --prefix apps/web test           # CI もこれ
@@ -46,199 +31,70 @@ E2E は初回だけブラウザの取得が要る（`npm --prefix apps/web exec 
 
 Node は 22.22.0 以上が要る（`react-router` の要求）。`packages/engine` より厳しい。
 
-決定（React Router 一本化・Zustand・workspaces を置かない理由）と Dart 側との対応表は
+決定（React Router 一本化・Zustand・workspaces を置かない理由）は
 [apps/web/PORTING.md](apps/web/PORTING.md) が正本。
 
-## Google Maps セットアップ
-
-地図・ルート・検索機能は Google Maps Platform の API キーを必要とします。
-**平文キーは絶対にコミットしないでください**（`secrets.properties` /
-`ios/Flutter/Secrets.xcconfig` は `.gitignore` 済み）。
-
-**この節（1〜5）で動くのは地図表示までです。** 地点検索と徒歩実測は Cloud Functions プロキシ
-経由のため、別途「[プロキシを動かす](#プロキシを動かす地点検索徒歩実測)」の設定が要ります。
+## セットアップ
 
 ### 1. API キーの発行
 
 [Google Cloud Console](https://console.cloud.google.com/) で必要な API を有効化し、
-キーを発行します。
+キーを発行します。**平文キーは絶対にコミットしないでください**（`apps/web/.env` は
+`.gitignore` 済み）。
 
 | 用途 | API | 呼び出し元 | キーの置き場所 |
 |---|---|---|---|
-| 地図表示（Android） | Maps SDK for Android | アプリ（ネイティブ SDK） | `secrets.properties` |
-| 地図表示（iOS） | Maps SDK for iOS | アプリ（ネイティブ SDK） | `ios/Flutter/Secrets.xcconfig` |
-| 地図表示（Web） | Maps JavaScript API | ブラウザ（実行時に script を注入） | `dart_defines.json` `MAPS_WEB_API_KEY` |
+| 地図表示 | Maps JavaScript API | ブラウザ | `apps/web/.env` の `VITE_MAPS_WEB_API_KEY` |
 | 徒歩の所要・距離・街路ジオメトリ | Routes API | `googleWalkProxy` / `googleWalkMatrixProxy` | Secret Manager `GOOGLE_MAPS_API_KEY` |
 | 地点検索 | Places API (New) | `placesProxy` | Secret Manager `GOOGLE_MAPS_API_KEY` |
-| 公共交通の経路 | — （Transit API・認証不要） | アプリから直接 | 不要 |
+| 公共交通の経路 | — （Transit API・認証不要） | ブラウザから直接 | 不要 |
 
-**本番では地図表示用キーを Android 用・iOS 用・Web 用に分け、プロキシ用と合わせて 4 本にします。**
-Google の API キーは**アプリケーション制限を 1 種類しか持てない**ため、1 本のキーに
-Android パッケージ名と iOS Bundle ID の両方を掛けることはできません（[Google の
-セキュリティ ガイダンス](https://developers.google.com/maps/api-security-best-practices)）。
-`secrets.properties` と `Secrets.xcconfig` は別ファイルなので、値を分けるだけで対応できます。
-制限の掛け方は [docs/security_hardening.md](docs/security_hardening.md) ① が正本です。
+キーは地図表示用（ブラウザ）とプロキシ用（サーバー）に分けます。制限の掛け方は
+[docs/security_hardening.md](docs/security_hardening.md) ① が正本です。
 
-> 開発中は制限なしのキー 1 本を両プラットフォームで使い回しても動きます。分離が要るのは
-> アプリケーション制限を掛ける本番前です。
-
-公共交通だけは Google ではなく Transit API（`https://api.transit.ls8h.com`）をクライアントから
+公共交通だけは Google ではなく Transit API（`https://api.transit.ls8h.com`）をブラウザから
 直接呼ぶため、キーも API 有効化も要りません（[ルート最適化 仕様](docs/spec/route-optimization.md) §2）。
 
-### 2. キーファイルの配置
-
-テンプレートをコピーして実キーを設定します。
+### 2. `.env` の用意
 
 ```sh
-cp secrets.properties.example secrets.properties
-cp ios/Flutter/Secrets.xcconfig.example ios/Flutter/Secrets.xcconfig
+cp apps/web/.env.example apps/web/.env
 ```
 
-両ファイルの `MAPS_API_KEY` にキーを設定します。開発中は同じキーで構いません。
-本番では §1 のとおり Android 用・iOS 用に別のキーを入れます。
-
-- `secrets.properties` … Android（Gradle がビルド時に AndroidManifest へ注入）
-- `ios/Flutter/Secrets.xcconfig` … iOS（xcconfig → Info.plist `GMSApiKey` 経由で読込）
-
-> **CI など、テンプレートをコピーしない環境での代替手段（プラットフォーム差に注意）:**
->
-> - **Android**: 環境変数 `MAPS_API_KEY` をそのまま利用できます。`secrets.properties`
->   が無い場合、Gradle が `System.getenv("MAPS_API_KEY")` を読み込みます。
-> - **iOS**: xcconfig はシェル環境変数を直接読み込めません。また
->   `AppDelegate` のランタイム環境変数フォールバックは `--dart-define` では
->   設定されません（`--dart-define` は Dart コンパイル定数で `ProcessInfo`
->   には届きません）。CI では **ビルド前に環境変数から `Secrets.xcconfig` を
->   生成** してください:
->
->   ```sh
->   echo "MAPS_API_KEY = $MAPS_API_KEY" > ios/Flutter/Secrets.xcconfig
->   ```
-
-### 3. dart-define ファイルの用意（**起動に必須**）
-
-アプリは Firebase を初期化するため、`FIREBASE_ANDROID_API_KEY` / `FIREBASE_IOS_API_KEY` を
-dart-define で受け取ります。**未設定だと debug ビルドは起動時に `StateError` で落ちます**
-（`lib/main.dart` の `_assertFirebaseOptionsComplete`）。地図表示だけを試す場合でも必要です。
-
-```sh
-cp dart_defines.example.json dart_defines.json
-#   FIREBASE_ANDROID_API_KEY / FIREBASE_IOS_API_KEY に実キーを設定
-#   （Firebase Console → プロジェクトの設定 → マイアプリ）
-```
-
-Web で動かす場合は `FIREBASE_WEB_API_KEY` と `FIREBASE_WEB_APP_ID` も設定します。
-Web の `appId` は android / ios と違いコードに焼いていないため、
-**Firebase Console で Web アプリを登録してから値を取得**してください
-（`lib/firebase_options.dart` の `web`）。両方とも同じ検査に掛かるので、
-片方でも空なら debug ビルドは起動時に落ちます。
-
-Web で実地図を出す場合は `MAPS_WEB_API_KEY`（Maps JavaScript API キー）も設定します。
-未設定なら実地図の読み込みを見送り、スタイライズド地図のままになります（起動は落ちません）。
+各値の意味は `apps/web/.env.example` のコメントが正本です。`VITE_` の値はバンドルへ焼かれて
+ブラウザから読めるので、秘匿値を置かないでください（例外は開発時だけ読む
+`VITE_APP_CHECK_DEBUG_TOKEN` で、本番バンドルからは分岐ごと消える）。
 
 **ここに入れるのは開発用キーです。** 開発用は許可リストに `localhost` を含めるため、
 キーを知っている者なら誰でも使えます（`localhost` は誰のマシンにもあり所有を証明しない）。
-公開ビルドには配信ドメインだけを許可した別のキーを渡してください。分け方は
+本番のビルドには配信ドメインだけを許可した別のキーを渡します。分け方は
 [docs/security_hardening.md](docs/security_hardening.md) ①④ が正本です。
 
-`dart_defines.json` は gitignore 済みです。**コミットしないでください。**
-
-### 4. ビルド・実行
+### 3. 起動
 
 ```sh
-flutter pub get
-flutter run --dart-define-from-file=dart_defines.json
+npm --prefix apps/web ci
+npm --prefix apps/web run dev
 ```
 
-VS Code の `.vscode/launch.json` は同ファイルを自動で読むため、F5 実行ならオプションは不要です。
-
-Maps のキーが未設定でもアプリは起動し、地図はスタイライズド・プレースホルダで描画されます。
-
-### 5. 実地図（GoogleMap）の表示
-
-キー設定後、`USE_REAL_MAP` フラグを付けると実地図が表示されます。
-
-```sh
-flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
-```
-
-（既定では実地図を有効化しません。地図 UI の本格統合・テーマ適用は別 ISSUE で対応します）
-
-**Web ではフラグに加えて `MAPS_WEB_API_KEY` が要ります。** `google_maps_flutter_web` は
-`window.google.maps` が在る前提で動くため、キーから組んだ script タグを実行時に注入し、
-読み込みが済むまで `supportsRealMap` が実地図を塞ぎます（`lib/core/services/maps_js_loader.dart`）。
-どちらかが欠ければスタイライズド地図のままです。
-
-script タグを `web/index.html` へ直書きしないのは、このリポジトリが public で、
-追跡ファイルにキーを置くと履歴に恒久的に残るためです。**ただしこれは秘匿ではありません。**
-dart-define はコンパイル時定数として `main.dart.js` に焼き込まれ、ブラウザから読めます。
-実運用の防御はリファラー制限と GCP のクォータ上限で、**そのリファラー制限が効くのは
-`localhost` を含めない本番用キーだけ**です。
-
-開発中は次のように起動します（ポートは許可リストに登録した値に固定する）。
-
-```sh
-flutter run -d chrome --web-port=5555 \
-  --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
-```
-
-現時点で Web の地図には既知の見た目の差があります（#359 Phase 2b）:
-
-- 出発地・目的地のピンが色分けされず既定の赤になる。`BitmapDescriptor.defaultMarkerWithHue`
-  に Web 実装が無く、例外にならないまま既定アイコンへ落ちるため
-- ローディング画面の淡く沈めた背景地図が、フル彩度で描画される。`Opacity` と
-  `ColorFiltered` はプラットフォームビューへ適用されないため
+- `VITE_PROXY_BASE_URL` が空だと起動時に落ちます（`createRouteService`）。
+- `VITE_MAPS_WEB_API_KEY` が空なら実地図の読み込みを見送り、作り物の地図のままになります
+  （起動は落ちません）。キーの HTTP リファラー制限に開発中のオリジン
+  （例 `http://localhost:5173`）が無いと、実地図だけが `RefererNotAllowedMapError` で出ません。
 
 ## プロキシを動かす（地点検索・徒歩実測）
 
-**地点検索と徒歩実測は上記のキー設定だけでは動きません。** どちらも Cloud Functions
-プロキシ経由で、アプリはプロキシの URL を `PROXY_BASE_URL`（dart-define）から読みます。
-未設定のとき `GooglePlacesService` は**例外ではなく空リストを返す**ため、
-「検索しても候補が0件」という**エラーに見えない形**で失敗します（`lib/core/services/places_service.dart`）。
+地点検索と徒歩実測は Cloud Functions プロキシ経由です。アプリはプロキシの URL を
+`VITE_PROXY_BASE_URL` から読みます。
 
-必要なものは3つ。
+| 叩く先 | `VITE_PROXY_BASE_URL` |
+|---|---|
+| ローカルの Functions エミュレータ | `http://127.0.0.1:5001/{projectId}/asia-northeast1` |
+| デプロイ済みプロキシ | `https://asia-northeast1-{projectId}.cloudfunctions.net` |
 
-| # | 設定 | 置き場所 |
-|---|---|---|
-| 1 | `PROXY_BASE_URL` | `dart_defines.json`（セットアップ 3 で作成済み） |
-| 2 | サーバー側の Google キー `GOOGLE_MAPS_API_KEY`（Routes API + Places API (New) を有効化） | エミュレータは環境変数 / 本番は Secret Manager |
-| 3 | App Check デバッグトークン | `dart_defines.json` ＋ Firebase Console への登録 |
-
-**① `PROXY_BASE_URL` を決める。** 値は**アプリを動かす場所から見たホストのアドレス**で、
-実行先ごとに違います（macOS は `lib/firebase_options.dart` が `UnsupportedError` を
-投げるため動きません）。
-
-**ローカルの Functions エミュレータを叩けるのは iOS シミュレータ・Android・Web です。**
-塞がっているのは iOS 実機だけで、その場合はデプロイ済みプロキシを使います。
-
-| アプリの実行先 | ローカルの Functions エミュレータを叩く | デプロイ済みプロキシを叩く |
-|---|---|---|
-| iOS シミュレータ | `http://127.0.0.1:5001/{projectId}/asia-northeast1` | ✅ |
-| iOS 実機 | **不可** — iOS 14+ のローカルネットワークプライバシー。LAN 上の IP へ繋ぐには `Info.plist` に `NSLocalNetworkUsageDescription` が要るが、開発専用の用途で全ユーザーに権限要求を出したくないため入れていない | ✅ |
-| Android エミュレータ | `http://10.0.2.2:5001/{projectId}/asia-northeast1`（`10.0.2.2` はエミュレータから見たホストの別名） | ✅ |
-| Android 実機 | `adb reverse tcp:5001 tcp:5001` してから `http://127.0.0.1:5001/{projectId}/asia-northeast1` | ✅ |
-| Web | `http://127.0.0.1:5001/{projectId}/asia-northeast1` | ✅ ただし **App Check の設定が前提**（下記） |
-
-デプロイ済みプロキシの URL は実行先を問わず
-`https://asia-northeast1-{projectId}.cloudfunctions.net` です。
-
-**Web からデプロイ済みプロキシを叩くには App Check の設定が要ります。**
-`RECAPTCHA_SITE_KEY`（reCAPTCHA v3 サイトキー）を dart-define で渡すと
-`ReCaptchaV3Provider` で有効化します。
-
-`WebDebugProvider` を使う条件はビルド種別で違います（`useDebugAppCheckProvider`）。
-
-| ビルド | `WEB_APP_CHECK_DEBUG_TOKEN` | 挙動 |
-|---|---|---|
-| debug | 不要 | 常に `WebDebugProvider`。未指定なら Firebase JS SDK がトークンを自動生成してコンソールへ出力する |
-| profile | **必須** | トークンを渡したときだけ `WebDebugProvider`。渡さないとサイトキーが無い限り `activate` を呼ばない |
-| release | 効果なし | `RECAPTCHA_SITE_KEY` のみ |
-
-profile でトークンを要求するのは、提出物にバイパス経路を混入させないための境界です
-（`lib/core/config/app_check_provider.dart` 参照）。
-
-サイトキーもデバッグプロバイダも無い場合は `activate` を呼びません
-（`canActivateWebAppCheck`）。`providerWeb` を渡さない `activate` は同期的に
-throw してアプリが起動しなくなるためで、この場合プロキシは 401 を返します。
+**デプロイ済みプロキシを叩くには App Check の設定が要ります。** 開発サーバ（`npm run dev`）は
+常にデバッグプロバイダを使い、本番ビルドは reCAPTCHA v3 だけを使います
+（`apps/web/src/firebase/app-check.ts`）。
 
 準備するもの:
 
@@ -247,54 +103,30 @@ throw してアプリが起動しなくなるためで、この場合プロキ�
    2つが発行される**
 2. Firebase Console → **Security → App Check → Apps** タブでこの Web アプリに
    reCAPTCHA v3 プロバイダを登録する。ここに入れるのは**シークレットキー**
-3. `dart_defines.json` の `RECAPTCHA_SITE_KEY` に**サイトキー**（公開鍵）を書く
+3. `apps/web/.env` の `VITE_RECAPTCHA_SITE_KEY` に**サイトキー**（公開鍵）を書く
 
 **2 と 3 で入れる鍵は別物です。** Firebase 側はトークン検証にシークレットを使い、
 アプリ側は `ReCaptchaV3Provider` にサイトキーを渡します。取り違えると検証が通りません。
 
-> debug ビルドで `WebDebugProvider` を使う場合、トークンを渡さなければ Firebase JS
-> SDK が自動生成してブラウザのコンソールへ出力します。その値を Firebase Console →
-> Security → App Check → Apps タブ → 対象アプリの ⋮ → **デバッグトークンを管理**
-> に登録してください。登録すればデプロイ済みのバックエンドでも通ります。
-> **デバッグトークンはコミットしないこと。**
+> 開発サーバでは App Check のデバッグトークンを使います。`VITE_APP_CHECK_DEBUG_TOKEN` が空なら
+> SDK がトークンを生成してブラウザのコンソールへ出し、IndexedDB に保存して次回からも使い回します。
+> その値を Firebase Console → Security → App Check → Apps タブ → 対象アプリの ⋮ →
+> **デバッグトークンを管理** に1回登録すれば通ります。保存はオリジン（ポートを含む）ごとなので、
+> サイトデータを消す・ポートを変える・シークレットウィンドウで開くと作り直され、登録し直しが
+> 要ります。ブラウザやポートを問わず同じ値を使いたいときだけ、登録した値を
+> `VITE_APP_CHECK_DEBUG_TOKEN` に置きます。**デバッグトークンはコミットしないこと。**
 
-**ローカルのエミュレータなら Web でも動きます。** `functions/src/index.ts` の
+**ローカルのエミュレータなら App Check は要りません。** `functions/src/index.ts` の
 `verifyAppCheck` は `FUNCTIONS_EMULATOR` が立っているとき検証ごとスキップし、
 プロキシの CORS 許可リスト（`isAllowedOrigin`）は `localhost` / `127.0.0.1` を
 任意のポートで許可しています（プリフライト対応済み）。
-つまり Web のローカル開発は Phase 1 を待たずに完結します。ページを `http` で配信して
-いれば `http://127.0.0.1:5001` への呼び出しも混在コンテンツになりません。
 
-手順は下の **② Functions エミュレータを起動する**（`npm run build` が必須。
-ビルドしないと読み込む関数が無い状態で起動します）と同じです。そのうえで
-`dart_defines.json` の `PROXY_BASE_URL` を
-`http://127.0.0.1:5001/{projectId}/asia-northeast1` にして起動します。
+> **現在地の取得はブラウザの許可が要ります。** `http://localhost` は secure context
+> なので geolocation API 自体は使えますが、許可を拒否すると「位置情報なし」と表示されます
+> （アプリ側の失敗ではありません）。一度拒否するとプロンプトは再表示されないため、
+> サイト設定から許可し直してください。
 
-```sh
-flutter run -d chrome --dart-define-from-file=dart_defines.json
-```
-
-これで地点検索・徒歩実測・経路検索まで通ります（新宿駅→東京駅で実証済み。
-`placesProxy` / `googleWalkProxy` / `googleWalkMatrixProxy` がすべて 200 を返す）。
-
-> **Web の現在地取得はブラウザの許可が要ります。** `http://localhost` は secure context
-> なので geolocation API 自体は使えますが、許可を拒否すると `LocationDenied` になり
-> 「位置情報なし」と表示されます（アプリ側の失敗ではありません）。一度拒否すると
-> プロンプトは再表示されないため、サイト設定から許可し直してください。
-
-> iOS の URL は `localhost` ではなく **IP リテラル（`127.0.0.1`）で書く**こと。ATS は IP アドレスへの
-> 接続には適用されない（iOS 10 以降は常に許可）が、`localhost` や `*.local` は**ホスト名なので ATS の
-> 対象**になり、`NSAllowsLocalNetworking` を足さないと平文が弾かれる。本プロジェクトは
-> `Info.plist` に ATS 例外を持たない（デプロイ target は iOS 15.0）。
-
-> Android は `targetSdk` が 36 で、`AndroidManifest.xml` に `usesCleartextTraffic` も
-> `networkSecurityConfig` もありません。それでも**平文 HTTP は通ります**。Android 9+ の平文禁止は
-> `NetworkSecurityPolicy` を**参照するライブラリ**（OkHttp・`HttpURLConnection`・Cronet・WebView）
-> にしか効かないためです。本アプリの通信は `package:http` → `dart:io` の `HttpClient` で、
-> Dart VM が生ソケット上に持つ独自スタックなのでこのポリシーを通りません。
-> **マニフェストに平文許可を足す必要はなく、足しても挙動は変わりません**（#349 で実測確認）。
-
-**② Functions エミュレータを起動する。** `package.json` の `main` は `lib/index.js`
+**① Functions エミュレータを起動する。** `functions/package.json` の `main` は `functions/lib/index.js`
 （tsc の出力・gitignore 済み）なので、**ビルドしないとエミュレータは読み込む関数が無い状態で起動します**。
 
 ```sh
@@ -310,40 +142,11 @@ GOOGLE_MAPS_API_KEY='ここにサーバー側キー' npx -y firebase-tools@lates
 > devDependency に含めていないため、未インストールなら上記の `npx` 版を使ってください）。
 > macOS で Keychain にキーを登録済みなら `npm run dev` がキーの取り出しまで行います。
 
-**③ アプリを起動する。** リポジトリのルートで実行します（上のブロックで `cd functions`
-しているので、同じターミナルを使うなら先に `cd ..` してください）。
-
-```sh
-flutter run --dart-define-from-file=dart_defines.json --dart-define=USE_REAL_MAP=true
-```
+**② アプリを起動する。** `apps/web/.env` の `VITE_PROXY_BASE_URL` をエミュレータの URL に
+してから、リポジトリのルートで `npm --prefix apps/web run dev` を実行します。
 
 - エミュレータ実行時は App Check 検証とレート制限の Firestore 依存が外れるため、
   Firestore エミュレータは不要です（レート制限はインメモリ実装へフォールバック）。
-- 実機のデバッグビルドから**デプロイ済み**プロキシを叩く場合は App Check が必須です。
-  `dart_defines.json` のデバッグトークンと同じ値を Firebase Console → App Check → デバッグトークン
-  に登録してください。未登録だと 401 になります。
-
-## リリースビルド（Android 署名）
-
-リリースビルドは本番署名鍵で署名します。`android/key.properties` を配置すると
-Gradle がその keystore で `release` を署名し、未配置の開発環境では debug 鍵に
-フォールバックして `flutter run --release` を壊しません。
-
-```sh
-# 1. keystore を生成（一度だけ。安全な場所に保管しコミットしない）
-keytool -genkey -v -keystore ~/aruku-release.jks \
-  -keyalg RSA -keysize 2048 -validity 10000 -alias aruku
-
-# 2. テンプレートをコピーして実値を設定
-cp android/key.properties.example android/key.properties
-#   storeFile / storePassword / keyAlias / keyPassword を編集
-
-# 3. 署名済みリリースをビルド
-flutter build appbundle --release
-```
-
-`android/key.properties` と keystore（`*.jks` / `*.keystore`）は gitignore 済みです。
-**絶対にコミットしないでください。**
 
 ## Web 公開（Cloudflare Pages）
 
@@ -352,8 +155,8 @@ flutter build appbundle --release
 転送量に上限のある無料枠（Firebase Hosting Spark は 10GB/月）だと先に頭を打つためです。
 Vercel Hobby は帯域では足りますが ToS が非商用限定で、収益化（#238〜#240）と両立しません。
 
-この理由は React へ移っても残ります。初回に必ず取るのは 620KB 前後（JS + CSS）で
-Flutter の web 出力より小さいものの、配信物の総量は 6MB 強——大半は同梱した日本語
+この理由は React へ移っても残ります。初回に必ず取るのは 620KB 前後（JS + CSS）ですが、
+配信物の総量は 6MB 強——大半は同梱した日本語
 フォントの分割 162 本（#386）で、`unicode-range` ごとに画面が実際に描く文字ぶんだけが
 取られます。取る量が利用者数に比例する点は変わりません。
 
@@ -494,10 +297,8 @@ App Check のデバッグトークンだけは例外で、これは本物の秘�
 
 | ファイル | 追跡 | 内容 |
 |---|---|---|
-| `secrets.properties.example` / `ios/Flutter/Secrets.xcconfig.example` | あり | テンプレート（プレースホルダのみ）|
-| `secrets.properties` / `ios/Flutter/Secrets.xcconfig` | なし（gitignore）| 実キー。コミット禁止 |
-| `android/key.properties.example` | あり | テンプレート（プレースホルダのみ）|
-| `android/key.properties` / `*.jks` / `*.keystore` | なし（gitignore）| 署名鍵。コミット禁止 |
+| `apps/web/.env.example` | あり | テンプレート（プレースホルダのみ）|
+| `apps/web/.env` | なし（gitignore）| 開発用の値と App Check デバッグトークン。コミット禁止 |
 
 公開前のセキュリティ対策（API キー制限・App Check enforcement・署名/証明書ピンニング検討）は
 [docs/security_hardening.md](docs/security_hardening.md) を参照（Issue #75）。

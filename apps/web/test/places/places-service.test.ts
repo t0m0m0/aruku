@@ -1,5 +1,5 @@
-// 移植元: lib/core/services/places_service.dart と
-// test/core/services/places_service_test.dart。
+// 移植元: flutter-final:lib/core/services/places_service.dart と
+// flutter-final:test/core/services/places_service_test.dart。
 //
 // 空の proxyBaseUrl を「候補なし」へ縮退させる移植元の分岐は運んでいない。理由は
 // places-service.ts の注記。ここではその**拒否**を反証している。

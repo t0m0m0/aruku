@@ -1,4 +1,4 @@
-// 移植元: lib/core/models/recent_place.dart と test/core/models/recent_place_test.dart
+// 移植元: flutter-final:lib/core/models/recent_place.dart と flutter-final:test/core/models/recent_place_test.dart
 
 import { describe, expect, it } from 'vitest';
 

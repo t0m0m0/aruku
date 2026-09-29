@@ -1,4 +1,4 @@
-// 移植元: test/core/services/search_deadline_test.dart
+// 移植元: flutter-final:test/core/services/search_deadline_test.dart
 //
 // #384 の6ファイルは締切を TransitApiClient 越しにしか触らず、注入しない既定の実時間経過と
 // 無期限（SearchDeadline.none）の性質はそちらでは一度も通らない。

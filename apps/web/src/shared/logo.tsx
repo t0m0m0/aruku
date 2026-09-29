@@ -1,4 +1,4 @@
-// 移植元: lib/shared/widgets/logo.dart（CustomPainter の Path をそのまま SVG へ）。
+// 移植元: flutter-final:lib/shared/widgets/logo.dart（CustomPainter の Path をそのまま SVG へ）。
 
 interface ArukuLogoProps {
   /// 一辺の長さ（CSS ピクセル）。角丸は移植元と同じく size/3。

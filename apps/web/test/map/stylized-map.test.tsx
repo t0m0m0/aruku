@@ -1,4 +1,4 @@
-// 移植元: lib/shared/widgets/aruku_map.dart の _StylizedMapPainter。
+// 移植元: flutter-final:lib/shared/widgets/aruku_map.dart の _StylizedMapPainter。
 //
 // 実地図が出せないとき（キー未設定／読み込み前／loading 画面の背景）に描く作り物の地図。
 // 装飾なので形そのものは検証しないが、**枠に対する置き方**は別——移植元は実ピクセルの

@@ -1,4 +1,4 @@
-// 移植元: lib/core/services/places_service.dart
+// 移植元: flutter-final:lib/core/services/places_service.dart
 //
 // Phase 2 はこれをエンジンへ運んでいない。経路エンジンは座標を受け取る側で、
 // 地点検索は入力系——`packages/engine` の範囲外だったため（#385）。

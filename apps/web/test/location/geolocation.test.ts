@@ -1,4 +1,4 @@
-// 移植元: lib/core/services/location_service.dart。
+// 移植元: flutter-final:lib/core/services/location_service.dart。
 
 import { describe, expect, it, vi } from 'vitest';
 

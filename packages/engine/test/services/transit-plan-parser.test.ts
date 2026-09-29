@@ -1,4 +1,4 @@
-// 移植元: test/core/services/transit_plan_parser_test.dart
+// 移植元: flutter-final:test/core/services/transit_plan_parser_test.dart
 
 import { describe, expect, it } from 'vitest';
 
