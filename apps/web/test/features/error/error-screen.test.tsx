@@ -1,6 +1,6 @@
 // 移植元: flutter-final:lib/features/error/error_screen.dart
 //
-// デスクトップ幅の中央寄せは CSS のメディアクエリなので、ここ（jsdom）からは
+// デスクトップ幅の中央寄せは `desktop:`（CSS のメディアクエリ）なので、ここ（jsdom）からは
 // 見えない。寸法は e2e/desktop-layout.spec.ts が実測する。
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
