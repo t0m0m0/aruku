@@ -17,10 +17,13 @@
   - `rail_line_names_test.dart`（4本）→ `test/services/rail-line-names.test.ts`
   - `search_scoped_route_service_test.dart`（7本）→
     `test/services/search-scoped-route-service.test.ts`
-  - `app_settings_test.dart`（13本）→ `test/models/app-settings.test.ts`
+  - `app_settings_test.dart`（13本）も運んだが、#387 で型ごと撤去した。書き出し先の
+    クラウド同期（#285）も、読む側の Web の設定画面（永続化する設定を持たない）も無く、
+    engine 自身のテストしか呼んでいなかった
 - #385 でエンジン本体（`flutter-final:lib/core/services/` と `flutter-final:lib/core/models/` のうちエンジンが
   使う範囲）を `src/` へ移植し、382 本すべてが緑になった。#385 のレビュー指摘対応で
-  `test/runtime/unhandled-rejection.test.ts` が加わり、現在は 383 本。
+  `test/runtime/unhandled-rejection.test.ts` が加わった。#387 で `app_settings_test.dart`
+  の 13 本が抜け、移植分は 369 本（`test/runtime/` を含めて 370 本）。
 
 ## テスト名の突き合わせ（Phase 4 で撤去）
 
@@ -89,7 +92,7 @@ describe('plan: 入力ガード', () => {
 
 | Dart (`package:matcher`) | vitest |
 | --- | --- |
-| `expect(x, y)`（素の値＝`equals`） | `expect(x).toEqual(y)` |
+| `expect(x, y)`（素の値＝`equals`） | `expect(x).toEqual(y)` <!-- doc-consistency:keep: Dart の matcher --> |
 | `expect(x, same(y))` | `expect(x).toBe(y)`（同一性） |
 | `isTrue` / `isFalse` | `.toBe(true)` / `.toBe(false)` |
 | `isNull` / `isNotNull` | `.toBeNull()` / `.not.toBeNull()` |
@@ -111,7 +114,7 @@ describe('plan: 入力ガード', () => {
 | `list.single` / `.first` / `.last` / `firstWhere` / `singleWhere` | 同名の helper（`packages/engine/test/support/iterable.ts`） |
 | `Foo()..a = 1..b = 2`（カスケード） | `cascade(new Foo(), (f) => { f.a = 1; f.b = 2; })` |
 
-Dart の `equals` はリストの要素を `==` で比べる。`RouteCandidate` のように `==` を
+Dart の `equals` はリストの要素を `==` で比べる。<!-- doc-consistency:keep: Dart の matcher -->`RouteCandidate` のように `==` を
 定義していないクラスではそれが**同一性**の比較になるので、`toEqual`（構造比較）へ落とすと
 「構造は同じだが別インスタンス」を返す実装を通してしまう。候補プールの同一性に依存する
 検証（#318 の先行実測対象）が骨抜きになるため `expectSameList` を使う。`GeoPoint` は

@@ -569,9 +569,10 @@ cp apps/web/.env.example apps/web/.env
 
 移植元（`flutter-final:lib/features/settings/`、483 行）の5セクションのうち4つは、#386 が「Web で
 落ちる機能の UI を作らない」と決めた機能の設定だった。**この画面には永続化する設定が
-1つも無い**——`AppSettings` の3フィールドがすべて非対応機能のものなので、
+1つも無い**——移植元の設定モデルの3フィールドがすべて非対応機能のものなので、
 `SettingsRepository`・lost update を防ぐ書き込みの直列化（`_queue`）・保存失敗の
 SnackBar という移植元の複雑さの中心が、まるごと移植対象から外れる。
+#385 で `packages/engine` へ運んであった `AppSettings` も、呼ぶ側が無いため #387 で撤去した。<!-- doc-consistency:keep -->
 
 | 論点 | 決定 | 理由 |
 | --- | --- | --- |
