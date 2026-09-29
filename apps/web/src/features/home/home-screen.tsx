@@ -5,6 +5,9 @@
 // ブラウザに歩数 API が無く、加速度から自作してもタブが背面で止まるため、#386 が
 // 「歩数まわりの導線は最初から作らない」と決めている。非対応の理由を出す注記も
 // 一緒に消える——出す相手の機能が無い。
+//
+// 文字サイズは text-[12px] のように px の任意値で書く。text-xs のような名前付きは
+// 行高も一緒に決め、行高 normal で組んだ移植元の寸法から行ごとに数 px ずれる。
 
 import { useRef } from 'react';
 import { useStore } from 'zustand';
@@ -34,7 +37,7 @@ import { TimeField } from '../picker/time-field';
 import { TypeaheadField } from '../search/typeahead-field';
 import { departureLabelText } from '../../state/derived';
 import type { AppStore } from '../../state/store';
-import styles from './home-screen.module.css';
+import { cn } from '../../shared/utils';
 
 interface HomeScreenProps {
   store: StoreApi<AppStore>;
@@ -90,20 +93,23 @@ export function HomeScreen({
   const destinationText = destination ?? ja.homeDestinationPlaceholder;
 
   return (
-    <main className={styles.screen}>
-      <header className={styles.header}>
-        <div className={styles.greeting}>
-          <p className={styles.greetingDate}>{todayGreeting(now())}</p>
-          <h1 className={styles.greetingLead}>
+    <main className="mx-auto flex min-h-(--screen-min-height) max-w-[620px] flex-col gap-3 px-5 pt-2 pb-9">
+      <header className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-semibold text-ink-2">{todayGreeting(now())}</p>
+          <h1 className="mt-0.5 text-[26px] leading-[1.15] font-extrabold tracking-[-0.01em]">
             {ja.homeGreetingLead}
-            <span className={styles.greetingHighlight}>
+            <span className="text-moss-600">
               {ja.homeGreetingHighlight}
             </span>
           </h1>
         </div>
+        {/* デスクトップ幅では出さない。設定への導線はシェルの上部バーが持ち、同じ行き先の
+            ボタンを2つ出さない——移植元（flutter-final:lib/features/home/home_screen.dart）は
+            デスクトップでも歯車を残していたが、ハンドオフのルート計画に歯車は無い。 */}
         <button
           type="button"
-          className={`card ${styles.settings}`}
+          className="inline-flex size-tap-min flex-none cursor-pointer items-center justify-center rounded-[14px] border border-border bg-card text-ink-2 desktop:hidden"
           aria-label={ja.homeOpenSettings}
           onClick={() => {
             go(Screen.settings);
@@ -113,28 +119,32 @@ export function HomeScreen({
         </button>
       </header>
 
-      <section className={`card ${styles.places}`}>
-        <span className={styles.thread} aria-hidden="true">
-          <span className={styles.threadDot} />
-          <span className={styles.threadLine} />
+      <section className="relative rounded-[22px] border border-border bg-card px-3.5 py-1.5 shadow-card-subtle">
+        {/* 出発点と目的地を結ぶ線。移植元は Stack + Positioned で重ねている。 */}
+        <span
+          className="pointer-events-none absolute top-6 bottom-6 left-4 flex flex-col items-center text-burnt"
+          aria-hidden="true"
+        >
+          <span className="size-2.5 rounded-full border-3 border-moss-100 bg-moss-500" />
+          <span className="my-1 w-0.5 flex-1 bg-moss-200" />
           <PinIcon size={16} filled />
         </span>
 
         {/* 行の本体と末尾のアイコンは別の操作なので、入れ子にはできない（button の
             中に button は置けない）。横に並べる器で包む。 */}
-        <div className={styles.placeRow}>
+        <div className="flex items-center gap-2">
           {/* 読み上げ名は aria-label で明示する。中身から組ませると、要素が横並びか
               縦積みかで語の区切りが変わる——見た目の都合が読み上げに漏れる。 */}
           <button
             type="button"
-            className={styles.placeMain}
+            className={placeMain}
             aria-label={`${ja.homeDepartureLabel} ${departureText}`}
             onClick={() => {
               go(Screen.searchOrigin);
             }}
           >
-            <span className={styles.placeLabel}>{ja.homeDepartureLabel}</span>
-            <span className={styles.placeValue}>{departureText}</span>
+            <span className={placeLabel}>{ja.homeDepartureLabel}</span>
+            <span className={placeValue}>{departureText}</span>
           </button>
           {/* 取り直しの promise をそのまま渡す。ボタンはこれが解決するまで
               待ち表示になる（移植元の _IconHit と同じ）。 */}
@@ -150,8 +160,9 @@ export function HomeScreen({
         {/* デスクトップ幅では全画面の検索へ飛ばさず、その場で打って決める（#372）。
             これは見た目だけの差ではない——遷移が1つ消えるので CSS では表せない。 */}
         {isDesktop ? (
-          <div className={styles.destinationField}>
-            <span className={styles.placeLabel}>{ja.homeDestinationLabel}</span>
+          // ラベルは行の上に置き、欄そのものは TypeaheadField が持つ。
+          <div className="flex flex-col gap-1.5 pt-2 pb-3 pl-[38px]">
+            <span className={placeLabel}>{ja.homeDestinationLabel}</span>
             <TypeaheadField
               store={store}
               mode="destination"
@@ -161,22 +172,26 @@ export function HomeScreen({
             />
           </div>
         ) : (
-          <div className={styles.placeRow}>
+          // 区切り線は出発の行との間にだけ引く。デスクトップ幅の欄には引かない。
+          <div className="flex items-center gap-2 border-t border-hairline">
             <button
               type="button"
-              className={styles.placeMain}
+              className={placeMain}
               aria-label={`${ja.homeDestinationLabel} ${destinationText}`}
               onClick={goSearch}
             >
-              <span className={styles.placeLabel}>{ja.homeDestinationLabel}</span>
+              <span className={placeLabel}>{ja.homeDestinationLabel}</span>
               <span
-                className={`${styles.placeValue} ${destination === null ? styles.placeValuePlaceholder : ''}`}
+                className={cn(
+                  placeValue,
+                  destination === null && 'font-semibold text-ink-3',
+                )}
               >
                 {destinationText}
               </span>
             </button>
             <IconHitButton label={ja.homeSearchDestination} onPress={goSearch}>
-              <span className={styles.searchChip}>
+              <span className="inline-flex size-9 items-center justify-center rounded-[11px] bg-moss-50 text-moss-600">
                 <SearchIcon size={17} />
               </span>
             </IconHitButton>
@@ -184,27 +199,28 @@ export function HomeScreen({
         )}
       </section>
 
-      <section className={styles.timeSection}>
-        <h2 className={styles.timeHeading}>
+      <section className="mt-6">
+        {/* 上下の余白は h2 の UA 既定（0.83em）。preflight が 0 に均すので明示して保つ。 */}
+        <h2 className="my-[0.83em] flex items-center gap-[5px] px-1 pb-2 text-[11px] font-extrabold tracking-[0.08em] text-ink-2">
           <ClockIcon size={12} />
-          <span className={styles.timeHeadingLabel}>
+          <span className="min-w-0 flex-1">
             {ja.homeTimeSectionLabel}
           </span>
-          <span className={styles.budget}>
-            <span className={styles.budgetValue}>
+          <span className="text-end font-semibold tracking-normal">
+            <span className="font-extrabold text-moss-600">
               {TimeValue.formatBudget(budgetMinutes(departure, arrival))}
             </span>
             {ja.homeWalkableSuffix}
           </span>
         </h2>
-        <div className={`card ${styles.timeFields}`}>
+        <div className="flex items-stretch rounded-md border border-border bg-card p-1.5">
           <TimeField
             store={store}
             mode={PickerMode.depart}
             label={ja.homeDepartureLabel}
             now={now}
           />
-          <span className={styles.timeSeparator} aria-hidden="true">
+          <span className="flex w-7 items-center text-ink-3" aria-hidden="true">
             <ChevronIcon size={14} />
           </span>
           <TimeField
@@ -216,10 +232,11 @@ export function HomeScreen({
         </div>
       </section>
 
-      <div className={styles.spacer} />
+      {/* 目標カードを作らないぶん、CTA は下端へ寄せる（移植元の Spacer の位置）。 */}
+      <div className="min-h-6 flex-1" />
 
       <Button
-        className={styles.cta}
+        className="min-h-15 rounded-[20px] text-[18px] tracking-[0.06em] shadow-cta-primary"
         disabled={destination !== null && onStartSearch === null}
         onClick={destination !== null ? (onStartSearch ?? noop) : goSearch}
       >
@@ -229,6 +246,11 @@ export function HomeScreen({
     </main>
   );
 }
+
+const placeMain =
+  'min-w-0 flex-1 cursor-pointer rounded-sm py-3 pr-0 pl-[38px] text-start';
+const placeLabel = 'block text-[12px] font-bold tracking-[0.06em] text-ink-2';
+const placeValue = 'mt-0.5 block text-[16px] font-bold text-ink';
 
 /// 目的地が決まっていなければ選びに行く CTA、決まっていれば検索の CTA。
 /// ただし検索そのものがまだ無いときは、それが分かるラベルにする。
