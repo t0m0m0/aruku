@@ -53,7 +53,11 @@ function Calendar({
       }}
       labels={{
         labelGrid: (month) => ja.calendarCaption(month.getFullYear(), month.getMonth() + 1),
-        labelDayButton: (date) => todayDateLabel(date),
+        labelDayButton: (date, modifiers) =>
+          ja.calendarDayLabel(todayDateLabel(date), {
+            today: modifiers.today === true,
+            selected: modifiers.selected === true,
+          }),
         labelWeekday: (weekday) => ja.calendarWeekdayLabel(ja.weekdays[(weekday.getDay() + 6) % 7]),
         labelNext: () => ja.calendarNextMonth,
         labelPrevious: () => ja.calendarPreviousMonth,

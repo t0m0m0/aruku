@@ -199,15 +199,20 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
     commit();
   }
 
-  /// 幅が境界を跨いで日付欄が入れ替わったら、入れかけの日付を確定する。
+  /// 幅が境界を跨いで日付欄が入れ替わったら、カレンダーを閉じ、焦点が欄の外へ
+  /// 落ちていれば下書きを確定する。
   ///
-  /// native の日付欄は確定を blur に任せており、欄ごと外れると blur が来ない。
+  /// 確定は blur に任せているが、日付欄やカレンダーは欄ごと外れるので blur が来ない。
   /// 下書き自体はこの部品が持っているので残るが、確定されないまま検索へ行ける。
+  /// 焦点がまだ欄の中（時刻を打っている途中）なら確定しない——blur が後で来るうえ、
+  /// ここで確定すると打ちかけの空文字で欄が元の値へ戻される。
   const shownDesktop = useRef(isDesktop);
   useEffect(() => {
     if (shownDesktop.current === isDesktop) return;
     shownDesktop.current = isDesktop;
-    if (dateDraft.edited) commit();
+    setCalendarOpen(false);
+    if (group.current?.contains(document.activeElement) === true) return;
+    commit();
   });
 
   /// カレンダーを開く前に、日を跨いでいれば基準日を今日へ詰め直す。

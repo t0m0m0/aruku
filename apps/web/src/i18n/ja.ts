@@ -54,6 +54,11 @@ export const ja = {
   calendarCaption: (year: number, month: number) => `${year}年${month}月`,
   /// 曜日の列見出しの読み上げ名。描くのは1字（`weekdays`）で、読み上げは「月曜日」。
   calendarWeekdayLabel: (weekday: string) => `${weekday}曜日`,
+  /// カレンダーの日の読み上げ名。見た目で印の付く「今日」「選択中」も読み上げる。
+  calendarDayLabel: (date: string, state: { today: boolean; selected: boolean }) =>
+    [state.today ? '今日' : null, date, state.selected ? '選択中' : null]
+      .filter((part) => part !== null)
+      .join('、'),
   calendarPreviousMonth: '前の月',
   calendarNextMonth: '次の月',
 

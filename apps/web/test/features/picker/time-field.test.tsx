@@ -500,7 +500,7 @@ describe('デスクトップ幅のカレンダー', () => {
 
     // 到着は出発の日（14日）より前を出さない。
     expect(dayButton('9月13日 (日)').disabled).toBe(true);
-    expect(dayButton('9月14日 (月)').disabled).toBe(false);
+    expect(dayButton('9月14日 (月)、選択中').disabled).toBe(false);
   });
 
   it('打った時刻が、カレンダーで選んだ日と一緒に確定する', () => {
@@ -593,6 +593,51 @@ describe('デスクトップ幅のカレンダー（PR #425 のレビュー）',
 
     expect(store.getState().departure.format()).toBe('23:58');
     expect(store.getState().departure.dateOffset).toBe(1);
+  });
+
+  it('今日と選んでいる日は、読み上げでも分かる', () => {
+    // 見た目では今日と選択中の日に印がある。読み上げ名が日付だけだと区別できない。
+    stubViewport(true);
+    setupTime({ departure: at(13, 0, 2), arrival: at(14, 0, 2) });
+
+    fireEvent.click(dateTrigger('出発'));
+
+    expect(dayButton('今日、9月11日 (金)')).toBeTruthy();
+    expect(dayButton('9月13日 (日)、選択中')).toBeTruthy();
+  });
+
+  it('カレンダーを開いたまま幅がモバイルへ変わったら、打った時刻を確定して閉じる', () => {
+    // カレンダーは幅の切り替えで欄ごと外れ、blur が来ない。時刻を打ってから
+    // 開いていると、その時刻が確定されないまま検索へ行ける。
+    const viewport = stubViewport(true);
+    const { time } = setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+    const trigger = dateTrigger('出発');
+
+    fireEvent.change(time, { target: { value: '15:30' } });
+    fireEvent.blur(time, { relatedTarget: trigger });
+    fireEvent.click(trigger);
+    dayButton('9月12日 (土)').focus();
+    viewport.cross(false);
+
+    expect(store.getState().departure.format()).toBe('15:30');
+
+    // 戻しても、開きっぱなしの状態からカレンダーが出てこない。
+    viewport.cross(true);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('時刻を打っている途中で幅が変わっても、打ちかけを確定しない', () => {
+    // 欄に焦点がある間は blur が後で来る。先に確定すると、打ちかけの空文字で
+    // 欄が元の値へ戻される。
+    const viewport = stubViewport(true);
+    const { time } = setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+
+    time.focus();
+    fireEvent.change(time, { target: { value: '' } });
+    viewport.cross(false);
+
+    expect(time.value).toBe('');
+    expect(store.getState().departure.format()).toBe('13:00');
   });
 
   it('カレンダーはどの欄の日付かを名乗る', () => {
