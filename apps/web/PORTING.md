@@ -189,7 +189,7 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 | --- | --- | --- |
 | 書体 | Noto Sans JP（可変） | 移植元の `GoogleFonts.notoSansJp` と同じ。使う側は 500/600/700/800 の4段を引くが、可変1本で賄えるので重みごとにファイルを持たない |
 | 同梱の形 | **二段構え**——語彙段を先、Fontsource を後 | Fontsource の 124 分割だけでは完了条件を割る。下の実測を参照 |
-| 語彙の出どころ | コメントを剥いだ全 `.ts(x)` の文字列リテラルと `index.html`、**および `packages/engine/src`** | `i18n/ja.ts` だけでは足りない。`format.ts` の「月」「日」、`loading-screen.tsx` の「まで · 制限」、エンジンの `TimeValue.dateLabel()` の「明日」と `rail-line-names.ts` の路線名が抜ける。エンジンは alias でソース直参照され同じバンドルへ入るので、その文字列リテラルは apps/web 自身のものと同じだけ描かれる |
+| 語彙の出どころ | コメントを剥いだ全 `.ts(x)` の文字列リテラルと `index.html`、**および `packages/engine/src`** | `i18n/ja.ts` だけでは足りない。`format.ts` の「月」「日」、`loading-screen.tsx` の「まで · 制限」、エンジンの `rail-line-names.ts` の路線名が抜ける。エンジンは alias でソース直参照され同じバンドルへ入るので、その文字列リテラルは apps/web 自身のものと同じだけ描かれる |
 | 絞り込みの置き場所 | **Vite プラグイン** | CI は `npm run build` ではなく `npx vite build` を直に叩く。prebuild の script に置くと CI で黙って飛び、フォントの無い dist が「成功」として出る |
 | 分割の割り当て | 各 face の unicode-range と語彙の**積** | 文字ごとに1つへ割り振ると、CSS の後勝ちで当たる face とずれ、当たった側にグリフが無くなり得る |
 | 語彙段の配り方 | 25 ファイルのまま `unicode-range` 付きで置く | 1本へ畳む（base64 等）と全部が先読みになる。分けたままなら、その画面が実際に描く塊しか取られない |

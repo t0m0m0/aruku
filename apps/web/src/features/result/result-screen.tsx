@@ -76,11 +76,7 @@ export function ResultScreen({ store }: ResultScreenProps) {
           <ChevronIcon size={20} dir="left" />
         </button>
         <p className="text-[13px] font-semibold text-ink-3">
-          {/* dateLabel ではなく fullDateLabel。前者は home 用で当日を null・翌日を
-              「明日」にするが、結果では実際に検索した日付を常に出したい（移植元も
-              こちらを使っている。PR #398 の Codex レビュー）。
-
-              基準は描画時刻ではなく state の dateBasis。固定出発の経路は routeAsOf を
+          {/* 基準は描画時刻ではなく state の dateBasis。固定出発の経路は routeAsOf を
               持たない＝失効しないので、日を跨いでも開いたまま残る——描画時刻から
               数えると、旅程は変わっていないのに日付だけ1日進む
               （PR #399 の Codex レビュー）。 */}

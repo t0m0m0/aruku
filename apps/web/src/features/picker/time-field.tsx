@@ -211,17 +211,13 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
     });
   }
 
-  const dateLabel = current.dateLabel(basis);
   return (
     // デスクトップ幅ではステッパーの座標の基準になる。欄はカードの中に並ぶので、
     // 枠はカードが引いている。
     <div className="min-w-0 flex-1 px-3 py-2 desktop:relative desktop:pr-[42px]" ref={group}>
       <span className="block text-[11px] font-bold tracking-[0.06em] text-ink-2">{label}</span>
-      {/* 日付欄はそれ自体が日を示すが、当日・明日という**相対**の読みは別に要る。
-          移植元のラベルをそのまま残している。 */}
-      {dateLabel !== null && (
-        <span className="mt-0.5 block text-[11px] font-bold text-moss-700">{dateLabel}</span>
-      )}
+      {/* 移植元の「明日」「M/D(曜)」ラベル（TimeValue.dateLabel）は運ばない。
+          日付欄と同じ日を二重に出すことになる。 */}
       <input
         type="time"
         className="block w-full bg-transparent text-ink focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss-700 mt-px text-[21px] leading-[1.05] font-semibold tabular-nums tracking-[-0.02em]"

@@ -52,8 +52,7 @@ export class TimeValue {
 
   /// この出発／到着が指す絶対日付のラベル「M月D日 (曜)」。当日でも省略せず必ず返す。
   /// isNow=true は「今すぐ」なので当日扱い（dateOffset は無視）。経路結果画面ヘッダーの
-  /// ように、実際に検索した日付を常に明示したい箇所で使う（[dateLabel] は当日を null に
-  /// するため不可）。
+  /// ように、実際に検索した日付を常に明示したい箇所で使う。
   fullDateLabel(now?: Date): string {
     const base = now ?? new Date();
     const offset = this.isNow ? 0 : this.dateOffset;
@@ -63,20 +62,6 @@ export class TimeValue {
       base.getDate() + offset,
     );
     return `${d.getMonth() + 1}月${d.getDate()}日 (${weekdayJp(d)})`;
-  }
-
-  /// ホーム画面に出す日付ラベル。当日・「今すぐ」は表示しない（null）。
-  /// 翌日は「明日」、それ以降は「M/D(曜)」。
-  dateLabel(now?: Date): string | null {
-    if (this.isNow || this.dateOffset === 0) return null;
-    if (this.dateOffset === 1) return '明日';
-    const base = now ?? new Date();
-    const d = dateTime(
-      base.getFullYear(),
-      base.getMonth() + 1,
-      base.getDate() + this.dateOffset,
-    );
-    return `${d.getMonth() + 1}/${d.getDate()}(${weekdayJp(d)})`;
   }
 
   static formatBudget(minutes: number): string {

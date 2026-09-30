@@ -133,10 +133,8 @@ describe('collectVocabulary', () => {
   });
 
   // エンジンを走査しない実装は、ここだけが赤くなる形で壊れる。
-  // TimeValue.dateLabel() は「明日」を返し、time-field.tsx がそれを描く。
   // 抜けても豆腐にはならず、遅延段が 80 KB 級の塊を引いて正しく描いてしまう。
   it('エンジンが返す描画文言も拾う', () => {
-    for (const ch of '明日') expect(vocab).toContain(ch);
     // TimeValue.formatDuration() の「時間」「分」
     for (const ch of '時間分') expect(vocab).toContain(ch);
     // rail-line-names.ts の路線名（東急東横線 など）
