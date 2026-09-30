@@ -17,7 +17,7 @@ import {
 
 import { ja, resultLegKcal, resultSegmentDuration } from '../../i18n/ja';
 import { TrainIcon, WalkIcon } from '../../shared/icons';
-import styles from './result-timeline.module.css';
+import { cn } from '../../shared/utils';
 
 interface ResultTimelineProps {
   route: RoutePlan;
@@ -44,51 +44,83 @@ export function ResultTimeline({ route }: ResultTimelineProps) {
   });
 
   return (
-    <ol className={styles.timeline}>
+    <ol>
       {steps.map(({ node, segment, connector }, index) => (
-        <li key={index} className={styles.step}>
-          <span className={`tabular ${styles.time}`}>{node.time}</span>
-          <span className={styles.nodeTrack} aria-hidden="true">
-            <span className={styles.dot} />
+        // 移植元は各行が [44px 時刻][14 隙間][16 トラック][残り] の Row だった。行ごとに
+        // 同じ幅指定を書くと、片方だけ直したときにトラックの縦線が折れる。1 つのグリッドに
+        // 乗せて列を共有する——ノード行とレッグ行が同じ li の中にあるのはそのため。
+        <li key={index} className="grid grid-cols-[44px_16px_1fr] items-start gap-x-3.5">
+          <span className="tabular col-start-1 pt-px text-right text-[11px] font-bold text-ink-3">
+            {node.time}
           </span>
-          <span className={styles.nodeText}>
-            <span className={styles.place}>{node.place}</span>
-            {node.sub !== '' && <span className={styles.sub}>{node.sub}</span>}
+          <span className="relative col-start-2 h-full min-h-3" aria-hidden="true">
+            <span className="absolute top-1 left-1.5 size-1 rounded-full bg-ink-2" />
+          </span>
+          <span className="col-start-3 flex min-w-0 flex-col gap-px pb-1">
+            <span className="text-[13px] font-bold text-ink">{node.place}</span>
+            {node.sub !== '' && (
+              <span className="text-[11px] font-medium text-ink-3">{node.sub}</span>
+            )}
           </span>
           {segment !== null && <Leg segment={segment} />}
-          {connector && <span className={styles.connector} aria-hidden="true" />}
+          {/* 直結乗換の「着」行と「発」行のあいだ。カードが入らないぶん縦線が切れるので、
+              短い実線で繋ぐ。 */}
+          {connector && (
+            <span className="col-start-2 ml-[6.5px] h-3 border-l-3 border-train" aria-hidden="true" />
+          )}
         </li>
       ))}
     </ol>
   );
 }
 
+/// 区間の種別ごとの色の組。トラック・カード・アイコンと所要時間の色は、どれも
+/// 徒歩か乗り物かの一点で決まる。
+///
+/// 徒歩は破線、乗り物は実線（移植元の _SegLinePainter の dashed がこの差だった）。
+/// バス専用のアイコン・色は未デザインのため、当面は電車と同じ見た目を流用する（#249）。
+const legTones = {
+  walk: {
+    track: 'border-dotted border-moss-600',
+    card: 'border-moss-100 bg-moss-50',
+    accent: 'text-moss-600',
+  },
+  ride: {
+    track: 'border-train',
+    card: 'border-train/18 bg-train/8',
+    accent: 'text-train',
+  },
+} as const;
+
 function Leg({ segment }: { segment: RouteSegment }) {
   const isWalk = segment.type === SegmentType.walk;
+  const tone = isWalk ? legTones.walk : legTones.ride;
   return (
     <>
       <span
-        className={`${styles.legTrack} ${isWalk ? styles.trackWalk : styles.trackRide}`}
+        className={cn('col-start-2 my-1.5 ml-[6.5px] self-stretch border-l-3', tone.track)}
         aria-hidden="true"
       />
-      <div className={`${styles.card} ${isWalk ? styles.cardWalk : styles.cardRide}`}>
-        <div className={styles.cardHead}>
-          <span className={styles.legIcon} aria-hidden="true">
+      <div className={cn('col-start-3 my-1.5 rounded-sm border px-3 py-2', tone.card)}>
+        <div className="flex items-center gap-2">
+          <span className={cn('flex flex-none', tone.accent)} aria-hidden="true">
             {isWalk ? <WalkIcon size={16} /> : <TrainIcon size={16} />}
           </span>
-          <span className={styles.legLabel}>{legLabel(segment)}</span>
-          <span className={styles.duration}>
+          <span className="min-w-0 flex-1 text-[13px] font-bold text-ink">{legLabel(segment)}</span>
+          <span className={cn('flex flex-none items-baseline', tone.accent)}>
             {resultSegmentDuration(segment.minutes).map((part, index) => (
               <span
                 key={index}
-                className={part.unit ? styles.durationUnit : `tabular ${styles.durationValue}`}
+                className={
+                  part.unit ? 'text-[10px] font-bold' : 'tabular text-[12px] font-extrabold'
+                }
               >
                 {part.text}
               </span>
             ))}
           </span>
         </div>
-        <div className={styles.cardMeta}>
+        <div className="mt-1 flex items-center text-[11px] font-semibold text-ink-2">
           {isWalk ? <WalkMeta segment={segment} /> : <RideMeta segment={segment} />}
         </div>
       </div>
@@ -114,7 +146,7 @@ function WalkMeta({ segment }: { segment: RouteSegment }) {
           <span className="tabular">{`${segment.km.toFixed(1)}km`}</span>
         ) : null,
         segment.kcal !== null ? (
-          <span className={styles.kcal}>{resultLegKcal(segment.kcal)}</span>
+          <span className="font-extrabold text-burnt">{resultLegKcal(segment.kcal)}</span>
         ) : null,
       ]}
     />
@@ -144,9 +176,9 @@ function MetaParts({ parts }: { parts: (React.ReactNode | null)[] }) {
   return (
     <>
       {present.map((part, index) => (
-        <span key={index} className={styles.metaPart}>
+        <span key={index} className="inline-flex items-center">
           {index > 0 && (
-            <span className={styles.metaSeparator} aria-hidden="true">
+            <span className="mx-2 text-ink-4" aria-hidden="true">
               ·
             </span>
           )}

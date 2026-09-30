@@ -31,7 +31,6 @@ import {
   lastSelectableOffset,
   stepTotalMinutes,
 } from './time-field-range';
-import styles from './time-field.module.css';
 
 interface TimeFieldProps {
   store: StoreApi<AppStore>;
@@ -214,14 +213,18 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
 
   const dateLabel = current.dateLabel(basis);
   return (
-    <div className={styles.field} ref={group}>
-      <span className={styles.label}>{label}</span>
+    // デスクトップ幅ではステッパーの座標の基準になる。欄はカードの中に並ぶので、
+    // 枠はカードが引いている。
+    <div className="min-w-0 flex-1 px-3 py-2 desktop:relative desktop:pr-[42px]" ref={group}>
+      <span className="block text-[11px] font-bold tracking-[0.06em] text-ink-2">{label}</span>
       {/* 日付欄はそれ自体が日を示すが、当日・明日という**相対**の読みは別に要る。
           移植元のラベルをそのまま残している。 */}
-      {dateLabel !== null && <span className={styles.relative}>{dateLabel}</span>}
+      {dateLabel !== null && (
+        <span className="mt-0.5 block text-[11px] font-bold text-moss-700">{dateLabel}</span>
+      )}
       <input
         type="time"
-        className={`tabular ${styles.time}`}
+        className="block w-full bg-transparent text-ink focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss-700 mt-px text-[21px] leading-[1.05] font-semibold tabular-nums tracking-[-0.02em]"
         aria-label={ja.timeFieldTime(label)}
         value={timeDraft.text}
         // 確定は blur で行う。ここは打っている最中の見た目を持つだけ。
@@ -234,7 +237,9 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
       />
       <input
         type="date"
-        className={styles.date}
+        // 内側の上下 1px は Chrome の UA 既定。Tailwind の preflight が 0 に均し、欄が
+        // 2px 縮むので明示して保つ。
+        className="block w-full bg-transparent text-ink focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss-700 mt-0.5 text-[11px] font-bold text-ink-2 [&::-webkit-datetime-edit]:py-px"
         aria-label={ja.timeFieldDate(label)}
         value={dateDraft.text}
         min={isoDate(dateAt(basis, first))}
@@ -248,13 +253,13 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
 
           モバイル幅で出さないのは、端末のホイール UI が同じ役目を持つため。 */}
       {isDesktop && (
-        <span className={styles.stepper}>
+        <span className="absolute top-1/2 right-2 flex -translate-y-1/2 flex-col gap-[3px]">
           {/* blur を見るのは時刻・日付の欄だけでは足りない。ここへ Tab で入って
               そのまま欄の外へ出ると、打った値が確定されないまま残り、検索は
               古い時刻で走る（PR #407 の Codex レビュー）。 */}
           <button
             type="button"
-            className={styles.step}
+            className={step}
             aria-label={ja.timeFieldLater(label)}
             onClick={() => {
               stepBy(kTimeStepMinutes);
@@ -265,7 +270,7 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
           </button>
           <button
             type="button"
-            className={styles.step}
+            className={step}
             aria-label={ja.timeFieldEarlier(label)}
             onClick={() => {
               stepBy(-kTimeStepMinutes);
@@ -279,6 +284,10 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
     </div>
   );
 }
+
+/// 移植元は 26x22・角丸7。
+const step =
+  'grid h-[22px] w-[26px] cursor-pointer place-items-center rounded-[7px] border border-hairline bg-paper text-ink-2 hover:border-moss-400 hover:text-moss-700';
 
 interface Draft {
   text: string;

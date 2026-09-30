@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { subsetFamily } from '../../vite/font-subset';
 
 // 散文の中の family 名を規則だと読まないよう、コメントを先に落とす
-// （test/theme/base-css.test.ts と同じ理由）。
+// （test/layout/breakpoint-css.test.ts と同じ理由）。
 const tokens = readFileSync('src/theme/tokens.css', 'utf8').replace(
   /\/\*[\s\S]*?\*\//g,
   '',

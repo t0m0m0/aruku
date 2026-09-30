@@ -833,13 +833,15 @@ pop も失われ、履歴が伸びる。
 
 - **DOM から消えるもの・挙動が変わるもの**は `useIsDesktop`（JS）。上部バーそのもの、
   この先の検索欄の作り替えや時刻欄がこれにあたる
-- **見た目だけのもの**は CSS のメディアクエリ。中央寄せ・最大幅・列の並べ替え
+- **見た目だけのもの**は Tailwind の `desktop:`。中央寄せ・最大幅・列の並べ替え
 
 **移植元の `DesktopContent` に当たる器は作らない。** Flutter は「デスクトップ幅のときだけ <!-- 移植元（Dart）の widget 名。flutter-final:lib/shared/widgets/desktop_content.dart -->
 最大幅を掛けて中央へ寄せる」をウィジェットでしか表せなかったが、CSS では画面自身の
-`.screen` に 3 行書けば済む。`ArukuCard` の引数リストを持ち込まなかったのと同じ判断。
+最上位要素に `desktop:mx-auto desktop:max-w-[…]` を書けば済む。`ArukuCard` の引数リストを
+持ち込まなかったのと同じ判断。
 
-境界の数値は JS と CSS の両方に書くことになるので、`test/layout/breakpoint-css.test.ts` が
+境界の数値は JS（`src/layout/breakpoints.ts`）と `@theme`（`src/theme/tokens.css` の
+`--breakpoint-desktop`）の両方に書くことになるので、`test/layout/breakpoint-css.test.ts` が
 一致を固定する——片方だけ動かしても、jsdom は CSS を読まず Playwright は一方の幅しか
 見ていないので、どちらの層のテストも赤くならない。
 
@@ -956,7 +958,7 @@ Flutter 版は常に 24 時間表記だった。表示を固定するには欄�
 ### 待ち画面は作り分けが要らなかった
 
 ハンドオフの「全面に地図、中央に波紋」は、モバイル幅の実装がそのまま満たしている
-（`loading-screen.module.css` の `.backdrop` / `.veil` / `.pulse`）。移植元にも
+（`src/features/loading/loading-screen.tsx` の背景の地図・ベール・脈動）。移植元にも
 デスクトップ分岐は無い。
 
 **ただし、上部バーの下をきっちり埋めることは自明ではない。** 各画面の「1 画面ぶん」が
@@ -976,16 +978,30 @@ home 自体のデスクトップ版（ハンドオフの条件カード・「よ
 
 ## スタイル: Tailwind CSS + shadcn/ui（#413）
 
-CSS Modules から Tailwind CSS v4 と shadcn/ui へ、画面ごとのスライスで移している。
+CSS Modules から Tailwind CSS v4 と shadcn/ui へ、画面ごとのスライスで移した。各スライスで
+全画面を移行前後にスクリーンショットで撮り、ピクセル単位で一致させている。
 
 - **配色の正本は `src/theme/tokens.css` の `@theme`**。Tailwind 既定の色とブレークポイントは
   消してあり、`bg-moss-600` や `desktop:` のように aruku の語彙だけが生える。`md:` や
   `bg-red-500` と書いてもクラスが生成されない
 - shadcn の意味的トークン（`--primary` 等）は既存の配色へ対応づけた。部品は `npx shadcn add`
   で `src/shared/ui/` に入る（`components.json`）
-- 移行中は `tokens.css` の末尾に旧名（`--moss-600` 等）の別名を置いている。CSS Modules は
-  レイヤー外に出るので、Tailwind のユーティリティ（`@layer utilities`）より常に勝つ——
-  呼び出し側が CSS Modules の `className` で上書きしている箇所は、その画面を移すまで効き続ける
+- 文字サイズは `text-[12px]` のような px の任意値で書く。`text-xs` 等の名前付きは行高も決め、
+  行高 `normal` で組んだ寸法から行ごとに数 px ずれる
+- 選択・オンの見た目は ARIA 属性から引く（`aria-current:` / `aria-selected:` / `aria-checked:`）。
+  読み上げと別の条件で塗ると、片方だけ落ちても気付けない
+- preflight が UA 既定を均す箇所（行高・svg の display・h2 の余白・日付欄の内側）は、
+  `theme/base.css` と各所で UA 既定へ戻してある
+
+### shadcn の部品に乗せたもの・乗せなかったもの
+
+| 部品 | 決定 | 理由 |
+| --- | --- | --- |
+| `Button` | 乗せた（CTA・シェルのタブ） | `accent` を moss-50 / moss-700 に対応づけたので、`ghost` の hover がそのまま既存のタブの hover になる |
+| `Tabs` | 使わない | tablist / tabpanel はページ内の切り替え。シェルのタブは画面を移る導線 |
+| `IconHitButton` を `Button` に | 乗せない | `ghost` の hover が 44px 四方に背景を敷き、自前の背景を持つ検索チップの後ろに四角が浮く |
+| `Command`（cmdk） | 使わない | 絞り込みとキー操作を自前で持ち、目的地欄の IME 変換中の素通し・確定の世代管理と噛み合わない |
+| `Input` / `Progress` / `Skeleton` | 使わない | 既定の見た目（高さ・影・地色・明滅）がデザインと違い、上書きが中身を上回る |
 
 ## 動かす
 

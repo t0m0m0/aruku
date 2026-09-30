@@ -5,6 +5,10 @@
 // 「近くの店」（#146）は置かない。移植元はフォーカスのたびに `setNearby(false)` して
 // いたが、それは全画面検索と検索状態を共有していたため——ここは自前の検索状態を持つ
 // ので、引き継ぐモードがそもそも無い。
+//
+// shadcn の Command（cmdk）には乗せない。あれは絞り込みとキー操作を自前で持ち、
+// ここが手で組んでいる IME 変換中の素通し・確定の世代管理・閉じた一覧からの
+// 確定の拒否と噛み合わない。見た目だけのために振る舞いを入れ替えることになる。
 
 import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import { useStore } from 'zustand';
@@ -20,9 +24,9 @@ import type { RecentsRepository } from '../../places/recents-repository';
 import { resolvePlacePrediction } from '../../places/resolve-prediction';
 import { CloseIcon, SearchIcon } from '../../shared/icons';
 import type { AppStore } from '../../state/store';
+import { cn } from '../../shared/utils';
 import { createSearchState } from './search-state';
 import type { SearchMode } from './search-screen';
-import styles from './typeahead-field.module.css';
 
 interface TypeaheadFieldProps {
   store: StoreApi<AppStore>;
@@ -267,13 +271,21 @@ export function TypeaheadField({
   });
 
   return (
-    <div className={styles.wrap}>
-      <div className={`${styles.field} ${open ? styles.fieldOpen : ''}`}>
+    <div className="relative">
+      {/* 枠の色は一覧が開いているとき「と」焦点があるとき。open だけに紐づけると、
+          Escape で閉じた直後の欄は焦点を持ったまま輪郭を失う——入力側の outline は
+          消してある（PR #407 の Codex レビュー）。 */}
+      <div
+        className={cn(
+          'flex h-13 items-center gap-2.5 rounded-[14px] border border-hairline bg-ivory px-3.5 text-ink-3 focus-within:border-moss-400',
+          open && 'border-moss-400',
+        )}
+      >
         <SearchIcon size={17} />
         <input
           type="text"
           role="combobox"
-          className={styles.input}
+          className="min-w-0 flex-1 bg-transparent text-[15.5px] font-bold text-ink outline-none placeholder:font-semibold placeholder:text-ink-3"
           // 中身から名前を組ませない。値が入った時点で読み上げ名が入力値へ変わる。
           aria-label={mode === 'origin' ? ja.searchOriginHint : ja.searchDestinationHint}
           aria-expanded={showList}
@@ -304,7 +316,7 @@ export function TypeaheadField({
         {shown !== '' && (
           <button
             type="button"
-            className={styles.clear}
+            className="grid size-6 flex-none cursor-pointer place-items-center text-ink-3"
             aria-label={ja.searchClearInput}
             // 押した瞬間に入力から焦点が外れると、blur が先に一覧を閉じて
             // ちらつく。焦点は clear() が戻す。
@@ -319,14 +331,22 @@ export function TypeaheadField({
       </div>
 
       {showList && (
-        <ul className={styles.list} id={listId} role="listbox">
+        // 一覧は欄の下に重ねる。条件カードを押し広げると、開くたびに下の時刻ブロックと
+        // CTA が動く。
+        <ul
+          className="absolute top-[calc(100%+6px)] right-0 left-0 z-2 max-h-80 overflow-y-auto rounded-[14px] border border-hairline bg-popover p-1.5 shadow-[0_18px_40px_rgb(20_30_14/0.12)]"
+          id={listId}
+          role="listbox"
+        >
           {entries.map((entry, index) => (
             <li
               key={entry.key}
               id={`${listId}-${index}`}
               role="option"
               aria-selected={index === activeIndex}
-              className={`${styles.option} ${index === activeIndex ? styles.optionActive : ''}`}
+              // 選択位置の見た目は aria-selected から引く。読み上げと別の条件で塗ると、
+              // 片方だけ落ちても気付けない。
+              className="flex cursor-pointer flex-col gap-0.5 rounded-[10px] px-3 py-2.5 aria-selected:bg-accent"
               ref={index === activeIndex ? activeOption : null}
               // 押した時点で入力から焦点が外れると、blur が先に一覧を閉じて
               // click が宙に浮く。既定の焦点移動だけ止める。
@@ -335,9 +355,9 @@ export function TypeaheadField({
               }}
               onClick={entry.select}
             >
-              <span className={styles.optionName}>{entry.name}</span>
+              <span className="text-[14.5px] font-bold text-ink">{entry.name}</span>
               {entry.detail !== '' && (
-                <span className={styles.optionDetail}>{entry.detail}</span>
+                <span className="text-[12px] font-medium text-ink-3">{entry.detail}</span>
               )}
             </li>
           ))}
@@ -345,7 +365,7 @@ export function TypeaheadField({
       )}
 
       {message !== null && (
-        <p className={styles.message} role="status">
+        <p className="mx-0.5 mt-2 text-[12px] font-semibold text-ink-3" role="status">
           {message}
         </p>
       )}

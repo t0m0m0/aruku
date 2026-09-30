@@ -1,7 +1,7 @@
 // 移植元: flutter-final:lib/features/error/error_screen.dart
 //
-// 移植元の DesktopContent に当たる中央寄せは、器のウィジェットではなく CSS の
-// メディアクエリで持つ（error-screen.module.css）。
+// 移植元の DesktopContent に当たる中央寄せは、器のウィジェットではなく最上位要素の
+// `desktop:` ユーティリティで持つ。
 
 import { useEffect, useRef } from 'react';
 import { useStore } from 'zustand';
@@ -14,7 +14,6 @@ import { RoutesIcon } from '../../shared/icons';
 import { RouteErrorKind } from '../../state/app-state';
 import { RouteRecovery, routeErrorView } from '../../state/route-error';
 import type { AppStore } from '../../state/store';
-import styles from './error-screen.module.css';
 
 interface ErrorScreenProps {
   store: StoreApi<AppStore>;
@@ -80,18 +79,21 @@ export function ErrorScreen({ store }: ErrorScreenProps) {
       : [retry, backToSearch];
 
   return (
-    <main className={styles.screen}>
-      <span className={styles.badge} aria-hidden="true">
+    <main className="flex min-h-(--screen-min-height) flex-col items-center justify-center gap-2.5 px-8 py-6 text-center desktop:mx-auto desktop:max-w-[520px]">
+      <span
+        className="mb-3.5 grid size-[84px] place-items-center rounded-full border border-hairline bg-paper text-ink-3"
+        aria-hidden="true"
+      >
         <RoutesIcon size={32} />
       </span>
-      <h1 className={styles.title}>{view.title}</h1>
-      <p className={styles.description}>{view.description}</p>
+      <h1 className="text-[20px] font-bold text-ink">{view.title}</h1>
+      <p className="text-[14px] font-medium text-ink-3">{view.description}</p>
 
-      <div className={styles.actions}>
-        <Button className={styles.action} onClick={primary.onPress}>
+      <div className="mt-[22px] flex w-full max-w-80 flex-col gap-2.5">
+        <Button onClick={primary.onPress}>
           {primary.label}
         </Button>
-        <Button className={styles.action} variant="outline" onClick={secondary.onPress}>
+        <Button variant="outline" onClick={secondary.onPress}>
           {secondary.label}
         </Button>
       </div>
