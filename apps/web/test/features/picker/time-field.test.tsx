@@ -568,6 +568,33 @@ describe('デスクトップ幅のカレンダー（PR #425 のレビュー）',
     expect(dayButton('9月11日 (金)').disabled).toBe(true);
   });
 
+  it('打ちかけの時刻は、日を跨いでから開いても捨てない', () => {
+    // 詰め直しで状態の時刻が動くと、欄は外からの変更として下書きを捨てる。
+    // そのまま日を選ぶと、打った時刻ではなく詰め直した時刻で確定する。
+    stubViewport(true);
+    let clock = new Date(2026, 8, 11, 23, 50, 0);
+    store = createAppStore({ departure: at(23, 55), arrival: at(23, 59) }, () => clock);
+    render(
+      <TimeField
+        store={store}
+        mode={PickerMode.depart}
+        label={ja.homeDepartureLabel}
+        now={() => clock}
+      />,
+    );
+    const time = screen.getByLabelText(ja.timeFieldTime('出発')) as HTMLInputElement;
+    const trigger = dateTrigger('出発');
+
+    fireEvent.change(time, { target: { value: '23:58' } });
+    fireEvent.blur(time, { relatedTarget: trigger });
+    clock = new Date(2026, 8, 12, 0, 10, 0);
+    fireEvent.click(trigger);
+    fireEvent.click(dayButton('9月13日 (日)'));
+
+    expect(store.getState().departure.format()).toBe('23:58');
+    expect(store.getState().departure.dateOffset).toBe(1);
+  });
+
   it('カレンダーはどの欄の日付かを名乗る', () => {
     stubViewport(true);
     setupTime({ departure: at(13, 0), arrival: at(14, 0) }, PickerMode.arrival);

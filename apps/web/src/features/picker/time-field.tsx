@@ -214,8 +214,20 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
   ///
   /// 基準日は確定まで古いまま残る。そのまま描くと昨日を「今日」として選ばせ、
   /// 選んだ日は確定で「過ぎた日」として捨てられる。
+  ///
+  /// 打ちかけの時刻があるときは、詰め直しだけを先に走らせない。状態の時刻が動くと
+  /// 欄は外からの変更として下書きを捨て、選んだ日は詰め直した時刻で確定する。
+  /// その時刻を確定する（確定が同じ詰め直しを含む）。跨いでいないときに確定しない
+  /// のは、時刻を打ってから日を選ぶ組を崩さないため（PR #399）。
   function onCalendarOpenChange(open: boolean): void {
-    if (open) store.getState().rebaseToToday(now());
+    if (open) {
+      const at = now();
+      if (timeDraft.edited && calendarDaysBetween({ from: basis, to: at }) !== 0) {
+        commit();
+      } else {
+        store.getState().rebaseToToday(at);
+      }
+    }
     setCalendarOpen(open);
   }
 
