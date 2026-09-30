@@ -1,4 +1,5 @@
 // 移植元: flutter-final:lib/shared/widgets/logo.dart（CustomPainter の Path をそのまま SVG へ）。
+// ファビコンと PWA アイコンはこの絵柄の写し。変えたら `node scripts/render-icons.mjs` で書き出し直す。
 
 interface ArukuLogoProps {
   /// 一辺の長さ（CSS ピクセル）。角丸は移植元と同じく size/3。
