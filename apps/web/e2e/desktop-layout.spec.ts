@@ -185,24 +185,30 @@ test('モバイル幅の日付は native の日付欄のまま', async ({ page }
   await expect(page.getByLabel('出発の日付')).toHaveAttribute('type', 'date');
 });
 
-/// 出発の時刻欄にある UA の時計アイコンの display。
+type CdpNode = {
+  nodeId: number;
+  attributes?: string[];
+  children?: CdpNode[];
+  shadowRoots?: CdpNode[];
+};
+
+/// 出発の時刻欄の中にある、UA の shadow DOM の部品（[pseudo] 属性で探す）。無ければ undefined。
 ///
-/// `getComputedStyle(el, '::-webkit-calendar-picker-indicator')` は使えない。Chromium は
-/// この疑似要素を受け付けず、黙って input 本体の値（block）を返す。アイコンの実体は
-/// UA の shadow DOM にあるので、CDP で直接その要素の算出値を読む。
-async function clockIconDisplay(page: Page): Promise<string> {
+/// 部品は CSS の疑似要素としては読めない。`getComputedStyle(el, '::-webkit-calendar-picker-indicator')`
+/// は、Chromium がこの疑似要素を受け付けず、黙って input 本体の値（block）を返す。
+/// 実体は UA の shadow DOM にあるので、CDP で直接たどる。
+async function timeFieldPart(page: Page, pseudo: string) {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('DOM.enable');
   await cdp.send('CSS.enable');
   const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
 
-  type Node = { nodeId: number; nodeName: string; attributes?: string[]; children?: Node[]; shadowRoots?: Node[] };
-  const attr = (n: Node, name: string) => {
+  const attr = (n: CdpNode, name: string) => {
     const a = n.attributes ?? [];
     const i = a.indexOf(name);
     return i >= 0 && i % 2 === 0 ? a[i + 1] : undefined;
   };
-  const find = (n: Node, pred: (n: Node) => boolean): Node | undefined => {
+  const find = (n: CdpNode, pred: (n: CdpNode) => boolean): CdpNode | undefined => {
     if (pred(n)) return n;
     for (const c of [...(n.shadowRoots ?? []), ...(n.children ?? [])]) {
       const hit = find(c, pred);
@@ -211,12 +217,19 @@ async function clockIconDisplay(page: Page): Promise<string> {
     return undefined;
   };
 
-  const input = find(root as Node, (n) => attr(n, 'aria-label') === '出発の時刻');
+  const input = find(root as CdpNode, (n) => attr(n, 'aria-label') === '出発の時刻');
   if (input === undefined) throw new Error('出発の時刻欄が無い');
-  const icon = find(input, (n) => attr(n, 'pseudo') === '-webkit-calendar-picker-indicator');
-  if (icon === undefined) throw new Error('時計アイコンの要素が無い');
+  const node = find(input, (n) => attr(n, 'pseudo') === pseudo);
+  return node === undefined ? undefined : { cdp, node };
+}
 
-  const { computedStyle } = await cdp.send('CSS.getComputedStyleForNode', { nodeId: icon.nodeId });
+/// 出発の時刻欄にある UA の時計アイコンの display。
+async function clockIconDisplay(page: Page): Promise<string> {
+  const part = await timeFieldPart(page, '-webkit-calendar-picker-indicator');
+  if (part === undefined) throw new Error('時計アイコンの要素が無い');
+  const { computedStyle } = await part.cdp.send('CSS.getComputedStyleForNode', {
+    nodeId: part.node.nodeId,
+  });
   return computedStyle.find((p) => p.name === 'display')?.value ?? '';
 }
 
@@ -234,4 +247,15 @@ test('モバイル幅の時刻欄は UA の時計アイコンを残す', async (
   await page.goto('/');
 
   expect(await clockIconDisplay(page)).not.toBe('none');
+});
+
+test('時刻欄は 24 時間表記で出す（AM/PM の欄を持たない）', async ({ page }) => {
+  // 表記はページではなくブラウザの表示言語で決まる。E2E のブラウザも日本語の
+  // 利用者と同じ表示にそろえておく（playwright.config.ts の --lang）。
+  await page.setViewportSize(desktop);
+  await page.goto('/');
+
+  // 探し方が空振りしていないことを、同じ欄の「時」の部品で確かめる。
+  expect(await timeFieldPart(page, '-webkit-datetime-edit-hour-field')).toBeDefined();
+  expect(await timeFieldPart(page, '-webkit-datetime-edit-ampm-field')).toBeUndefined();
 });
