@@ -274,10 +274,12 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
           日付欄と同じ日を二重に出すことになる。 */}
       <input
         type="time"
-        className="block w-full bg-transparent text-ink focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss-700 mt-px text-[21px] leading-[1.05] font-semibold tabular-nums tracking-[-0.02em]"
+        className="block w-full bg-transparent text-ink focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss-700 mt-px text-[21px] leading-[1.05] font-semibold tabular-nums tracking-[-0.02em] desktop:[&::-webkit-calendar-picker-indicator]:hidden"
         aria-label={ja.timeFieldTime(label)}
         value={timeDraft.text}
         // 確定は blur で行う。ここは打っている最中の見た目を持つだけ。
+        // デスクトップ幅で UA の時計アイコンを隠すのは、ステッパーが同じ役目を持つため。
+        // モバイル幅ではステッパーを出さないので残す。
         // step は置かない。5 分刻みを step へ預けると、その倍数でない時刻
         // （12:03 など）が :invalid として扱われる。刻みは ↑↓ の横取りが持つ。
         min={mode === PickerMode.depart && current.dateOffset === 0 ? clockTime(basis) : undefined}

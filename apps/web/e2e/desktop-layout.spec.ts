@@ -1,7 +1,7 @@
 /// 画面ごとのデスクトップ幅のレイアウト。幅の出し分けは CSS なので、jsdom からは
 /// 見えない（PORTING.md「デスクトップ幅の作り分け」）。寸法そのものを実測する。
 
-import type { Locator } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 import { expect, test } from './fixtures';
 import { goToResult } from './flows';
@@ -183,4 +183,55 @@ test('モバイル幅の日付は native の日付欄のまま', async ({ page }
   await page.goto('/');
 
   await expect(page.getByLabel('出発の日付')).toHaveAttribute('type', 'date');
+});
+
+/// 出発の時刻欄にある UA の時計アイコンの display。
+///
+/// `getComputedStyle(el, '::-webkit-calendar-picker-indicator')` は使えない。Chromium は
+/// この疑似要素を受け付けず、黙って input 本体の値（block）を返す。アイコンの実体は
+/// UA の shadow DOM にあるので、CDP で直接その要素の算出値を読む。
+async function clockIconDisplay(page: Page): Promise<string> {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('DOM.enable');
+  await cdp.send('CSS.enable');
+  const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+
+  type Node = { nodeId: number; nodeName: string; attributes?: string[]; children?: Node[]; shadowRoots?: Node[] };
+  const attr = (n: Node, name: string) => {
+    const a = n.attributes ?? [];
+    const i = a.indexOf(name);
+    return i >= 0 && i % 2 === 0 ? a[i + 1] : undefined;
+  };
+  const find = (n: Node, pred: (n: Node) => boolean): Node | undefined => {
+    if (pred(n)) return n;
+    for (const c of [...(n.shadowRoots ?? []), ...(n.children ?? [])]) {
+      const hit = find(c, pred);
+      if (hit !== undefined) return hit;
+    }
+    return undefined;
+  };
+
+  const input = find(root as Node, (n) => attr(n, 'aria-label') === '出発の時刻');
+  if (input === undefined) throw new Error('出発の時刻欄が無い');
+  const icon = find(input, (n) => attr(n, 'pseudo') === '-webkit-calendar-picker-indicator');
+  if (icon === undefined) throw new Error('時計アイコンの要素が無い');
+
+  const { computedStyle } = await cdp.send('CSS.getComputedStyleForNode', { nodeId: icon.nodeId });
+  return computedStyle.find((p) => p.name === 'display')?.value ?? '';
+}
+
+test('デスクトップ幅の時刻欄は UA の時計アイコンを出さない', async ({ page }) => {
+  // テーマの当たらない黒いアイコンで、ステッパーと役目が重なる。
+  await page.setViewportSize(desktop);
+  await page.goto('/');
+
+  expect(await clockIconDisplay(page)).toBe('none');
+});
+
+test('モバイル幅の時刻欄は UA の時計アイコンを残す', async ({ page }) => {
+  // ステッパーを出さない幅では、マウスで時刻を開く手段がこれしかない。
+  await page.setViewportSize(mobile);
+  await page.goto('/');
+
+  expect(await clockIconDisplay(page)).not.toBe('none');
 });
