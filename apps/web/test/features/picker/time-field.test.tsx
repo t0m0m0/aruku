@@ -184,6 +184,17 @@ describe('日付の入力', () => {
     expect(store.getState().departure.format()).toBe('13:00');
   });
 
+  // 移植元は日付欄の上に「明日」「M/D(曜)」を重ねていた。
+  it.each([
+    [1, '2026-09-12', '明日'],
+    [5, '2026-09-16', '9/16(水)'],
+  ])('日付は日付欄だけが示し、別のラベルで重ねない（%i 日後）', (offset, iso, label) => {
+    const { date } = setup({ departure: at(13, 0, offset), arrival: at(14, 0, offset) });
+
+    expect(date.value).toBe(iso);
+    expect(screen.queryByText(label)).toBeNull();
+  });
+
   it('出発は今日から上限の日まで選べる', () => {
     const { date } = setup({ departure: at(13, 0), arrival: at(14, 0) });
 

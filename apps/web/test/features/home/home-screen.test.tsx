@@ -21,6 +21,7 @@ import {
   type LocationState,
 } from '../../../src/location/location-state';
 import { stubViewport } from '../../layout/viewport';
+import { ja } from '../../../src/i18n/ja';
 import type { ScreenDeps } from '../../../src/navigation/screen-deps';
 import { Screen, screenPath } from '../../../src/navigation/screens';
 import {
@@ -270,7 +271,10 @@ describe('ホームの時刻', () => {
     });
 
     expect(screen.getByText('1時間 30分')).toBeDefined();
-    expect(screen.getByText('明日')).toBeDefined();
+    const arrivalDate = screen.getByLabelText(
+      ja.timeFieldDate(ja.homeArrivalLabel),
+    ) as HTMLInputElement;
+    expect(arrivalDate.value).toBe('2026-09-12');
   });
 });
 

@@ -164,8 +164,7 @@ function collectFromHtml(html: string): string[] {
 ///
 /// `extraSourceDirs` には `packages/engine/src` が入る。エンジンは alias で
 /// ソース直参照され同じバンドルへ入るので、その文字列リテラルは apps/web 自身の
-/// ものと同じだけ描かれる——`TimeValue.dateLabel()` の「明日」、
-/// `rail-line-names.ts` の路線名がそれ。
+/// ものと同じだけ描かれる——`rail-line-names.ts` の路線名がそれ。
 export function collectVocabulary(
   root: string,
   extraSourceDirs: readonly string[] = [],
