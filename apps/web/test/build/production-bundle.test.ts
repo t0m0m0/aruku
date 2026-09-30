@@ -174,7 +174,9 @@ describe('配信物の静的ファイル', () => {
     const files = distFiles();
     for (const path of [
       '/manifest.json',
+      '/icon.svg',
       '/favicon.png',
+      '/icons/apple-touch-icon.png',
       '/icons/Icon-192.png',
       '/icons/Icon-512.png',
       '/icons/Icon-maskable-192.png',
