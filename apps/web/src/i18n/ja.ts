@@ -45,6 +45,16 @@ export const ja = {
   timeFieldLater: (label: string) => `${label}を5分あとにする`,
   timeFieldEarlier: (label: string) => `${label}を5分まえにする`,
 
+  /// デスクトップ幅の日付欄（カレンダーを開くボタン）。読み上げ名に表示中の日付を含める
+  /// ——欄の名前だけにすると、見えている文字と読み上げが食い違う。
+  timeFieldDateButton: (label: string, date: string) => `${label}の日付 ${date}`,
+  dateToday: '今日',
+  dateTomorrow: '明日',
+
+  calendarCaption: (year: number, month: number) => `${year}年${month}月`,
+  calendarPreviousMonth: '前の月',
+  calendarNextMonth: '次の月',
+
   /// 経路検索のライフサイクルが未移植の間の CTA。押せない状態と対で出す。
   homeSearchRouteNotReady: '経路検索は準備中',
   homeChooseDestination: '目的地を選ぶ',
