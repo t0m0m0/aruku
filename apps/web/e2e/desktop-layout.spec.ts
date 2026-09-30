@@ -161,3 +161,26 @@ test('デスクトップ幅の待ち画面は上部バーの下を地図で埋�
   expect(Math.round(map.width)).toBe(desktop.width);
   expect(Math.round(map.y + map.height)).toBe(desktop.height);
 });
+
+test('デスクトップ幅の日付はカレンダーで選ぶ', async ({ page }) => {
+  // Popover の portal と、そこへのフォーカスの行き来は実ブラウザで確かめる。
+  await page.clock.setFixedTime(new Date('2026-09-11T12:00:00+09:00'));
+  await page.setViewportSize(desktop);
+  await page.goto('/');
+
+  await page.getByRole('button', { name: /^出発の日付 / }).click();
+  await expect(page.getByRole('grid', { name: '2026年9月' })).toBeVisible();
+  await page.getByRole('button', { name: '9月12日 (土)' }).click();
+
+  await expect(page.getByRole('grid')).toBeHidden();
+  await expect(page.getByRole('button', { name: /^出発の日付 / })).toHaveText(
+    '明日 · 9月12日 (土)',
+  );
+});
+
+test('モバイル幅の日付は native の日付欄のまま', async ({ page }) => {
+  await page.setViewportSize(mobile);
+  await page.goto('/');
+
+  await expect(page.getByLabel('出発の日付')).toHaveAttribute('type', 'date');
+});

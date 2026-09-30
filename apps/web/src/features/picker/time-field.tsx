@@ -4,7 +4,10 @@
 // 移植元はモバイルのホイールシートとデスクトップの自作欄・月グリッドを別々に
 // 持っていた。ここでは native の `<input type="time">` / `<input type="date">`
 // 1 組に畳んでいる——どちらもブラウザが端末に合わせた UI（スマホならホイール、
-// デスクトップならキー入力とカレンダー）を出すので、出し分けそのものが要らない。
+// デスクトップならキー入力とカレンダー）を出す。
+//
+// 例外はデスクトップ幅の日付で、shadcn の Calendar を開くボタンにしている（#424）。
+// 全幅を Calendar にしないのは、モバイル幅で端末のホイールを手放すことになるため。
 //
 // 「押しても開かないボタン」を避けるため、値を出すだけだった home の欄はこれに
 // 置き換わる（#386 スライス2 の申し送り）。
@@ -20,9 +23,12 @@ import {
   dateOffsetFrom,
 } from '@aruku/engine/models/time-value';
 
+import { pickerDateLabel } from '../../i18n/format';
 import { ja } from '../../i18n/ja';
 import { useIsDesktop } from '../../layout/use-is-desktop';
 import { ChevronIcon } from '../../shared/icons';
+import { Calendar } from '../../shared/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '../../shared/ui/popover';
 import type { AppStore, Now } from '../../state/store';
 import {
   clampDepartureMinutes,
@@ -61,7 +67,11 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
   const timeDraft = useDraft(current.format());
   const dateDraft = useDraft(isoDate(dateAt(basis, current.dateOffset)));
   const group = useRef<HTMLDivElement>(null);
+  // カレンダーは portal で欄の外へ描かれる。そこへの移動も「欄の中」として数える。
+  const calendar = useRef<HTMLDivElement>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
 
+  const selectedDate = dateAt(basis, current.dateOffset);
   const first = firstSelectableOffset(mode, departure);
   const last = lastSelectableOffset(mode, departure, current);
 
@@ -86,12 +96,13 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
   ///
   /// [over.time] は ↑↓ が入れる時刻。下書きへ書いてから読み直せないのは、React の
   /// state が同じハンドラの中では古いままだから——書いた直後に読むと1つ前の値が返る。
-  /// [over.dayShift] は ↑↓ の日送り。
-  function commit(over: { time?: string; dayShift?: number } = {}): void {
+  /// [over.dayShift] は ↑↓ の日送り。[over.date] はカレンダーで選んだ日。
+  function commit(over: { time?: string; dayShift?: number; date?: Date } = {}): void {
     const dayShift = over.dayShift ?? 0;
     const timeText = over.time ?? timeDraft.text;
     const timeEdited = over.time !== undefined || timeDraft.edited;
-    if (!timeEdited && !dateDraft.edited && dayShift === 0) return;
+    const dateEdited = over.date !== undefined || dateDraft.edited;
+    if (!timeEdited && !dateEdited && dayShift === 0) return;
 
     const closed = rebased();
     const state = store.getState();
@@ -109,8 +120,8 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
     }
 
     let dateOffset = settled.dateOffset + dayShift;
-    if (dateDraft.edited) {
-      const picked = parseIsoDate(dateDraft.text);
+    if (dateEdited) {
+      const picked = over.date ?? parseIsoDate(dateDraft.text);
       // 選んでいる間に過ぎてしまった日は捨てる。dateOffsetFrom は負を 0 へ丸めるので、
       // そのまま確定すると古い時刻と新しい今日が組み合わさり、詰め直した予定を
       // 引きずり降ろす。日付を**選んだとき**だけ見るのは、欄が出しているだけの日付は
@@ -177,10 +188,21 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
   /// `02:58` が現れる——それを確定すると過去時刻の切り上げが割り込み、打った値ごと
   /// 現在時刻へ差し替わる（実ブラウザで確認）。
   ///
-  /// 同じ欄の中（時刻↔日付）の移動では確定しない。下書きは対で意味を持つ。
+  /// 同じ欄の中（時刻↔日付↔カレンダー）の移動では確定しない。下書きは対で意味を持つ。
   function onBlur(movedTo: EventTarget | null): void {
-    if (movedTo instanceof Node && group.current?.contains(movedTo) === true) return;
+    if (
+      movedTo instanceof Node &&
+      (group.current?.contains(movedTo) === true || calendar.current?.contains(movedTo) === true)
+    ) {
+      return;
+    }
     commit();
+  }
+
+  /// カレンダーで日を選んだ。打ちかけの時刻と対で確定する。
+  function onPickDay(picked: Date): void {
+    setCalendarOpen(false);
+    commit({ date: picked });
   }
 
   /// ↑↓ を横取りして、日をまたぐ刻みでは日付も一緒に動かす。
@@ -231,18 +253,48 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
         onBlur={(e) => onBlur(e.relatedTarget)}
         onKeyDown={(e) => onTimeKeyDown(e.key, () => e.preventDefault())}
       />
-      <input
-        type="date"
-        // 内側の上下 1px は Chrome の UA 既定。Tailwind の preflight が 0 に均し、欄が
-        // 2px 縮むので明示して保つ。
-        className="block w-full bg-transparent text-ink focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss-700 mt-0.5 text-[11px] font-bold text-ink-2 [&::-webkit-datetime-edit]:py-px"
-        aria-label={ja.timeFieldDate(label)}
-        value={dateDraft.text}
-        min={isoDate(dateAt(basis, first))}
-        max={isoDate(dateAt(basis, last))}
-        onChange={(e) => dateDraft.edit(e.target.value)}
-        onBlur={(e) => onBlur(e.relatedTarget)}
-      />
+      {isDesktop ? (
+        <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+          <PopoverTrigger
+            className="mt-0.5 block cursor-pointer text-left text-[11px] font-bold text-ink-2 hover:text-moss-700 focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss-700"
+            aria-label={ja.timeFieldDateButton(label, pickerDateLabel(selectedDate, current.dateOffset))}
+            onBlur={(e) => onBlur(e.relatedTarget)}
+          >
+            {pickerDateLabel(selectedDate, current.dateOffset)}
+          </PopoverTrigger>
+          <PopoverContent
+            ref={calendar}
+            align="start"
+            className="w-auto p-0"
+            onBlur={(e) => onBlur(e.relatedTarget)}
+          >
+            <Calendar
+              mode="single"
+              required
+              selected={selectedDate}
+              onSelect={onPickDay}
+              defaultMonth={selectedDate}
+              today={basis}
+              startMonth={dateAt(basis, first)}
+              endMonth={dateAt(basis, last)}
+              disabled={[{ before: dateAt(basis, first) }, { after: dateAt(basis, last) }]}
+            />
+          </PopoverContent>
+        </Popover>
+      ) : (
+        <input
+          type="date"
+          // 内側の上下 1px は Chrome の UA 既定。Tailwind の preflight が 0 に均し、欄が
+          // 2px 縮むので明示して保つ。
+          className="block w-full bg-transparent text-ink focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss-700 mt-0.5 text-[11px] font-bold text-ink-2 [&::-webkit-datetime-edit]:py-px"
+          aria-label={ja.timeFieldDate(label)}
+          value={dateDraft.text}
+          min={isoDate(dateAt(basis, first))}
+          max={isoDate(dateAt(basis, last))}
+          onChange={(e) => dateDraft.edit(e.target.value)}
+          onBlur={(e) => onBlur(e.relatedTarget)}
+        />
+      )}
       {/* マウスでも 5 分刻みで動かせるようにする（移植元 desktop_time_field.dart の
           ステッパー）。native のスピナーでは分が 1 ずつ動き、しかも同日内で折り返す
           ——23:58 から進めても翌日にならない。ここは stepTotalMinutes を通る。
