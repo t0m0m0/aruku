@@ -12,7 +12,7 @@
 // 「押しても開かないボタン」を避けるため、値を出すだけだった home の欄はこれに
 // 置き換わる（#386 スライス2 の申し送り）。
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { StoreApi } from 'zustand/vanilla';
 
@@ -199,6 +199,26 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
     commit();
   }
 
+  /// 幅が境界を跨いで日付欄が入れ替わったら、入れかけの日付を確定する。
+  ///
+  /// native の日付欄は確定を blur に任せており、欄ごと外れると blur が来ない。
+  /// 下書き自体はこの部品が持っているので残るが、確定されないまま検索へ行ける。
+  const shownDesktop = useRef(isDesktop);
+  useEffect(() => {
+    if (shownDesktop.current === isDesktop) return;
+    shownDesktop.current = isDesktop;
+    if (dateDraft.edited) commit();
+  });
+
+  /// カレンダーを開く前に、日を跨いでいれば基準日を今日へ詰め直す。
+  ///
+  /// 基準日は確定まで古いまま残る。そのまま描くと昨日を「今日」として選ばせ、
+  /// 選んだ日は確定で「過ぎた日」として捨てられる。
+  function onCalendarOpenChange(open: boolean): void {
+    if (open) store.getState().rebaseToToday(now());
+    setCalendarOpen(open);
+  }
+
   /// カレンダーで日を選んだ。打ちかけの時刻と対で確定する。
   function onPickDay(picked: Date): void {
     setCalendarOpen(false);
@@ -254,7 +274,7 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
         onKeyDown={(e) => onTimeKeyDown(e.key, () => e.preventDefault())}
       />
       {isDesktop ? (
-        <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+        <Popover open={calendarOpen} onOpenChange={onCalendarOpenChange}>
           <PopoverTrigger
             className="mt-0.5 block cursor-pointer text-left text-[11px] font-bold text-ink-2 hover:text-moss-700 focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss-700"
             aria-label={ja.timeFieldDateButton(label, pickerDateLabel(selectedDate, current.dateOffset))}
@@ -264,6 +284,7 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
           </PopoverTrigger>
           <PopoverContent
             ref={calendar}
+            aria-label={ja.timeFieldDate(label)}
             align="start"
             className="w-auto p-0"
             onBlur={(e) => onBlur(e.relatedTarget)}

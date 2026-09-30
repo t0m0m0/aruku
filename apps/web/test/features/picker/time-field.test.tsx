@@ -541,6 +541,72 @@ describe('デスクトップ幅のカレンダー', () => {
   });
 });
 
+describe('デスクトップ幅のカレンダー（PR #425 のレビュー）', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('開いたまま日を跨いでから開くと、新しい今日で数え直す', () => {
+    // 基準日は確定まで古いまま残る。そのまま描くと昨日を「今日」として選ばせ、
+    // 選んだ日は確定で「過ぎた日」として捨てられる。
+    stubViewport(true);
+    let clock = new Date(2026, 8, 11, 23, 50, 0);
+    store = createAppStore({ departure: at(23, 55), arrival: at(23, 59) }, () => clock);
+    render(
+      <TimeField
+        store={store}
+        mode={PickerMode.depart}
+        label={ja.homeDepartureLabel}
+        now={() => clock}
+      />,
+    );
+
+    clock = new Date(2026, 8, 12, 0, 10, 0);
+    fireEvent.click(dateTrigger('出発'));
+
+    expect(dateTrigger('出発').textContent).toBe('今日 · 9月12日 (土)');
+    expect(dayButton('9月11日 (金)').disabled).toBe(true);
+  });
+
+  it('カレンダーはどの欄の日付かを名乗る', () => {
+    stubViewport(true);
+    setupTime({ departure: at(13, 0), arrival: at(14, 0) }, PickerMode.arrival);
+
+    fireEvent.click(dateTrigger('到着'));
+
+    expect(screen.getByRole('dialog', { name: '到着の日付' })).toBeTruthy();
+  });
+
+  it('曜日の見出しに英語の読み上げ名を残さない', () => {
+    // react-day-picker は見出しの行を aria-hidden にしているので、いまは読み上げに
+    // 出ない。それでも既定の英語の aria-label を残すと、見出しを露出させた版で
+    // 英語だけが読まれる。
+    stubViewport(true);
+    setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+
+    fireEvent.click(dateTrigger('出発'));
+    const labels = Array.from(
+      screen.getByRole('grid').querySelectorAll('th[scope="col"]'),
+      (th) => th.getAttribute('aria-label'),
+    );
+
+    expect(labels).toEqual(['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日']);
+  });
+
+  it('日付を入れかけたまま幅がデスクトップへ変わっても、入れた日を確定する', () => {
+    // native の日付欄は確定を blur に任せている。幅の切り替えで欄ごと外れると
+    // blur が来ず、打った日付が黙って捨てられる。
+    const viewport = stubViewport(false);
+    const { date } = setup({ departure: at(13, 0), arrival: at(14, 0) });
+
+    fireEvent.change(date, { target: { value: '2026-09-13' } });
+    viewport.cross(true);
+
+    expect(store.getState().departure.dateOffset).toBe(2);
+    expect(dateTrigger('出発').textContent).toBe('9月13日 (日)');
+  });
+});
+
 /// デスクトップ幅では日付が input ではないので、時刻の欄だけを返す。
 function setupTime(initial: Partial<RouteCore>, mode: PickerMode = PickerMode.depart) {
   store = createAppStore(initial, () => noon);

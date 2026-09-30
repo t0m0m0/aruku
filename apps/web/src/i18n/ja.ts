@@ -52,6 +52,8 @@ export const ja = {
   dateTomorrow: '明日',
 
   calendarCaption: (year: number, month: number) => `${year}年${month}月`,
+  /// 曜日の列見出しの読み上げ名。描くのは1字（`weekdays`）で、読み上げは「月曜日」。
+  calendarWeekdayLabel: (weekday: string) => `${weekday}曜日`,
   calendarPreviousMonth: '前の月',
   calendarNextMonth: '次の月',
 
