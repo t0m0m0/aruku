@@ -1,7 +1,7 @@
 /// 画面ごとのデスクトップ幅のレイアウト。幅の出し分けは CSS なので、jsdom からは
 /// 見えない（PORTING.md「デスクトップ幅の作り分け」）。寸法そのものを実測する。
 
-import type { Locator } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 import { expect, test } from './fixtures';
 import { goToResult } from './flows';
@@ -160,4 +160,102 @@ test('デスクトップ幅の待ち画面は上部バーの下を地図で埋�
   expect(Math.round(map.x)).toBe(0);
   expect(Math.round(map.width)).toBe(desktop.width);
   expect(Math.round(map.y + map.height)).toBe(desktop.height);
+});
+
+test('デスクトップ幅の日付はカレンダーで選ぶ', async ({ page }) => {
+  // Popover の portal と、そこへのフォーカスの行き来は実ブラウザで確かめる。
+  await page.clock.setFixedTime(new Date('2026-09-11T12:00:00+09:00'));
+  await page.setViewportSize(desktop);
+  await page.goto('/');
+
+  await page.getByRole('button', { name: /^出発の日付 / }).click();
+  await expect(page.getByRole('grid', { name: '2026年9月' })).toBeVisible();
+  await page.getByRole('button', { name: '9月12日 (土)' }).click();
+
+  await expect(page.getByRole('grid')).toBeHidden();
+  await expect(page.getByRole('button', { name: /^出発の日付 / })).toHaveText(
+    '明日 · 9月12日 (土)',
+  );
+});
+
+test('モバイル幅の日付は native の日付欄のまま', async ({ page }) => {
+  await page.setViewportSize(mobile);
+  await page.goto('/');
+
+  await expect(page.getByLabel('出発の日付')).toHaveAttribute('type', 'date');
+});
+
+type CdpNode = {
+  nodeId: number;
+  attributes?: string[];
+  children?: CdpNode[];
+  shadowRoots?: CdpNode[];
+};
+
+/// 出発の時刻欄の中にある、UA の shadow DOM の部品（[pseudo] 属性で探す）。無ければ undefined。
+///
+/// 部品は CSS の疑似要素としては読めない。`getComputedStyle(el, '::-webkit-calendar-picker-indicator')`
+/// は、Chromium がこの疑似要素を受け付けず、黙って input 本体の値（block）を返す。
+/// 実体は UA の shadow DOM にあるので、CDP で直接たどる。
+async function timeFieldPart(page: Page, pseudo: string) {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('DOM.enable');
+  await cdp.send('CSS.enable');
+  const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
+
+  const attr = (n: CdpNode, name: string) => {
+    const a = n.attributes ?? [];
+    const i = a.indexOf(name);
+    return i >= 0 && i % 2 === 0 ? a[i + 1] : undefined;
+  };
+  const find = (n: CdpNode, pred: (n: CdpNode) => boolean): CdpNode | undefined => {
+    if (pred(n)) return n;
+    for (const c of [...(n.shadowRoots ?? []), ...(n.children ?? [])]) {
+      const hit = find(c, pred);
+      if (hit !== undefined) return hit;
+    }
+    return undefined;
+  };
+
+  const input = find(root as CdpNode, (n) => attr(n, 'aria-label') === '出発の時刻');
+  if (input === undefined) throw new Error('出発の時刻欄が無い');
+  const node = find(input, (n) => attr(n, 'pseudo') === pseudo);
+  return node === undefined ? undefined : { cdp, node };
+}
+
+/// 出発の時刻欄にある UA の時計アイコンの display。
+async function clockIconDisplay(page: Page): Promise<string> {
+  const part = await timeFieldPart(page, '-webkit-calendar-picker-indicator');
+  if (part === undefined) throw new Error('時計アイコンの要素が無い');
+  const { computedStyle } = await part.cdp.send('CSS.getComputedStyleForNode', {
+    nodeId: part.node.nodeId,
+  });
+  return computedStyle.find((p) => p.name === 'display')?.value ?? '';
+}
+
+test('デスクトップ幅の時刻欄は UA の時計アイコンを出さない', async ({ page }) => {
+  // テーマの当たらない黒いアイコンで、ステッパーと役目が重なる。
+  await page.setViewportSize(desktop);
+  await page.goto('/');
+
+  expect(await clockIconDisplay(page)).toBe('none');
+});
+
+test('モバイル幅の時刻欄は UA の時計アイコンを残す', async ({ page }) => {
+  // ステッパーを出さない幅では、マウスで時刻を開く手段がこれしかない。
+  await page.setViewportSize(mobile);
+  await page.goto('/');
+
+  expect(await clockIconDisplay(page)).not.toBe('none');
+});
+
+test('時刻欄は 24 時間表記で出す（AM/PM の欄を持たない）', async ({ page }) => {
+  // 表記はページではなくブラウザの表示言語で決まる。E2E のブラウザも日本語の
+  // 利用者と同じ表示にそろえておく（playwright.config.ts の --lang）。
+  await page.setViewportSize(desktop);
+  await page.goto('/');
+
+  // 探し方が空振りしていないことを、同じ欄の「時」の部品で確かめる。
+  expect(await timeFieldPart(page, '-webkit-datetime-edit-hour-field')).toBeDefined();
+  expect(await timeFieldPart(page, '-webkit-datetime-edit-ampm-field')).toBeUndefined();
 });

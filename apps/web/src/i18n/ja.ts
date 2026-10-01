@@ -45,6 +45,23 @@ export const ja = {
   timeFieldLater: (label: string) => `${label}を5分あとにする`,
   timeFieldEarlier: (label: string) => `${label}を5分まえにする`,
 
+  /// デスクトップ幅の日付欄（カレンダーを開くボタン）。読み上げ名に表示中の日付を含める
+  /// ——欄の名前だけにすると、見えている文字と読み上げが食い違う。
+  timeFieldDateButton: (label: string, date: string) => `${label}の日付 ${date}`,
+  dateToday: '今日',
+  dateTomorrow: '明日',
+
+  calendarCaption: (year: number, month: number) => `${year}年${month}月`,
+  /// 曜日の列見出しの読み上げ名。描くのは1字（`weekdays`）で、読み上げは「月曜日」。
+  calendarWeekdayLabel: (weekday: string) => `${weekday}曜日`,
+  /// カレンダーの日の読み上げ名。見た目で印の付く「今日」「選択中」も読み上げる。
+  calendarDayLabel: (date: string, state: { today: boolean; selected: boolean }) =>
+    [state.today ? '今日' : null, date, state.selected ? '選択中' : null]
+      .filter((part) => part !== null)
+      .join('、'),
+  calendarPreviousMonth: '前の月',
+  calendarNextMonth: '次の月',
+
   /// 経路検索のライフサイクルが未移植の間の CTA。押せない状態と対で出す。
   homeSearchRouteNotReady: '経路検索は準備中',
   homeChooseDestination: '目的地を選ぶ',

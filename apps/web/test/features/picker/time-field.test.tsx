@@ -3,7 +3,7 @@
 // 状態へどう届くか」と「欄が示す選べる範囲」。
 //
 // ホイールと月グリッドを自作せず native の `<input type="time" / "date">` に載せた
-// ため、移植元にあった「ホイールの下限を initState で1回だけ読む」といった、
+// （デスクトップ幅の日付だけは shadcn の Calendar）ため、移植元にあった「ホイールの下限を initState で1回だけ読む」といった、
 // 自作 UI の都合に由来する検証は消えている。
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -387,14 +387,14 @@ describe('デスクトップ幅のステッパー', () => {
   it('モバイル幅では出さない', () => {
     stubViewport(false);
 
-    setup({ departure: at(13, 0), arrival: at(14, 0) });
+    setupTime({ departure: at(13, 0), arrival: at(14, 0) });
 
     expect(screen.queryByRole('button', { name: '出発を5分あとにする' })).toBeNull();
   });
 
   it('5分あとにする', () => {
     stubViewport(true);
-    setup({ departure: at(13, 0), arrival: at(14, 0) });
+    setupTime({ departure: at(13, 0), arrival: at(14, 0) });
 
     fireEvent.click(screen.getByRole('button', { name: '出発を5分あとにする' }));
 
@@ -403,7 +403,7 @@ describe('デスクトップ幅のステッパー', () => {
 
   it('5分まえにする', () => {
     stubViewport(true);
-    setup({ departure: at(13, 0), arrival: at(14, 0) });
+    setupTime({ departure: at(13, 0), arrival: at(14, 0) });
 
     fireEvent.click(screen.getByRole('button', { name: '出発を5分まえにする' }));
 
@@ -415,7 +415,7 @@ describe('デスクトップ幅のステッパー', () => {
     // blur を見ていないと、そこから Tab で出た打鍵が黙って捨てられ、検索は
     // 古い時刻で走る（PR #407 の Codex レビュー）。
     stubViewport(true);
-    const { time } = setup({ departure: at(13, 0), arrival: at(14, 0) });
+    const { time } = setupTime({ departure: at(13, 0), arrival: at(14, 0) });
     const later = screen.getByRole('button', { name: '出発を5分あとにする' });
 
     fireEvent.change(time, { target: { value: '15:30' } });
@@ -429,12 +429,261 @@ describe('デスクトップ幅のステッパー', () => {
 
   it('日をまたぐ刻みは日付も一緒に動かす', () => {
     stubViewport(true);
-    const { date } = setup({ departure: at(23, 58), arrival: at(23, 59) });
+    setupTime({ departure: at(23, 58), arrival: at(23, 59) });
 
     fireEvent.click(screen.getByRole('button', { name: '出発を5分あとにする' }));
 
     expect(store.getState().departure.format()).toBe('00:03');
     expect(store.getState().departure.dateOffset).toBe(1);
-    expect(date.value).toBe('2026-09-12');
+    expect(dateTrigger('出発').textContent).toBe('明日 · 9月12日 (土)');
   });
 });
+
+/// デスクトップ幅の日付欄（カレンダーを開くボタン）。
+function dateTrigger(label: string): HTMLButtonElement {
+  return screen.getByRole('button', {
+    name: new RegExp(`^${ja.timeFieldDate(label)} `),
+  }) as HTMLButtonElement;
+}
+
+function dayButton(name: string): HTMLButtonElement {
+  return screen.getByRole('button', { name }) as HTMLButtonElement;
+}
+
+describe('デスクトップ幅のカレンダー', () => {
+  // native の日付欄は UA が描くので、テーマが当たらず年まで出る。デスクトップ幅では
+  // 自前のボタンとカレンダーに替える。モバイル幅は端末のホイールを残す。
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('モバイル幅では native の日付欄のまま', () => {
+    stubViewport(false);
+    const { date } = setup({ departure: at(13, 0), arrival: at(14, 0) });
+
+    expect(date.type).toBe('date');
+  });
+
+  it.each([
+    [0, '今日 · 9月11日 (金)'],
+    [1, '明日 · 9月12日 (土)'],
+    [5, '9月16日 (水)'],
+  ])('日付は年を落として示し、今日・明日は言葉を添える（%i 日後）', (offset, text) => {
+    stubViewport(true);
+    setupTime({ departure: at(13, 0, offset), arrival: at(14, 0, offset) });
+
+    expect(dateTrigger('出発').textContent).toBe(text);
+    expect(screen.queryByLabelText(ja.timeFieldDate('出発'))).toBeNull();
+  });
+
+  it('カレンダーで選んだ日が今日からの日数へ直り、カレンダーが閉じる', () => {
+    stubViewport(true);
+    const { time } = setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+
+    fireEvent.click(dateTrigger('出発'));
+    fireEvent.click(dayButton('9月13日 (日)'));
+
+    expect(store.getState().departure.dateOffset).toBe(2);
+    expect(store.getState().departure.format()).toBe('13:00');
+    expect(screen.queryByRole('grid')).toBeNull();
+    expect(time.value).toBe('13:00');
+  });
+
+  it('選べる範囲の外の日は押せない', () => {
+    stubViewport(true);
+    setupTime(
+      { departure: at(13, 0, 3), arrival: at(14, 0, 3) },
+      PickerMode.arrival,
+    );
+
+    fireEvent.click(dateTrigger('到着'));
+
+    // 到着は出発の日（14日）より前を出さない。
+    expect(dayButton('9月13日 (日)').disabled).toBe(true);
+    expect(dayButton('9月14日 (月)、選択中').disabled).toBe(false);
+  });
+
+  it('打った時刻が、カレンダーで選んだ日と一緒に確定する', () => {
+    // 時刻を打ってからカレンダーへ移る間に確定すると、今日の過去時刻として
+    // 12:00 へ切り上げられ、明日 12:00 発になる（PR #399 と同じ経路）。
+    stubViewport(true);
+    const { time } = setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+    const trigger = dateTrigger('出発');
+
+    fireEvent.change(time, { target: { value: '09:00' } });
+    fireEvent.blur(time, { relatedTarget: trigger });
+    fireEvent.click(trigger);
+    const day = dayButton('9月12日 (土)');
+    // カレンダーは portal で欄の外へ描かれる。そこへ移っただけで確定しない。
+    fireEvent.blur(trigger, { relatedTarget: day });
+    expect(store.getState().departure.format()).toBe('13:00');
+
+    fireEvent.click(day);
+
+    expect(store.getState().departure.format()).toBe('09:00');
+    expect(store.getState().departure.dateOffset).toBe(1);
+  });
+
+  it('日を選ばずにカレンダーから欄の外へ出たら、打った時刻を確定する', () => {
+    stubViewport(true);
+    const { time } = setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+    const trigger = dateTrigger('出発');
+
+    fireEvent.change(time, { target: { value: '15:30' } });
+    fireEvent.blur(time, { relatedTarget: trigger });
+    fireEvent.click(trigger);
+    const day = dayButton('9月12日 (土)');
+    fireEvent.blur(trigger, { relatedTarget: day });
+    fireEvent.blur(day, { relatedTarget: null });
+
+    expect(store.getState().departure.format()).toBe('15:30');
+    expect(store.getState().departure.dateOffset).toBe(0);
+  });
+});
+
+describe('デスクトップ幅のカレンダー（PR #425 のレビュー）', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('開いたまま日を跨いでから開くと、新しい今日で数え直す', () => {
+    // 基準日は確定まで古いまま残る。そのまま描くと昨日を「今日」として選ばせ、
+    // 選んだ日は確定で「過ぎた日」として捨てられる。
+    stubViewport(true);
+    let clock = new Date(2026, 8, 11, 23, 50, 0);
+    store = createAppStore({ departure: at(23, 55), arrival: at(23, 59) }, () => clock);
+    render(
+      <TimeField
+        store={store}
+        mode={PickerMode.depart}
+        label={ja.homeDepartureLabel}
+        now={() => clock}
+      />,
+    );
+
+    clock = new Date(2026, 8, 12, 0, 10, 0);
+    fireEvent.click(dateTrigger('出発'));
+
+    expect(dateTrigger('出発').textContent).toBe('今日 · 9月12日 (土)');
+    expect(dayButton('9月11日 (金)').disabled).toBe(true);
+  });
+
+  it('打ちかけの時刻は、日を跨いでから開いても捨てない', () => {
+    // 詰め直しで状態の時刻が動くと、欄は外からの変更として下書きを捨てる。
+    // そのまま日を選ぶと、打った時刻ではなく詰め直した時刻で確定する。
+    stubViewport(true);
+    let clock = new Date(2026, 8, 11, 23, 50, 0);
+    store = createAppStore({ departure: at(23, 55), arrival: at(23, 59) }, () => clock);
+    render(
+      <TimeField
+        store={store}
+        mode={PickerMode.depart}
+        label={ja.homeDepartureLabel}
+        now={() => clock}
+      />,
+    );
+    const time = screen.getByLabelText(ja.timeFieldTime('出発')) as HTMLInputElement;
+    const trigger = dateTrigger('出発');
+
+    fireEvent.change(time, { target: { value: '23:58' } });
+    fireEvent.blur(time, { relatedTarget: trigger });
+    clock = new Date(2026, 8, 12, 0, 10, 0);
+    fireEvent.click(trigger);
+    fireEvent.click(dayButton('9月13日 (日)'));
+
+    expect(store.getState().departure.format()).toBe('23:58');
+    expect(store.getState().departure.dateOffset).toBe(1);
+  });
+
+  it('今日と選んでいる日は、読み上げでも分かる', () => {
+    // 見た目では今日と選択中の日に印がある。読み上げ名が日付だけだと区別できない。
+    stubViewport(true);
+    setupTime({ departure: at(13, 0, 2), arrival: at(14, 0, 2) });
+
+    fireEvent.click(dateTrigger('出発'));
+
+    expect(dayButton('今日、9月11日 (金)')).toBeTruthy();
+    expect(dayButton('9月13日 (日)、選択中')).toBeTruthy();
+  });
+
+  it('カレンダーを開いたまま幅がモバイルへ変わったら、打った時刻を確定して閉じる', () => {
+    // カレンダーは幅の切り替えで欄ごと外れ、blur が来ない。時刻を打ってから
+    // 開いていると、その時刻が確定されないまま検索へ行ける。
+    const viewport = stubViewport(true);
+    const { time } = setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+    const trigger = dateTrigger('出発');
+
+    fireEvent.change(time, { target: { value: '15:30' } });
+    fireEvent.blur(time, { relatedTarget: trigger });
+    fireEvent.click(trigger);
+    dayButton('9月12日 (土)').focus();
+    viewport.cross(false);
+
+    expect(store.getState().departure.format()).toBe('15:30');
+
+    // 戻しても、開きっぱなしの状態からカレンダーが出てこない。
+    viewport.cross(true);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('時刻を打っている途中で幅が変わっても、打ちかけを確定しない', () => {
+    // 欄に焦点がある間は blur が後で来る。先に確定すると、打ちかけの空文字で
+    // 欄が元の値へ戻される。
+    const viewport = stubViewport(true);
+    const { time } = setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+
+    time.focus();
+    fireEvent.change(time, { target: { value: '' } });
+    viewport.cross(false);
+
+    expect(time.value).toBe('');
+    expect(store.getState().departure.format()).toBe('13:00');
+  });
+
+  it('カレンダーはどの欄の日付かを名乗る', () => {
+    stubViewport(true);
+    setupTime({ departure: at(13, 0), arrival: at(14, 0) }, PickerMode.arrival);
+
+    fireEvent.click(dateTrigger('到着'));
+
+    expect(screen.getByRole('dialog', { name: '到着の日付' })).toBeTruthy();
+  });
+
+  it('曜日の見出しに英語の読み上げ名を残さない', () => {
+    // react-day-picker は見出しの行を aria-hidden にしているので、いまは読み上げに
+    // 出ない。それでも既定の英語の aria-label を残すと、見出しを露出させた版で
+    // 英語だけが読まれる。
+    stubViewport(true);
+    setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+
+    fireEvent.click(dateTrigger('出発'));
+    const labels = Array.from(
+      screen.getByRole('grid').querySelectorAll('th[scope="col"]'),
+      (th) => th.getAttribute('aria-label'),
+    );
+
+    expect(labels).toEqual(['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日']);
+  });
+
+  it('日付を入れかけたまま幅がデスクトップへ変わっても、入れた日を確定する', () => {
+    // native の日付欄は確定を blur に任せている。幅の切り替えで欄ごと外れると
+    // blur が来ず、打った日付が黙って捨てられる。
+    const viewport = stubViewport(false);
+    const { date } = setup({ departure: at(13, 0), arrival: at(14, 0) });
+
+    fireEvent.change(date, { target: { value: '2026-09-13' } });
+    viewport.cross(true);
+
+    expect(store.getState().departure.dateOffset).toBe(2);
+    expect(dateTrigger('出発').textContent).toBe('9月13日 (日)');
+  });
+});
+
+/// デスクトップ幅では日付が input ではないので、時刻の欄だけを返す。
+function setupTime(initial: Partial<RouteCore>, mode: PickerMode = PickerMode.depart) {
+  store = createAppStore(initial, () => noon);
+  const label =
+    mode === PickerMode.depart ? ja.homeDepartureLabel : ja.homeArrivalLabel;
+  render(<TimeField store={store} mode={mode} label={label} now={() => noon} />);
+  return { time: screen.getByLabelText(ja.timeFieldTime(label)) as HTMLInputElement };
+}

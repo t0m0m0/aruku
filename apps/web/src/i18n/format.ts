@@ -15,6 +15,15 @@ export function todayGreeting(now: Date): string {
   return `${todayDateLabel(now)} · ${greeting}`;
 }
 
+/// 時刻欄が示す日付。今日・明日は「今日 · M月D日 (曜)」、それより先は日付だけ。
+///
+/// 年は出さない。選べるのは最大 90 日先までで、年が変わっても月日で取り違えない。
+export function pickerDateLabel(date: Date, dateOffset: number): string {
+  const lead =
+    dateOffset === 0 ? ja.dateToday : dateOffset === 1 ? ja.dateTomorrow : null;
+  return lead === null ? todayDateLabel(date) : `${lead} · ${todayDateLabel(date)}`;
+}
+
 /// 「M月D日 (曜)」。
 ///
 /// 曜日は Date.getDay()（日曜 = 0）だが、移植元の配列は月曜始まり。移植元は

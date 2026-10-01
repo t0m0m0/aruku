@@ -63,7 +63,24 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
 
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        // `locale` だけでは native の日付・時刻欄の表記は変わらない。あれはページではなく
+        // ブラウザの表示言語で決まり、既定の英語だと時刻欄が 12 時間表記（PM）になる。
+        // 日本語の利用者が見る表示（24 時間表記）にそろえる。
+        //
+        // 引数と環境変数の両方が要る。Linux の Chromium（CI）は --lang を無視し、表示言語を
+        // LANGUAGE / LANG から読む。macOS は逆に --lang しか見ない。
+        launchOptions: {
+          args: ['--lang=ja-JP'],
+          env: { ...process.env, LANGUAGE: 'ja', LANG: 'ja_JP.UTF-8' },
+        },
+      },
+    },
+  ],
 
   webServer: {
     command: `${build} && ${serve}`,
