@@ -12,7 +12,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { StoreApi } from 'zustand/vanilla';
 
-import { privacyPolicyUrl, termsOfServiceUrl } from '../../../src/config';
 import { SettingsScreen } from '../../../src/features/settings/settings-screen';
 import { Screen, screenPath } from '../../../src/navigation/screens';
 import { createAppStore, type AppStore } from '../../../src/state/store';
@@ -63,10 +62,12 @@ describe('設定画面', () => {
     ).toBeDefined();
   });
 
+  // 期待値を config の定数から取らない。取ると、定数がプレースホルダ
+  // （example.com）のままでも緑になる——#281 で実際にそうだった。
   it.each([
-    ['利用規約', termsOfServiceUrl],
-    ['プライバシーポリシー', privacyPolicyUrl],
-  ])('%s を新しいタブで開く', (name, url) => {
+    ['利用規約', '/terms'],
+    ['プライバシーポリシー', '/privacy'],
+  ])('%s は自サイトのページを新しいタブで開く', (name, url) => {
     setup();
 
     const link = screen.getByRole('link', { name });

@@ -73,14 +73,13 @@ export const appConfig: AppConfig = {
   mapsApiKey: import.meta.env.VITE_MAPS_WEB_API_KEY ?? '',
 };
 
-/// 移植元: flutter-final:lib/core/constants/app_constants.dart の termsOfServiceUrl /
-/// privacyPolicyUrl。
-///
-/// 値は移植元と同じプレースホルダのまま。実 URL への差し替えは #386 の範囲外で、
-/// 先に本物らしい URL を置くと「配線済み」と読めてしまう。
+/// 本文は public/terms.html・privacy.html。SPA のルートにしないのは、JS を読まずに
+/// 開けるべき文書だから（審査やクローラはバンドルを実行するとは限らない）。拡張子を
+/// 付けないのは、Cloudflare Pages が `.html` 付きの要求を拡張子なしへ 308 で
+/// 寄せるため——付けるとリンクのたびにリダイレクトを1回挟む。
 ///
 /// 環境変数にしない。`appConfig` に置いているのはデプロイごとに変わる設定で、
 /// これは両者とも同じ値を指す固定のリンク先——env にすると設定漏れが「規約が
 /// 開かない」という遠い失敗になる。
-export const termsOfServiceUrl = 'https://example.com/aruku/terms';
-export const privacyPolicyUrl = 'https://example.com/aruku/privacy';
+export const termsOfServiceUrl = '/terms';
+export const privacyPolicyUrl = '/privacy';
