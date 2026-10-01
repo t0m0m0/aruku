@@ -1,0 +1,101 @@
+/* 利用規約・プライバシーポリシー（public/terms.html・privacy.html）だけが読む。
+   SPA のバンドルを通らないので Tailwind もトークンも届かない。色は
+   src/theme/tokens.css の値を手で写している——向こうを変えたらここも見直す。 */
+
+:root {
+  --ink: #1d2418;
+  --ink-3: #5f6e58;
+  --paper: #fffff4;
+  --card: #ffffff;
+  --hairline: rgb(29 36 24 / 0.12);
+  --accent: #387418;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  font-size: 15px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+
+main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 16px 64px;
+}
+
+h1 {
+  margin: 0 0 24px;
+  font-size: 24px;
+  font-weight: 800;
+}
+
+h2 {
+  margin: 40px 0 8px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+h3 {
+  margin: 24px 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+a {
+  color: var(--accent);
+}
+
+ol,
+ul {
+  padding-left: 1.5em;
+}
+
+/* 表は狭い幅で本文ごと横へはみ出させず、表だけを横スクロールさせる。 */
+.table-scroll {
+  overflow-x: auto;
+  margin: 12px 0;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+th,
+td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--hairline);
+  text-align: left;
+  vertical-align: top;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+th {
+  color: var(--ink-3);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.meta {
+  margin-top: 48px;
+  color: var(--ink-3);
+  font-size: 13px;
+}
