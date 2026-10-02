@@ -4,6 +4,7 @@
 /// 実ブラウザでしか確かめられない。
 
 import { expect, test } from './fixtures';
+import { goToResult } from './flows';
 
 const desktop = { width: 1280, height: 900 };
 
@@ -54,46 +55,52 @@ test('幅を狭めるとモバイル UI へ戻る', async ({ page }) => {
   await expect(page.getByRole('banner')).toHaveCount(0);
 });
 
-test('タブで設定と行き来しても履歴は [home, 子] のまま', async ({ page }) => {
-  // タブは go() を通る。通さずに router.navigate を直に呼ぶと、子から子への
-  // replace も子から home への pop も失われ、履歴が伸びる（navigator.ts）。
+test('結果画面から「ルートを計画」で戻っても履歴は [home, 子] のまま', async ({
+  page,
+  upstream,
+}) => {
+  // タブは go() を通る。通さずに router.navigate を直に呼ぶと、子から home への
+  // pop が失われ、履歴が伸びる（navigator.ts）。
+  expect(upstream.unmatched).toEqual([]);
   await page.setViewportSize(desktop);
-  await page.goto('/');
+  await goToResult(page);
   const before = await page.evaluate(() => window.history.length);
 
-  await page.getByRole('button', { name: '設定', exact: true }).click();
-  await expect(page).toHaveURL(/\/home\/settings$/);
   await page.getByRole('button', { name: 'ルートを計画' }).click();
   await expect(page).toHaveURL(/\/home$/);
 
-  expect(await page.evaluate(() => window.history.length)).toBe(before + 1);
+  expect(await page.evaluate(() => window.history.length)).toBe(before);
 });
 
-test('待ち画面からタブで設定へ移ると、設定に留まる', async ({ page, upstream }) => {
+test('待ち画面から「ルートを計画」で離れると、home に留まる', async ({
+  page,
+  upstream,
+}) => {
   // 実ブラウザの `history.back()` は非同期。打ち切りの戻りと、タブが要求した遷移が
-  // 二重に走ると、保留中の POP が後から勝って home へ落ちる。MemoryRouter は同期に
-  // 更新するのでこの競合を再現しない（PR #407 の Codex レビュー）。
+  // 二重に走ると履歴が狂う。MemoryRouter は同期に更新するのでこの競合を再現しない
+  // （PR #407 の Codex レビュー）。上流の応答より長く見て、検索の完了が結果画面へ
+  // 引き戻さないことも確かめる。
   expect(upstream.unmatched).toEqual([]);
   await page.setViewportSize(desktop);
   await page.route(
     (url) => url.pathname.includes('/guidance/plan'),
     async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       await route.fallback();
     },
   );
 
   await page.goto('/');
+  const before = await page.evaluate(() => window.history.length);
   await page.getByRole('combobox', { name: '目的地を検索' }).fill('テスト');
   await page.getByRole('option', { name: /テスト公園/ }).click();
   await page.getByRole('button', { name: 'ルートを検索' }).click();
   await expect(page).toHaveURL('/home/loading');
 
-  await page.getByRole('button', { name: '設定', exact: true }).click();
+  await page.getByRole('button', { name: 'ルートを計画' }).click();
 
-  await expect(page).toHaveURL('/home/settings');
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('設定');
-  // 保留中の戻りが後から勝たないこと。遷移が落ち着くまで見る。
-  await page.waitForTimeout(500);
-  await expect(page).toHaveURL('/home/settings');
+  await expect(page).toHaveURL('/home');
+  await page.waitForTimeout(1500);
+  await expect(page).toHaveURL('/home');
+  expect(await page.evaluate(() => window.history.length)).toBe(before + 1);
 });

@@ -15,7 +15,6 @@ export const ja = {
   /// デスクトップ幅の共通シェルのタブ。ハンドオフにある「記録」タブは歩数に依る
   /// ので作らない（#386）。
   shellTabPlan: 'ルートを計画',
-  shellTabSettings: '設定',
 
   weekdays: ['月', '火', '水', '木', '金', '土', '日'],
   greetingMorning: 'おはようございます',
@@ -24,7 +23,6 @@ export const ja = {
 
   homeGreetingLead: '今日も、',
   homeGreetingHighlight: '歩こう。',
-  homeOpenSettings: '設定を開く',
   homeDepartureLabel: '出発',
   homeArrivalLabel: '到着',
   homeDestinationLabel: '目的地',
@@ -67,15 +65,6 @@ export const ja = {
   homeChooseDestination: '目的地を選ぶ',
 
   commonBack: '戻る',
-
-  /// 設定画面。移植元の通知・週間目標・ヘルスケア連携は Web に無い機能なので
-  /// 文言ごと移していない（#386）。
-  settingsTitle: '設定',
-  settingsPermissionsSection: '権限',
-  /// 移植元の settingsOsSettingsUnavailable に当たるが、通知を指す語を落としている
-  /// ——Web では通知そのものを作らないため、権限も存在しない。
-  settingsPermissionsNote: '位置情報の権限はブラウザのサイト設定から変更してください',
-  settingsLegalSection: '法的情報',
 
   legalTermsOfService: '利用規約',
   legalPrivacyPolicy: 'プライバシーポリシー',

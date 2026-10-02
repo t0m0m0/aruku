@@ -6,7 +6,7 @@
 // あって履歴を積まない——戻り先を作っているのは navigator.ts の push/replace/pop の
 // 使い分けなので、レイアウトルートで包んでも戻り挙動には触れない。
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StoreApi } from 'zustand/vanilla';
@@ -29,7 +29,6 @@ function renderShell(entries: string[], store: StoreApi<AppStore> = createAppSto
         Component: () => <DesktopShell store={store} />,
         children: [
           { path: screenPath[Screen.home], element: <p>ホーム本文</p> },
-          { path: screenPath[Screen.settings], element: <p>設定本文</p> },
           { path: screenPath[Screen.loading], element: <p>待ち本文</p> },
         ],
       },
@@ -65,48 +64,31 @@ describe('DesktopShell', () => {
     expect(screen.getByText('ホーム本文')).toBeDefined();
   });
 
-  it('デスクトップ幅では上部バーと2つのタブを画面の上に出す', () => {
+  it('デスクトップ幅では上部バーと「ルートを計画」だけを画面の上に出す', () => {
     stubViewport(true);
 
     renderShell([screenPath[Screen.home]]);
 
-    expect(screen.getByRole('banner')).toBeDefined();
-    expect(screen.getByRole('button', { name: 'ルートを計画' })).toBeDefined();
-    expect(screen.getByRole('button', { name: '設定' })).toBeDefined();
+    const banner = screen.getByRole('banner');
+    expect(
+      within(banner)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['ルートを計画']);
     expect(screen.getByText('ホーム本文')).toBeDefined();
   });
 
-  it('設定以外の画面では「ルートを計画」を現在地として示す', () => {
+  it('「ルートを計画」はどの画面でも現在地として示す', () => {
     stubViewport(true);
-
-    renderShell([screenPath[Screen.home]]);
+    const { store } = renderShell([
+      screenPath[Screen.home],
+      screenPath[Screen.loading],
+    ]);
+    store.setState({ routePhase: RoutePhase.routing });
 
     expect(
       screen.getByRole('button', { name: 'ルートを計画' }).getAttribute('aria-current'),
     ).toBe('page');
-    expect(
-      screen.getByRole('button', { name: '設定' }).getAttribute('aria-current'),
-    ).toBeNull();
-  });
-
-  it('設定画面では「設定」を現在地として示す', () => {
-    stubViewport(true);
-
-    renderShell([screenPath[Screen.home], screenPath[Screen.settings]]);
-
-    expect(
-      screen.getByRole('button', { name: '設定' }).getAttribute('aria-current'),
-    ).toBe('page');
-  });
-
-  it('タブを押すと画面が移る', async () => {
-    stubViewport(true);
-    const { router } = renderShell([screenPath[Screen.home]]);
-
-    screen.getByRole('button', { name: '設定' }).click();
-
-    expect(await screen.findByText('設定本文')).toBeDefined();
-    expect(router.state.location.pathname).toBe(screenPath[Screen.settings]);
   });
 
   it('画面が移ったら本文のスクロール位置を先頭へ戻す', async () => {
@@ -119,31 +101,14 @@ describe('DesktopShell', () => {
     // 機構そのものを見る。
     stubViewport(true);
     const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
-    renderShell([screenPath[Screen.home]]);
+    const { store } = renderShell([screenPath[Screen.home]]);
     scrollTo.mockClear();
 
-    screen.getByRole('button', { name: '設定' }).click();
+    store.getState().go(Screen.loading, { routePhase: RoutePhase.routing });
 
-    expect(await screen.findByText('設定本文')).toBeDefined();
+    expect(await screen.findByText('待ち本文')).toBeDefined();
     expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
     scrollTo.mockRestore();
-  });
-
-  it('待ち画面からタブで離れると進行中の検索を打ち切る', async () => {
-    // 上部バーは移植元の PopScope も watchSearchAbandon も塞げない出口。前者は
-    // モバイルの戻る操作、後者は POP だけを見るのに対し、タブは push で出ていく。
-    stubViewport(true);
-    const { store, router } = renderShell([
-      screenPath[Screen.home],
-      screenPath[Screen.loading],
-    ]);
-    store.setState({ routePhase: RoutePhase.routing });
-
-    screen.getByRole('button', { name: '設定' }).click();
-
-    expect(await screen.findByText('設定本文')).toBeDefined();
-    expect(router.state.location.pathname).toBe(screenPath[Screen.settings]);
-    expect(store.getState().routePhase).toBeNull();
   });
 
   it('待ち画面から「ルートを計画」を押すと、検索を打ち切って home へ降りる', async () => {

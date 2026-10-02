@@ -44,6 +44,11 @@ describe('未知の location', () => {
   it('ルートのパスは home へ跳ね返す', () => {
     expect(resolveRedirect('/', core(), now)).toBe('/home');
   });
+
+  // ブックマークや外部からのリンクが残っている。法的情報は home の下端にある。
+  it('撤去した設定画面のパスは home へ跳ね返す', () => {
+    expect(resolveRedirect('/home/settings', core(), now)).toBe('/home');
+  });
 });
 
 describe('表示前提データを欠く deep link', () => {
@@ -62,7 +67,6 @@ describe('表示前提データを欠く deep link', () => {
   it('前提を持たない画面は素通しする', () => {
     for (const path of [
       '/home',
-      '/home/settings',
       '/home/search',
       '/home/search-origin',
     ]) {

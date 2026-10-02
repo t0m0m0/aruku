@@ -9,8 +9,8 @@
 import { expect, test } from './fixtures';
 
 /// このファイルは**モバイル幅**で走らせる。主題は履歴の積み方で、home から子へ出る
-/// 導線に設定ボタンを使っている——デスクトップ幅ではシェルの上部バーが同じ行き先を
-/// 持つため、そのボタンは出ない（#406）。デスクトップ側のタブ往復で履歴が伸びない
+/// 導線に目的地の行（全画面の検索を開く）を使っている——デスクトップ幅では同じ行が
+/// その場の検索欄になり、子へは出ない（#406）。デスクトップ側のタブで履歴が伸びない
 /// ことは desktop-shell.spec.ts が見る。
 test.use({ viewport: { width: 375, height: 812 } });
 
@@ -37,8 +37,8 @@ test('アプリ内で開いた子から戻ると home へ降り、履歴は [hom
   await expect(page).toHaveURL('/home');
   expect(await appHistoryDepth(page)).toBe(1);
 
-  await page.getByRole('button', { name: '設定を開く' }).click();
-  await expect(page).toHaveURL('/home/settings');
+  await page.getByRole('button', { name: '目的地 どこへ歩く?' }).click();
+  await expect(page).toHaveURL('/home/search');
   expect(await appHistoryDepth(page)).toBe(2);
 
   await page.goBack();
@@ -49,8 +49,8 @@ test('アプリ内で開いた子から戻ると home へ降り、履歴は [hom
 test('直接開いた子からも戻ると home へ降りる', async ({ page }) => {
   // ルーターがマウントする前に生の History API で home を敷いている。敷かないと、
   // deep link で入った利用者の「戻る」が即サイト離脱になる。
-  await page.goto('/home/settings');
-  await expect(page.getByRole('heading', { name: '設定' })).toBeVisible();
+  await page.goto('/home/search');
+  await expect(page.getByRole('searchbox', { name: '目的地を検索' })).toBeVisible();
   expect(await appHistoryDepth(page)).toBe(2);
 
   await page.goBack();
@@ -67,16 +67,24 @@ test('表示前提を欠く子を直接開くと home へ寄せ、拒んだ loca
   expect(await appHistoryDepth(page)).toBe(1);
 });
 
+test('撤去した設定画面の URL を開くと home へ寄せ、履歴に残さない', async ({ page }) => {
+  // ブックマークや外部からのリンクが残っている（#427）。
+  await page.goto('/home/settings');
+  await expect(page).toHaveURL('/home');
+  await expect(page.getByRole('link', { name: '利用規約' })).toBeVisible();
+  expect(await appHistoryDepth(page)).toBe(1);
+});
+
 test('アプリ内で開いた子をリロードしても home が増えない', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: '設定を開く' }).click();
-  await expect(page).toHaveURL('/home/settings');
+  await page.getByRole('button', { name: '目的地 どこへ歩く?' }).click();
+  await expect(page).toHaveURL('/home/search');
 
-  // 履歴は既に [home, settings]。ルーター由来のエントリだと分かる印
+  // 履歴は既に [home, search]。ルーター由来のエントリだと分かる印
   // （history.state の {idx, key, usr}）を見て敷き直さない。見ないとリロードの
   // たびに home が1つ増える。
   await page.reload();
-  await expect(page).toHaveURL('/home/settings');
+  await expect(page).toHaveURL('/home/search');
   expect(await appHistoryDepth(page)).toBe(2);
 
   await page.reload();

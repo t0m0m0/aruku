@@ -32,7 +32,6 @@ import {
   PinIcon,
   RoutesIcon,
   SearchIcon,
-  SettingsIcon,
 } from '../../shared/icons';
 import { TimeField } from '../picker/time-field';
 import { TypeaheadField } from '../search/typeahead-field';
@@ -95,29 +94,14 @@ export function HomeScreen({
 
   return (
     <main className="mx-auto flex min-h-(--screen-min-height) max-w-[620px] flex-col gap-3 px-5 pt-2 pb-3">
-      <header className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-semibold text-ink-2">{todayGreeting(now())}</p>
-          <h1 className="mt-0.5 text-[26px] leading-[1.15] font-extrabold tracking-[-0.01em]">
-            {ja.homeGreetingLead}
-            <span className="text-moss-600">
-              {ja.homeGreetingHighlight}
-            </span>
-          </h1>
-        </div>
-        {/* デスクトップ幅では出さない。設定への導線はシェルの上部バーが持ち、同じ行き先の
-            ボタンを2つ出さない——移植元（flutter-final:lib/features/home/home_screen.dart）は
-            デスクトップでも歯車を残していたが、ハンドオフのルート計画に歯車は無い。 */}
-        <button
-          type="button"
-          className="inline-flex size-tap-min flex-none cursor-pointer items-center justify-center rounded-[14px] border border-border bg-card text-ink-2 desktop:hidden"
-          aria-label={ja.homeOpenSettings}
-          onClick={() => {
-            go(Screen.settings);
-          }}
-        >
-          <SettingsIcon size={20} />
-        </button>
+      <header>
+        <p className="text-[13px] font-semibold text-ink-2">{todayGreeting(now())}</p>
+        <h1 className="mt-0.5 text-[26px] leading-[1.15] font-extrabold tracking-[-0.01em]">
+          {ja.homeGreetingLead}
+          <span className="text-moss-600">
+            {ja.homeGreetingHighlight}
+          </span>
+        </h1>
       </header>
 
       <section className="relative rounded-[22px] border border-border bg-card px-3.5 py-1.5 shadow-card-subtle">

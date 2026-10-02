@@ -12,7 +12,7 @@ export type LocationState =
   | { readonly kind: 'available'; readonly position: GeoPoint }
   | { readonly kind: 'denied' }
   /// 権限は許可済みだが、GPS の一時的な失敗（屋内・電波不良・タイムアウト等）で
-  /// 現在地を取得できなかった状態。設定画面への誘導ではなく再試行が適切。
+  /// 現在地を取得できなかった状態。権限設定への誘導ではなく再試行が適切。
   | { readonly kind: 'unavailable' };
 
 export const locationLoading: LocationState = { kind: 'loading' };
