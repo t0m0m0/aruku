@@ -64,7 +64,7 @@ describe('go', () => {
     guardRecorder(store);
     const before = store.getState().departure;
 
-    store.getState().go(Screen.settings);
+    store.getState().go(Screen.search);
 
     expect(store.getState().departure).toBe(before);
   });
@@ -73,7 +73,7 @@ describe('go', () => {
     // 静かに状態だけ進むと、画面と前提データが乖離したまま次の遷移を迎える。
     const store = createAppStore();
 
-    expect(() => store.getState().go(Screen.settings)).toThrow();
+    expect(() => store.getState().go(Screen.search)).toThrow();
   });
 });
 

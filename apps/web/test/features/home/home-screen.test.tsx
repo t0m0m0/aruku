@@ -117,12 +117,11 @@ describe('ホームの見出し', () => {
     expect(heading.textContent).toBe('今日も、歩こう。');
   });
 
-  it('設定へ行ける', () => {
-    const { navigate } = setup();
+  it('下端に利用規約とプライバシーポリシーへのリンクを出す', () => {
+    setup();
 
-    fireEvent.click(screen.getByRole('button', { name: '設定を開く' }));
-
-    expect(navigate).toHaveBeenCalledWith('/home/settings');
+    expect(screen.getByRole('link', { name: '利用規約' })).toBeDefined();
+    expect(screen.getByRole('link', { name: 'プライバシーポリシー' })).toBeDefined();
   });
 });
 

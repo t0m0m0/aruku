@@ -1,8 +1,9 @@
 // 移植元: flutter-final:lib/shared/widgets/desktop_shell.dart。
 //
 // 移植元が「記録」タブとストリークチップを持たないのは（ハンドオフには在る）、
-// どちらも歩数に依るため。#386 が Web で歩数まわりを作らないと決めているので、
-// タブは移植元と同じ2つに留める。
+// どちらも歩数に依るため。#386 が Web で歩数まわりを作らないと決めている。
+// 移植元にあった「設定」タブは、#427 で設定画面ごと撤去した。タブが1つでも
+// 「ルートを計画」を残すのは、待ち画面・結果・エラーから home へ戻る出口だから。
 
 import type { StoreApi } from 'zustand/vanilla';
 import { useEffect, useRef } from 'react';
@@ -11,7 +12,7 @@ import { Outlet, useLocation } from 'react-router';
 import { ja } from '../i18n/ja';
 import { Screen, screenFromLocation } from '../navigation/screens';
 import { ArukuLogo } from '../shared/logo';
-import { RoutesIcon, SettingsIcon } from '../shared/icons';
+import { RoutesIcon } from '../shared/icons';
 import { Button } from '../shared/ui/button';
 import type { AppStore } from '../state/store';
 import { useIsDesktop } from './use-is-desktop';
@@ -41,21 +42,19 @@ export function DesktopShell({ store }: DesktopShellProps) {
   }, [pathname]);
   if (!isDesktop) return <Outlet />;
 
-  // 設定以外はすべて「ルートを計画」の下にある導線。
-  const onSettings = screen === Screen.settings;
-
   // 待ち画面からの離脱は go だけでは足りない。画面を移しても探索は走り続け、
   // 完了時に startSearch が result / error へ引き戻す。戻る操作なら
   // watchSearchAbandon が拾うが、タブは push で出ていくので掛からない。
   //
   // 打ち切りに **遷移を伴わせない**（cancelSearch ではなく abandonSearch）。
   // cancelSearch は home への go を含み、待ち画面からのそれは履歴の back
-  // ——実ブラウザでは非同期に解決する。続けてタブの遷移を投げると、保留中の POP が
-  // 後から勝って設定ではなく home に着く（e2e で再現。PR #407 の Codex レビュー）。
-  const leave = (target: Screen) => {
+  // ——実ブラウザでは非同期に解決する。続けてタブの遷移を投げると遷移が二重に走る
+  // （設定タブがあった頃に e2e で再現：保留中の POP が後から勝ち、設定ではなく
+  // home に着いた。PR #407 の Codex レビュー）。
+  const planRoute = () => {
     const state = store.getState();
     if (screen === Screen.loading) state.abandonSearch();
-    state.go(target);
+    state.go(Screen.home);
   };
 
   // 移植元: design_handoff_aruku_web/README.md「0. 共通シェル」。
@@ -75,14 +74,8 @@ export function DesktopShell({ store }: DesktopShellProps) {
             <Tab
               label={ja.shellTabPlan}
               icon={<RoutesIcon size={16} />}
-              selected={!onSettings}
-              onPress={() => leave(Screen.home)}
-            />
-            <Tab
-              label={ja.shellTabSettings}
-              icon={<SettingsIcon size={16} />}
-              selected={onSettings}
-              onPress={() => leave(Screen.settings)}
+              selected
+              onPress={planRoute}
             />
           </nav>
         </div>

@@ -30,12 +30,13 @@ describe('screenFromLocation', () => {
   });
 
   it('クエリが付いていても解決できる', () => {
-    expect(screenFromLocation('/home/settings?tab=a')).toBe(Screen.settings);
+    expect(screenFromLocation('/home/search?tab=a')).toBe(Screen.search);
   });
 
   it('未知のパスは安全側の home へ解決する', () => {
-    // 削除済みのパス（/home/nav・/home/complete）やタイプミスの deep link。
+    // 削除済みのパス（/home/nav・/home/complete・/home/settings）やタイプミスの deep link。
     expect(screenFromLocation('/home/nav')).toBe(fallbackScreen);
+    expect(screenFromLocation('/home/settings')).toBe(fallbackScreen);
     expect(screenFromLocation('/')).toBe(fallbackScreen);
   });
 });

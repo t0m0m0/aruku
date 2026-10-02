@@ -15,7 +15,6 @@ export const ja = {
   /// デスクトップ幅の共通シェルのタブ。ハンドオフにある「記録」タブは歩数に依る
   /// ので作らない（#386）。
   shellTabPlan: 'ルートを計画',
-  shellTabSettings: '設定',
 
   weekdays: ['月', '火', '水', '木', '金', '土', '日'],
   greetingMorning: 'おはようございます',
@@ -24,7 +23,6 @@ export const ja = {
 
   homeGreetingLead: '今日も、',
   homeGreetingHighlight: '歩こう。',
-  homeOpenSettings: '設定を開く',
   homeDepartureLabel: '出発',
   homeArrivalLabel: '到着',
   homeDestinationLabel: '目的地',
@@ -68,16 +66,8 @@ export const ja = {
 
   commonBack: '戻る',
 
-  /// 設定画面。移植元の通知・週間目標・ヘルスケア連携は Web に無い機能なので
-  /// 文言ごと移していない（#386）。
-  settingsTitle: '設定',
-  settingsPermissionsSection: '権限',
-  /// 移植元の settingsOsSettingsUnavailable に当たるが、通知を指す語を落としている
-  /// ——Web では通知そのものを作らないため、権限も存在しない。
-  settingsPermissionsNote: '位置情報の権限はブラウザのサイト設定から変更してください',
-  settingsLegalSection: '法的情報',
-  settingsTermsOfService: '利用規約',
-  settingsPrivacyPolicy: 'プライバシーポリシー',
+  legalTermsOfService: '利用規約',
+  legalPrivacyPolicy: 'プライバシーポリシー',
 
   searchOriginHint: '出発地を検索',
   searchDestinationHint: '目的地を検索',
@@ -109,7 +99,8 @@ export const ja = {
   routeErrorNoResultsTitle: 'ルートが見つかりませんでした',
   routeErrorNoResultsDescription: '目的地や出発・到着時刻を変えてお試しください',
   routeErrorNoLocationTitle: '現在地を取得できませんでした',
-  routeErrorNoLocationDescription: '位置情報を有効にしてもう一度お試しください',
+  routeErrorNoLocationDescription:
+    'ブラウザのサイト設定で位置情報が許可されているか確かめて、もう一度お試しください',
   routeErrorNoDestinationTitle: '目的地が選ばれていません',
   routeErrorNoDestinationDescription: '目的地を選んでもう一度検索してください',
   routeErrorUnknownTitle: 'ルートを取得できませんでした',

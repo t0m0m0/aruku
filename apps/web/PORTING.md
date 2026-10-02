@@ -47,8 +47,9 @@ Phase 3（アプリ側）の決定と対応表。
 
 **スライス6 — settings 画面**。7 画面目で、ルート表からプレースホルダが消える。
 
-- settings 画面（`src/features/settings/`）。規約・プライバシーポリシーへのリンクと、
-  権限をどこで変えるかの案内だけ
+- settings 画面。規約・プライバシーポリシーへのリンクと、権限をどこで変えるかの案内だけ。
+  **#427 で画面ごと撤去した**——リンクは home の下端（`src/shared/legal-footer.tsx`）へ、
+  権限の案内は現在地が取れないときのエラーの説明へ移した
 - 法的情報の URL（`src/config.ts`）
 
 **スライス7 — result のタイムライン**。最後の画面の作り込み。
@@ -99,7 +100,7 @@ DOM ベースの SPA にした見返りとしてここで手に入る。
 | npm workspaces | **置かない** | `functions/` が独自の package-lock と `firebase deploy` を持つ。hoisting で `functions/node_modules` が痩せるとデプロイが壊れる |
 | エンジンの参照 | **ソース直参照**（alias + paths） | `packages/engine` を `noEmit` のまま使え、ビルド段が増えない |
 
-### 戻り挙動（settings/search/result/error→home）
+### 戻り挙動（search/result/error→home）
 
 移植元は go_router の**ネスト構造そのもの**が Navigator の pop スタックだった。React Router の
 ネストは `<Outlet>` の入れ子であって履歴を積まないので、URL の前置きだけでは戻り先にならない
@@ -173,7 +174,7 @@ URL を権威にするとその保証は消え、「状態を書いてから遷�
 | `flutter-final:lib/features/result/result_timeline.dart` | — | `test/features/result/result-timeline.test.tsx` |
 | `flutter-final:test/core/state/app_state_time_revalidation_test.dart`（`applyPickedTime` まわり） | — | `test/state/picked-time.test.ts` |
 | `flutter-final:test/features/picker/desktop_time_field_test.dart` | — | `test/features/picker/time-field.test.tsx` + `time-field-range.test.ts` |
-| `flutter-final:lib/features/settings/`（`testWidgets` は運ばない） | — | `test/features/settings/settings-screen.test.tsx` |
+| `flutter-final:lib/features/settings/`（`testWidgets` は運ばない） | — | 画面は #427 で撤去。リンクは `test/shared/legal-footer.test.tsx` |
 
 `packages/engine` がかつて持っていた名前照合（`check:port`・#387 で撤去）はここには入れて
 いない。UI 側は「移植ではなく作り直す」（#386）ため 1 対 1 の対応そのものが存在しない。
@@ -456,7 +457,7 @@ if (!alive.current) return;
 **同じ穴を 2 回開けている。** 1 回目は検索画面の座標解決（移植漏れ・PR #395 レビュー）、
 2 回目は失敗画面の再試行が測位を跨ぐところ（新規に書いたコード・PR #398 レビュー）。
 どちらも「離脱後に届いた結果がストアを書き換え、`go()` で画面を引きずる」という同じ壊れ方。
-picker / settings でも `await` を跨ぐ操作が出たら、**先にここを確認すること。**
+picker でも `await` を跨ぐ操作が出たら、**先にここを確認すること。**
 
 **ただしアンマウントを「離脱」の合図にしてよいのはこの用途だけ。** 「離れたら止める」
 という能動的な処理をアンマウントに紐づけると StrictMode の二重マウントで誤爆する
@@ -566,6 +567,12 @@ cp apps/web/.env.example apps/web/.env
 （`docs/security_hardening.md`）。
 
 ### 設定スライスの決定
+
+**#427 で設定画面そのものを撤去した。** 残っていたのは注記1行とリンク2本で、そのために
+画面とタブを1つずつ使っていた。下の表は撤去前の決定の記録で、外部リンクと URL の決定は
+home の下端のフッター（`src/shared/legal-footer.tsx`）がそのまま引き継いでいる。権限の案内は
+現在地が取れないときのエラーの説明文へ移した——アプリ側に権限を変える導線が無い以上、
+困ったその場に出すほうが届く。
 
 移植元（`flutter-final:lib/features/settings/`、483 行）の5セクションのうち4つは、#386 が「Web で
 落ちる機能の UI を作らない」と決めた機能の設定だった。**この画面には永続化する設定が
@@ -814,14 +821,15 @@ pop も失われ、履歴が伸びる。
 
 **待ち画面からタブで離れるときは明示的に打ち切る。** `watchSearchAbandon` は POP だけを
 見ており（移植元の `PopScope` が塞いでいた操作そのもの）、push で出ていくタブには掛からない。
-移植元の `DesktopShell` が `leave()` で `cancelSearch` を呼んでいたのと同じ穴。
+移植元の `DesktopShell` が `leave()` で `cancelSearch` を呼んでいたのと同じ穴。<!-- doc-consistency:keep -->
 
 ただし**打ち切りに遷移を伴わせない**（`cancelSearch` ではなく `abandonSearch`）。
 `cancelSearch` は home への `go` を含み、待ち画面からのそれは履歴の `back`——実ブラウザでは
-非同期に解決する。続けてタブの遷移を投げると、保留中の POP が後から勝って設定ではなく home に
-着く。**MemoryRouter は同期に更新するのでこの競合を再現しない**ので、反証は
-`e2e/desktop-shell.spec.ts` に置いた（PR #407 の Codex レビュー。修正前に実際に home へ
-落ちることを確認している）。
+非同期に解決する。続けてタブの遷移を投げると遷移が二重に走る——設定タブがあった頃は、保留中の
+POP が後から勝って設定ではなく home に着いた（PR #407 の Codex レビュー。修正前に実際に home へ
+落ちることを確認している）。#427 でタブが「ルートを計画」だけになった後も、二重の遷移を
+避ける理由は変わらない。**MemoryRouter は同期に更新するのでこの競合を再現しない**ので、反証は
+`e2e/desktop-shell.spec.ts` に置いている。
 
 ### 画面の「1画面ぶん」は `--screen-min-height`
 
@@ -849,18 +857,19 @@ pop も失われ、履歴が伸びる。
 
 jsdom は CSS を読まないので、幅による出し分けは単体テストから原理的に見えない
 （`useIsDesktop` の両側は `test/layout/` が押さえるが、それが実際の 820px で切り替わることは
-別の話）。`e2e/desktop-shell.spec.ts` がブレークポイントの両側・縦のはみ出し・タブ往復後の
-履歴の深さを見る。
+別の話）。`e2e/desktop-shell.spec.ts` がブレークポイントの両側・縦のはみ出し・タブで home へ
+戻った後の履歴の深さを見る。
 
 ### home の設定ボタンはデスクトップで出さない
 
 移植元（`flutter-final:lib/features/home/home_screen.dart`）はデスクトップ幅でも歯車を残していたが、
 ハンドオフのルート計画に歯車は無く、シェルのタブが同じ行き先を持つ。**移植元とハンドオフが
-食い違う箇所で、ハンドオフを採った。**
+食い違う箇所で、ハンドオフを採った。** その後 #427 で設定画面ごと撤去し、歯車はどの幅でも
+出さなくなった。
 
-副作用として `e2e/navigation.spec.ts` はモバイル幅に固定した。あのファイルの主題は履歴の
-積み方で、home から子へ出る導線にこの設定ボタンを使っている。既定のビューポートは
-Desktop Chrome（1280px）なので、そのままだと押せる要素が無くなって 30 秒待って落ちる。
+`e2e/navigation.spec.ts` はモバイル幅に固定している。あのファイルの主題は履歴の積み方で、
+home から子へ出る導線に目的地の行（モバイル幅では全画面の検索を開く）を使っている。既定の
+ビューポートは Desktop Chrome（1280px）で、そこでは同じ行がその場の検索欄になり子へ出ない。
 
 ### 結果画面は左パネル＋全面地図
 
@@ -968,8 +977,8 @@ Flutter 版は常に 24 時間表記だった。表示を固定するには欄�
 
 ### 運んだ範囲
 
-シェル・settings（760px・ラベル左列）・error（520px）・result（2カラム）・home の
-設定ボタンとインライン検索欄・時刻欄のステッパー・loading の全面地図で、#406 の
+シェル・settings（760px・ラベル左列。#427 で画面ごと撤去）・error（520px）・result（2カラム）・home の
+設定ボタン（同じく撤去）とインライン検索欄・時刻欄のステッパー・loading の全面地図で、#406 の
 「やること」は埋まっている。
 
 home 自体のデスクトップ版（ハンドオフの条件カード・「よく歩く目的地」）は、移植元も

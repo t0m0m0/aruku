@@ -18,7 +18,7 @@ After reviewing:
 ## Architecture
 
 - `apps/web/` — React + Vite の SPA。**本番（`aruku.pages.dev`）が配信しているのはこれ**。範囲と移植元との対応は `apps/web/PORTING.md`
-  - `src/features/` — 画面（home, search, picker, loading, result, settings, error）
+  - `src/features/` — 画面（home, search, picker, loading, result, error）
   - `src/state/` — アプリの状態（zustand の store）。`src/navigation/` — ルート表とガード
   - `src/places/` `src/search/` `src/location/` — 地点検索・経路検索の配線・現在地
   - `src/map/` `src/layout/` `src/shared/` `src/theme/` `src/i18n/` — 地図・レイアウト・共有部品・デザイントークン・文言
