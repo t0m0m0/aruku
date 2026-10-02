@@ -110,7 +110,8 @@ export const ja = {
   routeErrorNoResultsTitle: 'ルートが見つかりませんでした',
   routeErrorNoResultsDescription: '目的地や出発・到着時刻を変えてお試しください',
   routeErrorNoLocationTitle: '現在地を取得できませんでした',
-  routeErrorNoLocationDescription: '位置情報を有効にしてもう一度お試しください',
+  routeErrorNoLocationDescription:
+    'ブラウザのサイト設定で位置情報が許可されているか確かめて、もう一度お試しください',
   routeErrorNoDestinationTitle: '目的地が選ばれていません',
   routeErrorNoDestinationDescription: '目的地を選んでもう一度検索してください',
   routeErrorUnknownTitle: 'ルートを取得できませんでした',
