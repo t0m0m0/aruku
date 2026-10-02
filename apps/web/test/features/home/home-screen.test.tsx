@@ -117,6 +117,13 @@ describe('ホームの見出し', () => {
     expect(heading.textContent).toBe('今日も、歩こう。');
   });
 
+  it('下端に利用規約とプライバシーポリシーへのリンクを出す', () => {
+    setup();
+
+    expect(screen.getByRole('link', { name: '利用規約' })).toBeDefined();
+    expect(screen.getByRole('link', { name: 'プライバシーポリシー' })).toBeDefined();
+  });
+
   it('設定へ行ける', () => {
     const { navigate } = setup();
 

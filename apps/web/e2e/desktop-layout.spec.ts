@@ -15,6 +15,24 @@ async function box(locator: Locator) {
   return value;
 }
 
+for (const [name, viewport] of [
+  ['デスクトップ幅', desktop],
+  ['モバイル幅', mobile],
+] as const) {
+  test(`${name}の home は CTA の下、1画面の内側に法的情報のリンクを出す`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+
+    const cta = await box(page.getByRole('button', { name: '目的地を選ぶ' }));
+    const terms = await box(page.getByRole('link', { name: '利用規約' }));
+
+    expect(terms.y).toBeGreaterThanOrEqual(cta.y + cta.height);
+    expect(terms.y + terms.height).toBeLessThanOrEqual(viewport.height);
+  });
+}
+
 test('デスクトップ幅の home は設定ボタンを出さない', async ({ page }) => {
   // シェルのタブが同じ導線を持つ。ハンドオフのルート計画にも歯車は無い。
   await page.setViewportSize(desktop);

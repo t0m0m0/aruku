@@ -24,6 +24,7 @@ import type { ScreenDeps } from '../../navigation/screen-deps';
 import { Screen } from '../../navigation/screens';
 import { Button } from '../../shared/ui/button';
 import { IconHitButton } from '../../shared/icon-hit-button';
+import { LegalFooter } from '../../shared/legal-footer';
 import {
   ChevronIcon,
   ClockIcon,
@@ -93,7 +94,7 @@ export function HomeScreen({
   const destinationText = destination ?? ja.homeDestinationPlaceholder;
 
   return (
-    <main className="mx-auto flex min-h-(--screen-min-height) max-w-[620px] flex-col gap-3 px-5 pt-2 pb-9">
+    <main className="mx-auto flex min-h-(--screen-min-height) max-w-[620px] flex-col gap-3 px-5 pt-2 pb-3">
       <header className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold text-ink-2">{todayGreeting(now())}</p>
@@ -243,6 +244,8 @@ export function HomeScreen({
         {destination !== null ? <RoutesIcon size={20} /> : <SearchIcon size={19} />}
         {ctaLabel(destination, onStartSearch)}
       </Button>
+
+      <LegalFooter />
     </main>
   );
 }

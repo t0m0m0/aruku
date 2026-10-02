@@ -76,8 +76,9 @@ export const ja = {
   /// ——Web では通知そのものを作らないため、権限も存在しない。
   settingsPermissionsNote: '位置情報の権限はブラウザのサイト設定から変更してください',
   settingsLegalSection: '法的情報',
-  settingsTermsOfService: '利用規約',
-  settingsPrivacyPolicy: 'プライバシーポリシー',
+
+  legalTermsOfService: '利用規約',
+  legalPrivacyPolicy: 'プライバシーポリシー',
 
   searchOriginHint: '出発地を検索',
   searchDestinationHint: '目的地を検索',
