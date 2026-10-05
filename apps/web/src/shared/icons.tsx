@@ -97,6 +97,21 @@ export function ClockIcon({ size = 18 }: IconProps) {
   );
 }
 
+/// ハンドオフに無い形。ClockIcon と線幅・角を揃えて起こした。
+export function CalendarIcon({ size = 18 }: IconProps) {
+  return (
+    <svg {...svgProps(size)}>
+      <rect x="4" y="5.5" width="16" height="14.5" rx="2.5" stroke="currentColor" strokeWidth="1.7" />
+      <path
+        d="M4 10h16M8.5 3.5v4M15.5 3.5v4"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function CompassIcon({ size = 20 }: IconProps) {
   return (
     <svg {...svgProps(size)}>

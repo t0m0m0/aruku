@@ -197,21 +197,33 @@ async function clockIconDisplay(page: Page): Promise<string> {
   return computedStyle.find((p) => p.name === 'display')?.value ?? '';
 }
 
-test('デスクトップ幅の時刻欄は UA の時計アイコンを出さない', async ({ page }) => {
-  // テーマの当たらない黒いアイコンで、ステッパーと役目が重なる。
-  await page.setViewportSize(desktop);
-  await page.goto('/');
+for (const [name, viewport] of [
+  ['デスクトップ幅', desktop],
+  ['モバイル幅', mobile],
+] as const) {
+  test(`${name}の時刻欄は UA の時計アイコンを出さない`, async ({ page }) => {
+    // テーマの当たらない黒いアイコンで、先頭の時計アイコンと二重になる。
+    // マウスで開く役目は先頭のアイコン（showPicker）が引き継いでいる。
+    await page.setViewportSize(viewport);
+    await page.goto('/');
 
-  expect(await clockIconDisplay(page)).toBe('none');
-});
+    expect(await clockIconDisplay(page)).toBe('none');
+  });
 
-test('モバイル幅の時刻欄は UA の時計アイコンを残す', async ({ page }) => {
-  // ステッパーを出さない幅では、マウスで時刻を開く手段がこれしかない。
-  await page.setViewportSize(mobile);
-  await page.goto('/');
+  test(`${name}の時刻と日付は同じ文字の大きさで出す`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
 
-  expect(await clockIconDisplay(page)).not.toBe('none');
-});
+    const fontSize = (locator: Locator) =>
+      locator.evaluate((el) => getComputedStyle(el).fontSize);
+    const date =
+      viewport === desktop
+        ? page.getByRole('button', { name: /^出発の日付 / })
+        : page.getByLabel('出発の日付');
+
+    expect(await fontSize(date)).toBe(await fontSize(page.getByLabel('出発の時刻')));
+  });
+}
 
 test('時刻欄は 24 時間表記で出す（AM/PM の欄を持たない）', async ({ page }) => {
   // 表記はページではなくブラウザの表示言語で決まる。E2E のブラウザも日本語の

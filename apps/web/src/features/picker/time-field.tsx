@@ -26,9 +26,10 @@ import {
 import { pickerDateLabel } from '../../i18n/format';
 import { ja } from '../../i18n/ja';
 import { useIsDesktop } from '../../layout/use-is-desktop';
-import { ChevronIcon } from '../../shared/icons';
+import { CalendarIcon, ChevronIcon, ClockIcon } from '../../shared/icons';
 import { Calendar } from '../../shared/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '../../shared/ui/popover';
+import { cn } from '../../shared/utils';
 import type { AppStore, Now } from '../../state/store';
 import {
   clampDepartureMinutes,
@@ -67,6 +68,8 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
   const timeDraft = useDraft(current.format());
   const dateDraft = useDraft(isoDate(dateAt(basis, current.dateOffset)));
   const group = useRef<HTMLDivElement>(null);
+  const timeInput = useRef<HTMLInputElement>(null);
+  const dateInput = useRef<HTMLInputElement>(null);
   // カレンダーは portal で欄の外へ描かれる。そこへの移動も「欄の中」として数える。
   const calendar = useRef<HTMLDivElement>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -271,111 +274,185 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
   }
 
   return (
-    // デスクトップ幅ではステッパーの座標の基準になる。欄はカードの中に並ぶので、
-    // 枠はカードが引いている。
-    <div className="min-w-0 flex-1 px-3 py-2 desktop:relative desktop:pr-[42px]" ref={group}>
+    // 欄はカードの中に並ぶので、枠はカードが引いている。
+    <div className="min-w-0 flex-1 px-3 py-2" ref={group}>
       <span className="block text-[11px] font-bold tracking-[0.06em] text-ink-2">{label}</span>
       {/* 移植元の「明日」「M/D(曜)」ラベル（TimeValue.dateLabel）は運ばない。
           日付欄と同じ日を二重に出すことになる。 */}
-      <input
-        type="time"
-        className="block w-full bg-transparent text-ink focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss-700 mt-px text-[21px] leading-[1.05] font-semibold tabular-nums tracking-[-0.02em] desktop:[&::-webkit-calendar-picker-indicator]:hidden"
-        aria-label={ja.timeFieldTime(label)}
-        value={timeDraft.text}
-        // 確定は blur で行う。ここは打っている最中の見た目を持つだけ。
-        // デスクトップ幅で UA の時計アイコンを隠すのは、ステッパーが同じ役目を持つため。
-        // モバイル幅ではステッパーを出さないので残す。
-        // step は置かない。5 分刻みを step へ預けると、その倍数でない時刻
-        // （12:03 など）が :invalid として扱われる。刻みは ↑↓ の横取りが持つ。
-        min={mode === PickerMode.depart && current.dateOffset === 0 ? clockTime(basis) : undefined}
-        onChange={(e) => timeDraft.edit(e.target.value)}
-        onBlur={(e) => onBlur(e.relatedTarget)}
-        onKeyDown={(e) => onTimeKeyDown(e.key, () => e.preventDefault())}
-      />
-      {isDesktop ? (
-        <Popover open={calendarOpen} onOpenChange={onCalendarOpenChange}>
-          <PopoverTrigger
-            className="mt-0.5 block cursor-pointer text-left text-[11px] font-bold text-ink-2 hover:text-moss-700 focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss-700"
-            aria-label={ja.timeFieldDateButton(label, pickerDateLabel(selectedDate, current.dateOffset))}
-            onBlur={(e) => onBlur(e.relatedTarget)}
-          >
-            {pickerDateLabel(selectedDate, current.dateOffset)}
-          </PopoverTrigger>
-          <PopoverContent
-            ref={calendar}
-            aria-label={ja.timeFieldDate(label)}
-            align="start"
-            className="w-auto p-0"
-            onBlur={(e) => onBlur(e.relatedTarget)}
-          >
-            <Calendar
-              mode="single"
-              required
-              selected={selectedDate}
-              onSelect={onPickDay}
-              defaultMonth={selectedDate}
-              today={basis}
-              startMonth={dateAt(basis, first)}
-              endMonth={dateAt(basis, last)}
-              disabled={[{ before: dateAt(basis, first) }, { after: dateAt(basis, last) }]}
-            />
-          </PopoverContent>
-        </Popover>
-      ) : (
-        <input
-          type="date"
-          // 内側の上下 1px は Chrome の UA 既定。Tailwind の preflight が 0 に均し、欄が
-          // 2px 縮むので明示して保つ。
-          className="block w-full bg-transparent text-ink focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss-700 mt-0.5 text-[11px] font-bold text-ink-2 [&::-webkit-datetime-edit]:py-px"
-          aria-label={ja.timeFieldDate(label)}
-          value={dateDraft.text}
-          min={isoDate(dateAt(basis, first))}
-          max={isoDate(dateAt(basis, last))}
-          onChange={(e) => dateDraft.edit(e.target.value)}
-          onBlur={(e) => onBlur(e.relatedTarget)}
-        />
-      )}
-      {/* マウスでも 5 分刻みで動かせるようにする（移植元 desktop_time_field.dart の
-          ステッパー）。native のスピナーでは分が 1 ずつ動き、しかも同日内で折り返す
-          ——23:58 から進めても翌日にならない。ここは stepTotalMinutes を通る。
-
-          モバイル幅で出さないのは、端末のホイール UI が同じ役目を持つため。 */}
-      {isDesktop && (
-        <span className="absolute top-1/2 right-2 flex -translate-y-1/2 flex-col gap-[3px]">
-          {/* blur を見るのは時刻・日付の欄だけでは足りない。ここへ Tab で入って
-              そのまま欄の外へ出ると、打った値が確定されないまま残り、検索は
-              古い時刻で走る（PR #407 の Codex レビュー）。 */}
-          <button
-            type="button"
-            className={step}
-            aria-label={ja.timeFieldLater(label)}
-            onClick={() => {
-              stepBy(kTimeStepMinutes);
-            }}
-            onBlur={(e) => onBlur(e.relatedTarget)}
-          >
-            <ChevronIcon size={12} dir="up" />
-          </button>
-          <button
-            type="button"
-            className={step}
-            aria-label={ja.timeFieldEarlier(label)}
-            onClick={() => {
-              stepBy(-kTimeStepMinutes);
-            }}
-            onBlur={(e) => onBlur(e.relatedTarget)}
-          >
-            <ChevronIcon size={12} dir="down" />
-          </button>
+      <div className={row}>
+        <span data-testid="time-icon" className={leadingIcon} onClick={() => openPicker(timeInput.current)}>
+          <ClockIcon size={18} />
         </span>
-      )}
+        <input
+          ref={timeInput}
+          type="time"
+          className={cn(value, nativeValue)}
+          aria-label={ja.timeFieldTime(label)}
+          value={timeDraft.text}
+          // 確定は blur で行う。ここは打っている最中の見た目を持つだけ。
+          // step は置かない。5 分刻みを step へ預けると、その倍数でない時刻
+          // （12:03 など）が :invalid として扱われる。刻みは ↑↓ の横取りが持つ。
+          min={mode === PickerMode.depart && current.dateOffset === 0 ? clockTime(basis) : undefined}
+          onChange={(e) => timeDraft.edit(e.target.value)}
+          onBlur={(e) => onBlur(e.relatedTarget)}
+          onKeyDown={(e) => onTimeKeyDown(e.key, () => e.preventDefault())}
+        />
+        {/* マウスでも 5 分刻みで動かせるようにする（移植元 desktop_time_field.dart の
+            ステッパー）。native のスピナーでは分が 1 ずつ動き、しかも同日内で折り返す
+            ——23:58 から進めても翌日にならない。ここは stepTotalMinutes を通る。
+
+            モバイル幅で出さないのは、端末のホイール UI が同じ役目を持つため。 */}
+        {isDesktop && (
+          <Steppers
+            earlier={ja.timeFieldEarlier(label)}
+            later={ja.timeFieldLater(label)}
+            onStep={(dir) => stepBy(dir * kTimeStepMinutes)}
+            onBlur={onBlur}
+          />
+        )}
+      </div>
+      <div className={row}>
+        {isDesktop ? (
+          <>
+            <Popover open={calendarOpen} onOpenChange={onCalendarOpenChange}>
+              <PopoverTrigger
+                className={cn(value, 'flex cursor-pointer items-center gap-1.5 text-left')}
+                aria-label={ja.timeFieldDateButton(label, pickerDateLabel(selectedDate, current.dateOffset))}
+                onBlur={(e) => onBlur(e.relatedTarget)}
+              >
+                <span data-testid="date-icon" className={leadingIcon}>
+                  <CalendarIcon size={18} />
+                </span>
+                <span className="truncate">{pickerDateLabel(selectedDate, current.dateOffset)}</span>
+              </PopoverTrigger>
+              <PopoverContent
+                ref={calendar}
+                aria-label={ja.timeFieldDate(label)}
+                align="start"
+                className="w-auto p-0"
+                onBlur={(e) => onBlur(e.relatedTarget)}
+              >
+                <Calendar
+                  mode="single"
+                  required
+                  selected={selectedDate}
+                  onSelect={onPickDay}
+                  defaultMonth={selectedDate}
+                  today={basis}
+                  startMonth={dateAt(basis, first)}
+                  endMonth={dateAt(basis, last)}
+                  disabled={[{ before: dateAt(basis, first) }, { after: dateAt(basis, last) }]}
+                />
+              </PopoverContent>
+            </Popover>
+            <Steppers
+              earlier={ja.timeFieldPrevDay(label)}
+              later={ja.timeFieldNextDay(label)}
+              earlierDisabled={current.dateOffset <= first}
+              laterDisabled={current.dateOffset >= last}
+              onStep={(dir) => commit({ dayShift: dir })}
+              onBlur={onBlur}
+            />
+          </>
+        ) : (
+          <>
+            <span data-testid="date-icon" className={leadingIcon} onClick={() => openPicker(dateInput.current)}>
+              <CalendarIcon size={18} />
+            </span>
+            <input
+              ref={dateInput}
+              type="date"
+              className={cn(value, nativeValue)}
+              aria-label={ja.timeFieldDate(label)}
+              value={dateDraft.text}
+              min={isoDate(dateAt(basis, first))}
+              max={isoDate(dateAt(basis, last))}
+              onChange={(e) => dateDraft.edit(e.target.value)}
+              onBlur={(e) => onBlur(e.relatedTarget)}
+            />
+          </>
+        )}
+      </div>
     </div>
   );
 }
 
-/// 移植元は 26x22・角丸7。
+/// 時刻と日付の1行。下線で「書き換えられる欄」であることを示す（Google マップの日時欄）。
+const row =
+  'mt-1 flex items-center gap-1.5 border-b border-ink-4 pb-1 focus-within:border-moss-600 hover:border-ink-3';
+
+/// 時刻と日付で同じ大きさにそろえる。モバイル幅で一段下げるのは、360px 幅の端末で
+/// native の日付（2026/10/05）が欄に収まらないため。
+const value =
+  'min-w-0 flex-1 bg-transparent text-[15px] desktop:text-[16px] leading-6 font-semibold tabular-nums text-ink focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss-700';
+
+/// UA のアイコンは隠す。先頭のアイコンが同じ役目を持ち、二つ並ぶと重複する。
+/// 内側の上下 1px の詰めも UA 既定へ戻す——Tailwind の preflight が 0 に均し、
+/// 時刻欄と日付欄で行の高さがずれる。
+const nativeValue =
+  '[&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-datetime-edit]:py-px';
+
+const leadingIcon = 'shrink-0 cursor-pointer text-ink-2';
+
+/// 先頭のアイコンから OS のピッカーを開く。
+///
+/// 端末では欄を押せば開くが、デスクトップのブラウザを狭めた幅では、UA のアイコンを
+/// 隠すとマウスで開く手段がここしか残らない。showPicker を持たないブラウザ
+/// （Safari 16 未満）や、開けない状況で投げる例外は握りつぶす——欄そのものは
+/// キー入力で使えるので、開かないだけで済む。
+function openPicker(input: HTMLInputElement | null): void {
+  if (input === null || typeof input.showPicker !== 'function') return;
+  input.focus();
+  try {
+    input.showPicker();
+  } catch {
+    // 上の理由で黙る。
+  }
+}
+
+interface SteppersProps {
+  earlier: string;
+  later: string;
+  earlierDisabled?: boolean;
+  laterDisabled?: boolean;
+  onStep(dir: 1 | -1): void;
+  onBlur(movedTo: EventTarget | null): void;
+}
+
+/// ◀ ▶ の対。
+///
+/// blur を見るのは時刻・日付の欄だけでは足りない。ここへ Tab で入って
+/// そのまま欄の外へ出ると、打った値が確定されないまま残り、検索は
+/// 古い時刻で走る（PR #407 の Codex レビュー）。
+function Steppers({ earlier, later, earlierDisabled, laterDisabled, onStep, onBlur }: SteppersProps) {
+  return (
+    <span className="flex shrink-0 items-center">
+      <button
+        type="button"
+        className={step}
+        aria-label={earlier}
+        disabled={earlierDisabled}
+        onClick={() => onStep(-1)}
+        onBlur={(e) => onBlur(e.relatedTarget)}
+      >
+        <ChevronIcon size={14} dir="left" />
+      </button>
+      <button
+        type="button"
+        className={step}
+        aria-label={later}
+        disabled={laterDisabled}
+        onClick={() => onStep(1)}
+        onBlur={(e) => onBlur(e.relatedTarget)}
+      >
+        <ChevronIcon size={14} dir="right" />
+      </button>
+    </span>
+  );
+}
+
 const step =
-  'grid h-[22px] w-[26px] cursor-pointer place-items-center rounded-[7px] border border-hairline bg-paper text-ink-2 hover:border-moss-400 hover:text-moss-700';
+  'grid size-7 cursor-pointer place-items-center rounded-full text-ink-2 hover:bg-moss-50 hover:text-moss-700 focus-visible:outline-2 focus-visible:outline-moss-700 disabled:cursor-default disabled:text-ink-4 disabled:hover:bg-transparent';
 
 interface Draft {
   text: string;
