@@ -7,7 +7,7 @@
 // 自作 UI の都合に由来する検証は消えている。
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { StoreApi } from 'zustand/vanilla';
 
@@ -436,6 +436,162 @@ describe('デスクトップ幅のステッパー', () => {
     expect(store.getState().departure.format()).toBe('00:03');
     expect(store.getState().departure.dateOffset).toBe(1);
     expect(dateTrigger('出発').textContent).toBe('明日 · 9月12日 (土)');
+  });
+});
+
+describe('デスクトップ幅の日送り', () => {
+  // 時刻の ◀ ▶ と同じ形で、日付も1日ずつ動かせるようにする（Google マップの日時欄）。
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('モバイル幅では出さない', () => {
+    stubViewport(false);
+
+    setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+
+    expect(screen.queryByRole('button', { name: '出発を1日あとにする' })).toBeNull();
+  });
+
+  it('1日あとにする', () => {
+    stubViewport(true);
+    setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+
+    fireEvent.click(screen.getByRole('button', { name: '出発を1日あとにする' }));
+
+    expect(store.getState().departure.dateOffset).toBe(1);
+    expect(store.getState().departure.format()).toBe('13:00');
+    expect(dateTrigger('出発').textContent).toBe('明日 · 9月12日 (土)');
+  });
+
+  it('1日まえにする', () => {
+    stubViewport(true);
+    setupTime({ departure: at(13, 0, 2), arrival: at(14, 0, 2) });
+
+    fireEvent.click(screen.getByRole('button', { name: '出発を1日まえにする' }));
+
+    expect(store.getState().departure.dateOffset).toBe(1);
+  });
+
+  it('今日より前へは送れない', () => {
+    stubViewport(true);
+    setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+
+    const earlier = screen.getByRole('button', {
+      name: '出発を1日まえにする',
+    }) as HTMLButtonElement;
+
+    expect(earlier.disabled).toBe(true);
+  });
+
+  it('到着は出発の日より前へ送れない', () => {
+    stubViewport(true);
+    setupTime({ departure: at(13, 0, 3), arrival: at(14, 0, 3) }, PickerMode.arrival);
+
+    const earlier = screen.getByRole('button', {
+      name: '到着を1日まえにする',
+    }) as HTMLButtonElement;
+
+    expect(earlier.disabled).toBe(true);
+  });
+
+  it('選べる最後の日より先へは送れない', () => {
+    stubViewport(true);
+    setupTime({
+      departure: at(13, 0, kMaxDateOffsetDays),
+      arrival: at(14, 0, kMaxDateOffsetDays),
+    });
+
+    const later = screen.getByRole('button', {
+      name: '出発を1日あとにする',
+    }) as HTMLButtonElement;
+
+    expect(later.disabled).toBe(true);
+  });
+
+  it('打ちかけの時刻は、日送りと一緒に確定する', () => {
+    stubViewport(true);
+    const { time } = setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+    const later = screen.getByRole('button', { name: '出発を1日あとにする' });
+
+    fireEvent.change(time, { target: { value: '09:00' } });
+    fireEvent.blur(time, { relatedTarget: later });
+    fireEvent.click(later);
+
+    // 今日の 09:00 として先に確定すると、過去時刻として 12:00 へ切り上げられる。
+    expect(store.getState().departure.format()).toBe('09:00');
+    expect(store.getState().departure.dateOffset).toBe(1);
+  });
+});
+
+describe('先頭のアイコン', () => {
+  // UA のアイコンは隠し、先頭のアイコンを押すと OS のピッカーが開くようにした。
+  // 端末ではそもそも欄を押せば開くが、デスクトップのブラウザを狭めたときには、
+  // マウスで開く手段がこれしかない。
+  // jsdom は showPicker を持たない。生やしたときだけ「開ける」ブラウザになる。
+  let opened: HTMLInputElement[];
+
+  function stubShowPicker(impl: (input: HTMLInputElement) => void) {
+    Object.defineProperty(HTMLInputElement.prototype, 'showPicker', {
+      configurable: true,
+      value: function (this: HTMLInputElement) {
+        impl(this);
+      },
+    });
+  }
+
+  beforeEach(() => {
+    opened = [];
+    stubShowPicker((input) => opened.push(input));
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(HTMLInputElement.prototype, 'showPicker');
+    vi.unstubAllGlobals();
+  });
+
+  it.each([true, false])('時計のアイコンで時刻のピッカーを開く（デスクトップ幅: %s）', (desktop) => {
+    stubViewport(desktop);
+    const { time } = setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+
+    fireEvent.click(screen.getByTestId('time-icon'));
+
+    expect(opened).toEqual([time]);
+  });
+
+  it('モバイル幅ではカレンダーのアイコンで日付のピッカーを開く', () => {
+    stubViewport(false);
+    const { date } = setup({ departure: at(13, 0), arrival: at(14, 0) });
+
+    fireEvent.click(screen.getByTestId('date-icon'));
+
+    expect(opened).toEqual([date]);
+  });
+
+  it('デスクトップ幅ではカレンダーのアイコンも日付のボタンの一部', () => {
+    stubViewport(true);
+    setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+
+    expect(dateTrigger('出発').contains(screen.getByTestId('date-icon'))).toBe(true);
+  });
+
+  it('ピッカーを開けないブラウザでも落ちない', () => {
+    // showPicker は利用者の操作の外や、対応していない欄では例外を投げる。
+    stubViewport(false);
+    stubShowPicker(() => {
+      throw new DOMException('not allowed', 'NotAllowedError');
+    });
+    setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+
+    expect(() => fireEvent.click(screen.getByTestId('time-icon'))).not.toThrow();
+  });
+
+  it('showPicker を持たないブラウザでも落ちない', () => {
+    stubViewport(false);
+    Reflect.deleteProperty(HTMLInputElement.prototype, 'showPicker');
+    setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+
+    expect(() => fireEvent.click(screen.getByTestId('time-icon'))).not.toThrow();
   });
 });
 

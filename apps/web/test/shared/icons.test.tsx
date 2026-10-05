@@ -17,6 +17,7 @@ const components = Object.entries(icons).filter(
 describe('アイコン', () => {
   it('取りこぼしなく列挙できている', () => {
     expect(components.map(([name]) => name).sort()).toEqual([
+      'CalendarIcon',
       'ChevronIcon',
       'ClockIcon',
       'CloseIcon',

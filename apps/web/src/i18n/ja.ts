@@ -45,6 +45,9 @@ export const ja = {
   /// デスクトップ幅のステッパー。移植元 app_ja.arb の timeFieldLater / timeFieldEarlier。
   timeFieldLater: (label: string) => `${label}を5分あとにする`,
   timeFieldEarlier: (label: string) => `${label}を5分まえにする`,
+  /// 日付の ◀ ▶（#434）。移植元には無い。
+  timeFieldNextDay: (label: string) => `${label}を1日あとにする`,
+  timeFieldPrevDay: (label: string) => `${label}を1日まえにする`,
 
   /// デスクトップ幅の日付欄（カレンダーを開くボタン）。読み上げ名に表示中の日付を含める
   /// ——欄の名前だけにすると、見えている文字と読み上げが食い違う。
