@@ -6,7 +6,7 @@
 // あって履歴を積まない——戻り先を作っているのは navigator.ts の push/replace/pop の
 // 使い分けなので、レイアウトルートで包んでも戻り挙動には触れない。
 
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StoreApi } from 'zustand/vanilla';
@@ -117,7 +117,11 @@ describe('DesktopShell', () => {
     screen.getByRole('button', { name: 'ルートを計画' }).click();
 
     expect(await screen.findByText('ホーム本文')).toBeDefined();
-    expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
+    // 描画の確定と useEffect の実行は別の tick。findByText が前者を捉えた時点では
+    // まだ走っていないことがある（CI で再現）。
+    await waitFor(() => {
+      expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
+    });
     scrollTo.mockRestore();
   });
 
