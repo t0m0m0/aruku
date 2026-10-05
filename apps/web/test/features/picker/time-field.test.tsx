@@ -568,13 +568,25 @@ describe('先頭のアイコン', () => {
     expect(opened).toEqual([date]);
   });
 
-  it('デスクトップ幅ではカレンダーのアイコンでもカレンダーを開く', () => {
+  it('デスクトップ幅ではカレンダーのアイコンも日付のボタンの一部', () => {
+    // 外に出すと、フォーカスを取れないアイコンへの押下で時刻欄の blur が
+    // relatedTarget なしで走り、打ちかけの時刻を日付より先に確定してしまう
+    // （PR #436 の Codex レビュー）。
+    stubViewport(true);
+    setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+
+    expect(dateTrigger('出発').contains(screen.getByTestId('date-icon'))).toBe(true);
+  });
+
+  it('デスクトップ幅ではカレンダーのアイコンでカレンダーを開き、もう一度押すと閉じる', () => {
     stubViewport(true);
     setupTime({ departure: at(13, 0), arrival: at(14, 0) });
 
     fireEvent.click(screen.getByTestId('date-icon'));
+    expect(screen.queryByRole('dialog', { name: '出発の日付' })).not.toBeNull();
 
-    expect(screen.getByRole('dialog', { name: '出発の日付' })).toBeTruthy();
+    fireEvent.click(screen.getByTestId('date-icon'));
+    expect(screen.queryByRole('dialog', { name: '出発の日付' })).toBeNull();
   });
 
   it('ピッカーを開けないブラウザでも落ちない', () => {

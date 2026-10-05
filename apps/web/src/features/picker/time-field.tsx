@@ -314,16 +314,27 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
       <div className={row}>
         {isDesktop ? (
           <>
-            <span data-testid="date-icon" className={leadingIcon} onClick={() => onCalendarOpenChange(true)}>
-              <CalendarIcon size={18} />
-            </span>
             <Popover open={calendarOpen} onOpenChange={onCalendarOpenChange}>
+              {/* アイコンをボタンの外へ出すと、フォーカスを取れないアイコンへの押下で
+                  時刻欄の blur が relatedTarget なしで走り、打ちかけの時刻を日付より先に
+                  確定してしまう（PR #436 の Codex レビュー）。下線はボタンでなく文字に引く。 */}
               <PopoverTrigger
-                className={cn(value, 'cursor-pointer truncate text-left aria-expanded:border-moss-600')}
+                className={cn(focusRing, 'group flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left')}
                 aria-label={ja.timeFieldDateButton(label, pickerDateLabel(selectedDate, current.dateOffset))}
                 onBlur={(e) => onBlur(e.relatedTarget)}
               >
-                {pickerDateLabel(selectedDate, current.dateOffset)}
+                <span data-testid="date-icon" className={leadingIcon}>
+                  <CalendarIcon size={18} />
+                </span>
+                <span
+                  className={cn(
+                    valueText,
+                    underline,
+                    'truncate group-hover:border-ink-3 group-focus:border-moss-600 group-aria-expanded:border-moss-600',
+                  )}
+                >
+                  {pickerDateLabel(selectedDate, current.dateOffset)}
+                </span>
               </PopoverTrigger>
               <PopoverContent
                 ref={calendar}
@@ -381,12 +392,16 @@ const row = 'mt-2 flex items-center gap-1.5';
 
 /// 時刻と日付で同じ大きさにそろえる。モバイル幅で一段下げるのは、360px 幅の端末で
 /// native の日付（2026/10/05）が欄に収まらないため。
-///
+const valueText =
+  'min-w-0 flex-1 bg-transparent text-[15px] desktop:text-[16px] leading-6 font-semibold tabular-nums text-ink';
+
 /// 下線で「書き換えられる欄」であることを示す（Google マップの日時欄）。行ではなく
 /// 値に引くのは、行に引くと先頭のアイコンと ◀▶ まで線に乗り、上下の行の線に
 /// 値が挟まれて見えるため。
-const value =
-  'min-w-0 flex-1 border-b border-ink-4 pb-0.5 hover:border-ink-3 focus:border-moss-600 bg-transparent text-[15px] desktop:text-[16px] leading-6 font-semibold tabular-nums text-ink focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss-700';
+const underline = 'border-b border-ink-4 pb-0.5';
+const focusRing =
+  'focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss-700';
+const value = cn(valueText, underline, focusRing, 'hover:border-ink-3 focus:border-moss-600');
 
 /// UA のアイコンは隠す。先頭のアイコンが同じ役目を持ち、二つ並ぶと重複する。
 /// 内側の上下 1px の詰めも UA 既定へ戻す——Tailwind の preflight が 0 に均し、
