@@ -330,7 +330,7 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
                   className={cn(
                     valueText,
                     underline,
-                    'truncate group-hover:border-ink-3 group-focus:border-moss-600 group-aria-expanded:border-moss-600',
+                    'truncate group-hover:border-ink/35 group-focus:border-moss-600 group-aria-expanded:border-moss-600',
                   )}
                 >
                   {pickerDateLabel(selectedDate, current.dateOffset)}
@@ -398,10 +398,10 @@ const valueText =
 /// 下線で「書き換えられる欄」であることを示す（Google マップの日時欄）。行ではなく
 /// 値に引くのは、行に引くと先頭のアイコンと ◀▶ まで線に乗り、上下の行の線に
 /// 値が挟まれて見えるため。
-const underline = 'border-b border-ink-4 pb-0.5';
+const underline = 'border-b border-ink/20 pb-0.5';
 const focusRing =
   'focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss-700';
-const value = cn(valueText, underline, focusRing, 'hover:border-ink-3 focus:border-moss-600');
+const value = cn(valueText, underline, focusRing, 'hover:border-ink/35 focus:border-moss-600');
 
 /// UA のアイコンは隠す。先頭のアイコンが同じ役目を持ち、二つ並ぶと重複する。
 /// 内側の上下 1px の詰めも UA 既定へ戻す——Tailwind の preflight が 0 に均し、
