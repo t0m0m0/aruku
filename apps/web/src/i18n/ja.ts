@@ -13,9 +13,6 @@ export const ja = {
   busyDefault: '処理中',
 
   weekdays: ['月', '火', '水', '木', '金', '土', '日'],
-  greetingMorning: 'おはようございます',
-  greetingAfternoon: 'こんにちは',
-  greetingEvening: 'こんばんは',
 
   homeGreetingLead: '今日も、',
   homeGreetingHighlight: '歩こう。',

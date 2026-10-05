@@ -97,14 +97,17 @@ function setup(initial: Partial<RouteCore> = {}, options: Options = {}) {
 }
 
 describe('ホームの見出し', () => {
+  // 日付と挨拶の小見出しは #432 で撤去した。日付は時刻欄が出すので、ここでは
+  // 挨拶の文言と、小見出しの「日付 · 挨拶」の形が無いことを見る。
   it.each([
-    [new Date(2026, 8, 11, 6, 0, 0), 'おはようございます'],
-    [new Date(2026, 8, 11, 12, 0, 0), 'こんにちは'],
-    [new Date(2026, 8, 11, 18, 0, 0), 'こんばんは'],
-  ])('%s には「%s」と挨拶する', (at, greeting) => {
+    new Date(2026, 8, 11, 6, 0, 0),
+    new Date(2026, 8, 11, 12, 0, 0),
+    new Date(2026, 8, 11, 18, 0, 0),
+  ])('%s でも日付と挨拶の小見出しを出さない', (at) => {
     setup({}, { now: at });
 
-    expect(screen.getByText(`9月11日 (金) · ${greeting}`)).toBeDefined();
+    expect(screen.queryByText(/おはようございます|こんにちは|こんばんは/)).toBeNull();
+    expect(screen.queryByText(/9月11日 \(金\) · /)).toBeNull();
   });
 
   // 見出しで辿る読者にとって、この画面の主見出しはここ。段落のままだと最初に
