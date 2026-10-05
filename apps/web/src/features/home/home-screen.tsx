@@ -16,6 +16,7 @@ import type { StoreApi } from 'zustand/vanilla';
 import { PickerMode, TimeValue } from '@aruku/engine/models/time-value';
 import { budgetMinutes } from '@aruku/engine/services/route-plan-builder';
 
+import { privacyPolicyUrl, termsOfServiceUrl } from '../../config';
 import { todayGreeting } from '../../i18n/format';
 import { useIsDesktop } from '../../layout/use-is-desktop';
 import { useInitialLocation } from '../../location/use-initial-location';
@@ -31,7 +32,6 @@ import {
   PinIcon,
   RoutesIcon,
   SearchIcon,
-  SettingsIcon,
 } from '../../shared/icons';
 import { TimeField } from '../picker/time-field';
 import { TypeaheadField } from '../search/typeahead-field';
@@ -104,19 +104,6 @@ export function HomeScreen({
             </span>
           </h1>
         </div>
-        {/* デスクトップ幅では出さない。設定への導線はシェルの上部バーが持ち、同じ行き先の
-            ボタンを2つ出さない——移植元（flutter-final:lib/features/home/home_screen.dart）は
-            デスクトップでも歯車を残していたが、ハンドオフのルート計画に歯車は無い。 */}
-        <button
-          type="button"
-          className="inline-flex size-tap-min flex-none cursor-pointer items-center justify-center rounded-[14px] border border-border bg-card text-ink-2 desktop:hidden"
-          aria-label={ja.homeOpenSettings}
-          onClick={() => {
-            go(Screen.settings);
-          }}
-        >
-          <SettingsIcon size={20} />
-        </button>
       </header>
 
       <section className="relative rounded-[22px] border border-border bg-card px-3.5 py-1.5 shadow-card-subtle">
@@ -243,6 +230,13 @@ export function HomeScreen({
         {destination !== null ? <RoutesIcon size={20} /> : <SearchIcon size={19} />}
         {ctaLabel(destination, onStartSearch)}
       </Button>
+
+      {/* <footer> にしない。<main> の中の <footer> は実ブラウザでは contentinfo の
+          ランドマークにならず（jsdom はなる）、読み上げから辿れない。 */}
+      <nav className="flex justify-center gap-4" aria-label={ja.legalSection}>
+        <LegalLink label={ja.legalTermsOfService} href={termsOfServiceUrl} />
+        <LegalLink label={ja.legalPrivacyPolicy} href={privacyPolicyUrl} />
+      </nav>
     </main>
   );
 }
@@ -263,4 +257,19 @@ function ctaLabel(
 }
 
 function noop(): void {}
+
+function LegalLink({ label, href }: { label: string; href: string }) {
+  return (
+    // rel は target=_blank の暗黙の noopener に任せない。明示しない <a> は、開いた先から
+    // window.opener 越しにこちらを操作できる実装が残っている。
+    <a
+      className="inline-flex min-h-tap-min items-center px-1 text-[12px] font-semibold text-ink-3 underline-offset-2 hover:underline"
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      {label}
+    </a>
+  );
+}
 

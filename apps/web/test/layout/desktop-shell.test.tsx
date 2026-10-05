@@ -1,12 +1,12 @@
 // 移植元: flutter-final:lib/shared/widgets/desktop_shell.dart。
 //
 // 移植元はシェルを Navigator の**外**に置いた。go_router のネスト構造が戻り先
-// （settings/search/result/error→home）を表していて、ShellRoute で包むとその構造に
+// （search/result/error→home）を表していて、ShellRoute で包むとその構造に
 // 手を入れることになるからだった。React Router ではネストは `<Outlet>` の入れ子で
 // あって履歴を積まない——戻り先を作っているのは navigator.ts の push/replace/pop の
 // 使い分けなので、レイアウトルートで包んでも戻り挙動には触れない。
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StoreApi } from 'zustand/vanilla';
@@ -29,7 +29,7 @@ function renderShell(entries: string[], store: StoreApi<AppStore> = createAppSto
         Component: () => <DesktopShell store={store} />,
         children: [
           { path: screenPath[Screen.home], element: <p>ホーム本文</p> },
-          { path: screenPath[Screen.settings], element: <p>設定本文</p> },
+          { path: screenPath[Screen.search], element: <p>検索本文</p> },
           { path: screenPath[Screen.loading], element: <p>待ち本文</p> },
         ],
       },
@@ -65,48 +65,40 @@ describe('DesktopShell', () => {
     expect(screen.getByText('ホーム本文')).toBeDefined();
   });
 
-  it('デスクトップ幅では上部バーと2つのタブを画面の上に出す', () => {
+  // 一覧を完全一致で押さえる。設定タブは #427 で設定画面ごと撤去した。
+  it('デスクトップ幅では上部バーと「ルートを計画」のタブだけを画面の上に出す', () => {
     stubViewport(true);
 
     renderShell([screenPath[Screen.home]]);
 
-    expect(screen.getByRole('banner')).toBeDefined();
-    expect(screen.getByRole('button', { name: 'ルートを計画' })).toBeDefined();
-    expect(screen.getByRole('button', { name: '設定' })).toBeDefined();
+    const banner = screen.getByRole('banner');
+    expect(
+      within(banner).getAllByRole('button').map((b) => b.textContent),
+    ).toEqual(['ルートを計画']);
     expect(screen.getByText('ホーム本文')).toBeDefined();
   });
 
-  it('設定以外の画面では「ルートを計画」を現在地として示す', () => {
+  it.each([Screen.home, Screen.search])(
+    '%s では「ルートを計画」を現在地として示す',
+    (at) => {
+      stubViewport(true);
+
+      renderShell([screenPath[Screen.home], screenPath[at]]);
+
+      expect(
+        screen.getByRole('button', { name: 'ルートを計画' }).getAttribute('aria-current'),
+      ).toBe('page');
+    },
+  );
+
+  it('子の画面でタブを押すと home へ移る', async () => {
     stubViewport(true);
+    const { router } = renderShell([screenPath[Screen.home], screenPath[Screen.search]]);
 
-    renderShell([screenPath[Screen.home]]);
+    screen.getByRole('button', { name: 'ルートを計画' }).click();
 
-    expect(
-      screen.getByRole('button', { name: 'ルートを計画' }).getAttribute('aria-current'),
-    ).toBe('page');
-    expect(
-      screen.getByRole('button', { name: '設定' }).getAttribute('aria-current'),
-    ).toBeNull();
-  });
-
-  it('設定画面では「設定」を現在地として示す', () => {
-    stubViewport(true);
-
-    renderShell([screenPath[Screen.home], screenPath[Screen.settings]]);
-
-    expect(
-      screen.getByRole('button', { name: '設定' }).getAttribute('aria-current'),
-    ).toBe('page');
-  });
-
-  it('タブを押すと画面が移る', async () => {
-    stubViewport(true);
-    const { router } = renderShell([screenPath[Screen.home]]);
-
-    screen.getByRole('button', { name: '設定' }).click();
-
-    expect(await screen.findByText('設定本文')).toBeDefined();
-    expect(router.state.location.pathname).toBe(screenPath[Screen.settings]);
+    expect(await screen.findByText('ホーム本文')).toBeDefined();
+    expect(router.state.location.pathname).toBe(screenPath[Screen.home]);
   });
 
   it('画面が移ったら本文のスクロール位置を先頭へ戻す', async () => {
@@ -119,31 +111,18 @@ describe('DesktopShell', () => {
     // 機構そのものを見る。
     stubViewport(true);
     const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
-    renderShell([screenPath[Screen.home]]);
+    renderShell([screenPath[Screen.home], screenPath[Screen.search]]);
     scrollTo.mockClear();
 
-    screen.getByRole('button', { name: '設定' }).click();
+    screen.getByRole('button', { name: 'ルートを計画' }).click();
 
-    expect(await screen.findByText('設定本文')).toBeDefined();
-    expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
+    expect(await screen.findByText('ホーム本文')).toBeDefined();
+    // 描画の確定と useEffect の実行は別の tick。findByText が前者を捉えた時点では
+    // まだ走っていないことがある（CI で再現）。
+    await waitFor(() => {
+      expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
+    });
     scrollTo.mockRestore();
-  });
-
-  it('待ち画面からタブで離れると進行中の検索を打ち切る', async () => {
-    // 上部バーは移植元の PopScope も watchSearchAbandon も塞げない出口。前者は
-    // モバイルの戻る操作、後者は POP だけを見るのに対し、タブは push で出ていく。
-    stubViewport(true);
-    const { store, router } = renderShell([
-      screenPath[Screen.home],
-      screenPath[Screen.loading],
-    ]);
-    store.setState({ routePhase: RoutePhase.routing });
-
-    screen.getByRole('button', { name: '設定' }).click();
-
-    expect(await screen.findByText('設定本文')).toBeDefined();
-    expect(router.state.location.pathname).toBe(screenPath[Screen.settings]);
-    expect(store.getState().routePhase).toBeNull();
   });
 
   it('待ち画面から「ルートを計画」を押すと、検索を打ち切って home へ降りる', async () => {

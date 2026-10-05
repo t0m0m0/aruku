@@ -41,6 +41,12 @@ describe('未知の location', () => {
     expect(resolveRedirect('/home/nav', core(), now)).toBe('/home');
   });
 
+  // 撤去前のブックマークや共有リンク。跳ね返し先を home 以外へ変えると、
+  // 古い URL で入った利用者が着く先も一緒に変わる。
+  it('撤去した設定画面のパスは home へ跳ね返す', () => {
+    expect(resolveRedirect('/home/settings', core(), now)).toBe('/home');
+  });
+
   it('ルートのパスは home へ跳ね返す', () => {
     expect(resolveRedirect('/', core(), now)).toBe('/home');
   });
@@ -62,7 +68,6 @@ describe('表示前提データを欠く deep link', () => {
   it('前提を持たない画面は素通しする', () => {
     for (const path of [
       '/home',
-      '/home/settings',
       '/home/search',
       '/home/search-origin',
     ]) {

@@ -6,7 +6,6 @@
 /// ためミラーごと不要になった。
 export const Screen = {
   home: 'home',
-  settings: 'settings',
   search: 'search',
   searchOrigin: 'searchOrigin',
   loading: 'loading',
@@ -15,7 +14,7 @@ export const Screen = {
 } as const;
 export type Screen = (typeof Screen)[keyof typeof Screen];
 
-/// パスの前置きは戻り先の**意図**を表す（settings/search/result/error→home）。
+/// パスの前置きは戻り先の**意図**を表す（search/result/error→home）。
 ///
 /// ただし React Router ではこれだけでは戻り先にならない。ネストは `<Outlet>` の入れ子で
 /// あって履歴を積まないためで、実際に [home, 子] を保つのは navigator.ts の push /
@@ -23,7 +22,6 @@ export type Screen = (typeof Screen)[keyof typeof Screen];
 /// （PR #391 レビュー）。
 export const screenPath: Readonly<Record<Screen, string>> = {
   [Screen.home]: '/home',
-  [Screen.settings]: '/home/settings',
   [Screen.search]: '/home/search',
   [Screen.searchOrigin]: '/home/search-origin',
   [Screen.loading]: '/home/loading',

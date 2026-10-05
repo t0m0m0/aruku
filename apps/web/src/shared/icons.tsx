@@ -106,20 +106,6 @@ export function CompassIcon({ size = 20 }: IconProps) {
   );
 }
 
-export function SettingsIcon({ size = 20 }: IconProps) {
-  return (
-    <svg {...svgProps(size)}>
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.7" />
-      <path
-        d="M19 12a7 7 0 00-.1-1.3l2-1.5-2-3.4-2.3.9a7 7 0 00-2.3-1.3L14 3h-4l-.4 2.4a7 7 0 00-2.3 1.3l-2.3-.9-2 3.4 2 1.5A7 7 0 005 12a7 7 0 00.1 1.3l-2 1.5 2 3.4 2.3-.9a7 7 0 002.3 1.3L10 21h4l.4-2.4a7 7 0 002.3-1.3l2.3.9 2-3.4-2-1.5A7 7 0 0019 12z"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 export function RoutesIcon({ size = 18 }: IconProps) {
   return (
     <svg {...svgProps(size)}>

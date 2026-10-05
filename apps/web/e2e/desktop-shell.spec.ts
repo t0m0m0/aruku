@@ -4,6 +4,7 @@
 /// 実ブラウザでしか確かめられない。
 
 import { expect, test } from './fixtures';
+import { goToResult } from './flows';
 
 const desktop = { width: 1280, height: 900 };
 
@@ -54,31 +55,36 @@ test('幅を狭めるとモバイル UI へ戻る', async ({ page }) => {
   await expect(page.getByRole('banner')).toHaveCount(0);
 });
 
-test('タブで設定と行き来しても履歴は [home, 子] のまま', async ({ page }) => {
-  // タブは go() を通る。通さずに router.navigate を直に呼ぶと、子から子への
-  // replace も子から home への pop も失われ、履歴が伸びる（navigator.ts）。
+test('結果画面からタブで home へ戻っても履歴は [home, 子] のまま', async ({
+  page,
+  upstream,
+}) => {
+  // タブは go() を通る。通さずに router.navigate を直に呼ぶと、子から home への
+  // pop が push になり、履歴が伸びる（navigator.ts）。
+  expect(upstream.unmatched).toEqual([]);
   await page.setViewportSize(desktop);
-  await page.goto('/');
-  const before = await page.evaluate(() => window.history.length);
+  await goToResult(page);
+  const atResult = await page.evaluate(() => window.history.length);
 
-  await page.getByRole('button', { name: '設定', exact: true }).click();
-  await expect(page).toHaveURL(/\/home\/settings$/);
   await page.getByRole('button', { name: 'ルートを計画' }).click();
   await expect(page).toHaveURL(/\/home$/);
 
-  expect(await page.evaluate(() => window.history.length)).toBe(before + 1);
+  expect(await page.evaluate(() => window.history.length)).toBe(atResult);
 });
 
-test('待ち画面からタブで設定へ移ると、設定に留まる', async ({ page, upstream }) => {
-  // 実ブラウザの `history.back()` は非同期。打ち切りの戻りと、タブが要求した遷移が
-  // 二重に走ると、保留中の POP が後から勝って home へ落ちる。MemoryRouter は同期に
-  // 更新するのでこの競合を再現しない（PR #407 の Codex レビュー）。
+test('待ち画面からタブで home へ降りると、探索の完了で引き戻されない', async ({
+  page,
+  upstream,
+}) => {
+  // 画面を移しても探索は走り続け、打ち切らなければ完了時に result へ引き戻す。
+  // 実ブラウザの `history.back()` は非同期で、MemoryRouter の単体テストでは
+  // 遷移と完了の前後を再現できない（PR #407 の Codex レビュー）。
   expect(upstream.unmatched).toEqual([]);
   await page.setViewportSize(desktop);
   await page.route(
     (url) => url.pathname.includes('/guidance/plan'),
     async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       await route.fallback();
     },
   );
@@ -89,11 +95,10 @@ test('待ち画面からタブで設定へ移ると、設定に留まる', async
   await page.getByRole('button', { name: 'ルートを検索' }).click();
   await expect(page).toHaveURL('/home/loading');
 
-  await page.getByRole('button', { name: '設定', exact: true }).click();
+  await page.getByRole('button', { name: 'ルートを計画' }).click();
 
-  await expect(page).toHaveURL('/home/settings');
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('設定');
-  // 保留中の戻りが後から勝たないこと。遷移が落ち着くまで見る。
-  await page.waitForTimeout(500);
-  await expect(page).toHaveURL('/home/settings');
+  await expect(page).toHaveURL('/home');
+  // 上流の遅延より長く見る。
+  await page.waitForTimeout(2500);
+  await expect(page).toHaveURL('/home');
 });

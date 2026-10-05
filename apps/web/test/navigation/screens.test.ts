@@ -30,7 +30,7 @@ describe('screenFromLocation', () => {
   });
 
   it('クエリが付いていても解決できる', () => {
-    expect(screenFromLocation('/home/settings?tab=a')).toBe(Screen.settings);
+    expect(screenFromLocation('/home/search?tab=a')).toBe(Screen.search);
   });
 
   it('未知のパスは安全側の home へ解決する', () => {

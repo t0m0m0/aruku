@@ -113,11 +113,13 @@ describe('画面の配線', () => {
   // 配線を忘れてプレースホルダのまま残しても、ガードのテストは緑のままになる
   // ——跳ね返さないことしか見ていないため。ルート表が実物を指していることは
   // 別に確かめる。JSX を使わないのは、このファイルが .ts だから。
-  it('settings は設定画面を出す', () => {
+  it('error は失敗の画面を出す', () => {
     const routes = appRoutes(createAppStore(), () => now);
 
-    render(createElement(componentFor(routes, screenPath.settings)));
+    render(createElement(componentFor(routes, screenPath.error)));
 
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('設定');
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(
+      'ルートを取得できませんでした',
+    );
   });
 });

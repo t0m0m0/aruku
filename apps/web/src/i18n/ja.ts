@@ -15,7 +15,6 @@ export const ja = {
   /// デスクトップ幅の共通シェルのタブ。ハンドオフにある「記録」タブは歩数に依る
   /// ので作らない（#386）。
   shellTabPlan: 'ルートを計画',
-  shellTabSettings: '設定',
 
   weekdays: ['月', '火', '水', '木', '金', '土', '日'],
   greetingMorning: 'おはようございます',
@@ -24,7 +23,6 @@ export const ja = {
 
   homeGreetingLead: '今日も、',
   homeGreetingHighlight: '歩こう。',
-  homeOpenSettings: '設定を開く',
   homeDepartureLabel: '出発',
   homeArrivalLabel: '到着',
   homeDestinationLabel: '目的地',
@@ -35,6 +33,10 @@ export const ja = {
   homeTimeSectionLabel: '時間',
   homeWalkableSuffix: ' 歩ける',
   homeSearchRoute: 'ルートを検索',
+
+  legalSection: '法的情報',
+  legalTermsOfService: '利用規約',
+  legalPrivacyPolicy: 'プライバシーポリシー',
 
   /// 時刻・日付の入力欄の読み上げ名。移植元 app_ja.arb の `timeField*`（プレースホルダ
   /// 付きメッセージ）に当たる。gen-l10n が生成していた関数をここでは直に書く。
@@ -68,17 +70,6 @@ export const ja = {
 
   commonBack: '戻る',
 
-  /// 設定画面。移植元の通知・週間目標・ヘルスケア連携は Web に無い機能なので
-  /// 文言ごと移していない（#386）。
-  settingsTitle: '設定',
-  settingsPermissionsSection: '権限',
-  /// 移植元の settingsOsSettingsUnavailable に当たるが、通知を指す語を落としている
-  /// ——Web では通知そのものを作らないため、権限も存在しない。
-  settingsPermissionsNote: '位置情報の権限はブラウザのサイト設定から変更してください',
-  settingsLegalSection: '法的情報',
-  settingsTermsOfService: '利用規約',
-  settingsPrivacyPolicy: 'プライバシーポリシー',
-
   searchOriginHint: '出発地を検索',
   searchDestinationHint: '目的地を検索',
   searchClearInput: '入力を消去',
@@ -109,7 +100,10 @@ export const ja = {
   routeErrorNoResultsTitle: 'ルートが見つかりませんでした',
   routeErrorNoResultsDescription: '目的地や出発・到着時刻を変えてお試しください',
   routeErrorNoLocationTitle: '現在地を取得できませんでした',
-  routeErrorNoLocationDescription: '位置情報を有効にしてもう一度お試しください',
+  /// Web には権限を変える画面を開く手段が無いので、どこで変えるかを言う。拒否と
+  /// 一時的な測位失敗は同じ種別に寄るが、後者でも許可の確認は無害な一手になる。
+  routeErrorNoLocationDescription:
+    'ブラウザのサイト設定で位置情報を許可して、もう一度お試しください',
   routeErrorNoDestinationTitle: '目的地が選ばれていません',
   routeErrorNoDestinationDescription: '目的地を選んでもう一度検索してください',
   routeErrorUnknownTitle: 'ルートを取得できませんでした',
