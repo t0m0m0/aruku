@@ -225,6 +225,41 @@ for (const [name, viewport] of [
   });
 }
 
+for (const [name, viewport] of [
+  ['デスクトップ幅', desktop],
+  ['モバイル幅', mobile],
+] as const) {
+  test(`${name}の時刻・日付欄の下線は、先頭のアイコンと ◀▶ の下へ伸ばさない`, async ({ page }) => {
+    // 行ごと下線を引くと、アイコンと ◀▶ まで線の上に乗り、上下の行の線に
+    // 日付が挟まれて見える。線は値の下だけに引く。
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+
+    const field = page.getByLabel('出発の時刻').locator('xpath=../..');
+    const underlines = await field.evaluate((root) =>
+      [...root.querySelectorAll('*')]
+        .filter((el) => parseFloat(getComputedStyle(el).borderBottomWidth) > 0)
+        .map((el) => el.getBoundingClientRect())
+        .map((r) => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom })),
+    );
+    expect(underlines).toHaveLength(2);
+
+    const avoid = [
+      ...(await field.getByTestId('time-icon').all()),
+      ...(await field.getByTestId('date-icon').all()),
+      ...(await field.getByRole('button', { name: /(まえ|あと)にする$/ }).all()),
+    ];
+    expect(avoid.length).toBe(viewport === desktop ? 6 : 2);
+    for (const target of avoid) {
+      const b = await box(target);
+      for (const line of underlines) {
+        const overlaps = line.left < b.x + b.width && b.x < line.right;
+        expect(overlaps, `${await target.getAttribute('aria-label') ?? await target.getAttribute('data-testid')} の下に線がある`).toBe(false);
+      }
+    }
+  });
+}
+
 test('時刻欄は 24 時間表記で出す（AM/PM の欄を持たない）', async ({ page }) => {
   // 表記はページではなくブラウザの表示言語で決まる。E2E のブラウザも日本語の
   // 利用者と同じ表示にそろえておく（playwright.config.ts の --lang）。

@@ -568,11 +568,13 @@ describe('先頭のアイコン', () => {
     expect(opened).toEqual([date]);
   });
 
-  it('デスクトップ幅ではカレンダーのアイコンも日付のボタンの一部', () => {
+  it('デスクトップ幅ではカレンダーのアイコンでもカレンダーを開く', () => {
     stubViewport(true);
     setupTime({ departure: at(13, 0), arrival: at(14, 0) });
 
-    expect(dateTrigger('出発').contains(screen.getByTestId('date-icon'))).toBe(true);
+    fireEvent.click(screen.getByTestId('date-icon'));
+
+    expect(screen.getByRole('dialog', { name: '出発の日付' })).toBeTruthy();
   });
 
   it('ピッカーを開けないブラウザでも落ちない', () => {
