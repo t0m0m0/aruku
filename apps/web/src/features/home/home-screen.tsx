@@ -176,8 +176,8 @@ export function HomeScreen({
 
       <section className="mt-6">
         {/* 上下の余白は h2 の UA 既定（0.83em）。preflight が 0 に均すので明示して保つ。 */}
-        <h2 className="my-[0.83em] flex items-center gap-[5px] px-1 pb-2 text-[11px] font-extrabold tracking-[0.08em] text-ink-2">
-          <ClockIcon size={12} />
+        <h2 className="my-[0.83em] flex items-center gap-[5px] px-1 pb-2 text-[13px] font-extrabold tracking-[0.08em] text-ink-2">
+          <ClockIcon size={14} />
           <span className="min-w-0 flex-1">
             {ja.homeTimeSectionLabel}
           </span>
