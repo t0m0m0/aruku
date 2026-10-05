@@ -80,7 +80,7 @@ export function appRoutes(
   // guard は子に残す——親へ移すと、跳ね返し先の判定が画面ごとの表示前提から離れる。
   return [
     {
-      Component: () => <DesktopShell store={store} />,
+      Component: DesktopShell,
       children: [
         { path: '/', loader: guard },
         ...screens,

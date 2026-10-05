@@ -600,7 +600,7 @@ SnackBar という移植元の複雑さの中心が、まるごと移植対象�
 | リンクの器 | `<footer>` ではなく `<nav aria-label="法的情報">` | `<main>` の中の `<footer>` は実ブラウザでは contentinfo のランドマークにならない（jsdom はなる）。単体テストだけ緑で E2E が見つけられなかった |
 | 権限の案内 | 現在地エラー（`noLocation`）の説明文へ移す | 案内が要るのは現在地が取れずに詰んだ瞬間。拒否と一時的な測位失敗は同じ種別に寄るが、後者でも許可の確認は無害な一手 |
 | `/home/settings` | `screenPath` から外し、未知の location として home へ寄せる | 転送のための分岐を足さない。ガードが `replace` で寄せ、`seedInitialHistory` も未知のパスには home を敷かないので、古い URL は履歴に残らない |
-| シェルのタブ | 「ルートを計画」1つで残す | 待ち画面・結果画面から home へ降りる出口を兼ねる。`leave` の `abandonSearch` は行き先が home だけの今は `watchSearchAbandon` と重なるが、タブを足したときに PR #407 の競合が黙って再発しないよう形を保つ |
+| シェルのタブ | 「ルートを計画」1つで残す（#432 で撤去。下の「共通シェル」の節） | 待ち画面・結果画面から home へ降りる出口を兼ねる。`leave` の `abandonSearch` は行き先が home だけの今は `watchSearchAbandon` と重なるが、タブを足したときに PR #407 の競合が黙って再発しないよう形を保つ <!-- doc-consistency:keep 当時の決定の記録 -->
 
 ### 日時ピッカーのスライスの決定
 
@@ -814,7 +814,7 @@ core と maps までで、legacy `Marker` はそこに入っていない。待�
 
 ### 共通シェルはレイアウトルートに置く
 
-移植元は `DesktopShell` を Navigator の**外**へ置いた。go_router のネスト構造が戻り先
+移植元は `DesktopShell` を Navigator の**外**へ置いた。<!-- doc-consistency:keep 現存のシンボル -->go_router のネスト構造が戻り先
 （search/result/error→home）そのもので、`ShellRoute` で包むとその構造に手を
 入れることになるからだった。React Router ではネストは `<Outlet>` の入れ子であって履歴を
 積まない——戻り先を作っているのは `navigator.ts` の push / replace / pop の使い分けなので、
@@ -828,16 +828,13 @@ pop も失われ、履歴が伸びる。
 今は本文の器でスクロールする画面が home しか無く、短い画面へ移れば自然に 0 へ丸まるので
 **実ブラウザでは再現できない**。反証は単体テスト（機構そのもの）に置いてある。
 
-**待ち画面からタブで離れるときは明示的に打ち切る。** `watchSearchAbandon` は POP だけを
-見ており（移植元の `PopScope` が塞いでいた操作そのもの）、push で出ていくタブには掛からない。
-移植元の `DesktopShell` が `leave()` で `cancelSearch` を呼んでいたのと同じ穴。
-
-ただし**打ち切りに遷移を伴わせない**（`cancelSearch` ではなく `abandonSearch`）。
-`cancelSearch` は home への `go` を含み、待ち画面からのそれは履歴の `back`——実ブラウザでは
-非同期に解決する。続けてタブの遷移を投げると、保留中の POP が後から勝って設定ではなく home に
-着く。**MemoryRouter は同期に更新するのでこの競合を再現しない**ので、反証は
-`e2e/desktop-shell.spec.ts` に置いた（PR #407 の Codex レビュー。修正前に実際に home へ
-落ちることを確認している）。
+**上部バーにタブを置かない**（#432）。#427 で設定タブを撤去した後に残った「ルートを計画」は
+常に選択中で、home へ降りる出口を兼ねるためだけに在った。その出口は待ち画面のキャンセル・
+結果画面の戻る・エラー画面の「検索に戻る」が既に持っているので撤去した。タブを戻すなら、
+push で出ていく導線には `watchSearchAbandon`（POP だけを見る）が掛からないので、待ち画面からの
+離脱は明示的に `abandonSearch` で打ち切り、遷移は呼び手が1回だけ行う——`cancelSearch` の
+`back` と続く遷移が実ブラウザで競合する（PR #407 の Codex レビュー。MemoryRouter は同期に
+更新するので単体テストでは再現しない）。
 
 ### 画面の「1画面ぶん」は `--screen-min-height`
 
@@ -1005,7 +1002,7 @@ CSS Modules から Tailwind CSS v4 と shadcn/ui へ、画面ごとのスライ�
   で `src/shared/ui/` に入る（`components.json`）
 - 文字サイズは `text-[12px]` のような px の任意値で書く。`text-xs` 等の名前付きは行高も決め、
   行高 `normal` で組んだ寸法から行ごとに数 px ずれる
-- 選択・オンの見た目は ARIA 属性から引く（`aria-current:` / `aria-selected:` / `aria-checked:`）。
+- 選択・オンの見た目は ARIA 属性から引く（`aria-current:` / `aria-selected:` / `aria-checked:`）。<!-- doc-consistency:keep 一般的な規約 -->
   読み上げと別の条件で塗ると、片方だけ落ちても気付けない
 - preflight が UA 既定を均す箇所（行高・svg の display・h2 の余白・日付欄の内側）は、
   `theme/base.css` と各所で UA 既定へ戻してある

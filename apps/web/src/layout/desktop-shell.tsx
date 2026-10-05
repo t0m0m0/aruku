@@ -2,25 +2,16 @@
 //
 // 移植元が「記録」タブとストリークチップを持たないのは（ハンドオフには在る）、
 // どちらも歩数に依るため。#386 が Web で歩数まわりを作らないと決めている。
-// 移植元にあった「設定」タブも #427 で設定画面ごと撤去したので、タブは1つになる。
-// それでもタブとして残すのは、待ち画面・結果画面から検索を打ち切って home へ
-// 降りる出口を兼ねるため。
+// 移植元にあった「設定」タブも #427 で設定画面ごと撤去し、残った「ルートを計画」
+// タブも #432 で撤去した。home へ降りる出口は各画面が自前で持っている
+// （待ち画面のキャンセル・結果画面の戻る・エラー画面の「検索に戻る」）。
 
-import type { StoreApi } from 'zustand/vanilla';
 import { useEffect, useRef } from 'react';
 import { Outlet, useLocation } from 'react-router';
 
 import { ja } from '../i18n/ja';
-import { Screen, screenFromLocation } from '../navigation/screens';
 import { ArukuLogo } from '../shared/logo';
-import { RoutesIcon } from '../shared/icons';
-import { Button } from '../shared/ui/button';
-import type { AppStore } from '../state/store';
 import { useIsDesktop } from './use-is-desktop';
-
-interface DesktopShellProps {
-  store: StoreApi<AppStore>;
-}
 
 /// デスクトップ幅で全画面に被せる共通シェル（上部バー + 本文）。
 ///
@@ -28,10 +19,9 @@ interface DesktopShellProps {
 /// それは go_router のネスト構造が戻り先そのものだったため。React Router の
 /// ネストは `<Outlet>` の入れ子であって履歴を積まない（戻り先を作るのは
 /// navigator.ts）ので、ここで包んでも戻り挙動には触れない。
-export function DesktopShell({ store }: DesktopShellProps) {
+export function DesktopShell() {
   const isDesktop = useIsDesktop();
   const pathname = useLocation().pathname;
-  const screen = screenFromLocation(pathname);
 
   // 本文の器は遷移で作り直されない（替わるのは <Outlet> の中身だけ）。この器が
   // スクローラなので、前の画面の scrollTop を次の画面が引き継ぎ、開いた瞬間に
@@ -42,22 +32,6 @@ export function DesktopShell({ store }: DesktopShellProps) {
     body.current?.scrollTo({ top: 0 });
   }, [pathname]);
   if (!isDesktop) return <Outlet />;
-
-  // 待ち画面からの離脱は go だけでは足りない。画面を移しても探索は走り続け、
-  // 完了時に startSearch が result / error へ引き戻す。戻る操作なら
-  // watchSearchAbandon が拾うが、タブは push で出ていくので掛からない。
-  //
-  // 打ち切りに **遷移を伴わせない**（cancelSearch ではなく abandonSearch）。
-  // cancelSearch は home への go を含み、待ち画面からのそれは履歴の back
-  // ——実ブラウザでは非同期に解決する。続けてタブの遷移を投げると、保留中の POP が
-  // 後から勝ってタブの行き先ではなく home に着く（e2e で再現。PR #407 の Codex
-  // レビュー）。今の行き先は home だけで競合しても着く先は同じだが、タブを足したときに
-  // 黙って再発しないよう形を保つ。
-  const leave = (target: Screen) => {
-    const state = store.getState();
-    if (screen === Screen.loading) state.abandonSearch();
-    state.go(target);
-  };
 
   // 移植元: design_handoff_aruku_web/README.md「0. 共通シェル」。
   //
@@ -72,15 +46,6 @@ export function DesktopShell({ store }: DesktopShellProps) {
           <span className="-ms-2.5 text-[19px] font-black tracking-[0.04em] text-ink">
             {ja.appTitle}
           </span>
-          <nav className="flex items-center gap-1">
-            {/* どの画面も「ルートを計画」の下にある導線なので、常に現在地。 */}
-            <Tab
-              label={ja.shellTabPlan}
-              icon={<RoutesIcon size={16} />}
-              selected
-              onPress={() => leave(Screen.home)}
-            />
-          </nav>
         </div>
       </header>
       {/* 本文側がスクロールする。シェルごとスクロールさせると上部バーが流れる
@@ -98,36 +63,5 @@ export function DesktopShell({ store }: DesktopShellProps) {
         <Outlet />
       </div>
     </div>
-  );
-}
-
-interface TabProps {
-  label: string;
-  icon: React.ReactNode;
-  selected: boolean;
-  onPress: () => void;
-}
-
-/// 移植元は InkWell + Semantics(button:, selected:) で組んでいた。`<button>` を
-/// 使えば読み上げも Enter / Space も素で付く——移植元が GestureDetector を避けた
-/// 理由（キーボードだけの利用者が主要導線を辿れなくなる）はそのまま効いている。
-///
-/// shadcn の Tabs は使わない。あれは tablist / tabpanel の組で同じページ内の切り替えを
-/// 表す。これは画面を移る導線で、現在地は aria-current で表す。
-///
-/// 選択中の見た目も aria-current から引く。クラスを別に足すと、見た目と読み上げが
-/// 別々の条件で付くようになり、片方だけ落ちても気付けない。
-function Tab({ label, icon, selected, onPress }: TabProps) {
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="aria-[current=page]:bg-moss-100 aria-[current=page]:text-moss-700"
-      aria-current={selected ? 'page' : undefined}
-      onClick={onPress}
-    >
-      {icon}
-      {label}
-    </Button>
   );
 }
