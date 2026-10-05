@@ -11,6 +11,8 @@ import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StoreApi } from 'zustand/vanilla';
 
+import { RoutePhase } from '@aruku/engine/services/route-service';
+
 import { DesktopShell } from '../../src/layout/desktop-shell';
 import { stubViewport } from './viewport';
 import { createNavigator } from '../../src/navigation/navigator';
@@ -24,7 +26,7 @@ function renderShell(entries: string[], store: StoreApi<AppStore> = createAppSto
   const router = createMemoryRouter(
     [
       {
-        Component: DesktopShell,
+        Component: () => <DesktopShell store={store} />,
         children: [
           { path: screenPath[Screen.home], element: <p>ホーム本文</p> },
           { path: screenPath[Screen.search], element: <p>検索本文</p> },
@@ -63,16 +65,42 @@ describe('DesktopShell', () => {
     expect(screen.getByText('ホーム本文')).toBeDefined();
   });
 
-  // タブは #432 で撤去した。上部バーはロゴと名前だけで、押せるものを置かない。
-  it('デスクトップ幅では上部バーを画面の上に出し、バーには押せるものを置かない', () => {
+  // タブは #432 で撤去した。押せるのはロゴ（と名前）の home への導線だけ。
+  it('デスクトップ幅では上部バーを画面の上に出し、押せるのはロゴだけ', () => {
     stubViewport(true);
 
     renderShell([screenPath[Screen.home]]);
 
     const banner = screen.getByRole('banner');
-    expect(within(banner).queryAllByRole('button')).toEqual([]);
-    expect(within(banner).getByText('あるく')).toBeDefined();
+    expect(
+      within(banner).getAllByRole('button').map((b) => b.getAttribute('aria-label')),
+    ).toEqual(['あるく ホームへ戻る']);
     expect(screen.getByText('ホーム本文')).toBeDefined();
+  });
+
+  it('子の画面でロゴを押すと home へ移る', async () => {
+    stubViewport(true);
+    const { router } = renderShell([screenPath[Screen.home], screenPath[Screen.search]]);
+
+    screen.getByRole('button', { name: 'あるく ホームへ戻る' }).click();
+
+    expect(await screen.findByText('ホーム本文')).toBeDefined();
+    expect(router.state.location.pathname).toBe(screenPath[Screen.home]);
+  });
+
+  it('待ち画面からロゴを押すと、検索を打ち切って home へ降りる', async () => {
+    stubViewport(true);
+    const { store, router } = renderShell([
+      screenPath[Screen.home],
+      screenPath[Screen.loading],
+    ]);
+    store.setState({ routePhase: RoutePhase.routing });
+
+    screen.getByRole('button', { name: 'あるく ホームへ戻る' }).click();
+
+    expect(await screen.findByText('ホーム本文')).toBeDefined();
+    expect(router.state.location.pathname).toBe(screenPath[Screen.home]);
+    expect(store.getState().routePhase).toBeNull();
   });
 
   it('画面が移ったら本文のスクロール位置を先頭へ戻す', async () => {
