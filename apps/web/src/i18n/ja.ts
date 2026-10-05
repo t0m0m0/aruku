@@ -111,7 +111,10 @@ export const ja = {
   routeErrorNoResultsTitle: 'ルートが見つかりませんでした',
   routeErrorNoResultsDescription: '目的地や出発・到着時刻を変えてお試しください',
   routeErrorNoLocationTitle: '現在地を取得できませんでした',
-  routeErrorNoLocationDescription: '位置情報を有効にしてもう一度お試しください',
+  /// Web には権限を変える画面を開く手段が無いので、どこで変えるかを言う。拒否と
+  /// 一時的な測位失敗は同じ種別に寄るが、後者でも許可の確認は無害な一手になる。
+  routeErrorNoLocationDescription:
+    'ブラウザのサイト設定で位置情報を許可して、もう一度お試しください',
   routeErrorNoDestinationTitle: '目的地が選ばれていません',
   routeErrorNoDestinationDescription: '目的地を選んでもう一度検索してください',
   routeErrorUnknownTitle: 'ルートを取得できませんでした',
