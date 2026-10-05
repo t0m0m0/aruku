@@ -36,8 +36,9 @@ test('現在地から目的地を選んで経路を出す', async ({ page, upstr
   await page.getByRole('button', { name: '目的地 どこへ歩く?' }).click();
   await expect(page).toHaveURL('/home/search');
 
-  // 役割まで指定する。読み上げ名「目的地を検索」は home の検索アイコンとも重なって
-  // いて、遷移が終わる前に引くと home のボタンへ当たる（実際に当たった）。
+  // 役割まで指定する。読み上げ名「目的地を検索」は home の部品と重なりやすく
+  // （#430 まで検索アイコン、デスクトップ幅では今も欄）、遷移が終わる前に名前だけで
+  // 引くと home 側へ当たる（実際に当たった）。
   await page.getByRole('searchbox', { name: '目的地を検索' }).fill('テスト');
 
   // 打った語に当たる候補だけが出る（placesProxy の input がそのまま届いている証拠）。

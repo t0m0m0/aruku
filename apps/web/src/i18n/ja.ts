@@ -29,7 +29,6 @@ export const ja = {
   homeDestinationPlaceholder: 'どこへ歩く?',
   homeRefreshLocation: '現在地を再取得',
   homeRefreshingLocation: '現在地を取得中',
-  homeSearchDestination: '目的地を検索',
   homeTimeSectionLabel: '時間',
   homeWalkableSuffix: ' 歩ける',
   homeSearchRoute: 'ルートを検索',

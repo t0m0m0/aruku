@@ -17,7 +17,7 @@ export async function goToResult(
   how: DestinationRoute = 'inline',
 ): Promise<void> {
   await page.goto('/');
-  await expect(page.getByRole('button', { name: '出発 現在地' })).toBeVisible();
+  await waitForCurrentLocation(page, how);
 
   if (how === 'screen') {
     await page.getByRole('button', { name: '目的地 どこへ歩く?' }).click();
@@ -30,4 +30,22 @@ export async function goToResult(
 
   await page.getByRole('button', { name: 'ルートを検索' }).click();
   await expect(page).toHaveURL('/home/result');
+}
+
+/// 現在地が確定し、出発が「現在地」で出るまで待つ。
+///
+/// 出発の出方も幅で変わる。モバイル幅はボタンの読み上げ名に、デスクトップ幅は
+/// 打てる欄の placeholder に出る（#430）。
+export async function waitForCurrentLocation(
+  page: Page,
+  how: DestinationRoute,
+): Promise<void> {
+  if (how === 'screen') {
+    await expect(page.getByRole('button', { name: '出発 現在地' })).toBeVisible();
+  } else {
+    await expect(page.getByRole('combobox', { name: '出発地を検索' })).toHaveAttribute(
+      'placeholder',
+      '現在地',
+    );
+  }
 }
