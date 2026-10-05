@@ -135,13 +135,6 @@ describe('ホームの見出し', () => {
     expect(link.getAttribute('rel')).toBe('noopener noreferrer');
   });
 
-  it('設定へ行ける', () => {
-    const { navigate } = setup();
-
-    fireEvent.click(screen.getByRole('button', { name: '設定を開く' }));
-
-    expect(navigate).toHaveBeenCalledWith('/home/settings');
-  });
 });
 
 describe('ホームの出発地', () => {

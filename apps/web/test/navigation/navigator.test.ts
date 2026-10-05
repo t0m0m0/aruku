@@ -1,4 +1,4 @@
-// 移植元の戻り挙動（settings/search/result/error→home）を React Router で再現する層。
+// 移植元の戻り挙動（search/result/error→home）を React Router で再現する層。
 //
 // 移植元は go_router のネスト構造で Navigator の pop スタックを作っていた。React Router
 // のネストは <Outlet> の入れ子であって履歴を積まないので、URL の前置きだけでは戻り先に
@@ -61,8 +61,8 @@ const settled = (): Promise<void> =>
 
 describe('navigationIntent', () => {
   it('home から子へは push する（戻ると home に戻る）', () => {
-    expect(navigationIntent(Screen.home, Screen.settings)).toBe('push');
     expect(navigationIntent(Screen.home, Screen.search)).toBe('push');
+    expect(navigationIntent(Screen.home, Screen.searchOrigin)).toBe('push');
   });
 
   it('子から子へは replace する（戻り先を home のままに保つ）', () => {
@@ -72,11 +72,11 @@ describe('navigationIntent', () => {
   });
 
   it('子から home へは pop する', () => {
-    // push すると [home, settings, home] になり、戻ると閉じた settings が出る。
+    // push すると [home, search, home] になり、戻ると閉じた search が出る。
     // replace でも [home, home] になり、最初の「戻る」が home を再表示するだけで
     // アプリを離れられない（実ブラウザで確認。PR #391 レビュー）。積んだ子を
     // 降ろすのが移植元の pop に対応する。
-    expect(navigationIntent(Screen.settings, Screen.home)).toBe('pop');
+    expect(navigationIntent(Screen.search, Screen.home)).toBe('pop');
   });
 
   it('home から home へは replace する（降ろす子が無い）', () => {
@@ -124,13 +124,13 @@ describe('createNavigator', () => {
 describe('seedInitialHistory', () => {
   it('子を直接開いたときは下に home を敷く', () => {
     // deep link では履歴にその1件しか無く、戻るとアプリの外へ出てしまう。
-    const { history, calls } = fakeHistory(screenPath.settings);
+    const { history, calls } = fakeHistory(screenPath.search);
 
     seedInitialHistory(history, () => true);
 
     expect(calls).toEqual([
       { path: screenPath.home, replace: true, index: 0 },
-      { path: screenPath.settings, replace: false, index: 1 },
+      { path: screenPath.search, replace: false, index: 1 },
     ]);
   });
 
@@ -139,7 +139,7 @@ describe('seedInitialHistory', () => {
     // 敷くと、敷いた子が idx 0 のまま「手前が無い」と読まれる。子から子への遷移は
     // replace で idx を保つので、その後 result へ移ってリロードすると、真下に home が
     // あるのに降りられず [home, home] になる（実ブラウザで確認。PR #391 レビュー）。
-    const { history, calls } = fakeHistory(screenPath.settings);
+    const { history, calls } = fakeHistory(screenPath.search);
 
     seedInitialHistory(history, () => true);
 
@@ -165,7 +165,7 @@ describe('seedInitialHistory', () => {
   it('ルーター由来のエントリでは敷き直さない', () => {
     // アプリ内で home→子と遷移した後にリロードすると、履歴は既に [home, 子]。
     // ここで敷き直すと [home, home, 子] になり、リロードのたびに home が増える。
-    const { history, calls } = fakeHistory(screenPath.settings, {
+    const { history, calls } = fakeHistory(screenPath.search, {
       isRouterEntry: true,
     });
 
@@ -212,13 +212,13 @@ describe('seedInitialHistory', () => {
   it('クエリとハッシュを保ったまま積み直す', () => {
     // 分類は pathname で行うが、積み直す URL は元のまま。落とすと deep link の
     // 状態が黙って消える（screenFromLocation はクエリ付きを明示的に扱う）。
-    const { history, calls } = fakeHistory('/home/settings?tab=a#section');
+    const { history, calls } = fakeHistory('/home/search?tab=a#section');
 
     seedInitialHistory(history, () => true);
 
     expect(calls).toEqual([
       { path: screenPath.home, replace: true, index: 0 },
-      { path: '/home/settings?tab=a#section', replace: false, index: 1 },
+      { path: '/home/search?tab=a#section', replace: false, index: 1 },
     ]);
   });
 });

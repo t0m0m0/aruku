@@ -6,7 +6,6 @@ import { HomeScreen } from '../features/home/home-screen';
 import { LoadingScreen } from '../features/loading/loading-screen';
 import { ResultScreen } from '../features/result/result-screen';
 import { SearchScreen, type SearchMode } from '../features/search/search-screen';
-import { SettingsScreen } from '../features/settings/settings-screen';
 import { DesktopShell } from '../layout/desktop-shell';
 import type { RecentsRepository } from '../places/recents-repository';
 import type { ScreenDeps } from './screen-deps';
@@ -129,7 +128,5 @@ function componentFor(
       return () => <ResultScreen store={store} />;
     case Screen.error:
       return () => <ErrorScreen store={store} />;
-    case Screen.settings:
-      return () => <SettingsScreen store={store} />;
   }
 }

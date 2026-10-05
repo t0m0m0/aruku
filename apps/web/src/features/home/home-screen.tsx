@@ -32,7 +32,6 @@ import {
   PinIcon,
   RoutesIcon,
   SearchIcon,
-  SettingsIcon,
 } from '../../shared/icons';
 import { TimeField } from '../picker/time-field';
 import { TypeaheadField } from '../search/typeahead-field';
@@ -105,19 +104,6 @@ export function HomeScreen({
             </span>
           </h1>
         </div>
-        {/* デスクトップ幅では出さない。設定への導線はシェルの上部バーが持ち、同じ行き先の
-            ボタンを2つ出さない——移植元（flutter-final:lib/features/home/home_screen.dart）は
-            デスクトップでも歯車を残していたが、ハンドオフのルート計画に歯車は無い。 */}
-        <button
-          type="button"
-          className="inline-flex size-tap-min flex-none cursor-pointer items-center justify-center rounded-[14px] border border-border bg-card text-ink-2 desktop:hidden"
-          aria-label={ja.homeOpenSettings}
-          onClick={() => {
-            go(Screen.settings);
-          }}
-        >
-          <SettingsIcon size={20} />
-        </button>
       </header>
 
       <section className="relative rounded-[22px] border border-border bg-card px-3.5 py-1.5 shadow-card-subtle">

@@ -38,7 +38,7 @@ export interface HistoryLike {
   pushState(url: string, index: number): void;
 }
 
-/// 移植元の戻り挙動（settings/search/result/error→home）を再現する履歴操作の選択。
+/// 移植元の戻り挙動（search/result/error→home）を再現する履歴操作の選択。
 ///
 /// 移植元は go_router のネスト構造で Navigator の pop スタックを作っていた。React Router
 /// のネストは `<Outlet>` の入れ子であって履歴を積まないので、URL の前置きだけでは戻り先に
