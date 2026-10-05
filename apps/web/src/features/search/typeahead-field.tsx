@@ -1,6 +1,6 @@
 // 移植元: flutter-final:lib/features/search/desktop_typeahead_field.dart（#372）。
 //
-// 全画面の検索へ飛ばさず、その場で目的地を決めきる欄。デスクトップ幅の home が使う。
+// 全画面の検索へ飛ばさず、その場で出発地・目的地を決めきる欄。デスクトップ幅の home が使う。
 //
 // 「近くの店」（#146）は置かない。移植元はフォーカスのたびに `setNearby(false)` して
 // いたが、それは全画面検索と検索状態を共有していたため——ここは自前の検索状態を持つ
@@ -25,6 +25,7 @@ import { resolvePlacePrediction } from '../../places/resolve-prediction';
 import { CloseIcon, SearchIcon } from '../../shared/icons';
 import type { AppStore } from '../../state/store';
 import { cn } from '../../shared/utils';
+import { placeFieldBox } from './place-field-button';
 import { createSearchState } from './search-state';
 import type { SearchMode } from './search-screen';
 
@@ -37,6 +38,10 @@ interface TypeaheadFieldProps {
   /// 欄そのものへの参照。目的地が未選択のときの CTA が焦点を移すのに使う
   /// （home の CTA は、この幅では全画面の検索へ飛ばさない）。
   inputRef?: RefObject<HTMLInputElement | null>;
+
+  /// 何も決まっていないときに欄へ薄く出す文字。出発地の未指定は空欄ではなく
+  /// 「現在地を使う」なので、home はその状態（取得中・位置情報なし等）を渡す。
+  emptyText?: string;
 }
 
 interface Entry {
@@ -52,6 +57,7 @@ export function TypeaheadField({
   places,
   recents,
   inputRef,
+  emptyText,
 }: TypeaheadFieldProps) {
   const locationState = useStore(store, (s) => s.locationState);
   const selected = useStore(store, (s) =>
@@ -276,10 +282,7 @@ export function TypeaheadField({
           Escape で閉じた直後の欄は焦点を持ったまま輪郭を失う——入力側の outline は
           消してある（PR #407 の Codex レビュー）。 */}
       <div
-        className={cn(
-          'flex h-13 items-center gap-2.5 rounded-[14px] border border-hairline bg-ivory px-3.5 text-ink-3 focus-within:border-moss-400',
-          open && 'border-moss-400',
-        )}
+        className={cn(placeFieldBox, open && 'border-moss-400')}
       >
         <SearchIcon size={17} />
         <input
@@ -293,7 +296,8 @@ export function TypeaheadField({
           aria-autocomplete="list"
           aria-activedescendant={showList ? `${listId}-${activeIndex}` : undefined}
           placeholder={
-            mode === 'origin' ? ja.homeDepartureLabel : ja.homeDestinationPlaceholder
+            emptyText ??
+            (mode === 'origin' ? ja.homeDepartureLabel : ja.homeDestinationPlaceholder)
           }
           value={shown}
           ref={inputRef}

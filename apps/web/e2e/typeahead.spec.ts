@@ -1,8 +1,9 @@
-/// デスクトップ幅の目的地欄。単体テスト（test/features/search/typeahead-field.test.tsx）
+/// デスクトップ幅の出発地・目的地欄。単体テスト（test/features/search/typeahead-field.test.tsx）
 /// が押さえられないのは、実物の焦点とキー入力——jsdom の fireEvent は焦点の移動も
 /// IME も再現しない。ここで見るのは「キーボードだけで、遷移せずに決まる」こと。
 
 import { expect, test } from './fixtures';
+import { waitForCurrentLocation } from './flows';
 
 test.use({ viewport: { width: 1280, height: 900 } });
 
@@ -11,7 +12,7 @@ test('打って ↓ と Enter だけで目的地が決まり、画面は動か�
   upstream,
 }) => {
   await page.goto('/');
-  await expect(page.getByRole('button', { name: '出発 現在地' })).toBeVisible();
+  await waitForCurrentLocation(page, 'inline');
 
   const field = page.getByRole('combobox', { name: '目的地を検索' });
   await field.fill('テスト');
@@ -46,7 +47,7 @@ test('Escape で一覧だけ閉じる', async ({ page, upstream }) => {
 test('目的地が未選択のときの CTA は、その場の欄を開く', async ({ page, upstream }) => {
   expect(upstream.unmatched).toEqual([]);
   await page.goto('/');
-  await expect(page.getByRole('button', { name: '出発 現在地' })).toBeVisible();
+  await waitForCurrentLocation(page, 'inline');
 
   await page.getByRole('button', { name: '目的地を選ぶ' }).click();
 
@@ -101,4 +102,22 @@ test('Escape で閉じても、焦点の在処は見えたまま', async ({ page
   await expect(page.getByRole('listbox')).toHaveCount(0);
   await expect(field).toBeFocused();
   expect(await border()).toBe(opened);
+});
+
+test('出発もその場で打って決まり、消せば現在地へ戻る', async ({ page, upstream }) => {
+  expect(upstream.unmatched).toEqual([]);
+  await page.goto('/');
+  await waitForCurrentLocation(page, 'inline');
+  const field = page.getByRole('combobox', { name: '出発地を検索' });
+
+  await field.fill('テスト');
+  await page.getByRole('option', { name: /テスト公園/ }).click();
+
+  await expect(field).toHaveValue('テスト公園');
+  await expect(page).toHaveURL('/home');
+
+  await page.getByRole('button', { name: '入力を消去' }).click();
+
+  await expect(field).toHaveValue('');
+  await expect(field).toHaveAttribute('placeholder', '現在地');
 });

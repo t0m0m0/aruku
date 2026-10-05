@@ -244,12 +244,12 @@ describe('ホームの目的地', () => {
     expect(navigate).toHaveBeenCalledWith('/home/search');
   });
 
-  it('検索チップからも目的地の検索へ行く', () => {
-    const { navigate } = setup();
+  // 行そのものを入力欄の形にした（#430）。横に検索ボタンを並べると、同じ遷移の
+  // 入口が2つ読み上げられる。
+  it('検索の入口は行そのものだけで、別のボタンを並べない', () => {
+    setup();
 
-    fireEvent.click(screen.getByRole('button', { name: '目的地を検索' }));
-
-    expect(navigate).toHaveBeenCalledWith('/home/search');
+    expect(screen.queryByRole('button', { name: '目的地を検索' })).toBeNull();
   });
 });
 
@@ -406,7 +406,7 @@ describe('デスクトップ幅の目的地', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '目的地を選ぶ' }));
 
-    expect(document.activeElement).toBe(screen.getByRole('combobox'));
+    expect(document.activeElement).toBe(screen.getByRole('combobox', { name: '目的地を検索' }));
     expect(navigate).not.toHaveBeenCalled();
   });
 
@@ -418,5 +418,91 @@ describe('デスクトップ幅の目的地', () => {
 
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(navigate).toHaveBeenCalledWith(screenPath[Screen.search]);
+  });
+});
+
+describe('デスクトップ幅の出発地', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('全画面の検索へ飛ばさず、その場で打てる欄を出す', () => {
+    stubViewport(true);
+
+    setup();
+
+    expect(screen.getByRole('combobox', { name: '出発地を検索' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^出発 / })).toBeNull();
+  });
+
+  // 未指定は空欄ではなく「現在地を使う」。欄の既定値として見せる。
+  it('未指定なら現在地の状態を欄の既定として出す', async () => {
+    stubViewport(true);
+
+    setup({}, { locations: [locationAvailable(somewhere)] });
+
+    const field = screen.getByRole('combobox', { name: '出発地を検索' }) as HTMLInputElement;
+    expect(field.value).toBe('');
+    await vi.waitFor(() => {
+      expect(field.placeholder).toBe('現在地');
+    });
+  });
+
+  it('現在地が使えなければ、そう欄に出す', async () => {
+    stubViewport(true);
+
+    setup({}, { locations: [locationDenied] });
+
+    const field = screen.getByRole('combobox', { name: '出発地を検索' }) as HTMLInputElement;
+    await vi.waitFor(() => {
+      expect(field.placeholder).toBe('位置情報なし');
+    });
+  });
+
+  it('指定済みの出発地を欄に映す', () => {
+    stubViewport(true);
+
+    setup({ origin: '新宿駅', originLatLng: somewhere });
+
+    expect(
+      (screen.getByRole('combobox', { name: '出発地を検索' }) as HTMLInputElement).value,
+    ).toBe('新宿駅');
+  });
+
+  it('候補を選ぶと出発地になる', async () => {
+    stubViewport(true);
+    const { store } = setup({}, {
+      deps: screenDeps(async () => [
+        { placeId: 'id-新宿駅', name: '新宿駅', address: '東京都新宿区', distanceMeters: null },
+      ]),
+    });
+
+    const field = screen.getByRole('combobox', { name: '出発地を検索' });
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: '新宿' } });
+    fireEvent.click(await screen.findByRole('option', { name: /新宿駅/ }));
+
+    await vi.waitFor(() => {
+      expect(store.getState().origin).toBe('新宿駅');
+    });
+    expect(store.getState().originLatLng).toEqual(somewhere);
+  });
+
+  it('消すと現在地へ戻る', async () => {
+    stubViewport(true);
+    const { store } = setup({ origin: '新宿駅', originLatLng: somewhere });
+
+    fireEvent.click(screen.getByRole('button', { name: ja.searchClearInput }));
+
+    expect(store.getState().origin).toBeNull();
+    expect(store.getState().originLatLng).toBeNull();
+  });
+
+  it('コンパスはこの幅でも出る', () => {
+    stubViewport(true);
+
+    setup();
+
+    expect(screen.getByRole('button', { name: '現在地を再取得' })).toBeTruthy();
   });
 });

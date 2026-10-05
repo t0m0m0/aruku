@@ -34,16 +34,16 @@ import {
   SearchIcon,
 } from '../../shared/icons';
 import { TimeField } from '../picker/time-field';
+import { PlaceFieldButton } from '../search/place-field-button';
 import { TypeaheadField } from '../search/typeahead-field';
 import { departureLabelText } from '../../state/derived';
 import type { AppStore } from '../../state/store';
-import { cn } from '../../shared/utils';
 
 interface HomeScreenProps {
   store: StoreApi<AppStore>;
 
-  /// デスクトップ幅のインライン検索欄が使う。モバイル幅では触らない——目的地は
-  /// 全画面の検索画面が決める。
+  /// デスクトップ幅のインライン検索欄が使う。モバイル幅では触らない——出発地も
+  /// 目的地も全画面の検索画面が決める。
   deps: ScreenDeps;
 
   /// 経路検索の開始。目的地が決まっているときの CTA から呼ぶ。
@@ -89,8 +89,7 @@ export function HomeScreen({
     go(Screen.search);
   };
 
-  const departureText = departureLabelText(origin, locationState);
-  const destinationText = destination ?? ja.homeDestinationPlaceholder;
+  const currentLocationText = departureLabelText(null, locationState);
 
   return (
     <main className="mx-auto flex min-h-(--screen-min-height) max-w-[620px] flex-col gap-3 px-5 pt-2 pb-9">
@@ -107,9 +106,9 @@ export function HomeScreen({
       </header>
 
       <section className="relative rounded-[22px] border border-border bg-card px-3.5 py-1.5 shadow-card-subtle">
-        {/* 出発点と目的地を結ぶ線。移植元は Stack + Positioned で重ねている。 */}
+        {/* 出発点と目的地を結ぶ線。端の印は各行の欄の高さの中央へ合わせる。 */}
         <span
-          className="pointer-events-none absolute top-6 bottom-6 left-4 flex flex-col items-center text-burnt"
+          className="pointer-events-none absolute top-[58px] bottom-[32px] left-4 flex flex-col items-center text-burnt"
           aria-hidden="true"
         >
           <span className="size-2.5 rounded-full border-3 border-moss-100 bg-moss-500" />
@@ -117,39 +116,46 @@ export function HomeScreen({
           <PinIcon size={16} filled />
         </span>
 
-        {/* 行の本体と末尾のアイコンは別の操作なので、入れ子にはできない（button の
-            中に button は置けない）。横に並べる器で包む。 */}
-        <div className="flex items-center gap-2">
-          {/* 読み上げ名は aria-label で明示する。中身から組ませると、要素が横並びか
-              縦積みかで語の区切りが変わる——見た目の都合が読み上げに漏れる。 */}
-          <button
-            type="button"
-            className={placeMain}
-            aria-label={`${ja.homeDepartureLabel} ${departureText}`}
-            onClick={() => {
-              go(Screen.searchOrigin);
-            }}
-          >
-            <span className={placeLabel}>{ja.homeDepartureLabel}</span>
-            <span className={placeValue}>{departureText}</span>
-          </button>
-          {/* 取り直しの promise をそのまま渡す。ボタンはこれが解決するまで
-              待ち表示になる（移植元の _IconHit と同じ）。 */}
-          <IconHitButton
-            label={ja.homeRefreshLocation}
-            busyLabel={ja.homeRefreshingLocation}
-            onPress={refreshLocation}
-          >
-            <CompassIcon size={20} />
-          </IconHitButton>
-        </div>
-
         {/* デスクトップ幅では全画面の検索へ飛ばさず、その場で打って決める（#372）。
             これは見た目だけの差ではない——遷移が1つ消えるので CSS では表せない。 */}
-        {isDesktop ? (
-          // ラベルは行の上に置き、欄そのものは TypeaheadField が持つ。
-          <div className="flex flex-col gap-1.5 pt-2 pb-3 pl-[38px]">
-            <span className={placeLabel}>{ja.homeDestinationLabel}</span>
+        <div className={placeRow}>
+          <span className={placeLabel}>{ja.homeDepartureLabel}</span>
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              {isDesktop ? (
+                <TypeaheadField
+                  store={store}
+                  mode="origin"
+                  places={deps.places}
+                  recents={deps.recents.origin}
+                  emptyText={currentLocationText}
+                />
+              ) : (
+                <PlaceFieldButton
+                  label={ja.homeDepartureLabel}
+                  value={origin}
+                  placeholder={currentLocationText}
+                  onClick={() => {
+                    go(Screen.searchOrigin);
+                  }}
+                />
+              )}
+            </div>
+            {/* 取り直しの promise をそのまま渡す。ボタンはこれが解決するまで
+                待ち表示になる（移植元の _IconHit と同じ）。 */}
+            <IconHitButton
+              label={ja.homeRefreshLocation}
+              busyLabel={ja.homeRefreshingLocation}
+              onPress={refreshLocation}
+            >
+              <CompassIcon size={20} />
+            </IconHitButton>
+          </div>
+        </div>
+
+        <div className={placeRow}>
+          <span className={placeLabel}>{ja.homeDestinationLabel}</span>
+          {isDesktop ? (
             <TypeaheadField
               store={store}
               mode="destination"
@@ -157,33 +163,15 @@ export function HomeScreen({
               recents={deps.recents.destination}
               inputRef={destinationField}
             />
-          </div>
-        ) : (
-          // 区切り線は出発の行との間にだけ引く。デスクトップ幅の欄には引かない。
-          <div className="flex items-center gap-2 border-t border-hairline">
-            <button
-              type="button"
-              className={placeMain}
-              aria-label={`${ja.homeDestinationLabel} ${destinationText}`}
+          ) : (
+            <PlaceFieldButton
+              label={ja.homeDestinationLabel}
+              value={destination}
+              placeholder={ja.homeDestinationPlaceholder}
               onClick={goSearch}
-            >
-              <span className={placeLabel}>{ja.homeDestinationLabel}</span>
-              <span
-                className={cn(
-                  placeValue,
-                  destination === null && 'font-semibold text-ink-3',
-                )}
-              >
-                {destinationText}
-              </span>
-            </button>
-            <IconHitButton label={ja.homeSearchDestination} onPress={goSearch}>
-              <span className="inline-flex size-9 items-center justify-center rounded-[11px] bg-moss-50 text-moss-600">
-                <SearchIcon size={17} />
-              </span>
-            </IconHitButton>
-          </div>
-        )}
+            />
+          )}
+        </div>
       </section>
 
       <section className="mt-6">
@@ -241,10 +229,8 @@ export function HomeScreen({
   );
 }
 
-const placeMain =
-  'min-w-0 flex-1 cursor-pointer rounded-sm py-3 pr-0 pl-[38px] text-start';
+const placeRow = 'flex flex-col gap-1.5 py-2 pl-[38px]';
 const placeLabel = 'block text-[12px] font-bold tracking-[0.06em] text-ink-2';
-const placeValue = 'mt-0.5 block text-[16px] font-bold text-ink';
 
 /// 目的地が決まっていなければ選びに行く CTA、決まっていれば検索の CTA。
 /// ただし検索そのものがまだ無いときは、それが分かるラベルにする。
