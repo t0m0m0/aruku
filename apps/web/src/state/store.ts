@@ -398,7 +398,7 @@ export function createAppStore(
       // （PR #398 の Codex レビュー）。
       //
       // **遷移はしない。** 戻る操作の後始末（watchSearchAbandon）では既にブラウザが
-      // 済ませており、デスクトップのシェルのタブでは呼び手が続けて1回だけ遷移する
+      // 済ませており、デスクトップのシェルのロゴでは呼び手が続けて1回だけ遷移する
       // ——ここで home へ動くと、その2本が競合する（PR #407 の Codex レビュー）。
       set({ routePhase: null });
     },

@@ -65,40 +65,42 @@ describe('DesktopShell', () => {
     expect(screen.getByText('ホーム本文')).toBeDefined();
   });
 
-  // 一覧を完全一致で押さえる。設定タブは #427 で設定画面ごと撤去した。
-  it('デスクトップ幅では上部バーと「ルートを計画」のタブだけを画面の上に出す', () => {
+  // タブは #432 で撤去した。押せるのはロゴ（と名前）の home への導線だけ。
+  it('デスクトップ幅では上部バーを画面の上に出し、押せるのはロゴだけ', () => {
     stubViewport(true);
 
     renderShell([screenPath[Screen.home]]);
 
     const banner = screen.getByRole('banner');
     expect(
-      within(banner).getAllByRole('button').map((b) => b.textContent),
-    ).toEqual(['ルートを計画']);
+      within(banner).getAllByRole('button').map((b) => b.getAttribute('aria-label')),
+    ).toEqual(['あるく ホームへ戻る']);
     expect(screen.getByText('ホーム本文')).toBeDefined();
   });
 
-  it.each([Screen.home, Screen.search])(
-    '%s では「ルートを計画」を現在地として示す',
-    (at) => {
-      stubViewport(true);
-
-      renderShell([screenPath[Screen.home], screenPath[at]]);
-
-      expect(
-        screen.getByRole('button', { name: 'ルートを計画' }).getAttribute('aria-current'),
-      ).toBe('page');
-    },
-  );
-
-  it('子の画面でタブを押すと home へ移る', async () => {
+  it('子の画面でロゴを押すと home へ移る', async () => {
     stubViewport(true);
     const { router } = renderShell([screenPath[Screen.home], screenPath[Screen.search]]);
 
-    screen.getByRole('button', { name: 'ルートを計画' }).click();
+    screen.getByRole('button', { name: 'あるく ホームへ戻る' }).click();
 
     expect(await screen.findByText('ホーム本文')).toBeDefined();
     expect(router.state.location.pathname).toBe(screenPath[Screen.home]);
+  });
+
+  it('待ち画面からロゴを押すと、検索を打ち切って home へ降りる', async () => {
+    stubViewport(true);
+    const { store, router } = renderShell([
+      screenPath[Screen.home],
+      screenPath[Screen.loading],
+    ]);
+    store.setState({ routePhase: RoutePhase.routing });
+
+    screen.getByRole('button', { name: 'あるく ホームへ戻る' }).click();
+
+    expect(await screen.findByText('ホーム本文')).toBeDefined();
+    expect(router.state.location.pathname).toBe(screenPath[Screen.home]);
+    expect(store.getState().routePhase).toBeNull();
   });
 
   it('画面が移ったら本文のスクロール位置を先頭へ戻す', async () => {
@@ -111,10 +113,10 @@ describe('DesktopShell', () => {
     // 機構そのものを見る。
     stubViewport(true);
     const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
-    renderShell([screenPath[Screen.home], screenPath[Screen.search]]);
+    const { store } = renderShell([screenPath[Screen.home], screenPath[Screen.search]]);
     scrollTo.mockClear();
 
-    screen.getByRole('button', { name: 'ルートを計画' }).click();
+    store.getState().go(Screen.home);
 
     expect(await screen.findByText('ホーム本文')).toBeDefined();
     // 描画の確定と useEffect の実行は別の tick。findByText が前者を捉えた時点では
@@ -123,20 +125,5 @@ describe('DesktopShell', () => {
       expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
     });
     scrollTo.mockRestore();
-  });
-
-  it('待ち画面から「ルートを計画」を押すと、検索を打ち切って home へ降りる', async () => {
-    stubViewport(true);
-    const { store, router } = renderShell([
-      screenPath[Screen.home],
-      screenPath[Screen.loading],
-    ]);
-    store.setState({ routePhase: RoutePhase.routing });
-
-    screen.getByRole('button', { name: 'ルートを計画' }).click();
-
-    expect(await screen.findByText('ホーム本文')).toBeDefined();
-    expect(router.state.location.pathname).toBe(screenPath[Screen.home]);
-    expect(store.getState().routePhase).toBeNull();
   });
 });

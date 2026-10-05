@@ -17,7 +17,6 @@ import { PickerMode, TimeValue } from '@aruku/engine/models/time-value';
 import { budgetMinutes } from '@aruku/engine/services/route-plan-builder';
 
 import { privacyPolicyUrl, termsOfServiceUrl } from '../../config';
-import { todayGreeting } from '../../i18n/format';
 import { useIsDesktop } from '../../layout/use-is-desktop';
 import { useInitialLocation } from '../../location/use-initial-location';
 import { ja } from '../../i18n/ja';
@@ -95,8 +94,7 @@ export function HomeScreen({
     <main className="mx-auto flex min-h-(--screen-min-height) max-w-[620px] flex-col gap-3 px-5 pt-2 pb-9">
       <header className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-semibold text-ink-2">{todayGreeting(now())}</p>
-          <h1 className="mt-0.5 text-[26px] leading-[1.15] font-extrabold tracking-[-0.01em]">
+          <h1 className="text-[26px] leading-[1.15] font-extrabold tracking-[-0.01em]">
             {ja.homeGreetingLead}
             <span className="text-moss-600">
               {ja.homeGreetingHighlight}

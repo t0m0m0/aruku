@@ -9,17 +9,14 @@
 export const ja = {
   appTitle: 'あるく',
 
+  /// デスクトップ幅の上部バーのロゴ。見えている「あるく」を名前の頭に含める
+  /// （見た目の文字で音声操作できるように）。
+  shellHome: 'あるく ホームへ戻る',
+
   /// アイコンボタンの待ち表示の既定文言。呼び出し側が具体的に言えるなら上書きする。
   busyDefault: '処理中',
 
-  /// デスクトップ幅の共通シェルのタブ。ハンドオフにある「記録」タブは歩数に依る
-  /// ので作らない（#386）。
-  shellTabPlan: 'ルートを計画',
-
   weekdays: ['月', '火', '水', '木', '金', '土', '日'],
-  greetingMorning: 'おはようございます',
-  greetingAfternoon: 'こんにちは',
-  greetingEvening: 'こんばんは',
 
   homeGreetingLead: '今日も、',
   homeGreetingHighlight: '歩こう。',

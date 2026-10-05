@@ -24,7 +24,8 @@ test('デスクトップ幅では上部バーが出る', async ({ page }) => {
   await page.goto('/');
 
   await expect(page.getByRole('banner')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'ルートを計画' })).toBeVisible();
+  await expect(page.getByRole('banner').getByRole('button')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'あるく ホームへ戻る' })).toBeVisible();
 });
 
 test('モバイル幅では上部バーが出ない', async ({ page }) => {
@@ -55,24 +56,24 @@ test('幅を狭めるとモバイル UI へ戻る', async ({ page }) => {
   await expect(page.getByRole('banner')).toHaveCount(0);
 });
 
-test('結果画面からタブで home へ戻っても履歴は [home, 子] のまま', async ({
+test('結果画面からロゴで home へ戻っても履歴は [home, 子] のまま', async ({
   page,
   upstream,
 }) => {
-  // タブは go() を通る。通さずに router.navigate を直に呼ぶと、子から home への
+  // ロゴは go() を通る。通さずに router.navigate を直に呼ぶと、子から home への
   // pop が push になり、履歴が伸びる（navigator.ts）。
   expect(upstream.unmatched).toEqual([]);
   await page.setViewportSize(desktop);
   await goToResult(page);
   const atResult = await page.evaluate(() => window.history.length);
 
-  await page.getByRole('button', { name: 'ルートを計画' }).click();
+  await page.getByRole('button', { name: 'あるく ホームへ戻る' }).click();
   await expect(page).toHaveURL(/\/home$/);
 
   expect(await page.evaluate(() => window.history.length)).toBe(atResult);
 });
 
-test('待ち画面からタブで home へ降りると、探索の完了で引き戻されない', async ({
+test('待ち画面からロゴで home へ降りると、探索の完了で引き戻されない', async ({
   page,
   upstream,
 }) => {
@@ -95,7 +96,7 @@ test('待ち画面からタブで home へ降りると、探索の完了で引�
   await page.getByRole('button', { name: 'ルートを検索' }).click();
   await expect(page).toHaveURL('/home/loading');
 
-  await page.getByRole('button', { name: 'ルートを計画' }).click();
+  await page.getByRole('button', { name: 'あるく ホームへ戻る' }).click();
 
   await expect(page).toHaveURL('/home');
   // 上流の遅延より長く見る。
