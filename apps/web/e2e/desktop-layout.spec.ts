@@ -30,6 +30,23 @@ test('モバイル幅の home は設定ボタンを出す', async ({ page }) => 
   await expect(page.getByRole('button', { name: '設定を開く' })).toBeVisible();
 });
 
+for (const [name, viewport] of [
+  ['デスクトップ幅', desktop],
+  ['モバイル幅', mobile],
+] as const) {
+  test(`${name}の home は法的情報のリンクを CTA の下に出す`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+
+    const legal = page.getByRole('navigation', { name: '法的情報' });
+    await expect(legal.getByRole('link', { name: '利用規約' })).toBeVisible();
+    await expect(legal.getByRole('link', { name: 'プライバシーポリシー' })).toBeVisible();
+
+    const cta = await box(page.getByRole('button', { name: '目的地を選ぶ' }));
+    expect((await box(legal)).y).toBeGreaterThanOrEqual(cta.y + cta.height);
+  });
+}
+
 test('デスクトップ幅の設定は本文を 760px で中央へ寄せる', async ({ page }) => {
   await page.setViewportSize(desktop);
   await page.goto('/');

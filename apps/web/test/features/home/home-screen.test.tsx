@@ -6,7 +6,7 @@
 // ボタンは読み上げ名で引く。名前はラベルと現在値から組み上がるので、期待値が
 // そのまま「スクリーンリーダーがどう読むか」の仕様になる。
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { StoreApi } from 'zustand/vanilla';
@@ -115,6 +115,24 @@ describe('ホームの見出し', () => {
     const heading = screen.getByRole('heading', { level: 1 });
 
     expect(heading.textContent).toBe('今日も、歩こう。');
+  });
+
+  // 期待値を config の定数から取らない。取ると、定数がプレースホルダ
+  // （example.com）のままでも緑になる——#281 で実際にそうだった。
+  it.each([
+    ['利用規約', '/terms'],
+    ['プライバシーポリシー', '/privacy'],
+  ])('法的情報の%sは自サイトのページを新しいタブで開く', (name, url) => {
+    setup();
+
+    const legal = screen.getByRole('navigation', { name: '法的情報' });
+    const link = within(legal).getByRole('link', { name });
+
+    expect(link.getAttribute('href')).toBe(url);
+    expect(link.getAttribute('target')).toBe('_blank');
+    // target=_blank の暗黙の noopener に頼らない。rel を明示しない <a> は、
+    // 古い実装では開いた先から window.opener 経由でこちらを操作できる。
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
   });
 
   it('設定へ行ける', () => {
@@ -367,6 +385,15 @@ describe('時刻フィールド', () => {
 describe('デスクトップ幅の目的地', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it('法的情報のリンクはこの幅でも出る', () => {
+    stubViewport(true);
+    setup();
+
+    expect(
+      within(screen.getByRole('navigation', { name: '法的情報' })).getAllByRole('link').map((a) => a.textContent),
+    ).toEqual(['利用規約', 'プライバシーポリシー']);
   });
 
   it('全画面の検索へ飛ばさず、その場で打てる欄を出す', () => {

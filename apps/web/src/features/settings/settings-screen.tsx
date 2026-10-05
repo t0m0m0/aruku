@@ -54,8 +54,8 @@ export function SettingsScreen({ store }: SettingsScreenProps) {
       </SettingsSection>
 
       <SettingsSection title={ja.settingsLegalSection}>
-        <LegalLink label={ja.settingsTermsOfService} href={termsOfServiceUrl} />
-        <LegalLink label={ja.settingsPrivacyPolicy} href={privacyPolicyUrl} />
+        <LegalLink label={ja.legalTermsOfService} href={termsOfServiceUrl} />
+        <LegalLink label={ja.legalPrivacyPolicy} href={privacyPolicyUrl} />
       </SettingsSection>
     </main>
   );

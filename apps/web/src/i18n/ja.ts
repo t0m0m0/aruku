@@ -36,6 +36,10 @@ export const ja = {
   homeWalkableSuffix: ' 歩ける',
   homeSearchRoute: 'ルートを検索',
 
+  legalSection: '法的情報',
+  legalTermsOfService: '利用規約',
+  legalPrivacyPolicy: 'プライバシーポリシー',
+
   /// 時刻・日付の入力欄の読み上げ名。移植元 app_ja.arb の `timeField*`（プレースホルダ
   /// 付きメッセージ）に当たる。gen-l10n が生成していた関数をここでは直に書く。
   timeFieldTime: (label: string) => `${label}の時刻`,
@@ -76,8 +80,6 @@ export const ja = {
   /// ——Web では通知そのものを作らないため、権限も存在しない。
   settingsPermissionsNote: '位置情報の権限はブラウザのサイト設定から変更してください',
   settingsLegalSection: '法的情報',
-  settingsTermsOfService: '利用規約',
-  settingsPrivacyPolicy: 'プライバシーポリシー',
 
   searchOriginHint: '出発地を検索',
   searchDestinationHint: '目的地を検索',

@@ -16,6 +16,7 @@ import type { StoreApi } from 'zustand/vanilla';
 import { PickerMode, TimeValue } from '@aruku/engine/models/time-value';
 import { budgetMinutes } from '@aruku/engine/services/route-plan-builder';
 
+import { privacyPolicyUrl, termsOfServiceUrl } from '../../config';
 import { todayGreeting } from '../../i18n/format';
 import { useIsDesktop } from '../../layout/use-is-desktop';
 import { useInitialLocation } from '../../location/use-initial-location';
@@ -243,6 +244,13 @@ export function HomeScreen({
         {destination !== null ? <RoutesIcon size={20} /> : <SearchIcon size={19} />}
         {ctaLabel(destination, onStartSearch)}
       </Button>
+
+      {/* <footer> にしない。<main> の中の <footer> は実ブラウザでは contentinfo の
+          ランドマークにならず（jsdom はなる）、読み上げから辿れない。 */}
+      <nav className="flex justify-center gap-4" aria-label={ja.legalSection}>
+        <LegalLink label={ja.legalTermsOfService} href={termsOfServiceUrl} />
+        <LegalLink label={ja.legalPrivacyPolicy} href={privacyPolicyUrl} />
+      </nav>
     </main>
   );
 }
@@ -263,4 +271,19 @@ function ctaLabel(
 }
 
 function noop(): void {}
+
+function LegalLink({ label, href }: { label: string; href: string }) {
+  return (
+    // rel は target=_blank の暗黙の noopener に任せない。明示しない <a> は、開いた先から
+    // window.opener 越しにこちらを操作できる実装が残っている。
+    <a
+      className="inline-flex min-h-tap-min items-center px-1 text-[12px] font-semibold text-ink-3 underline-offset-2 hover:underline"
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      {label}
+    </a>
+  );
+}
 
