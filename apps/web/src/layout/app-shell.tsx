@@ -62,7 +62,9 @@ export function AppShell({ store }: AppShellProps) {
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-ivory">
       <header className="h-16 flex-none border-b border-hairline bg-paper">
-        <div className="mx-auto flex h-full max-w-[1280px] items-center gap-5 px-5 desktop:px-6">
+        {/* ハンドオフの 1280px 中央寄せにしない。本文は画面ごとに幅が違うので、
+            ロゴだけが広い画面で宙に浮いて見えた。 */}
+        <div className="flex h-full items-center gap-5 px-5 desktop:px-6">
           {/* <a href> にしない。遷移は go() を通す——router を直に動かすと、子から
               home への pop が push になって履歴が伸びる（navigator.ts）。 */}
           <button

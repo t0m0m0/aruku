@@ -42,6 +42,14 @@ for (const [name, viewport] of [
   });
 }
 
+test('広い画面でもロゴは中央へ寄らず左端に付く', async ({ page }) => {
+  await page.setViewportSize({ width: 1960, height: 900 });
+  await page.goto('/');
+
+  const logo = await page.getByRole('button', { name: 'あるく ホームへ戻る' }).boundingBox();
+  expect(logo?.x).toBeLessThanOrEqual(24);
+});
+
 test('幅を狭めても上部バーは残る', async ({ page }) => {
   await page.setViewportSize(desktop);
   await page.goto('/');
