@@ -268,6 +268,19 @@ describe('ホームの時刻', () => {
     expect((screen.getByLabelText('到着の時刻') as HTMLInputElement).value).toBe('10:30');
   });
 
+  // 押せない › が ◀▶ のステッパーと並ぶと、押せる矢印と見分けがつかない。
+  it('矢印はステッパーのボタンにだけ出て、出発と到着の間に区切りの矢印を置かない', () => {
+    for (const desktop of [false, true]) {
+      stubViewport(desktop);
+      setup({});
+      const section = screen.getByLabelText('出発の時刻').closest('section')!;
+      const chevrons = section.querySelectorAll('path[d="M9 6l6 6-6 6"]');
+      for (const chevron of chevrons) expect(chevron.closest('button')).not.toBeNull();
+      cleanup();
+    }
+    vi.unstubAllGlobals();
+  });
+
   it('予算は出発と到着の差から出す', () => {
     setup({
       departure: new TimeValue({ h: 9, m: 0 }),
