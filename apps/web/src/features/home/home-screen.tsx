@@ -25,7 +25,6 @@ import { Screen } from '../../navigation/screens';
 import { Button } from '../../shared/ui/button';
 import { IconHitButton } from '../../shared/icon-hit-button';
 import {
-  ChevronIcon,
   ClockIcon,
   CompassIcon,
   PinIcon,
@@ -186,16 +185,13 @@ export function HomeScreen({
             {ja.homeWalkableSuffix}
           </span>
         </h2>
-        <div className="flex items-stretch rounded-md border border-border bg-card p-1.5">
+        <div className="flex items-stretch gap-7 rounded-md border border-border bg-card p-1.5">
           <TimeField
             store={store}
             mode={PickerMode.depart}
             label={ja.homeDepartureLabel}
             now={now}
           />
-          <span className="flex w-7 items-center text-ink-3" aria-hidden="true">
-            <ChevronIcon size={14} />
-          </span>
           <TimeField
             store={store}
             mode={PickerMode.arrival}
