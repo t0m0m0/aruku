@@ -110,14 +110,23 @@ describe('ホームの見出し', () => {
     expect(screen.queryByText(/9月11日 \(金\) · /)).toBeNull();
   });
 
-  // 挨拶の見出しは #439 で外した。それでも h1 を消すと、見出しで辿る読者が最初に
-  // 出会うのは従属セクションの「時間」（h2）になる。
-  it('主見出しは見出しレベル1のアプリ名で、挨拶は出さない', () => {
+  // 入力欄の形は普通の乗換案内と同じなので、何も書かないと最短経路を探す
+  // アプリだと読まれ、遠回りの結果が不具合に見える（#445）。
+  it('主見出しは見出しレベル1で、最短ではなく歩くルートを出すアプリだと見せる', () => {
     setup();
 
     const heading = screen.getByRole('heading', { level: 1 });
 
-    expect(heading.textContent).toBe('あるく');
+    expect(heading.textContent).toBe('間に合う範囲でいちばん歩くルート');
+    expect(heading.className).not.toContain('sr-only');
+    expect(
+      screen.getByText('最短ルートではなく、時間いっぱい歩けるようなルートを提示します'),
+    ).toBeDefined();
+  });
+
+  it('挨拶は出さない', () => {
+    setup();
+
     expect(screen.queryByText(/歩こう/)).toBeNull();
   });
 
@@ -258,6 +267,18 @@ describe('ホームの時刻', () => {
     expect(screen.getByText('1時間 30分')).toBeDefined();
   });
 
+  // 予算はちょうど使い切る量ではなく、歩ける上限。
+  it('予算は歩ける上限として読ませる', () => {
+    setup({
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 10, m: 30 }),
+    });
+
+    expect(screen.getByText('1時間 30分').parentElement?.textContent).toBe(
+      '最大 1時間 30分 歩ける',
+    );
+  });
+
   // 日跨ぎ。dateOffset を無視すると予算が負になり「— 」に化ける。
   it('日を跨ぐ到着でも予算が出て、日付が添う', () => {
     setup({
@@ -291,7 +312,7 @@ describe('ホームの CTA', () => {
       { onStartSearch },
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'ルートを検索' }));
+    fireEvent.click(screen.getByRole('button', { name: '歩けるルートを探す' }));
 
     expect(onStartSearch).toHaveBeenCalledOnce();
     expect(navigate).not.toHaveBeenCalled();
@@ -321,7 +342,7 @@ describe('経路検索が未配線のときの CTA', () => {
     const onStartSearch = vi.fn();
     setup({ destination: '渋谷駅' }, { onStartSearch });
 
-    fireEvent.click(screen.getByRole('button', { name: 'ルートを検索' }));
+    fireEvent.click(screen.getByRole('button', { name: '歩けるルートを探す' }));
 
     expect(onStartSearch).toHaveBeenCalledOnce();
   });

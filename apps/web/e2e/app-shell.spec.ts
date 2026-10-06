@@ -89,7 +89,7 @@ test('待ち画面からロゴで home へ降りると、探索の完了で引�
   await page.goto('/');
   await page.getByRole('combobox', { name: '目的地を検索' }).fill('テスト');
   await page.getByRole('option', { name: /テスト公園/ }).click();
-  await page.getByRole('button', { name: 'ルートを検索' }).click();
+  await page.getByRole('button', { name: '歩けるルートを探す' }).click();
   await expect(page).toHaveURL('/home/loading');
 
   await page.getByRole('button', { name: 'あるく ホームへ戻る' }).click();

@@ -27,7 +27,7 @@ test('打って ↓ と Enter だけで目的地が決まり、画面は動か�
   await expect(page).toHaveURL('/home');
 
   // 条件が揃ったので CTA が検索になる。
-  await expect(page.getByRole('button', { name: 'ルートを検索' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '歩けるルートを探す' })).toBeVisible();
   expect(upstream.places.length).toBeGreaterThan(0);
 });
 
@@ -76,7 +76,7 @@ test('IME の変換中の Enter で目的地が決まらない', async ({ page, 
   await page.keyboard.press('Enter');
 
   // 変換の確定であって候補の決定ではない。目的地はまだ決まらない。
-  await expect(page.getByRole('button', { name: 'ルートを検索' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '歩けるルートを探す' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '目的地を選ぶ' })).toBeVisible();
 });
 

@@ -15,13 +15,18 @@ export const ja = {
 
   weekdays: ['月', '火', '水', '木', '金', '土', '日'],
 
+  homeTagline: '間に合う範囲でいちばん歩くルート',
+  homeTaglineDescription:
+    '最短ルートではなく、時間いっぱい歩けるようなルートを提示します',
+
   homeDepartureLabel: '出発',
   homeArrivalLabel: '到着',
   homeDestinationLabel: '目的地',
   homeDestinationPlaceholder: 'どこへ歩く?',
   homeTimeSectionLabel: '時間',
+  homeWalkablePrefix: '最大 ',
   homeWalkableSuffix: ' 歩ける',
-  homeSearchRoute: 'ルートを検索',
+  homeSearchRoute: '歩けるルートを探す',
 
   legalSection: '法的情報',
   legalTermsOfService: '利用規約',

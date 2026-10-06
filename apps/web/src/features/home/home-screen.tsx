@@ -88,9 +88,14 @@ export function HomeScreen({
 
   return (
     <main className="mx-auto flex min-h-(--screen-min-height) max-w-[620px] flex-col gap-3 px-5 pt-5 pb-9">
-      {/* 見える見出しは置かない（挨拶は #439 で外した）。h1 まで消すと、見出しで
-          辿る読者が最初に出会うのが従属セクションの「時間」（h2）になる。 */}
-      <h1 className="sr-only">{ja.appTitle}</h1>
+      <header className="px-1 pt-1 pb-2">
+        <h1 className="text-[20px] leading-snug font-extrabold text-ink">
+          {ja.homeTagline}
+        </h1>
+        <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
+          {ja.homeTaglineDescription}
+        </p>
+      </header>
 
       <section className="relative rounded-[22px] border border-border bg-card px-3.5 py-1.5 shadow-card-subtle">
         {/* 出発点と目的地を結ぶ線。端の印は各行の欄の高さの中央へ合わせる。 */}
@@ -156,6 +161,7 @@ export function HomeScreen({
             {ja.homeTimeSectionLabel}
           </span>
           <span className="text-end font-semibold tracking-normal">
+            {ja.homeWalkablePrefix}
             <span className="font-extrabold text-moss-600">
               {TimeValue.formatBudget(budgetMinutes(departure, arrival))}
             </span>

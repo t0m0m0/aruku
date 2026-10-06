@@ -51,7 +51,7 @@ test('現在地から目的地を選んで経路を出す', async ({ page, upstr
   await expect(page).toHaveURL('/home');
   await expect(page.getByRole('button', { name: '目的地 テスト公園' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'ルートを検索' }).click();
+  await page.getByRole('button', { name: '歩けるルートを探す' }).click();
 
   await expect(page).toHaveURL('/home/result');
 
@@ -77,7 +77,7 @@ test('上流へ渡す照会の中身が、画面で選んだ地点と一致す�
   await page.getByRole('button', { name: '目的地 どこへ歩く?' }).click();
   await page.getByRole('searchbox', { name: '目的地を検索' }).fill('テスト公園');
   await page.getByRole('button', { name: /^テスト公園 / }).click();
-  await page.getByRole('button', { name: 'ルートを検索' }).click();
+  await page.getByRole('button', { name: '歩けるルートを探す' }).click();
   await expect(page).toHaveURL('/home/result');
 
   // 目的地の座標は autocomplete では返らず、確定時の details で補う2段フロー。
