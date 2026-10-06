@@ -115,6 +115,9 @@ export const ja = {
   resultMetricCalories: '消費カロリー',
   resultOverBudgetHint:
     '時間内に到達できる経路がないため、最短の経路を表示しています',
+  /// ふつうの乗換ルートとの比較（#445）。ホームの説明文の「最短ルートではなく」と
+  /// 言葉を揃えないのは、「最短」が最短距離や徒歩だけの最短とも読めるため。
+  resultStandardLead: 'ふつうの乗換ルートより',
   resultSegmentsHeading: '区間',
   resultWalkLabel: '徒歩',
   resultTrainDefaultLabel: '電車',
@@ -185,4 +188,12 @@ export function resultSegmentDuration(minutes: number): DurationPart[] {
 /// 割っていたが、色も字体も同じで割る理由が無かったため 1 本にしている。
 export function resultLegKcal(kcal: number): string {
   return `+${kcal} kcal`;
+}
+
+export function resultExtraWalk(duration: string): string {
+  return `+${duration} 多く歩ける`;
+}
+
+export function resultStandardDetail(arrival: string, walkMinutes: number): string {
+  return `ふつうの乗換：${arrival} 着（徒歩 ${walkMinutes}分）`;
 }
