@@ -5,6 +5,7 @@ import {
   RouteSegment,
   SegmentType,
   TimelineNode,
+  type StandardTransitSummary,
 } from '../models/route-plan';
 import type { TimeValue } from '../models/time-value';
 import { differenceInMinutes } from '../time';
@@ -271,6 +272,8 @@ export interface BuildRoutePlanArgs {
   /// 出発の絶対時刻（時刻表データとの差で待ち時間を算出する基点）。
   /// 省略時は時刻表を使わず累積所要分でタイムラインを組む。
   departureAt?: Date | null;
+
+  standardTransit?: StandardTransitSummary | null;
 }
 
 /// 区間列から RoutePlan を構築する（合計距離・徒歩距離・kcal・徒歩比率・
@@ -372,5 +375,6 @@ export function buildRoutePlan(args: BuildRoutePlanArgs): RoutePlan {
     walkRatio: totalKm === 0 ? 0 : walkKm / totalKm,
     segments,
     timelineNodes: nodes,
+    standardTransit: args.standardTransit ?? null,
   });
 }

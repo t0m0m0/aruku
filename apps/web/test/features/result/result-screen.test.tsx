@@ -62,6 +62,7 @@ function plan(overrides: Partial<RoutePlan> = {}): RoutePlan {
     walkRatio: 0.79,
     segments: [segment()],
     timelineNodes: nodes(['現在地', '出発'], ['渋谷駅', '到着']),
+    standardTransit: null,
     ...overrides,
   } as RoutePlan;
 }
@@ -147,6 +148,76 @@ describe('予算の超過', () => {
     fireEvent.click(screen.getByRole('button', { name: '条件を変更' }));
 
     expect(navigate).toHaveBeenCalledWith(screenPath[Screen.home]);
+  });
+});
+
+// 遠回りに見える結果を「ふつうに検索した経路よりこれだけ多く歩ける」として読ませる（#445）。
+describe('ふつうの乗換ルートとの比較', () => {
+  // 確定経路の徒歩は 25分 + 8分 = 33分。
+  const walked = [
+    segment({ minutes: 25 }),
+    segment({ type: SegmentType.train, minutes: 10, km: 4 }),
+    segment({ minutes: 8 }),
+  ];
+
+  it('多く歩ける分と、比べた相手の到着・徒歩を出す', () => {
+    setup({
+      route: plan({ segments: walked, standardTransit: { walkMinutes: 10, totalMin: 41 } }),
+    });
+
+    expect(screen.getByText('ふつうの乗換ルートより')).toBeTruthy();
+    expect(screen.getByText('+23分 多く歩ける')).toBeTruthy();
+    // 出発 12:00 の 41分後。
+    expect(screen.getByText('ふつうの乗換：12:41 着（徒歩 10分）')).toBeTruthy();
+  });
+
+  it('差が1時間を超えれば時間で出す', () => {
+    setup({
+      route: plan({
+        segments: [segment({ minutes: 80 })],
+        standardTransit: { walkMinutes: 10, totalMin: 41 },
+      }),
+    });
+
+    expect(screen.getByText('+1時間 10分 多く歩ける')).toBeTruthy();
+  });
+
+  // 比べた相手の徒歩は上流の見積りのままで、確定経路は街路実測。数分の差は誤差と
+  // 見分けられない。
+  it('差が5分に満たなければ出さない', () => {
+    setup({
+      route: plan({ segments: walked, standardTransit: { walkMinutes: 29, totalMin: 41 } }),
+    });
+
+    expect(screen.queryByText('ふつうの乗換ルートより')).toBeNull();
+  });
+
+  it('差がちょうど5分なら出す', () => {
+    setup({
+      route: plan({ segments: walked, standardTransit: { walkMinutes: 28, totalMin: 41 } }),
+    });
+
+    expect(screen.getByText('+5分 多く歩ける')).toBeTruthy();
+  });
+
+  it('比べる経路が無ければ出さない', () => {
+    setup({ route: plan({ segments: walked, standardTransit: null }) });
+
+    expect(screen.queryByText('ふつうの乗換ルートより')).toBeNull();
+  });
+
+  // 超過時は最短へ縮退した経路を出している。歩けた量を誇る場面ではない。
+  it('予算を超えていれば出さない', () => {
+    setup({
+      route: plan({
+        segments: walked,
+        budgetMin: 60,
+        totalMin: 75,
+        standardTransit: { walkMinutes: 10, totalMin: 41 },
+      }),
+    });
+
+    expect(screen.queryByText('ふつうの乗換ルートより')).toBeNull();
   });
 });
 

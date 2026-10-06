@@ -7,6 +7,7 @@ import {
   RouteSegment,
   SegmentType,
   type RoutePlan,
+  type StandardTransitSummary,
 } from '../models/route-plan';
 import type { TimeValue } from '../models/time-value';
 import { decodePolyline } from '../polyline';
@@ -239,6 +240,8 @@ export class TransitRouteService implements SearchEngine {
         // option には出自欄が無いのでインスタンス同一性で追う（合流も `basesForHybrid` も
         // インスタンスをそのまま持ち回るので保たれる）。
         arrivalWaveOptions: new Set(wave.fresh),
+        // 第2波を混ぜない。締切から逆算した便は、ふつうに検索して出る経路ではない。
+        standardTransit: this.standardTransitOf(options, departureAt),
       },
     );
 
@@ -321,6 +324,7 @@ export class TransitRouteService implements SearchEngine {
       onProgress?: (phase: RoutePhase) => void;
       fromName: string | null;
       toName: string | null;
+      standardTransit: StandardTransitSummary | null;
     },
   ): Promise<RoutePlan> {
     const { origin, goal, metrics, arrivalWaveOptions } = ctx;
@@ -701,6 +705,7 @@ export class TransitRouteService implements SearchEngine {
     return this.build(named, departure, budgetMin, ctx.onProgress, {
       fromName: ctx.fromName,
       toName: ctx.toName,
+      standardTransit: ctx.standardTransit,
     });
   }
 
@@ -1823,17 +1828,22 @@ export class TransitRouteService implements SearchEngine {
     departure: TimeValue,
     budgetMin: number,
     onProgress: ((phase: RoutePhase) => void) | undefined,
-    names: { fromName: string | null; toName: string | null },
+    extras: {
+      fromName: string | null;
+      toName: string | null;
+      standardTransit: StandardTransitSummary | null;
+    },
   ): RoutePlan {
     onProgress?.(RoutePhase.building);
     const departureAt = this.departureDateTime(departure);
     return buildRoutePlan({
-      from: displayName(names.fromName, chosen.from),
-      to: displayName(names.toName, chosen.to),
+      from: displayName(extras.fromName, chosen.from),
+      to: displayName(extras.toName, chosen.to),
       segments: chosen.segments,
       departure,
       budgetMin,
       departureAt,
+      standardTransit: extras.standardTransit,
     });
   }
 
@@ -2052,16 +2062,44 @@ export class TransitRouteService implements SearchEngine {
   /// 判定に [hasUnverifiedTransit] を使わないのは、あれが「その便が走っているか」だけを
   /// 問う（depTime のみ見る）から。**必要なのは実在の確認ではなく、到着を計算できることの確認。**
   private comparableFrom(options: TransitOption[], at: Date): TransitOption[] {
-    const comparable = options.filter(
-      (o) =>
-        o.segments.every(hasUsableTimes) &&
-        firstMissedTransit(o.segments, at) === null,
-    );
+    const comparable = options.filter((o) => this.isComparable(o, at));
     if (comparable.length > 0) return comparable;
     // 1本も無いときは**先頭だけ**返す（従来の挙動）。全部返して呼び出し側に選ばせると、
     // 到着を信じられないと判定した便をその到着で順位付けすることになり、負の所要で到着が
     // 手前へ戻る便が勝つ——「必ず現状以上」（#343）の保証が破れる。
     return options.length === 0 ? options : [options[0]];
+  }
+
+  /// [comparableFrom] の条件。
+  private isComparable(o: TransitOption, at: Date): boolean {
+    return (
+      o.segments.every(hasUsableTimes) &&
+      firstMissedTransit(o.segments, at) === null
+    );
+  }
+
+  /// ふつうの乗換ルート（#445）＝[at] 発で到着が最も早い、乗り物を含む option の要約。
+  ///
+  /// [earliestArrival] を使わないのは、比べられる便が無いとき先頭へ縮退するから。選定では
+  /// 「必ず現状以上」のための縮退だが、表示の基準に到着を信じられない便を据えると、
+  /// 「ふつうより◯分多く歩ける」の差そのものが作り話になる。
+  private standardTransitOf(
+    options: TransitOption[],
+    at: Date,
+  ): StandardTransitSummary | null {
+    let best: StandardTransitSummary | null = null;
+    for (const o of options) {
+      if (o.segments.every((s) => s.type === SegmentType.walk)) continue;
+      if (!this.isComparable(o, at)) continue;
+      const totalMin = arrivalMinutes(o.segments, at);
+      if (best === null || totalMin < best.totalMin) {
+        best = {
+          walkMinutes: new RouteCandidate(o).walkMinutes,
+          totalMin,
+        };
+      }
+    }
+    return best;
   }
 
   /// 引き直しの応答から、[at] 発で**到着が最も早い** option を選ぶ（同着は上流の並び順）。

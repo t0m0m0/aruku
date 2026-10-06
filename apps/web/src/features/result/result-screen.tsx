@@ -10,13 +10,20 @@
 import { useStore } from 'zustand';
 import type { StoreApi } from 'zustand/vanilla';
 
+import {
+  SegmentType,
+  type RoutePlan,
+} from '@aruku/engine/models/route-plan';
 import { TimeValue } from '@aruku/engine/models/time-value';
+import { formatClock } from '@aruku/engine/services/route-plan-builder';
 
 import {
   ja,
   resultBudgetSummary,
   resultDepartureLabel,
+  resultExtraWalk,
   resultOverBudgetTitle,
+  resultStandardDetail,
   resultWalkRatioLabel,
 } from '../../i18n/ja';
 import { ArukuMap } from '../../map/aruku-map';
@@ -105,6 +112,10 @@ export function ResultScreen({ store }: ResultScreenProps) {
         className="flex min-h-0 flex-1 flex-col gap-3.5 desktop:[grid-area:2/1] desktop:overflow-y-auto desktop:border-r desktop:border-hairline desktop:bg-paper desktop:px-[18px] desktop:py-3.5"
         data-testid="result-panel"
       >
+        {!overBudget && (
+          <ExtraWalkSummary route={route} departure={departure} />
+        )}
+
         <section className="grid grid-cols-3 gap-2 rounded-md border border-border bg-card px-3.5 py-4">
           <Metric
             label={ja.resultMetricDuration}
@@ -164,5 +175,40 @@ function Metric({ label, value }: { label: string; value: string }) {
       <span className="text-[11px] font-semibold text-ink-3">{label}</span>
       <span className="tabular text-[17px] font-extrabold text-ink">{value}</span>
     </div>
+  );
+}
+
+/// ふつうの乗換ルートの徒歩は上流の見積りのままで、確定経路は街路実測（RoutePlan の
+/// standardTransit の注記）。これより小さい差は誤差と見分けられない。
+const minExtraWalkToShow = 5;
+
+function ExtraWalkSummary({
+  route,
+  departure,
+}: {
+  route: RoutePlan;
+  departure: TimeValue;
+}) {
+  const standard = route.standardTransit;
+  if (standard === null) return null;
+  const walkMinutes = route.segments
+    .filter((s) => s.type === SegmentType.walk)
+    .reduce((a, s) => a + s.minutes, 0);
+  const extra = walkMinutes - standard.walkMinutes;
+  if (extra < minExtraWalkToShow) return null;
+
+  return (
+    <section className="rounded-md bg-moss-50 px-4 py-3">
+      <p className="text-[12px] font-semibold text-moss-600">{ja.resultStandardLead}</p>
+      <p className="tabular text-[22px] font-extrabold text-moss-700">
+        {resultExtraWalk(TimeValue.formatBudget(extra))}
+      </p>
+      <p className="mt-0.5 text-[11px] font-medium text-ink-3">
+        {resultStandardDetail(
+          formatClock(departure, standard.totalMin),
+          standard.walkMinutes,
+        )}
+      </p>
+    </section>
   );
 }

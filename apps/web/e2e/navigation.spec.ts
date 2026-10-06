@@ -99,7 +99,7 @@ test('リロードで前提を失った結果画面からは、真下の home �
   await page.getByRole('button', { name: '目的地 どこへ歩く?' }).click();
   await page.getByRole('searchbox', { name: '目的地を検索' }).fill('テスト公園');
   await page.getByRole('button', { name: /^テスト公園 / }).click();
-  await page.getByRole('button', { name: 'ルートを検索' }).click();
+  await page.getByRole('button', { name: '歩けるルートを探す' }).click();
   await expect(page).toHaveURL('/home/result');
   expect(await appHistoryDepth(page)).toBe(2);
 

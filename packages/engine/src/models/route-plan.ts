@@ -124,6 +124,18 @@ export class TimelineNode {
   readonly cardBelow: boolean;
 }
 
+/// ふつうの乗換ルート（出発時刻で引いた経路のうち到着が最も早い1本）の要約（#445）。
+/// 「それより何分多く歩けるか」を見せるための表示専用の比較対象で、選定には使わない。
+///
+/// 徒歩分は Transit API の見積りのままで、確定経路のように街路実測で置き換えていない。
+/// 測り直すと検索1回ごとに Google への照会が増えるので見送った。差を読む側は数分の
+/// 誤差を織り込む。
+export interface StandardTransitSummary {
+  walkMinutes: number;
+  /// 出発からの到着までの分（[RoutePlan.totalMin] と同じ尺度）。
+  totalMin: number;
+}
+
 export interface RoutePlanInit {
   from: string;
   to: string;
@@ -135,6 +147,7 @@ export interface RoutePlanInit {
   walkRatio: number;
   segments: RouteSegment[];
   timelineNodes: TimelineNode[];
+  standardTransit?: StandardTransitSummary | null;
 }
 
 export class RoutePlan {
@@ -149,6 +162,7 @@ export class RoutePlan {
     this.walkRatio = init.walkRatio;
     this.segments = init.segments;
     this.timelineNodes = init.timelineNodes;
+    this.standardTransit = init.standardTransit ?? null;
   }
 
   readonly from: string;
@@ -161,4 +175,8 @@ export class RoutePlan {
   readonly walkRatio: number;
   readonly segments: RouteSegment[];
   readonly timelineNodes: TimelineNode[];
+
+  /// ふつうの乗換ルートの要約。null は比べられる経路が無い（乗れる便が無い・全徒歩の
+  /// データ源など）。
+  readonly standardTransit: StandardTransitSummary | null;
 }

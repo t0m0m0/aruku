@@ -113,7 +113,7 @@ test('デスクトップ幅の待ち画面は上部バーの下を地図で埋�
   await page.goto('/');
   await page.getByRole('combobox', { name: '目的地を検索' }).fill('テスト');
   await page.getByRole('option', { name: /テスト公園/ }).click();
-  await page.getByRole('button', { name: 'ルートを検索' }).click();
+  await page.getByRole('button', { name: '歩けるルートを探す' }).click();
   await expect(page).toHaveURL('/home/loading');
 
   const map = await box(page.getByTestId('loading-map'));

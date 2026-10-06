@@ -28,7 +28,7 @@ export async function goToResult(
     await page.getByRole('option', { name: /テスト公園/ }).click();
   }
 
-  await page.getByRole('button', { name: 'ルートを検索' }).click();
+  await page.getByRole('button', { name: '歩けるルートを探す' }).click();
   await expect(page).toHaveURL('/home/result');
 }
 
