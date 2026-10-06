@@ -7,8 +7,8 @@
 // 色は currentColor に寄せ、引数から落とした。移植元は Flutter に「継承される文字色」
 // が無いため色を必ず渡していたが、CSS では親の color が降りてくる。
 //
-// すべて aria-hidden。意味はラベル側が持つ（アイコンだけのボタンは _IconHit 相当の
-// 呼び出し側が aria-label を付ける）。
+// すべて aria-hidden。意味はラベル側が持つ（アイコンだけのボタンは呼び出し側が
+// aria-label を付ける）。
 
 interface IconProps {
   size?: number;
