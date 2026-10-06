@@ -133,7 +133,7 @@
 | `estimatedWalk` | 推定徒歩線（端点直線） | （徒歩区間） | — |
 
 - **`gtfsShape` フィードでは途中停車駅がどこにも無い**（`map.points` は乗降・乗換駅のみ、leg にも無い）。「停車駅＝polyline 頂点」を全フィードで前提にできない。
-- **geometrySource 非依存化:** 乗車地点 X は**厳密に停車駅である必要がない**。X の座標から `plan(X→goal)` を引き直せば API が最寄り駅にスナップして実在便を返すため。候補の母集合は **transit polyline 座標を間引きサンプリング**して作る（leg ごとに `maxCorridorStops` 点へ間引いてから連結するので、乗換を含む基準経路では総点数がこれを超える）。サンプリング座標は origin からの距離（≒前半徒歩 t1）で概ね単調に並ぶため、`maxWalkBoardingIndex` の単調性前提（§5）を満たす。
+- **geometrySource 非依存化:** 乗車地点 X は**厳密に停車駅である必要がない**。X の座標から `plan(X→goal)` を引き直せば API が最寄り駅にスナップして実在便を返すため。候補の母集合は **transit polyline 座標を間引きサンプリング**して作る（leg ごとに `maxCorridorStops` 点へ間引いてから連結するので、乗換を含む基準経路では総点数がこれを超える）。サンプリング座標は origin からの距離（≒前半徒歩 t1）で概ね単調に並ぶため、`maxWalkBoardingIndexParallel` の単調性前提（§5）を満たす。
 - **逆戻り判定は生の全頂点を使わない。** `gtfsShape` は乗車直後の一過性の後方カーブを含み得るため、判定は leg 端点＋均等サンプリング点で行い、コリドーの大局的な逆戻りのみを検出する（§4 逆戻りフィルタ）。
 
 ### 2.4 タイムアウトと締切の3層
@@ -236,7 +236,7 @@
 
 - **起動条件（崩壊判定 `isCollapse`）:** 確定（enrich 後＝乗れない hybrid 脱落後）が、(1) 予算内標準乗換の最大徒歩を僅少（`collapseWalkMarginMin`）しか上回らず、(2) 予算を大きく余らせている。両方を満たすときのみ。崩壊でなければ既存のハイブリッド／標準で足り、探索の往復を払わない。
   - **症状(2)の「大きく余る」は相対・絶対のいずれか:** 余りが予算の `collapseSlackRatio`（40%）**以上**、または余りが `collapseSlackMinutes`（20分）**以上**。相対比だけだと予算が大きいときに閾値へ届かず、絶対的には大きな余りでも徒歩最大化が silent に不達になる。
-- **探索（実測駆動の二分探索）:** 各地点 X から `/guidance/plan`(X→goal, `departureAt+t1`) を引き直し（X 発の自己整合な実在便なので構成上 `firstMissedTransit` が立たない）、「到着が予算内の最遠の乗車地点＝総徒歩最大」を `maxWalkBoardingIndex` / `maxWalkBoardingIndexParallel`（§5）で二分探索する。**前半徒歩 t1 は Google 実街路で実測して二分探索を駆動する**（`tryWalk`・`walkCache` 共有）。**直線推定で駆動してはならない**——直線は実街路に対し大きく楽観に倒れる（実機で -36分・25%）ため、二分探索が遠い地点へ収束し実街路では全滅する。実測駆動なら返す境界はそのまま予算内が保証された最遠地点で、採用後の enrich でも同一レッグはキャッシュヒットして到着が覆らない。
+- **探索（実測駆動の二分探索）:** 各地点 X から `/guidance/plan`(X→goal, `departureAt+t1`) を引き直し（X 発の自己整合な実在便なので構成上 `firstMissedTransit` が立たない）、「到着が予算内の最遠の乗車地点＝総徒歩最大」を `maxWalkBoardingIndexParallel`（§5）で二分探索する。**前半徒歩 t1 は Google 実街路で実測して二分探索を駆動する**（`tryWalk`・`walkCache` 共有）。**直線推定で駆動してはならない**——直線は実街路に対し大きく楽観に倒れる（実機で -36分・25%）ため、二分探索が遠い地点へ収束し実街路では全滅する。実測駆動なら返す境界はそのまま予算内が保証された最遠地点で、採用後の enrich でも同一レッグはキャッシュヒットして到着が覆らない。
   - **引き直しの応答は「先頭1本」でなく到着最早を採る（`earliestArrival`・#343）。** `/guidance/plan` は `numItineraries` 本返すが**並びは所要順である保証が無い**（実機で、乗り換えを失い降車後166分歩く経路が先頭に来た）。評価が問うのは「この地点から時間内に着けるか」なので、判定と同じ尺度（`arrivalMinutes`）で最小を採る。**先頭1本を採ると、悪い応答1つがその地点を予算外に見せ、単調性の仮定で奥が丸ごと切り捨てられる**（実機: 探索48点の index 5 で打ち切り・予算139分中55分の使い残し）。前半徒歩 t1 は地点で決まるので、到着最早を選ぶことは徒歩最大化と矛盾しない。**上流失敗の誤認（#333）と同じクラス**——あちらは失敗応答、こちらは成功したが悪い応答が境界を決めてしまう問題。
   - **ただし「予算内かの判定」と「プールへ渡す候補」は別物。** 到着最早は判定の基準であって目的関数ではない。同じ乗車地点でも option ごとに降車地点は違い、手前で降りる便ほど徒歩は増えるので、**予算内に収まる option が複数あるならその中の徒歩最大**を候補にする（予算内が皆無のときだけ到着最早＝この地点は予算外、と判定する）。1本に兼ねさせると、到着最早が予算内の歩く便を潰して徒歩最大化が静かに縮む。
     - **同点は `selectBestRoute` と同じ順位付けで割る**（徒歩 → 到着最早 → 乗換少）。probe で落とした option は下流へ届かないので、選定と別の基準で切ってはならない。同点を上流の並び順に委ねるのは「先頭が最良」を裏口から信じることになる。
@@ -262,7 +262,7 @@
   - **非単調コリドー:** 到着は実街路で非単調になり得る（後方の停車駅が origin に近いことがある）。境界＝徒歩最大とは限らない。
   - **下流フィルタとの整合:** 単一の最良1本だけ返すと、それが逆戻りフィルタ（§4）や乗り遅れ除外で消えたとき次善へ落ちられず徒歩最小へ転落する。全候補を渡せば「生き残る中の徒歩最大」を選定が決められる。
 
-  追加 API は無い（評価済みのみ参照）。`maxWalkBoardingIndex` の単調性仮定（§5）の suboptimality も緩和する。
+  追加 API は無い（評価済みのみ参照）。`maxWalkBoardingIndexParallel` の単調性仮定（§5）の suboptimality も緩和する。
 - **解像度:** コリドー候補点（`maxCorridorStops`=60）が疎だと境界の隣接候補が大きく離れ、徒歩を予算ぎりぎりまで詰められず余りが残る。実測駆動でも評価は `O(log n)` なので密に取る。
 - **上流失敗は「未評価」として境界に使わない:** 引き直しが**上流の失敗**（429・5xx・TIMEOUT）で落ちた点は、`evaluate` が `null`（未評価）を返して**境界の更新から外す**（予算内側へも予算外側へも動かさない）。「引けたが経路が無い」点だけを従来どおり予算外として扱う。**「その地点から予算内で行けない」は境界の情報だが、「その地点を評価できなかった」は情報が無いだけ**——後者を予算外に化けさせると、単調性の仮定によりその先すべてが探索対象から外れ、徒歩最大化の境界を実測ではなくレート制限やネットワークの調子が決めてしまう。失敗は例外にならず UI にも出ないので、劣化は静かに起きる。
   - **ラウンドの probe が全て未評価なら探索を打ち切る**（既得の境界で確定）。未評価は区間を縮めないので、続けても同じ点を評価し直すだけで終わらない。締切切れの全 probe TIMEOUT もこの経路で止まる。
@@ -409,8 +409,7 @@ Transit API 経路（`transit-route-service.ts`）固有。
 | `selectBestRoute(candidates, budgetMin, {origin, goal, departureAt, maxBacktrackRatio})` | hybrid-route-selector.ts | 逆戻り除外 → 予算内（実到着 ≤ budget）で `walkMinutes` 最大 → 実到着最早 → 乗換最少。予算内皆無なら今夜乗れる範囲の実到着最早（同点は乗換最少）。 |
 | `reachableWithinBudget(candidates, budgetMin, departureAt)` | hybrid-route-selector.ts | 乗車待ちが予算内 かつ 乗り遅れ無しの候補のみ。該当無しは null。 |
 | `forwardCandidates(candidates, origin, goal, {maxBacktrackRatio})` | hybrid-route-selector.ts | 逆戻り迂回を除いた前方プール。全候補が逆戻りなら除外せずそのまま、origin/goal 未指定はフィルタなし。勝者選定（`selectBestRoute`）と先行実測フロント（§3.7・`measureShortlist`）が共有する方向フィルタの単一実装。 |
-| `maxWalkBoardingIndex({count, budgetMin, evaluate})` | hybrid-route-selector.ts | 乗車駅探索（§3.6）。到着が index 単調増の前提で `evaluate(i) ≤ budget` の最大 index（＝総徒歩最大）を二分探索。evaluate を O(log count) 回に抑える。予算内皆無・count 0 は null。 |
-| `maxWalkBoardingIndexParallel({count, budgetMin, evaluate, fanout, shouldContinue})` | hybrid-route-selector.ts | 上のk分割並列版。残り全 index が `fanout` 本以内に収まるラウンドは内点分割をやめ1発で打つ（内点は hi を含まないため末尾に1本ラウンドが残るのを避ける）。同時発行は `fanout` 本を超えない（上流のレート制限が未知）。**`evaluate` が `null` を返した点は「未評価」で境界の更新に使わない**（§3.6）。ラウンドの probe が全て未評価なら既得の境界で打ち切る。 |
+| `maxWalkBoardingIndexParallel({count, budgetMin, evaluate, fanout, shouldContinue})` | hybrid-route-selector.ts | 乗車駅探索（§3.6）。到着が index 単調増の前提で `evaluate(i) ≤ budget` の最大 index（＝総徒歩最大）を二分探索し、k分割で並列化する。予算内皆無・count 0 は null。残り全 index が `fanout` 本以内に収まるラウンドは内点分割をやめ1発で打つ（内点は hi を含まないため末尾に1本ラウンドが残るのを避ける）。同時発行は `fanout` 本を超えない（上流のレート制限が未知）。**`evaluate` が `null` を返した点は「未評価」で境界の更新に使わない**（§3.6）。ラウンドの probe が全て未評価なら既得の境界で打ち切る。 |
 | `walkFeasiblePrefixCount(walk1Min, budgetMin)` | hybrid-route-selector.ts | 前半徒歩 t1 が予算内の最遠 index までの点数（§3.6）。到着 = t1 + t2(≥0) を根拠にした単調性非依存の安全上界で、予算内候補を1件も落とさない。**先頭から連続して残す prefix であることが安全性の根拠。** |
 | `measureShortlist({candidates, budgetMin, departureAt, origin, goal})` | hybrid-route-selector.ts | 逆戻り除外（`forwardCandidates`）→ 見積り実到着（`arrivalMinutes`）が予算内の候補だけを、徒歩降順→実到着昇順→乗換少ない順で並べて返す（cap なし）。先行実測（§3.7 Option A）と確定選定の tier 実測が**同一集合・同一順序**を測るための単一の並び。 |
 | `prewarmFront({shortlist, chosen, hybrids, singlePassHybridThreshold, maxMeasureShortlist})` | hybrid-route-selector.ts | 非崩壊ルートの先行実測対象と single-pass 発火有無を返す（§3.7）。`shortlist`（`measureShortlist` 結果）中の予算内ハイブリッド（`hybrids` の identity 集合）が `singlePassHybridThreshold` 件以上なら短リスト上位 `maxMeasureShortlist` 件全体（`singlePass=true`）、未満なら `chosen` 単独を返す。 |

@@ -7,7 +7,6 @@ import { RouteSegment, SegmentType } from '../../src/models/route-plan';
 import {
   RouteCandidate,
   haversineKm,
-  maxWalkBoardingIndex,
   maxWalkBoardingIndexParallel,
   measureShortlist,
   prewarmFront,
@@ -607,81 +606,11 @@ describe('haversineKm', () => {
   });
 });
 
-describe('maxWalkBoardingIndex', () => {
-  // 実機プローブ（蒲田→上野公園・180分）の到着分。index 昇順で単調増加。
-  // 予算180分では index6(170)が予算内の最遠＝総徒歩最大、index7(181)は予算外。
-  const totals = [67, 91, 118, 126, 140, 154, 170, 181, 188];
-
-  it('予算内の最遠 index（=総徒歩最大）を返す', async () => {
-    const i = await maxWalkBoardingIndex({
-      count: totals.length,
-      budgetMin: 180,
-      evaluate: async (index) => totals[index],
-    });
-    expect(i).toEqual(6);
-  });
-
-  it('単調性を使い評価回数を二分探索オーダーに抑える', async () => {
-    let calls = 0;
-    await maxWalkBoardingIndex({
-      count: totals.length,
-      budgetMin: 180,
-      evaluate: async (index) => {
-        calls++;
-        return totals[index];
-      },
-    });
-    // 全 9 件の線形評価ではなく ceil(log2(9))=4 前後で収束する。
-    expect(calls).toBeLessThanOrEqual(5);
-  });
-
-  it('全候補が予算内なら末尾 index を返す', async () => {
-    const i = await maxWalkBoardingIndex({
-      count: totals.length,
-      budgetMin: 999,
-      evaluate: async (index) => totals[index],
-    });
-    expect(i).toEqual(totals.length - 1);
-  });
-
-  it('先頭のみ予算内なら index 0', async () => {
-    const i = await maxWalkBoardingIndex({
-      count: totals.length,
-      budgetMin: 80, // 67<=80<91
-      evaluate: async (index) => totals[index],
-    });
-    expect(i).toEqual(0);
-  });
-
-  it('予算内候補が皆無なら null', async () => {
-    const i = await maxWalkBoardingIndex({
-      count: totals.length,
-      budgetMin: 50, // 先頭 67 すら超過
-      evaluate: async (index) => totals[index],
-    });
-    expect(i).toBeNull();
-  });
-
-  it('候補が空なら null（評価を呼ばない）', async () => {
-    let calls = 0;
-    const i = await maxWalkBoardingIndex({
-      count: 0,
-      budgetMin: 180,
-      evaluate: async () => {
-        calls++;
-        return 0;
-      },
-    });
-    expect(i).toBeNull();
-    expect(calls).toEqual(0);
-  });
-});
-
 describe('maxWalkBoardingIndexParallel', () => {
-  // 直列版と同じ実機プローブデータ（蒲田→上野公園・180分）。index 昇順で単調増加。
+  // 実機プローブ（蒲田→上野公園・180分）の到着分。index 昇順で単調増加。
   const totals = [67, 91, 118, 126, 140, 154, 170, 181, 188];
 
-  it('単調データで直列版と同じ境界（予算内の最遠 index）を返す', async () => {
+  it('単調データで予算内の最遠 index を返す', async () => {
     const i = await maxWalkBoardingIndexParallel({
       count: totals.length,
       budgetMin: 180,
@@ -785,7 +714,7 @@ describe('maxWalkBoardingIndexParallel', () => {
       },
     });
     expect(i).toEqual(6);
-    // 直列版と同じ二分探索の軌道: mid=4→6→7→(区間枯れ) の順。打ち切りラウンド（#332）は
+    // fanout=1 は素の二分探索と同じ軌道: mid=4→6→7→(区間枯れ) の順。打ち切りラウンド（#332）は
     // `span < fanout` 条件なので fanout=1 では span=0 のときだけ発火し、そのときの
     // probe は内点分割と同一点になるため軌道は変わらない。
     expect(evaluated).toEqual([4, 6, 7]);

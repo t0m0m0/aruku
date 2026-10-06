@@ -10,10 +10,7 @@ import {
   type RoutePlan,
 } from '../../src/models/route-plan';
 import { TimeValue } from '../../src/models/time-value';
-import {
-  CancellationToken,
-  SearchCanceledException,
-} from '../../src/services/cancellation';
+import { SearchCanceledException } from '../../src/services/cancellation';
 import {
   haversineKm,
   RouteCandidate,
@@ -48,7 +45,6 @@ import {
   first,
   firstWhere,
   last,
-  single,
   singleWhere,
 } from '../support/iterable';
 import { jsonResponse, mockClient } from '../support/mock-client';

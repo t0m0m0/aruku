@@ -15,7 +15,6 @@ import { dateTime, seconds, type Duration } from '../time';
 import { SearchCanceledException, type CancellationToken } from './cancellation';
 import {
   evenSample,
-  forwardCandidates,
   frontierStations,
   haversineKm,
   maxWalkBoardingIndexParallel,

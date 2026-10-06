@@ -5,7 +5,7 @@ import { ErrorScreen } from '../features/error/error-screen';
 import { HomeScreen } from '../features/home/home-screen';
 import { LoadingScreen } from '../features/loading/loading-screen';
 import { ResultScreen } from '../features/result/result-screen';
-import { SearchScreen, type SearchMode } from '../features/search/search-screen';
+import { SearchScreen } from '../features/search/search-screen';
 import { AppShell } from '../layout/app-shell';
 import type { RecentsRepository } from '../places/recents-repository';
 import type { ScreenDeps } from './screen-deps';
