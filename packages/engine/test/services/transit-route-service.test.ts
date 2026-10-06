@@ -559,6 +559,58 @@ describe('plan: 標準乗換', () => {
   });
 });
 
+describe('plan: ふつうの乗換ルート (#445)', () => {
+  // 結果画面が「ふつうの乗換ルートより何分多く歩けるか」を出すための比較対象。
+  // 選定には使わない（表示専用）。
+  const plan = (svc: TransitRouteService) =>
+    svc.plan({
+      destination: '新宿',
+      destinationLatLng: goal,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 13, m: 0 }),
+      origin,
+    });
+
+  it('出発時刻で引いた経路のうち、到着が最も早い1本の徒歩と所要を持つ', async () => {
+    // 先頭は遅い便。上流の並び順ではなく到着で選ぶことを、先頭に置いて確かめる。
+    const later = singleTrainOption({ dep: 34200, arr: 36000, access: 600, egress: 600 });
+    const earliest = singleTrainOption({ dep: 32760, arr: 34560 }); // 09:06→09:36
+    const svc = service(mock({ transit: guidance([later, earliest]) }));
+
+    const result = await plan(svc);
+
+    // 徒歩 5分 → 1分待って 09:06 発 → 09:36 着 → 徒歩 5分 = 41分。
+    expect(result.standardTransit).toEqual({ walkMinutes: 10, totalMin: 41 });
+  });
+
+  it('到着アンカー波の便は比べない——締切から逆算した便は「ふつう」ではない', async () => {
+    const departureWave = singleTrainOption({ dep: 32760, arr: 34560 });
+    // 比較対象に入ると勝つよう、到着波には到着の早い便を置く（徒歩2分で 09:05 発に
+    // 乗れる——乗り遅れる便にすると、混ぜても比較から外れてこのテストが緑のまま残る）。
+    const arrivalWave = singleTrainOption({ dep: 32700, arr: 33600, access: 120 });
+    const svc = service(
+      waveMock({
+        departure: guidance([departureWave]),
+        arrival: guidance([arrivalWave]),
+      }),
+    );
+
+    const result = await plan(svc);
+
+    expect(result.standardTransit).toEqual({ walkMinutes: 10, totalMin: 41 });
+  });
+
+  it('出発時刻で乗れる便が無ければ持たない', async () => {
+    // 08:50 発＝出発前に発車済み。到着の計算が成り立たない便を比較の基準にしない。
+    const missed = singleTrainOption({ dep: 31800, arr: 33600 });
+    const svc = service(mock({ transit: guidance([missed]) }));
+
+    const result = await plan(svc);
+
+    expect(result.standardTransit).toBeNull();
+  });
+});
+
 describe('plan: 徒歩最大化', () => {
   it('予算が大きいと標準乗換（access+egress のみ）より歩く候補を選ぶ', async () => {
     // 標準乗換の徒歩は access+egress=10分。予算を広く取れば、コリドー上の駅まで

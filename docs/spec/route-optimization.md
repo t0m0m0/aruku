@@ -59,6 +59,7 @@
 - **`walkKm` ではなく `walkMinutes` が正:** 選定は徒歩の**時間**を最大化する。距離と時間のどちらを最大化するかは設計の根幹なので、変えるなら本書を先に更新する（§7）。
 - **予算内候補が無いとき（best-effort）:** 最長（全徒歩）ではなく**実到着が最早**の候補へ縮退する（UI バナーの「最短を表示」と整合）。ただし「今夜は乗れない」電車（終電後の翌朝始発など）は後回しにする（§4 #121②）。時刻なしハイブリッドは実発車時刻を確認できない限り縮退先にも含めない（§4 #137）。**実測徒歩で乗り遅れる経路は縮退先にも確定にも出さない**（§4 #254）。
 - **確定経路は1本:** 選定順（`walkMinutes` 最大 → 実到着最早 → 乗換最少）はこの1本の決定に働く。代替案・パレート非劣解の併設提示は行わない。
+- **ふつうの乗換ルート（表示専用・#445）:** `RoutePlan.standardTransit` に、departure 波の option のうち乗り物を含み、出発時刻で到着を計算できる（`comparableFrom` と同じ条件）ものの中で**実到着が最早**の1本の徒歩分・所要分を載せる。結果画面が「ふつうの乗換ルートより何分多く歩けるか」を出すための比較対象で、**選定には使わない**。arrival 波（§3.1）は混ぜない——締切から逆算した便は、ふつうに検索して出る経路ではない。比べられる便が無ければ null で、先頭 option へは縮退しない（到着を信じられない便を基準にすると差そのものが作り話になる）。徒歩分は guidance の見積りのままで街路実測していない（検索ごとの照会増を避けた）ので、表示側は数分の誤差を織り込む。
 
 ### 1.1 バスの扱い
 
@@ -413,7 +414,7 @@ Transit API 経路（`transit-route-service.ts`）固有。
 | `walkFeasiblePrefixCount(walk1Min, budgetMin)` | hybrid-route-selector.ts | 前半徒歩 t1 が予算内の最遠 index までの点数（§3.6）。到着 = t1 + t2(≥0) を根拠にした単調性非依存の安全上界で、予算内候補を1件も落とさない。**先頭から連続して残す prefix であることが安全性の根拠。** |
 | `measureShortlist({candidates, budgetMin, departureAt, origin, goal})` | hybrid-route-selector.ts | 逆戻り除外（`forwardCandidates`）→ 見積り実到着（`arrivalMinutes`）が予算内の候補だけを、徒歩降順→実到着昇順→乗換少ない順で並べて返す（cap なし）。先行実測（§3.7 Option A）と確定選定の tier 実測が**同一集合・同一順序**を測るための単一の並び。 |
 | `prewarmFront({shortlist, chosen, hybrids, singlePassHybridThreshold, maxMeasureShortlist})` | hybrid-route-selector.ts | 非崩壊ルートの先行実測対象と single-pass 発火有無を返す（§3.7）。`shortlist`（`measureShortlist` 結果）中の予算内ハイブリッド（`hybrids` の identity 集合）が `singlePassHybridThreshold` 件以上なら短リスト上位 `maxMeasureShortlist` 件全体（`singlePass=true`）、未満なら `chosen` 単独を返す。 |
-| `buildRoutePlan({from, to, segments, departure, budgetMin, departureAt})` | route-plan-builder.ts | segments → RoutePlan（totalKm/walkKm/kcal/walkRatio/totalMin/timelineNodes）。待ち時間込みの到着を計算。 |
+| `buildRoutePlan({from, to, segments, departure, budgetMin, departureAt, standardTransit})` | route-plan-builder.ts | segments → RoutePlan（totalKm/walkKm/kcal/walkRatio/totalMin/timelineNodes）。待ち時間込みの到着を計算。`standardTransit`（§1）は受け取ったまま載せる（省略時 null）。 |
 | `arrivalMinutes(segments, departureAt)` | route-plan-builder.ts | 乗車前・乗換待ちを含む実到着分。departureAt 無しは待ち抜き合計。 |
 | `firstMissedTransit(segments, departureAt)` | route-plan-builder.ts | 駅着が発車後になる最初の transit（電車・バス）区間の index。無ければ null。 |
 | `hasUnverifiedTransit(segments)` | route-plan-builder.ts | 実発車時刻（`depTime`）を確認できていない transit 区間（電車・バス）を含むか。確定経路（§4 #137）の検証に使う判定。 |
