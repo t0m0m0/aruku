@@ -110,14 +110,15 @@ describe('ホームの見出し', () => {
     expect(screen.queryByText(/9月11日 \(金\) · /)).toBeNull();
   });
 
-  // 見出しで辿る読者にとって、この画面の主見出しはここ。段落のままだと最初に
-  // 読み上げられる見出しが従属セクションの「時間」（h2）になる。
-  it('主見出しは見出しレベル1で出る', () => {
+  // 挨拶の見出しは #439 で外した。それでも h1 を消すと、見出しで辿る読者が最初に
+  // 出会うのは従属セクションの「時間」（h2）になる。
+  it('主見出しは見出しレベル1のアプリ名で、挨拶は出さない', () => {
     setup();
 
     const heading = screen.getByRole('heading', { level: 1 });
 
-    expect(heading.textContent).toBe('今日も、歩こう。');
+    expect(heading.textContent).toBe('あるく');
+    expect(screen.queryByText(/歩こう/)).toBeNull();
   });
 
   // 期待値を config の定数から取らない。取ると、定数がプレースホルダ

@@ -18,7 +18,7 @@ const now = new Date(2026, 8, 11, 12, 0, 0);
 const someRoute = {} as RoutePlan;
 
 /// 画面は共通シェル（レイアウトルート）の子として並ぶ。シェルはパスを持たず、
-/// デスクトップ幅でだけ上部バーを描く（src/layout/desktop-shell.tsx）。
+/// 上部バーを描く（src/layout/app-shell.tsx）。
 function screenRoutes(routes: RouteObject[]): RouteObject[] {
   if (routes.length !== 1) throw new Error('レイアウトルートが1つでない');
   return routes[0]?.children ?? [];

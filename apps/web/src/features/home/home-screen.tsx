@@ -90,17 +90,10 @@ export function HomeScreen({
   const currentLocationText = departureLabelText(null, locationState);
 
   return (
-    <main className="mx-auto flex min-h-(--screen-min-height) max-w-[620px] flex-col gap-3 px-5 pt-2 pb-9">
-      <header className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-[26px] leading-[1.15] font-extrabold tracking-[-0.01em]">
-            {ja.homeGreetingLead}
-            <span className="text-moss-600">
-              {ja.homeGreetingHighlight}
-            </span>
-          </h1>
-        </div>
-      </header>
+    <main className="mx-auto flex min-h-(--screen-min-height) max-w-[620px] flex-col gap-3 px-5 pt-5 pb-9">
+      {/* 見える見出しは置かない（挨拶は #439 で外した）。h1 まで消すと、見出しで
+          辿る読者が最初に出会うのが従属セクションの「時間」（h2）になる。 */}
+      <h1 className="sr-only">{ja.appTitle}</h1>
 
       <section className="relative rounded-[22px] border border-border bg-card px-3.5 py-1.5 shadow-card-subtle">
         {/* 出発点と目的地を結ぶ線。端の印は各行の欄の高さの中央へ合わせる。 */}

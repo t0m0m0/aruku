@@ -18,8 +18,6 @@ export const ja = {
 
   weekdays: ['月', '火', '水', '木', '金', '土', '日'],
 
-  homeGreetingLead: '今日も、',
-  homeGreetingHighlight: '歩こう。',
   homeDepartureLabel: '出発',
   homeArrivalLabel: '到着',
   homeDestinationLabel: '目的地',

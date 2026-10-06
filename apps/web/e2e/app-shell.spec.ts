@@ -1,6 +1,5 @@
-/// 幅による出し分け。jsdom は CSS を読まないので、**単体テストからは原理的に
-/// 見えない**——`useIsDesktop` の両側は test/layout/ で押さえてあるが、それが
-/// 実際の 820px で切り替わることと、切り替えた先が縦にはみ出さないことは
+/// 上部バーは #439 から幅に関係なく出る。バーが高さを持っていった残りに各画面が
+/// 収まり、縦にはみ出さないことは jsdom（CSS を読まない）からは原理的に見えず、
 /// 実ブラウザでしか確かめられない。
 
 import { expect, test } from './fixtures';
@@ -19,41 +18,38 @@ async function verticalOverflow(page: import('@playwright/test').Page) {
   });
 }
 
-test('デスクトップ幅では上部バーが出る', async ({ page }) => {
-  await page.setViewportSize(desktop);
-  await page.goto('/');
+for (const [name, viewport] of [
+  ['デスクトップ幅', desktop],
+  ['モバイル幅', mobile],
+] as const) {
+  test(`${name}でも上部バーが出る`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
 
-  await expect(page.getByRole('banner')).toBeVisible();
-  await expect(page.getByRole('banner').getByRole('button')).toHaveCount(1);
-  await expect(page.getByRole('button', { name: 'あるく ホームへ戻る' })).toBeVisible();
-});
+    await expect(page.getByRole('banner')).toBeVisible();
+    await expect(page.getByRole('banner').getByRole('button')).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'あるく ホームへ戻る' })).toBeVisible();
+  });
 
-test('モバイル幅では上部バーが出ない', async ({ page }) => {
-  await page.setViewportSize(mobile);
-  await page.goto('/');
+  test(`${name}で上部バーのぶん縦にはみ出さない`, async ({ page }) => {
+    // 各画面は「1画面ぶん」の高さを取る。バーが高さを持っていくので、基準を
+    // 100dvh のままにすると全画面が必ずバーの高さだけスクロールする。
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    await expect(page.getByRole('banner')).toBeVisible();
 
-  await expect(page.getByRole('banner')).toHaveCount(0);
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('今日も、歩こう。');
-});
+    expect(await verticalOverflow(page)).toBe(0);
+  });
+}
 
-test('上部バーのぶん縦にはみ出さない', async ({ page }) => {
-  // 各画面は「1画面ぶん」の高さを取る。バーが 64px を持っていくので、基準を
-  // 100dvh のままにすると全画面が必ずバーの高さだけスクロールする。
-  await page.setViewportSize(desktop);
-  await page.goto('/');
-  await expect(page.getByRole('banner')).toBeVisible();
-
-  expect(await verticalOverflow(page)).toBe(0);
-});
-
-test('幅を狭めるとモバイル UI へ戻る', async ({ page }) => {
+test('幅を狭めても上部バーは残る', async ({ page }) => {
   await page.setViewportSize(desktop);
   await page.goto('/');
   await expect(page.getByRole('banner')).toBeVisible();
 
   await page.setViewportSize(mobile);
 
-  await expect(page.getByRole('banner')).toHaveCount(0);
+  await expect(page.getByRole('banner')).toBeVisible();
 });
 
 test('結果画面からロゴで home へ戻っても履歴は [home, 子] のまま', async ({
