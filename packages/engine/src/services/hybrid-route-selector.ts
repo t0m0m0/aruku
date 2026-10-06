@@ -268,34 +268,6 @@ export function prewarmFront(args: PrewarmFrontArgs): PrewarmFront {
   return { prewarm: [chosen], singlePass: false };
 }
 
-export interface MaxWalkBoardingIndexArgs {
-  count: number;
-  budgetMin: number;
-  evaluate: (index: number) => Promise<number>;
-}
-
-/// 乗車駅探索（docs/spec/route-optimization.md §3.6）：乗車駅候補について
-/// 「到着が予算内の最遠 index ＝ 総徒歩最大」を二分探索で返す。
-/// 先頭すら予算外・[count] が 0 なら null（[count] 0 では [evaluate] を一度も呼ばない）。
-export async function maxWalkBoardingIndex(
-  args: MaxWalkBoardingIndexArgs,
-): Promise<number | null> {
-  const { count, budgetMin, evaluate } = args;
-  let lo = 0;
-  let hi = count - 1;
-  let best: number | null = null;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if ((await evaluate(mid)) <= budgetMin) {
-      best = mid; // mid は予算内。さらに遠く（大きい index）を試す。
-      lo = mid + 1;
-    } else {
-      hi = mid - 1; // mid は予算外。手前を試す。
-    }
-  }
-  return best;
-}
-
 export interface MaxWalkBoardingIndexParallelArgs {
   count: number;
   budgetMin: number;
@@ -308,7 +280,11 @@ export interface MaxWalkBoardingIndexParallelArgs {
   onRound?: () => void;
 }
 
-/// [maxWalkBoardingIndex] のk分割並列版（#163）。ラウンド数は
+/// 乗車駅探索（docs/spec/route-optimization.md §3.6）：乗車駅候補について
+/// 「到着が予算内の最遠 index ＝ 総徒歩最大」を二分探索で返す。
+/// 先頭すら予算外・[count] が 0 なら null。
+///
+/// 二分探索をk分割で並列化している（#163）。ラウンド数は
 /// O(log_{fanout+1} count)、壁時計は「ラウンド数 × 最遅1評価」になる。
 ///
 /// 残り全 index が [fanout] 本以内に収まるラウンドは内点分割をやめ1ラウンドで評価する
@@ -347,7 +323,7 @@ export async function maxWalkBoardingIndexParallel(
           ].sort((a, b) => a - b);
     const results = await Promise.all(probes.map((p) => evaluate(p)));
     // 昇順に走査し、予算内なら境界を右へ、最初の予算外で右端を確定して打ち切る
-    // （単調性の仮定は直列版と同一。break 後の probe は区間更新に使わない）。
+    // （到着が index 単調増という仮定に立つ。break 後の probe は区間更新に使わない）。
     let nextLo = lo;
     let nextHi = hi;
     let evaluated = false;

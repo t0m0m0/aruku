@@ -9,7 +9,6 @@ export type Duration = number;
 
 export const durationZero: Duration = 0;
 
-export const milliseconds = (n: number): Duration => n;
 export const seconds = (n: number): Duration => n * 1000;
 export const minutes = (n: number): Duration => n * 60 * 1000;
 
