@@ -1024,7 +1024,6 @@ CSS Modules から Tailwind CSS v4 と shadcn/ui へ、画面ごとのスライ�
 | --- | --- | --- |
 | `Button` | 乗せた（CTA・シェルのタブ） | `accent` を moss-50 / moss-700 に対応づけたので、`ghost` の hover がそのまま既存のタブの hover になる |
 | `Tabs` | 使わない | tablist / tabpanel はページ内の切り替え。シェルのタブは画面を移る導線 |
-| `IconHitButton` を `Button` に | 乗せない | `ghost` の hover が 44px 四方に背景を敷き、自前の背景を持つ中身の後ろに四角が浮く（#430 で撤去した home の検索チップで起きた） |
 | `Command`（cmdk） | 使わない | 絞り込みとキー操作を自前で持ち、出発地・目的地欄の IME 変換中の素通し・確定の世代管理と噛み合わない |
 | `Input` / `Progress` / `Skeleton` | 使わない | 既定の見た目（高さ・影・地色・明滅）がデザインと違い、上書きが中身を上回る |
 

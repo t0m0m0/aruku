@@ -39,7 +39,7 @@ import type { RouteCore } from './app-state';
 export type Navigate = (path: string) => void;
 
 export interface AppActions {
-  /// 現在地を取り直す。ホームのコンパスボタンと、起動直後の初回取得から呼ぶ。
+  /// 現在地を取り直す。起動直後の初回取得と、エラー画面の再試行から呼ぶ。
   refreshLocation(): Promise<void>;
 
   /// 目的地を設定する。名前と座標は必ず対で入れ替える。

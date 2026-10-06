@@ -23,10 +23,8 @@ import { ja } from '../../i18n/ja';
 import type { ScreenDeps } from '../../navigation/screen-deps';
 import { Screen } from '../../navigation/screens';
 import { Button } from '../../shared/ui/button';
-import { IconHitButton } from '../../shared/icon-hit-button';
 import {
   ClockIcon,
-  CompassIcon,
   PinIcon,
   RoutesIcon,
   SearchIcon,
@@ -68,10 +66,9 @@ export function HomeScreen({
   const arrival = useStore(store, (s) => s.arrival);
   const locationState = useStore(store, (s) => s.locationState);
   const go = useStore(store, (s) => s.go);
-  const refreshLocation = useStore(store, (s) => s.refreshLocation);
 
   // 子画面から戻るたびに再マウントされるので、まだ一度も取っていないときだけ走る
-  // （PR #394 レビュー）。取り直しはコンパスという明示の導線がある。
+  // （PR #394 レビュー）。取り直しはエラー画面の再試行が受け持つ。
   useInitialLocation(store);
 
   const destinationField = useRef<HTMLInputElement>(null);
@@ -110,37 +107,24 @@ export function HomeScreen({
             これは見た目だけの差ではない——遷移が1つ消えるので CSS では表せない。 */}
         <div className={placeRow}>
           <span className={placeLabel}>{ja.homeDepartureLabel}</span>
-          <div className="flex items-center gap-2">
-            <div className="min-w-0 flex-1">
-              {isDesktop ? (
-                <TypeaheadField
-                  store={store}
-                  mode="origin"
-                  places={deps.places}
-                  recents={deps.recents.origin}
-                  emptyText={currentLocationText}
-                />
-              ) : (
-                <PlaceFieldButton
-                  label={ja.homeDepartureLabel}
-                  value={origin}
-                  placeholder={currentLocationText}
-                  onClick={() => {
-                    go(Screen.searchOrigin);
-                  }}
-                />
-              )}
-            </div>
-            {/* 取り直しの promise をそのまま渡す。ボタンはこれが解決するまで
-                待ち表示になる（移植元の _IconHit と同じ）。 */}
-            <IconHitButton
-              label={ja.homeRefreshLocation}
-              busyLabel={ja.homeRefreshingLocation}
-              onPress={refreshLocation}
-            >
-              <CompassIcon size={20} />
-            </IconHitButton>
-          </div>
+          {isDesktop ? (
+            <TypeaheadField
+              store={store}
+              mode="origin"
+              places={deps.places}
+              recents={deps.recents.origin}
+              emptyText={currentLocationText}
+            />
+          ) : (
+            <PlaceFieldButton
+              label={ja.homeDepartureLabel}
+              value={origin}
+              placeholder={currentLocationText}
+              onClick={() => {
+                go(Screen.searchOrigin);
+              }}
+            />
+          )}
         </div>
 
         <div className={placeRow}>

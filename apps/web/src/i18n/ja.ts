@@ -13,17 +13,12 @@ export const ja = {
   /// （見た目の文字で音声操作できるように）。
   shellHome: 'あるく ホームへ戻る',
 
-  /// アイコンボタンの待ち表示の既定文言。呼び出し側が具体的に言えるなら上書きする。
-  busyDefault: '処理中',
-
   weekdays: ['月', '火', '水', '木', '金', '土', '日'],
 
   homeDepartureLabel: '出発',
   homeArrivalLabel: '到着',
   homeDestinationLabel: '目的地',
   homeDestinationPlaceholder: 'どこへ歩く?',
-  homeRefreshLocation: '現在地を再取得',
-  homeRefreshingLocation: '現在地を取得中',
   homeTimeSectionLabel: '時間',
   homeWalkableSuffix: ' 歩ける',
   homeSearchRoute: 'ルートを検索',
