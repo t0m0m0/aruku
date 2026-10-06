@@ -13,7 +13,7 @@ import type { StoreApi } from 'zustand/vanilla';
 
 import { RoutePhase } from '@aruku/engine/services/route-service';
 
-import { DesktopShell } from '../../src/layout/desktop-shell';
+import { AppShell } from '../../src/layout/app-shell';
 import { stubViewport } from './viewport';
 import { createNavigator } from '../../src/navigation/navigator';
 import { Screen, screenPath } from '../../src/navigation/screens';
@@ -26,7 +26,7 @@ function renderShell(entries: string[], store: StoreApi<AppStore> = createAppSto
   const router = createMemoryRouter(
     [
       {
-        Component: () => <DesktopShell store={store} />,
+        Component: () => <AppShell store={store} />,
         children: [
           { path: screenPath[Screen.home], element: <p>ホーム本文</p> },
           { path: screenPath[Screen.search], element: <p>検索本文</p> },
@@ -55,19 +55,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('DesktopShell', () => {
-  it('モバイル幅では上部バーを出さず、画面だけを出す', () => {
-    stubViewport(false);
-
-    renderShell([screenPath[Screen.home]]);
-
-    expect(screen.queryByRole('banner')).toBeNull();
-    expect(screen.getByText('ホーム本文')).toBeDefined();
-  });
-
+describe('AppShell', () => {
   // タブは #432 で撤去した。押せるのはロゴ（と名前）の home への導線だけ。
-  it('デスクトップ幅では上部バーを画面の上に出し、押せるのはロゴだけ', () => {
-    stubViewport(true);
+  it.each([
+    ['モバイル幅', false],
+    ['デスクトップ幅', true],
+  ])('%sでも上部バーを画面の上に出し、押せるのはロゴだけ', (_, isDesktop) => {
+    stubViewport(isDesktop);
 
     renderShell([screenPath[Screen.home]]);
 

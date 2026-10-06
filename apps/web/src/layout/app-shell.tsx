@@ -1,5 +1,8 @@
 // 移植元: flutter-final:lib/shared/widgets/desktop_shell.dart。
 //
+// 移植元はデスクトップ幅でだけ被せていた。#439 で幅に関係なく出すことにした——
+// モバイル幅にはアプリ名もロゴも無く、子画面から home へ降りる共通の導線も無かった。
+//
 // 移植元が「記録」タブとストリークチップを持たないのは（ハンドオフには在る）、
 // どちらも歩数に依るため。#386 が Web で歩数まわりを作らないと決めている。
 // 移植元にあった「設定」タブも #427 で設定画面ごと撤去し、残った「ルートを計画」
@@ -13,20 +16,18 @@ import { ja } from '../i18n/ja';
 import { Screen, screenFromLocation } from '../navigation/screens';
 import { ArukuLogo } from '../shared/logo';
 import type { AppStore } from '../state/store';
-import { useIsDesktop } from './use-is-desktop';
 
-interface DesktopShellProps {
+interface AppShellProps {
   store: StoreApi<AppStore>;
 }
 
-/// デスクトップ幅で全画面に被せる共通シェル（上部バー + 本文）。
+/// 全画面に被せる共通シェル（上部バー + 本文）。
 ///
 /// レイアウトルートとして使う。移植元はこれを Navigator の外側へ置いていたが、
 /// それは go_router のネスト構造が戻り先そのものだったため。React Router の
 /// ネストは `<Outlet>` の入れ子であって履歴を積まない（戻り先を作るのは
 /// navigator.ts）ので、ここで包んでも戻り挙動には触れない。
-export function DesktopShell({ store }: DesktopShellProps) {
-  const isDesktop = useIsDesktop();
+export function AppShell({ store }: AppShellProps) {
   const pathname = useLocation().pathname;
 
   // 本文の器は遷移で作り直されない（替わるのは <Outlet> の中身だけ）。この器が
@@ -37,7 +38,6 @@ export function DesktopShell({ store }: DesktopShellProps) {
   useEffect(() => {
     body.current?.scrollTo({ top: 0 });
   }, [pathname]);
-  if (!isDesktop) return <Outlet />;
 
   // 待ち画面からの離脱では探索を明示的に打ち切る。打ち切らないと探索は走り続け、
   // 完了時に startSearch が result / error へ引き戻す。子から home への go は
@@ -56,13 +56,13 @@ export function DesktopShell({ store }: DesktopShellProps) {
 
   // 移植元: design_handoff_aruku_web/README.md「0. 共通シェル」。
   //
-  // 高さは 100vh ではなく 100dvh。820px を跨ぐ幅の端末（大きめのタブレット・横向きの
-  // 携帯）ではブラウザの UI が伸び縮みし、100vh は大きい側のまま固定される——overflow を
-  // 切っているこの器では下端が届かなくなる（PR #407 の Codex レビュー）。
+  // 高さは 100vh ではなく 100dvh。携帯やタブレットではブラウザの UI が伸び縮みし、
+  // 100vh は大きい側のまま固定される——overflow を切っているこの器では下端が届かなく
+  // なる（PR #407 の Codex レビュー）。
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-ivory">
       <header className="h-16 flex-none border-b border-hairline bg-paper">
-        <div className="mx-auto flex h-full max-w-[1280px] items-center gap-5 px-6">
+        <div className="mx-auto flex h-full max-w-[1280px] items-center gap-5 px-5 desktop:px-6">
           {/* <a href> にしない。遷移は go() を通す——router を直に動かすと、子から
               home への pop が push になって履歴が伸びる（navigator.ts）。 */}
           <button

@@ -6,7 +6,7 @@ import { HomeScreen } from '../features/home/home-screen';
 import { LoadingScreen } from '../features/loading/loading-screen';
 import { ResultScreen } from '../features/result/result-screen';
 import { SearchScreen, type SearchMode } from '../features/search/search-screen';
-import { DesktopShell } from '../layout/desktop-shell';
+import { AppShell } from '../layout/app-shell';
 import type { RecentsRepository } from '../places/recents-repository';
 import type { ScreenDeps } from './screen-deps';
 import type { AppStore } from '../state/store';
@@ -80,7 +80,7 @@ export function appRoutes(
   // guard は子に残す——親へ移すと、跳ね返し先の判定が画面ごとの表示前提から離れる。
   return [
     {
-      Component: () => <DesktopShell store={store} />,
+      Component: () => <AppShell store={store} />,
       children: [
         { path: '/', loader: guard },
         ...screens,
