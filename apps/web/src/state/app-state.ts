@@ -2,7 +2,8 @@
 //
 // 歩数・週間実績・HealthKit・行程 handoff は運んでいない。Web で恒久的に動かない
 // 機能として #386 が UI ごと作らないと決めたもの（歩数）と、その歩数同期に依存する
-// もの（handoff）だから。
+// もの（handoff の行程）だから。Google マップへの区間リンク（#449）は行程を持たないので
+// 状態も要らない。
 
 import type { GeoPoint } from '@aruku/engine/models/geo-point';
 import type { RoutePlan } from '@aruku/engine/models/route-plan';

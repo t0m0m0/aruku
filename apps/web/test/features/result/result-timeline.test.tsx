@@ -276,3 +276,49 @@ describe('区間の所要時間', () => {
     expect(renderWithMinutes(60)).toContain('1時間00分');
   });
 });
+
+describe('区間を Google マップで開くリンク', () => {
+  it('区間カードごとに、その区間の行き先を名指ししたリンクを置く', () => {
+    render(<ResultTimeline route={walkThenRide()} />);
+    screen.getByRole('link', { name: '代々木駅までの徒歩をGoogleマップで開く' });
+    screen.getByRole('link', { name: '渋谷駅までの山手線をGoogleマップで開く' });
+  });
+
+  it('徒歩区間は徒歩ルート、乗り物の区間は乗換案内を開く', () => {
+    render(<ResultTimeline route={walkThenRide()} />);
+    const [walkLink, rideLink] = screen.getAllByRole('link');
+    expect(new URL(walkLink.getAttribute('href')!).searchParams.get('travelmode')).toBe(
+      'walking',
+    );
+    expect(new URL(rideLink.getAttribute('href')!).searchParams.get('travelmode')).toBe(
+      'transit',
+    );
+  });
+
+  it('別タブで開き、開いた先からこの画面を触らせない', () => {
+    render(<ResultTimeline route={walkThenRide()} />);
+    for (const link of screen.getAllByRole('link')) {
+      expect(link.getAttribute('target')).toBe('_blank');
+      expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    }
+  });
+
+  it('行き先が決まらない区間にはリンクを置かない', () => {
+    const route = new RoutePlan({
+      ...walkThenRide(),
+      to: '',
+      segments: [walk(), ride({ toName: '' })],
+    });
+    render(<ResultTimeline route={route} />);
+    expect(screen.getAllByRole('link')).toHaveLength(1);
+  });
+
+  it('行き先名が空の区間は名前を省いて読み上げる', () => {
+    const route = new RoutePlan({
+      ...walkThenRide(),
+      segments: [walk(), ride({ toName: '' })],
+    });
+    render(<ResultTimeline route={route} />);
+    screen.getByRole('link', { name: '山手線をGoogleマップで開く' });
+  });
+});

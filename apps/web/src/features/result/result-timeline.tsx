@@ -2,7 +2,8 @@
 //
 // journey 進捗（#305 の _LegState と _LegStateBadge）は運んでいない。JourneyProgress は
 // 歩数同期に依存し、#386 が Web で作らないと決めた側——移植元で言えば journey==null の
-// _LegState.none だけが残る。
+// _LegState.none だけが残る。Google マップへの引き継ぎ（移植元 result_leg_cta.dart）は
+// 進捗から切り離し、全区間のカードに置いている（#449）。
 //
 // 図案の戻り先は Dart の Canvas 命令ではなく design_handoff_aruku_mvp/design-reference/
 // screens-result.jsx。Dart 版はそれを Canvas へ移したもので、そこから起こし直すと
@@ -15,9 +16,15 @@ import {
   type TimelineNode,
 } from '@aruku/engine/models/route-plan';
 
-import { ja, resultLegKcal, resultSegmentDuration } from '../../i18n/ja';
+import {
+  ja,
+  resultLegKcal,
+  resultLegOpenInMapsLabel,
+  resultSegmentDuration,
+} from '../../i18n/ja';
 import { TrainIcon, WalkIcon } from '../../shared/icons';
 import { cn } from '../../shared/utils';
+import { buildLegMapsUrl } from './leg-maps-url';
 
 interface ResultTimelineProps {
   route: RoutePlan;
@@ -27,7 +34,12 @@ interface ResultTimelineProps {
 /// （「segments と timelineNodes の 1:1 対応を保つ」）ので、ここでは崩さないことだけを見る。
 export function ResultTimeline({ route }: ResultTimelineProps) {
   const segments = route.segments;
-  const steps: { node: TimelineNode; segment: RouteSegment | null; connector: boolean }[] = [];
+  const steps: {
+    node: TimelineNode;
+    segment: RouteSegment | null;
+    mapsUrl: string | null;
+    connector: boolean;
+  }[] = [];
 
   // cardBelow:false の駅行（直結乗換の「着」行）はカードを挟まず、次の「発」行へ短い
   // コネクタで繋ぐ。それ以外の行は順にレッグカードを 1 枚消費する。ノードは常に区間より
@@ -36,16 +48,21 @@ export function ResultTimeline({ route }: ResultTimelineProps) {
   route.timelineNodes.forEach((node, index) => {
     const isLast = index === route.timelineNodes.length - 1;
     if (node.cardBelow && cursor < segments.length) {
-      steps.push({ node, segment: segments[cursor], connector: false });
+      steps.push({
+        node,
+        segment: segments[cursor],
+        mapsUrl: buildLegMapsUrl(route, cursor),
+        connector: false,
+      });
       cursor += 1;
     } else {
-      steps.push({ node, segment: null, connector: !node.cardBelow && !isLast });
+      steps.push({ node, segment: null, mapsUrl: null, connector: !node.cardBelow && !isLast });
     }
   });
 
   return (
     <ol>
-      {steps.map(({ node, segment, connector }, index) => (
+      {steps.map(({ node, segment, mapsUrl, connector }, index) => (
         // 移植元は各行が [44px 時刻][14 隙間][16 トラック][残り] の Row だった。行ごとに
         // 同じ幅指定を書くと、片方だけ直したときにトラックの縦線が折れる。1 つのグリッドに
         // 乗せて列を共有する——ノード行とレッグ行が同じ li の中にあるのはそのため。
@@ -62,7 +79,7 @@ export function ResultTimeline({ route }: ResultTimelineProps) {
               <span className="text-[11px] font-medium text-ink-3">{node.sub}</span>
             )}
           </span>
-          {segment !== null && <Leg segment={segment} />}
+          {segment !== null && <Leg segment={segment} mapsUrl={mapsUrl} />}
           {/* 直結乗換の「着」行と「発」行のあいだ。カードが入らないぶん縦線が切れるので、
               短い実線で繋ぐ。 */}
           {connector && (
@@ -92,7 +109,7 @@ const legTones = {
   },
 } as const;
 
-function Leg({ segment }: { segment: RouteSegment }) {
+function Leg({ segment, mapsUrl }: { segment: RouteSegment; mapsUrl: string | null }) {
   const isWalk = segment.type === SegmentType.walk;
   const tone = isWalk ? legTones.walk : legTones.ride;
   return (
@@ -123,6 +140,23 @@ function Leg({ segment }: { segment: RouteSegment }) {
         <div className="mt-1 flex items-center text-[11px] font-semibold text-ink-2">
           {isWalk ? <WalkMeta segment={segment} /> : <RideMeta segment={segment} />}
         </div>
+        {mapsUrl !== null && (
+          <div className="-mb-1 flex justify-end">
+            {/* rel は target=_blank の暗黙の noopener に任せない（home-screen.tsx の LegalLink と同じ）。 */}
+            <a
+              className={cn(
+                'inline-flex min-h-tap-min items-center px-1 text-[12px] font-bold underline-offset-2 hover:underline',
+                tone.accent,
+              )}
+              href={mapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={resultLegOpenInMapsLabel(legLabel(segment), segment.toName)}
+            >
+              {ja.resultLegOpenInMaps}
+            </a>
+          </div>
+        )}
       </div>
     </>
   );
