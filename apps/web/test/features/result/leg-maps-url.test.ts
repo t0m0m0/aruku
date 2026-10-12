@@ -10,6 +10,7 @@ import { GeoPoint } from '@aruku/engine/models/geo-point';
 import { RoutePlan, RouteSegment, SegmentType } from '@aruku/engine/models/route-plan';
 
 import { buildLegMapsUrl } from '../../../src/features/result/leg-maps-url';
+import { ja } from '../../../src/i18n/ja';
 
 type SegmentInit = ConstructorParameters<typeof RouteSegment>[0];
 
@@ -36,9 +37,9 @@ function ride(overrides: Partial<SegmentInit> = {}) {
   });
 }
 
-function plan(segments: RouteSegment[]): RoutePlan {
+function plan(segments: RouteSegment[], from: string = ja.searchCurrentLocationName): RoutePlan {
   return new RoutePlan({
-    from: '現在地',
+    from,
     to: '渋谷ヒカリエ',
     totalKm: 5.2,
     totalMin: 60,
@@ -77,34 +78,57 @@ describe('移動手段', () => {
   });
 });
 
-describe('出発地と目的地は区間の両端の座標', () => {
-  it('区間の polyline の先頭と末尾を渡す', () => {
-    const query = params(buildLegMapsUrl(plan([walk(), ride()]), 1));
-    expect(query.get('origin')).toBe('35.683,139.702');
-    expect(query.get('destination')).toBe('35.658,139.701');
+describe('出発地', () => {
+  it('2つ目以降の区間は前の区間の終点の座標から引く', () => {
+    expect(params(buildLegMapsUrl(plan([walk(), ride()]), 1)).get('origin')).toBe(
+      '35.683,139.702',
+    );
   });
 
-  it('先の区間でも端末の現在地ではなくその区間の始点から引く', () => {
-    expect(params(buildLegMapsUrl(plan([walk(), ride(), walk()]), 2)).get('origin')).not.toBeNull();
-  });
-
-  it('自区間に座標が無ければ隣の区間の継ぎ目の座標を使う', () => {
-    const query = params(buildLegMapsUrl(plan([walk(), ride({ polyline: [] }), walk({
+  it('区間自身の polyline の先頭は使わない——畳まれた徒歩では途中の地点を指し得る', () => {
+    const merged = walk({
       fromName: '渋谷駅',
       toName: '渋谷ヒカリエ',
-      polyline: [new GeoPoint(35.658, 139.701), new GeoPoint(35.659, 139.703)],
-    })]), 1));
-    expect(query.get('origin')).toBe('35.683,139.702');
-    expect(query.get('destination')).toBe('35.658,139.701');
+      polyline: [new GeoPoint(35.6585, 139.702), new GeoPoint(35.659, 139.703)],
+    });
+    const query = params(buildLegMapsUrl(plan([walk(), ride({ polyline: [] }), merged]), 2));
+    expect(query.get('origin')).toBe('渋谷駅');
+  });
+
+  it('前の区間に座標が無ければ区間の出発名、それも空なら前の区間の行き先名', () => {
+    const route = plan([walk({ polyline: [] }), ride({ polyline: [] })]);
+    expect(params(buildLegMapsUrl(route, 1)).get('origin')).toBe('代々木駅');
+    const noFromName = plan([walk({ polyline: [] }), ride({ polyline: [], fromName: '' })]);
+    expect(params(buildLegMapsUrl(noFromName, 1)).get('origin')).toBe('代々木駅');
+  });
+
+  it('現在地から出る最初の区間は出発地を付けず、端末の現在地に任せる', () => {
+    expect(params(buildLegMapsUrl(plan([walk()]), 0)).has('origin')).toBe(false);
+  });
+
+  it('選んだ地点から出る最初の区間は、座標が無くてもその地点名から引く', () => {
+    const route = plan([walk({ polyline: [], fromName: '新宿御苑' })], '新宿御苑');
+    expect(params(buildLegMapsUrl(route, 0)).get('origin')).toBe('新宿御苑');
+  });
+
+  it('選んだ地点から出る最初の区間は、polyline の先頭ではなく地点名を使う', () => {
+    expect(params(buildLegMapsUrl(plan([walk()], '新宿御苑'), 0)).get('origin')).toBe('新宿御苑');
   });
 });
 
-describe('座標が取れない区間は名前で引き継ぐ', () => {
-  it('両隣にも座標が無ければ区間の駅名を使う', () => {
-    const query = params(
-      buildLegMapsUrl(plan([walk({ polyline: [] }), ride({ polyline: [] })]), 1),
+describe('目的地', () => {
+  it('区間の polyline の末尾の座標', () => {
+    expect(params(buildLegMapsUrl(plan([walk(), ride()]), 1)).get('destination')).toBe(
+      '35.658,139.701',
     );
-    expect(query.get('origin')).toBe('代々木駅');
+  });
+
+  it('自区間に座標が無ければ、次の区間の polyline の先頭ではなく区間の行き先名', () => {
+    const query = params(buildLegMapsUrl(plan([walk(), ride({ polyline: [] }), walk({
+      fromName: '渋谷駅',
+      toName: '渋谷ヒカリエ',
+      polyline: [new GeoPoint(35.6585, 139.702), new GeoPoint(35.659, 139.703)],
+    })]), 1));
     expect(query.get('destination')).toBe('渋谷駅');
   });
 
@@ -118,18 +142,6 @@ describe('座標が取れない区間は名前で引き継ぐ', () => {
       buildLegMapsUrl(plan([walk({ polyline: [], toName: '' }), ride({ polyline: [] })]), 0),
     );
     expect(query.get('destination')).toBe('代々木駅');
-  });
-
-  it('出発名が空の途中区間は前の区間の行き先名を使う', () => {
-    const query = params(
-      buildLegMapsUrl(plan([walk({ polyline: [] }), ride({ polyline: [], fromName: '' })]), 1),
-    );
-    expect(query.get('origin')).toBe('代々木駅');
-  });
-
-  it('最初の区間は座標が無ければ出発地を付けず、端末の現在地に任せる', () => {
-    const query = params(buildLegMapsUrl(plan([walk({ polyline: [], fromName: '現在地' })]), 0));
-    expect(query.has('origin')).toBe(false);
   });
 });
 
