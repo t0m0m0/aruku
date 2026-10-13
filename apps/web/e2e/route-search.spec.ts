@@ -65,6 +65,20 @@ test('現在地から目的地を選んで経路を出す', async ({ page, upstr
   // （ノード行と区間カードの2箇所に出るので先頭を見る）。
   await expect(page.getByText(fakeRailLine).first()).toBeVisible();
   await expect(page.getByText('徒歩').first()).toBeVisible();
+
+  // 区間ごとの Google マップへのリンク（#449）。徒歩と電車の両方が、上流が返した
+  // 経路の座標を両端に持って開く。
+  const mapsLinks = page.getByRole('link', { name: /をGoogleマップで開く$/ });
+  await expect(mapsLinks.first()).toBeVisible();
+  const modes = new Set<string | null>();
+  for (const href of await mapsLinks.evaluateAll((links) =>
+    links.map((link) => link.getAttribute('href')),
+  )) {
+    const query = new URL(href!).searchParams;
+    expect(query.get('destination')).toMatch(/^-?[\d.]+,-?[\d.]+$/);
+    modes.add(query.get('travelmode'));
+  }
+  expect(modes).toEqual(new Set(['walking', 'transit']));
 });
 
 test('上流へ渡す照会の中身が、画面で選んだ地点と一致する', async ({

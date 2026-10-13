@@ -122,6 +122,7 @@ export const ja = {
   resultWalkLabel: '徒歩',
   resultTrainDefaultLabel: '電車',
   resultBusDefaultLabel: 'バス',
+  resultLegOpenInMaps: 'Googleマップで開く',
 
   /// 出発地の表示名。移植元は app_state.dart に直書きしていた（ARB に無い）。
   /// 文言なので他と同じくここへ置く。
@@ -188,6 +189,13 @@ export function resultSegmentDuration(minutes: number): DurationPart[] {
 /// 割っていたが、色も字体も同じで割る理由が無かったため 1 本にしている。
 export function resultLegKcal(kcal: number): string {
   return `+${kcal} kcal`;
+}
+
+/// 区間リンクの読み上げ名。見た目の文言は全区間で同じなので、どの区間かを名指しする。
+/// 行き先名は空文字のまま届き得る（移植元 #322）ので、そのときは名前を省く。
+export function resultLegOpenInMapsLabel(legLabel: string, toName: string): string {
+  const leg = toName === '' ? legLabel : `${toName}までの${legLabel}`;
+  return `${leg}をGoogleマップで開く`;
 }
 
 export function resultExtraWalk(duration: string): string {

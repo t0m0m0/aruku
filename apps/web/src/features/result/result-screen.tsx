@@ -2,9 +2,10 @@
 // タイムラインは result-timeline.tsx にある。
 //
 // 運んでいないもの（いずれも対になる相手が来てから）:
-// - 区間 CTA と外部地図への handoff（result_leg_cta.dart、238 行）。行程
+// - 区間 CTA の行程まわり（result_leg_cta.dart の完了表示・手動完了）。行程
 //   （JourneyProgress）に依存し、それは歩数同期に依存する——#386 が UI ごと作らないと
-//   決めた側
+//   決めた側。外部地図への引き継ぎだけは行程から切り離し、result-timeline.tsx の
+//   区間カードに置いた（#449）
 // - 共有（resultShareText）。外部連携で、経路検索の正しさとは独立
 
 import { useStore } from 'zustand';
