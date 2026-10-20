@@ -172,6 +172,9 @@ export class RoutePlan {
   readonly budgetMin: number;
   readonly kcal: number;
   readonly walkKm: number;
+
+  /// 画面はもう読まない（#451 で結果画面の表示を外した）が残す。経路の性質として
+  /// 計算は安く、撤去すると型・fixture・仕様の関数表まで波及するわりに得るものが無い。
   readonly walkRatio: number;
   readonly segments: RouteSegment[];
   readonly timelineNodes: TimelineNode[];

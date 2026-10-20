@@ -101,10 +101,12 @@ describe('合計', () => {
     expect(screen.getByText('消費カロリー')).toBeTruthy();
   });
 
-  it('徒歩の割合を百分率で出す', () => {
+  // 徒歩距離は km で既に出ている。割合まで並べると結果画面の情報量が勝つ（#451）。
+  it('徒歩の割合は出さない', () => {
     setup({ route: plan({ walkRatio: 0.79 }) });
 
-    expect(screen.getByText('距離の 79% を歩いて移動')).toBeTruthy();
+    expect(screen.queryByText(/歩いて移動/)).toBeNull();
+    expect(screen.queryByText(/79%/)).toBeNull();
   });
 
   // 予算に対する余裕は、この検索が「歩く時間を最大化できたか」の要約。
