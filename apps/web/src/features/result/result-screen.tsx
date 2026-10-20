@@ -25,7 +25,6 @@ import {
   resultExtraWalk,
   resultOverBudgetTitle,
   resultStandardDetail,
-  resultWalkRatioLabel,
 } from '../../i18n/ja';
 import { ArukuMap } from '../../map/aruku-map';
 import { Screen } from '../../navigation/screens';
@@ -130,10 +129,7 @@ export function ResultScreen({ store }: ResultScreenProps) {
         </section>
 
         <section className="px-1">
-          <p className="text-[12px] font-extrabold text-ink">
-            {resultWalkRatioLabel(Math.round(route.walkRatio * 100))}
-          </p>
-          <p className="mt-0.5 text-[11px] font-medium text-ink-3">
+          <p className="text-[11px] font-medium text-ink-3">
             {resultBudgetSummary(
               TimeValue.formatBudget(route.budgetMin),
               TimeValue.formatBudget(route.totalMin),

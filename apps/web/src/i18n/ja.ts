@@ -142,10 +142,6 @@ export function resultDepartureLabel(dateLabel: string, time: string): string {
   return `${dateLabel} · ${time} 出発`;
 }
 
-export function resultWalkRatioLabel(percent: number): string {
-  return `距離の ${percent}% を歩いて移動`;
-}
-
 /// 移植元 resultBudgetSummary。ARB の select（over / other）を分岐で表す。
 export function resultBudgetSummary(
   budget: string,
