@@ -4,6 +4,8 @@
 /// 履歴・fetch・本番ビルドの成果物が一続きに繋がっているか。移植の間ずっと
 /// 「実ブラウザで確認」と書き残してきた種類の確認が、ここから自動になる。
 
+import type { Page } from '@playwright/test';
+
 import { destinationPlace, currentPosition } from './world';
 import { expect, test } from './fixtures';
 import { fakeRailLine } from './upstream/fake-upstream';
@@ -27,7 +29,25 @@ function todayInTokyo(): string {
     .replaceAll('-', '');
 }
 
-test('現在地から目的地を選んで経路を出す', async ({ page, upstream }) => {
+/// 出発（ブラウザの今）に初期予算を足した締切が、日をまたぐ時刻とまたがない時刻。
+/// 締切の時は0埋めしない（`0:30 まで`）ので、実時計のまま走らせると夜だけ別の
+/// 表示を検証することになる（#465）。
+const clocks = [
+  { label: '昼', now: '2026-09-11T12:00:00+09:00' },
+  { label: '締切が日をまたぐ深夜', now: '2026-09-11T23:30:00+09:00' },
+];
+
+for (const { label, now } of clocks) {
+  test(`現在地から目的地を選んで経路を出す（${label}）`, async ({
+    page,
+    upstream,
+  }) => {
+    await page.clock.setFixedTime(new Date(now));
+    await mainFlow(page);
+  });
+}
+
+async function mainFlow(page: Page) {
   await page.goto('/');
 
   // 現在地が確定するまで出発は「取得中...」。確定した名前で出ることを待つ。
@@ -58,7 +78,7 @@ test('現在地から目的地を選んで経路を出す', async ({ page, upstr
   // 補助情報。時間が予算に収まっていること（余裕は予算内のときだけ出る）と、
   // 経路全体の消費カロリー。
   const auxiliary = page.getByRole('region', { name: 'このルートについて' });
-  await expect(auxiliary.getByText(/^\d{2}:\d{2} まで .+ 余裕$/)).toBeVisible();
+  await expect(auxiliary.getByText(/^\d{1,2}:\d{2} まで .+ 余裕$/)).toBeVisible();
   await expect(auxiliary.getByText(/^消費カロリー \d+ kcal$/)).toBeVisible();
 
   // タイムライン。電車を1本挟み、路線名は上流が返したものがそのまま出る
@@ -79,7 +99,7 @@ test('現在地から目的地を選んで経路を出す', async ({ page, upstr
     modes.add(query.get('travelmode'));
   }
   expect(modes).toEqual(new Set(['walking', 'transit']));
-});
+}
 
 test('上流へ渡す照会の中身が、画面で選んだ地点と一致する', async ({
   page,
