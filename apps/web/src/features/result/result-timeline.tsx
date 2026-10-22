@@ -18,7 +18,6 @@ import {
 
 import {
   ja,
-  resultLegKcal,
   resultLegOpenInMapsLabel,
   resultSegmentDuration,
 } from '../../i18n/ja';
@@ -170,17 +169,17 @@ function legLabel(segment: RouteSegment): string {
     : ja.resultTrainDefaultLabel;
 }
 
-// 徒歩レッグの km/kcal は経路生成が必ず埋めるが、型は null を許す。移植元は `!` で
-// 落としていた——描画で落とす価値は無いので、欠けている側だけ出さない。
+// 徒歩レッグの km は経路生成が必ず埋めるが、型は null を許す。移植元は `!` で
+// 落としていた——描画で落とす価値は無いので、欠けていれば出さない。
+//
+// 区間の kcal は埋まっていても出さない。経路全体の値を結果画面の補助情報に1回だけ
+// 出しており、区間にも並べると同じ事実が2か所になる（#453）。
 function WalkMeta({ segment }: { segment: RouteSegment }) {
   return (
     <MetaParts
       parts={[
         segment.km !== null ? (
           <span className="tabular">{`${segment.km.toFixed(1)}km`}</span>
-        ) : null,
-        segment.kcal !== null ? (
-          <span className="font-extrabold text-burnt">{resultLegKcal(segment.kcal)}</span>
         ) : null,
       ]}
     />

@@ -110,15 +110,13 @@ export const ja = {
   resultChangeConditions: '条件を変更',
   resultBackToSearch: '検索に戻る',
   resultNoRouteMessage: 'ルートがありません',
-  resultMetricDuration: '所要時間',
-  resultMetricWalkDistance: '徒歩距離',
-  resultMetricCalories: '消費カロリー',
   resultOverBudgetHint:
     '時間内に到達できる経路がないため、最短の経路を表示しています',
   /// ふつうの乗換ルートとの比較（#445）。ホームの説明文の「最短ルートではなく」と
   /// 言葉を揃えないのは、「最短」が最短距離や徒歩だけの最短とも読めるため。
   resultStandardLead: 'ふつうの乗換ルートより',
   resultSegmentsHeading: '区間',
+  resultAuxiliaryHeading: 'このルートについて',
   resultWalkLabel: '徒歩',
   resultTrainDefaultLabel: '電車',
   resultBusDefaultLabel: 'バス',
@@ -142,14 +140,14 @@ export function resultDepartureLabel(dateLabel: string, time: string): string {
   return `${dateLabel} · ${time} 出発`;
 }
 
-/// 移植元 resultBudgetSummary。ARB の select（over / other）を分岐で表す。
-export function resultBudgetSummary(
-  budget: string,
-  total: string,
-  slackMinutes: number,
-  over: boolean,
-): string {
-  return `制限 ${budget}のうち ${total} で到着 · ${slackMinutes}分 ${over ? '超過' : '余裕'}`;
+/// 到着の締切までの余り。制限の長さ（「1時間のうち」）で言わないのは、読む側に
+/// 出発時刻からの足し算を強いるため。締切の時刻なら行程の到着時刻と直接比べられる。
+export function resultSlack(deadline: string, slack: string): string {
+  return `${deadline} まで ${slack} 余裕`;
+}
+
+export function resultCalories(kcal: number): string {
+  return `消費カロリー ${kcal} kcal`;
 }
 
 export function resultOverBudgetTitle(overMinutes: number): string {
@@ -179,12 +177,6 @@ export function resultSegmentDuration(minutes: number): DurationPart[] {
     { text: String(minutes), unit: false },
     { text: '分', unit: true },
   ];
-}
-
-/// 徒歩レッグの消費カロリー。移植元は RichText で「+」「数値」「 kcal」を別スパンに
-/// 割っていたが、色も字体も同じで割る理由が無かったため 1 本にしている。
-export function resultLegKcal(kcal: number): string {
-  return `+${kcal} kcal`;
 }
 
 /// 区間リンクの読み上げ名。見た目の文言は全区間で同じなので、どの区間かを名指しする。

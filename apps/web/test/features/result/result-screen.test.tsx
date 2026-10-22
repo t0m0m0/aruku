@@ -1,6 +1,6 @@
 // 移植元: flutter-final:lib/features/result/result_screen.dart と result_totals.dart。
-// タイムラインそのものは result-timeline.test.tsx が見る。ここが見るのは合計・予算・
-// 見出しと、経路をタイムラインへ渡せていること。
+// タイムラインそのものは result-timeline.test.tsx が見る。ここが見るのは並び・補助情報・
+// 予算超過・見出しと、経路をタイムラインへ渡せていること。
 //
 // 運んでいないもの（いずれも対になる相手が来てから）:
 // - 区間 CTA と外部地図への handoff（result_leg_cta.dart）。行程＝歩数依存
@@ -8,8 +8,8 @@
 //
 // 地図に何が描かれるかは test/map/ が見る。ここが見るのは画面に地図が在ることだけ。
 
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   RoutePlan,
@@ -26,6 +26,8 @@ import { Screen, screenPath } from '../../../src/navigation/screens';
 import type { RouteCore } from '../../../src/state/app-state';
 import { createAppStore, type AppStore } from '../../../src/state/store';
 import type { StoreApi } from 'zustand/vanilla';
+
+import { stubViewport } from '../../layout/viewport';
 
 const noon = new Date(2026, 8, 13, 12, 0, 0);
 
@@ -92,38 +94,96 @@ function setup(initial: Partial<RouteCore> = {}) {
   return { navigate };
 }
 
-describe('合計', () => {
-  it('所要時間・徒歩距離・消費カロリーを出す', () => {
+// 結果画面の主役は行程。合計や予算の要約は行程と同じ事実の言い換えで、上に積むと
+// 到着時刻がモバイル幅の最初の画面から押し出される（#453）。
+describe('撤去した要約', () => {
+  it('所要時間・徒歩距離・消費カロリーの3つ並びは出さない', () => {
     setup();
 
-    expect(screen.getByText('所要時間')).toBeTruthy();
-    expect(screen.getByText('徒歩距離')).toBeTruthy();
-    expect(screen.getByText('消費カロリー')).toBeTruthy();
+    expect(screen.queryByText('所要時間')).toBeNull();
+    expect(screen.queryByText('徒歩距離')).toBeNull();
   });
 
-  // 徒歩距離は km で既に出ている。割合まで並べると結果画面の情報量が勝つ（#451）。
+  it('「制限◯のうち◯で到着」の行は出さない', () => {
+    setup({ route: plan({ budgetMin: 90, totalMin: 60 }) });
+
+    expect(screen.queryByText(/のうち/)).toBeNull();
+  });
+
+  // 徒歩距離は徒歩区間に km で出ている。割合まで並べると結果画面の情報量が勝つ（#451）。
   it('徒歩の割合は出さない', () => {
     setup({ route: plan({ walkRatio: 0.79 }) });
 
     expect(screen.queryByText(/歩いて移動/)).toBeNull();
     expect(screen.queryByText(/79%/)).toBeNull();
   });
+});
 
-  // 予算に対する余裕は、この検索が「歩く時間を最大化できたか」の要約。
-  it('予算の残りを余裕として出す', () => {
+// 比較・余裕・消費カロリーは、ルートを決めたあとで気になる人が読む情報。1か所に
+// まとめて行程の下へ置く（#453）。
+describe('補助情報', () => {
+  function auxiliary() {
+    return screen.getByRole('region', { name: 'このルートについて' });
+  }
+
+  // 余裕は、この検索が「歩く時間を最大化できたか」の要約。締切の時刻で言うと、
+  // 制限の長さから引き算させずに済む。
+  it('予算内なら到着の締切と余裕を出す', () => {
     setup({ route: plan({ budgetMin: 90, totalMin: 60 }) });
 
-    expect(
-      screen.getByText('制限 1時間 30分のうち 1時間 00分 で到着 · 30分 余裕'),
-    ).toBeTruthy();
+    // 出発 12:00 の 90分後。
+    expect(within(auxiliary()).getByText('13:30 まで 30分 余裕')).toBeTruthy();
   });
 
-  it('予算を超えていれば超過として出す', () => {
+  // 超過は警告が言う。ここで「-15分 余裕」のように言い換えると二重になる。
+  it('予算を超えていれば余裕は出さない', () => {
     setup({ route: plan({ budgetMin: 60, totalMin: 75 }) });
 
-    expect(
-      screen.getByText('制限 1時間 00分のうち 1時間 15分 で到着 · 15分 超過'),
-    ).toBeTruthy();
+    expect(within(auxiliary()).queryByText(/余裕/)).toBeNull();
+  });
+
+  it('経路全体の消費カロリーを出す', () => {
+    setup({ route: plan({ kcal: 210 }) });
+
+    expect(within(auxiliary()).getByText('消費カロリー 210 kcal')).toBeTruthy();
+  });
+
+  it('ふつうの乗換ルートとの比較もここに入る', () => {
+    setup({
+      route: plan({
+        segments: [segment({ minutes: 33 })],
+        standardTransit: { walkMinutes: 10, totalMin: 41 },
+      }),
+    });
+
+    expect(within(auxiliary()).getByText('+23分 多く歩ける')).toBeTruthy();
+  });
+});
+
+// 縦の並びが情報の優先順位そのもの。DOM の順で見る——読み上げも同じ順で辿る。
+describe('並び（モバイル幅）', () => {
+  function precedes(a: Element, b: Element) {
+    return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  }
+
+  it('行程・地図・補助情報の順に並ぶ', () => {
+    setup();
+
+    const itinerary = screen.getByText('現在地');
+    const map = screen.getByTestId('result-map');
+    const auxiliary = screen.getByRole('region', { name: 'このルートについて' });
+
+    expect(precedes(itinerary, map)).toBe(true);
+    expect(precedes(map, auxiliary)).toBe(true);
+  });
+
+  // 間に合わないことは、ルートを読む前に知るべき判断材料。補助情報へは回さない。
+  it('予算超過の警告は行程より前に置く', () => {
+    setup({ route: plan({ budgetMin: 60, totalMin: 75 }) });
+
+    expect(precedes(screen.getByText('制限時間を15分超過しています'), screen.getByText('現在地'))).toBe(
+      true,
+    );
   });
 });
 
@@ -302,22 +362,35 @@ describe('日を跨いでから見た固定出発の日付', () => {
 
 
 describe('地図のプレビュー', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('経路の地図を出す', () => {
     setup();
 
     expect(screen.getByTestId('result-map')).toBeDefined();
   });
 
-  // 移植元では地図が合計の上にある。タイムラインの下へ落ちると、経路の全体像が
-  // スクロールしないと見えない位置になる。
-  it('合計より前に置く', () => {
+  // モバイル幅では行程と補助情報のあいだ＝左パネルと同じ縦の流れに入る。
+  it('モバイル幅では行程と同じパネルの中に置く', () => {
+    stubViewport(false);
     setup();
 
-    const map = screen.getByTestId('result-map');
-    const totals = screen.getByText('所要時間');
+    expect(screen.getByTestId('result-panel').contains(screen.getByTestId('result-map'))).toBe(
+      true,
+    );
+  });
 
-    expect(
-      map.compareDocumentPosition(totals) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+  // デスクトップ幅では右カラム全面。パネルの中に置くとパネルと一緒にスクロールして
+  // しまう。地図は1枚だけ——2枚描くと地図の読み込みが倍になる。
+  it('デスクトップ幅ではパネルの外に1枚だけ置く', () => {
+    stubViewport(true);
+    setup();
+
+    expect(screen.getAllByTestId('result-map')).toHaveLength(1);
+    expect(screen.getByTestId('result-panel').contains(screen.getByTestId('result-map'))).toBe(
+      false,
+    );
   });
 });
