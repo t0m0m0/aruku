@@ -142,6 +142,23 @@ describe('補助情報', () => {
     expect(within(auxiliary()).queryByText(/余裕/)).toBeNull();
   });
 
+  // M3 のリスト（1項目1事実）。読み上げでも「3項目のリスト」として辿れる。
+  it('比較・余裕・消費カロリーを1項目ずつのリストにする', () => {
+    setup({
+      route: plan({
+        segments: [segment({ minutes: 33 })],
+        standardTransit: { walkMinutes: 10, totalMin: 41 },
+      }),
+    });
+
+    const items = within(within(auxiliary()).getByRole('list')).getAllByRole('listitem');
+    expect(items.map((item) => item.textContent)).toEqual([
+      expect.stringContaining('多く歩ける'),
+      expect.stringContaining('余裕'),
+      expect.stringContaining('消費カロリー'),
+    ]);
+  });
+
   it('経路全体の消費カロリーを出す', () => {
     setup({ route: plan({ kcal: 210 }) });
 

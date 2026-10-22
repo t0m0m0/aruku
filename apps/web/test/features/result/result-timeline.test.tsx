@@ -4,7 +4,7 @@
 // JourneyProgress は歩数同期に依存し、#386 が Web で作らないと決めた側——移植元で言えば
 // journey==null の _LegState.none だけが残った形になる。
 //
-// ノードと区間カードの対応は route-plan-builder が組み立てる（「segments と timelineNodes の
+// ノードと区間の対応は route-plan-builder が組み立てる（「segments と timelineNodes の
 // 1:1 対応を保つ」）。ここが押さえるのは、その対応を描画側が取り違えないこと。
 
 import { render, screen, within } from '@testing-library/react';
@@ -107,8 +107,8 @@ describe('ノードの並び', () => {
   });
 });
 
-describe('ノードと区間カードの対応', () => {
-  it('ノードの直下に区間カードを1枚ずつ置く', () => {
+describe('ノードと区間の対応', () => {
+  it('ノードの直下に区間を1枚ずつ置く', () => {
     render(<ResultTimeline route={walkThenRide()} />);
 
     expect(within(steps()[0]).getByText('徒歩')).toBeTruthy();
@@ -117,7 +117,7 @@ describe('ノードと区間カードの対応', () => {
 
   // 到着ノードは「その先の区間」を持たない。ノードは常に区間より 1 つ以上多いので、
   // 末尾で区間を使い切った状態になる。
-  it('到着ノードには区間カードを置かない', () => {
+  it('到着ノードには区間を置かない', () => {
     render(<ResultTimeline route={walkThenRide()} />);
 
     const last = within(steps()[2]);
@@ -127,9 +127,9 @@ describe('ノードと区間カードの対応', () => {
   });
 
   // 直結乗換（電車→電車で間に徒歩が無い）は「着」「発」の 2 行に割れ、着行は
-  // cardBelow:false でカードを挟まない。ここを読み落とすと着行が次の区間カードを
-  // 食い、以降のカードが 1 つずつ手前のノードへずれる。
-  it('カードを伴わないノードは区間カードを消費しない', () => {
+  // cardBelow:false で区間を挟まない。ここを読み落とすと着行が次の区間を
+  // 食い、以降の区間が 1 つずつ手前のノードへずれる。
+  it('区間を伴わないノードは区間を消費しない', () => {
     render(
       <ResultTimeline
         route={plan(
@@ -150,7 +150,7 @@ describe('ノードと区間カードの対応', () => {
   });
 });
 
-describe('徒歩の区間カード', () => {
+describe('徒歩の区間', () => {
   // 消費カロリーは経路全体の値を結果画面の補助情報に1回だけ出す。区間ごとにも
   // 出すと同じ事実が2か所に並ぶ（#453）。
   it('徒歩と距離を出し、カロリーは出さない', () => {
@@ -192,7 +192,7 @@ describe('徒歩の区間カード', () => {
   });
 });
 
-describe('乗り物の区間カード', () => {
+describe('乗り物の区間', () => {
   it('路線名と乗降駅を出す', () => {
     render(<ResultTimeline route={walkThenRide()} />);
 
@@ -280,7 +280,7 @@ describe('区間の所要時間', () => {
 });
 
 describe('区間を Google マップで開くリンク', () => {
-  it('区間カードごとに、その区間の行き先を名指ししたリンクを置く', () => {
+  it('区間ごとに、その区間の行き先を名指ししたリンクを置く', () => {
     render(<ResultTimeline route={walkThenRide()} />);
     screen.getByRole('link', { name: '代々木駅までの徒歩をGoogleマップで開く' });
     screen.getByRole('link', { name: '渋谷駅までの山手線をGoogleマップで開く' });

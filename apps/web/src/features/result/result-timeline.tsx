@@ -3,7 +3,7 @@
 // journey 進捗（#305 の _LegState と _LegStateBadge）は運んでいない。JourneyProgress は
 // 歩数同期に依存し、#386 が Web で作らないと決めた側——移植元で言えば journey==null の
 // _LegState.none だけが残る。Google マップへの引き継ぎ（移植元 result_leg_cta.dart）は
-// 進捗から切り離し、全区間のカードに置いている（#449）。
+// 進捗から切り離し、全区間に置いている（#449）。
 //
 // 図案の戻り先は Dart の Canvas 命令ではなく design_handoff_aruku_mvp/design-reference/
 // screens-result.jsx。Dart 版はそれを Canvas へ移したもので、そこから起こし直すと
@@ -29,7 +29,7 @@ interface ResultTimelineProps {
   route: RoutePlan;
 }
 
-/// ノードと区間カードを交互に積む。両者の 1:1 対応は route-plan-builder が組み立てる
+/// ノードと区間を交互に積む。両者の 1:1 対応は route-plan-builder が組み立てる
 /// （「segments と timelineNodes の 1:1 対応を保つ」）ので、ここでは崩さないことだけを見る。
 export function ResultTimeline({ route }: ResultTimelineProps) {
   const segments = route.segments;
@@ -40,8 +40,8 @@ export function ResultTimeline({ route }: ResultTimelineProps) {
     connector: boolean;
   }[] = [];
 
-  // cardBelow:false の駅行（直結乗換の「着」行）はカードを挟まず、次の「発」行へ短い
-  // コネクタで繋ぐ。それ以外の行は順にレッグカードを 1 枚消費する。ノードは常に区間より
+  // cardBelow:false の駅行（直結乗換の「着」行）は区間を挟まず、次の「発」行へ短い
+  // コネクタで繋ぐ。それ以外の行は順に区間を 1 つ消費する。ノードは常に区間より
   // 多い（末尾の到着ノードが余る）ので、使い切ったあとは置かない。
   let cursor = 0;
   route.timelineNodes.forEach((node, index) => {
@@ -65,24 +65,33 @@ export function ResultTimeline({ route }: ResultTimelineProps) {
         // 移植元は各行が [44px 時刻][14 隙間][16 トラック][残り] の Row だった。行ごとに
         // 同じ幅指定を書くと、片方だけ直したときにトラックの縦線が折れる。1 つのグリッドに
         // 乗せて列を共有する——ノード行とレッグ行が同じ li の中にあるのはそのため。
-        <li key={index} className="grid grid-cols-[44px_16px_1fr] items-start gap-x-3.5">
-          <span className="tabular col-start-1 pt-px text-right text-[11px] font-bold text-ink-3">
-            {node.time}
+        <li key={index} className="grid grid-cols-[52px_24px_1fr] items-start gap-x-3">
+          <span className="tabular col-start-1 pt-0.5 text-title-medium">{node.time}</span>
+          <span className="col-start-2 flex justify-center" aria-hidden="true">
+            <NodeMarker
+              kind={
+                index === steps.length - 1
+                  ? 'end'
+                  : segment?.type === SegmentType.walk
+                    ? 'walk'
+                    : 'ride'
+              }
+            />
           </span>
-          <span className="relative col-start-2 h-full min-h-3" aria-hidden="true">
-            <span className="absolute top-1 left-1.5 size-1 rounded-full bg-ink-2" />
-          </span>
-          <span className="col-start-3 flex min-w-0 flex-col gap-px pb-1">
-            <span className="text-[13px] font-bold text-ink">{node.place}</span>
+          <span className="col-start-3 flex min-w-0 flex-col">
+            <span className="text-title-large">{node.place}</span>
             {node.sub !== '' && (
-              <span className="text-[11px] font-medium text-ink-3">{node.sub}</span>
+              <span className="text-body-medium text-on-surface-variant">{node.sub}</span>
             )}
           </span>
           {segment !== null && <Leg segment={segment} mapsUrl={mapsUrl} />}
-          {/* 直結乗換の「着」行と「発」行のあいだ。カードが入らないぶん縦線が切れるので、
+          {/* 直結乗換の「着」行と「発」行のあいだ。区間が入らないぶん縦線が切れるので、
               短い実線で繋ぐ。 */}
           {connector && (
-            <span className="col-start-2 ml-[6.5px] h-3 border-l-3 border-train" aria-hidden="true" />
+            <span
+              className="col-start-2 h-3 w-1.5 justify-self-center bg-ride"
+              aria-hidden="true"
+            />
           )}
         </li>
       ))}
@@ -90,71 +99,84 @@ export function ResultTimeline({ route }: ResultTimelineProps) {
   );
 }
 
-/// 区間の種別ごとの色の組。トラック・カード・アイコンと所要時間の色は、どれも
-/// 徒歩か乗り物かの一点で決まる。
+/// 地点の目印。始点・途中は次の区間の色の輪、終点だけは塗りつぶして到着を示す。
+function NodeMarker({ kind }: { kind: 'walk' | 'ride' | 'end' }) {
+  if (kind === 'end') {
+    return (
+      <span className="mt-1 size-5 rounded-full border-4 border-primary-container bg-primary" />
+    );
+  }
+  return (
+    <span
+      className={cn(
+        'mt-[7px] size-3.5 rounded-full border-3 bg-surface',
+        kind === 'walk' ? 'border-primary' : 'border-ride',
+      )}
+    />
+  );
+}
+
+/// 区間の種別ごとの色の組。トラック・アイコンと所要時間の色は、どれも徒歩か乗り物かの
+/// 一点で決まる。徒歩は M3 の primary、乗り物は拡張色の ride。
 ///
-/// 徒歩は破線、乗り物は実線（移植元の _SegLinePainter の dashed がこの差だった）。
+/// 徒歩は点線、乗り物は実線（移植元の _SegLinePainter の dashed がこの差だった）。点線を
+/// border-dotted で描かないのは、6px 幅の枠線の点が四角く潰れて丸に見えないため。
 /// バス専用のアイコン・色は未デザインのため、当面は電車と同じ見た目を流用する（#249）。
 const legTones = {
   walk: {
-    track: 'border-dotted border-moss-600',
-    card: 'border-moss-100 bg-moss-50',
-    accent: 'text-moss-600',
+    track:
+      'bg-[radial-gradient(circle,var(--color-primary)_3px,transparent_3.5px)] bg-size-[6px_12px] bg-repeat-y',
+    accent: 'text-primary',
   },
   ride: {
-    track: 'border-train',
-    card: 'border-train/18 bg-train/8',
-    accent: 'text-train',
+    track: 'rounded-full bg-ride',
+    accent: 'text-ride',
   },
 } as const;
 
+// 塗りのカードで区間を囲まない。区切りはトラックと文字の段階が受け持ち、面を重ねると
+// M3 の「面の濃淡で階層を作る」とぶつかる（どの面より上か、が区間ごとに生まれる）。
 function Leg({ segment, mapsUrl }: { segment: RouteSegment; mapsUrl: string | null }) {
   const isWalk = segment.type === SegmentType.walk;
   const tone = isWalk ? legTones.walk : legTones.ride;
   return (
     <>
       <span
-        className={cn('col-start-2 my-1.5 ml-[6.5px] self-stretch border-l-3', tone.track)}
+        className={cn('col-start-2 my-1 w-1.5 justify-self-center self-stretch', tone.track)}
         aria-hidden="true"
       />
-      <div className={cn('col-start-3 my-1.5 rounded-sm border px-3 py-2', tone.card)}>
-        <div className="flex items-center gap-2">
+      <div className="col-start-3 flex min-w-0 flex-col items-start py-3">
+        <div className="flex items-center gap-2 text-body-large">
           <span className={cn('flex flex-none', tone.accent)} aria-hidden="true">
-            {isWalk ? <WalkIcon size={16} /> : <TrainIcon size={16} />}
+            {isWalk ? <WalkIcon size={20} /> : <TrainIcon size={20} />}
           </span>
-          <span className="min-w-0 flex-1 text-[13px] font-bold text-ink">{legLabel(segment)}</span>
+          <span className="min-w-0">{legLabel(segment)}</span>
           <span className={cn('flex flex-none items-baseline', tone.accent)}>
             {resultSegmentDuration(segment.minutes).map((part, index) => (
               <span
                 key={index}
-                className={
-                  part.unit ? 'text-[10px] font-bold' : 'tabular text-[12px] font-extrabold'
-                }
+                className={part.unit ? 'text-label-medium' : 'tabular text-title-medium'}
               >
                 {part.text}
               </span>
             ))}
           </span>
         </div>
-        <div className="mt-1 flex items-center text-[11px] font-semibold text-ink-2">
+        <div className="flex items-center text-body-medium text-on-surface-variant">
           {isWalk ? <WalkMeta segment={segment} /> : <RideMeta segment={segment} />}
         </div>
         {mapsUrl !== null && (
-          <div className="-mb-1 flex justify-end">
-            {/* rel は target=_blank の暗黙の noopener に任せない（home-screen.tsx の LegalLink と同じ）。 */}
-            <a
-              className={cn(
-                'inline-flex min-h-tap-min items-center px-1 text-[12px] font-bold underline-offset-2 hover:underline',
-                tone.accent,
-              )}
-              href={mapsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={resultLegOpenInMapsLabel(legLabel(segment), segment.toName)}
-            >
-              {ja.resultLegOpenInMaps}
-            </a>
-          </div>
+          // M3 のテキストボタン。左の余白ぶん -ml-3 で引き、文字を区間名の左端に揃える。
+          // rel は target=_blank の暗黙の noopener に任せない（home-screen.tsx の LegalLink と同じ）。
+          <a
+            className="-ml-3 inline-flex min-h-tap-min items-center rounded-full px-3 text-label-large text-primary hover:bg-primary/8 focus-visible:outline-2 focus-visible:outline-primary"
+            href={mapsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={resultLegOpenInMapsLabel(legLabel(segment), segment.toName)}
+          >
+            {ja.resultLegOpenInMaps}
+          </a>
         )}
       </div>
     </>
@@ -211,7 +233,7 @@ function MetaParts({ parts }: { parts: (React.ReactNode | null)[] }) {
       {present.map((part, index) => (
         <span key={index} className="inline-flex items-center">
           {index > 0 && (
-            <span className="mx-2 text-ink-4" aria-hidden="true">
+            <span className="mx-2 text-outline" aria-hidden="true">
               ·
             </span>
           )}
