@@ -151,7 +151,9 @@ describe('ノードと区間カードの対応', () => {
 });
 
 describe('徒歩の区間カード', () => {
-  it('徒歩と距離・カロリーを出す', () => {
+  // 消費カロリーは経路全体の値を結果画面の補助情報に1回だけ出す。区間ごとにも
+  // 出すと同じ事実が2か所に並ぶ（#453）。
+  it('徒歩と距離を出し、カロリーは出さない', () => {
     render(
       <ResultTimeline
         route={plan(
@@ -166,7 +168,7 @@ describe('徒歩の区間カード', () => {
 
     expect(screen.getByText('徒歩')).toBeTruthy();
     expect(screen.getByText('3.3km')).toBeTruthy();
-    expect(screen.getByText('+128 kcal')).toBeTruthy();
+    expect(screen.queryByText(/kcal/)).toBeNull();
   });
 
   // 徒歩レッグの km/kcal は経路生成が必ず埋めるが、型は null を許す。移植元は `!` で

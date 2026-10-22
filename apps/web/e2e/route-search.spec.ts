@@ -55,11 +55,11 @@ test('現在地から目的地を選んで経路を出す', async ({ page, upstr
 
   await expect(page).toHaveURL('/home/result');
 
-  // 合計。3 つとも出ていることと、時間が予算に収まっていること。
-  await expect(page.getByText('所要時間')).toBeVisible();
-  await expect(page.getByText('徒歩距離')).toBeVisible();
-  await expect(page.getByText('消費カロリー')).toBeVisible();
-  await expect(page.getByText(/制限 .+のうち .+で到着 · \d+分 余裕/)).toBeVisible();
+  // 補助情報。時間が予算に収まっていること（余裕は予算内のときだけ出る）と、
+  // 経路全体の消費カロリー。
+  const auxiliary = page.getByRole('region', { name: 'このルートについて' });
+  await expect(auxiliary.getByText(/^\d{2}:\d{2} まで .+ 余裕$/)).toBeVisible();
+  await expect(auxiliary.getByText(/^消費カロリー \d+ kcal$/)).toBeVisible();
 
   // タイムライン。電車を1本挟み、路線名は上流が返したものがそのまま出る
   // （ノード行と区間カードの2箇所に出るので先頭を見る）。

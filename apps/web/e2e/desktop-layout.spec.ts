@@ -79,18 +79,21 @@ test('デスクトップ幅の結果はページごとではなく左パネル�
   expect(pageScrolls).toBe(false);
 });
 
-test('モバイル幅の結果は地図を挟んだ縦積みのまま', async ({ page, upstream }) => {
+// 行程が主役で、地図はその下・補助情報の上に挟まる（#453）。
+test('モバイル幅の結果は区間・地図・補助情報の縦積み', async ({ page, upstream }) => {
   expect(upstream.unmatched).toEqual([]);
   await page.setViewportSize(mobile);
   await goToResult(page, 'screen');
 
+  const segments = await box(page.getByRole('heading', { name: '区間' }));
   const map = await box(page.getByTestId('result-map'));
-  const panel = await box(page.getByTestId('result-panel'));
+  const auxiliary = await box(page.getByRole('region', { name: 'このルートについて' }));
 
   // 移植元 _RouteMapPreview の固定高 180px。
   expect(Math.round(map.height)).toBe(180);
-  expect(panel.y).toBeGreaterThanOrEqual(map.y + map.height);
   expect(Math.round(map.width)).toBe(mobile.width - 36);
+  expect(map.y).toBeGreaterThan(segments.y + segments.height);
+  expect(auxiliary.y).toBeGreaterThanOrEqual(map.y + map.height);
 });
 
 test('デスクトップ幅の待ち画面は上部バーの下を地図で埋める', async ({
