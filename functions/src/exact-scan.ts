@@ -200,7 +200,8 @@ export function pickStopsToMeasure(
 
 /**
  * 実測した徒歩で全便を走査し、徒歩最大の候補を上位 k 本返す。並びは徒歩の長い順、
- * 同じ徒歩なら目的地への到着が早い順。同じ乗車駅・降車駅の組は1本にまとめる。
+ * 同じ徒歩なら目的地への到着が早い順。同じ乗車駅・降車駅の組は1本にまとめ、
+ * 目的地への到着が最も早い便を残す。
  */
 export function bestRides(
   ct: CompiledTimetable,
@@ -209,42 +210,59 @@ export function bestRides(
   opts: { k?: number } = {},
 ): Ride[] {
   const k = opts.k ?? 5;
+  const deadline = q.departAt + q.budgetMin * 60;
   const access = new Float64Array(ct.stopCount).fill(Infinity);
   const egress = new Float64Array(ct.stopCount).fill(Infinity);
   for (const [s, sec] of measured.access) access[s] = sec;
   for (const [s, sec] of measured.egress) egress[s] = sec;
 
-  const rides = bestPairPerTrip(ct, q, access, egress).map((p): Ride => {
-    const board = ct.callStop[p.boardCall];
-    const alight = ct.callStop[p.alightCall];
-    return {
-      trip: p.trip,
-      board,
-      alight,
-      boardAt: ct.callDep[p.boardCall],
-      alightAt: ct.callArr[p.alightCall],
-      accessSec: access[board],
-      egressSec: egress[alight],
-      walkSec: p.walk,
-    };
-  });
-  rides.sort(
-    (a, b) =>
-      b.walkSec - a.walkSec ||
-      a.alightAt + a.egressSec - (b.alightAt + b.egressSec) ||
-      a.trip - b.trip,
-  );
-
-  const seen = new Set<string>();
-  const out: Ride[] = [];
-  for (const r of rides) {
-    const key = `${r.board}-${r.alight}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(r);
-    if (out.length >= k) break;
+  // pickStopsToMeasure のように便ごとの最良の1組だけを残すと、同じ便の2番手の組が
+  // 上位 k 本から漏れる。全組を作っても、乗れる駅は実測した駅に限られるので数は小さい。
+  const byPair = new Map<number, Ride>();
+  const { trips, firstPos } = boardableTrips(ct, q, access);
+  for (const trip of trips) {
+    const start = ct.tripStart[trip];
+    const end = start + ct.tripLength[trip];
+    const boardCalls: number[] = [];
+    for (let c = start + firstPos[trip]; c < end; c++) {
+      const s = ct.callStop[c];
+      if (ct.callAlight[c] && ct.callArr[c] + egress[s] <= deadline) {
+        for (const b of boardCalls) {
+          const board = ct.callStop[b];
+          if (board === s) continue;
+          const ride: Ride = {
+            trip,
+            board,
+            alight: s,
+            boardAt: ct.callDep[b],
+            alightAt: ct.callArr[c],
+            accessSec: access[board],
+            egressSec: egress[s],
+            walkSec: access[board] + egress[s],
+          };
+          const key = board * ct.stopCount + s;
+          const prev = byPair.get(key);
+          if (prev === undefined || compareRides(ride, prev) < 0) byPair.set(key, ride);
+        }
+      }
+      if (
+        ct.callBoard[c] &&
+        q.departAt + access[s] <= ct.callDep[c] &&
+        !boardCalls.some((b) => ct.callStop[b] === s)
+      ) {
+        boardCalls.push(c);
+      }
+    }
   }
-  return out;
+  return [...byPair.values()].sort(compareRides).slice(0, k);
+}
+
+function compareRides(a: Ride, b: Ride): number {
+  return (
+    b.walkSec - a.walkSec ||
+    a.alightAt + a.egressSec - (b.alightAt + b.egressSec) ||
+    a.trip - b.trip
+  );
 }
 
 interface TripPair {
@@ -255,7 +273,7 @@ interface TripPair {
 }
 
 /**
- * 便ごとに、乗れる駅で乗り、降りられる駅で降りる組のうち徒歩最大の1組を返す。
+ * 便ごとに、乗れる駅で乗り、降りられる別の駅で降りる組のうち徒歩最大の1組を返す。
  * access/egress は駅ごとの徒歩の秒数で、Infinity の駅は使わない。
  */
 function bestPairPerTrip(
@@ -265,7 +283,52 @@ function bestPairPerTrip(
   egress: Float64Array,
 ): TripPair[] {
   const deadline = q.departAt + q.budgetMin * 60;
+  const { trips, firstPos } = boardableTrips(ct, q, access);
 
+  const pairs: TripPair[] = [];
+  for (const trip of trips) {
+    const start = ct.tripStart[trip];
+    const end = start + ct.tripLength[trip];
+    // 徒歩最大の乗車と、それと駅の違う乗車の中で徒歩最大のもの。同じ駅に戻ってくる便で、
+    // 降車駅が最大の乗車駅と同じでも、別の駅からの乗車を候補に残すため2つ持つ。
+    let best = -1;
+    let runnerUp = -1;
+    let found: TripPair | null = null;
+    for (let c = start + firstPos[trip]; c < end; c++) {
+      const s = ct.callStop[c];
+      if (ct.callAlight[c] && ct.callArr[c] + egress[s] <= deadline) {
+        const board = best >= 0 && ct.callStop[best] !== s ? best : runnerUp;
+        if (board >= 0) {
+          const walk = access[ct.callStop[board]] + egress[s];
+          if (found === null || walk > found.walk) {
+            found = { trip, boardCall: board, alightCall: c, walk };
+          }
+        }
+      }
+      if (ct.callBoard[c] && q.departAt + access[s] <= ct.callDep[c]) {
+        if (best < 0 || access[s] > access[ct.callStop[best]]) {
+          runnerUp = best;
+          best = c;
+        } else if (
+          ct.callStop[best] !== s &&
+          (runnerUp < 0 || access[s] > access[ct.callStop[runnerUp]])
+        ) {
+          runnerUp = c;
+        }
+      }
+    }
+    if (found !== null) pairs.push(found);
+  }
+  return pairs;
+}
+
+/** 締切までに乗れる発車がある便と、便ごとに乗れる最初の停車位置。 */
+function boardableTrips(
+  ct: CompiledTimetable,
+  q: ScanQuery,
+  access: Float64Array,
+): { trips: number[]; firstPos: Int32Array } {
+  const deadline = q.departAt + q.budgetMin * 60;
   const firstPos = new Int32Array(ct.tripCount).fill(-1);
   const touched: number[] = [];
   for (let s = 0; s < ct.stopCount; s++) {
@@ -283,31 +346,7 @@ function bestPairPerTrip(
       if (firstPos[trip] === -1 || pos < firstPos[trip]) firstPos[trip] = pos;
     }
   }
-
-  const pairs: TripPair[] = [];
-  for (const trip of touched) {
-    const start = ct.tripStart[trip];
-    const end = start + ct.tripLength[trip];
-    let bestAccess = -1;
-    let bestBoard = -1;
-    let found: TripPair | null = null;
-    for (let c = start + firstPos[trip]; c < end; c++) {
-      const s = ct.callStop[c];
-      // 降車の判定を乗車の更新より先に置くのは、同じ駅で乗って降りる組を作らないため
-      if (bestBoard >= 0 && ct.callAlight[c] && ct.callArr[c] + egress[s] <= deadline) {
-        const walk = bestAccess + egress[s];
-        if (found === null || walk > found.walk) {
-          found = { trip, boardCall: bestBoard, alightCall: c, walk };
-        }
-      }
-      if (ct.callBoard[c] && q.departAt + access[s] <= ct.callDep[c] && access[s] > bestAccess) {
-        bestAccess = access[s];
-        bestBoard = c;
-      }
-    }
-    if (found !== null) pairs.push(found);
-  }
-  return pairs;
+  return { trips: touched, firstPos };
 }
 
 function lowerBound(arr: Int32Array, lo: number, hi: number, value: number): number {
