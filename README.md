@@ -388,3 +388,65 @@ Firestore 呼び出しが失敗した場合はフェイルオープン（リク�
   これは設計上許容しており、その局面の一次防御は App Check が担います。
 - **レイテンシ・コスト**: 各プロキシ呼び出しごとに Firestore トランザクション（1 read + 1 write）が発生し、
   呼び出しレイテンシと Firestore 課金が増えます。課金 API の濫用防止という保険のためのコストです。
+
+## 時刻表パック（ODPT の GTFS）
+
+厳密走査（#456）が読む時刻表パックは、定期関数 `refreshTimetablePacks` が毎日 4:23（JST）に
+ODPT から GTFS を取り直して作り、非公開の Cloud Storage に置きます。取得するフィードとキーは
+`functions/src/timetable-pack/feeds.ts`。
+
+| オブジェクト | 中身 | ライセンス |
+|---|---|---|
+| `challenge/timetable-pack.json.gz` | JR東日本・京王・東武・相鉄 | チャレンジ限定（**2027-03-12 で削除**・#463） |
+| `permanent/timetable-pack.json.gz` | 東京メトロ・TX・りんかい線・多摩モノレール・都営 | 基本ライセンス・CC BY 4.0 |
+
+グループの中で1フィードでも取れなかった日は、そのグループを上書きせず前回のパックを残し、
+実行を失敗として記録します（ログの `jsonPayload.event="timetable_pack_refresh"`）。
+
+**GTFS もパックもリポジトリに入れない**（基本ライセンス第8条4(1)・チャレンジ限定データの第三者提供の禁止）。
+ブラウザにも渡さない。
+
+### 初回の用意
+
+```bash
+# 1. ODPT のキーを Secret Manager に登録（値はキーチェーンから流し込み、画面・履歴に出さない）
+printf '%s' "$(security find-generic-password -a "$USER" -s ODPT_CENTER_KEY -w)" | \
+  npx -y firebase-tools@latest functions:secrets:set ODPT_CENTER_KEY --data-file - --project aruku-app
+printf '%s' "$(security find-generic-password -a "$USER" -s ODPT_CHALLENGE_KEY -w)" | \
+  npx -y firebase-tools@latest functions:secrets:set ODPT_CHALLENGE_KEY --data-file - --project aruku-app
+
+# 2. 非公開バケットを作る（名前はリポジトリに書かない）
+gcloud storage buckets create gs://<BUCKET> --location=asia-northeast1 \
+  --uniform-bucket-level-access --public-access-prevention --project aruku-app
+
+# 3. 関数の実行サービスアカウントに書き込みを許す（既定の Compute SA に Editor が無い場合）
+gcloud storage buckets add-iam-policy-binding gs://<BUCKET> \
+  --member=serviceAccount:<PROJECT_NUMBER>-compute@developer.gserviceaccount.com \
+  --role=roles/storage.objectAdmin
+
+# 4. Cloud Scheduler API を有効にする
+gcloud services enable cloudscheduler.googleapis.com --project aruku-app
+
+# 5. デプロイ。初回は TIMETABLE_PACK_BUCKET を聞かれるので 2 のバケット名を入れる
+#    （functions/.env.aruku-app に保存される。gitignore 済み）
+npx -y firebase-tools@latest deploy --only functions:refreshTimetablePacks --project aruku-app
+```
+
+キーが入っているかは、値を出さずに確かめる:
+
+```bash
+gcloud secrets versions list ODPT_CENTER_KEY    --project aruku-app
+gcloud secrets versions list ODPT_CHALLENGE_KEY --project aruku-app
+```
+
+### 手元でパックを作って測る
+
+本番と同じ処理を回し、`--out` の場所（functions 直下の `.odpt` は gitignore 済み）に書き出して、サイズと読み込み時間を出力します。
+キーのいらない都営だけなら `--feeds Toei` でキー無しでも動きます。
+
+```bash
+cd functions
+ODPT_CENTER_KEY="$(gcloud secrets versions access latest --secret ODPT_CENTER_KEY --project aruku-app)" \
+ODPT_CHALLENGE_KEY="$(gcloud secrets versions access latest --secret ODPT_CHALLENGE_KEY --project aruku-app)" \
+  npm run pack:local -- --out .odpt
+```
