@@ -80,19 +80,24 @@ export interface ExactWalkMaxResponse {
   };
 }
 
-type Query = Record<string, string | undefined>;
+/** Express の req.query。同じ名前が2回あると配列になる。 */
+type Query = Record<string, unknown>;
 
 export function parseExactWalkMaxQuery(query: Query): ExactWalkMaxRequest | { error: string } {
-  const origin = parsePoint(query["origin"]);
-  const goal = parsePoint(query["goal"]);
+  const param = (name: string): string | undefined => {
+    const v = query[name];
+    return typeof v === "string" ? v : undefined;
+  };
+  const origin = parsePoint(param("origin"));
+  const goal = parsePoint(param("goal"));
   if (origin === null || goal === null) {
     return { error: "origin and goal are required as 'lat,lng'" };
   }
-  const departAt = parseInstant(query["departAt"]);
+  const departAt = parseInstant(param("departAt"));
   if (departAt === null) {
     return { error: "departAt is required as ISO 8601 with a UTC offset" };
   }
-  const budgetMin = Number(query["budgetMin"]);
+  const budgetMin = Number(param("budgetMin"));
   if (!Number.isInteger(budgetMin) || budgetMin < 1 || budgetMin > MAX_BUDGET_MIN) {
     return { error: `budgetMin must be an integer in 1..${MAX_BUDGET_MIN}` };
   }

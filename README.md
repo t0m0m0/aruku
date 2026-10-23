@@ -45,7 +45,7 @@ Node は 22.22.0 以上が要る（`react-router` の要求）。`packages/engin
 | 用途 | API | 呼び出し元 | キーの置き場所 |
 |---|---|---|---|
 | 地図表示 | Maps JavaScript API | ブラウザ | `apps/web/.env` の `VITE_MAPS_WEB_API_KEY` |
-| 徒歩の所要・距離・街路ジオメトリ | Routes API | `googleWalkProxy` / `googleWalkMatrixProxy` | Secret Manager `GOOGLE_MAPS_API_KEY` |
+| 徒歩の所要・距離・街路ジオメトリ | Routes API | `googleWalkProxy` / `googleWalkMatrixProxy` / `exactWalkMax` | Secret Manager `GOOGLE_MAPS_API_KEY` |
 | 地点検索 | Places API (New) | `placesProxy` | Secret Manager `GOOGLE_MAPS_API_KEY` |
 | 公共交通の経路 | — （Transit API・認証不要） | ブラウザから直接 | 不要 |
 
@@ -405,7 +405,8 @@ ODPT から GTFS を取り直して作り、非公開の Cloud Storage に置き
 実行を失敗として記録します（ログの `jsonPayload.event="timetable_pack_refresh"`）。
 
 **GTFS もパックもリポジトリに入れない**（基本ライセンス第8条4(1)・チャレンジ限定データの第三者提供の禁止）。
-ブラウザにも渡さない。
+ブラウザにも渡さない。パックを読むのは検索のエンドポイント `exactWalkMax` だけで、返すのは徒歩最大の候補だけです
+（[ルート最適化 仕様](docs/spec/route-optimization.md) §2.1）。
 
 ### 初回の用意
 

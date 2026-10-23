@@ -147,3 +147,21 @@ export function logRateLimit(params: RateLimitParams): void {
     logger.info("rate_limit", payload);
   }
 }
+
+export interface ExactWalkMaxParams {
+  /** 運行日の時刻表を用意するまで。コールドスタートではパックの読み込みを含む。 */
+  dayMs: number;
+  /** 並列に呼ぶマトリクス2本のうち遅い方。 */
+  matrixMs: number;
+  /** 走査（2パス）と応答の組み立て。 */
+  scanMs: number;
+  candidates: number;
+  tripsScanned: number;
+  elementsMeasured: number;
+  truncated: boolean;
+}
+
+/** exactWalkMax の1検索の内訳（#459）。座標・駅名は含めない。 */
+export function logExactWalkMax(params: ExactWalkMaxParams): void {
+  logger.info("exact_walk_max", { event: "exact_walk_max", ...params });
+}

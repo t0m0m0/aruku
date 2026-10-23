@@ -97,6 +97,7 @@ describe("parseExactWalkMaxQuery", () => {
     ["budgetMin が整数でない", { ...valid, budgetMin: "12.5" }],
     ["budgetMin が0", { ...valid, budgetMin: "0" }],
     ["budgetMin が1日を超える", { ...valid, budgetMin: "1441" }],
+    ["同じパラメータが2回渡された", { ...valid, origin: ["35.56,139.71", "35.57,139.71"] }],
   ])("%s入力は拒否する", (_name, query) => {
     expect(parseExactWalkMaxQuery(query)).toHaveProperty("error");
   });
