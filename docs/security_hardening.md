@@ -472,6 +472,8 @@ HTTP リファラ制限（配信ドメインのみ）も同じタイミングで
   GTFS もパックもリポジトリに入れない（`functions/.gitignore` の `.odpt/`）。
 - **チャレンジ限定データの期限（2027-03-12）:** `challenge/` 配下のオブジェクトと `ODPT_CHALLENGE_KEY` を消す
   （#463）。定期関数がまた作らないよう、先に `functions/src/timetable-pack/feeds.ts` から該当フィードを外してデプロイする。
+  温まったインスタンスはパックを読んでから6時間で読み直し、そのとき無くなったグループは前に読んだ分も捨てる
+  （`functions/src/timetable-pack/load.ts`）。消してから6時間経つまでは検索に残りうるので、期限より前に消す。
 
 ```bash
 gcloud storage rm -r gs://<BUCKET>/challenge/ --project aruku-app
