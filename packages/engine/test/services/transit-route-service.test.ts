@@ -6762,9 +6762,9 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
     },
   });
 
-  const exactBody = (candidates: JsonMap[]): JsonMap => ({
+  const exactBody = (candidates: JsonMap[], feeds: JsonMap[] = []): JsonMap => ({
     candidates,
-    feeds: [],
+    feeds,
     stats: { tripsScanned: 10, elementsMeasured: 2, truncated: false },
   });
 
@@ -6831,6 +6831,52 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
     expect(req.searchParams.get('goal')).toEqual('35.0,139.1');
     expect(req.searchParams.get('departAt')).toEqual('2026-06-27T09:00:00+09:00');
     expect(req.searchParams.get('budgetMin')).toEqual('100');
+  });
+
+  describe('時刻表の出典（#461）', () => {
+    const feeds = [{ id: 'Toei', fetchedAt: '2026-06-27T04:23:10.000Z' }];
+    const toei = [
+      { feedId: 'Toei', fetchedAt: new Date(Date.UTC(2026, 5, 27, 4, 23, 10)) },
+    ];
+
+    it('応答が返れば、フィードの取得日時を RoutePlan に載せる', async () => {
+      const plan = await run(
+        exactMock({
+          onExact: () =>
+            json(exactBody([exactCandidate({ board: at(9, 50), alight: at(9, 53) })], feeds)),
+        }),
+      );
+      expect(rides(plan)).toEqual(['厳密線']);
+      expect(plan.timetableSources).toEqual(toei);
+    });
+
+    it('厳密走査の候補が採用されなくても載せる（比較に使っている）', async () => {
+      const plan = await run(exactMock({ onExact: () => json(exactBody([], feeds)) }));
+      expect(rides(plan)).not.toContain('厳密線');
+      expect(plan.timetableSources).toEqual(toei);
+    });
+
+    it('厳密走査を切っていれば空', async () => {
+      const plan = await run(
+        exactMock({ onExact: () => json(exactBody([], feeds)) }),
+        { exactWalkMax: false },
+      );
+      expect(plan.timetableSources).toEqual([]);
+    });
+
+    it('エンドポイントが失敗すれば空', async () => {
+      const plan = await run(exactMock({ onExact: () => json({}, 503) }));
+      expect(plan.timetableSources).toEqual([]);
+    });
+
+    it('猶予内に返らなければ空', async () => {
+      const gate = deferred<HttpResponse>();
+      const plan = await run(exactMock({ onExact: () => gate.promise }), {
+        exactWalkMaxGrace: 20,
+      });
+      expect(plan.timetableSources).toEqual([]);
+      gate.complete(json(exactBody([], feeds)));
+    });
   });
 
   it('厳密走査の候補が徒歩最大なら、それが確定する', async () => {

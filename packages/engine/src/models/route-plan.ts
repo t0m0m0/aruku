@@ -136,6 +136,17 @@ export interface StandardTransitSummary {
   totalMin: number;
 }
 
+/// 経路の選定に使った時刻表（ODPT の GTFS）の1フィード（#461）。基本ライセンスは、
+/// 静的データの取得日時を利用者が容易に見られる画面に出すことを求める。
+///
+/// [fetchedAt] は実際の時刻。発着時刻のような JST の壁時計を表す naive な `Date`
+/// （§4 #121）ではない——出発アンカーと比べることは無く、表示の側で JST に直す。
+export interface TimetableSource {
+  /// ODPT のフィード id（`functions/src/timetable-pack/feeds.ts`）。
+  feedId: string;
+  fetchedAt: Date;
+}
+
 export interface RoutePlanInit {
   from: string;
   to: string;
@@ -148,6 +159,7 @@ export interface RoutePlanInit {
   segments: RouteSegment[];
   timelineNodes: TimelineNode[];
   standardTransit?: StandardTransitSummary | null;
+  timetableSources?: TimetableSource[];
 }
 
 export class RoutePlan {
@@ -163,6 +175,7 @@ export class RoutePlan {
     this.segments = init.segments;
     this.timelineNodes = init.timelineNodes;
     this.standardTransit = init.standardTransit ?? null;
+    this.timetableSources = init.timetableSources ?? [];
   }
 
   readonly from: string;
@@ -182,4 +195,8 @@ export class RoutePlan {
   /// ふつうの乗換ルートの要約。null は比べられる経路が無い（乗れる便が無い・全徒歩の
   /// データ源など）。
   readonly standardTransit: StandardTransitSummary | null;
+
+  /// 選定に使った時刻表。空は使っていない（厳密走査が無効・失敗・猶予切れ）。
+  /// 厳密走査の候補が採用されなかった検索でも、比較に使ったので空にしない。
+  readonly timetableSources: TimetableSource[];
 }

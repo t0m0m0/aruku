@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import { GeoPoint } from '../../src/models/geo-point';
 import { SegmentType } from '../../src/models/route-plan';
-import { exactWalkCandidates } from '../../src/services/exact-walk-candidates';
+import {
+  exactWalkCandidates,
+  timetableSources,
+} from '../../src/services/exact-walk-candidates';
 import { haversineKm } from '../../src/services/hybrid-route-selector';
 import { dateTime } from '../../src/time';
 import { inTimeZone } from '../support/time-zone';
@@ -133,5 +136,40 @@ describe('exactWalkCandidates (#460)', () => {
   it('candidates が配列でなければ空', () => {
     expect(exactWalkCandidates({}, ends)).toEqual([]);
     expect(exactWalkCandidates({ candidates: 'x' }, ends)).toEqual([]);
+  });
+});
+
+describe('timetableSources (#461)', () => {
+  it('feeds をフィードごとの取得日時にする', () => {
+    expect(
+      timetableSources({
+        feeds: [
+          { id: 'Toei', fetchedAt: '2026-06-27T04:23:10.000Z' },
+          { id: 'JR-East', fetchedAt: '2026-06-26T19:23:05+00:00' },
+        ],
+      }),
+    ).toEqual([
+      { feedId: 'Toei', fetchedAt: new Date(Date.UTC(2026, 5, 27, 4, 23, 10)) },
+      { feedId: 'JR-East', fetchedAt: new Date(Date.UTC(2026, 5, 26, 19, 23, 5)) },
+    ]);
+  });
+
+  it('形の崩れたフィードだけを捨て、残りは返す', () => {
+    const sources = timetableSources({
+      feeds: [
+        { id: 'Toei' },
+        { id: 3, fetchedAt: '2026-06-27T04:23:10.000Z' },
+        { id: 'Keio', fetchedAt: 'not a time' },
+        { id: 'Tobu', fetchedAt: '2026-06-27T04:23:10' }, // 時差なし
+        'Sotetsu',
+        { id: 'MIR', fetchedAt: '2026-06-27T04:23:10.000Z' },
+      ],
+    });
+    expect(sources.map((s) => s.feedId)).toEqual(['MIR']);
+  });
+
+  it('feeds が配列でなければ空', () => {
+    expect(timetableSources({})).toEqual([]);
+    expect(timetableSources({ feeds: 'x' })).toEqual([]);
   });
 });

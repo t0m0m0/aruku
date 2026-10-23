@@ -35,6 +35,7 @@ import { Button } from '../../shared/ui/button';
 import { ChevronIcon, RoutesIcon } from '../../shared/icons';
 import type { AppStore } from '../../state/store';
 import { ResultTimeline } from './result-timeline';
+import { TimetableAttribution } from './timetable-attribution';
 
 interface ResultScreenProps {
   store: StoreApi<AppStore>;
@@ -147,6 +148,8 @@ export function ResultScreen({ store }: ResultScreenProps) {
         {!isDesktop && map}
 
         <RouteAuxiliary route={route} departure={departure} overBudget={overBudget} />
+
+        <TimetableAttribution sources={route.timetableSources} />
       </div>
     </main>
   );
