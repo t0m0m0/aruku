@@ -108,6 +108,19 @@ jobs:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
 
+      # デプロイ時のパラメータ（functions/src/index.ts の defineString）。--non-interactive では
+      # 入力を求められず、値が無いと関数全体のデプロイが止まる。.env.aruku-app をコミットしないのは、
+      # 時刻表パックのバケット名をリポジトリに書かないため（#457）。
+      - name: Write function parameters
+        env:
+          TIMETABLE_PACK_BUCKET: ${{ vars.TIMETABLE_PACK_BUCKET }}
+        run: |
+          if [ -z "$TIMETABLE_PACK_BUCKET" ]; then
+            echo "::error::Actions の変数 TIMETABLE_PACK_BUCKET が空" >&2
+            exit 1
+          fi
+          printf 'TIMETABLE_PACK_BUCKET=%s\n' "$TIMETABLE_PACK_BUCKET" > functions/.env.aruku-app
+
       # firestore:rules だけに絞らないのは、firestore.indexes.json を path
       # トリガーに含めた以上、インデックスも同じ経路で反映しないと
       # 「CI は緑・本番だけ未反映」を indexes 側で再生産するため。

@@ -1,2 +1,8 @@
 lib/
 node_modules/
+
+# ODPT の GTFS と時刻表パック（#457）。ライセンス上リポジトリに入れない。
+.odpt/
+
+# デプロイ時のパラメータ（TIMETABLE_PACK_BUCKET など）。CI が Actions の変数から書き出す。バケット名をリポジトリに書かない（#457）。
+.env.*

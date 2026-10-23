@@ -23,7 +23,7 @@ After reviewing:
   - `src/places/` `src/search/` `src/location/` — 地点検索・経路検索の配線・現在地
   - `src/map/` `src/layout/` `src/shared/` `src/theme/` `src/i18n/` — 地図・レイアウト・共有部品・デザイントークン・文言
 - `packages/engine/` — 経路エンジン（**TypeScript**）。挙動の正本は `docs/spec/route-optimization.md`
-- `functions/` — Cloud Functions **TypeScript** backend. Google Places / Routes proxies (`placesProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`) + Firestore rate limiter. **公共交通のプロキシは無い** — Transit API はクライアント直叩き（`docs/spec/route-optimization.md` §2.1）
+- `functions/` — Cloud Functions **TypeScript** backend. Google Places / Routes proxies (`placesProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`) + Firestore rate limiter + ODPT の GTFS から時刻表パックを作る定期関数（`refreshTimetablePacks`・`src/timetable-pack/`）. **公共交通のプロキシは無い** — Transit API はクライアント直叩き（`docs/spec/route-optimization.md` §2.1）
 - Flutter 版は #387 で撤去した。`flutter-final` タグと `archive/flutter` ブランチに残る（復元手順は `docs/archive/flutter-restore.md`）。コメントの `flutter-final:lib/...` はそのタグ内のパス
 - Run the app: `npm --prefix apps/web run dev`. Setup: see README.
 

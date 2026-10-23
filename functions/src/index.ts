@@ -1,10 +1,13 @@
 import * as https from "https";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { onRequest, Request } from "firebase-functions/v2/https";
-import { defineSecret } from "firebase-functions/params";
+import { onSchedule } from "firebase-functions/v2/scheduler";
+import { defineSecret, defineString } from "firebase-functions/params";
+import { logger } from "firebase-functions";
 import { Response } from "express";
 import { initializeApp } from "firebase-admin/app";
 import { getAppCheck } from "firebase-admin/app-check";
+import { getStorage } from "firebase-admin/storage";
 
 import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
 import { checkRateLimit, WALK_RATE_LIMIT } from "./rate-limiter";
@@ -14,6 +17,7 @@ import {
   logRequestOutcome,
 } from "./metrics";
 import { dedupeUpstream } from "./upstream-cache";
+import { refreshTimetablePacks as refreshPacks } from "./timetable-pack/refresh";
 
 // レート制限ユーティリティはテスト互換のため再エクスポートする。
 export {
@@ -962,4 +966,54 @@ export const googleWalkMatrixProxy = onRequest(
 
     res.json(data);
   })
+);
+
+// 厳密走査（#456）が読む時刻表パックを ODPT の GTFS から作り直す（#457）。
+// 時刻表はブラウザへ渡さない（基本ライセンス第8条4(1)・チャレンジ限定データの第三者提供の禁止）
+// ので、置き場所は非公開バケット。名前はリポジトリに書かず、デプロイ時に CI が Actions の変数から渡す
+// （.github/workflows/deploy-functions.yml）。
+const odptCenterKeySecret = defineSecret("ODPT_CENTER_KEY");
+const odptChallengeKeySecret = defineSecret("ODPT_CHALLENGE_KEY");
+const timetablePackBucket = defineString("TIMETABLE_PACK_BUCKET", {
+  description: "時刻表パックを置く非公開の Cloud Storage バケット名",
+});
+
+export const refreshTimetablePacks = onSchedule(
+  {
+    schedule: "23 4 * * *",
+    timeZone: "Asia/Tokyo",
+    secrets: [odptCenterKeySecret, odptChallengeKeySecret],
+    memory: "2GiB",
+    timeoutSeconds: 540,
+    maxInstances: 1,
+  },
+  async () => {
+    const bucket = getStorage().bucket(timetablePackBucket.value());
+    const results = await refreshPacks({
+      fetch: (url) => fetch(url),
+      keys: {
+        ODPT_CENTER_KEY: odptCenterKeySecret.value(),
+        ODPT_CHALLENGE_KEY: odptChallengeKeySecret.value(),
+      },
+      now: () => new Date(),
+      upload: (path, gzipped) =>
+        bucket.file(path).save(Buffer.from(gzipped), {
+          contentType: "application/gzip",
+          resumable: false,
+        }),
+      log: (event) => {
+        if (event.status === "failure" || event.status === "skipped") {
+          // logger.error は Error スタックを合成して Error Reporting に計上される（metrics.ts 参照）。
+          logger.write({ severity: "WARNING", message: String(event.event), ...event });
+        } else {
+          logger.info(String(event.event), event);
+        }
+      },
+    });
+    const skipped = results.filter((r) => r.status === "skipped").map((r) => r.group);
+    if (skipped.length > 0) {
+      // 実行を失敗として残し、気付けるようにする。前回のパックは残っているので検索は止まらない。
+      throw new Error(`時刻表パックを更新できなかったグループ: ${skipped.join(", ")}`);
+    }
+  }
 );

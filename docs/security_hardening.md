@@ -13,6 +13,7 @@
 | ⑥ | Firestore のクライアントアクセス（ルール デプロイ） | CI デプロイ + 手動検証 |
 | ⑦ | 関数を廃止するときの手順 | 手動（本番削除） |
 | ⑧ | Functions プロキシの CORS Origin 許可リスト | コード |
+| ⑨ | ODPT のキーと時刻表データ | 手動（Secret Manager・Cloud Storage） + コード |
 
 ---
 
@@ -449,3 +450,27 @@ HTTP リファラ制限（配信ドメインのみ）も同じタイミングで
 - 許可外 Origin では ACAO が付かないこと（ステータスは 204 のままでよい）。
 - `Vary: Origin` が Origin の有無にかかわらず付くこと。共有キャッシュが別オリジン向けの
   ACAO を使い回さないための前提。
+
+## ⑨ ODPT のキーと時刻表データ
+
+時刻表パック（README「時刻表パック（ODPT の GTFS）」）の取得に使う ODPT のキーと、そこから作るデータの扱い。
+
+| キー | 使う主体 | 置き場所 | 送り先 |
+|---|---|---|---|
+| `ODPT_CENTER_KEY` | 定期関数 `refreshTimetablePacks` | Secret Manager | `api.odpt.org` のみ |
+| `ODPT_CHALLENGE_KEY` | 同上 | Secret Manager | `api-challenge.odpt.org` のみ |
+
+- **キーは URL のクエリ（`acl:consumerKey`）で渡る。** そのため取得の失敗はフィード名・理由・HTTP
+  ステータスだけをログに出し、URL・`fetch` の例外・応答本文は捨てる（`functions/src/timetable-pack/refresh.ts`。
+  `functions/test/timetable-pack-refresh.test.ts` が、ログと結果にキーと URL が出ないことを検査する）。
+- 検索のエンドポイントは ODPT のキーを持たない。読むのは Cloud Storage のパックだけ。
+- **時刻表はブラウザへ渡さない。** 基本ライセンス第8条4(1)（元データを復元できる派生データの再配布の禁止）と、
+  チャレンジ限定データの第三者提供の禁止のため。バケットは非公開（公開アクセス防止・均一なアクセス制御）で作り、
+  GTFS もパックもリポジトリに入れない（`functions/.gitignore` の `.odpt/`）。
+- **チャレンジ限定データの期限（2027-03-12）:** `challenge/` 配下のオブジェクトと `ODPT_CHALLENGE_KEY` を消す
+  （#463）。定期関数がまた作らないよう、先に `functions/src/timetable-pack/feeds.ts` から該当フィードを外してデプロイする。
+
+```bash
+gcloud storage rm -r gs://<BUCKET>/challenge/ --project aruku-app
+gcloud secrets delete ODPT_CHALLENGE_KEY --project aruku-app
+```
