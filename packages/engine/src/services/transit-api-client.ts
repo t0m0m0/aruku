@@ -70,6 +70,7 @@ export class TransitApiClient {
   private guidanceCallCount = 0;
   private walkCallCount = 0;
   private matrixCallCount = 0;
+  private exactCallCount = 0;
 
   // 1検索内で「同一 guidance リクエスト（同じ URI＝同じ from/to/date/time/mode）」を
   // 何本重複発行したかの実測（enrich 削減の判断材料）。クライアントは検索1回ごとに
@@ -96,6 +97,11 @@ export class TransitApiClient {
   /// Google 徒歩マトリクスの実 HTTP 往復本数。
   get matrixCalls(): number {
     return this.matrixCallCount;
+  }
+
+  /// 厳密走査 `exactWalkMax`（#460）の実 HTTP 往復本数。
+  get exactCalls(): number {
+    return this.exactCallCount;
   }
 
   /// 正規化済みの Transit API ベース URL（テスト・観測用）。
@@ -216,6 +222,31 @@ export class TransitApiClient {
         goal: `${dartDouble(dest.lat)},${dartDouble(dest.lng)}`,
       },
       () => this.walkCallCount++,
+    );
+  }
+
+  // ---- 厳密走査（Functions） ----
+
+  /// [origin]→[goal] を [departureAt] 発・予算 [budgetMin] 分で `exactWalkMax` に問い合わせ、
+  /// 生ボディを返す（#460）。非200・無応答は `RouteException`。
+  ///
+  /// `departAt` を UTC の ISO 8601 で送るのは、エンドポイントが時差の無い時刻を受けないため
+  /// （端末のタイムゾーンが JST とは限らず、壁時計だけでは運行日を決められない）。
+  fetchExactWalkMax(
+    origin: GeoPoint,
+    goal: GeoPoint,
+    departureAt: Date,
+    budgetMin: number,
+  ): Promise<JsonMap> {
+    return this.fetchProxy(
+      'exactWalkMax',
+      {
+        origin: `${dartDouble(origin.lat)},${dartDouble(origin.lng)}`,
+        goal: `${dartDouble(goal.lat)},${dartDouble(goal.lng)}`,
+        departAt: departureAt.toISOString(),
+        budgetMin: `${budgetMin}`,
+      },
+      () => this.exactCallCount++,
     );
   }
 

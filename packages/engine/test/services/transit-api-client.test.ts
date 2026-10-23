@@ -337,6 +337,86 @@ describe('fetchWalkRoute', () => {
   });
 });
 
+describe('fetchExactWalkMax (#460)', () => {
+  it('exactWalkMax へ origin/goal/departAt（UTC の ISO 8601）/budgetMin を渡し生ボディを返す', async () => {
+    let captured!: URL;
+    const c = client(
+      mockClient((url) => {
+        captured = url;
+        return jsonResponse({ candidates: [] });
+      }),
+    );
+    const departureAt = dateTime(2026, 6, 27, 9, 5);
+    const body = await c.fetchExactWalkMax(
+      new GeoPoint(35.1, 139.2),
+      new GeoPoint(35.3, 139.4),
+      departureAt,
+      90,
+    );
+    expect(body).toEqual({ candidates: [] });
+    expect(captured.origin).toEqual(proxyBase);
+    expect(captured.pathname).toEqual('/exactWalkMax');
+    expect(captured.searchParams.get('origin')).toEqual('35.1,139.2');
+    expect(captured.searchParams.get('goal')).toEqual('35.3,139.4');
+    expect(captured.searchParams.get('departAt')).toEqual(departureAt.toISOString());
+    expect(captured.searchParams.get('budgetMin')).toEqual('90');
+  });
+
+  it('非200は RouteException(HTTP <code>)', async () => {
+    const c = client(mockClient(() => jsonResponse({}, 503)));
+    const error = await expectThrowsA(
+      () =>
+        c.fetchExactWalkMax(
+          new GeoPoint(0, 0),
+          new GeoPoint(1, 1),
+          dateTime(2026, 6, 27, 9, 0),
+          60,
+        ),
+      RouteException,
+    );
+    expect(error.status).toEqual('HTTP 503');
+  });
+
+  it('exactCalls に実際に発行した本数を数える', async () => {
+    const c = client(mockClient(() => jsonResponse({}, 502)));
+    expect(c.exactCalls).toEqual(0);
+    await c
+      .fetchExactWalkMax(
+        new GeoPoint(0, 0),
+        new GeoPoint(1, 1),
+        dateTime(2026, 6, 27, 9, 0),
+        60,
+      )
+      .catch(() => {});
+    expect(c.exactCalls).toEqual(1);
+  });
+
+  it('キャンセル済みなら HTTP を発行せず SearchCanceledException を投げる', async () => {
+    let calls = 0;
+    const cancellation = new CancellationToken();
+    cancellation.cancel();
+    const c = new TransitApiClient({
+      proxyClient: mockClient(() => {
+        calls++;
+        return jsonResponse({});
+      }),
+      proxyBaseUrl: proxyBase,
+      cancellation,
+    });
+    await expectThrowsA(
+      () =>
+        c.fetchExactWalkMax(
+          new GeoPoint(0, 0),
+          new GeoPoint(1, 1),
+          dateTime(2026, 6, 27, 9, 0),
+          60,
+        ),
+      SearchCanceledException,
+    );
+    expect(calls).toEqual(0);
+  });
+});
+
 describe('上流 HTTP 往復本数の計測 (#309)', () => {
   it('初期値はすべて 0', () => {
     const c = client(mockClient(() => jsonResponse({})));
