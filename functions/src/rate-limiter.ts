@@ -13,6 +13,14 @@ export const WALK_RATE_LIMIT = 90;
 
 const WINDOW_MS = 60_000;
 
+// scope 付きのエンドポイントは、同じ IP でも別のドキュメントで数える（#459）。
+// 1検索で並列に叩かれるエンドポイント同士が同じドキュメントを取り合うと、
+// Firestore トランザクションが競合し、再試行で約1秒ずつ待つ（本番ログ・エミュレータで確認済み）。
+// 区切りに "|" を使うのは、IPv4・IPv6 のどちらにも現れない文字のため。
+function scopedKey(ip: string, scope: string | undefined): string {
+  return scope === undefined ? ip : `${scope}|${ip}`;
+}
+
 // ---------------------------------------------------------------------------
 // インメモリ実装（エミュレータ専用）
 //
@@ -25,17 +33,19 @@ const _rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
 export function checkRateLimitInMemory(
   ip: string,
-  limit: number = RATE_LIMIT
+  limit: number = RATE_LIMIT,
+  scope?: string
 ): boolean {
+  const key = scopedKey(ip, scope);
   const now = Date.now();
   if (_rateLimitMap.size > 1000) {
     for (const [k, v] of _rateLimitMap) {
       if (now > v.resetAt) _rateLimitMap.delete(k);
     }
   }
-  const entry = _rateLimitMap.get(ip);
+  const entry = _rateLimitMap.get(key);
   if (!entry || now > entry.resetAt) {
-    _rateLimitMap.set(ip, { count: 1, resetAt: now + WINDOW_MS });
+    _rateLimitMap.set(key, { count: 1, resetAt: now + WINDOW_MS });
     return true;
   }
   if (entry.count >= limit) {
@@ -59,7 +69,7 @@ export function rateLimitMapSize(): number {
 // ---------------------------------------------------------------------------
 // Firestore 実装（本番）
 //
-// rateLimits/{ip} ドキュメントに {count, resetAt} を保持し、トランザクションで
+// rateLimits/{ip}（scope 付きは scope と IP の組）ドキュメントに {count, resetAt} を保持し、トランザクションで
 // read→判定→increment する。複数インスタンスから同じドキュメントを更新するため
 // IP 単位の上限がインスタンス横断で一貫して強制される。expireAt（Timestamp）は
 // Firestore の TTL ポリシー用で、期限切れドキュメントを自動削除し無限増殖を防ぐ。
@@ -149,7 +159,8 @@ function docIdForIp(ip: string, now: number): string {
 
 export async function checkRateLimitFirestore(
   ip: string,
-  limit: number = RATE_LIMIT
+  limit: number = RATE_LIMIT,
+  scope?: string
 ): Promise<boolean> {
   try {
     const db = getFirestore();
@@ -157,7 +168,7 @@ export async function checkRateLimitFirestore(
     // トランザクション内のウィンドウ判定にも同一の now を用いる（真夜中 UTC を
     // 跨ぐ稀な再試行でも ID と判定の日付がずれない）。
     const now = Date.now();
-    const ref = db.collection(COLLECTION).doc(docIdForIp(ip, now));
+    const ref = db.collection(COLLECTION).doc(docIdForIp(scopedKey(ip, scope), now));
     // ログはトランザクション関数の外で結果を見てから1回だけ出す。Firestore は
     // ドキュメント競合時にこのコールバックを再試行するため、内側で呼ぶと
     // 1リクエストの over-limit が複数回の "blocked" イベントとして計上され、
@@ -209,10 +220,11 @@ export async function checkRateLimitFirestore(
 // ---------------------------------------------------------------------------
 export function checkRateLimit(
   ip: string,
-  limit: number = RATE_LIMIT
+  limit: number = RATE_LIMIT,
+  scope?: string
 ): Promise<boolean> {
   if (process.env.FUNCTIONS_EMULATOR === "true") {
-    return Promise.resolve(checkRateLimitInMemory(ip, limit));
+    return Promise.resolve(checkRateLimitInMemory(ip, limit, scope));
   }
-  return checkRateLimitFirestore(ip, limit);
+  return checkRateLimitFirestore(ip, limit, scope);
 }
