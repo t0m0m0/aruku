@@ -6935,6 +6935,93 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
     );
   });
 
+  describe('計測', () => {
+    const measure = async (
+      client: HttpClient,
+      opts: { exactWalkMax?: boolean; exactWalkMaxGrace?: number | null } = {},
+    ): Promise<RouteSearchMetrics> => {
+      let captured: RouteSearchMetrics | null = null;
+      await service(client, {
+        exactWalkMax: opts.exactWalkMax ?? true,
+        exactWalkMaxGrace: opts.exactWalkMaxGrace,
+        onMetrics: (m) => (captured = m),
+      }).plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 10, m: 40 }),
+        origin: o,
+        originName: '出発',
+      });
+      return captured!;
+    };
+
+    it('勝てば exactWon が立ち、足した候補数と打ち切りの有無を記録する', async () => {
+      const m = await measure(
+        exactMock({
+          onExact: () =>
+            json({
+              ...exactBody([exactCandidate({ board: at(9, 50), alight: at(9, 53) })]),
+              stats: { tripsScanned: 10, elementsMeasured: 24, truncated: true },
+            }),
+        }),
+      );
+      expect(m.exactCandidates).toEqual(1);
+      expect(m.exactCapped).toBe(true);
+      expect(m.exactWon).toBe(true);
+      expect(m.exactCalls).toEqual(1);
+      expect(m.exactMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('enrich で落ちれば exactWon は立たない', async () => {
+      const m = await measure(
+        exactMock({
+          onExact: () =>
+            json(
+              exactBody([
+                exactCandidate({ board: at(9, 44), alight: at(9, 47), accessMin: 43 }),
+              ]),
+            ),
+        }),
+      );
+      expect(m.exactCandidates).toEqual(1);
+      expect(m.exactCapped).toBe(false);
+      expect(m.exactWon).toBe(false);
+    });
+
+    it('200 で候補0件なら exactCandidates=0（失敗の -1 と区別する）', async () => {
+      const m = await measure(exactMock({ onExact: () => json(exactBody([])) }));
+      expect(m.exactCandidates).toEqual(0);
+      expect(m.exactWon).toBe(false);
+    });
+
+    it('失敗・猶予切れは exactCandidates=-1', async () => {
+      const failed = await measure(exactMock({ onExact: () => json({}, 503) }));
+      expect(failed.exactCandidates).toEqual(-1);
+      expect(failed.exactCalls).toEqual(1);
+
+      const gate = deferred<HttpResponse>();
+      const late = await measure(exactMock({ onExact: () => gate.promise }), {
+        exactWalkMaxGrace: 20,
+      });
+      expect(late.exactCandidates).toEqual(-1);
+      expect(late.exactWon).toBe(false);
+      gate.complete(json(exactBody([])));
+    });
+
+    it('フラグを切れば何も記録しない', async () => {
+      const m = await measure(
+        exactMock({ onExact: () => json(exactBody([])) }),
+        { exactWalkMax: false },
+      );
+      expect(m.exactCalls).toEqual(0);
+      expect(m.exactMs).toEqual(0);
+      expect(m.exactCandidates).toEqual(-1);
+      expect(m.exactCapped).toBe(false);
+      expect(m.exactWon).toBe(false);
+    });
+  });
+
   it('フラグを切れば exactWalkMax を呼ばない', async () => {
     const log: URL[] = [];
     await run(

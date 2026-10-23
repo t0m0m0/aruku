@@ -224,7 +224,14 @@ export class TransitRouteService implements SearchEngine {
     const exactWave = this.exactWalkMax
       ? this.api.fetchExactWalkMax(origin, destinationLatLng, departureAt, budgetMin)
       : null;
-    if (exactWave !== null) ignore(exactWave);
+    const exactSw = startedStopwatch();
+    if (exactWave !== null) {
+      ignore(exactWave);
+      void exactWave.then(
+        () => exactSw.stop(),
+        () => exactSw.stop(),
+      );
+    }
 
     const guidanceSw = startedStopwatch();
     const body = await this.api.fetchGuidanceAt(
@@ -252,7 +259,14 @@ export class TransitRouteService implements SearchEngine {
     // 作った後（`selectMeasured`）なので、その間に届いた拒否で未処理例外にしない。
     const exactGraced =
       exactWave === null ? null : withGrace(exactWave, this.exactWalkMaxGrace);
-    if (exactGraced !== null) ignore(exactGraced);
+    if (exactGraced !== null) {
+      ignore(exactGraced);
+      // 猶予切れで捨てた応答が後から届いても、測るのは捨てた時点まで。
+      void exactGraced.then(
+        () => exactSw.stop(),
+        () => exactSw.stop(),
+      );
+    }
 
     const plan = await this.selectMeasured(
       [...options, ...wave.fresh],
@@ -281,6 +295,8 @@ export class TransitRouteService implements SearchEngine {
     metrics.guidanceDupCalls = this.api.guidanceDupCalls;
     metrics.walkCalls = this.api.walkCalls;
     metrics.matrixCalls = this.api.matrixCalls;
+    metrics.exactCalls = this.api.exactCalls;
+    if (exactWave !== null) metrics.exactMs = exactSw.elapsedMilliseconds;
     this.diag.logMetrics(metrics);
     this.onMetrics?.(metrics);
 
@@ -338,20 +354,27 @@ export class TransitRouteService implements SearchEngine {
   /// 厳密走査（#460・§3.9）の応答を候補にする。失敗（HTTP・TIMEOUT・形の崩れ・猶予切れ）は
   /// 空リストへ落とす——厳密走査は改善であって必須ではない。[SearchCanceledException] だけは
   /// 飲まない（#316。[arrivalWaveOptions] と同じ理由）。
+  ///
+  /// `candidates` が null なのは失敗したとき（計測で 0 件と分けるため）。
   private async exactWaveCandidates(
     wave: Promise<JsonMap>,
     ends: { origin: GeoPoint; goal: GeoPoint; from: string; to: string },
-  ): Promise<RouteCandidate[]> {
+  ): Promise<{ candidates: RouteCandidate[] | null; capped: boolean }> {
     try {
-      const candidates = exactWalkCandidates(await wave, ends);
-      this.diag.log(() => `exactWalkMax: ${candidates.length}件を合流`);
-      return candidates;
+      const body = await wave;
+      const candidates = exactWalkCandidates(body, ends);
+      const stats = body['stats'];
+      const capped = isRecord(stats) && stats['truncated'] === true;
+      this.diag.log(
+        () => `exactWalkMax: ${candidates.length}件を合流（打ち切り=${capped}）`,
+      );
+      return { candidates, capped };
     } catch (error) {
       if (error instanceof SearchCanceledException) throw error;
       this.diag.log(
         () => `exactWalkMax: 失敗（${String(error)}）→ 厳密走査の候補なしで続行`,
       );
-      return [];
+      return { candidates: null, capped: false };
     }
   }
 
@@ -465,15 +488,21 @@ export class TransitRouteService implements SearchEngine {
 
     // 厳密走査の候補は estWinner の直前に足す。ここまで待たずに済むよう入口で並列に
     // 起こしてあり、ハイブリッドを作っている間に返っていれば待ちは 0 になる。
+    // 出自は arrival 波と同じくインスタンス同一性で覚える（`exactWon`）。
+    const fromExact = new Set<RouteCandidate>();
     if (ctx.exactWave !== null) {
-      const exact = await this.exactWaveCandidates(ctx.exactWave, {
+      const result = await this.exactWaveCandidates(ctx.exactWave, {
         origin,
         goal,
         from: options[0].from,
         to: options[0].to,
       });
+      const exact = result.candidates ?? [];
+      metrics.exactCandidates = result.candidates === null ? -1 : exact.length;
+      metrics.exactCapped = result.capped;
       candidates.push(...exact);
       for (const c of exact) {
+        fromExact.add(c);
         this.diag.log(
           () => `exact: ${this.diag.candLine(c, budgetMin, departureAt)}`,
         );
@@ -746,6 +775,7 @@ export class TransitRouteService implements SearchEngine {
 
     // 確定候補が第2波（#376）由来かも同一性で引く。
     metrics.arrivalWaveWon = fromArrivalWave.has(selected.chosen);
+    metrics.exactWon = fromExact.has(selected.chosen);
 
     // 崩壊後の再選定も同じ台帳へ積むので、畳むのは board-search を抜けた後。
     metrics.enrichMs = enrichSw.elapsedMilliseconds;
