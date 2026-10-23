@@ -463,6 +463,9 @@ HTTP リファラ制限（配信ドメインのみ）も同じタイミングで
 - **キーは URL のクエリ（`acl:consumerKey`）で渡る。** そのため取得の失敗はフィード名・理由・HTTP
   ステータスだけをログに出し、URL・`fetch` の例外・応答本文は捨てる（`functions/src/timetable-pack/refresh.ts`。
   `functions/test/timetable-pack-refresh.test.ts` が、ログと結果にキーと URL が出ないことを検査する）。
+- secret の権限は secret ごとに付ける（プロジェクト全体には付けない）。CI のデプロイ用（`firebase-deploy-sa`）は
+  `roles/secretmanager.viewer`、関数の実行用（Compute の既定 SA）は `roles/secretmanager.secretAccessor`。
+  デプロイ用に権限変更まで許さないので、実行用の権限は前もって手で付ける（README「初回の用意」）。
 - 検索のエンドポイントは ODPT のキーを持たない。読むのは Cloud Storage のパックだけ。
 - **時刻表はブラウザへ渡さない。** 基本ライセンス第8条4(1)（元データを復元できる派生データの再配布の禁止）と、
   チャレンジ限定データの第三者提供の禁止のため。バケットは非公開（公開アクセス防止・均一なアクセス制御）で作り、
