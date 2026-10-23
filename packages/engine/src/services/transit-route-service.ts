@@ -83,7 +83,8 @@ export interface TransitRouteServiceInit {
   /// 依存せず猶予切れを再現できるよう注入可能にしてある。
   arrivalWaveGrace?: Duration | null;
 
-  /// 厳密走査 `exactWalkMax`（#460・§3.9）の候補を候補プールへ足すか。既定 false。
+  /// 厳密走査 `exactWalkMax`（#460・§3.9）の候補を候補プールへ足すか。既定 false
+  /// （`apps/web` ではビルド時のフラグ `VITE_EXACT_WALK_MAX` が配線する）。
   exactWalkMax?: boolean;
 
   /// 厳密走査の応答を departure 波の確定後に待つ猶予。用途は [arrivalWaveGrace] と同じ。

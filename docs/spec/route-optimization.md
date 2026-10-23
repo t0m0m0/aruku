@@ -338,7 +338,7 @@
 
 時刻表（ODPT の GTFS）を持つ路線では、サーバ側の厳密走査（§2.1 の `exactWalkMax`・#459）が「どの駅で乗り、どの駅で降りれば締切に間に合い、徒歩が最大になるか」を全便の1回の走査で求める。その結果を**今の候補プールへ足す**（置き換えない）。
 
-- **有効化:** `TransitRouteService` の `exactWalkMax` を立てたときだけ。切れていれば HTTP を一度も発行せず、挙動は今と変わらない。
+- **有効化:** ビルド時のフラグ `VITE_EXACT_WALK_MAX=1`（`apps/web/src/config.ts` → `createRouteService` → `TransitRouteService` の `exactWalkMax`）のときだけ。既定は無効。切れていれば HTTP を一度も発行せず、挙動は今と変わらない。本番の `deploy-web.yml` はまだ渡していない。
 - **発行と待ち:** `plan()` の入口で arrival 波と同じく guidance と**並列に**発行する。厳密走査は guidance の結果を使わないので、直列の段は増えない。待つのは `selectMeasured` が見積り勝者（`estWinner`）を出す直前で、ハイブリッドの構築と重なる。猶予は departure 波の確定から `exactWalkMaxGrace`（既定5秒）。
 - **失敗は改善側（§2.4）:** HTTP エラー（400・429・5xx・503 の「時刻表なし」を含む）・TIMEOUT・猶予切れ・形の崩れた応答は空リストとして続行する。**キャンセル（`SearchCanceledException`）だけは伝播する**（#316）。形の崩れた候補は1件ずつ捨て、残りは使う。
 - **候補の形:** `徒歩（出発地→乗車駅）→ 電車（乗車駅→降車駅）→ 徒歩（降車駅→目的地）`。電車区間は時刻表の実発着時刻（`depTime`/`arrTime`）・路線名（記号コードは `railLineLabel` で和名へ）・停車駅の座標（polyline）を持つ。徒歩は応答の実測秒を分へ丸め（guidance と同じ四捨五入）、0分の徒歩区間は持たない。
