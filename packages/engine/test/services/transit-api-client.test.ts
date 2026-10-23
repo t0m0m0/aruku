@@ -20,6 +20,7 @@ import { dateTime, seconds } from '../../src/time';
 import { delay } from '../support/delay';
 import { expectThrowsA } from '../support/expect';
 import { jsonResponse, mockClient } from '../support/mock-client';
+import { inTimeZone } from '../support/time-zone';
 
 const transitBase = 'https://transit.example';
 const proxyBase = 'https://proxy.example';
@@ -338,7 +339,7 @@ describe('fetchWalkRoute', () => {
 });
 
 describe('fetchExactWalkMax (#460)', () => {
-  it('exactWalkMax へ origin/goal/departAt（UTC の ISO 8601）/budgetMin を渡し生ボディを返す', async () => {
+  it('exactWalkMax へ origin/goal/departAt（JST の時差つき ISO 8601）/budgetMin を渡し生ボディを返す', async () => {
     let captured!: URL;
     const c = client(
       mockClient((url) => {
@@ -358,8 +359,30 @@ describe('fetchExactWalkMax (#460)', () => {
     expect(captured.pathname).toEqual('/exactWalkMax');
     expect(captured.searchParams.get('origin')).toEqual('35.1,139.2');
     expect(captured.searchParams.get('goal')).toEqual('35.3,139.4');
-    expect(captured.searchParams.get('departAt')).toEqual(departureAt.toISOString());
+    expect(captured.searchParams.get('departAt')).toEqual('2026-06-27T09:05:00+09:00');
     expect(captured.searchParams.get('budgetMin')).toEqual('90');
+  });
+
+  it('JST 以外の端末でも、選んだ壁時計を JST の時刻として送る（§4 #121）', async () => {
+    // departureAt は JST の壁時計を表す naive な Date。UTC の端末で toISOString すると
+    // 09:05Z（＝18:05 JST）になり、9時間ずれた便を引く。
+    const departAt = await inTimeZone('UTC', async () => {
+      let captured!: URL;
+      const c = client(
+        mockClient((url) => {
+          captured = url;
+          return jsonResponse({ candidates: [] });
+        }),
+      );
+      await c.fetchExactWalkMax(
+        new GeoPoint(35.1, 139.2),
+        new GeoPoint(35.3, 139.4),
+        dateTime(2026, 6, 27, 9, 5),
+        90,
+      );
+      return captured.searchParams.get('departAt');
+    });
+    expect(departAt).toEqual('2026-06-27T09:05:00+09:00');
   });
 
   it('非200は RouteException(HTTP <code>)', async () => {

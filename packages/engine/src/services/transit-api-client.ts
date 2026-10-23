@@ -230,8 +230,9 @@ export class TransitApiClient {
   /// [origin]→[goal] を [departureAt] 発・予算 [budgetMin] 分で `exactWalkMax` に問い合わせ、
   /// 生ボディを返す（#460）。非200・無応答は `RouteException`。
   ///
-  /// `departAt` を UTC の ISO 8601 で送るのは、エンドポイントが時差の無い時刻を受けないため
-  /// （端末のタイムゾーンが JST とは限らず、壁時計だけでは運行日を決められない）。
+  /// [departureAt] は JST の壁時計を表す naive な `Date`（§4 #121）なので、`toISOString` で
+  /// 送ってはいけない——端末が JST でないと実際の時刻がその時差ぶんずれ、別の時間帯の便を
+  /// 引く。壁時計のフィールドに +09:00 を付けて送る。
   fetchExactWalkMax(
     origin: GeoPoint,
     goal: GeoPoint,
@@ -243,7 +244,7 @@ export class TransitApiClient {
       {
         origin: `${dartDouble(origin.lat)},${dartDouble(origin.lng)}`,
         goal: `${dartDouble(goal.lat)},${dartDouble(goal.lng)}`,
-        departAt: departureAt.toISOString(),
+        departAt: formatJstInstant(departureAt),
         budgetMin: `${budgetMin}`,
       },
       () => this.exactCallCount++,
@@ -414,6 +415,14 @@ function formatDate(dt: Date): string {
 
 function formatTime(dt: Date): string {
   return `${pad(dt.getHours(), 2)}:${pad(dt.getMinutes(), 2)}`;
+}
+
+/// JST の壁時計を表す naive な [at] を、時差つきの ISO 8601（`YYYY-MM-DDTHH:mm:ss+09:00`）にする。
+function formatJstInstant(at: Date): string {
+  return (
+    `${pad(at.getFullYear(), 4)}-${pad(at.getMonth() + 1, 2)}-${pad(at.getDate(), 2)}` +
+    `T${pad(at.getHours(), 2)}:${pad(at.getMinutes(), 2)}:${pad(at.getSeconds(), 2)}+09:00`
+  );
 }
 
 /// [departureAt] のサービス日（0時起点）を基準に、そこから [budgetMin] 分後の時刻を

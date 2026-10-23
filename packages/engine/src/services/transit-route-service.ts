@@ -246,18 +246,9 @@ export class TransitRouteService implements SearchEngine {
 
     onProgress?.(RoutePhase.walkability);
 
-    // 第2波を待つのは departure 波が返ってから [arrivalWaveGrace] までに限る（猶予切れは
-    // 失敗と同じ fail-soft）。元の Promise は `ignore` 済みなので、猶予後に遅れて届く
-    // 失敗が未処理例外にはならない。キャンセルは猶予内なら素通しで上へ抜ける。
-    const wave = await this.arrivalWaveOptions(
-      withGrace(arrivalWave, this.arrivalWaveGrace),
-      options,
-    );
-    metrics.arrivalWaveOutcome = wave.outcome;
-    metrics.arrivalWaveOptions = wave.fresh.length;
-
-    // 猶予は arrival 波と同じく departure 波の確定から数える。待つのはハイブリッドを
-    // 作った後（`selectMeasured`）なので、その間に届いた拒否で未処理例外にしない。
+    // 厳密走査の猶予も departure 波の確定から数える。arrival 波を待ち終えてから起こすと、
+    // 両方が遅い検索で猶予が直列に積まれる（§3.9）。待つのはハイブリッドを作った後
+    // （`selectMeasured`）なので、その間に届いた拒否で未処理例外にしない。
     const exactGraced =
       exactWave === null ? null : withGrace(exactWave, this.exactWalkMaxGrace);
     if (exactGraced !== null) {
@@ -268,6 +259,16 @@ export class TransitRouteService implements SearchEngine {
         () => exactSw.stop(),
       );
     }
+
+    // 第2波を待つのは departure 波が返ってから [arrivalWaveGrace] までに限る（猶予切れは
+    // 失敗と同じ fail-soft）。元の Promise は `ignore` 済みなので、猶予後に遅れて届く
+    // 失敗が未処理例外にはならない。キャンセルは猶予内なら素通しで上へ抜ける。
+    const wave = await this.arrivalWaveOptions(
+      withGrace(arrivalWave, this.arrivalWaveGrace),
+      options,
+    );
+    metrics.arrivalWaveOutcome = wave.outcome;
+    metrics.arrivalWaveOptions = wave.fresh.length;
 
     const plan = await this.selectMeasured(
       [...options, ...wave.fresh],

@@ -4,6 +4,8 @@ import { GeoPoint } from '../../src/models/geo-point';
 import { SegmentType } from '../../src/models/route-plan';
 import { exactWalkCandidates } from '../../src/services/exact-walk-candidates';
 import { haversineKm } from '../../src/services/hybrid-route-selector';
+import { dateTime } from '../../src/time';
+import { inTimeZone } from '../support/time-zone';
 
 const origin = new GeoPoint(35.56, 139.71);
 const goal = new GeoPoint(35.71, 139.77);
@@ -48,8 +50,8 @@ describe('exactWalkCandidates (#460)', () => {
     expect(ride.fromName).toEqual('大崎');
     expect(ride.toName).toEqual('神田');
     expect(ride.line).toEqual('山手線');
-    expect(ride.depTime).toEqual(new Date('2026-06-27T01:42:00Z'));
-    expect(ride.arrTime).toEqual(new Date('2026-06-27T02:00:30Z'));
+    expect(ride.depTime).toEqual(dateTime(2026, 6, 27, 10, 42));
+    expect(ride.arrTime).toEqual(dateTime(2026, 6, 27, 11, 0, 30));
     expect(ride.minutes).toEqual(18);
     expect(ride.stops).toEqual(2);
     expect(ride.polyline).toEqual([
@@ -66,6 +68,24 @@ describe('exactWalkCandidates (#460)', () => {
     expect(egress.toName).toEqual('上野公園');
     expect(egress.minutes).toEqual(25); // 1470s = 24.5分
     expect(egress.polyline).toEqual([new GeoPoint(35.6918, 139.7709), goal]);
+  });
+
+  it('JST 以外の端末でも、発着時刻を JST の壁時計を表す naive な Date にする（§4 #121）', async () => {
+    // 出発アンカー（departureAt）は naive なので、実際の時刻のまま持つと UTC の端末では
+    // 9時間ずれて、乗れない便が乗れるように見える。
+    await inTimeZone('UTC', () => {
+      const [c] = exactWalkCandidates({ candidates: [candidate()] }, ends);
+      expect(c.segments[1].depTime).toEqual(dateTime(2026, 6, 27, 10, 42));
+      expect(c.segments[1].arrTime).toEqual(dateTime(2026, 6, 27, 11, 0, 30));
+    });
+  });
+
+  it('時差の無い発着時刻は読み方が端末で変わるので捨てる', () => {
+    const cs = exactWalkCandidates(
+      { candidates: [candidate({ boardAt: '2026-06-27T10:42:00' })] },
+      ends,
+    );
+    expect(cs).toEqual([]);
   });
 
   it('0分の徒歩区間は持たない', () => {

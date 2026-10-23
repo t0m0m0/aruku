@@ -1,6 +1,6 @@
 // 移植元: flutter-final:test/core/services/transit_route_service_test.dart
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { JsonMap } from '../../src/json';
 import { GeoPoint } from '../../src/models/geo-point';
@@ -6725,7 +6725,6 @@ describe('plan: 到着アンカー第2波 (#376)', () => {
 describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
   const o = familyOrigin;
   const g = familyGoal;
-  const departureAt = dateTime(2026, 6, 27, 9, 0);
 
   // ファミリA・B の候補プールで勝つのは B 中間降車のハイブリッド（徒歩82分・到着 ~88分）。
   // 厳密走査の候補はそれより遠くから乗り、手前で降りる。
@@ -6823,14 +6822,14 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
       { exactWalkMax: false },
     );
 
-  it('origin・goal・出発時刻（UTC）・予算を exactWalkMax へ送る', async () => {
+  it('origin・goal・出発時刻（JST）・予算を exactWalkMax へ送る', async () => {
     const log: URL[] = [];
     await run(exactMock({ onExact: () => json(exactBody([])), log }));
     const req = singleWhere(log, (u) => u.pathname.includes('exactWalkMax'));
     expect(req.origin).toEqual(proxyBase);
     expect(req.searchParams.get('origin')).toEqual('35.0,139.0');
     expect(req.searchParams.get('goal')).toEqual('35.0,139.1');
-    expect(req.searchParams.get('departAt')).toEqual(departureAt.toISOString());
+    expect(req.searchParams.get('departAt')).toEqual('2026-06-27T09:00:00+09:00');
     expect(req.searchParams.get('budgetMin')).toEqual('100');
   });
 
@@ -6919,6 +6918,51 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
     expect(rides(plan)).toEqual(rides(before));
     expect(walkOf(plan)).toEqual(walkOf(before));
     gate.complete(json(exactBody([])));
+  });
+
+  it('猶予は arrival 波を待ち終えてからではなく、departure 波の確定から数える', async () => {
+    // 両方の改善波が遅い検索で、猶予を直列に積むと最大 10 秒待つ（§3.9）。arrival 波と
+    // 厳密走査の猶予を同じ 100ms にし、両方が切れた直後に厳密走査の応答を返す。猶予が
+    // departure 波から数えられていれば、この応答は捨てられる。
+    vi.useFakeTimers();
+    try {
+      const arrival = deferred<HttpResponse>();
+      const exact = deferred<HttpResponse>();
+      const client = mockClient((url) => {
+        const path = url.pathname;
+        if (path.includes('exactWalkMax')) return exact.promise;
+        if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+        if (path.includes('googleWalkProxy')) return walkFor(url);
+        if (path.includes('guidance/plan')) {
+          return url.searchParams.get('type') === 'arrival'
+            ? arrival.promise
+            : json(guidance([familyA(), familyB()]));
+        }
+        return json({}, 404);
+      });
+      const pending = service(client, {
+        exactWalkMax: true,
+        exactWalkMaxGrace: 100,
+        arrivalWaveGrace: 100,
+      }).plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 10, m: 40 }),
+        origin: o,
+        originName: '出発',
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      exact.complete(
+        json(exactBody([exactCandidate({ board: at(9, 50), alight: at(9, 53) })])),
+      );
+      await vi.advanceTimersByTimeAsync(200);
+      const plan = await pending;
+      expect(rides(plan)).not.toContain('厳密線');
+      arrival.complete(json(guidance([])));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('キャンセルは握り潰されない', async () => {

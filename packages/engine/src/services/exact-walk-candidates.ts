@@ -4,6 +4,7 @@ import { dartRound } from '../dart-number';
 import type { JsonMap } from '../json';
 import { GeoPoint } from '../models/geo-point';
 import { RouteSegment, SegmentType } from '../models/route-plan';
+import { dateTime } from '../time';
 import { haversineKm, RouteCandidate } from './hybrid-route-selector';
 import { railLineLabel } from './rail-line-names';
 import { kcalPerKm } from './route-plan-builder';
@@ -33,8 +34,8 @@ function toCandidate(raw: unknown, ends: ExactWalkEnds): RouteCandidate | null {
   if (!isMap(raw)) return null;
   const board = station(raw['board']);
   const alight = station(raw['alight']);
-  const boardAt = instant(raw['boardAt']);
-  const alightAt = instant(raw['alightAt']);
+  const boardAt = jstWallClock(raw['boardAt']);
+  const alightAt = jstWallClock(raw['alightAt']);
   const access = walk(raw['accessWalk']);
   const egress = walk(raw['egressWalk']);
   const stops = Array.isArray(raw['stops']) ? raw['stops'].map(point) : [];
@@ -118,10 +119,24 @@ function point(raw: unknown): GeoPoint | null {
   return new GeoPoint(lat, lng);
 }
 
-function instant(raw: unknown): Date | null {
-  if (typeof raw !== 'string') return null;
+const jstOffsetMs = 9 * 3600 * 1000;
+
+/// 時差つきの時刻を、JST の壁時計を表す naive な `Date` にする（§4 #121。guidance の
+/// `transitSecsToJst` と同じ表現）。実際の時刻のまま持つと、naive な出発アンカーとの差が
+/// 端末の時差ぶんずれる。時差の無い文字列は `Date.parse` が端末の時刻として読むので受けない。
+function jstWallClock(raw: unknown): Date | null {
+  if (typeof raw !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/.test(raw)) return null;
   const ms = Date.parse(raw);
-  return Number.isFinite(ms) ? new Date(ms) : null;
+  if (!Number.isFinite(ms)) return null;
+  const jst = new Date(ms + jstOffsetMs);
+  return dateTime(
+    jst.getUTCFullYear(),
+    jst.getUTCMonth() + 1,
+    jst.getUTCDate(),
+    jst.getUTCHours(),
+    jst.getUTCMinutes(),
+    jst.getUTCSeconds(),
+  );
 }
 
 // 分への丸めは guidance の徒歩（`(secs / 60).round()`）と揃える。
