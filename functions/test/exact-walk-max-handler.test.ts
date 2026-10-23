@@ -243,6 +243,38 @@ describe("exactWalkMax", () => {
     expect(res.body).toEqual({ error: "upstream error" });
   });
 
+  it("マトリクスの要素がエラーなら、HTTP が 200 でも 502 を返す", async () => {
+    storageHas(PACK);
+    matrixResponds([{ status: { code: 8, message: "RESOURCE_EXHAUSTED" } }]);
+
+    const res = await invoke(QUERY);
+
+    expect(res.statusCode).toBe(502);
+    expect(res.body).toEqual({ error: "upstream error" });
+  });
+
+  it("経路の無い要素（ROUTE_NOT_FOUND）はエラーにせず、その駅を使わない", async () => {
+    storageHas(PACK);
+    matrixResponds([{ status: {}, condition: "ROUTE_NOT_FOUND" }]);
+
+    const res = await invoke(QUERY);
+
+    expect(res.statusCode).toBeUndefined();
+    expect((res.body as { candidates: unknown[] }).candidates).toEqual([]);
+  });
+
+  it("要素のエラーと経路の有無を見分けるため、マトリクスに status と condition を要求する", async () => {
+    storageHas(PACK);
+    matrixResponds([{ duration: "900s", distanceMeters: 1200 }]);
+
+    await invoke(QUERY);
+
+    const [, opts] = httpsRequestMock.mock.calls[0] as [string, { headers: Record<string, string> }];
+    expect(opts.headers["X-Goog-FieldMask"].split(",")).toEqual(
+      expect.arrayContaining(["status", "condition"]),
+    );
+  });
+
   it("マトリクスが無応答なら 504 を返す", async () => {
     storageHas(PACK);
     httpsRequestMock.mockImplementation(() => {

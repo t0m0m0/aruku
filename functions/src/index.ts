@@ -1077,6 +1077,21 @@ export function resetExactWalkMaxPacks(): void {
 
 const toWaypoint = ({ lat, lng }: LatLng) => ({ latitude: lat, longitude: lng });
 
+// googleWalkMatrixProxy の FieldMask に status・condition を足したもの。HTTP 200 の中の要素ごとの
+// エラーを、経路が無い（ROUTE_NOT_FOUND）のと見分けるため。プロキシ側は応答をクライアントへ素通しする
+// ので変えない。
+const EXACT_MATRIX_FIELD_MASK = `${ROUTES_MATRIX_FIELD_MASK},status,condition`;
+
+function isExactMatrixSuccessBody(data: unknown): boolean {
+  return isRoutesMatrixSuccessBody(data) && !(data as unknown[]).some(isFailedMatrixElement);
+}
+
+/** status は google.rpc.Status。OK（code 0）は JSON から省かれるので、0 以外の code だけを失敗と読む。 */
+function isFailedMatrixElement(e: unknown): boolean {
+  const status = (e as { status?: { code?: unknown } } | null)?.status;
+  return typeof status?.code === "number" && status.code !== 0;
+}
+
 async function measureWalks(origins: LatLng[], destinations: LatLng[]): Promise<MatrixElement[]> {
   const o = origins.map(toWaypoint);
   const d = destinations.map(toWaypoint);
@@ -1088,16 +1103,17 @@ async function measureWalks(origins: LatLng[], destinations: LatLng[]): Promise<
     {
       "Content-Type": "application/json",
       "X-Goog-Api-Key": getMapsApiKey(),
-      "X-Goog-FieldMask": ROUTES_MATRIX_FIELD_MASK,
+      "X-Goog-FieldMask": EXACT_MATRIX_FIELD_MASK,
     },
     buildRoutesMatrixBody(o, d),
-    isRoutesMatrixSuccessBody,
-    matrixCacheKey(o, d)
+    isExactMatrixSuccessBody,
+    // FieldMask が違うので、googleWalkMatrixProxy の応答（status を持たない）と共有しない。
+    `exact-${matrixCacheKey(o, d)}`
   );
-  if (statusCode < 200 || statusCode >= 300 || !Array.isArray(data)) {
+  if (statusCode < 200 || statusCode >= 300 || !isExactMatrixSuccessBody(data)) {
     throw new UpstreamError(`matrix status ${statusCode}`, "status");
   }
-  return data.flatMap(toMatrixElement);
+  return (data as unknown[]).flatMap(toMatrixElement);
 }
 
 /**
