@@ -8,6 +8,7 @@ import {
   SegmentType,
   type RoutePlan,
   type StandardTransitSummary,
+  type TimetableSource,
 } from '../models/route-plan';
 import type { TimeValue } from '../models/time-value';
 import { decodePolyline } from '../polyline';
@@ -27,7 +28,7 @@ import {
   walkFeasiblePrefixCount,
   type FrontierStations,
 } from './hybrid-route-selector';
-import { exactWalkCandidates } from './exact-walk-candidates';
+import { exactWalkCandidates, timetableSources } from './exact-walk-candidates';
 import { TimeoutException, type HttpClient } from './http-client';
 import {
   ArrivalWaveOutcome,
@@ -361,7 +362,11 @@ export class TransitRouteService implements SearchEngine {
   private async exactWaveCandidates(
     wave: Promise<JsonMap>,
     ends: { origin: GeoPoint; goal: GeoPoint; from: string; to: string },
-  ): Promise<{ candidates: RouteCandidate[] | null; capped: boolean }> {
+  ): Promise<{
+    candidates: RouteCandidate[] | null;
+    capped: boolean;
+    sources: TimetableSource[];
+  }> {
     try {
       const body = await wave;
       const candidates = exactWalkCandidates(body, ends);
@@ -370,13 +375,13 @@ export class TransitRouteService implements SearchEngine {
       this.diag.log(
         () => `exactWalkMax: ${candidates.length}件を合流（打ち切り=${capped}）`,
       );
-      return { candidates, capped };
+      return { candidates, capped, sources: timetableSources(body) };
     } catch (error) {
       if (error instanceof SearchCanceledException) throw error;
       this.diag.log(
         () => `exactWalkMax: 失敗（${String(error)}）→ 厳密走査の候補なしで続行`,
       );
-      return { candidates: null, capped: false };
+      return { candidates: null, capped: false, sources: [] };
     }
   }
 
@@ -492,6 +497,7 @@ export class TransitRouteService implements SearchEngine {
     // 起こしてあり、ハイブリッドを作っている間に返っていれば待ちは 0 になる。
     // 出自は arrival 波と同じくインスタンス同一性で覚える（`exactWon`）。
     const fromExact = new Set<RouteCandidate>();
+    let sources: TimetableSource[] = [];
     if (ctx.exactWave !== null) {
       const result = await this.exactWaveCandidates(ctx.exactWave, {
         origin,
@@ -502,6 +508,7 @@ export class TransitRouteService implements SearchEngine {
       const exact = result.candidates ?? [];
       metrics.exactCandidates = result.candidates === null ? -1 : exact.length;
       metrics.exactCapped = result.capped;
+      sources = result.sources;
       candidates.push(...exact);
       for (const c of exact) {
         fromExact.add(c);
@@ -805,6 +812,7 @@ export class TransitRouteService implements SearchEngine {
       fromName: ctx.fromName,
       toName: ctx.toName,
       standardTransit: ctx.standardTransit,
+      timetableSources: sources,
     });
   }
 
@@ -1931,6 +1939,7 @@ export class TransitRouteService implements SearchEngine {
       fromName: string | null;
       toName: string | null;
       standardTransit: StandardTransitSummary | null;
+      timetableSources: TimetableSource[];
     },
   ): RoutePlan {
     onProgress?.(RoutePhase.building);
@@ -1943,6 +1952,7 @@ export class TransitRouteService implements SearchEngine {
       budgetMin,
       departureAt,
       standardTransit: extras.standardTransit,
+      timetableSources: extras.timetableSources,
     });
   }
 

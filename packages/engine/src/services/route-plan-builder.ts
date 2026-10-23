@@ -6,6 +6,7 @@ import {
   SegmentType,
   TimelineNode,
   type StandardTransitSummary,
+  type TimetableSource,
 } from '../models/route-plan';
 import type { TimeValue } from '../models/time-value';
 import { differenceInMinutes } from '../time';
@@ -274,6 +275,7 @@ export interface BuildRoutePlanArgs {
   departureAt?: Date | null;
 
   standardTransit?: StandardTransitSummary | null;
+  timetableSources?: TimetableSource[];
 }
 
 /// 区間列から RoutePlan を構築する（合計距離・徒歩距離・kcal・徒歩比率・
@@ -376,5 +378,6 @@ export function buildRoutePlan(args: BuildRoutePlanArgs): RoutePlan {
     segments,
     timelineNodes: nodes,
     standardTransit: args.standardTransit ?? null,
+    timetableSources: args.timetableSources ?? [],
   });
 }

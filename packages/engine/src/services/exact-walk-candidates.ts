@@ -3,7 +3,7 @@
 import { dartRound } from '../dart-number';
 import type { JsonMap } from '../json';
 import { GeoPoint } from '../models/geo-point';
-import { RouteSegment, SegmentType } from '../models/route-plan';
+import { RouteSegment, SegmentType, type TimetableSource } from '../models/route-plan';
 import { dateTime } from '../time';
 import { haversineKm, RouteCandidate } from './hybrid-route-selector';
 import { railLineLabel } from './rail-line-names';
@@ -27,6 +27,18 @@ export function exactWalkCandidates(body: JsonMap, ends: ExactWalkEnds): RouteCa
   return raw.flatMap((c) => {
     const candidate = toCandidate(c, ends);
     return candidate === null ? [] : [candidate];
+  });
+}
+
+/// 応答の `feeds` を、選定に使った時刻表の取得日時にする（#461）。形の崩れたフィードは
+/// 1件ずつ捨てる（候補と同じ）。
+export function timetableSources(body: JsonMap): TimetableSource[] {
+  const raw = body['feeds'];
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((f) => {
+    if (!isMap(f) || typeof f['id'] !== 'string') return [];
+    const fetchedAt = instant(f['fetchedAt']);
+    return fetchedAt === null ? [] : [{ feedId: f['id'], fetchedAt }];
   });
 }
 
@@ -121,14 +133,21 @@ function point(raw: unknown): GeoPoint | null {
 
 const jstOffsetMs = 9 * 3600 * 1000;
 
-/// 時差つきの時刻を、JST の壁時計を表す naive な `Date` にする（§4 #121。guidance の
-/// `transitSecsToJst` と同じ表現）。実際の時刻のまま持つと、naive な出発アンカーとの差が
-/// 端末の時差ぶんずれる。時差の無い文字列は `Date.parse` が端末の時刻として読むので受けない。
-function jstWallClock(raw: unknown): Date | null {
+/// 時差つきの時刻を、実際の時刻の `Date` にする。時差の無い文字列は `Date.parse` が
+/// 端末の時刻として読むので受けない。
+function instant(raw: unknown): Date | null {
   if (typeof raw !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/.test(raw)) return null;
   const ms = Date.parse(raw);
-  if (!Number.isFinite(ms)) return null;
-  const jst = new Date(ms + jstOffsetMs);
+  return Number.isFinite(ms) ? new Date(ms) : null;
+}
+
+/// 時差つきの時刻を、JST の壁時計を表す naive な `Date` にする（§4 #121。guidance の
+/// `transitSecsToJst` と同じ表現）。実際の時刻のまま持つと、naive な出発アンカーとの差が
+/// 端末の時差ぶんずれる。
+function jstWallClock(raw: unknown): Date | null {
+  const at = instant(raw);
+  if (at === null) return null;
+  const jst = new Date(at.getTime() + jstOffsetMs);
   return dateTime(
     jst.getUTCFullYear(),
     jst.getUTCMonth() + 1,
