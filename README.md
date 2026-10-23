@@ -416,6 +416,19 @@ printf '%s' "$(security find-generic-password -a "$USER" -s ODPT_CENTER_KEY -w)"
 printf '%s' "$(security find-generic-password -a "$USER" -s ODPT_CHALLENGE_KEY -w)" | \
   npx -y firebase-tools@latest functions:secrets:set ODPT_CHALLENGE_KEY --data-file - --project aruku-app
 
+#    新しい secret には権限が付かない。CI のデプロイ用には確認（viewer）、関数の実行用には読み取り
+#    （secretAccessor）を付ける。デプロイ用は viewer だけなので、CLI が実行用の権限をデプロイ中に
+#    付けようとしても 403 で止まる。前もって両方付けておく（既存の GOOGLE_MAPS_API_KEY と同じ形）
+PROJECT_NUMBER=$(gcloud projects describe aruku-app --format='value(projectNumber)')
+for s in ODPT_CENTER_KEY ODPT_CHALLENGE_KEY; do
+  gcloud secrets add-iam-policy-binding $s --project aruku-app \
+    --member=serviceAccount:firebase-deploy-sa@aruku-app.iam.gserviceaccount.com \
+    --role=roles/secretmanager.viewer
+  gcloud secrets add-iam-policy-binding $s --project aruku-app \
+    --member=serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com \
+    --role=roles/secretmanager.secretAccessor
+done
+
 # 2. 非公開バケットを作る（名前はリポジトリに書かない）
 gcloud storage buckets create gs://<BUCKET> --location=asia-northeast1 \
   --uniform-bucket-level-access --public-access-prevention --project aruku-app
@@ -432,10 +445,11 @@ gcloud services enable cloudscheduler.googleapis.com --project aruku-app
 #    functions/.env.aruku-app へ書き出す（gitignore 済み）。空だと関数全体のデプロイを止める
 gh variable set TIMETABLE_PACK_BUCKET --env production --body <BUCKET>
 
-# 6. CI のデプロイ用サービスアカウント（secrets.WIF_SERVICE_ACCOUNT）が Cloud Scheduler の
-#    ジョブを作れるようにする（定期関数のデプロイに要る）
+# 6. CI のデプロイ用サービスアカウント（secrets.WIF_SERVICE_ACCOUNT＝firebase-deploy-sa）が
+#    Cloud Scheduler のジョブを作れるようにする（定期関数のデプロイに要る）
 gcloud projects add-iam-policy-binding aruku-app \
-  --member=serviceAccount:<WIF_SERVICE_ACCOUNT> --role=roles/cloudscheduler.admin
+  --member=serviceAccount:firebase-deploy-sa@aruku-app.iam.gserviceaccount.com \
+  --role=roles/cloudscheduler.admin --condition=None
 ```
 
 デプロイは他の関数と同じく main へのマージで走ります。
