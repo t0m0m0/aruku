@@ -50,6 +50,44 @@
   --color-danger-soft: #f8dad4;
   --color-gold: #d2a03a;
 
+  /* Material 3 の色の役割（#455）。元の色 #387418（moss-600）から
+     @material/material-color-utilities 0.4.0 で算出した値。上の moss / ink / paper 系は
+     まだ移行していない画面が使っているので並べて置く。
+
+     Theme Builder の既定（SchemeTonalSpot）は採らなかった。primary が #456731 まで
+     くすみ、元の色の鮮やかさが消える。primary 系と outline 系は旧方式の Scheme.light
+     から取り、surface-container 系は旧方式に無いので SchemeTonalSpot（spec 2021）から
+     取っている——ずれは neutral の彩度 4 と 6 の差だけで、目では見分けられない。 */
+  --color-primary: #306b0f;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #b0f589;
+  --color-on-primary-container: #082100;
+  --color-secondary-container: #d9e7cb;
+  --color-on-secondary-container: #131f0d;
+  --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #410002;
+  --color-surface: #f8faf0;
+  --color-on-surface: #191d16;
+  --color-on-surface-variant: #43483e;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f2f5ea;
+  --color-surface-container: #edefe4;
+  --color-surface-container-high: #e7e9df;
+  --color-surface-container-highest: #e1e4d9;
+  --color-outline: #74796d;
+  --color-outline-variant: #c3c8bb;
+
+  /* 拡張色（Theme Builder の custom color）。乗り物の区間の色で、元の色は train の
+     #3e6792。元の色の色相へ寄せ（Blend.harmonize）、tone 40 / 100 / 90 / 10 を取る。
+     名前を train にしないのは、上の --color-train を地図の線などがまだ使っているため。
+     バスも同じ見た目なので「乗り物」を指す ride にした。徒歩の区間は primary を使う。 */
+  --color-ride: #276486;
+  --color-on-ride: #ffffff;
+  --color-ride-container: #c7e7ff;
+  --color-on-ride-container: #001e2e;
+
   /* 作り物の地図と実地図のスタイル JSON が共有する配色。移植元は aruku_colors.dart の
      mapBg / mapRoad / mapMajor / mapPark / mapWater / mapBuild / mapLabel。 */
   --color-map-bg: #efebdd;
@@ -84,6 +122,44 @@
   --radius-md: 18px;
   --radius-lg: 24px;
 
+  /* Material 3 の角丸の段階（#455）。M3 の名前のまま置くのは、上の xs〜lg と値が
+     違うから——同じ名前へ寄せると、移行していない画面の角丸が黙って変わる。 */
+  --radius-extra-small: 4px;
+  --radius-small: 8px;
+  --radius-medium: 12px;
+  --radius-large: 16px;
+  --radius-extra-large: 28px;
+
+  /* Material 3 の文字の段階（#455）。太さも段階が持つ（body の既定 500 より優先する）。
+     px で置かないのは、ブラウザの文字サイズ設定へ追従しなくなるため（base.css の body 参照）。
+
+     M3 の字送り（body-large の 0.5px など）は持ち込まない。Roboto の欧文に合わせた
+     値で、和文に当てると字間が開いて見える。 */
+  --text-title-large: 1.375rem;
+  --text-title-large--line-height: 1.75rem;
+  --text-title-large--font-weight: 400;
+  --text-title-medium: 1rem;
+  --text-title-medium--line-height: 1.5rem;
+  --text-title-medium--font-weight: 500;
+  --text-title-small: 0.875rem;
+  --text-title-small--line-height: 1.25rem;
+  --text-title-small--font-weight: 500;
+  --text-body-large: 1rem;
+  --text-body-large--line-height: 1.5rem;
+  --text-body-large--font-weight: 400;
+  --text-body-medium: 0.875rem;
+  --text-body-medium--line-height: 1.25rem;
+  --text-body-medium--font-weight: 400;
+  --text-body-small: 0.75rem;
+  --text-body-small--line-height: 1rem;
+  --text-body-small--font-weight: 400;
+  --text-label-large: 0.875rem;
+  --text-label-large--line-height: 1.25rem;
+  --text-label-large--font-weight: 500;
+  --text-label-medium: 0.75rem;
+  --text-label-medium--line-height: 1rem;
+  --text-label-medium--font-weight: 500;
+
   /* アルファはコンポーネントごとの「浮き具合」。Dart 側は 0x0F22361E のような
      ARGB リテラルで持っており、上位 2 桁がここの不透明度に対応する。 */
   --shadow-card-subtle: 0 8px 24px rgb(34 54 30 / 0.06);
@@ -115,7 +191,11 @@
 }
 
 /* shadcn/ui の部品が参照する意味的トークン。値は上の配色へ対応づけ、shadcn の
-   既定（無彩色）は持ち込まない。 */
+   既定（無彩色）は持ち込まない。
+
+   primary だけは M3 の役割を指す。残りを M3 へ向け直さないのは、カード（paper →
+   surface-container-low）や背景が移行していない画面ごと暗くなるため——画面を移すときに
+   その画面の部品と一緒に向け直す。 */
 :root {
   --background: var(--color-ivory);
   --foreground: var(--color-ink);
@@ -123,8 +203,8 @@
   --card-foreground: var(--color-ink);
   --popover: var(--color-paper);
   --popover-foreground: var(--color-ink);
-  --primary: var(--color-moss-600);
-  --primary-foreground: var(--color-ivory);
+  --primary: var(--color-primary);
+  --primary-foreground: var(--color-on-primary);
   --secondary: var(--color-sand);
   --secondary-foreground: var(--color-ink);
   --muted: var(--color-sand);
@@ -144,7 +224,7 @@
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
+  /* --color-primary はここに置かない。M3 の役割として上の @theme static が値を持つ。 */
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);

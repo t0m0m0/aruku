@@ -5,7 +5,7 @@
 // - 区間 CTA の行程まわり（result_leg_cta.dart の完了表示・手動完了）。行程
 //   （JourneyProgress）に依存し、それは歩数同期に依存する——#386 が UI ごと作らないと
 //   決めた側。外部地図への引き継ぎだけは行程から切り離し、result-timeline.tsx の
-//   区間カードに置いた（#449）
+//   区間ごとに置いた（#449）
 // - 共有（resultShareText）。外部連携で、経路検索の正しさとは独立
 
 import { useId } from 'react';
@@ -53,9 +53,9 @@ export function ResultScreen({ store }: ResultScreenProps) {
   // ガードが通す以上ここへは経路付きでしか来ないが、欠けていても空の画面を見せない。
   if (route === null) {
     return (
-      <main className="flex min-h-(--screen-min-height) flex-col items-center justify-center gap-3.5 p-6 text-ink-3">
+      <main className="flex min-h-(--screen-min-height) flex-col items-center justify-center gap-4 bg-surface p-6 text-on-surface-variant">
         <RoutesIcon size={32} />
-        <p className="text-[15px] font-semibold">{ja.resultNoRouteMessage}</p>
+        <p className="text-title-medium">{ja.resultNoRouteMessage}</p>
         <Button
           onClick={() => {
             go(Screen.search);
@@ -71,13 +71,13 @@ export function ResultScreen({ store }: ResultScreenProps) {
 
   // 経路全体を俯瞰する固定高のプレビュー。代替案の切り替えで route が差し替わると
   // ArukuMap 側が矩形の変化を見てカメラを合わせ直す。移植元 _RouteMapPreview の
-  // ClipRRect + SizedBox(height: 180)。角丸 16px はトークンに無い（sm 12 / md 18）ので
-  // 移植元の BorderRadius.circular(16) をそのまま置く。
+  // ClipRRect + SizedBox(height: 180)。角丸は移植元の 16px ではなく M3 のカードの
+  // medium（12px）に揃えている。
   //
   // デスクトップ幅では右カラム全面。固定高と角丸は俯瞰用の 180px の枠に対するもの。
   const map = (
     <div
-      className="h-[180px] flex-none overflow-hidden rounded-[16px] desktop:[grid-area:1/2/3/3] desktop:h-auto desktop:rounded-none"
+      className="h-[180px] flex-none overflow-hidden rounded-medium desktop:[grid-area:1/2/3/3] desktop:h-auto desktop:rounded-none"
       data-testid="result-map"
     >
       <ArukuMap route={route} />
@@ -85,11 +85,13 @@ export function ResultScreen({ store }: ResultScreenProps) {
   );
 
   return (
-    <main className="flex min-h-(--screen-min-height) flex-col gap-3.5 px-[18px] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] desktop:grid desktop:h-(--screen-min-height) desktop:min-h-0 desktop:grid-cols-[380px_1fr] desktop:grid-rows-[auto_1fr] desktop:gap-0 desktop:p-0">
-      <header className="flex items-center gap-1.5 pt-1 desktop:[grid-area:1/1] desktop:border-r desktop:border-b desktop:border-hairline desktop:bg-paper desktop:px-[22px] desktop:pt-[18px] desktop:pb-3.5">
+    <main className="flex min-h-(--screen-min-height) flex-col gap-4 bg-surface px-4 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-on-surface desktop:grid desktop:h-(--screen-min-height) desktop:min-h-0 desktop:grid-cols-[380px_1fr] desktop:grid-rows-[auto_1fr] desktop:gap-0 desktop:p-0">
+      {/* 戻るボタンの左に余白を足さず -ml-3 で引くのは、48px の当たり領域の中でアイコンを
+          本文の左端（ページの余白 16px）に揃えるため。 */}
+      <header className="-ml-3 flex min-h-16 items-center gap-1 desktop:[grid-area:1/1] desktop:ml-0 desktop:border-r desktop:border-b desktop:border-outline-variant desktop:px-1">
         <button
           type="button"
-          className="grid size-10 flex-none cursor-pointer place-items-center rounded-sm text-ink"
+          className="grid size-12 flex-none cursor-pointer place-items-center rounded-full text-on-surface hover:bg-on-surface/8"
           aria-label={ja.commonBack}
           onClick={() => {
             go(Screen.home);
@@ -97,7 +99,7 @@ export function ResultScreen({ store }: ResultScreenProps) {
         >
           <ChevronIcon size={20} dir="left" />
         </button>
-        <p className="text-[13px] font-semibold text-ink-3">
+        <p className="text-title-medium">
           {/* 基準は描画時刻ではなく state の dateBasis。固定出発の経路は routeAsOf を
               持たない＝失効しないので、日を跨いでも開いたまま残る——描画時刻から
               数えると、旅程は変わっていないのに日付だけ1日進む
@@ -116,15 +118,15 @@ export function ResultScreen({ store }: ResultScreenProps) {
           する左パネルになり、ヘッダと地図は動かない。モバイル幅では画面の縦積みの一部で、
           間隔は main の gap と揃える。 */}
       <div
-        className="flex min-h-0 flex-1 flex-col gap-3.5 desktop:[grid-area:2/1] desktop:overflow-y-auto desktop:border-r desktop:border-hairline desktop:bg-paper desktop:px-[18px] desktop:py-3.5"
+        className="flex min-h-0 flex-1 flex-col gap-4 desktop:[grid-area:2/1] desktop:overflow-y-auto desktop:border-r desktop:border-outline-variant desktop:p-4"
         data-testid="result-panel"
       >
         {overBudget && (
-          <section className="rounded-sm bg-burnt-soft p-3.5" role="status">
-            <p className="text-[13px] font-bold text-burnt">
+          <section className="rounded-medium bg-error-container p-4 text-on-error-container" role="status">
+            <p className="text-title-medium">
               {resultOverBudgetTitle(route.totalMin - route.budgetMin)}
             </p>
-            <p className="mt-1 text-[12px] font-medium text-ink-3">{ja.resultOverBudgetHint}</p>
+            <p className="mt-1 text-body-medium">{ja.resultOverBudgetHint}</p>
             <Button
               className="mt-3"
               variant="outline"
@@ -138,7 +140,7 @@ export function ResultScreen({ store }: ResultScreenProps) {
         )}
 
         <section>
-          <h2 className="mx-1 mb-1.5 text-[12px] font-bold text-ink-3">{ja.resultSegmentsHeading}</h2>
+          <h2 className="mb-2 text-title-small text-on-surface-variant">{ja.resultSegmentsHeading}</h2>
           <ResultTimeline route={route} />
         </section>
 
@@ -163,23 +165,33 @@ function RouteAuxiliary({
 }) {
   const headingId = useId();
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-2.5 border-t border-hairline pt-3.5">
-      <h2 id={headingId} className="mx-1 text-[12px] font-bold text-ink-3">
+    <section aria-labelledby={headingId} className="border-t border-outline-variant pt-4">
+      <h2 id={headingId} className="pb-1 text-title-small text-on-surface-variant">
         {ja.resultAuxiliaryHeading}
       </h2>
-      {/* 超過時は最短へ縮退した経路を出している。歩けた量を誇る場面ではなく、
-          余裕は無い——それは警告が言う。 */}
-      {!overBudget && <ExtraWalkSummary route={route} departure={departure} />}
-      {!overBudget && (
-        <p className="mx-1 text-[13px] font-medium text-ink-2">
-          {resultSlack(
-            formatClock(departure, route.budgetMin),
-            TimeValue.formatBudget(route.budgetMin - route.totalMin),
-          )}
-        </p>
-      )}
-      <p className="mx-1 text-[13px] font-medium text-ink-2">{resultCalories(route.kcal)}</p>
+      <ul>
+        {/* 超過時は最短へ縮退した経路を出している。歩けた量を誇る場面ではなく、
+            余裕は無い——それは警告が言う。 */}
+        {!overBudget && <ExtraWalkSummary route={route} departure={departure} />}
+        {!overBudget && (
+          <AuxiliaryItem>
+            {resultSlack(
+              formatClock(departure, route.budgetMin),
+              TimeValue.formatBudget(route.budgetMin - route.totalMin),
+            )}
+          </AuxiliaryItem>
+        )}
+        <AuxiliaryItem>{resultCalories(route.kcal)}</AuxiliaryItem>
+      </ul>
     </section>
+  );
+}
+
+/// M3 のリスト項目。1行なら 56px、補足を伴えば中身なりに伸びる。左右の余白を持たない
+/// のは、ページの余白（16px）が M3 のリストの内側の余白と同じ値だから。
+function AuxiliaryItem({ children }: { children: React.ReactNode }) {
+  return (
+    <li className="flex min-h-14 flex-col justify-center py-2 text-body-large">{children}</li>
   );
 }
 
@@ -203,17 +215,15 @@ function ExtraWalkSummary({
   if (extra < minExtraWalkToShow) return null;
 
   return (
-    <section className="rounded-md bg-moss-50 px-4 py-3">
-      <p className="text-[12px] font-semibold text-moss-600">{ja.resultStandardLead}</p>
-      <p className="tabular text-[22px] font-extrabold text-moss-700">
-        {resultExtraWalk(TimeValue.formatBudget(extra))}
-      </p>
-      <p className="mt-0.5 text-[11px] font-medium text-ink-3">
+    <AuxiliaryItem>
+      <p className="text-label-medium text-on-surface-variant">{ja.resultStandardLead}</p>
+      <p className="tabular">{resultExtraWalk(TimeValue.formatBudget(extra))}</p>
+      <p className="text-body-medium text-on-surface-variant">
         {resultStandardDetail(
           formatClock(departure, standard.totalMin),
           standard.walkMinutes,
         )}
       </p>
-    </section>
+    </AuxiliaryItem>
   );
 }

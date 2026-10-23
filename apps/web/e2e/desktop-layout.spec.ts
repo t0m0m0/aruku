@@ -91,7 +91,8 @@ test('モバイル幅の結果は区間・地図・補助情報の縦積み', as
 
   // 移植元 _RouteMapPreview の固定高 180px。
   expect(Math.round(map.height)).toBe(180);
-  expect(Math.round(map.width)).toBe(mobile.width - 36);
+  // 左右の余白は M3 の compact 幅の 16px（#455）。
+  expect(Math.round(map.width)).toBe(mobile.width - 32);
   expect(map.y).toBeGreaterThan(segments.y + segments.height);
   expect(auxiliary.y).toBeGreaterThanOrEqual(map.y + map.height);
 });
