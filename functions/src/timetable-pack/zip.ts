@@ -18,5 +18,13 @@ export function readGtfsZip(bytes: Uint8Array): GtfsFiles {
   for (const [path, data] of Object.entries(entries)) {
     files[baseName(path) as GtfsFileName] = strFromU8(data);
   }
+  // 欠けたファイルを空として読み進めると、路線が消えたパックで前回分を上書きしてしまう。
+  const missing: string[] = REQUIRED.filter((name) => files[name] === undefined);
+  if (files["calendar.txt"] === undefined && files["calendar_dates.txt"] === undefined) {
+    missing.push("calendar.txt か calendar_dates.txt");
+  }
+  if (missing.length > 0) throw new Error(`GTFS の zip に無い: ${missing.join(", ")}`);
   return files;
 }
+
+const REQUIRED: readonly GtfsFileName[] = ["stops.txt", "routes.txt", "trips.txt", "stop_times.txt"];

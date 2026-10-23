@@ -140,6 +140,26 @@ describe("refreshTimetablePacks", () => {
     );
   });
 
+  it("便が1本も取れないフィード（中身が見出しだけなど）も失敗として扱い、グループを上書きしない", async () => {
+    const empty = zipSync({
+      "stops.txt": strToU8("stop_id,stop_name,stop_lat,stop_lon\n"),
+      "routes.txt": strToU8("route_id\n"),
+      "trips.txt": strToU8("route_id,service_id,trip_id\n"),
+      "stop_times.txt": strToU8("trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"),
+      "calendar_dates.txt": strToU8("service_id,date,exception_type\n"),
+    });
+    const h = harness((url) =>
+      url.includes("Toei") ? new Response(empty) : new Response(gtfsZip("X")),
+    );
+    const results = await refreshTimetablePacks(h.deps, FEEDS);
+    expect(h.uploads.has(packObjectPath("permanent"))).toBe(false);
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ group: "permanent", status: "skipped", failedFeeds: ["Toei"] }),
+      ]),
+    );
+  });
+
   it("キーが無いフィードは取りに行かずに失敗にする", async () => {
     const h = harness(undefined, { ODPT_CENTER_KEY: CENTER_KEY });
     const results = await refreshTimetablePacks(h.deps, FEEDS);

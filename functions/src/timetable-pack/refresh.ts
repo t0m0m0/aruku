@@ -30,7 +30,8 @@ class FeedFetchError extends Error {
 
 /**
  * ODPT から GTFS を取り直し、ライセンスのグループごとにパックを作って置く。
- * グループの中で1つでも取れなかったら、そのグループは置き換えずに前回のパックを残す
+ * グループの中で1つでも取れなかったら（必須ファイルの欠けた zip・便が1本も無いフィードを含む）、
+ * そのグループは置き換えずに前回のパックを残す
  * （一部の路線が消えたパックで検索させない）。
  */
 export async function refreshTimetablePacks(
@@ -51,6 +52,17 @@ export async function refreshTimetablePacks(
     }
     const inputs = settled.map((s) => (s as PromiseFulfilledResult<FeedInput>).value);
     const pack = buildTimetablePack(inputs);
+    const tripsPerFeed = members.map(() => 0);
+    for (const trip of pack.trips) tripsPerFeed[trip.feed]++;
+    const emptyFeeds = members.filter((_, i) => tripsPerFeed[i] === 0).map((f) => f.id);
+    if (emptyFeeds.length > 0) {
+      for (const feed of emptyFeeds) {
+        deps.log({ event: "timetable_feed_fetch", feed, status: "failure", reason: "no_trips" });
+      }
+      deps.log({ event: "timetable_pack_refresh", group, status: "skipped", failedFeeds: emptyFeeds });
+      results.push({ group, status: "skipped", failedFeeds: emptyFeeds });
+      continue;
+    }
     const gzipped = gzipSync(JSON.stringify(pack));
     await deps.upload(packObjectPath(group), gzipped);
     const result: GroupResult = {
