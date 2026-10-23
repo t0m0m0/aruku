@@ -4,5 +4,5 @@ node_modules/
 # ODPT の GTFS と時刻表パック（#457）。ライセンス上リポジトリに入れない。
 .odpt/
 
-# firebase deploy が保存するパラメータ（TIMETABLE_PACK_BUCKET など）。バケット名をリポジトリに書かない（#457）。
+# デプロイ時のパラメータ（TIMETABLE_PACK_BUCKET など）。CI が Actions の変数から書き出す。バケット名をリポジトリに書かない（#457）。
 .env.*

@@ -970,7 +970,8 @@ export const googleWalkMatrixProxy = onRequest(
 
 // 厳密走査（#456）が読む時刻表パックを ODPT の GTFS から作り直す（#457）。
 // 時刻表はブラウザへ渡さない（基本ライセンス第8条4(1)・チャレンジ限定データの第三者提供の禁止）
-// ので、置き場所は非公開バケット。名前はデプロイ時に入力し、リポジトリに書かない。
+// ので、置き場所は非公開バケット。名前はリポジトリに書かず、デプロイ時に CI が Actions の変数から渡す
+// （.github/workflows/deploy-functions.yml）。
 const odptCenterKeySecret = defineSecret("ODPT_CENTER_KEY");
 const odptChallengeKeySecret = defineSecret("ODPT_CHALLENGE_KEY");
 const timetablePackBucket = defineString("TIMETABLE_PACK_BUCKET", {

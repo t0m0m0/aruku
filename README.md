@@ -427,10 +427,17 @@ gcloud storage buckets add-iam-policy-binding gs://<BUCKET> \
 # 4. Cloud Scheduler API を有効にする
 gcloud services enable cloudscheduler.googleapis.com --project aruku-app
 
-# 5. デプロイ。初回は TIMETABLE_PACK_BUCKET を聞かれるので 2 のバケット名を入れる
-#    （functions/.env.aruku-app に保存される。gitignore 済み）
-npx -y firebase-tools@latest deploy --only functions:refreshTimetablePacks --project aruku-app
+# 5. デプロイ用の変数にバケット名を入れる。CI（deploy-functions.yml）がデプロイ直前に
+#    functions/.env.aruku-app へ書き出す（gitignore 済み）。空だと関数全体のデプロイを止める
+gh variable set TIMETABLE_PACK_BUCKET --env production --body <BUCKET>
+
+# 6. CI のデプロイ用サービスアカウント（secrets.WIF_SERVICE_ACCOUNT）が Cloud Scheduler の
+#    ジョブを作れるようにする（定期関数のデプロイに要る）
+gcloud projects add-iam-policy-binding aruku-app \
+  --member=serviceAccount:<WIF_SERVICE_ACCOUNT> --role=roles/cloudscheduler.admin
 ```
+
+デプロイは他の関数と同じく main へのマージで走ります。
 
 キーが入っているかは、値を出さずに確かめる:
 
