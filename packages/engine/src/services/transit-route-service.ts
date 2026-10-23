@@ -27,6 +27,7 @@ import {
   walkFeasiblePrefixCount,
   type FrontierStations,
 } from './hybrid-route-selector';
+import { exactWalkCandidates } from './exact-walk-candidates';
 import { TimeoutException, type HttpClient } from './http-client';
 import {
   ArrivalWaveOutcome,
@@ -81,6 +82,13 @@ export interface TransitRouteServiceInit {
   /// 到着アンカー第2波（#376）を departure 波の確定後に待つ猶予。テストが実時間に
   /// 依存せず猶予切れを再現できるよう注入可能にしてある。
   arrivalWaveGrace?: Duration | null;
+
+  /// 厳密走査 `exactWalkMax`（#460・§3.9）の候補を候補プールへ足すか。既定 false
+  /// （`apps/web` ではビルド時のフラグ `VITE_EXACT_WALK_MAX` が配線する）。
+  exactWalkMax?: boolean;
+
+  /// 厳密走査の応答を departure 波の確定後に待つ猶予。用途は [arrivalWaveGrace] と同じ。
+  exactWalkMaxGrace?: Duration | null;
 }
 
 /// 到着アンカー第2波の猶予の既定値。
@@ -90,6 +98,11 @@ export interface TransitRouteServiceInit {
 /// **0 にしない理由:** 両波は同時に発行済みで、この時点の第2波は既に departure 波
 /// ぶんの時間を走っている。0 にすると、あと一息で返る応答まで捨てることになる。
 export const defaultArrivalWaveGrace: Duration = seconds(5);
+
+/// 厳密走査の猶予の既定値。ウォームなら1秒前後で返るので、ふつうは掛からない。
+/// [defaultArrivalWaveGrace] と同じ値にしてあるのは、コールドスタート（パックの読み込み）を
+/// 待ち切って毎検索の体感へ乗せないため。
+export const defaultExactWalkMaxGrace: Duration = seconds(5);
 
 /// 見積り予算内候補を1回の並列パスで実測する短リストの本数上限（#315）。
 /// 上限はレート制限（#161: 1検索最大13ファンアウト）に合わせる。
@@ -145,6 +158,8 @@ const corridorFingerprintSamples = 8;
 export class TransitRouteService implements SearchEngine {
   constructor(init: TransitRouteServiceInit = {}) {
     this.arrivalWaveGrace = init.arrivalWaveGrace ?? defaultArrivalWaveGrace;
+    this.exactWalkMax = init.exactWalkMax ?? false;
+    this.exactWalkMaxGrace = init.exactWalkMaxGrace ?? defaultExactWalkMaxGrace;
     this.api = new TransitApiClient({
       transitClient: init.transitClient,
       proxyClient: init.proxyClient,
@@ -166,6 +181,8 @@ export class TransitRouteService implements SearchEngine {
   /// ゲートするのは改善側だけで、必須の初期照会は締切で止めない。
   private readonly deadline: SearchDeadline;
   private readonly arrivalWaveGrace: Duration;
+  private readonly exactWalkMax: boolean;
+  private readonly exactWalkMaxGrace: Duration;
   private readonly onMetrics: ((metrics: RouteSearchMetrics) => void) | null;
 
   /// 選定の診断ログ整形（#169）。`verbose` は既定で kDebugMode。
@@ -203,6 +220,19 @@ export class TransitRouteService implements SearchEngine {
     // 複数のリスナを持てるので、後から await する経路の例外伝播は妨げない——キャンセル
     // （[SearchCanceledException]）を握り潰さないために必要な性質（`prefetchBus` と同型・#316）。
     ignore(arrivalWave);
+    // 厳密走査（#460・§3.9）も同じく departure 波より先に起こす。guidance の結果を使わない
+    // ので、並列に置けば直列の段は増えない。
+    const exactWave = this.exactWalkMax
+      ? this.api.fetchExactWalkMax(origin, destinationLatLng, departureAt, budgetMin)
+      : null;
+    const exactSw = startedStopwatch();
+    if (exactWave !== null) {
+      ignore(exactWave);
+      void exactWave.then(
+        () => exactSw.stop(),
+        () => exactSw.stop(),
+      );
+    }
 
     const guidanceSw = startedStopwatch();
     const body = await this.api.fetchGuidanceAt(
@@ -215,6 +245,20 @@ export class TransitRouteService implements SearchEngine {
     if (options.length === 0) throw new RouteException('ZERO_RESULTS');
 
     onProgress?.(RoutePhase.walkability);
+
+    // 厳密走査の猶予も departure 波の確定から数える。arrival 波を待ち終えてから起こすと、
+    // 両方が遅い検索で猶予が直列に積まれる（§3.9）。待つのはハイブリッドを作った後
+    // （`selectMeasured`）なので、その間に届いた拒否で未処理例外にしない。
+    const exactGraced =
+      exactWave === null ? null : withGrace(exactWave, this.exactWalkMaxGrace);
+    if (exactGraced !== null) {
+      ignore(exactGraced);
+      // 猶予切れで捨てた応答が後から届いても、測るのは捨てた時点まで。
+      void exactGraced.then(
+        () => exactSw.stop(),
+        () => exactSw.stop(),
+      );
+    }
 
     // 第2波を待つのは departure 波が返ってから [arrivalWaveGrace] までに限る（猶予切れは
     // 失敗と同じ fail-soft）。元の Promise は `ignore` 済みなので、猶予後に遅れて届く
@@ -240,6 +284,7 @@ export class TransitRouteService implements SearchEngine {
         // option には出自欄が無いのでインスタンス同一性で追う（合流も `basesForHybrid` も
         // インスタンスをそのまま持ち回るので保たれる）。
         arrivalWaveOptions: new Set(wave.fresh),
+        exactWave: exactGraced,
         // 第2波を混ぜない。締切から逆算した便は、ふつうに検索して出る経路ではない。
         standardTransit: this.standardTransitOf(options, departureAt),
       },
@@ -252,6 +297,8 @@ export class TransitRouteService implements SearchEngine {
     metrics.guidanceDupCalls = this.api.guidanceDupCalls;
     metrics.walkCalls = this.api.walkCalls;
     metrics.matrixCalls = this.api.matrixCalls;
+    metrics.exactCalls = this.api.exactCalls;
+    if (exactWave !== null) metrics.exactMs = exactSw.elapsedMilliseconds;
     this.diag.logMetrics(metrics);
     this.onMetrics?.(metrics);
 
@@ -306,6 +353,33 @@ export class TransitRouteService implements SearchEngine {
     }
   }
 
+  /// 厳密走査（#460・§3.9）の応答を候補にする。失敗（HTTP・TIMEOUT・形の崩れ・猶予切れ）は
+  /// 空リストへ落とす——厳密走査は改善であって必須ではない。[SearchCanceledException] だけは
+  /// 飲まない（#316。[arrivalWaveOptions] と同じ理由）。
+  ///
+  /// `candidates` が null なのは失敗したとき（計測で 0 件と分けるため）。
+  private async exactWaveCandidates(
+    wave: Promise<JsonMap>,
+    ends: { origin: GeoPoint; goal: GeoPoint; from: string; to: string },
+  ): Promise<{ candidates: RouteCandidate[] | null; capped: boolean }> {
+    try {
+      const body = await wave;
+      const candidates = exactWalkCandidates(body, ends);
+      const stats = body['stats'];
+      const capped = isRecord(stats) && stats['truncated'] === true;
+      this.diag.log(
+        () => `exactWalkMax: ${candidates.length}件を合流（打ち切り=${capped}）`,
+      );
+      return { candidates, capped };
+    } catch (error) {
+      if (error instanceof SearchCanceledException) throw error;
+      this.diag.log(
+        () => `exactWalkMax: 失敗（${String(error)}）→ 厳密走査の候補なしで続行`,
+      );
+      return { candidates: null, capped: false };
+    }
+  }
+
   /// measure-first 選定。標準乗換・実測ハイブリッド・全徒歩を同一土俵で比較し、
   /// 採用候補を Google 実測（enrich）で検証して確定する。徒歩最大化が崩壊したときだけ
   /// 乗車駅探索（引き直し）を1本足して選び直す。
@@ -321,6 +395,7 @@ export class TransitRouteService implements SearchEngine {
       goal: GeoPoint;
       metrics: RouteSearchMetrics;
       arrivalWaveOptions: Set<TransitOption>;
+      exactWave: Promise<JsonMap> | null;
       onProgress?: (phase: RoutePhase) => void;
       fromName: string | null;
       toName: string | null;
@@ -412,6 +487,29 @@ export class TransitRouteService implements SearchEngine {
     this.diag.log(
       () => `allWalk: ${this.diag.candLine(allWalk, budgetMin, departureAt)}`,
     );
+
+    // 厳密走査の候補は estWinner の直前に足す。ここまで待たずに済むよう入口で並列に
+    // 起こしてあり、ハイブリッドを作っている間に返っていれば待ちは 0 になる。
+    // 出自は arrival 波と同じくインスタンス同一性で覚える（`exactWon`）。
+    const fromExact = new Set<RouteCandidate>();
+    if (ctx.exactWave !== null) {
+      const result = await this.exactWaveCandidates(ctx.exactWave, {
+        origin,
+        goal,
+        from: options[0].from,
+        to: options[0].to,
+      });
+      const exact = result.candidates ?? [];
+      metrics.exactCandidates = result.candidates === null ? -1 : exact.length;
+      metrics.exactCapped = result.capped;
+      candidates.push(...exact);
+      for (const c of exact) {
+        fromExact.add(c);
+        this.diag.log(
+          () => `exact: ${this.diag.candLine(c, budgetMin, departureAt)}`,
+        );
+      }
+    }
     this.diag.log(() => `total candidates: ${candidates.length}`);
 
     // last-resort のバス再照会は高々1回。**採用**されるのは予算内候補が出ないときだけ（#250）。
@@ -679,6 +777,7 @@ export class TransitRouteService implements SearchEngine {
 
     // 確定候補が第2波（#376）由来かも同一性で引く。
     metrics.arrivalWaveWon = fromArrivalWave.has(selected.chosen);
+    metrics.exactWon = fromExact.has(selected.chosen);
 
     // 崩壊後の再選定も同じ台帳へ積むので、畳むのは board-search を抜けた後。
     metrics.enrichMs = enrichSw.elapsedMilliseconds;

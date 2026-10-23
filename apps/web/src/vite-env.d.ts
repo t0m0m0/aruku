@@ -32,4 +32,7 @@ interface ImportMetaEnv {
   /// App Check のデバッグトークン。開発でのみ読まれる（本番バンドルでは分岐ごと
   /// 消える。src/firebase/app-check.ts 参照）。
   readonly VITE_APP_CHECK_DEBUG_TOKEN?: string;
+
+  /// `1` なら厳密走査 `exactWalkMax` の候補を経路検索に足す（#460）。それ以外は無効。
+  readonly VITE_EXACT_WALK_MAX?: string;
 }

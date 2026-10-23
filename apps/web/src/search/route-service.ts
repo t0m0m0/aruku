@@ -58,6 +58,9 @@ export interface RouteServiceOptions {
   readonly proxyBaseUrl: string;
   readonly appCheck: AppCheckProviders;
 
+  /// 厳密走査 `exactWalkMax` の候補を足すか（#460）。既定 false。
+  readonly exactWalkMax?: boolean;
+
   /// テストから実ネットワークを外すための差し替え口。
   readonly fetch?: Fetch;
 }
@@ -85,6 +88,7 @@ export function createRouteService(options: RouteServiceOptions): RouteService {
       transitBaseUrl: options.transitBaseUrl,
       proxyBaseUrl: options.proxyBaseUrl,
       cancellation,
+      exactWalkMax: options.exactWalkMax ?? false,
       // 締切は検索ごとに作る。エンジンの生成が plan() の入口なので、ここで作れば
       // 計測開始＝検索開始になる（#300）。
       deadline: new SearchDeadline(searchDeadlineBudget),

@@ -317,10 +317,15 @@ describe('RouteSearchMetrics.toLogLine', () => {
     m.guidanceDupCalls = 1;
     m.walkCalls = 10;
     m.matrixCalls = 2;
+    m.exactCalls = 1;
     m.arrivalWaveOutcome = ArrivalWaveOutcome.ok;
     m.arrivalWaveOptions = 2;
     m.arrivalWaveBaseUsed = true;
     m.arrivalWaveWon = true;
+    m.exactMs = 800;
+    m.exactCandidates = 3;
+    m.exactCapped = true;
+    m.exactWon = true;
     m.guidanceMs = 1200;
     m.hybridMs = 500;
     m.enrichMs = 2600;
@@ -365,11 +370,12 @@ describe('RouteSearchMetrics.toLogLine', () => {
     m.finalizeMs = 300;
     m.totalMs = 9000;
     expect(m.toLogLine()).toEqual(
-      'collapse=1 boardSearch=1 singlePass=1 http=15 ' +
-        'guidanceCalls=3 walkCalls=10 matrixCalls=2 ' +
+      'collapse=1 boardSearch=1 singlePass=1 http=16 ' +
+        'guidanceCalls=3 walkCalls=10 matrixCalls=2 exactCalls=1 ' +
         'guidanceDupCalls=1 ' +
         'arrivalWaveOutcome=0 arrivalWaveOptions=2 ' +
         'arrivalWaveBaseUsed=1 arrivalWaveWon=1 ' +
+        'exactMs=800 exactCandidates=3 exactCapped=1 exactWon=1 ' +
         'guidanceMs=1200 hybridMs=500 enrichMs=2600 boardSearchMs=3400 ' +
         'boardSearchRounds=3 boardSearchScanCount=63 boardSearchBest=25 ' +
         'boardSearchTruncated=1 boardSearchProbeFailed=1 ' +
@@ -553,10 +559,11 @@ describe('RouteSearchMetrics.toLogLine', () => {
     expect(m.httpRoundTrips).toEqual(5);
     expect(m.toLogLine()).toEqual(
       'collapse=0 boardSearch=0 singlePass=0 http=5 ' +
-        'guidanceCalls=1 walkCalls=4 matrixCalls=0 ' +
+        'guidanceCalls=1 walkCalls=4 matrixCalls=0 exactCalls=0 ' +
         'guidanceDupCalls=0 ' +
         'arrivalWaveOutcome=-1 arrivalWaveOptions=0 ' +
         'arrivalWaveBaseUsed=0 arrivalWaveWon=0 ' +
+        'exactMs=0 exactCandidates=-1 exactCapped=0 exactWon=0 ' +
         'guidanceMs=0 hybridMs=0 enrichMs=0 boardSearchMs=0 ' +
         'boardSearchRounds=0 boardSearchScanCount=0 boardSearchBest=-1 ' +
         'boardSearchTruncated=0 boardSearchProbeFailed=0 ' +

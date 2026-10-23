@@ -327,15 +327,33 @@ export class RouteSearchMetrics {
   /// 確定候補が第2波由来か。
   arrivalWaveWon = false;
 
+  /// 厳密走査 `exactWalkMax`（§3.9・#460）を発行してから、応答か猶予切れまでの実時間。
+  /// guidance と並列なので、検索全体へなお直列に乗った待ちではない。発行しなければ 0。
+  exactMs = 0;
+
+  /// 厳密走査から候補プールへ足した候補数。-1 は発行していない・失敗・猶予切れで、
+  /// 0（応答は有効だったが候補が無い）と分ける——[arrivalWaveOutcome] と同じく、中身を
+  /// 見ていない検索を「効果がなかった」へ数えないため。
+  exactCandidates = -1;
+
+  /// 厳密走査が実測する駅を片側の上限で打ち切ったか（応答の `stats.truncated`）。
+  exactCapped = false;
+
+  /// 確定候補が厳密走査由来か。
+  exactWon = false;
+
   /// Google 徒歩ルート（enrich）の実 HTTP 往復本数。
   walkCalls = 0;
 
   /// Google 徒歩マトリクスの実 HTTP 往復本数。
   matrixCalls = 0;
 
+  /// 厳密走査 `exactWalkMax` の実 HTTP 往復本数。
+  exactCalls = 0;
+
   /// 1検索あたりの上流 HTTP 往復本数の実測（全種別の合計）。
   get httpRoundTrips(): number {
-    return this.guidanceCalls + this.walkCalls + this.matrixCalls;
+    return this.guidanceCalls + this.walkCalls + this.matrixCalls + this.exactCalls;
   }
 
   /// 空振りした投機の対価を計上する（#341）。発火（[boardSearchSpeculated]）と対で読む。
@@ -407,11 +425,14 @@ export class RouteSearchMetrics {
       `singlePass=${flag(this.singlePassMeasure)} ` +
       `http=${this.httpRoundTrips} ` +
       `guidanceCalls=${this.guidanceCalls} walkCalls=${this.walkCalls} matrixCalls=${this.matrixCalls} ` +
+      `exactCalls=${this.exactCalls} ` +
       `guidanceDupCalls=${this.guidanceDupCalls} ` +
       `arrivalWaveOutcome=${this.arrivalWaveOutcome ?? -1} ` +
       `arrivalWaveOptions=${this.arrivalWaveOptions} ` +
       `arrivalWaveBaseUsed=${flag(this.arrivalWaveBaseUsed)} ` +
       `arrivalWaveWon=${flag(this.arrivalWaveWon)} ` +
+      `exactMs=${this.exactMs} exactCandidates=${this.exactCandidates} ` +
+      `exactCapped=${flag(this.exactCapped)} exactWon=${flag(this.exactWon)} ` +
       `guidanceMs=${this.guidanceMs} hybridMs=${this.hybridMs} enrichMs=${this.enrichMs} ` +
       `boardSearchMs=${this.boardSearchMs} ` +
       `boardSearchRounds=${this.boardSearchRounds} ` +

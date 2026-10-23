@@ -1,6 +1,6 @@
 // 移植元: flutter-final:test/core/services/transit_route_service_test.dart
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { JsonMap } from '../../src/json';
 import { GeoPoint } from '../../src/models/geo-point';
@@ -393,6 +393,8 @@ const service = (
     onMetrics?: (metrics: RouteSearchMetrics) => void;
     arrivalWaveGrace?: number | null;
     clock?: () => Date;
+    exactWalkMax?: boolean;
+    exactWalkMaxGrace?: number | null;
   } = {},
 ): TransitRouteService =>
   new TransitRouteService({
@@ -403,6 +405,8 @@ const service = (
     clock: o.clock ?? (() => dateTime(2026, 6, 27, 9, 0)),
     onMetrics: o.onMetrics,
     arrivalWaveGrace: o.arrivalWaveGrace,
+    exactWalkMax: o.exactWalkMax,
+    exactWalkMaxGrace: o.exactWalkMaxGrace,
   });
 
 const origin = new GeoPoint(35.68, 139.76);
@@ -6715,5 +6719,363 @@ describe('plan: 到着アンカー第2波 (#376)', () => {
         ),
       SearchCanceledException,
     );
+  });
+});
+
+describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
+  const o = familyOrigin;
+  const g = familyGoal;
+
+  // ファミリA・B の候補プールで勝つのは B 中間降車のハイブリッド（徒歩82分・到着 ~88分）。
+  // 厳密走査の候補はそれより遠くから乗り、手前で降りる。
+  const boardPt = new GeoPoint(35.0, 139.04); // origin から 46分
+  const alightPt = new GeoPoint(35.0, 139.065); // goal まで 40分
+
+  const at = (h: number, m: number): string =>
+    `2026-06-27T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00+09:00`;
+
+  /// exactWalkMax の候補1件。徒歩の秒は Google の実測（[walkFor]）に合わせるのが既定で、
+  /// [accessMin]・[egressMin] でマトリクスが楽観に外れた場合を作れる。
+  const exactCandidate = (a: {
+    board: string;
+    alight: string;
+    accessMin?: number;
+    egressMin?: number;
+  }): JsonMap => ({
+    board: { name: '厳密乗車', lat: boardPt.lat, lng: boardPt.lng },
+    alight: { name: '厳密降車', lat: alightPt.lat, lng: alightPt.lng },
+    route: '厳密線',
+    headsign: null,
+    boardAt: a.board,
+    alightAt: a.alight,
+    stops: [
+      { lat: boardPt.lat, lng: boardPt.lng },
+      { lat: alightPt.lat, lng: alightPt.lng },
+    ],
+    accessWalk: {
+      durationSec: (a.accessMin ?? walkMin(o, boardPt)) * 60,
+      distanceMeters: Math.round(haversineKm(o, boardPt) * 1000),
+    },
+    egressWalk: {
+      durationSec: (a.egressMin ?? walkMin(alightPt, g)) * 60,
+      distanceMeters: Math.round(haversineKm(alightPt, g) * 1000),
+    },
+  });
+
+  const exactBody = (candidates: JsonMap[]): JsonMap => ({
+    candidates,
+    feeds: [],
+    stats: { tripsScanned: 10, elementsMeasured: 2, truncated: false },
+  });
+
+  const exactMock = (a: {
+    onExact: () => HttpResponse | Promise<HttpResponse>;
+    log?: URL[];
+  }): HttpClient =>
+    mockClient((url) => {
+      a.log?.push(url);
+      const path = url.pathname;
+      if (path.includes('exactWalkMax')) return a.onExact();
+      if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+      if (path.includes('googleWalkProxy')) return walkFor(url);
+      if (path.includes('guidance/plan')) return json(guidance([familyA(), familyB()]));
+      return json({}, 404);
+    });
+
+  const run = (
+    client: HttpClient,
+    opts: { exactWalkMax?: boolean; exactWalkMaxGrace?: number | null } = {},
+  ): Promise<RoutePlan> =>
+    service(client, {
+      exactWalkMax: opts.exactWalkMax ?? true,
+      exactWalkMaxGrace: opts.exactWalkMaxGrace,
+    }).plan({
+      destination: '目的地',
+      destinationLatLng: g,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 10, m: 40 }), // 予算100分
+      origin: o,
+      originName: '出発',
+    });
+
+  const walkOf = (plan: RoutePlan): number =>
+    plan.segments
+      .filter((s) => s.type === SegmentType.walk)
+      .reduce((a, s) => a + s.minutes, 0);
+
+  /// 厳密走査の候補が enrich まで届いた証拠（乗車駅までの徒歩を Google で実測した）。
+  /// 見積りの徒歩で負けて enrich に届かないと、落ちたのか選ばれなかったのかが区別できない。
+  const enrichedExact = (log: URL[]): boolean =>
+    log.some(
+      (u) =>
+        u.pathname.includes('googleWalkProxy') &&
+        u.searchParams.get('goal') === `${dartDouble(boardPt.lat)},${dartDouble(boardPt.lng)}`,
+    );
+
+  const rides = (plan: RoutePlan): (string | null)[] =>
+    plan.segments.filter((s) => s.type !== SegmentType.walk).map((s) => s.line);
+
+  /// フラグを切ったときの経路（＝今の経路）。
+  const baseline = (): Promise<RoutePlan> =>
+    run(
+      exactMock({ onExact: () => json(exactBody([])) }),
+      { exactWalkMax: false },
+    );
+
+  it('origin・goal・出発時刻（JST）・予算を exactWalkMax へ送る', async () => {
+    const log: URL[] = [];
+    await run(exactMock({ onExact: () => json(exactBody([])), log }));
+    const req = singleWhere(log, (u) => u.pathname.includes('exactWalkMax'));
+    expect(req.origin).toEqual(proxyBase);
+    expect(req.searchParams.get('origin')).toEqual('35.0,139.0');
+    expect(req.searchParams.get('goal')).toEqual('35.0,139.1');
+    expect(req.searchParams.get('departAt')).toEqual('2026-06-27T09:00:00+09:00');
+    expect(req.searchParams.get('budgetMin')).toEqual('100');
+  });
+
+  it('厳密走査の候補が徒歩最大なら、それが確定する', async () => {
+    const plan = await run(
+      exactMock({
+        onExact: () =>
+          json(exactBody([exactCandidate({ board: at(9, 50), alight: at(9, 53) })])),
+      }),
+    );
+    expect(rides(plan)).toEqual(['厳密線']);
+    expect(walkOf(plan)).toEqual(86);
+    expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+    const ride = singleWhere(plan.segments, (s) => s.type === SegmentType.train);
+    expect(ride.fromName).toEqual('厳密乗車');
+    expect(ride.toName).toEqual('厳密降車');
+    expect(ride.depTime).toEqual(dateTime(2026, 6, 27, 9, 50));
+  });
+
+  it('enrich で乗り遅れが分かった厳密走査の候補は落ち、次善に選び直す', async () => {
+    // マトリクスは 43分と見た（見積りの徒歩 83分で B の 82分に勝つ）が、街路の実測は
+    // 46分。09:44 発には間に合わない。
+    const log: URL[] = [];
+    const plan = await run(
+      exactMock({
+        log,
+        onExact: () =>
+          json(
+            exactBody([
+              exactCandidate({ board: at(9, 44), alight: at(9, 47), accessMin: 43 }),
+            ]),
+          ),
+      }),
+    );
+    const before = await baseline();
+    expect(enrichedExact(log)).toBe(true);
+    expect(rides(plan)).not.toContain('厳密線');
+    expect(rides(plan)).toEqual(rides(before));
+    expect(walkOf(plan)).toEqual(walkOf(before));
+  });
+
+  it('enrich で予算超過が分かった厳密走査の候補は落ち、次善に選び直す', async () => {
+    // 見積りは 10:01 着 + 37分 = 98分で予算内、実測は 40分で 101分。
+    const log: URL[] = [];
+    const plan = await run(
+      exactMock({
+        log,
+        onExact: () =>
+          json(
+            exactBody([
+              exactCandidate({ board: at(9, 50), alight: at(10, 1), egressMin: 37 }),
+            ]),
+          ),
+      }),
+    );
+    const before = await baseline();
+    expect(enrichedExact(log)).toBe(true);
+    expect(rides(plan)).not.toContain('厳密線');
+    expect(rides(plan)).toEqual(rides(before));
+    expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+  });
+
+  it('エンドポイントが失敗しても、今と同じ経路が返る', async () => {
+    const before = await baseline();
+    for (const status of [400, 429, 502, 503]) {
+      const plan = await run(exactMock({ onExact: () => json({}, status) }));
+      expect(rides(plan), `HTTP ${status}`).toEqual(rides(before));
+      expect(walkOf(plan), `HTTP ${status}`).toEqual(walkOf(before));
+    }
+  });
+
+  it('応答の形が崩れていても、今と同じ経路が返る', async () => {
+    const before = await baseline();
+    const plan = await run(exactMock({ onExact: () => json(['not', 'a', 'map']) }));
+    expect(rides(plan)).toEqual(rides(before));
+    expect(walkOf(plan)).toEqual(walkOf(before));
+  });
+
+  it('猶予内に返らなければ待たずに、今と同じ経路が返る', async () => {
+    // 実時間で遅い応答を作るとフレークするので deferred で止める（#376 の猶予切れと同じ）。
+    const gate = deferred<HttpResponse>();
+    const before = await baseline();
+    const plan = await run(exactMock({ onExact: () => gate.promise }), {
+      exactWalkMaxGrace: 20,
+    });
+    expect(rides(plan)).toEqual(rides(before));
+    expect(walkOf(plan)).toEqual(walkOf(before));
+    gate.complete(json(exactBody([])));
+  });
+
+  it('猶予は arrival 波を待ち終えてからではなく、departure 波の確定から数える', async () => {
+    // 両方の改善波が遅い検索で、猶予を直列に積むと最大 10 秒待つ（§3.9）。arrival 波と
+    // 厳密走査の猶予を同じ 100ms にし、両方が切れた直後に厳密走査の応答を返す。猶予が
+    // departure 波から数えられていれば、この応答は捨てられる。
+    vi.useFakeTimers();
+    try {
+      const arrival = deferred<HttpResponse>();
+      const exact = deferred<HttpResponse>();
+      const client = mockClient((url) => {
+        const path = url.pathname;
+        if (path.includes('exactWalkMax')) return exact.promise;
+        if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+        if (path.includes('googleWalkProxy')) return walkFor(url);
+        if (path.includes('guidance/plan')) {
+          return url.searchParams.get('type') === 'arrival'
+            ? arrival.promise
+            : json(guidance([familyA(), familyB()]));
+        }
+        return json({}, 404);
+      });
+      const pending = service(client, {
+        exactWalkMax: true,
+        exactWalkMaxGrace: 100,
+        arrivalWaveGrace: 100,
+      }).plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 10, m: 40 }),
+        origin: o,
+        originName: '出発',
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      exact.complete(
+        json(exactBody([exactCandidate({ board: at(9, 50), alight: at(9, 53) })])),
+      );
+      await vi.advanceTimersByTimeAsync(200);
+      const plan = await pending;
+      expect(rides(plan)).not.toContain('厳密線');
+      arrival.complete(json(guidance([])));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('キャンセルは握り潰されない', async () => {
+    await expectThrowsA(
+      () =>
+        run(
+          exactMock({
+            onExact: async () => {
+              throw new SearchCanceledException();
+            },
+          }),
+        ),
+      SearchCanceledException,
+    );
+  });
+
+  describe('計測', () => {
+    const measure = async (
+      client: HttpClient,
+      opts: { exactWalkMax?: boolean; exactWalkMaxGrace?: number | null } = {},
+    ): Promise<RouteSearchMetrics> => {
+      let captured: RouteSearchMetrics | null = null;
+      await service(client, {
+        exactWalkMax: opts.exactWalkMax ?? true,
+        exactWalkMaxGrace: opts.exactWalkMaxGrace,
+        onMetrics: (m) => (captured = m),
+      }).plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 10, m: 40 }),
+        origin: o,
+        originName: '出発',
+      });
+      return captured!;
+    };
+
+    it('勝てば exactWon が立ち、足した候補数と打ち切りの有無を記録する', async () => {
+      const m = await measure(
+        exactMock({
+          onExact: () =>
+            json({
+              ...exactBody([exactCandidate({ board: at(9, 50), alight: at(9, 53) })]),
+              stats: { tripsScanned: 10, elementsMeasured: 24, truncated: true },
+            }),
+        }),
+      );
+      expect(m.exactCandidates).toEqual(1);
+      expect(m.exactCapped).toBe(true);
+      expect(m.exactWon).toBe(true);
+      expect(m.exactCalls).toEqual(1);
+      expect(m.exactMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('enrich で落ちれば exactWon は立たない', async () => {
+      const m = await measure(
+        exactMock({
+          onExact: () =>
+            json(
+              exactBody([
+                exactCandidate({ board: at(9, 44), alight: at(9, 47), accessMin: 43 }),
+              ]),
+            ),
+        }),
+      );
+      expect(m.exactCandidates).toEqual(1);
+      expect(m.exactCapped).toBe(false);
+      expect(m.exactWon).toBe(false);
+    });
+
+    it('200 で候補0件なら exactCandidates=0（失敗の -1 と区別する）', async () => {
+      const m = await measure(exactMock({ onExact: () => json(exactBody([])) }));
+      expect(m.exactCandidates).toEqual(0);
+      expect(m.exactWon).toBe(false);
+    });
+
+    it('失敗・猶予切れは exactCandidates=-1', async () => {
+      const failed = await measure(exactMock({ onExact: () => json({}, 503) }));
+      expect(failed.exactCandidates).toEqual(-1);
+      expect(failed.exactCalls).toEqual(1);
+
+      const gate = deferred<HttpResponse>();
+      const late = await measure(exactMock({ onExact: () => gate.promise }), {
+        exactWalkMaxGrace: 20,
+      });
+      expect(late.exactCandidates).toEqual(-1);
+      expect(late.exactWon).toBe(false);
+      gate.complete(json(exactBody([])));
+    });
+
+    it('フラグを切れば何も記録しない', async () => {
+      const m = await measure(
+        exactMock({ onExact: () => json(exactBody([])) }),
+        { exactWalkMax: false },
+      );
+      expect(m.exactCalls).toEqual(0);
+      expect(m.exactMs).toEqual(0);
+      expect(m.exactCandidates).toEqual(-1);
+      expect(m.exactCapped).toBe(false);
+      expect(m.exactWon).toBe(false);
+    });
+  });
+
+  it('フラグを切れば exactWalkMax を呼ばない', async () => {
+    const log: URL[] = [];
+    await run(
+      exactMock({
+        onExact: () =>
+          json(exactBody([exactCandidate({ board: at(9, 50), alight: at(9, 53) })])),
+        log,
+      }),
+      { exactWalkMax: false },
+    );
+    expect(log.some((u) => u.pathname.includes('exactWalkMax'))).toBe(false);
   });
 });

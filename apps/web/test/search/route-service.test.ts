@@ -208,6 +208,39 @@ describe('createRouteService', () => {
     });
   }
 
+  it('exactWalkMax を有効にすると、検索の入口で厳密走査を叩く (#460)', async () => {
+    const urls: string[] = [];
+    const service = createRouteService({
+      transitBaseUrl: 'https://api.transit.example',
+      proxyBaseUrl: 'https://proxy.example',
+      appCheck,
+      exactWalkMax: true,
+      fetch: async (url) => {
+        urls.push(String(url));
+        return new Response('{}', { status: 200 });
+      },
+    });
+
+    await service.plan(planArgs).catch(() => {});
+
+    expect(urls.some((u) => u.startsWith('https://proxy.example/exactWalkMax?'))).toBe(
+      true,
+    );
+  });
+
+  it('既定では厳密走査を叩かない (#460)', async () => {
+    const urls: string[] = [];
+    await build(async (url) => {
+      urls.push(String(url));
+      return new Response('{}', { status: 200 });
+    })
+      .plan(planArgs)
+      .catch(() => {});
+
+    expect(urls.length).toBeGreaterThan(0);
+    expect(urls.some((u) => u.includes('/exactWalkMax'))).toBe(false);
+  });
+
   it('検索ごとに新しいクライアントを組み立てる (#259)', async () => {
     // 検索をまたいでクライアントを共有すると、片方のキャンセルが他方の
     // in-flight を巻き添えで切る。所有が検索1回ぶんであることを、発行された

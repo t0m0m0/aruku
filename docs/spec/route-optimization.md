@@ -152,6 +152,7 @@
 - **天井の掛け方:** `SearchDeadline` を `TransitApiClient` に渡し、Transit の各 fetch を `min(1本の上限, 残予算)` でクランプする。残予算 0 での照会は HTTP を発行せず即 `TIMEOUT`。
 - **締切超過は失敗ではなく縮退。** 必須なのは初期 `/guidance/plan` の **departure 波1本**だけで、それ以降の引き直しは徒歩最大化のための改善なので、改善側だけをゲートできる。既得の候補で確定経路を返す。
   - **並列に走る arrival 波（§3.1・#376）も改善側。** 失敗（429/5xx/TIMEOUT/パース不能）は黙って捨てて departure 波だけで続行する＝`RouteException` を上へ抜けさせない。ただし**キャンセル（`SearchCanceledException`）は握り潰さない**——飲むと離脱後も departure 波だけで完走して経路を返してしまう（#316 と同型）。
+  - **厳密走査 `exactWalkMax`（§3.9・#460）も改善側。** 扱いは arrival 波と同じ（失敗・猶予切れは空で続行、キャンセルだけは伝播、猶予は `exactWalkMaxGrace`・既定5秒）。
   - **待つのは departure 波が返ってからの猶予（`arrivalWaveGrace`・既定5秒）まで。** 猶予切れは失敗と同じく捨てる。**無期限に待ってはいけない**——並列 guidance の裾は実測 33〜43 秒まで伸びるので、改善でしかない波の裾が毎検索の体感へそのまま乗る（1本の上限35秒はこれを止められない）。**0 にもしない**——両波は同時発行済みで、この時点の第2波は既に departure 波ぶんの時間を走っているため、あと一息で返る応答まで捨てることになる。
 - **120 秒は検索全体の厳密な上限ではない。** 締切後も確定候補の徒歩実測（短リストを候補**間並列**で測る 1〜2 バッチ・§3.7）が走るため `totalMs` は 120 秒を超え得る。天井を締めたいなら検証を削るのではなく短リスト上限を下げること。
 - **トレードオフ:** 締切で board-search が打ち切られると徒歩が最大より短くなる＝主目的が劣化する。劣化の頻度が問題になるなら、締切を伸ばすのではなく**ラウンド数を減らす**方向で対処する。
@@ -183,6 +184,7 @@
   ・departure 波（type=departure・出発時刻アンカー）＝**必須**。失敗は検索ごと失敗
   ・arrival 波（type=arrival・締切=出発+予算アンカー・#376）＝**改善**。失敗は黙って捨てる
     （待つのは departure 波の確定後 arrivalWaveGrace（既定5秒）まで・§2.4）
+  ・exactWalkMax が有効なら厳密走査（§3.9・#460）も同時に発行する＝**改善**
   → parseGuidancePlan で option 列へ解析（legs＋map.segments の polyline）
   → arrival 波の option を dedup して合流（標準乗換候補・basesForHybrid の母集合の両方へ入る）
     ・落とすのは**同一便だけ**（構造＝種別/路線名/乗降座標 ＋ 時刻表の同一性＝実発着時刻）。
@@ -199,6 +201,7 @@
          origin→{各乗車地点, goal} と {各降車地点}→goal を一括実測
      → mergeHybrids で構造フィンガープリント重複除去（上限 maxHybridCandidates）
   → 全徒歩候補を追加
+  → 厳密走査の候補を追加（exactWalkMax を待つのはここ。失敗・猶予切れは空・§3.9）
   → selectBestRoute で見積り勝者を出し、
        ・崩壊が見込まれなければ prewarmFront が決めた候補を1パスで先行実測（§3.7）
        ・崩壊が見込まれる（preCollapse）なら電車系 board-search を投機起動し、
@@ -225,6 +228,7 @@
 1. **全徒歩:** origin→goal。実測（無ければ直線推定にフォールバック）。常に候補。
 2. **標準乗換:** `/guidance/plan` が返した door-to-door 経路そのまま。実ダイヤ由来の発着時刻を持つ。アクセス徒歩は採用候補の enrich で Google 実測に置き換える（guidance の徒歩見積りは実街路と乖離し得るため・§4 #254）。
 3. **ハイブリッド:** 基準経路のコリドー上の途中点で乗降し、アクセス徒歩を実測で割り当てた候補。途中点は厳密な駅とは限らず、引き直し時に API が最寄り駅へスナップする。同一乗車区間（section）内・乗車点 b より後方の降車点 a のペアのみ（乗換またぎは単一乗車として表現できないため除外）。**電車区間はコリドー座標由来で発車時刻を持たない**（距離概算 `minutes` のみ）。採用前に実発車時刻を引き直して検証する（§4 #137）。
+4. **厳密走査:** `exactWalkMax`（§2.1）が時刻表（ODPT の GTFS）を走査して返した1回乗車（徒歩→乗車→徒歩）の候補（§3.9）。電車区間は時刻表の実発着時刻を持ち、アクセス徒歩はマトリクスの実測。`exactWalkMax` が有効なときだけ入る。
 
 ### 3.3 フロンティア絞り込み `frontierStations`
 
@@ -309,10 +313,11 @@
 |---|---|---|
 | 発火 | `collapse` / `boardSearch` / `singlePass` | 崩壊判定・board-search 起動・Option A 発火（0/1。総数で割れば発火率） |
 | 〃 | `boardSearchSpeculated` / `boardSearchSpeculationWasted` / `boardSearchSpeculationProbes` | 電車系 board-search の投機起動（§3.6・#341）・その空振り・空振りが上流へ捨てた probe 本数。**空振り率の分母は総検索数ではなく投機件数**（総数で割ると、投機の起きないルートを混ぜたぶんだけ当たって見える）。`boardSearch` とは別に持つ——空振りは候補をプールへ1件も足しておらず、同じ印にすると board-search 本体の起動率が読めなくなる |
-| 往復本数 | `guidanceCalls` / `walkCalls` / `matrixCalls` / `http` | 実際に GET を発行した回数（種別ごと＋合計）。締切切れ・キャンセルで発行前に落ちた要求は数えない |
+| 往復本数 | `guidanceCalls` / `walkCalls` / `matrixCalls` / `exactCalls` / `http` | 実際に GET を発行した回数（種別ごと＋合計）。締切切れ・キャンセルで発行前に落ちた要求は数えない |
 | 〃 | `guidanceDupCalls` | 同一 guidance URI の重複発行数＝per-search キャッシュで消せる上限 |
 | 到着アンカー波 | `arrivalWaveOutcome` / `arrivalWaveOptions` | 第2波（§3.1・#376）の結末コード（`0`=ok／`1`=猶予切れ／`2`=HTTP・パース不能／`3`=200 だが option 0本。`-1` は第2波を待つ前＝未確定）と、dedup 後に候補プールへ**純増**した option 数。`0`（ok）でも `Options=0` なら、その経路では departure 波と同じ便しか返らなかった＝何も足していない |
 | 〃 | `arrivalWaveBaseUsed` / `arrivalWaveWon` | 第2波由来の option が `basesForHybrid` の base に採られたか／確定候補（またはその土台 base）が第2波由来か。**これが #376 の判定基準**——両方がほぼ 0 なら毎検索 +1 本の対価に見合わないので revert する。**ただし分母は総検索数ではなく `arrivalWaveOutcome=0` の件数**——猶予切れ（`=1`）と上流エラー（`=2`）は第2波の中身を一度も見ておらず、仮説の是非を語らない。総数で割ると「間に合わなかった」を「効果がなかった」と読み違える（実機確認では departure 波が速い検索ほど `=1` に倒れた）。`Won=0` は「由来でない」と「best-effort 縮退でコピーが作られ同一性が切れた＝特定不能」を兼ねる（`boardSearchWinnerRound` の 0 と同じ事情） |
+| 厳密走査 | `exactMs` / `exactCandidates` / `exactCapped` / `exactWon` | §3.9・#460。`exactMs` は発行から応答（猶予切れならその時点）までの実時間で、guidance と並列なので**検索全体へ直列に乗った待ちではない**（発行しなければ 0）。`exactCandidates` は候補プールへ足した候補数で、**`-1` は発行していない・失敗・猶予切れ**、`0` は応答は有効だったが候補が無い——arrival 波と同じく、中身を見ていない検索を「効果がなかった」へ数えないため、効果の分母は `exactCandidates≥0` の件数にする。`exactCapped` は実測する駅を片側の上限で打ち切ったか（応答の `stats.truncated`）。`exactWon` は確定候補が厳密走査由来か（同一性で引くので、best-effort 縮退でコピーが作られると 0 になる＝`arrivalWaveWon` と同じ事情） |
 | フェーズ所要 | `guidanceMs` / `hybridMs` / `enrichMs` / `boardSearchMs` / `finalizeMs` / `totalMs` | 各区間の実時間。**崩壊時の再選定は `boardSearchMs` と `enrichMs` の両方に入る**——台帳（下2行）が再選定の enrich も積むので、時計だけ board-search 突入で止めると計上外の残りが負に化ける。意図的な重なりなので、フェーズを足し上げるときは注意する |
 | 〃 | `boardSearchMs` の読み方（#341 以降） | **電車系 board-search で「なお直列に待った」残りの時間**であって、探索が始まってから終わるまでの全体ではない（`busLastResortMs` と同じ語法）。投機起動（§3.6）が enrich と並行に走るぶん `totalMs` への寄与が減り、投機が完全に間に合えば電車系の寄与は 0 に近づく——それがこの最適化の効き目そのもの。**したがって #341 前後で `boardSearchMs` を直接比較してはいけない**（縮んだのは段であって探索ではない）。探索そのものの重さは `boardSearchRounds` と `boardSearchProbeSerialMs` で見る。区間には依然としてバス系の探索と崩壊後の再選定が含まれる |
 | enrich 内訳 | `enrichCriticalMs` / `enrichWalkMs` / `enrichPasses` / `enrichResolveDepth` / `enrichCandidates` | 測定口 `measureCandidate` を通る臨界パスの所要・パス数・区間解決の段数・測った候補数。壊れた応答で落ちた候補も**払った壁時計ごと計上する**（障害時ほど小さく出る歪みを避ける）。**縮退パス（`bestEffortResolved`・バス last-resort・再帰）はここを通らない**。`enrichWalkMs` は臨界パスのうち徒歩 enrich が占めた分で、差 `enrichCriticalMs − enrichWalkMs` が実発車時刻の引き直しに消えた分。**この対でしか短縮の打ち手は決まらない**——徒歩なら往復の削減、引き直しなら段数の削減と、手が正反対になる。内訳は最遅候補と対で採る（`max` を取らない） |
@@ -328,6 +333,17 @@
   - **縮退する検索**では、支配するのは段数ではなく縮退パスそのもの（tier実測 → best-effort 縮退 → バス last-resort → `selectAndEnrich` の再帰）。`bestEffortResolved` は測定口 `measureCandidate` を通らず `resolveBoardingTimes` を直に呼び、短リストではなく候補プール全体を解決するため `maxMeasureShortlist` の上限が効かず、`enrichCriticalMs` にも計上されない。
 - **`ms` だけで最適化の効き目を判定しない。** 上流は中央値9〜11秒・裾30秒超（§2.2-6）なので、数試行の `ms` 比較では「改善したのか上流が空いていたのか」を区別できない。判定には**同一 run 内で比較できる量**（`boardSearchRounds`、`boardSearchProbeSerialMs` vs `boardSearchProbeParallelMs`）を使う。
 - **境界位置の分布を扱うときは `truncated=1` / `probeFailed=1` のサンプルを除く。** 打ち切られた境界は本来より手前になり得る。
+
+### 3.9 厳密走査の候補（`exactWalkMax`）
+
+時刻表（ODPT の GTFS）を持つ路線では、サーバ側の厳密走査（§2.1 の `exactWalkMax`・#459）が「どの駅で乗り、どの駅で降りれば締切に間に合い、徒歩が最大になるか」を全便の1回の走査で求める。その結果を**今の候補プールへ足す**（置き換えない）。
+
+- **有効化:** ビルド時のフラグ `VITE_EXACT_WALK_MAX=1`（`apps/web/src/config.ts` → `createRouteService` → `TransitRouteService` の `exactWalkMax`）のときだけ。既定は無効。切れていれば HTTP を一度も発行せず、挙動は今と変わらない。本番の `deploy-web.yml` はまだ渡していない。
+- **発行と待ち:** `plan()` の入口で arrival 波と同じく guidance と**並列に**発行する。厳密走査は guidance の結果を使わないので、直列の段は増えない。待つのは `selectMeasured` が見積り勝者（`estWinner`）を出す直前で、ハイブリッドの構築と重なる。猶予は departure 波の確定から `exactWalkMaxGrace`（既定5秒）で、arrival 波の猶予とは**並行に**数える（arrival 波を待ち終えてから数えると、両方が遅い検索で猶予が直列に積まれる）。
+- **失敗は改善側（§2.4）:** HTTP エラー（400・429・5xx・503 の「時刻表なし」を含む）・TIMEOUT・猶予切れ・形の崩れた応答は空リストとして続行する。**キャンセル（`SearchCanceledException`）だけは伝播する**（#316）。形の崩れた候補は1件ずつ捨て、残りは使う。
+- **候補の形:** `徒歩（出発地→乗車駅）→ 電車（乗車駅→降車駅）→ 徒歩（降車駅→目的地）`。電車区間は時刻表の実発着時刻（`depTime`/`arrTime`。guidance と同じく JST の壁時計を表す naive な `Date`・§4 #121）・路線名（記号コードは `railLineLabel` で和名へ）・停車駅の座標（polyline）を持つ。徒歩は応答の実測秒を分へ丸め（guidance と同じ四捨五入）、0分の徒歩区間は持たない。
+- **検証は既存のまま:** 実発着時刻を持つので #137 の実時刻の引き直しは走らない。採用前の enrich（街路の徒歩実測）で乗り遅れ・予算超過が分かれば、他の候補と同じく落として次善を選び直す（§4 #254）。選定は「検証を通った候補の中で徒歩最大」なので、**候補を足しても結果が今より悪くなることはない**。
+- **対象は1回乗車だけ。** 時刻表の無い路線（東急・小田急・京急・西武など）を含む経路は、これまでどおり guidance とコリドーから作る。
 
 ---
 
@@ -376,6 +392,7 @@
 - **②終電後の翌朝始発:** 「待てば乗れるが今夜は乗れない」電車を「今夜乗れる」と誤判定しない。best-effort 選定では各電車の**乗車待ち（`maxBoardingWait`）がすべて予算内**かつ**乗り遅れ（`firstMissedTransit`）が無い**候補（全徒歩は待ち0で常に含む）だけを残す（`reachableWithinBudget`）。
 - **TZ 正規化:** 上流の発着時刻は `transitSecsToJst`（`transit-plan-parser.ts`）で **JST の壁時計値を表す naive な `Date`** へ正規化する（サービス日 `YYYYMMDD` の 0 時＋`departureSecs`/`arrivalSecs`。`>86400` は秒の加算で翌日へ繰り上がる・§2.2-7）。怠ると JST 以外の端末で乗車待ちが負＝0 に化け、翌朝始発が深夜電車として表示される。
   - 出発アンカーは naive なので、上流時刻を UTC として解釈した `Date` のまま差を取ると端末 TZ ぶんずれる。**必ず naive で揃える。**
+  - `exactWalkMax`（§3.9）との境界も同じ。送る `departAt` は naive な出発アンカーの壁時計に `+09:00` を付けたもの（`toISOString` は端末 TZ ぶんずれる）、受けた `boardAt`/`alightAt` は JST の壁時計を表す naive な `Date` へ直す。
 - **上流の時刻を信じる:** untimed 電車を時間帯で予算外にする案は**採らない**（始発も消し #67 と衝突する）。上流が返す発着時刻を正とする。現行 Transit API は照会時刻に追従する幽霊便を返さない（§2.2-7）。**時刻を持たない**コリドー由来のハイブリッド区間だけが幽霊便の温床で、これは #137 の実発車時刻検証で潰す。
 
 ### #137 — 時刻なしハイブリッドの実発車時刻検証

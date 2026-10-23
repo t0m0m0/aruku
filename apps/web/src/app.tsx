@@ -39,6 +39,7 @@ export const appStore = createAppStore(
     transitBaseUrl: appConfig.transitApiBaseUrl,
     proxyBaseUrl: appConfig.proxyBaseUrl,
     appCheck,
+    exactWalkMax: appConfig.exactWalkMax,
   }),
 );
 
