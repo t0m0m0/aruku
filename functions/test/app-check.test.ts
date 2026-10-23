@@ -171,6 +171,7 @@ describe("verifyAppCheck", () => {
       delete process.env.APP_CHECK_CONSUME_ENDPOINTS;
       expect(shouldConsumeAppCheckToken("placesProxy")).toBe(true);
       expect(shouldConsumeAppCheckToken("googleWalkMatrixProxy")).toBe(true);
+      expect(shouldConsumeAppCheckToken("exactWalkMax")).toBe(true);
       expect(shouldConsumeAppCheckToken("googleWalkProxy")).toBe(false);
     });
 

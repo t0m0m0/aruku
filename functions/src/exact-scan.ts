@@ -163,6 +163,15 @@ export function compileTimetable(tt: Timetable): CompiledTimetable {
   };
 }
 
+export interface StopsToMeasure {
+  boards: number[];
+  alights: number[];
+  /** 締切までに乗れる発車があり、1パス目で走査した便の数。 */
+  tripsScanned: number;
+  /** 組の上位から拾える駅が maxPerSide を超え、どちらかの側で駅を落としたか。 */
+  truncated: boolean;
+}
+
 /**
  * 直線の徒歩（実際の徒歩の下限）で全便を走査し、Google マトリクスで実測する駅を選ぶ。
  * 乗車側・降車側とも最大 maxPerSide 駅。
@@ -171,7 +180,7 @@ export function pickStopsToMeasure(
   ct: CompiledTimetable,
   q: ScanQuery,
   opts: { maxPerSide?: number } = {},
-): { boards: number[]; alights: number[] } {
+): StopsToMeasure {
   const maxPerSide = opts.maxPerSide ?? 12;
   const access = new Float64Array(ct.stopCount);
   const egress = new Float64Array(ct.stopCount);
@@ -183,19 +192,20 @@ export function pickStopsToMeasure(
   // 乗車側と降車側を別々に「徒歩が長い順」で選ばないのは、同じ便で結べない駅ばかり
   // 残って2パス目が空振りするため（駅の多い JR で顕著。試作で解けた検索が 10%→21%）。
   // 便ごとの最良の組を徒歩の長い順に並べ、その上位から両側を拾う。
-  const pairs = bestPairPerTrip(ct, q, access, egress).sort(
-    (a, b) => b.walk - a.walk || a.trip - b.trip,
-  );
-  const boards: number[] = [];
-  const alights: number[] = [];
+  const { pairs, tripsScanned } = bestPairPerTrip(ct, q, access, egress);
+  pairs.sort((a, b) => b.walk - a.walk || a.trip - b.trip);
+  const boards = new Set<number>();
+  const alights = new Set<number>();
   for (const p of pairs) {
-    const b = ct.callStop[p.boardCall];
-    const a = ct.callStop[p.alightCall];
-    if (boards.length < maxPerSide && !boards.includes(b)) boards.push(b);
-    if (alights.length < maxPerSide && !alights.includes(a)) alights.push(a);
-    if (boards.length >= maxPerSide && alights.length >= maxPerSide) break;
+    boards.add(ct.callStop[p.boardCall]);
+    alights.add(ct.callStop[p.alightCall]);
   }
-  return { boards, alights };
+  return {
+    boards: [...boards].slice(0, maxPerSide),
+    alights: [...alights].slice(0, maxPerSide),
+    tripsScanned,
+    truncated: boards.size > maxPerSide || alights.size > maxPerSide,
+  };
 }
 
 /**
@@ -281,7 +291,7 @@ function bestPairPerTrip(
   q: ScanQuery,
   access: Float64Array,
   egress: Float64Array,
-): TripPair[] {
+): { pairs: TripPair[]; tripsScanned: number } {
   const deadline = q.departAt + q.budgetMin * 60;
   const { trips, firstPos } = boardableTrips(ct, q, access);
 
@@ -319,7 +329,7 @@ function bestPairPerTrip(
     }
     if (found !== null) pairs.push(found);
   }
-  return pairs;
+  return { pairs, tripsScanned: trips.length };
 }
 
 /** 締切までに乗れる発車がある便と、便ごとに乗れる最初の停車位置。 */

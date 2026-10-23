@@ -413,7 +413,7 @@ describe("pickStopsToMeasure", () => {
 
     const picked = pickStopsToMeasure(ct, query(300), { maxPerSide: 1 });
 
-    expect(picked).toEqual({ boards: [0], alights: [1] });
+    expect(picked).toMatchObject({ boards: [0], alights: [1] });
   });
 
   it("同じ駅に戻ってくる便で、戻った駅で降りる組は、それより前の別の駅から乗る組として選ぶ", () => {
@@ -437,7 +437,7 @@ describe("pickStopsToMeasure", () => {
 
     const picked = pickStopsToMeasure(ct, query(300), { maxPerSide: 1 });
 
-    expect(picked).toEqual({ boards: [1], alights: [0] });
+    expect(picked).toMatchObject({ boards: [1], alights: [0] });
   });
 
   it("直線の徒歩ですら発車に間に合わない駅は、実測の対象に選ばない", () => {
@@ -486,5 +486,36 @@ describe("pickStopsToMeasure", () => {
 
     expect(picked.boards).toEqual([2, 1]);
     expect(picked.alights).toEqual([3]);
+  });
+
+  it("上限で落とした駅があれば truncated を立てる", () => {
+    const ct = compileTimetable(
+      timetable(
+        [1, 2, 18],
+        [
+          { calls: [call(0, t(10, 30)), call(2, t(10, 50))] },
+          { calls: [call(1, t(10, 40)), call(2, t(11, 0))] },
+        ],
+      ),
+    );
+
+    expect(pickStopsToMeasure(ct, query(180), { maxPerSide: 1 }).truncated).toBe(true);
+    expect(pickStopsToMeasure(ct, query(180), { maxPerSide: 2 }).truncated).toBe(false);
+  });
+
+  it("締切までに乗れる発車がある便の数を tripsScanned で返す", () => {
+    // 便2は締切（13:00）より後の発車なので走査しない
+    const ct = compileTimetable(
+      timetable(
+        [1, 18],
+        [
+          { calls: [call(0, t(10, 30)), call(1, t(10, 50))] },
+          { calls: [call(0, t(11, 30)), call(1, t(11, 50))] },
+          { calls: [call(0, t(13, 30)), call(1, t(13, 50))] },
+        ],
+      ),
+    );
+
+    expect(pickStopsToMeasure(ct, query(180)).tripsScanned).toBe(2);
   });
 });

@@ -41,6 +41,12 @@ describe("checkRateLimitInMemory", () => {
     expect(checkRateLimit("4.4.4.4")).toBe(true);
   });
 
+  it("scope が違えば同じ IP でも別に数える", () => {
+    for (let i = 0; i < 30; i++) checkRateLimit("3.3.3.4");
+    expect(checkRateLimit("3.3.3.4")).toBe(false);
+    expect(checkRateLimit("3.3.3.4", 30, "exactWalkMax")).toBe(true);
+  });
+
   it("ウィンドウ(60秒)経過後はカウントがリセットされる", () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(0);
     for (let i = 0; i < 30; i++) checkRateLimit("5.5.5.5");

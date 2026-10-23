@@ -83,6 +83,13 @@ describe("checkRateLimitFirestore", () => {
     expect(await checkRateLimitFirestore("4.4.4.4")).toBe(true);
   });
 
+  it("scope が違えば同じ IP でも別の文書で数える", async () => {
+    for (let i = 0; i < 30; i++) await checkRateLimitFirestore("3.3.3.4");
+    expect(await checkRateLimitFirestore("3.3.3.4")).toBe(false);
+    expect(await checkRateLimitFirestore("3.3.3.4", 30, "exactWalkMax")).toBe(true);
+    expect(store.size).toBe(2);
+  });
+
   it("ウィンドウ(60秒)経過後はカウントがリセットされる", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(0);
     for (let i = 0; i < 30; i++) await checkRateLimitFirestore("5.5.5.5");

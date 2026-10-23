@@ -16,7 +16,7 @@ const headerName = 'X-Firebase-AppCheck';
 /// サーバが consume:true で検証する関数名。`shouldConsumeAppCheckToken()` の既定
 /// （`functions/src/index.ts` の DEFAULT_APP_CHECK_CONSUME_ENDPOINTS）と厳密に
 /// 一致させること。
-const replayProtectedFunctions = new Set(['placesProxy', 'googleWalkMatrixProxy']);
+const replayProtectedFunctions = new Set(['placesProxy', 'googleWalkMatrixProxy', 'exactWalkMax']);
 
 /// 内側のクライアントを包み、各リクエストに Firebase App Check トークンを
 /// X-Firebase-AppCheck ヘッダとして付与する。Cloud Functions プロキシ側は

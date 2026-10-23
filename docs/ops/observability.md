@@ -8,7 +8,7 @@
 
 ## 1. 目的と対象範囲
 
-Places / Google Routes への薄いプロキシ（`placesProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`、いずれも 2nd gen Cloud Functions・`asia-northeast1`）の可用性・レイテンシ・保護機構（App Check・レート制限）の健全性を、構造化ログから機械的に測定・アラートできる状態にする。クライアント側のクラッシュ率は、Web 版に計測手段が無いため今は対象外（§3.5）。
+Places / Google Routes への薄いプロキシ（`placesProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`）と厳密走査のエンドポイント（`exactWalkMax`）（いずれも 2nd gen Cloud Functions・`asia-northeast1`）の可用性・レイテンシ・保護機構（App Check・レート制限）の健全性を、構造化ログから機械的に測定・アラートできる状態にする。クライアント側のクラッシュ率は、Web 版に計測手段が無いため今は対象外（§3.5）。
 
 対象外: 個々のユーザー体験としての「ルートが妥当か」（これは [route-optimization.md](../spec/route-optimization.md) の責務）。ここではインフラ・上流 API の可観測性のみを扱う。
 
@@ -16,12 +16,15 @@ Places / Google Routes への薄いプロキシ（`placesProxy`, `googleWalkProx
 
 ## 2. ログ契約（前提）
 
-`functions/src/metrics.ts` が出す3イベント。指標定義はこの契約に厳密に従う。
+`functions/src/metrics.ts` が出すイベント。指標定義はこの契約に厳密に従う。
 
 | event | 発火箇所 | 主フィールド | severity |
 |---|---|---|---|
-| `search_request` | `fetchUpstream`（全プロキシ共通） | `endpoint`（例: `placesProxy.autocomplete`, `googleWalkProxy`）, `upstream`（`places`\|`routes-walk`\|`routes-matrix`）, `status`（`success`\|`failure`）, `latencyMs`, `httpStatus`（任意・タイムアウトは504）, `rateLimited`（上流429のときのみ`true`）, `semanticFailure`（上流が2xxでもボディがエラー形状＝クライアントへ502変換される失敗のときのみ`true`。このとき`status="failure"`・`httpStatus`は上流値のまま、通常200） | success→info, failure→error |
+| `search_request` | `callUpstream`（全プロキシと `exactWalkMax` のマトリクス共通） | `endpoint`（例: `placesProxy.autocomplete`, `googleWalkProxy`, `exactWalkMax`）, `upstream`（`places`\|`routes-walk`\|`routes-matrix`）, `status`（`success`\|`failure`）, `latencyMs`, `httpStatus`（任意・タイムアウトは504）, `rateLimited`（上流429のときのみ`true`）, `semanticFailure`（上流が2xxでもボディがエラー形状＝クライアントへ502変換される失敗のときのみ`true`。このとき`status="failure"`・`httpStatus`は上流値のまま、通常200） | success→info, failure→error |
 | `app_check_denied` | `verifyAppCheck` | `endpoint`, `reason`（`missing`\|`invalid`\|`replayed`） | warn |
+| `exact_walk_max` | `exactWalkMax`（成功応答のみ） | `dayMs`（運行日の時刻表を用意するまで。コールドスタートではパックの読み込みを含む）, `matrixMs`（並列2本の遅い方）, `scanMs`（走査と応答の組み立て）, `candidates`, `tripsScanned`, `elementsMeasured`, `truncated` | info |
+| `timetable_pack_load` | `exactWalkMax` のパック読み込み（`functions/src/timetable-pack/load.ts`。インスタンスごとに起動時と6時間ごと。読めなかったグループがあれば1分後） | `group`（`challenge`\|`permanent`）, `status`（`success`\|`missing`\|`failure`）, `loadMs`, `bytes`・`trips`（success のみ）, `reason`（failure のみ。`read`\|`format`） | success→info, それ以外→warn |
+| `timetable_day_compile` | 同上（運行日ごと） | `serviceDate`, `trips`, `compileMs` | info |
 | `rate_limit` | `checkRateLimit` 呼び出し元 | `decision`（`blocked`\|`fail-open`。`allowed`は型上のみ存在し実際には出力されない）, `reason`（`fail-open`のときのみ必ず付く。`config`\|`transient`） | blocked→warn, fail-open→error |
 
 PII: 生IP・検索クエリ・座標・駅名はログに含まれない（`metrics.ts` 冒頭コメント）。
@@ -388,3 +391,7 @@ gcloud alpha monitoring policies create --policy-from-file=policy_latency_routes
 - **IaC は無い:** 本リポジトリに Terraform 等は導入されていない。本書のログベース指標・アラートポリシーは `gcloud`／Console 上での手動作成が前提。定義の粒度は `google_logging_metric` / `google_monitoring_alert_policy` へそのまま移植できるよう揃えてある。
 - **ログ量・コストへの配慮:** `rate_limit` の `decision="allowed"` は `metrics.ts` の設計上意図的にログ出力されない（`logRateLimit` のコメント参照）。許可は毎リクエストで発生し件数が支配的なため、全件ログするとログ量・コストが膨らむ。運用上アラート対象になるのは `blocked`／`fail-open` のみであり、現状のログ契約で必要十分。
 - **成功率の分母欠落に注意:** App Check 拒否率（§3.3）はレート制限前で弾かれるため「保護前の全リクエスト数」がログに存在せず、真の「率」ではなく絶対件数ベースの近似にとどまる。分母を厳密化するには `verifyAppCheck` 呼び出し自体をカウントするログの追加が要る。
+- **`exactWalkMax` のコールドスタートと `minInstances`:** 今は `minInstances` を設定していない。デプロイ後に
+  `timetable_pack_load` の `loadMs` と、コールドスタート直後の `exact_walk_max` の `dayMs`（パックの読み込みと
+  コンパイルを含む）・`request_latency` の `totalLatencyMs` を見て、設定するかを決める（#459）。ウォームの目安は
+  `totalLatencyMs` が1秒前後で、内訳は `request_latency.appCheckMs`・`exact_walk_max.matrixMs`・`scanMs`。

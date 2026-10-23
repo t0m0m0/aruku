@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { HttpsFunction } from "firebase-functions/v2/https";
 
 import {
+  exactWalkMax,
   googleWalkMatrixProxy,
   googleWalkProxy,
   placesProxy,
@@ -27,6 +28,7 @@ const ALL_PROXIES = [
   ["googleWalkProxy", googleWalkProxy],
   ["googleWalkMatrixProxy", googleWalkMatrixProxy],
   ["placesProxy", placesProxy],
+  ["exactWalkMax", exactWalkMax],
 ] as const;
 
 // maxInstances の期待値（issue #160）。src/index.ts の設定値と一致させる。

@@ -129,7 +129,7 @@ describe('limited-use トークン（リプレイ保護, issue #155・#366）', 
   // サーバが consume:true で検証するエンドポイントとここは厳密一致させる。
   // 送りすぎ（対象外へ使い捨て）はアテステーション・クォータを無駄に焼き、
   // 送り足りない（対象へ標準）は 2 回目以降 401 で機能を壊す。
-  for (const path of ['placesProxy', 'googleWalkMatrixProxy']) {
+  for (const path of ['placesProxy', 'googleWalkMatrixProxy', 'exactWalkMax']) {
     it(`${path} へは limited-use プロバイダのトークンを付与する`, async () => {
       const inner = new FakeInnerClient();
       await build(inner).send(url(path), {});

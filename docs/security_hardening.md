@@ -107,7 +107,7 @@
 - **地図表示用キー**: 登録外のオリジンからの呼び出しが拒否されること（`RefererNotAllowedMapError`）。
   **開発用キーと本番用キーを取り違えていないこと**も確認する（本番に開発用キーを渡すと
   `localhost` を許可したキーが公開される。逆だと本番で地図だけが出ない）。
-- **プロキシ用キー**: 制限後も `placesProxy` / `googleWalkProxy` / `googleWalkMatrixProxy` が 200 を返すこと。
+- **プロキシ用キー**: 制限後も `placesProxy` / `googleWalkProxy` / `googleWalkMatrixProxy` / `exactWalkMax` が 200 を返すこと。
   API 制限を絞りすぎると上流が 403 を返すが、プロキシはこれを **502** に変換して上流ボディを素通しする
   （`functions/src/index.ts` の `UPSTREAM_FAILED` 経路）。アプリ側からは「検索できない」としか見えず
   原因が読めないため、構造化ログの `search_request`（`status="failure"`・`httpStatus=403`）で確認する
@@ -156,6 +156,7 @@ Web 版ではトークンがブラウザの DevTools から読め、TTL の間�
 | エンドポイント | 1検索あたりの本数 | トークン | 理由 |
 | --- | --- | --- | --- |
 | `googleWalkMatrixProxy` | 約11 | 使い捨て | 要素数課金で最も高単価（#155） |
+| `exactWalkMax` | 1 | 使い捨て | 1回でマトリクス24要素まで実測する（#459） |
 | `placesProxy` | 3〜5 | 使い捨て | 本数が少なくクォータ影響が小さい（#366） |
 | `googleWalkProxy` | **約21** | 標準（キャッシュ可） | 下記のとおりクォータを最も速く食う |
 
@@ -196,7 +197,7 @@ Firebase 自身も「replay protection は往復が増えるため、**特に機
 
 | 値 | 意味 |
 | --- | --- |
-| 未設定 | 既定（`placesProxy,googleWalkMatrixProxy`） |
+| 未設定 | 既定（`placesProxy,googleWalkMatrixProxy,exactWalkMax`） |
 | `googleWalkProxy` | 列挙したものだけが対象。既定は効かない |
 | 空文字列 | 全エンドポイントで consume しない（緊急停止） |
 
@@ -466,12 +467,18 @@ HTTP リファラ制限（配信ドメインのみ）も同じタイミングで
 - secret の権限は secret ごとに付ける（プロジェクト全体には付けない）。CI のデプロイ用（`firebase-deploy-sa`）は
   `roles/secretmanager.viewer`、関数の実行用（Compute の既定 SA）は `roles/secretmanager.secretAccessor`。
   デプロイ用に権限変更まで許さないので、実行用の権限は前もって手で付ける（README「初回の用意」）。
-- 検索のエンドポイントは ODPT のキーを持たない。読むのは Cloud Storage のパックだけ。
+- 検索のエンドポイント `exactWalkMax` は ODPT のキーを持たない。読むのは Cloud Storage のパックだけで、実行用の
+  サービスアカウントは定期関数と同じ（README「初回の用意」の 3. の権限で読める）。
+- `exactWalkMax` の応答は候補（乗車駅・降車駅・路線・行先・実発着時刻・乗車から降車までの停車駅の座標・
+  実測の徒歩）・フィードの取得日時・統計だけ。駅の項目も列挙して選び、パックの添字（`feed`・`station`）は出さない
+  （`functions/src/exact-walk-max.ts`。`functions/test/exact-walk-max.test.ts` が応答の形を検査する）。
 - **時刻表はブラウザへ渡さない。** 基本ライセンス第8条4(1)（元データを復元できる派生データの再配布の禁止）と、
   チャレンジ限定データの第三者提供の禁止のため。バケットは非公開（公開アクセス防止・均一なアクセス制御）で作り、
   GTFS もパックもリポジトリに入れない（`functions/.gitignore` の `.odpt/`）。
 - **チャレンジ限定データの期限（2027-03-12）:** `challenge/` 配下のオブジェクトと `ODPT_CHALLENGE_KEY` を消す
   （#463）。定期関数がまた作らないよう、先に `functions/src/timetable-pack/feeds.ts` から該当フィードを外してデプロイする。
+  温まったインスタンスはパックを読んでから6時間で読み直し、そのとき無くなったグループは前に読んだ分も捨てる
+  （`functions/src/timetable-pack/load.ts`）。消してから6時間経つまでは検索に残りうるので、期限より前に消す。
 
 ```bash
 gcloud storage rm -r gs://<BUCKET>/challenge/ --project aruku-app

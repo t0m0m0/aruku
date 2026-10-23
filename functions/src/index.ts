@@ -10,14 +10,22 @@ import { getAppCheck } from "firebase-admin/app-check";
 import { getStorage } from "firebase-admin/storage";
 
 import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
-import { checkRateLimit, WALK_RATE_LIMIT } from "./rate-limiter";
+import { checkRateLimit, RATE_LIMIT, WALK_RATE_LIMIT } from "./rate-limiter";
 import {
   logAppCheckDenied,
+  logExactWalkMax,
   logRequestLatency,
   logRequestOutcome,
 } from "./metrics";
 import { dedupeUpstream } from "./upstream-cache";
 import { refreshTimetablePacks as refreshPacks } from "./timetable-pack/refresh";
+import { createScanDaySource } from "./timetable-pack/load";
+import {
+  findExactWalkMax,
+  parseExactWalkMaxQuery,
+  type MatrixElement,
+} from "./exact-walk-max";
+import type { LatLng } from "./exact-scan";
 
 // レート制限ユーティリティはテスト互換のため再エクスポートする。
 export {
@@ -39,7 +47,7 @@ initializeApp();
 // maxInstances（issue #160）: 既定ではインスタンスが実質無制限にスケールするため、
 // 悪意あるトラフィックや予期しない急増時に課金が暴発し得る。全ハンドラ共通の安全弁
 // として上限を設ける。値は各関数ごとの上限で、公開 HTTP 関数は placesProxy /
-// googleWalkProxy / googleWalkMatrixProxy の 3 つ（3 関数 × 10 = 最大 30 インスタンス）。
+// googleWalkProxy / googleWalkMatrixProxy / exactWalkMax の 4 つ（4 関数 × 10 = 最大 40 インスタンス）。
 // レート制限（docs/spec/route-optimization.md §2.1）の後段に位置する二重の課金ガード。
 // 実測トラフィックを見て調整する前提の保守的な初期値。
 setGlobalOptions({ region: "asia-northeast1", maxInstances: 10 });
@@ -248,6 +256,7 @@ export function clientIp(req: Request): string {
 const DEFAULT_APP_CHECK_CONSUME_ENDPOINTS = [
   "placesProxy",
   "googleWalkMatrixProxy",
+  "exactWalkMax",
 ];
 
 // なぜ環境変数で上書き可能にするか:
@@ -348,7 +357,7 @@ export const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
 // requestJsonNew の失敗種別。呼び出し側で 504（timeout）と 502（その他上流障害）を
 // 区別するために用いる。
-type UpstreamErrorKind = "timeout" | "too_large" | "network" | "parse";
+type UpstreamErrorKind = "timeout" | "too_large" | "network" | "parse" | "status";
 
 class UpstreamError extends Error {
   constructor(message: string, readonly kind: UpstreamErrorKind) {
@@ -484,6 +493,40 @@ async function fetchUpstream(
   validate?: (data: unknown) => boolean,
   cacheKey?: string
 ): Promise<unknown> {
+  try {
+    // 一次判定はステータスコード。上流が 4xx/5xx を返したら成否をボディ形状から
+    // 推測せず 502（Bad Gateway）へ寄せ、上流ボディをそのまま返す（呼び出し側の
+    // ボディ判定は 200 でエラーボディを返す稀ケースの保険として残す）。
+    const { statusCode, data } = await callUpstream(
+      endpoint, upstream, url, method, headers, body, validate, cacheKey
+    );
+    if (statusCode < 200 || statusCode >= 300) {
+      res.status(502).json(data);
+      return UPSTREAM_FAILED;
+    }
+    return data;
+  } catch (e) {
+    const timedOut = e instanceof UpstreamError && e.kind === "timeout";
+    res
+      .status(timedOut ? 504 : 502)
+      .json({ error: timedOut ? "upstream timeout" : "upstream error" });
+    return UPSTREAM_FAILED;
+  }
+}
+
+// fetchUpstream から res への書き込みを除いたもの。1要求で上流を並列に呼ぶ exactWalkMax は、
+// 失敗した方が res に書くと他方の応答と競合するので、こちらを使って自分で応答を決める。
+// 上流の失敗は UpstreamError で投げる。
+async function callUpstream(
+  endpoint: string,
+  upstream: string,
+  url: string,
+  method: "GET" | "POST",
+  headers: Record<string, string>,
+  body?: string,
+  validate?: (data: unknown) => boolean,
+  cacheKey?: string
+): Promise<{ statusCode: number; data: unknown }> {
   // 実際に上流を叩いたときだけ計測ログを出すため、requestJsonNew と計測を producer に
   // 閉じ込める。cacheKey 指定時は dedupeUpstream が producer を single-flight の
   // 相乗り・TTL キャッシュヒットでは呼ばないので、上流を呼んでいない要求を
@@ -528,26 +571,10 @@ async function fetchUpstream(
     }
   };
 
-  try {
-    // 一次判定はステータスコード。上流が 4xx/5xx を返したら成否をボディ形状から
-    // 推測せず 502（Bad Gateway）へ寄せ、上流ボディをそのまま返す（呼び出し側の
-    // ボディ判定は 200 でエラーボディを返す稀ケースの保険として残す）。TTL 保持は
-    // 2xx かつ意味的に有効な成功のみ（失敗を数十秒固定して回復を遅らせない）。
-    const { statusCode, data } = cacheKey
-      ? await dedupeUpstream(cacheKey, call, isUpstreamCacheable(validate))
-      : await call();
-    if (statusCode < 200 || statusCode >= 300) {
-      res.status(502).json(data);
-      return UPSTREAM_FAILED;
-    }
-    return data;
-  } catch (e) {
-    const timedOut = e instanceof UpstreamError && e.kind === "timeout";
-    res
-      .status(timedOut ? 504 : 502)
-      .json({ error: timedOut ? "upstream timeout" : "upstream error" });
-    return UPSTREAM_FAILED;
-  }
+  // TTL 保持は 2xx かつ意味的に有効な成功のみ（失敗を数十秒固定して回復を遅らせない）。
+  return cacheKey
+    ? dedupeUpstream(cacheKey, call, isUpstreamCacheable(validate))
+    : call();
 }
 
 // dedupeUpstream の TTL 保持可否。2xx かつ（validate があれば）意味的に有効な
@@ -1016,4 +1043,158 @@ export const refreshTimetablePacks = onSchedule(
       throw new Error(`時刻表パックを更新できなかったグループ: ${skipped.join(", ")}`);
     }
   }
+);
+
+// 厳密走査（#456）を検索1回ぶん回し、徒歩最大の候補だけを返す（#459）。時刻表は返さない。
+let scanDay = newScanDaySource();
+
+function newScanDaySource() {
+  return createScanDaySource({
+    read: async (path) => {
+      try {
+        const [bytes] = await getStorage().bucket(timetablePackBucket.value()).file(path).download();
+        return new Uint8Array(bytes);
+      } catch (e) {
+        if ((e as { code?: unknown }).code === 404) return null;
+        throw e;
+      }
+    },
+    log: (event) => {
+      if (event.status === "failure" || event.status === "missing") {
+        logger.write({ severity: "WARNING", message: String(event.event), ...event });
+      } else {
+        logger.info(String(event.event), event);
+      }
+    },
+    now: () => Date.now(),
+  });
+}
+
+/** テスト用: 読み込んだパックを捨てる。 */
+export function resetExactWalkMaxPacks(): void {
+  scanDay = newScanDaySource();
+}
+
+const toWaypoint = ({ lat, lng }: LatLng) => ({ latitude: lat, longitude: lng });
+
+// googleWalkMatrixProxy の FieldMask に status・condition を足したもの。HTTP 200 の中の要素ごとの
+// エラーを、経路が無い（ROUTE_NOT_FOUND）のと見分けるため。プロキシ側は応答をクライアントへ素通しする
+// ので変えない。
+const EXACT_MATRIX_FIELD_MASK = `${ROUTES_MATRIX_FIELD_MASK},status,condition`;
+
+function isExactMatrixSuccessBody(data: unknown): boolean {
+  return isRoutesMatrixSuccessBody(data) && !(data as unknown[]).some(isFailedMatrixElement);
+}
+
+/** status は google.rpc.Status。OK（code 0）は JSON から省かれるので、0 以外の code だけを失敗と読む。 */
+function isFailedMatrixElement(e: unknown): boolean {
+  const status = (e as { status?: { code?: unknown } } | null)?.status;
+  return typeof status?.code === "number" && status.code !== 0;
+}
+
+async function measureWalks(origins: LatLng[], destinations: LatLng[]): Promise<MatrixElement[]> {
+  const o = origins.map(toWaypoint);
+  const d = destinations.map(toWaypoint);
+  const { statusCode, data } = await callUpstream(
+    "exactWalkMax",
+    "routes-matrix",
+    ROUTES_MATRIX_URL,
+    "POST",
+    {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": getMapsApiKey(),
+      "X-Goog-FieldMask": EXACT_MATRIX_FIELD_MASK,
+    },
+    buildRoutesMatrixBody(o, d),
+    isExactMatrixSuccessBody,
+    // FieldMask が違うので、googleWalkMatrixProxy の応答（status を持たない）と共有しない。
+    `exact-${matrixCacheKey(o, d)}`
+  );
+  if (statusCode < 200 || statusCode >= 300 || !isExactMatrixSuccessBody(data)) {
+    throw new UpstreamError(`matrix status ${statusCode}`, "status");
+  }
+  return (data as unknown[]).flatMap(toMatrixElement);
+}
+
+/**
+ * computeRouteMatrix の1要素。経路の無い要素（duration が無い）は捨てる。
+ * 値が 0 のフィールドは JSON から省かれる（proto3）ので、添字と距離の欠落は 0 と読む。
+ */
+export function toMatrixElement(e: unknown): MatrixElement[] {
+  const r = (e ?? {}) as Record<string, unknown>;
+  const m = typeof r["duration"] === "string" ? /^(\d+(?:\.\d+)?)s$/.exec(r["duration"]) : null;
+  if (m === null) return [];
+  const int = (v: unknown) => (typeof v === "number" && Number.isInteger(v) ? v : 0);
+  return [
+    {
+      originIndex: int(r["originIndex"]),
+      destinationIndex: int(r["destinationIndex"]),
+      durationSec: Number(m[1]),
+      distanceMeters: typeof r["distanceMeters"] === "number" ? r["distanceMeters"] : 0,
+    },
+  ];
+}
+
+export const exactWalkMax = onRequest(
+  { secrets: [mapsKeySecret, rateLimitHmacKeySecret], memory: "1GiB" },
+  withRequestLatency("exactWalkMax", async (req, res) => {
+    if (handleCors(req, res)) return;
+
+    if (!(await verifyAppCheck(req, res, { endpoint: "exactWalkMax" }))) return;
+
+    // scope を分けずに徒歩・マトリクスのプロキシと同じドキュメントで数えると、同じ検索で
+    // 並列に叩かれるため Firestore トランザクションが競合し、再試行が約1秒ずつ積み上がる。
+    if (!(await checkRateLimit(clientIp(req), RATE_LIMIT, "exactWalkMax"))) {
+      res.status(429).json({ error: "Too many requests" });
+      return;
+    }
+
+    const parsed = parseExactWalkMaxQuery(req.query as Record<string, unknown>);
+    if ("error" in parsed) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+
+    const start = Date.now();
+    let dayMs = 0;
+    let matrixMs = 0;
+    try {
+      const body = await findExactWalkMax(parsed, {
+        day: async (serviceDate) => {
+          const t0 = Date.now();
+          try {
+            return await scanDay(serviceDate);
+          } finally {
+            dayMs = Date.now() - t0;
+          }
+        },
+        measure: async (origins, destinations) => {
+          const t0 = Date.now();
+          try {
+            return await measureWalks(origins, destinations);
+          } finally {
+            matrixMs = Math.max(matrixMs, Date.now() - t0);
+          }
+        },
+      });
+      if (body === null) {
+        res.status(503).json({ error: "timetable unavailable" });
+        return;
+      }
+      const totalMs = Date.now() - start;
+      logExactWalkMax({
+        dayMs,
+        matrixMs,
+        scanMs: totalMs - dayMs - matrixMs,
+        candidates: body.candidates.length,
+        ...body.stats,
+      });
+      res.json(body);
+    } catch (e) {
+      const timedOut = e instanceof UpstreamError && e.kind === "timeout";
+      res
+        .status(timedOut ? 504 : 502)
+        .json({ error: timedOut ? "upstream timeout" : "upstream error" });
+    }
+  })
 );
