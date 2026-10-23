@@ -22,3 +22,18 @@ export function todayDateLabel(now: Date): string {
   const weekday = ja.weekdays[(now.getDay() + 6) % 7];
   return `${now.getMonth() + 1}月${now.getDate()}日 (${weekday})`;
 }
+
+const jstOffsetMs = 9 * 3600 * 1000;
+
+/// 時刻表の取得日時（#461）。「YYYY年M月D日 H:MM」を JST で。
+///
+/// 端末の時差で読まない。取得は ODPT 側の出来事で、利用者が海外にいても日本の時刻で
+/// 言うほうが時刻表の改正日と突き合わせられる。
+export function fetchedAtLabel(at: Date): string {
+  const jst = new Date(at.getTime() + jstOffsetMs);
+  const minute = String(jst.getUTCMinutes()).padStart(2, '0');
+  return (
+    `${jst.getUTCFullYear()}年${jst.getUTCMonth() + 1}月${jst.getUTCDate()}日 ` +
+    `${jst.getUTCHours()}:${minute}`
+  );
+}

@@ -122,6 +122,32 @@ export const ja = {
   resultBusDefaultLabel: 'バス',
   resultLegOpenInMaps: 'Googleマップで開く',
 
+  /// ODPT の公共交通オープンデータ開発者ガイドライン 2.2.1・3.1 が求める表示（#461）。
+  /// 問い合わせの一文は、利用者が交通事業者へ直接問い合わせないようにするためのもの。
+  timetableAttributionHeading: '時刻表データについて',
+  timetableAttributionSource:
+    '時刻表は、公共交通オープンデータセンターが提供するデータを利用しています。',
+  timetableAttributionDisclaimer: 'データの正確性・完全性は保証されません。',
+  timetableAttributionContactLead:
+    '時刻表やルートについて、交通事業者へは問い合わせないでください。',
+  timetableAttributionContact: 'あるくへのお問い合わせ',
+  timetableAttributionFetchedAt: '取得日時',
+  /// 都営のデータは CC BY 4.0。出典とライセンスの表示が要る。
+  timetableAttributionToeiCredit:
+    '東京都交通局の時刻表は、東京都交通局・公共交通オープンデータ協議会が提供するデータを加工して利用しています。ライセンス：',
+  /// ODPT のフィード id（functions/src/timetable-pack/feeds.ts）から事業者名へ。
+  timetableFeedNames: {
+    'JR-East': 'JR東日本',
+    Keio: '京王電鉄',
+    Tobu: '東武鉄道',
+    Sotetsu: '相模鉄道',
+    TokyoMetro: '東京メトロ',
+    MIR: 'つくばエクスプレス',
+    TWR: 'りんかい線',
+    TamaMonorail: '多摩モノレール',
+    Toei: '東京都交通局',
+  } as Readonly<Record<string, string>>,
+
   /// 出発地の表示名。移植元は app_state.dart に直書きしていた（ARB に無い）。
   /// 文言なので他と同じくここへ置く。
   departureCurrentLocationLoading: '現在地 · 取得中...',

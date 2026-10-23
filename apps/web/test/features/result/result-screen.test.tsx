@@ -65,6 +65,7 @@ function plan(overrides: Partial<RoutePlan> = {}): RoutePlan {
     segments: [segment()],
     timelineNodes: nodes(['現在地', '出発'], ['渋谷駅', '到着']),
     standardTransit: null,
+    timetableSources: [],
     ...overrides,
   } as RoutePlan;
 }
@@ -201,6 +202,31 @@ describe('並び（モバイル幅）', () => {
     expect(precedes(screen.getByText('制限時間を15分超過しています'), screen.getByText('現在地'))).toBe(
       true,
     );
+  });
+});
+
+// ODPT のデータを使った検索には出典・取得日時を添える義務がある（#461）。中身は
+// timetable-attribution.test.tsx が見る。
+describe('時刻表の出典', () => {
+  function precedes(a: Element, b: Element) {
+    return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  }
+
+  const toei = { feedId: 'Toei', fetchedAt: new Date('2026-06-26T19:23:10Z') };
+
+  it('時刻表を使った経路なら、補助情報の後ろに置く', () => {
+    setup({ route: plan({ timetableSources: [toei] }) });
+
+    const attribution = screen.getByText('時刻表データについて');
+    const auxiliary = screen.getByRole('region', { name: 'このルートについて' });
+    expect(precedes(auxiliary, attribution)).toBe(true);
+    expect(screen.getByTestId('result-panel').contains(attribution)).toBe(true);
+  });
+
+  it('時刻表を使っていなければ出さない', () => {
+    setup({ route: plan({ timetableSources: [] }) });
+
+    expect(screen.queryByText('時刻表データについて')).toBeNull();
   });
 });
 

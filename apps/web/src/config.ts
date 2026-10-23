@@ -91,3 +91,7 @@ export const appConfig: AppConfig = {
 /// 開かない」という遠い失敗になる。
 export const termsOfServiceUrl = '/terms';
 export const privacyPolicyUrl = '/privacy';
+
+/// アプリの問い合わせ先（#461）。ODPT のガイドラインは、時刻表について利用者が
+/// 交通事業者へ直接問い合わせないよう、アプリ側の窓口を示すことを求める。
+export const contactUrl = 'https://github.com/t0m0m0/aruku/issues';
