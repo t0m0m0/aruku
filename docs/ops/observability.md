@@ -23,7 +23,7 @@ Places / Google Routes への薄いプロキシ（`placesProxy`, `googleWalkProx
 | `search_request` | `callUpstream`（全プロキシと `exactWalkMax` のマトリクス共通） | `endpoint`（例: `placesProxy.autocomplete`, `googleWalkProxy`, `exactWalkMax`）, `upstream`（`places`\|`routes-walk`\|`routes-matrix`）, `status`（`success`\|`failure`）, `latencyMs`, `httpStatus`（任意・タイムアウトは504）, `rateLimited`（上流429のときのみ`true`）, `semanticFailure`（上流が2xxでもボディがエラー形状＝クライアントへ502変換される失敗のときのみ`true`。このとき`status="failure"`・`httpStatus`は上流値のまま、通常200） | success→info, failure→error |
 | `app_check_denied` | `verifyAppCheck` | `endpoint`, `reason`（`missing`\|`invalid`\|`replayed`） | warn |
 | `exact_walk_max` | `exactWalkMax`（成功応答のみ） | `dayMs`（運行日の時刻表を用意するまで。コールドスタートではパックの読み込みを含む）, `matrixMs`（並列2本の遅い方）, `scanMs`（走査と応答の組み立て）, `candidates`, `tripsScanned`, `elementsMeasured`, `truncated` | info |
-| `timetable_pack_load` | `exactWalkMax` のパック読み込み（`functions/src/timetable-pack/load.ts`。インスタンスごとに起動時と6時間ごと） | `group`（`challenge`\|`permanent`）, `status`（`success`\|`missing`\|`failure`）, `loadMs`, `bytes`・`trips`（success のみ）, `reason`（failure のみ。`read`\|`format`） | success→info, それ以外→warn |
+| `timetable_pack_load` | `exactWalkMax` のパック読み込み（`functions/src/timetable-pack/load.ts`。インスタンスごとに起動時と6時間ごと。読めなかったグループがあれば1分後） | `group`（`challenge`\|`permanent`）, `status`（`success`\|`missing`\|`failure`）, `loadMs`, `bytes`・`trips`（success のみ）, `reason`（failure のみ。`read`\|`format`） | success→info, それ以外→warn |
 | `timetable_day_compile` | 同上（運行日ごと） | `serviceDate`, `trips`, `compileMs` | info |
 | `rate_limit` | `checkRateLimit` 呼び出し元 | `decision`（`blocked`\|`fail-open`。`allowed`は型上のみ存在し実際には出力されない）, `reason`（`fail-open`のときのみ必ず付く。`config`\|`transient`） | blocked→warn, fail-open→error |
 

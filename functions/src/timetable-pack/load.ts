@@ -17,11 +17,14 @@ export interface PackLoadDeps {
 // パックは毎日 4:23（JST）に作り直される。読み直しを要求の外（バックグラウンド）で
 // 走らせないのは、Cloud Functions が要求の外で CPU を絞り、読み直しが終わらないまま残るため。
 const RELOAD_AFTER_MS = 6 * 3600 * 1000;
+// 読めなかったグループがあるときは、6時間を待たずに読み直す。待つと、Storage が戻った後も
+// そのインスタンスはグループを欠いたまま（全グループなら 503 のまま）になる。
+const RETRY_AFTER_FAILURE_MS = 60 * 1000;
 // 0時の前後は2つの運行日の検索が混ざるので2日分持つ。それより多く持たないのはメモリのため。
 const COMPILED_DAYS_KEPT = 2;
 
 interface Loaded {
-  at: number;
+  reloadAt: number;
   packs: ReadonlyMap<PackGroup, TimetablePack>;
 }
 
@@ -34,7 +37,7 @@ export function createScanDaySource(
   let days = new Map<string, ScanDay | null>();
 
   const current = async (): Promise<Loaded> => {
-    if (loaded !== null && deps.now() - loaded.at < RELOAD_AFTER_MS) return loaded;
+    if (loaded !== null && deps.now() < loaded.reloadAt) return loaded;
     loading ??= loadPacks(deps, loaded?.packs ?? new Map())
       .then((next) => {
         loaded = next;
@@ -63,6 +66,7 @@ async function loadPacks(
   previous: ReadonlyMap<PackGroup, TimetablePack>,
 ): Promise<Loaded> {
   const packs = new Map<PackGroup, TimetablePack>();
+  let failed = false;
   await Promise.all(
     PACK_GROUPS.map(async (group) => {
       const start = deps.now();
@@ -81,13 +85,17 @@ async function loadPacks(
         return;
       }
       deps.log({ event: "timetable_pack_load", group, loadMs, ...result });
+      if (result.status === "failure") failed = true;
       // 無いグループは前のパックも捨てる。チャレンジ限定データは期限（2027-03-12）で
       // オブジェクトを消す（#463）ので、温まったインスタンスに残しておくと消した後も検索に使い続ける。
       const kept = previous.get(group);
       if (result.status === "failure" && kept !== undefined) packs.set(group, kept);
     }),
   );
-  return { at: deps.now(), packs };
+  return {
+    reloadAt: deps.now() + (failed ? RETRY_AFTER_FAILURE_MS : RELOAD_AFTER_MS),
+    packs,
+  };
 }
 
 type ReadResult =

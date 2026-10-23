@@ -183,4 +183,18 @@ describe("createScanDaySource", () => {
 
     expect(day?.feeds.map((f) => f.id)).toEqual(["Toei"]);
   });
+
+  it("読めなかったグループは6時間を待たず、1分経てば読み直す", async () => {
+    const h = harness({ permanent: new Error("storage unavailable") });
+    const source = createScanDaySource(h.deps);
+    expect(await source(SERVICE_DATE)).toBeNull();
+
+    h.objects.set(packObjectPath("permanent"), gz(pack("Toei")));
+    h.clock.now = 59 * 1000;
+    expect(await source(SERVICE_DATE)).toBeNull();
+    h.clock.now = 60 * 1000;
+    const day = await source(SERVICE_DATE);
+
+    expect(day?.feeds.map((f) => f.id)).toEqual(["Toei"]);
+  });
 });
