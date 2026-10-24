@@ -108,6 +108,22 @@ describe('runVerify: 乗車駅の発車表で便の実在を確かめる', () =>
     return { results, calls };
   }
 
+  it('同じフィードの降車駅が複数あれば、どれかの発車表に同じ便が載れば同じ便とする', async () => {
+    // 事業者は乗り場・路線ごとに駅を分けて載せることがある。近い方だけを引くと、遠い方の
+    // 乗り場に載る同じ便を確かめられず departureOnly に倒れる。
+    const kandaNear = station('KandaA', '神田', 35.6918, 139.7709);
+    const kandaFar = station('KandaB', '神田', 35.6925, 139.7712);
+    const { results } = await verify(
+      { 大崎: [osaki], 神田: [kandaNear, kandaFar] },
+      {
+        [osaki.id]: [departure('t1', 12, 40)],
+        [kandaNear.id]: [departure('t-other', 13, 0)],
+        [kandaFar.id]: [departure('t1', 13, 1)],
+      },
+    );
+    expect(results[0]).toMatchObject({ verdict: 'sameTrip', error: null });
+  });
+
   it('乗車駅を同じ分に発つ便が、降車駅も到着の ±2分以内に発つなら同じ便とする', async () => {
     const { results, calls } = await verify(
       { 大崎: [osaki], 神田: [kanda] },

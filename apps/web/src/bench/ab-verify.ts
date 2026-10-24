@@ -175,23 +175,23 @@ async function verifyRide(
       ride.to,
       new GeoPoint(ride.toLat!, ride.toLng!),
     );
-    const alightingStation = alighting.find((s) => s.feedId === station.feedId);
-    const alightingBoard =
-      alightingStation === undefined
-        ? null
-        : await deps.fetchDepartures(
-            alightingStation.id,
-            ymd(arr),
-            hm(addMinutes(arr, -arrivalToleranceMin)),
-          );
-    const same = sameMinute.find((d) =>
-      (alightingBoard ?? []).some(
-        (a) =>
-          a.tripId === d.tripId &&
-          Math.abs(minuteOf(a) - minuteOfDay(arr)) <= arrivalToleranceMin,
-      ),
-    );
-    if (same !== undefined) return { verdict: 'sameTrip', matchedLine: departureLine(same), seen };
+    // 同じフィードの降車駅は全部見る。事業者が乗り場・路線ごとに駅を分けて載せていると、
+    // 近い方だけでは遠い方の乗り場に載る同じ便を確かめられない。
+    for (const alightingStation of alighting.filter((s) => s.feedId === station.feedId)) {
+      const alightingBoard = await deps.fetchDepartures(
+        alightingStation.id,
+        ymd(arr),
+        hm(addMinutes(arr, -arrivalToleranceMin)),
+      );
+      const same = sameMinute.find((d) =>
+        (alightingBoard ?? []).some(
+          (a) =>
+            a.tripId === d.tripId &&
+            Math.abs(minuteOf(a) - minuteOfDay(arr)) <= arrivalToleranceMin,
+        ),
+      );
+      if (same !== undefined) return { verdict: 'sameTrip', matchedLine: departureLine(same), seen };
+    }
     departedOnly ??= sameMinute[0];
   }
   if (departedOnly !== null) {
