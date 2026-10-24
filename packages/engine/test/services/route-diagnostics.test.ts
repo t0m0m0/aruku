@@ -326,6 +326,10 @@ describe('RouteSearchMetrics.toLogLine', () => {
     m.exactCandidates = 3;
     m.exactCapped = true;
     m.exactWon = true;
+    m.walkA = 70;
+    m.walkB = 86;
+    m.collapseB = false;
+    m.abMs = 450;
     m.guidanceMs = 1200;
     m.hybridMs = 500;
     m.enrichMs = 2600;
@@ -376,6 +380,7 @@ describe('RouteSearchMetrics.toLogLine', () => {
         'arrivalWaveOutcome=0 arrivalWaveOptions=2 ' +
         'arrivalWaveBaseUsed=1 arrivalWaveWon=1 ' +
         'exactMs=800 exactCandidates=3 exactCapped=1 exactWon=1 ' +
+        'coveredBase=1 walkA=70 walkB=86 collapseB=0 abMs=450 ' +
         'guidanceMs=1200 hybridMs=500 enrichMs=2600 boardSearchMs=3400 ' +
         'boardSearchRounds=3 boardSearchScanCount=63 boardSearchBest=25 ' +
         'boardSearchTruncated=1 boardSearchProbeFailed=1 ' +
@@ -564,6 +569,7 @@ describe('RouteSearchMetrics.toLogLine', () => {
         'arrivalWaveOutcome=-1 arrivalWaveOptions=0 ' +
         'arrivalWaveBaseUsed=0 arrivalWaveWon=0 ' +
         'exactMs=0 exactCandidates=-1 exactCapped=0 exactWon=0 ' +
+        'coveredBase=0 walkA=-1 walkB=-1 collapseB=-1 abMs=0 ' +
         'guidanceMs=0 hybridMs=0 enrichMs=0 boardSearchMs=0 ' +
         'boardSearchRounds=0 boardSearchScanCount=0 boardSearchBest=-1 ' +
         'boardSearchTruncated=0 boardSearchProbeFailed=0 ' +
@@ -606,6 +612,30 @@ describe('RouteSearchMetrics.toLogLine', () => {
     expect(new RouteSearchMetrics().toLogLine()).toContain(
       'arrivalWaveOutcome=-1',
     );
+  });
+});
+
+describe('RouteSearchMetrics: 厳密走査の A/B (#462)', () => {
+  it('coveredBase は厳密走査が候補を1件以上返した検索だけ立つ', () => {
+    // 効果の分母（§3.8）。失敗の -1 と候補なしの 0 はどちらも「時刻表の路線で1回乗車が
+    // 成立しなかった」検索で、徒歩の差を語らない。
+    const covered = (n: number): boolean =>
+      cascade(new RouteSearchMetrics(), (m) => {
+        m.exactCandidates = n;
+      }).coveredBase;
+    expect(covered(-1)).toBe(false);
+    expect(covered(0)).toBe(false);
+    expect(covered(1)).toBe(true);
+  });
+
+  it('collapseB は B を選び直していなければ -1、選び直せば 0/1', () => {
+    const line = (c: boolean | null): string =>
+      cascade(new RouteSearchMetrics(), (m) => {
+        m.collapseB = c;
+      }).toLogLine();
+    expect(line(null)).toContain('collapseB=-1');
+    expect(line(false)).toContain('collapseB=0');
+    expect(line(true)).toContain('collapseB=1');
   });
 });
 

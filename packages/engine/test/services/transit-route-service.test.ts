@@ -395,6 +395,7 @@ const service = (
     clock?: () => Date;
     exactWalkMax?: boolean;
     exactWalkMaxGrace?: number | null;
+    exactWalkMaxAb?: boolean;
   } = {},
 ): TransitRouteService =>
   new TransitRouteService({
@@ -407,6 +408,7 @@ const service = (
     arrivalWaveGrace: o.arrivalWaveGrace,
     exactWalkMax: o.exactWalkMax,
     exactWalkMaxGrace: o.exactWalkMaxGrace,
+    exactWalkMaxAb: o.exactWalkMaxAb,
   });
 
 const origin = new GeoPoint(35.68, 139.76);
@@ -1515,6 +1517,30 @@ describe('plan: 乗車駅探索の実測駆動（#137 主因）', () => {
       m.boardSearchWinnerRound,
       'ラウンド番号は実際に回した数を超えない',
     ).toBeLessThanOrEqual(m.boardSearchRounds);
+  });
+
+  it('A/B 計測 (#462): A の board-search が崩壊を解いても、厳密走査の手柄にしない', async () => {
+    // この fixture は board-search の候補が勝つ。厳密走査は 404（候補なし）なので、B の
+    // 勝者も同じ board-search の候補で、崩壊を解いたのは board-search。勝者で判定し直すと
+    // collapseB=0 になり、集計が board-search の時間を厳密走査の手柄として差し引く。
+    let captured: RouteSearchMetrics | null = null;
+    const svc = service(inflatedFromMock(), {
+      exactWalkMaxAb: true,
+      onMetrics: (m) => (captured = m),
+    });
+    await svc.plan({
+      destination: '目的駅',
+      destinationLatLng: goal3,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 10, m: 30 }),
+      origin: origin3,
+      originName: '出発',
+    });
+    const m = captured! as RouteSearchMetrics;
+    expect(m.collapseFired, '前提: A は崩壊する').toBe(true);
+    expect(m.boardSearchWinnerRound, '前提: board-search の候補が勝つ').toBeGreaterThanOrEqual(1);
+    expect(m.exactWon).toBe(false);
+    expect(m.collapseB).toBe(true);
   });
 
   it('プローブ内の「徒歩実測→引き直し」の直列を、同一 run の反実仮想として計上する', async () => {
@@ -4269,6 +4295,91 @@ describe('plan: 時刻なしハイブリッドの実発車時刻検証（approac
     expect(m.bestEffortMs).toBeGreaterThan(0);
   });
 
+  it('A/B 計測 (#462): A が縮退へ落ちても、B は A の実時刻解決を引き直さない', async () => {
+    // 縮退（bestEffortResolved）は enrich のキャッシュを通らず、プール全体の時刻なし区間を
+    // 引き直す。B がもう一度引くと、上流の応答が A と変わり得て、差が厳密走査の候補
+    // だけから来なくなる。
+    const guidanceCalls = async (exactWalkMaxAb: boolean) => {
+      const log: URL[] = [];
+      const night = nightMock();
+      const client: HttpClient = {
+        get: (url) => {
+          log.push(url);
+          return night.get(url);
+        },
+        close: () => night.close(),
+      };
+      let captured: RouteSearchMetrics | null = null;
+      await new TransitRouteService({
+        transitClient: client,
+        proxyClient: client,
+        transitBaseUrl: transitBase,
+        proxyBaseUrl: proxyBase,
+        clock: () => dateTime(2026, 6, 27, 2, 0),
+        exactWalkMaxAb,
+        onMetrics: (m) => (captured = m),
+      }).plan({
+        destination: '終着駅',
+        destinationLatLng: goal6,
+        departure: new TimeValue({ h: 2, m: 0 }),
+        arrival: new TimeValue({ h: 2, m: 50 }), // 予算50分＝予算内皆無で縮退へ落ちる
+        origin: origin6,
+        originName: '出発',
+      });
+      return {
+        calls: log.filter((u) => u.pathname.includes('guidance/plan')).length,
+        m: captured! as RouteSearchMetrics,
+      };
+    };
+    const plain = await guidanceCalls(false);
+    const ab = await guidanceCalls(true);
+    expect(plain.m.bestEffortEntries, '前提: 縮退へ落ちる').toBeGreaterThan(0);
+    expect(ab.calls).toEqual(plain.calls);
+    expect(ab.m.walkB).toEqual(ab.m.walkA);
+  });
+
+  it('A/B 計測 (#462): A の縮退で落ちた徒歩実測を、B が引き直さない', async () => {
+    // 徒歩レッグのキャッシュは失敗を残さない（一過性の失敗を検索全体へ固定しないため）。
+    // B が引き直すと2回目は成功し得て、A は見積り・B は実測という、厳密走査と無関係な差が
+    // 出る。最初の徒歩実測だけを 429 で落とし、A/B でも徒歩の本数が増えないことを見る。
+    const walkRequests = async (exactWalkMaxAb: boolean): Promise<number> => {
+      let walks = 0;
+      const night = nightMock();
+      const client: HttpClient = {
+        get: (url) => {
+          if (url.pathname.includes('googleWalkProxy') && walks++ === 0) {
+            return Promise.resolve(json({}, 429));
+          }
+          return night.get(url);
+        },
+        close: () => night.close(),
+      };
+      let captured: RouteSearchMetrics | null = null;
+      await new TransitRouteService({
+        transitClient: client,
+        proxyClient: client,
+        transitBaseUrl: transitBase,
+        proxyBaseUrl: proxyBase,
+        clock: () => dateTime(2026, 6, 27, 2, 0),
+        exactWalkMaxAb,
+        onMetrics: (m) => (captured = m),
+      }).plan({
+        destination: '終着駅',
+        destinationLatLng: goal6,
+        departure: new TimeValue({ h: 2, m: 0 }),
+        arrival: new TimeValue({ h: 2, m: 50 }), // 予算50分＝予算内皆無で縮退へ落ちる
+        origin: origin6,
+        originName: '出発',
+      });
+      expect((captured! as RouteSearchMetrics).bestEffortEntries, '前提: 縮退へ落ちる')
+        .toBeGreaterThan(0);
+      return walks;
+    };
+    const plain = await walkRequests(false);
+    expect(plain, '前提: 縮退の徒歩実測が走る').toBeGreaterThan(0);
+    expect(await walkRequests(true)).toEqual(plain);
+  });
+
   it('実測が例外で落ちた候補も enrich 台帳へ計上する (#309)', async () => {
     // 壊れた応答で落ちた候補も、await した壁時計は払っている。計上しないと
     // 「上流が壊れているときほど臨界パスが小さく出る」逆向きの歪みが入る。
@@ -6209,6 +6320,50 @@ describe('plan: 候補間並列の例外境界と共有レッグ (#316)', () => 
     expect(plan.totalMin).toBeLessThanOrEqual(30);
   });
 
+  it('A/B 計測 (#462): A で壊れた応答に落ちた実測を、B が上流へ引き直さない', async () => {
+    // 壊れた応答で落ちた候補は enrich のキャッシュに残らない。B が引き直して2回目が
+    // 成功すると、厳密走査と無関係に B だけ徒歩が伸びる。A が引いた要求は、失敗も含めて
+    // B では A の結末をそのまま使う。
+    const aBoard = [35.001, 139.01];
+    const bBoard = [34.999, 139.01];
+    const body = guidance([
+      option({ route: '快速A', board: aBoard, accessSecs: 720, dep: 33300, arr: 33900 }),
+      option({ route: '快速B', board: bBoard, accessSecs: 720, dep: 33600, arr: 34080 }),
+    ]);
+    const run = async (exactWalkMaxAb: boolean, failFirst: number) => {
+      let bAccess = 0;
+      const client = mockClient((url) => {
+        const path = url.pathname;
+        if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+        if (path.includes('googleWalkProxy')) {
+          const s = pt(url.searchParams.get('start') ?? '0,0');
+          const gl = pt(url.searchParams.get('goal') ?? '0,0');
+          if (near(s.lat, o.lat) && near(gl.lat, bBoard[0]) && near(gl.lng, bBoard[1])) {
+            if (bAccess++ < failFirst) throw new SyntaxError('malformed walk response');
+          }
+          return walkFor(url);
+        }
+        if (path.includes('guidance/plan')) return json(body);
+        return json({}, 404);
+      });
+      let captured: RouteSearchMetrics | null = null;
+      await service(client, { exactWalkMaxAb, onMetrics: (m) => (captured = m) }).plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 9, m: 30 }),
+        origin: o,
+        originName: '出発',
+      });
+      return { bAccess, m: captured! as RouteSearchMetrics };
+    };
+    const plain = await run(false, Number.POSITIVE_INFINITY);
+    expect(plain.bAccess, '前提: B の access を実測する').toBeGreaterThan(0);
+    const ab = await run(true, plain.bAccess);
+    expect(ab.bAccess).toEqual(plain.bAccess);
+    expect(ab.m.walkB).toEqual(ab.m.walkA);
+  });
+
   // C. 勝者W と代替V は egress（降車→目的地）を共有する。先行実測は両者を並列に測るので、
   //    完了結果しか持たない素のキャッシュでは両者とも外して googleWalkProxy を二重発行する。
   //    in-flight の Promise を単一化し、共有レッグの実測を1回に畳む。
@@ -7123,5 +7278,174 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
       { exactWalkMax: false },
     );
     expect(log.some((u) => u.pathname.includes('exactWalkMax'))).toBe(false);
+  });
+
+  describe('同じ実行の中の A/B 計測 exactWalkMaxAb (#462)', () => {
+    /// A/B モードで1検索走らせ、返った経路と指標を取る。
+    const runAb = async (
+      client: HttpClient,
+    ): Promise<{ plan: RoutePlan; m: RouteSearchMetrics }> => {
+      let captured: RouteSearchMetrics | null = null;
+      const plan = await service(client, {
+        exactWalkMaxAb: true,
+        onMetrics: (m) => (captured = m),
+      }).plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 10, m: 40 }),
+        origin: o,
+        originName: '出発',
+      });
+      return { plan, m: captured! };
+    };
+
+    const winning = (): JsonMap =>
+      exactBody([exactCandidate({ board: at(9, 50), alight: at(9, 53) })]);
+
+    it('A は厳密走査の候補を混ぜない今の経路、B は足して選び直した経路で、B を返す', async () => {
+      const before = await baseline();
+      const { plan, m } = await runAb(exactMock({ onExact: () => json(winning()) }));
+      expect(m.walkA).toEqual(walkOf(before));
+      expect(m.walkB).toEqual(86);
+      expect(rides(plan)).toEqual(['厳密線']);
+      expect(walkOf(plan)).toEqual(m.walkB);
+      expect(m.exactWon).toBe(true);
+      expect(m.coveredBase).toBe(true);
+      expect(m.collapseB).toBe(false);
+    });
+
+    it('A/B モードでも厳密走査は1回だけ発行し、A の上流応答を B で引き直さない', async () => {
+      // 差が厳密走査の候補だけから来るための前提（上流のばらつきを B へ持ち込まない）。
+      const log: URL[] = [];
+      const { m } = await runAb(exactMock({ onExact: () => json(winning()), log }));
+      expect(log.filter((u) => u.pathname.includes('exactWalkMax'))).toHaveLength(1);
+      const baselineLog: URL[] = [];
+      await run(exactMock({ onExact: () => json(exactBody([])), log: baselineLog }), {
+        exactWalkMax: false,
+      });
+      const guidanceOf = (l: URL[]): number =>
+        l.filter((u) => u.pathname.includes('guidance/plan')).length;
+      expect(guidanceOf(log)).toEqual(guidanceOf(baselineLog));
+      expect(m.abMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('B で厳密走査の候補が落ちれば、B は A と同じ経路になる', async () => {
+      const before = await baseline();
+      const { plan, m } = await runAb(
+        exactMock({
+          onExact: () =>
+            json(
+              exactBody([
+                exactCandidate({ board: at(9, 44), alight: at(9, 47), accessMin: 43 }),
+              ]),
+            ),
+        }),
+      );
+      expect(m.walkB).toEqual(m.walkA);
+      expect(m.exactWon).toBe(false);
+      expect(m.coveredBase).toBe(true);
+      expect(rides(plan)).toEqual(rides(before));
+    });
+
+    it('厳密走査が失敗すれば coveredBase は立たず、B は A と同じ', async () => {
+      const { m } = await runAb(exactMock({ onExact: () => json({}, 503) }));
+      expect(m.exactCandidates).toEqual(-1);
+      expect(m.coveredBase).toBe(false);
+      expect(m.walkB).toEqual(m.walkA);
+    });
+
+    it('A は厳密走査の応答を待たずに選定まで走る（待ちを A の所要へ混ぜない）', async () => {
+      // 厳密走査の応答は A の徒歩実測が始まってから返す。A が選定の前に厳密走査を待つと、
+      // その待ちが「厳密走査なし」の A の totalMs へ乗り、応答は猶予切れで捨てられる。
+      const gate = deferred<HttpResponse>();
+      let captured: RouteSearchMetrics | null = null;
+      const client = mockClient((url) => {
+        const path = url.pathname;
+        if (path.includes('exactWalkMax')) return gate.promise;
+        if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+        if (path.includes('googleWalkProxy')) {
+          gate.complete(json(winning()));
+          return walkFor(url);
+        }
+        if (path.includes('guidance/plan')) return json(guidance([familyA(), familyB()]));
+        return json({}, 404);
+      });
+      const plan = await service(client, {
+        exactWalkMaxAb: true,
+        exactWalkMaxGrace: 200,
+        onMetrics: (m) => (captured = m),
+      }).plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 10, m: 40 }),
+        origin: o,
+        originName: '出発',
+      });
+      const m = captured! as RouteSearchMetrics;
+      expect(m.exactCandidates).toEqual(1);
+      expect(m.exactWon).toBe(true);
+      expect(rides(plan)).toEqual(['厳密線']);
+    });
+
+    it('A の駅名復元は A の所要に入り、B の駅名復元は abMs に入る', async () => {
+      // A の勝者（コリドー上のハイブリッド）は駅名を持たず、駅名復元で guidance を引く。
+      // B の勝者（厳密走査の候補）は駅名を持つので引かない。A の駅名復元を飛ばすと、
+      // 「厳密走査なし」の A の所要からその往復が抜ける。
+      let captured: RouteSearchMetrics | null = null;
+      let departures = 0;
+      const client = mockClient(async (url) => {
+        const path = url.pathname;
+        if (path.includes('exactWalkMax')) return json(winning());
+        if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+        if (path.includes('googleWalkProxy')) return walkFor(url);
+        if (path.includes('guidance/plan')) {
+          await delay(30);
+          const body = guidance([familyA(), familyB()]);
+          // 初回の2波より後の引き直しは駅名を欠く（駅名が付かないまま確定する経路）。
+          const first =
+            url.searchParams.get('type') === 'arrival' || departures++ === 0;
+          return first
+            ? json(body)
+            : json(JSON.parse(JSON.stringify(body).replace(/"name":"[^"]*"/g, '"name":""')));
+        }
+        return json({}, 404);
+      });
+      await service(client, {
+        exactWalkMaxAb: true,
+        onMetrics: (m) => (captured = m),
+      }).plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 10, m: 40 }),
+        origin: o,
+        originName: '出発',
+      });
+      const m = captured! as RouteSearchMetrics;
+      expect(m.exactWon, '前提: B は厳密走査の候補').toBe(true);
+      expect(m.finalizeMs, 'A の駅名復元（guidance 1往復）を測っている').toBeGreaterThanOrEqual(25);
+    });
+
+    it('A/B モードでなければ walkA・walkB は -1、collapseB は null', async () => {
+      let captured: RouteSearchMetrics | null = null;
+      await service(exactMock({ onExact: () => json(winning()) }), {
+        exactWalkMax: true,
+        onMetrics: (m) => (captured = m),
+      }).plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 10, m: 40 }),
+        origin: o,
+        originName: '出発',
+      });
+      const m = captured! as RouteSearchMetrics;
+      expect(m.walkA).toEqual(-1);
+      expect(m.walkB).toEqual(-1);
+      expect(m.collapseB).toBeNull();
+      expect(m.abMs).toEqual(0);
+    });
   });
 });

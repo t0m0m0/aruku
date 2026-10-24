@@ -140,6 +140,14 @@ describe('配信物の静的ファイル', () => {
   // この振る舞いは E2E では反証できない——Playwright は `vite preview` 相手に走り、
   // あちらは自前で SPA フォールバックするので `404.html` の有無に関係なく緑になる。
   // 成果物を見るこの検査が唯一の歯止め。
+  // ベンチ画面は App Check を通った課金プロキシを120回直列に叩く道具で、利用者に
+  // 届けるものではない（#462）。入口は index.html だけなので、ここに現れたら入力の
+  // 設定が変わっている。
+  it('開発時だけの A/B ベンチ画面を配らない', () => {
+    expect(distFiles()).not.toContain('/bench.html');
+    expect(bundle.includes('厳密走査 A/B ベンチ')).toBe(false);
+  });
+
   it('404.html を作らない（Pages の SPA フォールバックを殺さないため）', () => {
     expect(distFiles()).not.toContain('/404.html');
   });

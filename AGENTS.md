@@ -22,6 +22,7 @@ After reviewing:
   - `src/state/` — アプリの状態（zustand の store）。`src/navigation/` — ルート表とガード
   - `src/places/` `src/search/` `src/location/` — 地点検索・経路検索の配線・現在地
   - `src/map/` `src/layout/` `src/shared/` `src/theme/` `src/i18n/` — 地図・レイアウト・共有部品・デザイントークン・文言
+  - `src/bench/` — 厳密走査の A/B 計測（#462）を回す開発時だけの画面。`npm run dev` 中に `/bench.html` で開く。本番のルート表にも配信物にも入らない
 - `packages/engine/` — 経路エンジン（**TypeScript**）。挙動の正本は `docs/spec/route-optimization.md`
 - `functions/` — Cloud Functions **TypeScript** backend. Google Places / Routes proxies (`placesProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`) + Firestore rate limiter + ODPT の GTFS から時刻表パックを作る定期関数（`refreshTimetablePacks`・`src/timetable-pack/`）+ そのパックで1回乗車の徒歩最大を厳密に求めるエンドポイント（`exactWalkMax`・`src/exact-walk-max.ts`）. **公共交通のプロキシは無い** — Transit API はクライアント直叩き（`docs/spec/route-optimization.md` §2.1）
 - Flutter 版は #387 で撤去した。`flutter-final` タグと `archive/flutter` ブランチに残る（復元手順は `docs/archive/flutter-restore.md`）。コメントの `flutter-final:lib/...` はそのタグ内のパス

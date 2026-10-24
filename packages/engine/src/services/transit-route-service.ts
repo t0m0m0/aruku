@@ -12,7 +12,7 @@ import {
 } from '../models/route-plan';
 import type { TimeValue } from '../models/time-value';
 import { decodePolyline } from '../polyline';
-import { startedStopwatch } from '../stopwatch';
+import { startedStopwatch, type Stopwatch } from '../stopwatch';
 import { dateTime, seconds, type Duration } from '../time';
 import { SearchCanceledException, type CancellationToken } from './cancellation';
 import {
@@ -90,6 +90,11 @@ export interface TransitRouteServiceInit {
 
   /// 厳密走査の応答を departure 波の確定後に待つ猶予。用途は [arrivalWaveGrace] と同じ。
   exactWalkMaxGrace?: Duration | null;
+
+  /// 厳密走査の効果を同じ実行の中で A/B 比較する計測モード（#462・§3.9）。既定 false。
+  /// 真なら厳密走査を発行するが候補プールへは混ぜずに最後まで走らせ（A）、その最終候補
+  /// プールへ厳密走査の候補を足して選び直した結果（B）を返す。[exactWalkMax] の値は問わない。
+  exactWalkMaxAb?: boolean;
 }
 
 /// 到着アンカー第2波の猶予の既定値。
@@ -161,6 +166,7 @@ export class TransitRouteService implements SearchEngine {
     this.arrivalWaveGrace = init.arrivalWaveGrace ?? defaultArrivalWaveGrace;
     this.exactWalkMax = init.exactWalkMax ?? false;
     this.exactWalkMaxGrace = init.exactWalkMaxGrace ?? defaultExactWalkMaxGrace;
+    this.exactWalkMaxAb = init.exactWalkMaxAb ?? false;
     this.api = new TransitApiClient({
       transitClient: init.transitClient,
       proxyClient: init.proxyClient,
@@ -168,6 +174,7 @@ export class TransitRouteService implements SearchEngine {
       proxyBaseUrl: init.proxyBaseUrl,
       cancellation: init.cancellation,
       deadline: init.deadline ?? SearchDeadline.none(),
+      recordForReplay: this.exactWalkMaxAb,
     });
     this.deadline = init.deadline ?? SearchDeadline.none();
     this.clock = init.clock ?? ((): Date => new Date());
@@ -184,6 +191,7 @@ export class TransitRouteService implements SearchEngine {
   private readonly arrivalWaveGrace: Duration;
   private readonly exactWalkMax: boolean;
   private readonly exactWalkMaxGrace: Duration;
+  private readonly exactWalkMaxAb: boolean;
   private readonly onMetrics: ((metrics: RouteSearchMetrics) => void) | null;
 
   /// 選定の診断ログ整形（#169）。`verbose` は既定で kDebugMode。
@@ -223,9 +231,10 @@ export class TransitRouteService implements SearchEngine {
     ignore(arrivalWave);
     // 厳密走査（#460・§3.9）も同じく departure 波より先に起こす。guidance の結果を使わない
     // ので、並列に置けば直列の段は増えない。
-    const exactWave = this.exactWalkMax
-      ? this.api.fetchExactWalkMax(origin, destinationLatLng, departureAt, budgetMin)
-      : null;
+    const exactWave =
+      this.exactWalkMax || this.exactWalkMaxAb
+        ? this.api.fetchExactWalkMax(origin, destinationLatLng, departureAt, budgetMin)
+        : null;
     const exactSw = startedStopwatch();
     if (exactWave !== null) {
       ignore(exactWave);
@@ -287,7 +296,7 @@ export class TransitRouteService implements SearchEngine {
         arrivalWaveOptions: new Set(wave.fresh),
         exactWave: exactGraced,
         // 第2波を混ぜない。締切から逆算した便は、ふつうに検索して出る経路ではない。
-        standardTransit: this.standardTransitOf(options, departureAt),
+        standardTransit: standardTransitSummary(options, departureAt),
       },
     );
 
@@ -422,7 +431,6 @@ export class TransitRouteService implements SearchEngine {
     const measured = new Map<string, number>();
     // 候補の実測（enrich 徒歩＋実発車時刻解決）を identity で畳むキャッシュ（#315）。
     const enrichedCache = new Map<RouteCandidate, RouteCandidate>();
-
     // ハイブリッド候補（コリドー実測由来）の identity 集合。予算内にこれが多いほど
     // reject 多発＝先行実測を短リスト全体へ広げる（Option A・#318）。
     const hybrids = new Set<RouteCandidate>();
@@ -498,8 +506,8 @@ export class TransitRouteService implements SearchEngine {
     // 出自は arrival 波と同じくインスタンス同一性で覚える（`exactWon`）。
     const fromExact = new Set<RouteCandidate>();
     let sources: TimetableSource[] = [];
-    if (ctx.exactWave !== null) {
-      const result = await this.exactWaveCandidates(ctx.exactWave, {
+    const takeExact = async (wave: Promise<JsonMap>): Promise<RouteCandidate[]> => {
+      const result = await this.exactWaveCandidates(wave, {
         origin,
         goal,
         from: options[0].from,
@@ -509,13 +517,19 @@ export class TransitRouteService implements SearchEngine {
       metrics.exactCandidates = result.candidates === null ? -1 : exact.length;
       metrics.exactCapped = result.capped;
       sources = result.sources;
-      candidates.push(...exact);
       for (const c of exact) {
         fromExact.add(c);
         this.diag.log(
           () => `exact: ${this.diag.candLine(c, budgetMin, departureAt)}`,
         );
       }
+      return exact;
+    };
+    // A/B モードでは A を今のパイプラインのまま走らせるため、ここでは待たない——待つと
+    // A が使わない応答の待ちが「厳密走査なし」の A の所要へ乗る。B の直前で受け取る
+    // （猶予は departure 波の確定から数えているので、受け取る時刻で結末は変わらない）。
+    if (ctx.exactWave !== null && !this.exactWalkMaxAb) {
+      candidates.push(...(await takeExact(ctx.exactWave)));
     }
     this.diag.log(() => `total candidates: ${candidates.length}`);
 
@@ -577,6 +591,7 @@ export class TransitRouteService implements SearchEngine {
     // 確定候補が board-search の何ラウンド由来かを引くための同一性マップ（両系統で共有）。
     const boardSearchRoundOf = new Map<RouteCandidate, number>();
     let speculationAbandoned = false;
+    let boardSearchExtra: RouteCandidate[] = [];
     let trainBoardSearchFuture: Promise<RouteCandidate[]> | null = null;
     if (base !== null && preCollapse) {
       this.diag.log(
@@ -737,6 +752,7 @@ export class TransitRouteService implements SearchEngine {
         ...(busBase !== null ? [busBoardSearch] : []),
       ]);
       if (extra.length > 0) {
+        boardSearchExtra = extra;
         this.diag.log(() => `徒歩最大化候補: ${extra.length}件をプールへ追加`);
         // 既に引いたバス候補（あれば）も再選定のプールへ引き継ぐ。board-search 候補が
         // 逆戻り・乗り遅れ・幽霊便で全滅したとき、last-resort で見つけた予算内のバスへ
@@ -782,6 +798,53 @@ export class TransitRouteService implements SearchEngine {
       this.diag.log(() => '投機 board-search 空振り: collapse=false → 打ち切り');
     }
 
+    let abSw: Stopwatch | null = null;
+    if (this.exactWalkMaxAb) {
+      // B（#462）。A の最終候補プールに厳密走査の候補を足して選び直す。A が投げた要求は
+      // 上流へ投げ直さず A の結末（失敗を含む）を使う＝差は厳密走査の候補だけから来る。
+      // 台帳は分ける——同じ台帳に積むと enrich の内訳が A の実測でなくなる。
+      metrics.walkA = selected.enriched.walkMinutes;
+      // A の駅名復元も A の工程として先に済ませる。B の勝者だけを復元すると、A の所要
+      // （totalMs − abMs）からこの往復が抜け、代わりに B の復元が入る。結果は使わない。
+      const finalizeASw = startedStopwatch();
+      await this.finalizeStationNames(selected.enriched, departureAt);
+      metrics.finalizeMs = finalizeASw.elapsedMilliseconds;
+      abSw = startedStopwatch();
+      const heldExact = ctx.exactWave === null ? [] : await takeExact(ctx.exactWave);
+      this.api.startReplay();
+      selected = await this.selectAndEnrich(
+        [...candidates, ...(busCandidates ?? []), ...boardSearchExtra, ...heldExact],
+        budgetMin,
+        departureAt,
+        {
+          origin,
+          goal,
+          walkCache,
+          enrichedCache,
+          enrichLedger: new EnrichLatencyLedger(),
+          bestEffortLedger: new BestEffortLedger(),
+          lastResortBus,
+          prefetchBus,
+        },
+      );
+      metrics.walkB = selected.enriched.walkMinutes;
+      // B の勝者が厳密走査の候補でなければ B は A と同じ経路なので、崩壊も A のまま。
+      // 勝者で判定し直すと、A の board-search が解いた崩壊を厳密走査の手柄に数える。
+      metrics.collapseB = fromExact.has(selected.chosen)
+        ? this.isCollapse(
+            selected.chosen,
+            busOptions === null ? options : [...options, ...(busOptions as TransitOption[])],
+            budgetMin,
+            departureAt,
+          )
+        : collapse;
+      this.diag.log(
+        () =>
+          `A/B: walkA=${metrics.walkA}m walkB=${metrics.walkB}m ` +
+          `B=${this.diag.candLine(selected.enriched, budgetMin, departureAt)}`,
+      );
+    }
+
     // 確定候補が第2波（#376）由来かも同一性で引く。
     metrics.arrivalWaveWon = fromArrivalWave.has(selected.chosen);
     metrics.exactWon = fromExact.has(selected.chosen);
@@ -793,7 +856,9 @@ export class TransitRouteService implements SearchEngine {
 
     const finalizeSw = startedStopwatch();
     const named = await this.finalizeStationNames(selected.enriched, departureAt);
-    metrics.finalizeMs = finalizeSw.elapsedMilliseconds;
+    // A/B モードの finalizeMs は A の駅名復元。B の復元は abMs に入れる。
+    if (abSw === null) metrics.finalizeMs = finalizeSw.elapsedMilliseconds;
+    else metrics.abMs = abSw.elapsedMilliseconds;
     // 定性ログ（下の FINAL）は debug 限定なので、profile の計測では最終徒歩が読めない。
     metrics.finalWalkMinutes = named.walkMinutes;
     // 空振りの対価は**最後に読む**（#341）。打ち切りは新ラウンドを止めるだけなので、
@@ -2171,44 +2236,12 @@ export class TransitRouteService implements SearchEngine {
   /// 判定に [hasUnverifiedTransit] を使わないのは、あれが「その便が走っているか」だけを
   /// 問う（depTime のみ見る）から。**必要なのは実在の確認ではなく、到着を計算できることの確認。**
   private comparableFrom(options: TransitOption[], at: Date): TransitOption[] {
-    const comparable = options.filter((o) => this.isComparable(o, at));
+    const comparable = options.filter((o) => isComparableOption(o, at));
     if (comparable.length > 0) return comparable;
     // 1本も無いときは**先頭だけ**返す（従来の挙動）。全部返して呼び出し側に選ばせると、
     // 到着を信じられないと判定した便をその到着で順位付けすることになり、負の所要で到着が
     // 手前へ戻る便が勝つ——「必ず現状以上」（#343）の保証が破れる。
     return options.length === 0 ? options : [options[0]];
-  }
-
-  /// [comparableFrom] の条件。
-  private isComparable(o: TransitOption, at: Date): boolean {
-    return (
-      o.segments.every(hasUsableTimes) &&
-      firstMissedTransit(o.segments, at) === null
-    );
-  }
-
-  /// ふつうの乗換ルート（#445）＝[at] 発で到着が最も早い、乗り物を含む option の要約。
-  ///
-  /// [earliestArrival] を使わないのは、比べられる便が無いとき先頭へ縮退するから。選定では
-  /// 「必ず現状以上」のための縮退だが、表示の基準に到着を信じられない便を据えると、
-  /// 「ふつうより◯分多く歩ける」の差そのものが作り話になる。
-  private standardTransitOf(
-    options: TransitOption[],
-    at: Date,
-  ): StandardTransitSummary | null {
-    let best: StandardTransitSummary | null = null;
-    for (const o of options) {
-      if (o.segments.every((s) => s.type === SegmentType.walk)) continue;
-      if (!this.isComparable(o, at)) continue;
-      const totalMin = arrivalMinutes(o.segments, at);
-      if (best === null || totalMin < best.totalMin) {
-        best = {
-          walkMinutes: new RouteCandidate(o).walkMinutes,
-          totalMin,
-        };
-      }
-    }
-    return best;
   }
 
   /// 引き直しの応答から、[at] 発で**到着が最も早い** option を選ぶ（同着は上流の並び順）。
@@ -2495,6 +2528,36 @@ function railKm(stops: CorridorStop[], b: number, a: number): number {
     km += haversineKm(stops[i].coord, stops[i + 1].coord);
   }
   return km;
+}
+
+/// [TransitRouteService] の `comparableFrom` の条件。
+function isComparableOption(o: TransitOption, at: Date): boolean {
+  return o.segments.every(hasUsableTimes) && firstMissedTransit(o.segments, at) === null;
+}
+
+/// ふつうの乗換ルート（#445）＝[at] 発で到着が最も早い、乗り物を含む option の要約。
+/// A/B 計測のベンチ（#462）も予算の基準に使うので export している。
+///
+/// `earliestArrival` を使わないのは、比べられる便が無いとき先頭へ縮退するから。選定では
+/// 「必ず現状以上」のための縮退だが、表示の基準に到着を信じられない便を据えると、
+/// 「ふつうより◯分多く歩ける」の差そのものが作り話になる。
+export function standardTransitSummary(
+  options: readonly TransitOption[],
+  at: Date,
+): StandardTransitSummary | null {
+  let best: StandardTransitSummary | null = null;
+  for (const o of options) {
+    if (o.segments.every((s) => s.type === SegmentType.walk)) continue;
+    if (!isComparableOption(o, at)) continue;
+    const totalMin = arrivalMinutes(o.segments, at);
+    if (best === null || totalMin < best.totalMin) {
+      best = {
+        walkMinutes: new RouteCandidate(o).walkMinutes,
+        totalMin,
+      };
+    }
+  }
+  return best;
 }
 
 function hasUsableTimes(s: RouteSegment): boolean {

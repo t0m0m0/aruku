@@ -6,6 +6,7 @@ import {
   SearchScopedRouteService,
   type RouteService,
 } from '@aruku/engine/services/route-service';
+import type { RouteSearchMetrics } from '@aruku/engine/services/route-diagnostics';
 import { SearchDeadline } from '@aruku/engine/services/search-deadline';
 import { TransitRouteService } from '@aruku/engine/services/transit-route-service';
 import type { Duration } from '@aruku/engine/time';
@@ -61,6 +62,13 @@ export interface RouteServiceOptions {
   /// 厳密走査 `exactWalkMax` の候補を足すか（#460）。既定 false。
   readonly exactWalkMax?: boolean;
 
+  /// 厳密走査の効果を同じ実行の中で A/B 比較する計測モード（#462）。開発時だけの
+  /// ベンチ画面（src/bench/）が使う。既定 false。
+  readonly exactWalkMaxAb?: boolean;
+
+  /// 1検索分の定量指標の受け取り口（ベンチ画面が JSONL へ書く）。
+  readonly onMetrics?: (metrics: RouteSearchMetrics) => void;
+
   /// テストから実ネットワークを外すための差し替え口。
   readonly fetch?: Fetch;
 }
@@ -89,6 +97,8 @@ export function createRouteService(options: RouteServiceOptions): RouteService {
       proxyBaseUrl: options.proxyBaseUrl,
       cancellation,
       exactWalkMax: options.exactWalkMax ?? false,
+      exactWalkMaxAb: options.exactWalkMaxAb ?? false,
+      onMetrics: options.onMetrics,
       // 締切は検索ごとに作る。エンジンの生成が plan() の入口なので、ここで作れば
       // 計測開始＝検索開始になる（#300）。
       deadline: new SearchDeadline(searchDeadlineBudget),
