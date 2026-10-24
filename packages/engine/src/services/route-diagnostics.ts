@@ -339,8 +339,30 @@ export class RouteSearchMetrics {
   /// 厳密走査が実測する駅を片側の上限で打ち切ったか（応答の `stats.truncated`）。
   exactCapped = false;
 
-  /// 確定候補が厳密走査由来か。
+  /// 確定候補が厳密走査由来か。A/B モード（#462）では B の確定候補を見る。
   exactWon = false;
+
+  /// A/B モード（#462）の A ＝厳密走査の候補を混ぜずに最後まで走らせた確定経路の徒歩（分）。
+  /// A/B モードでなければ -1。
+  walkA = -1;
+
+  /// A/B モードの B ＝ A の最終候補プールへ厳密走査の候補を足して選び直した確定経路の
+  /// 徒歩（分）。上流の応答は A と同じものを使うので、`walkB - walkA` は厳密走査の候補
+  /// だけから来る。A/B モードでなければ -1。
+  walkB = -1;
+
+  /// B の確定候補でも崩壊と判定されるか。A は必ず全工程を走るので、厳密走査で崩壊が
+  /// 解けたぶん浮く board-search の時間は同じ実行の中では測れず、これと A の
+  /// [boardSearchMs] から推定する。null は B を選び直していない（1行ログでは -1）。
+  collapseB: boolean | null = null;
+
+  /// B の選び直しに掛かった実時間。[totalMs] に含まれるので、A だけの所要は差で出す。
+  abMs = 0;
+
+  /// 時刻表の路線で1回乗車が成立した検索か（#462）。A/B の効果の分母。
+  get coveredBase(): boolean {
+    return this.exactCandidates > 0;
+  }
 
   /// Google 徒歩ルート（enrich）の実 HTTP 往復本数。
   walkCalls = 0;
@@ -433,6 +455,8 @@ export class RouteSearchMetrics {
       `arrivalWaveWon=${flag(this.arrivalWaveWon)} ` +
       `exactMs=${this.exactMs} exactCandidates=${this.exactCandidates} ` +
       `exactCapped=${flag(this.exactCapped)} exactWon=${flag(this.exactWon)} ` +
+      `coveredBase=${flag(this.coveredBase)} walkA=${this.walkA} walkB=${this.walkB} ` +
+      `collapseB=${this.collapseB === null ? -1 : flag(this.collapseB)} abMs=${this.abMs} ` +
       `guidanceMs=${this.guidanceMs} hybridMs=${this.hybridMs} enrichMs=${this.enrichMs} ` +
       `boardSearchMs=${this.boardSearchMs} ` +
       `boardSearchRounds=${this.boardSearchRounds} ` +

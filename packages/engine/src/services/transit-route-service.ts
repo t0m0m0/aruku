@@ -90,6 +90,11 @@ export interface TransitRouteServiceInit {
 
   /// 厳密走査の応答を departure 波の確定後に待つ猶予。用途は [arrivalWaveGrace] と同じ。
   exactWalkMaxGrace?: Duration | null;
+
+  /// 厳密走査の効果を同じ実行の中で A/B 比較する計測モード（#462・§3.9）。既定 false。
+  /// 真なら厳密走査を発行するが候補プールへは混ぜずに最後まで走らせ（A）、その最終候補
+  /// プールへ厳密走査の候補を足して選び直した結果（B）を返す。[exactWalkMax] の値は問わない。
+  exactWalkMaxAb?: boolean;
 }
 
 /// 到着アンカー第2波の猶予の既定値。
@@ -161,6 +166,7 @@ export class TransitRouteService implements SearchEngine {
     this.arrivalWaveGrace = init.arrivalWaveGrace ?? defaultArrivalWaveGrace;
     this.exactWalkMax = init.exactWalkMax ?? false;
     this.exactWalkMaxGrace = init.exactWalkMaxGrace ?? defaultExactWalkMaxGrace;
+    this.exactWalkMaxAb = init.exactWalkMaxAb ?? false;
     this.api = new TransitApiClient({
       transitClient: init.transitClient,
       proxyClient: init.proxyClient,
@@ -184,6 +190,7 @@ export class TransitRouteService implements SearchEngine {
   private readonly arrivalWaveGrace: Duration;
   private readonly exactWalkMax: boolean;
   private readonly exactWalkMaxGrace: Duration;
+  private readonly exactWalkMaxAb: boolean;
   private readonly onMetrics: ((metrics: RouteSearchMetrics) => void) | null;
 
   /// 選定の診断ログ整形（#169）。`verbose` は既定で kDebugMode。
@@ -223,9 +230,10 @@ export class TransitRouteService implements SearchEngine {
     ignore(arrivalWave);
     // 厳密走査（#460・§3.9）も同じく departure 波より先に起こす。guidance の結果を使わない
     // ので、並列に置けば直列の段は増えない。
-    const exactWave = this.exactWalkMax
-      ? this.api.fetchExactWalkMax(origin, destinationLatLng, departureAt, budgetMin)
-      : null;
+    const exactWave =
+      this.exactWalkMax || this.exactWalkMaxAb
+        ? this.api.fetchExactWalkMax(origin, destinationLatLng, departureAt, budgetMin)
+        : null;
     const exactSw = startedStopwatch();
     if (exactWave !== null) {
       ignore(exactWave);
@@ -497,6 +505,7 @@ export class TransitRouteService implements SearchEngine {
     // 起こしてあり、ハイブリッドを作っている間に返っていれば待ちは 0 になる。
     // 出自は arrival 波と同じくインスタンス同一性で覚える（`exactWon`）。
     const fromExact = new Set<RouteCandidate>();
+    let heldExact: RouteCandidate[] = [];
     let sources: TimetableSource[] = [];
     if (ctx.exactWave !== null) {
       const result = await this.exactWaveCandidates(ctx.exactWave, {
@@ -509,7 +518,9 @@ export class TransitRouteService implements SearchEngine {
       metrics.exactCandidates = result.candidates === null ? -1 : exact.length;
       metrics.exactCapped = result.capped;
       sources = result.sources;
-      candidates.push(...exact);
+      // A/B モードでは A を今のパイプラインのまま走らせるため、ここでは混ぜずに取っておく。
+      if (this.exactWalkMaxAb) heldExact = exact;
+      else candidates.push(...exact);
       for (const c of exact) {
         fromExact.add(c);
         this.diag.log(
@@ -577,6 +588,7 @@ export class TransitRouteService implements SearchEngine {
     // 確定候補が board-search の何ラウンド由来かを引くための同一性マップ（両系統で共有）。
     const boardSearchRoundOf = new Map<RouteCandidate, number>();
     let speculationAbandoned = false;
+    let boardSearchExtra: RouteCandidate[] = [];
     let trainBoardSearchFuture: Promise<RouteCandidate[]> | null = null;
     if (base !== null && preCollapse) {
       this.diag.log(
@@ -737,6 +749,7 @@ export class TransitRouteService implements SearchEngine {
         ...(busBase !== null ? [busBoardSearch] : []),
       ]);
       if (extra.length > 0) {
+        boardSearchExtra = extra;
         this.diag.log(() => `徒歩最大化候補: ${extra.length}件をプールへ追加`);
         // 既に引いたバス候補（あれば）も再選定のプールへ引き継ぐ。board-search 候補が
         // 逆戻り・乗り遅れ・幽霊便で全滅したとき、last-resort で見つけた予算内のバスへ
@@ -780,6 +793,44 @@ export class TransitRouteService implements SearchEngine {
       // クライアントが閉じられて in-flight は切れる（#259）。
       speculationAbandoned = true;
       this.diag.log(() => '投機 board-search 空振り: collapse=false → 打ち切り');
+    }
+
+    if (this.exactWalkMaxAb) {
+      // B（#462）。A の最終候補プールに厳密走査の候補を足して選び直す。キャッシュを共有する
+      // ので A で測った候補は引き直さない＝差は厳密走査の候補だけから来る。台帳は分ける
+      // ——同じ台帳に積むと enrich の内訳が A の実測でなくなる。
+      metrics.walkA = selected.enriched.walkMinutes;
+      const abSw = startedStopwatch();
+      selected = await this.selectAndEnrich(
+        [...candidates, ...(busCandidates ?? []), ...boardSearchExtra, ...heldExact],
+        budgetMin,
+        departureAt,
+        {
+          origin,
+          goal,
+          walkCache,
+          enrichedCache,
+          enrichLedger: new EnrichLatencyLedger(),
+          bestEffortLedger: new BestEffortLedger(),
+          lastResortBus,
+          prefetchBus,
+        },
+      );
+      metrics.abMs = abSw.elapsedMilliseconds;
+      metrics.walkB = selected.enriched.walkMinutes;
+      metrics.collapseB =
+        (base !== null || busBase !== null) &&
+        this.isCollapse(
+          selected.chosen,
+          busOptions === null ? options : [...options, ...(busOptions as TransitOption[])],
+          budgetMin,
+          departureAt,
+        );
+      this.diag.log(
+        () =>
+          `A/B: walkA=${metrics.walkA}m walkB=${metrics.walkB}m ` +
+          `B=${this.diag.candLine(selected.enriched, budgetMin, departureAt)}`,
+      );
     }
 
     // 確定候補が第2波（#376）由来かも同一性で引く。

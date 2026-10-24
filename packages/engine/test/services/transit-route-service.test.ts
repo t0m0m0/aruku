@@ -395,6 +395,7 @@ const service = (
     clock?: () => Date;
     exactWalkMax?: boolean;
     exactWalkMaxGrace?: number | null;
+    exactWalkMaxAb?: boolean;
   } = {},
 ): TransitRouteService =>
   new TransitRouteService({
@@ -407,6 +408,7 @@ const service = (
     arrivalWaveGrace: o.arrivalWaveGrace,
     exactWalkMax: o.exactWalkMax,
     exactWalkMaxGrace: o.exactWalkMaxGrace,
+    exactWalkMaxAb: o.exactWalkMaxAb,
   });
 
 const origin = new GeoPoint(35.68, 139.76);
@@ -7123,5 +7125,101 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
       { exactWalkMax: false },
     );
     expect(log.some((u) => u.pathname.includes('exactWalkMax'))).toBe(false);
+  });
+
+  describe('同じ実行の中の A/B 計測 exactWalkMaxAb (#462)', () => {
+    /// A/B モードで1検索走らせ、返った経路と指標を取る。
+    const runAb = async (
+      client: HttpClient,
+    ): Promise<{ plan: RoutePlan; m: RouteSearchMetrics }> => {
+      let captured: RouteSearchMetrics | null = null;
+      const plan = await service(client, {
+        exactWalkMaxAb: true,
+        onMetrics: (m) => (captured = m),
+      }).plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 10, m: 40 }),
+        origin: o,
+        originName: '出発',
+      });
+      return { plan, m: captured! };
+    };
+
+    const winning = (): JsonMap =>
+      exactBody([exactCandidate({ board: at(9, 50), alight: at(9, 53) })]);
+
+    it('A は厳密走査の候補を混ぜない今の経路、B は足して選び直した経路で、B を返す', async () => {
+      const before = await baseline();
+      const { plan, m } = await runAb(exactMock({ onExact: () => json(winning()) }));
+      expect(m.walkA).toEqual(walkOf(before));
+      expect(m.walkB).toEqual(86);
+      expect(rides(plan)).toEqual(['厳密線']);
+      expect(walkOf(plan)).toEqual(m.walkB);
+      expect(m.exactWon).toBe(true);
+      expect(m.coveredBase).toBe(true);
+      expect(m.collapseB).toBe(false);
+    });
+
+    it('A/B モードでも厳密走査は1回だけ発行し、A の上流応答を B で引き直さない', async () => {
+      // 差が厳密走査の候補だけから来るための前提（上流のばらつきを B へ持ち込まない）。
+      const log: URL[] = [];
+      const { m } = await runAb(exactMock({ onExact: () => json(winning()), log }));
+      expect(log.filter((u) => u.pathname.includes('exactWalkMax'))).toHaveLength(1);
+      const baselineLog: URL[] = [];
+      await run(exactMock({ onExact: () => json(exactBody([])), log: baselineLog }), {
+        exactWalkMax: false,
+      });
+      const guidanceOf = (l: URL[]): number =>
+        l.filter((u) => u.pathname.includes('guidance/plan')).length;
+      expect(guidanceOf(log)).toEqual(guidanceOf(baselineLog));
+      expect(m.abMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('B で厳密走査の候補が落ちれば、B は A と同じ経路になる', async () => {
+      const before = await baseline();
+      const { plan, m } = await runAb(
+        exactMock({
+          onExact: () =>
+            json(
+              exactBody([
+                exactCandidate({ board: at(9, 44), alight: at(9, 47), accessMin: 43 }),
+              ]),
+            ),
+        }),
+      );
+      expect(m.walkB).toEqual(m.walkA);
+      expect(m.exactWon).toBe(false);
+      expect(m.coveredBase).toBe(true);
+      expect(rides(plan)).toEqual(rides(before));
+    });
+
+    it('厳密走査が失敗すれば coveredBase は立たず、B は A と同じ', async () => {
+      const { m } = await runAb(exactMock({ onExact: () => json({}, 503) }));
+      expect(m.exactCandidates).toEqual(-1);
+      expect(m.coveredBase).toBe(false);
+      expect(m.walkB).toEqual(m.walkA);
+    });
+
+    it('A/B モードでなければ walkA・walkB は -1、collapseB は null', async () => {
+      let captured: RouteSearchMetrics | null = null;
+      await service(exactMock({ onExact: () => json(winning()) }), {
+        exactWalkMax: true,
+        onMetrics: (m) => (captured = m),
+      }).plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 10, m: 40 }),
+        origin: o,
+        originName: '出発',
+      });
+      const m = captured! as RouteSearchMetrics;
+      expect(m.walkA).toEqual(-1);
+      expect(m.walkB).toEqual(-1);
+      expect(m.collapseB).toBeNull();
+      expect(m.abMs).toEqual(0);
+    });
   });
 });
