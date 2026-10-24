@@ -21,8 +21,10 @@ import {
   dayOffsetBetween,
   standardTotalMin,
 } from './bench-cases';
+import { ridesToVerify, runVerify } from './ab-verify';
 import { runBench } from './bench-runner';
-import { BenchScreen, type BenchHooks } from './bench-screen';
+import type { BenchRecord } from './bench-record';
+import { BenchScreen, type BenchHooks, type VerifyHooks } from './bench-screen';
 import { benchPairs } from './od-pairs';
 
 import '../theme/base.css';
@@ -46,6 +48,10 @@ const transit = new TransitApiClient({
   transitClient: createTransitClient(),
   transitBaseUrl: appConfig.transitApiBaseUrl,
 });
+
+/// 検索と検索の間の待ち。1検索で十数本を叩くので、直列でも間を置かないと上流
+/// （Transit API・プロキシのレート制限 docs/ops/exact-ab-bench.md）に連続で当たり続ける。
+const pauseBetweenSearchesMs = 3000;
 
 const total = benchPairs.length * benchSlots.length * benchBudgetRatios.length;
 
@@ -71,6 +77,7 @@ const run = (date: Date, hooks: BenchHooks): Promise<void> =>
           ),
           departureAt,
         ),
+      pause: () => new Promise((resolve) => setTimeout(resolve, pauseBetweenSearchesMs)),
       search: async (args) => {
         lastMetrics = null;
         const plan = await routeService.plan(args);
@@ -79,11 +86,21 @@ const run = (date: Date, hooks: BenchHooks): Promise<void> =>
     },
   );
 
+/// 照合する経路の上限。issue の「数本」に合わせ、Transit API への往復も抑える。
+const verifyLimit = 10;
+
+const verify = (records: BenchRecord[], hooks: VerifyHooks): Promise<void> =>
+  runVerify(ridesToVerify(records, verifyLimit), {
+    ...hooks,
+    fetchOptions: async (from, to, at) =>
+      parseGuidancePlan(await transit.fetchGuidanceAt(from, to, at)),
+  });
+
 const container = document.getElementById('root');
 if (container === null) throw new Error('#root が bench.html に見つからない');
 
 createRoot(container).render(
   <StrictMode>
-    <BenchScreen now={() => new Date()} total={total} run={run} />
+    <BenchScreen now={() => new Date()} total={total} run={run} verify={verify} />
   </StrictMode>,
 );

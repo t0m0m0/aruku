@@ -141,6 +141,21 @@ describe('runBench', () => {
     expect(deps.records[1].error).toBeNull();
   });
 
+  it('検索と検索の間に間を置く（最初の検索の前には置かない）', async () => {
+    const events: string[] = [];
+    const deps = fakeDeps({
+      search: async () => {
+        events.push('search');
+        return { plan: planOf([], 40, 48), metrics: new RouteSearchMetrics() };
+      },
+    });
+    deps.pause = async () => {
+      events.push('pause');
+    };
+    await runBench({ ...config, pairs: [pair('p1')], slots: [{ h: 12, m: 0 }] }, deps);
+    expect(events).toEqual(['search', 'pause', 'search']);
+  });
+
   it('止めれば次の検索を起こさない', async () => {
     let stop = false;
     const deps = fakeDeps({ shouldStop: () => stop });

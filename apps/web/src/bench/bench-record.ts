@@ -13,8 +13,8 @@ export interface BenchRide {
   fromLng: number | null;
   toLat: number | null;
   toLng: number | null;
-  /// JST の壁時計（`YYYY-MM-DDTHH:mm`）。照合で Transit API へ
-  /// そのまま渡す。
+  /// JST の壁時計（`YYYY-MM-DDTHH:mm`）。照合（ab-verify.ts）がこの時刻で Transit API を
+  /// 引き直す。
   dep: string | null;
   arr: string | null;
 }

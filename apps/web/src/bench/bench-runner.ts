@@ -35,12 +35,15 @@ export interface BenchDeps {
   write(record: BenchRecord): void;
   shouldStop(): boolean;
   onProgress?(done: number, total: number): void;
+  /// 検索と検索の間の待ち。
+  pause?(): Promise<void>;
 }
 
 export async function runBench(config: BenchConfig, deps: BenchDeps): Promise<void> {
   const total = config.pairs.length * config.slots.length * config.ratios.length;
   const date = wallClockDate(config.date);
   let done = 0;
+  let searched = false;
   for (const pair of config.pairs) {
     for (const slot of config.slots) {
       if (deps.shouldStop()) return;
@@ -73,7 +76,9 @@ export async function runBench(config: BenchConfig, deps: BenchDeps): Promise<vo
           deps.onProgress?.(++done, total);
           continue;
         }
+        if (searched) await deps.pause?.();
         if (deps.shouldStop()) return;
+        searched = true;
         const budgetMin = budgetFor(standardMin, ratio);
         const { departure, arrival } = timeValuesFor(config.dayOffset, slot, budgetMin);
         const record: BenchRecord = {

@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import type { VerifyResult } from './ab-verify';
 import { nextWeekday } from './bench-cases';
 import { wallClockDate, type BenchRecord } from './bench-record';
 
@@ -14,16 +15,24 @@ export interface BenchHooks {
   shouldStop(): boolean;
 }
 
+export interface VerifyHooks {
+  write(result: VerifyResult): void;
+  shouldStop(): boolean;
+}
+
 export interface BenchScreenProps {
   now: () => Date;
   total: number;
   run(date: Date, hooks: BenchHooks): Promise<void>;
+  /// 厳密走査が勝った経路の便を Transit API で照合する（src/bench/ab-verify.ts）。
+  verify(records: BenchRecord[], hooks: VerifyHooks): Promise<void>;
 }
 
-export function BenchScreen({ now, total, run }: BenchScreenProps) {
+export function BenchScreen({ now, total, run, verify }: BenchScreenProps) {
   const [date, setDate] = useState(() => wallClockDate(nextWeekday(now())));
   const [records, setRecords] = useState<BenchRecord[]>([]);
   const [done, setDone] = useState(0);
+  const [verified, setVerified] = useState<VerifyResult[]>([]);
   const [running, setRunning] = useState(false);
   const stopRef = useRef(false);
   const mountedRef = useRef(true);
@@ -52,16 +61,19 @@ export function BenchScreen({ now, total, run }: BenchScreenProps) {
     if (mountedRef.current) setRunning(false);
   };
 
-  const jsonl = records.map((r) => JSON.stringify(r)).join('\n');
-
-  const download = (): void => {
-    const url = URL.createObjectURL(new Blob([`${jsonl}\n`], { type: 'application/x-ndjson' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `aruku-ab-${date}.jsonl`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const startVerify = async (): Promise<void> => {
+    stopRef.current = false;
+    setVerified([]);
+    setRunning(true);
+    await verify(records, {
+      write: (r) => setVerified((vs) => [...vs, r]),
+      shouldStop: () => stopRef.current,
+    });
+    if (mountedRef.current) setRunning(false);
   };
+
+  const jsonl = records.map((r) => JSON.stringify(r)).join('\n');
+  const verifyJsonl = verified.map((r) => JSON.stringify(r)).join('\n');
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-4 p-4">
@@ -97,11 +109,27 @@ export function BenchScreen({ now, total, run }: BenchScreenProps) {
         </button>
         <button
           type="button"
+          disabled={running || records.length === 0}
+          onClick={() => void startVerify()}
+          className="border px-3 py-1"
+        >
+          照合
+        </button>
+        <button
+          type="button"
           disabled={records.length === 0}
-          onClick={download}
+          onClick={() => download(jsonl, `aruku-ab-${date}.jsonl`)}
           className="border px-3 py-1"
         >
           JSONL を保存
+        </button>
+        <button
+          type="button"
+          disabled={verified.length === 0}
+          onClick={() => download(verifyJsonl, `aruku-ab-verify-${date}.jsonl`)}
+          className="border px-3 py-1"
+        >
+          照合 JSONL を保存
         </button>
       </div>
       <p>{`${done} / ${total}`}</p>
@@ -109,6 +137,19 @@ export function BenchScreen({ now, total, run }: BenchScreenProps) {
         JSONL
         <textarea readOnly value={jsonl} rows={16} className="border p-2 font-mono text-xs" />
       </label>
+      <label className="flex flex-col gap-1">
+        照合 JSONL
+        <textarea readOnly value={verifyJsonl} rows={6} className="border p-2 font-mono text-xs" />
+      </label>
     </main>
   );
+}
+
+function download(text: string, filename: string): void {
+  const url = URL.createObjectURL(new Blob([`${text}\n`], { type: 'application/x-ndjson' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
