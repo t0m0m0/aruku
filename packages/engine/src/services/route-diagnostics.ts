@@ -302,7 +302,8 @@ export class RouteSearchMetrics {
   /// バス last-resort 再照会で**なお直列に待った**時間。
   busLastResortMs = 0;
 
-  /// 確定候補の駅名確定（`_finalizeStationNames`）に掛かった実時間。
+  /// 確定候補の駅名確定（`_finalizeStationNames`）に掛かった実時間。A/B モード（#462）では
+  /// A の確定候補の復元（B の復元は [abMs]）。
   finalizeMs = 0;
 
   /// `plan` 入口〜確定までの全体実時間。
@@ -357,8 +358,8 @@ export class RouteSearchMetrics {
   /// A の [boardSearchMs] から推定する。null は B を選び直していない（1行ログでは -1）。
   collapseB: boolean | null = null;
 
-  /// B の実時間（A を終えた時点でなお残っていた厳密走査の待ちと、選び直し）。[totalMs] に
-  /// 含まれるので、A だけの所要は差で出す。
+  /// B の実時間（A を終えた時点でなお残っていた厳密走査の待ち・選び直し・B の駅名復元）。
+  /// [totalMs] に含まれるので、A だけの所要は差で出す。
   abMs = 0;
 
   /// 時刻表の路線で1回乗車が成立した検索か（#462）。A/B の効果の分母。

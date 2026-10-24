@@ -12,7 +12,7 @@ import {
 } from '../models/route-plan';
 import type { TimeValue } from '../models/time-value';
 import { decodePolyline } from '../polyline';
-import { startedStopwatch } from '../stopwatch';
+import { startedStopwatch, type Stopwatch } from '../stopwatch';
 import { dateTime, seconds, type Duration } from '../time';
 import { SearchCanceledException, type CancellationToken } from './cancellation';
 import {
@@ -798,12 +798,18 @@ export class TransitRouteService implements SearchEngine {
       this.diag.log(() => '投機 board-search 空振り: collapse=false → 打ち切り');
     }
 
+    let abSw: Stopwatch | null = null;
     if (this.exactWalkMaxAb) {
       // B（#462）。A の最終候補プールに厳密走査の候補を足して選び直す。A が投げた要求は
       // 上流へ投げ直さず A の結末（失敗を含む）を使う＝差は厳密走査の候補だけから来る。
       // 台帳は分ける——同じ台帳に積むと enrich の内訳が A の実測でなくなる。
       metrics.walkA = selected.enriched.walkMinutes;
-      const abSw = startedStopwatch();
+      // A の駅名復元も A の工程として先に済ませる。B の勝者だけを復元すると、A の所要
+      // （totalMs − abMs）からこの往復が抜け、代わりに B の復元が入る。結果は使わない。
+      const finalizeASw = startedStopwatch();
+      await this.finalizeStationNames(selected.enriched, departureAt);
+      metrics.finalizeMs = finalizeASw.elapsedMilliseconds;
+      abSw = startedStopwatch();
       const heldExact = ctx.exactWave === null ? [] : await takeExact(ctx.exactWave);
       this.api.startReplay();
       selected = await this.selectAndEnrich(
@@ -821,7 +827,6 @@ export class TransitRouteService implements SearchEngine {
           prefetchBus,
         },
       );
-      metrics.abMs = abSw.elapsedMilliseconds;
       metrics.walkB = selected.enriched.walkMinutes;
       // B の勝者が厳密走査の候補でなければ B は A と同じ経路なので、崩壊も A のまま。
       // 勝者で判定し直すと、A の board-search が解いた崩壊を厳密走査の手柄に数える。
@@ -851,7 +856,9 @@ export class TransitRouteService implements SearchEngine {
 
     const finalizeSw = startedStopwatch();
     const named = await this.finalizeStationNames(selected.enriched, departureAt);
-    metrics.finalizeMs = finalizeSw.elapsedMilliseconds;
+    // A/B モードの finalizeMs は A の駅名復元。B の復元は abMs に入れる。
+    if (abSw === null) metrics.finalizeMs = finalizeSw.elapsedMilliseconds;
+    else metrics.abMs = abSw.elapsedMilliseconds;
     // 定性ログ（下の FINAL）は debug 限定なので、profile の計測では最終徒歩が読めない。
     metrics.finalWalkMinutes = named.walkMinutes;
     // 空振りの対価は**最後に読む**（#341）。打ち切りは新ラウンドを止めるだけなので、

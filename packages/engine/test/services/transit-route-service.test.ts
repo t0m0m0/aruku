@@ -7389,6 +7389,45 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
       expect(rides(plan)).toEqual(['厳密線']);
     });
 
+    it('A の駅名復元は A の所要に入り、B の駅名復元は abMs に入る', async () => {
+      // A の勝者（コリドー上のハイブリッド）は駅名を持たず、駅名復元で guidance を引く。
+      // B の勝者（厳密走査の候補）は駅名を持つので引かない。A の駅名復元を飛ばすと、
+      // 「厳密走査なし」の A の所要からその往復が抜ける。
+      let captured: RouteSearchMetrics | null = null;
+      let departures = 0;
+      const client = mockClient(async (url) => {
+        const path = url.pathname;
+        if (path.includes('exactWalkMax')) return json(winning());
+        if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+        if (path.includes('googleWalkProxy')) return walkFor(url);
+        if (path.includes('guidance/plan')) {
+          await delay(30);
+          const body = guidance([familyA(), familyB()]);
+          // 初回の2波より後の引き直しは駅名を欠く（駅名が付かないまま確定する経路）。
+          const first =
+            url.searchParams.get('type') === 'arrival' || departures++ === 0;
+          return first
+            ? json(body)
+            : json(JSON.parse(JSON.stringify(body).replace(/"name":"[^"]*"/g, '"name":""')));
+        }
+        return json({}, 404);
+      });
+      await service(client, {
+        exactWalkMaxAb: true,
+        onMetrics: (m) => (captured = m),
+      }).plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 10, m: 40 }),
+        origin: o,
+        originName: '出発',
+      });
+      const m = captured! as RouteSearchMetrics;
+      expect(m.exactWon, '前提: B は厳密走査の候補').toBe(true);
+      expect(m.finalizeMs, 'A の駅名復元（guidance 1往復）を測っている').toBeGreaterThanOrEqual(25);
+    });
+
     it('A/B モードでなければ walkA・walkB は -1、collapseB は null', async () => {
       let captured: RouteSearchMetrics | null = null;
       await service(exactMock({ onExact: () => json(winning()) }), {
