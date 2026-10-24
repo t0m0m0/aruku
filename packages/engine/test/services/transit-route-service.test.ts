@@ -1519,6 +1519,30 @@ describe('plan: 乗車駅探索の実測駆動（#137 主因）', () => {
     ).toBeLessThanOrEqual(m.boardSearchRounds);
   });
 
+  it('A/B 計測 (#462): A の board-search が崩壊を解いても、厳密走査の手柄にしない', async () => {
+    // この fixture は board-search の候補が勝つ。厳密走査は 404（候補なし）なので、B の
+    // 勝者も同じ board-search の候補で、崩壊を解いたのは board-search。勝者で判定し直すと
+    // collapseB=0 になり、集計が board-search の時間を厳密走査の手柄として差し引く。
+    let captured: RouteSearchMetrics | null = null;
+    const svc = service(inflatedFromMock(), {
+      exactWalkMaxAb: true,
+      onMetrics: (m) => (captured = m),
+    });
+    await svc.plan({
+      destination: '目的駅',
+      destinationLatLng: goal3,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 10, m: 30 }),
+      origin: origin3,
+      originName: '出発',
+    });
+    const m = captured! as RouteSearchMetrics;
+    expect(m.collapseFired, '前提: A は崩壊する').toBe(true);
+    expect(m.boardSearchWinnerRound, '前提: board-search の候補が勝つ').toBeGreaterThanOrEqual(1);
+    expect(m.exactWon).toBe(false);
+    expect(m.collapseB).toBe(true);
+  });
+
   it('プローブ内の「徒歩実測→引き直し」の直列を、同一 run の反実仮想として計上する', async () => {
     // 直列を解く改修（matrix が既に測った t1 で boardAt を組み、徒歩実測をジオメトリ用に
     // 並行させる）が何秒縮めるかを、実装前に判定するための計上。上流のばらつきは
@@ -4269,6 +4293,49 @@ describe('plan: 時刻なしハイブリッドの実発車時刻検証（approac
     expect(m.bestEffortCandidates).toBeGreaterThan(0);
     // 遅延を注入したモックなので、配線されていれば必ず 1ms 以上が乗る。
     expect(m.bestEffortMs).toBeGreaterThan(0);
+  });
+
+  it('A/B 計測 (#462): A が縮退へ落ちても、B は A の実時刻解決を引き直さない', async () => {
+    // 縮退（bestEffortResolved）は enrich のキャッシュを通らず、プール全体の時刻なし区間を
+    // 引き直す。B がもう一度引くと、上流の応答が A と変わり得て、差が厳密走査の候補
+    // だけから来なくなる。
+    const guidanceCalls = async (exactWalkMaxAb: boolean) => {
+      const log: URL[] = [];
+      const night = nightMock();
+      const client: HttpClient = {
+        get: (url) => {
+          log.push(url);
+          return night.get(url);
+        },
+        close: () => night.close(),
+      };
+      let captured: RouteSearchMetrics | null = null;
+      await new TransitRouteService({
+        transitClient: client,
+        proxyClient: client,
+        transitBaseUrl: transitBase,
+        proxyBaseUrl: proxyBase,
+        clock: () => dateTime(2026, 6, 27, 2, 0),
+        exactWalkMaxAb,
+        onMetrics: (m) => (captured = m),
+      }).plan({
+        destination: '終着駅',
+        destinationLatLng: goal6,
+        departure: new TimeValue({ h: 2, m: 0 }),
+        arrival: new TimeValue({ h: 2, m: 50 }), // 予算50分＝予算内皆無で縮退へ落ちる
+        origin: origin6,
+        originName: '出発',
+      });
+      return {
+        calls: log.filter((u) => u.pathname.includes('guidance/plan')).length,
+        m: captured! as RouteSearchMetrics,
+      };
+    };
+    const plain = await guidanceCalls(false);
+    const ab = await guidanceCalls(true);
+    expect(plain.m.bestEffortEntries, '前提: 縮退へ落ちる').toBeGreaterThan(0);
+    expect(ab.calls).toEqual(plain.calls);
+    expect(ab.m.walkB).toEqual(ab.m.walkA);
   });
 
   it('実測が例外で落ちた候補も enrich 台帳へ計上する (#309)', async () => {

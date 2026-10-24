@@ -430,6 +430,12 @@ export class TransitRouteService implements SearchEngine {
     const measured = new Map<string, number>();
     // 候補の実測（enrich 徒歩＋実発車時刻解決）を identity で畳むキャッシュ（#315）。
     const enrichedCache = new Map<RouteCandidate, RouteCandidate>();
+    // A/B 計測（#462）の B が、A の縮退で引いた実時刻を引き直さないための記録。A は記録
+    // するだけで読まない——読むと A の縮退が2回目に入ったときの挙動が今と変わる。
+    const boardingResolutions: BoardingResolutions = {
+      byCandidate: new Map(),
+      reuse: false,
+    };
 
     // ハイブリッド候補（コリドー実測由来）の identity 集合。予算内にこれが多いほど
     // reject 多発＝先行実測を短リスト全体へ広げる（Option A・#318）。
@@ -656,6 +662,7 @@ export class TransitRouteService implements SearchEngine {
       bestEffortLedger,
       lastResortBus,
       prefetchBus,
+      boardingResolutions: this.exactWalkMaxAb ? boardingResolutions : undefined,
     });
     // 崩壊後の再選定でも enrich は走り、その費用は同じ台帳へ積まれる。ここで時計を
     // 止めっぱなしにすると、台帳が覆う区間より enrichMs が短くなり計上外の残りが負に化ける。
@@ -768,6 +775,7 @@ export class TransitRouteService implements SearchEngine {
             bestEffortLedger,
             lastResortBus,
             prefetchBus,
+            boardingResolutions: this.exactWalkMaxAb ? boardingResolutions : undefined,
           },
         );
         enrichSw.stop();
@@ -814,18 +822,21 @@ export class TransitRouteService implements SearchEngine {
           bestEffortLedger: new BestEffortLedger(),
           lastResortBus,
           prefetchBus,
+          boardingResolutions: { ...boardingResolutions, reuse: true },
         },
       );
       metrics.abMs = abSw.elapsedMilliseconds;
       metrics.walkB = selected.enriched.walkMinutes;
-      metrics.collapseB =
-        (base !== null || busBase !== null) &&
-        this.isCollapse(
-          selected.chosen,
-          busOptions === null ? options : [...options, ...(busOptions as TransitOption[])],
-          budgetMin,
-          departureAt,
-        );
+      // B の勝者が厳密走査の候補でなければ B は A と同じ経路なので、崩壊も A のまま。
+      // 勝者で判定し直すと、A の board-search が解いた崩壊を厳密走査の手柄に数える。
+      metrics.collapseB = fromExact.has(selected.chosen)
+        ? this.isCollapse(
+            selected.chosen,
+            busOptions === null ? options : [...options, ...(busOptions as TransitOption[])],
+            budgetMin,
+            departureAt,
+          )
+        : collapse;
       this.diag.log(
         () =>
           `A/B: walkA=${metrics.walkA}m walkB=${metrics.walkB}m ` +
@@ -1223,6 +1234,7 @@ export class TransitRouteService implements SearchEngine {
       bestEffortLedger: BestEffortLedger;
       lastResortBus?: () => Promise<RouteCandidate[]>;
       prefetchBus?: () => void;
+      boardingResolutions?: BoardingResolutions;
     },
   ): Promise<Selection> {
     const { origin, goal, walkCache, enrichedCache, enrichLedger, bestEffortLedger } =
@@ -1247,6 +1259,7 @@ export class TransitRouteService implements SearchEngine {
         departureAt,
         walkCache,
         bestEffortLedger,
+        ctx.boardingResolutions,
       );
       const segs = fallback.enriched.segments;
       const arrival = arrivalMinutes(segs, departureAt);
@@ -1282,6 +1295,7 @@ export class TransitRouteService implements SearchEngine {
           enrichedCache,
           enrichLedger,
           bestEffortLedger,
+          boardingResolutions: ctx.boardingResolutions,
         },
       );
     };
@@ -1390,6 +1404,7 @@ export class TransitRouteService implements SearchEngine {
     departureAt: Date,
     walkCache: WalkLegCache,
     ledger: BestEffortLedger,
+    resolutions?: BoardingResolutions,
   ): Promise<Selection> {
     ledger.enter();
     const sw = startedStopwatch();
@@ -1397,11 +1412,16 @@ export class TransitRouteService implements SearchEngine {
     // 後続区間の boardAt が前区間の解決済み実乗車時間に依存するため直列のまま。
     const depths = new Array<number>(candidates.length).fill(0);
     const resolved = await Promise.all(
-      candidates.map((c, i) =>
-        this.resolveBoardingTimes(c, departureAt, () => {
+      candidates.map(async (c, i) => {
+        const reused =
+          resolutions?.reuse === true ? resolutions.byCandidate.get(c) : undefined;
+        if (reused !== undefined) return reused;
+        const r = await this.resolveBoardingTimes(c, departureAt, () => {
           depths[i]++;
-        }),
-      ),
+        });
+        resolutions?.byCandidate.set(c, r);
+        return r;
+      }),
     );
     ledger.recordPool({
       candidates: candidates.length,
@@ -2418,6 +2438,13 @@ export class TransitRouteService implements SearchEngine {
       t.m,
     );
   }
+}
+
+/// 縮退（`bestEffortResolved`）が候補ごとに引いた実時刻の記録（#462 の A/B 計測）。
+/// `reuse` が真なら、記録済みの候補は上流を引き直さずに使う。
+interface BoardingResolutions {
+  byCandidate: Map<RouteCandidate, RouteCandidate>;
+  reuse: boolean;
 }
 
 /// 乗車駅探索・ハイブリッドの候補点。コリドー座標（停車駅 or 線路点）から作る。
