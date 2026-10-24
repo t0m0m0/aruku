@@ -228,6 +228,26 @@ describe('createRouteService', () => {
     );
   });
 
+  it('A/B 計測モードでも検索の入口で厳密走査を叩く (#462)', async () => {
+    const urls: string[] = [];
+    const service = createRouteService({
+      transitBaseUrl: 'https://api.transit.example',
+      proxyBaseUrl: 'https://proxy.example',
+      appCheck,
+      exactWalkMaxAb: true,
+      fetch: async (url) => {
+        urls.push(String(url));
+        return new Response('{}', { status: 200 });
+      },
+    });
+
+    await service.plan(planArgs).catch(() => {});
+
+    expect(urls.some((u) => u.startsWith('https://proxy.example/exactWalkMax?'))).toBe(
+      true,
+    );
+  });
+
   it('既定では厳密走査を叩かない (#460)', async () => {
     const urls: string[] = [];
     await build(async (url) => {
