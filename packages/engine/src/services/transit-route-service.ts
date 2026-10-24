@@ -295,7 +295,7 @@ export class TransitRouteService implements SearchEngine {
         arrivalWaveOptions: new Set(wave.fresh),
         exactWave: exactGraced,
         // 第2波を混ぜない。締切から逆算した便は、ふつうに検索して出る経路ではない。
-        standardTransit: this.standardTransitOf(options, departureAt),
+        standardTransit: standardTransitSummary(options, departureAt),
       },
     );
 
@@ -430,10 +430,11 @@ export class TransitRouteService implements SearchEngine {
     const measured = new Map<string, number>();
     // 候補の実測（enrich 徒歩＋実発車時刻解決）を identity で畳むキャッシュ（#315）。
     const enrichedCache = new Map<RouteCandidate, RouteCandidate>();
-    // A/B 計測（#462）の B が、A の縮退で引いた実時刻を引き直さないための記録。A は記録
+    // A/B 計測（#462）の B が、A の縮退で引いた実時刻と徒歩を引き直さないための記録。A は記録
     // するだけで読まない——読むと A の縮退が2回目に入ったときの挙動が今と変わる。
     const boardingResolutions: BoardingResolutions = {
       byCandidate: new Map(),
+      enrichedFallbacks: new Map(),
       reuse: false,
     };
 
@@ -1431,7 +1432,10 @@ export class TransitRouteService implements SearchEngine {
     let pool = verified.length > 0 ? verified : resolved;
     for (;;) {
       const fallback = bestEffort(pool, budgetMin, departureAt);
-      const enriched = await this.enrichWalkGeometry(fallback, walkCache);
+      const reusedWalk =
+        resolutions?.reuse === true ? resolutions.enrichedFallbacks.get(fallback) : undefined;
+      const enriched = reusedWalk ?? (await this.enrichWalkGeometry(fallback, walkCache));
+      resolutions?.enrichedFallbacks.set(fallback, enriched);
       const missed = firstMissedTransit(enriched.segments, departureAt) !== null;
       // 予算超過では除外しない：best-effort は「予算内が無いとき」の縮退先なので、超過は
       // 想定内で最早到着こそが選定基準。乗り遅れ（＝そもそも乗れない）だけを除外する。
@@ -2242,44 +2246,12 @@ export class TransitRouteService implements SearchEngine {
   /// 判定に [hasUnverifiedTransit] を使わないのは、あれが「その便が走っているか」だけを
   /// 問う（depTime のみ見る）から。**必要なのは実在の確認ではなく、到着を計算できることの確認。**
   private comparableFrom(options: TransitOption[], at: Date): TransitOption[] {
-    const comparable = options.filter((o) => this.isComparable(o, at));
+    const comparable = options.filter((o) => isComparableOption(o, at));
     if (comparable.length > 0) return comparable;
     // 1本も無いときは**先頭だけ**返す（従来の挙動）。全部返して呼び出し側に選ばせると、
     // 到着を信じられないと判定した便をその到着で順位付けすることになり、負の所要で到着が
     // 手前へ戻る便が勝つ——「必ず現状以上」（#343）の保証が破れる。
     return options.length === 0 ? options : [options[0]];
-  }
-
-  /// [comparableFrom] の条件。
-  private isComparable(o: TransitOption, at: Date): boolean {
-    return (
-      o.segments.every(hasUsableTimes) &&
-      firstMissedTransit(o.segments, at) === null
-    );
-  }
-
-  /// ふつうの乗換ルート（#445）＝[at] 発で到着が最も早い、乗り物を含む option の要約。
-  ///
-  /// [earliestArrival] を使わないのは、比べられる便が無いとき先頭へ縮退するから。選定では
-  /// 「必ず現状以上」のための縮退だが、表示の基準に到着を信じられない便を据えると、
-  /// 「ふつうより◯分多く歩ける」の差そのものが作り話になる。
-  private standardTransitOf(
-    options: TransitOption[],
-    at: Date,
-  ): StandardTransitSummary | null {
-    let best: StandardTransitSummary | null = null;
-    for (const o of options) {
-      if (o.segments.every((s) => s.type === SegmentType.walk)) continue;
-      if (!this.isComparable(o, at)) continue;
-      const totalMin = arrivalMinutes(o.segments, at);
-      if (best === null || totalMin < best.totalMin) {
-        best = {
-          walkMinutes: new RouteCandidate(o).walkMinutes,
-          totalMin,
-        };
-      }
-    }
-    return best;
   }
 
   /// 引き直しの応答から、[at] 発で**到着が最も早い** option を選ぶ（同着は上流の並び順）。
@@ -2440,10 +2412,13 @@ export class TransitRouteService implements SearchEngine {
   }
 }
 
-/// 縮退（`bestEffortResolved`）が候補ごとに引いた実時刻の記録（#462 の A/B 計測）。
-/// `reuse` が真なら、記録済みの候補は上流を引き直さずに使う。
+/// 縮退（`bestEffortResolved`）が候補ごとに引いた実時刻と、縮退先の徒歩実測の記録（#462 の
+/// A/B 計測）。`reuse` が真なら、記録済みの候補は上流を引き直さずに使う。徒歩は失敗して
+/// 見積りが残った結果も記録する——徒歩レッグのキャッシュは失敗を残さないので、記録しないと
+/// B の引き直しだけが成功して、厳密走査と無関係な差が出る。
 interface BoardingResolutions {
   byCandidate: Map<RouteCandidate, RouteCandidate>;
+  enrichedFallbacks: Map<RouteCandidate, RouteCandidate>;
   reuse: boolean;
 }
 
@@ -2573,6 +2548,36 @@ function railKm(stops: CorridorStop[], b: number, a: number): number {
     km += haversineKm(stops[i].coord, stops[i + 1].coord);
   }
   return km;
+}
+
+/// [TransitRouteService] の `comparableFrom` の条件。
+function isComparableOption(o: TransitOption, at: Date): boolean {
+  return o.segments.every(hasUsableTimes) && firstMissedTransit(o.segments, at) === null;
+}
+
+/// ふつうの乗換ルート（#445）＝[at] 発で到着が最も早い、乗り物を含む option の要約。
+/// A/B 計測のベンチ（#462）も予算の基準に使うので export している。
+///
+/// `earliestArrival` を使わないのは、比べられる便が無いとき先頭へ縮退するから。選定では
+/// 「必ず現状以上」のための縮退だが、表示の基準に到着を信じられない便を据えると、
+/// 「ふつうより◯分多く歩ける」の差そのものが作り話になる。
+export function standardTransitSummary(
+  options: readonly TransitOption[],
+  at: Date,
+): StandardTransitSummary | null {
+  let best: StandardTransitSummary | null = null;
+  for (const o of options) {
+    if (o.segments.every((s) => s.type === SegmentType.walk)) continue;
+    if (!isComparableOption(o, at)) continue;
+    const totalMin = arrivalMinutes(o.segments, at);
+    if (best === null || totalMin < best.totalMin) {
+      best = {
+        walkMinutes: new RouteCandidate(o).walkMinutes,
+        totalMin,
+      };
+    }
+  }
+  return best;
 }
 
 function hasUsableTimes(s: RouteSegment): boolean {

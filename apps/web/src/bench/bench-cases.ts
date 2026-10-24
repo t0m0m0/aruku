@@ -1,12 +1,8 @@
 // 厳密走査の A/B 計測（#462）で回す検索の条件を組み立てる。
 
 import { TimeValue } from '@aruku/engine/models/time-value';
-import { SegmentType } from '@aruku/engine/models/route-plan';
-import {
-  arrivalMinutes,
-  firstMissedTransit,
-} from '@aruku/engine/services/route-plan-builder';
 import type { TransitOption } from '@aruku/engine/services/transit-plan-parser';
+import { standardTransitSummary } from '@aruku/engine/services/transit-route-service';
 import { dateTime } from '@aruku/engine/time';
 
 export interface BenchSlot {
@@ -23,21 +19,13 @@ export const benchSlots: readonly BenchSlot[] = [
 export const benchBudgetRatios: readonly number[] = [1.2, 1.5, 2];
 
 /// ふつうの乗換ルートの所要（分）。予算の基準。基準にできる option が無ければ null。
-///
-/// 出発時刻から乗れない便は基準にしない——乗れない便の所要を基準にすると、予算が
-/// 実際より短く出て、どの検索も予算外の縮退から始まる。
+/// 結果画面の「ふつうの乗換ルート」と同じ基準（`standardTransitSummary`）を使う——乗れない便や
+/// 発着時刻を欠く便（所要0分に見える）を基準にすると、予算が実際より短く出る。
 export function standardTotalMin(
   options: readonly TransitOption[],
   departureAt: Date,
 ): number | null {
-  let best: number | null = null;
-  for (const o of options) {
-    if (o.segments.every((s) => s.type === SegmentType.walk)) continue;
-    if (firstMissedTransit(o.segments, departureAt) !== null) continue;
-    const total = arrivalMinutes(o.segments, departureAt);
-    if (best === null || total < best) best = total;
-  }
-  return best;
+  return standardTransitSummary(options, departureAt)?.totalMin ?? null;
 }
 
 /// [ratio] 倍の予算を分へ切り上げる。浮動小数の誤差（41×1.2 = 49.199…）で1分ずれない

@@ -4338,6 +4338,48 @@ describe('plan: 時刻なしハイブリッドの実発車時刻検証（approac
     expect(ab.m.walkB).toEqual(ab.m.walkA);
   });
 
+  it('A/B 計測 (#462): A の縮退で落ちた徒歩実測を、B が引き直さない', async () => {
+    // 徒歩レッグのキャッシュは失敗を残さない（一過性の失敗を検索全体へ固定しないため）。
+    // B が引き直すと2回目は成功し得て、A は見積り・B は実測という、厳密走査と無関係な差が
+    // 出る。最初の徒歩実測だけを 429 で落とし、A/B でも徒歩の本数が増えないことを見る。
+    const walkRequests = async (exactWalkMaxAb: boolean): Promise<number> => {
+      let walks = 0;
+      const night = nightMock();
+      const client: HttpClient = {
+        get: (url) => {
+          if (url.pathname.includes('googleWalkProxy') && walks++ === 0) {
+            return Promise.resolve(json({}, 429));
+          }
+          return night.get(url);
+        },
+        close: () => night.close(),
+      };
+      let captured: RouteSearchMetrics | null = null;
+      await new TransitRouteService({
+        transitClient: client,
+        proxyClient: client,
+        transitBaseUrl: transitBase,
+        proxyBaseUrl: proxyBase,
+        clock: () => dateTime(2026, 6, 27, 2, 0),
+        exactWalkMaxAb,
+        onMetrics: (m) => (captured = m),
+      }).plan({
+        destination: '終着駅',
+        destinationLatLng: goal6,
+        departure: new TimeValue({ h: 2, m: 0 }),
+        arrival: new TimeValue({ h: 2, m: 50 }), // 予算50分＝予算内皆無で縮退へ落ちる
+        origin: origin6,
+        originName: '出発',
+      });
+      expect((captured! as RouteSearchMetrics).bestEffortEntries, '前提: 縮退へ落ちる')
+        .toBeGreaterThan(0);
+      return walks;
+    };
+    const plain = await walkRequests(false);
+    expect(plain, '前提: 縮退の徒歩実測が走る').toBeGreaterThan(0);
+    expect(await walkRequests(true)).toEqual(plain);
+  });
+
   it('実測が例外で落ちた候補も enrich 台帳へ計上する (#309)', async () => {
     // 壊れた応答で落ちた候補も、await した壁時計は払っている。計上しないと
     // 「上流が壊れているときほど臨界パスが小さく出る」逆向きの歪みが入る。

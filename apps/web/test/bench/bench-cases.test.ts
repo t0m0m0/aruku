@@ -50,6 +50,16 @@ describe('standardTotalMin: ふつうの乗換ルートの所要（予算の基�
     expect(standardTotalMin([missed, ride], departureAt)).toEqual(45);
   });
 
+  it('発着時刻を欠く電車の option は基準にしない（所要0分の便が予算を潰さない）', () => {
+    const untimed = option(
+      walk(1),
+      new RouteSegment({ type: SegmentType.train, fromName: 'A駅', toName: 'B駅', minutes: 0 }),
+      walk(1),
+    );
+    const ride = option(walk(5), train([12, 10], [12, 40]), walk(5));
+    expect(standardTotalMin([untimed, ride], departureAt)).toEqual(45);
+  });
+
   it('基準にできる option が無ければ null', () => {
     expect(standardTotalMin([option(walk(20))], departureAt)).toBeNull();
   });
