@@ -32,6 +32,10 @@ export interface RideToVerify {
   ride: BenchRide;
 }
 
+/// 引き直す時刻を発車より何分前にするか。ちょうど発車時刻で引くと、照会の座標（時刻表の
+/// 停留所）からホームまでの徒歩ぶん間に合わず、次の便が返り得る。
+const queryLeadMin = 5;
+
 /// 到着の許容（分）。発車は同じ分を要求する——便の同一性は発車で決まり、到着だけ
 /// 緩めるのは、データ源ごとに到着の丸め（着時刻と発時刻のどちらを載せるか）が違うため。
 const arrivalToleranceMin = 2;
@@ -114,7 +118,7 @@ export async function runVerify(
       const options = await deps.fetchOptions(
         new GeoPoint(ride.fromLat!, ride.fromLng!),
         new GeoPoint(ride.toLat!, ride.toLng!),
-        parseWallClock(ride.dep!),
+        new Date(parseWallClock(ride.dep!).getTime() - queryLeadMin * 60000),
       );
       deps.write({ ...base, ...matchRide(ride, options), error: null });
     } catch (error) {

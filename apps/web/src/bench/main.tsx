@@ -18,7 +18,6 @@ import { createRouteService, createTransitClient } from '../search/route-service
 import {
   benchBudgetRatios,
   benchSlots,
-  dayOffsetBetween,
   standardTotalMin,
 } from './bench-cases';
 import { ridesToVerify, runVerify } from './ab-verify';
@@ -62,7 +61,7 @@ const run = (date: Date, hooks: BenchHooks): Promise<void> =>
       slots: benchSlots,
       ratios: benchBudgetRatios,
       date,
-      dayOffset: dayOffsetBetween(new Date(), date),
+      now: () => new Date(),
     },
     {
       ...hooks,

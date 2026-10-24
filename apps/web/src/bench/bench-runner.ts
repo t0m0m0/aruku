@@ -9,7 +9,7 @@ import type { RouteSearchMetrics } from '@aruku/engine/services/route-diagnostic
 import type { PlanArgs } from '@aruku/engine/services/route-service';
 import { dateTime } from '@aruku/engine/time';
 
-import { budgetFor, timeValuesFor, type BenchSlot } from './bench-cases';
+import { budgetFor, dayOffsetBetween, timeValuesFor, type BenchSlot } from './bench-cases';
 import {
   parseMetricsLine,
   summarizePlan,
@@ -24,8 +24,10 @@ export interface BenchConfig {
   readonly ratios: readonly number[];
   /// 走らせる日（壁時計の日付だけを使う）。
   readonly date: Date;
-  /// 今日から [date] までの日数（`TimeValue.dateOffset`）。
-  readonly dayOffset: number;
+  /// 今の時刻。エンジンは出発日を検索ごとに「今日 + `dateOffset`」で決めるので、
+  /// offset も検索ごとにこれから出す——開始時に1回だけ決めると、0時を跨いだ後の
+  /// 検索が1日ずれる。
+  readonly now: () => Date;
 }
 
 export interface BenchDeps {
@@ -80,7 +82,11 @@ export async function runBench(config: BenchConfig, deps: BenchDeps): Promise<vo
         if (deps.shouldStop()) return;
         searched = true;
         const budgetMin = budgetFor(standardMin, ratio);
-        const { departure, arrival } = timeValuesFor(config.dayOffset, slot, budgetMin);
+        const { departure, arrival } = timeValuesFor(
+          dayOffsetBetween(config.now(), config.date),
+          slot,
+          budgetMin,
+        );
         const record: BenchRecord = {
           ...base,
           ratio,

@@ -22,7 +22,7 @@ const config = {
   ],
   ratios: [1.2, 2],
   date: new Date(2026, 9, 27),
-  dayOffset: 3,
+  now: () => new Date(2026, 9, 24, 23, 0),
 };
 
 function fakeDeps(o: {
@@ -154,6 +154,21 @@ describe('runBench', () => {
     };
     await runBench({ ...config, pairs: [pair('p1')], slots: [{ h: 12, m: 0 }] }, deps);
     expect(events).toEqual(['search', 'pause', 'search']);
+  });
+
+  it('日付を跨いで回り続けても、選んだ日のまま検索する', async () => {
+    // エンジンは出発日を検索ごとに「今日 + dateOffset」で決めるので、offset を開始時に
+    // 1回だけ決めると、0時を過ぎた後の検索が1日ずれる。
+    let clock = new Date(2026, 9, 26, 23, 59);
+    const deps = fakeDeps();
+    const search = deps.search;
+    deps.search = async (args) => {
+      const r = await search(args);
+      clock = new Date(2026, 9, 27, 0, 1);
+      return r;
+    };
+    await runBench({ ...config, now: () => clock }, deps);
+    expect(deps.searches.map((a) => a.departure.dateOffset).slice(0, 2)).toEqual([1, 0]);
   });
 
   it('止めれば次の検索を起こさない', async () => {

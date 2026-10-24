@@ -104,7 +104,8 @@ describe('runVerify', () => {
     error: null,
   };
 
-  it('乗車駅から降車駅を、その便の発車時刻で引き直す', async () => {
+  it('乗車駅から降車駅を、その便の発車の少し前から引き直す', async () => {
+    // ちょうど発車時刻で引くと、座標からホームまでの徒歩ぶん遅れて次の便が返り得る。
     const calls: string[] = [];
     const results: VerifyResult[] = [];
     await runVerify([{ record, ride }], {
@@ -115,7 +116,7 @@ describe('runVerify', () => {
       write: (r) => results.push(r),
       shouldStop: () => false,
     });
-    expect(calls).toEqual(['35.6197,139.7283→35.6918,139.7709@12:40']);
+    expect(calls).toEqual(['35.6197,139.7283→35.6918,139.7709@12:35']);
     expect(results[0]).toMatchObject({ pair: 'p1', found: true, error: null });
   });
 
