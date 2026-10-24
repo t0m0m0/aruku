@@ -157,22 +157,41 @@ export function abReport(
     `崩壊が解けた検索（collapse=1 collapseB=0）: ${s.collapseResolved} 件。`,
   ];
   if (verify.length > 0) {
-    const found = verify.filter((v) => v.found).length;
+    const count = (verdict: VerifyResult['verdict']): number =>
+      verify.filter((v) => v.error === null && v.verdict === verdict).length;
     lines.push(
       '',
-      '### Transit API での照合',
+      '### Transit API の発車表での照合',
       '',
-      `厳密走査が勝った経路の便が Transit API にも在った: ${found} / ${verify.length}`,
+      `厳密走査が勝った経路の便が、乗車駅と降車駅の発車表に同じ便で在った（同じ便: ${count('sameTrip')} / ${verify.length}）。`,
+      '',
+      `- 乗車駅の発車だけ一致: ${count('departureOnly')}（降車駅が終点だと、降車駅の発車表に載らない）`,
+      `- 同じ分の便が無い: ${count('missing')}`,
+      `- 発車表なし: ${count('noBoard')}（ODPT 由来のフィードは駅の発車表を公開しない）`,
+      `- 照会失敗: ${verify.filter((v) => v.error !== null).length}`,
       '',
       '| OD | 時間帯 | 区間 | 便 | 結果 |',
       '| --- | --- | --- | --- | --- |',
       ...verify.map(
         (v) =>
-          `| ${v.pair} | ${v.slot} ×${v.ratio} | ${v.from}→${v.to}（${v.line ?? ''}） | ${v.dep ?? ''}→${v.arr?.slice(11) ?? ''} | ${
-            v.error !== null ? `照会失敗: ${v.error}` : v.found ? `在る（${v.matchedLine ?? ''}）` : `無い（${v.seen.join(', ')}）`
-          } |`,
+          `| ${v.pair} | ${v.slot} ×${v.ratio} | ${v.from}→${v.to}（${v.line ?? ''}） | ${v.dep ?? ''}→${v.arr?.slice(11) ?? ''} | ${verdictCell(v)} |`,
       ),
     );
   }
   return `${lines.join('\n')}\n`;
+}
+
+function verdictCell(v: VerifyResult): string {
+  if (v.error !== null) return `照会失敗: ${v.error}`;
+  switch (v.verdict) {
+    case 'sameTrip':
+      return `同じ便（${v.matchedLine ?? ''}）`;
+    case 'departureOnly':
+      return `乗車駅の発車だけ一致（${v.matchedLine ?? ''}）`;
+    case 'missing':
+      return `無い（${v.seen.join(', ')}）`;
+    case 'noBoard':
+    case null:
+      return '発車表なし';
+  }
 }

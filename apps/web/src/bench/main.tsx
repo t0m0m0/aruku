@@ -25,6 +25,7 @@ import { runBench } from './bench-runner';
 import type { BenchRecord } from './bench-record';
 import { BenchScreen, type BenchHooks, type VerifyHooks } from './bench-screen';
 import { benchPairs } from './od-pairs';
+import { transitBoardApi } from './transit-board';
 
 import '../theme/base.css';
 
@@ -88,12 +89,10 @@ const run = (date: Date, hooks: BenchHooks): Promise<void> =>
 /// 照合する経路の上限。issue の「数本」に合わせ、Transit API への往復も抑える。
 const verifyLimit = 10;
 
+const board = transitBoardApi(createTransitClient(), appConfig.transitApiBaseUrl);
+
 const verify = (records: BenchRecord[], hooks: VerifyHooks): Promise<void> =>
-  runVerify(ridesToVerify(records, verifyLimit), {
-    ...hooks,
-    fetchOptions: async (from, to, at) =>
-      parseGuidancePlan(await transit.fetchGuidanceAt(from, to, at)),
-  });
+  runVerify(ridesToVerify(records, verifyLimit), { ...hooks, ...board });
 
 const container = document.getElementById('root');
 if (container === null) throw new Error('#root が bench.html に見つからない');

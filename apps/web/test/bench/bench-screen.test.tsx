@@ -85,7 +85,7 @@ describe('BenchScreen', () => {
       given.push(records);
       const result: VerifyResult = {
         pair: 'p1', slot: '12:00', ratio: 1.2, line: 'x', from: 'a', to: 'b',
-        dep: null, arr: null, found: true, matchedLine: 'x', seen: [], error: null,
+        dep: null, arr: null, verdict: 'sameTrip', matchedLine: 'x', seen: [], error: null,
       };
       hooks.write(result);
     };
@@ -99,7 +99,7 @@ describe('BenchScreen', () => {
     });
     expect(given[0].map((r) => r.pair)).toEqual(['p1']);
     const jsonl = (screen.getByLabelText('照合 JSONL') as HTMLTextAreaElement).value;
-    expect(JSON.parse(jsonl).found).toBe(true);
+    expect(JSON.parse(jsonl).verdict).toEqual('sameTrip');
   });
 
   it('走らせ方が投げても、理由を出して操作を戻す', async () => {
@@ -119,7 +119,7 @@ describe('BenchScreen', () => {
     const verify = async (_records: BenchRecord[], hooks: VerifyHooks): Promise<void> => {
       hooks.write({
         pair: 'p1', slot: '12:00', ratio: 1.2, line: 'x', from: 'a', to: 'b',
-        dep: null, arr: null, found: true, matchedLine: 'x', seen: [], error: null,
+        dep: null, arr: null, verdict: 'sameTrip', matchedLine: 'x', seen: [], error: null,
       });
     };
     render(<BenchScreen now={now} total={120} run={c.run} verify={verify} />);

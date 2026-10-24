@@ -102,15 +102,28 @@ describe('summarize: 完了条件の数字', () => {
 });
 
 describe('abReport', () => {
+  const v = (verdict: VerifyResult['verdict']): VerifyResult => ({
+    pair: 'p', slot: '12:00', ratio: 1.5, line: 'x', from: 'a', to: 'b', dep: 'd', arr: 'e',
+    verdict, matchedLine: null, seen: [], error: null,
+  });
+
   it('Markdown に完了条件の3項目と照合の結果を出す', () => {
     const verify: VerifyResult[] = [
-      { pair: 'p', slot: '12:00', ratio: 1.5, line: 'x', from: 'a', to: 'b', dep: 'd', arr: 'e', found: true, matchedLine: 'x', seen: [], error: null },
-      { pair: 'q', slot: '12:00', ratio: 1.5, line: 'x', from: 'a', to: 'b', dep: 'd', arr: 'e', found: false, matchedLine: null, seen: [], error: null },
+      v('sameTrip'),
+      v('sameTrip'),
+      v('departureOnly'),
+      v('missing'),
+      v('noBoard'),
+      { ...v(null), error: 'HTTP 429' },
     ];
     const md = abReport([rec({ m: { walkB: 50, exactWon: 1 } })], verify);
     expect(md).toContain('徒歩の増分');
     expect(md).toContain('乗り遅れ・予算超過');
     expect(md).toContain('totalMs');
-    expect(md).toContain('1 / 2');
+    expect(md).toContain('同じ便: 2 / 6');
+    expect(md).toContain('乗車駅の発車だけ一致: 1');
+    expect(md).toContain('同じ分の便が無い: 1');
+    expect(md).toContain('発車表なし: 1');
+    expect(md).toContain('照会失敗: 1');
   });
 });
