@@ -82,11 +82,6 @@ export async function runBench(config: BenchConfig, deps: BenchDeps): Promise<vo
         if (deps.shouldStop()) return;
         searched = true;
         const budgetMin = budgetFor(standardMin, ratio);
-        const { departure, arrival } = timeValuesFor(
-          dayOffsetBetween(config.now(), config.date),
-          slot,
-          budgetMin,
-        );
         const record: BenchRecord = {
           ...base,
           ratio,
@@ -97,6 +92,13 @@ export async function runBench(config: BenchConfig, deps: BenchDeps): Promise<vo
           error: null,
         };
         try {
+          // 今日より前の日は TimeValue が投げる（dateOffset < 0）。try の外で組むと、
+          // 計測全体が理由を残さずに落ちる。
+          const { departure, arrival } = timeValuesFor(
+            dayOffsetBetween(config.now(), config.date),
+            slot,
+            budgetMin,
+          );
           const { plan, metrics } = await deps.search({
             destination: pair.destination.name,
             destinationLatLng: new GeoPoint(pair.destination.lat, pair.destination.lng),

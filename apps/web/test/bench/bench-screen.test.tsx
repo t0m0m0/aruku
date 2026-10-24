@@ -101,4 +101,36 @@ describe('BenchScreen', () => {
     const jsonl = (screen.getByLabelText('照合 JSONL') as HTMLTextAreaElement).value;
     expect(JSON.parse(jsonl).found).toBe(true);
   });
+
+  it('走らせ方が投げても、理由を出して操作を戻す', async () => {
+    const run = async (): Promise<void> => {
+      throw new Error('boom');
+    };
+    render(<BenchScreen now={now} total={120} run={run} verify={noVerify} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '開始' }));
+    });
+    expect(screen.getByRole('alert').textContent).toContain('boom');
+    expect(screen.getByRole('button', { name: '開始' })).toHaveProperty('disabled', false);
+  });
+
+  it('新しく走らせると、前の回の照合結果を消す', async () => {
+    const c = controllableRun();
+    const verify = async (_records: BenchRecord[], hooks: VerifyHooks): Promise<void> => {
+      hooks.write({
+        pair: 'p1', slot: '12:00', ratio: 1.2, line: 'x', from: 'a', to: 'b',
+        dep: null, arr: null, found: true, matchedLine: 'x', seen: [], error: null,
+      });
+    };
+    render(<BenchScreen now={now} total={120} run={c.run} verify={verify} />);
+    fireEvent.click(screen.getByRole('button', { name: '開始' }));
+    act(() => c.hooks().write(record('p1')));
+    await act(async () => c.finish());
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '照合' }));
+    });
+    fireEvent.click(screen.getByRole('button', { name: '開始' }));
+    expect((screen.getByLabelText('照合 JSONL') as HTMLTextAreaElement).value).toEqual('');
+    await act(async () => c.finish());
+  });
 });

@@ -34,6 +34,7 @@ export function BenchScreen({ now, total, run, verify }: BenchScreenProps) {
   const [done, setDone] = useState(0);
   const [verified, setVerified] = useState<VerifyResult[]>([]);
   const [running, setRunning] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   const stopRef = useRef(false);
   const mountedRef = useRef(true);
 
@@ -47,29 +48,43 @@ export function BenchScreen({ now, total, run, verify }: BenchScreenProps) {
     };
   }, []);
 
-  const start = async (): Promise<void> => {
+  /// 投げても操作を戻す。戻さないと開始・日付が押せないまま固まり、何が起きたかも出ない。
+  const guarded = async (task: () => Promise<void>): Promise<void> => {
     stopRef.current = false;
-    setRecords([]);
-    setDone(0);
+    setFailure(null);
     setRunning(true);
-    const [y, m, d] = date.split('-').map(Number);
-    await run(new Date(y, m - 1, d), {
-      write: (r) => setRecords((rs) => [...rs, r]),
-      onProgress: (n) => setDone(n),
-      shouldStop: () => stopRef.current,
-    });
-    if (mountedRef.current) setRunning(false);
+    try {
+      await task();
+    } catch (error) {
+      if (mountedRef.current) setFailure(String(error));
+    } finally {
+      if (mountedRef.current) setRunning(false);
+    }
   };
 
-  const startVerify = async (): Promise<void> => {
-    stopRef.current = false;
+  const start = (): Promise<void> => {
+    setRecords([]);
+    // 前の回の照合を残すと、新しい JSONL と別の回の照合が組になって保存できてしまう。
     setVerified([]);
-    setRunning(true);
-    await verify(records, {
-      write: (r) => setVerified((vs) => [...vs, r]),
-      shouldStop: () => stopRef.current,
-    });
-    if (mountedRef.current) setRunning(false);
+    setDone(0);
+    const [y, m, d] = date.split('-').map(Number);
+    return guarded(() =>
+      run(new Date(y, m - 1, d), {
+        write: (r) => setRecords((rs) => [...rs, r]),
+        onProgress: (n) => setDone(n),
+        shouldStop: () => stopRef.current,
+      }),
+    );
+  };
+
+  const startVerify = (): Promise<void> => {
+    setVerified([]);
+    return guarded(() =>
+      verify(records, {
+        write: (r) => setVerified((vs) => [...vs, r]),
+        shouldStop: () => stopRef.current,
+      }),
+    );
   };
 
   const jsonl = records.map((r) => JSON.stringify(r)).join('\n');
@@ -133,6 +148,11 @@ export function BenchScreen({ now, total, run, verify }: BenchScreenProps) {
         </button>
       </div>
       <p>{`${done} / ${total}`}</p>
+      {failure !== null && (
+        <p role="alert" className="text-red-700">
+          {failure}
+        </p>
+      )}
       <label className="flex flex-col gap-1">
         JSONL
         <textarea readOnly value={jsonl} rows={16} className="border p-2 font-mono text-xs" />

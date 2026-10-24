@@ -171,6 +171,14 @@ describe('runBench', () => {
     expect(deps.searches.map((a) => a.departure.dateOffset).slice(0, 2)).toEqual([1, 0]);
   });
 
+  it('今日より前の日を選んでも投げずに、検索ごとに理由を書いて終わる', async () => {
+    const deps = fakeDeps();
+    await runBench({ ...config, now: () => new Date(2026, 9, 28, 9, 0) }, deps);
+    expect(deps.searches).toHaveLength(0);
+    expect(deps.records).toHaveLength(8);
+    expect(deps.records[0].error).toContain('dateOffset');
+  });
+
   it('止めれば次の検索を起こさない', async () => {
     let stop = false;
     const deps = fakeDeps({ shouldStop: () => stop });

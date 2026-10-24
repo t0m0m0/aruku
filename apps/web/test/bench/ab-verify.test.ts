@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { GeoPoint } from '@aruku/engine/models/geo-point';
 import { RouteSegment, SegmentType } from '@aruku/engine/models/route-plan';
 import { TransitOption } from '@aruku/engine/services/transit-plan-parser';
 import { dateTime } from '@aruku/engine/time';
@@ -26,7 +27,12 @@ const ride: BenchRide = {
   arr: '2026-10-27T13:00',
 };
 
-const option = (dep: [number, number], arr: [number, number], line = '山手線'): TransitOption =>
+const option = (
+  dep: [number, number],
+  arr: [number, number],
+  line = '山手線',
+  ends: { from?: GeoPoint; to?: GeoPoint; fromName?: string; toName?: string } = {},
+): TransitOption =>
   new TransitOption({
     from: 'a',
     to: 'b',
@@ -35,10 +41,14 @@ const option = (dep: [number, number], arr: [number, number], line = '山手線'
       new RouteSegment({ type: SegmentType.walk, fromName: 'a', toName: '大崎', minutes: 1 }),
       new RouteSegment({
         type: SegmentType.train,
-        fromName: '大崎',
-        toName: '神田',
+        fromName: ends.fromName ?? '大崎',
+        toName: ends.toName ?? '神田',
         minutes: 20,
         line,
+        polyline: [
+          ends.from ?? new GeoPoint(35.6197, 139.7283),
+          ends.to ?? new GeoPoint(35.6918, 139.7709),
+        ],
         depTime: dateTime(2026, 10, 27, ...dep),
         arrTime: dateTime(2026, 10, 27, ...arr),
       }),
@@ -56,6 +66,35 @@ describe('matchRide: 厳密走査の便が Transit API にも在るか', () => {
     const m = matchRide(ride, [option([12, 41], [13, 1])]);
     expect(m.found).toBe(false);
     expect(m.seen).toEqual(['12:41→13:01 山手線']);
+  });
+
+  it('時刻が合っても、乗降の駅が違う区間は在るとしない（乗換経路の別の区間を拾わない）', () => {
+    const elsewhere = option([12, 40], [13, 0], '京浜東北線', {
+      from: new GeoPoint(35.6285, 139.7387), // 品川
+      to: new GeoPoint(35.6812, 139.7671), // 東京
+      fromName: '品川',
+      toName: '東京',
+    });
+    expect(matchRide(ride, [elsewhere]).found).toBe(false);
+  });
+
+  it('区間の座標が無ければ駅名で乗降を確かめる', () => {
+    const noGeometry = new TransitOption({
+      from: 'a',
+      to: 'b',
+      corridors: [],
+      segments: [
+        new RouteSegment({
+          type: SegmentType.train,
+          fromName: '大崎駅',
+          toName: '神田駅',
+          minutes: 20,
+          depTime: dateTime(2026, 10, 27, 12, 40),
+          arrTime: dateTime(2026, 10, 27, 13, 0),
+        }),
+      ],
+    });
+    expect(matchRide(ride, [noGeometry]).found).toBe(true);
   });
 
   it('到着が3分以上ずれていれば在るとしない', () => {
