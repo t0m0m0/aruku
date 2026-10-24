@@ -357,7 +357,8 @@ export class RouteSearchMetrics {
   /// A の [boardSearchMs] から推定する。null は B を選び直していない（1行ログでは -1）。
   collapseB: boolean | null = null;
 
-  /// B の選び直しに掛かった実時間。[totalMs] に含まれるので、A だけの所要は差で出す。
+  /// B の実時間（A を終えた時点でなお残っていた厳密走査の待ちと、選び直し）。[totalMs] に
+  /// 含まれるので、A だけの所要は差で出す。
   abMs = 0;
 
   /// 時刻表の路線で1回乗車が成立した検索か（#462）。A/B の効果の分母。

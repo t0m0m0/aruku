@@ -7355,6 +7355,40 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
       expect(m.walkB).toEqual(m.walkA);
     });
 
+    it('A は厳密走査の応答を待たずに選定まで走る（待ちを A の所要へ混ぜない）', async () => {
+      // 厳密走査の応答は A の徒歩実測が始まってから返す。A が選定の前に厳密走査を待つと、
+      // その待ちが「厳密走査なし」の A の totalMs へ乗り、応答は猶予切れで捨てられる。
+      const gate = deferred<HttpResponse>();
+      let captured: RouteSearchMetrics | null = null;
+      const client = mockClient((url) => {
+        const path = url.pathname;
+        if (path.includes('exactWalkMax')) return gate.promise;
+        if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+        if (path.includes('googleWalkProxy')) {
+          gate.complete(json(winning()));
+          return walkFor(url);
+        }
+        if (path.includes('guidance/plan')) return json(guidance([familyA(), familyB()]));
+        return json({}, 404);
+      });
+      const plan = await service(client, {
+        exactWalkMaxAb: true,
+        exactWalkMaxGrace: 200,
+        onMetrics: (m) => (captured = m),
+      }).plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 10, m: 40 }),
+        origin: o,
+        originName: '出発',
+      });
+      const m = captured! as RouteSearchMetrics;
+      expect(m.exactCandidates).toEqual(1);
+      expect(m.exactWon).toBe(true);
+      expect(rides(plan)).toEqual(['厳密線']);
+    });
+
     it('A/B モードでなければ walkA・walkB は -1、collapseB は null', async () => {
       let captured: RouteSearchMetrics | null = null;
       await service(exactMock({ onExact: () => json(winning()) }), {

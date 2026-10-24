@@ -150,7 +150,7 @@ export function abReport(
     '',
     '| | 中央値 | p90 |',
     '| --- | --- | --- |',
-    `| A（厳密走査なし。B の選び直しを除く） | ${fmt(s.totalMsAMedian, 'ms')} | ${fmt(s.totalMsAP90, 'ms')} |`,
+    `| A（厳密走査なし。B の厳密走査の待ちと選び直しを除く） | ${fmt(s.totalMsAMedian, 'ms')} | ${fmt(s.totalMsAP90, 'ms')} |`,
     `| B の推定（崩壊が解けた検索の board-search を除く） | ${fmt(s.totalMsBEstMedian, 'ms')} | ${fmt(s.totalMsBEstP90, 'ms')} |`,
     `| exactMs（guidance と並列） | ${fmt(s.exactMsMedian, 'ms')} | ${fmt(s.exactMsP90, 'ms')} |`,
     '',

@@ -505,10 +505,9 @@ export class TransitRouteService implements SearchEngine {
     // 起こしてあり、ハイブリッドを作っている間に返っていれば待ちは 0 になる。
     // 出自は arrival 波と同じくインスタンス同一性で覚える（`exactWon`）。
     const fromExact = new Set<RouteCandidate>();
-    let heldExact: RouteCandidate[] = [];
     let sources: TimetableSource[] = [];
-    if (ctx.exactWave !== null) {
-      const result = await this.exactWaveCandidates(ctx.exactWave, {
+    const takeExact = async (wave: Promise<JsonMap>): Promise<RouteCandidate[]> => {
+      const result = await this.exactWaveCandidates(wave, {
         origin,
         goal,
         from: options[0].from,
@@ -518,15 +517,19 @@ export class TransitRouteService implements SearchEngine {
       metrics.exactCandidates = result.candidates === null ? -1 : exact.length;
       metrics.exactCapped = result.capped;
       sources = result.sources;
-      // A/B モードでは A を今のパイプラインのまま走らせるため、ここでは混ぜずに取っておく。
-      if (this.exactWalkMaxAb) heldExact = exact;
-      else candidates.push(...exact);
       for (const c of exact) {
         fromExact.add(c);
         this.diag.log(
           () => `exact: ${this.diag.candLine(c, budgetMin, departureAt)}`,
         );
       }
+      return exact;
+    };
+    // A/B モードでは A を今のパイプラインのまま走らせるため、ここでは待たない——待つと
+    // A が使わない応答の待ちが「厳密走査なし」の A の所要へ乗る。B の直前で受け取る
+    // （猶予は departure 波の確定から数えているので、受け取る時刻で結末は変わらない）。
+    if (ctx.exactWave !== null && !this.exactWalkMaxAb) {
+      candidates.push(...(await takeExact(ctx.exactWave)));
     }
     this.diag.log(() => `total candidates: ${candidates.length}`);
 
@@ -800,8 +803,9 @@ export class TransitRouteService implements SearchEngine {
       // 上流へ投げ直さず A の結末（失敗を含む）を使う＝差は厳密走査の候補だけから来る。
       // 台帳は分ける——同じ台帳に積むと enrich の内訳が A の実測でなくなる。
       metrics.walkA = selected.enriched.walkMinutes;
-      this.api.startReplay();
       const abSw = startedStopwatch();
+      const heldExact = ctx.exactWave === null ? [] : await takeExact(ctx.exactWave);
+      this.api.startReplay();
       selected = await this.selectAndEnrich(
         [...candidates, ...(busCandidates ?? []), ...boardSearchExtra, ...heldExact],
         budgetMin,
