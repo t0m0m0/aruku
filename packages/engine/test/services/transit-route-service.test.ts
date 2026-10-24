@@ -6320,6 +6320,50 @@ describe('plan: 候補間並列の例外境界と共有レッグ (#316)', () => 
     expect(plan.totalMin).toBeLessThanOrEqual(30);
   });
 
+  it('A/B 計測 (#462): A で壊れた応答に落ちた実測を、B が上流へ引き直さない', async () => {
+    // 壊れた応答で落ちた候補は enrich のキャッシュに残らない。B が引き直して2回目が
+    // 成功すると、厳密走査と無関係に B だけ徒歩が伸びる。A が引いた要求は、失敗も含めて
+    // B では A の結末をそのまま使う。
+    const aBoard = [35.001, 139.01];
+    const bBoard = [34.999, 139.01];
+    const body = guidance([
+      option({ route: '快速A', board: aBoard, accessSecs: 720, dep: 33300, arr: 33900 }),
+      option({ route: '快速B', board: bBoard, accessSecs: 720, dep: 33600, arr: 34080 }),
+    ]);
+    const run = async (exactWalkMaxAb: boolean, failFirst: number) => {
+      let bAccess = 0;
+      const client = mockClient((url) => {
+        const path = url.pathname;
+        if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+        if (path.includes('googleWalkProxy')) {
+          const s = pt(url.searchParams.get('start') ?? '0,0');
+          const gl = pt(url.searchParams.get('goal') ?? '0,0');
+          if (near(s.lat, o.lat) && near(gl.lat, bBoard[0]) && near(gl.lng, bBoard[1])) {
+            if (bAccess++ < failFirst) throw new SyntaxError('malformed walk response');
+          }
+          return walkFor(url);
+        }
+        if (path.includes('guidance/plan')) return json(body);
+        return json({}, 404);
+      });
+      let captured: RouteSearchMetrics | null = null;
+      await service(client, { exactWalkMaxAb, onMetrics: (m) => (captured = m) }).plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 9, m: 30 }),
+        origin: o,
+        originName: '出発',
+      });
+      return { bAccess, m: captured! as RouteSearchMetrics };
+    };
+    const plain = await run(false, Number.POSITIVE_INFINITY);
+    expect(plain.bAccess, '前提: B の access を実測する').toBeGreaterThan(0);
+    const ab = await run(true, plain.bAccess);
+    expect(ab.bAccess).toEqual(plain.bAccess);
+    expect(ab.m.walkB).toEqual(ab.m.walkA);
+  });
+
   // C. 勝者W と代替V は egress（降車→目的地）を共有する。先行実測は両者を並列に測るので、
   //    完了結果しか持たない素のキャッシュでは両者とも外して googleWalkProxy を二重発行する。
   //    in-flight の Promise を単一化し、共有レッグの実測を1回に畳む。

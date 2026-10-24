@@ -833,3 +833,69 @@ class CountingClient implements HttpClient {
     this.closed++;
   }
 }
+
+describe('記録と再生 recordForReplay (#462)', () => {
+  const a = new GeoPoint(35.1, 139.2);
+  const b = new GeoPoint(35.3, 139.4);
+  const replaying = (c: HttpClient, cancellation?: CancellationToken) =>
+    new TransitApiClient({
+      transitClient: c,
+      proxyClient: c,
+      transitBaseUrl: transitBase,
+      proxyBaseUrl: proxyBase,
+      cancellation,
+      recordForReplay: true,
+    });
+
+  it('再生中は記録済みの要求を投げず、記録した失敗をそのまま返す', async () => {
+    let calls = 0;
+    const c = replaying(
+      mockClient(() => (calls++ === 0 ? jsonResponse({}, 429) : jsonResponse({ routes: [] }))),
+    );
+    await expectThrowsA(() => c.fetchWalkRoute(a, b), RouteException);
+    c.startReplay();
+    await expectThrowsA(() => c.fetchWalkRoute(a, b), RouteException);
+    expect(calls).toEqual(1);
+    expect(c.walkCalls).toEqual(1);
+  });
+
+  it('記録の無い要求は再生中でも上流へ投げる', async () => {
+    let calls = 0;
+    const c = replaying(
+      mockClient(() => {
+        calls++;
+        return jsonResponse({ routes: [] });
+      }),
+    );
+    c.startReplay();
+    await c.fetchWalkRoute(a, b);
+    expect(calls).toEqual(1);
+  });
+
+  it('再生を始める前は、同じ要求も毎回投げる（A の挙動は変えない）', async () => {
+    let calls = 0;
+    const c = replaying(
+      mockClient(() => {
+        calls++;
+        return jsonResponse({ routes: [] });
+      }),
+    );
+    await c.fetchWalkRoute(a, b);
+    await c.fetchWalkRoute(a, b);
+    expect(calls).toEqual(2);
+  });
+
+  it('キャンセルは記録しない', async () => {
+    let calls = 0;
+    const c = replaying(
+      mockClient(() => {
+        if (calls++ === 0) throw new SearchCanceledException();
+        return jsonResponse({ routes: [] });
+      }),
+    );
+    await expectThrowsA(() => c.fetchWalkRoute(a, b), SearchCanceledException);
+    c.startReplay();
+    await c.fetchWalkRoute(a, b);
+    expect(calls).toEqual(2);
+  });
+});

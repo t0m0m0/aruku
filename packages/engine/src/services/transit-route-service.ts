@@ -174,6 +174,7 @@ export class TransitRouteService implements SearchEngine {
       proxyBaseUrl: init.proxyBaseUrl,
       cancellation: init.cancellation,
       deadline: init.deadline ?? SearchDeadline.none(),
+      recordForReplay: this.exactWalkMaxAb,
     });
     this.deadline = init.deadline ?? SearchDeadline.none();
     this.clock = init.clock ?? ((): Date => new Date());
@@ -430,14 +431,6 @@ export class TransitRouteService implements SearchEngine {
     const measured = new Map<string, number>();
     // 候補の実測（enrich 徒歩＋実発車時刻解決）を identity で畳むキャッシュ（#315）。
     const enrichedCache = new Map<RouteCandidate, RouteCandidate>();
-    // A/B 計測（#462）の B が、A の縮退で引いた実時刻と徒歩を引き直さないための記録。A は記録
-    // するだけで読まない——読むと A の縮退が2回目に入ったときの挙動が今と変わる。
-    const boardingResolutions: BoardingResolutions = {
-      byCandidate: new Map(),
-      enrichedFallbacks: new Map(),
-      reuse: false,
-    };
-
     // ハイブリッド候補（コリドー実測由来）の identity 集合。予算内にこれが多いほど
     // reject 多発＝先行実測を短リスト全体へ広げる（Option A・#318）。
     const hybrids = new Set<RouteCandidate>();
@@ -663,7 +656,6 @@ export class TransitRouteService implements SearchEngine {
       bestEffortLedger,
       lastResortBus,
       prefetchBus,
-      boardingResolutions: this.exactWalkMaxAb ? boardingResolutions : undefined,
     });
     // 崩壊後の再選定でも enrich は走り、その費用は同じ台帳へ積まれる。ここで時計を
     // 止めっぱなしにすると、台帳が覆う区間より enrichMs が短くなり計上外の残りが負に化ける。
@@ -776,7 +768,6 @@ export class TransitRouteService implements SearchEngine {
             bestEffortLedger,
             lastResortBus,
             prefetchBus,
-            boardingResolutions: this.exactWalkMaxAb ? boardingResolutions : undefined,
           },
         );
         enrichSw.stop();
@@ -805,10 +796,11 @@ export class TransitRouteService implements SearchEngine {
     }
 
     if (this.exactWalkMaxAb) {
-      // B（#462）。A の最終候補プールに厳密走査の候補を足して選び直す。キャッシュを共有する
-      // ので A で測った候補は引き直さない＝差は厳密走査の候補だけから来る。台帳は分ける
-      // ——同じ台帳に積むと enrich の内訳が A の実測でなくなる。
+      // B（#462）。A の最終候補プールに厳密走査の候補を足して選び直す。A が投げた要求は
+      // 上流へ投げ直さず A の結末（失敗を含む）を使う＝差は厳密走査の候補だけから来る。
+      // 台帳は分ける——同じ台帳に積むと enrich の内訳が A の実測でなくなる。
       metrics.walkA = selected.enriched.walkMinutes;
+      this.api.startReplay();
       const abSw = startedStopwatch();
       selected = await this.selectAndEnrich(
         [...candidates, ...(busCandidates ?? []), ...boardSearchExtra, ...heldExact],
@@ -823,7 +815,6 @@ export class TransitRouteService implements SearchEngine {
           bestEffortLedger: new BestEffortLedger(),
           lastResortBus,
           prefetchBus,
-          boardingResolutions: { ...boardingResolutions, reuse: true },
         },
       );
       metrics.abMs = abSw.elapsedMilliseconds;
@@ -1235,7 +1226,6 @@ export class TransitRouteService implements SearchEngine {
       bestEffortLedger: BestEffortLedger;
       lastResortBus?: () => Promise<RouteCandidate[]>;
       prefetchBus?: () => void;
-      boardingResolutions?: BoardingResolutions;
     },
   ): Promise<Selection> {
     const { origin, goal, walkCache, enrichedCache, enrichLedger, bestEffortLedger } =
@@ -1260,7 +1250,6 @@ export class TransitRouteService implements SearchEngine {
         departureAt,
         walkCache,
         bestEffortLedger,
-        ctx.boardingResolutions,
       );
       const segs = fallback.enriched.segments;
       const arrival = arrivalMinutes(segs, departureAt);
@@ -1296,7 +1285,6 @@ export class TransitRouteService implements SearchEngine {
           enrichedCache,
           enrichLedger,
           bestEffortLedger,
-          boardingResolutions: ctx.boardingResolutions,
         },
       );
     };
@@ -1405,7 +1393,6 @@ export class TransitRouteService implements SearchEngine {
     departureAt: Date,
     walkCache: WalkLegCache,
     ledger: BestEffortLedger,
-    resolutions?: BoardingResolutions,
   ): Promise<Selection> {
     ledger.enter();
     const sw = startedStopwatch();
@@ -1413,16 +1400,11 @@ export class TransitRouteService implements SearchEngine {
     // 後続区間の boardAt が前区間の解決済み実乗車時間に依存するため直列のまま。
     const depths = new Array<number>(candidates.length).fill(0);
     const resolved = await Promise.all(
-      candidates.map(async (c, i) => {
-        const reused =
-          resolutions?.reuse === true ? resolutions.byCandidate.get(c) : undefined;
-        if (reused !== undefined) return reused;
-        const r = await this.resolveBoardingTimes(c, departureAt, () => {
+      candidates.map((c, i) =>
+        this.resolveBoardingTimes(c, departureAt, () => {
           depths[i]++;
-        });
-        resolutions?.byCandidate.set(c, r);
-        return r;
-      }),
+        }),
+      ),
     );
     ledger.recordPool({
       candidates: candidates.length,
@@ -1432,10 +1414,7 @@ export class TransitRouteService implements SearchEngine {
     let pool = verified.length > 0 ? verified : resolved;
     for (;;) {
       const fallback = bestEffort(pool, budgetMin, departureAt);
-      const reusedWalk =
-        resolutions?.reuse === true ? resolutions.enrichedFallbacks.get(fallback) : undefined;
-      const enriched = reusedWalk ?? (await this.enrichWalkGeometry(fallback, walkCache));
-      resolutions?.enrichedFallbacks.set(fallback, enriched);
+      const enriched = await this.enrichWalkGeometry(fallback, walkCache);
       const missed = firstMissedTransit(enriched.segments, departureAt) !== null;
       // 予算超過では除外しない：best-effort は「予算内が無いとき」の縮退先なので、超過は
       // 想定内で最早到着こそが選定基準。乗り遅れ（＝そもそも乗れない）だけを除外する。
@@ -2410,16 +2389,6 @@ export class TransitRouteService implements SearchEngine {
       t.m,
     );
   }
-}
-
-/// 縮退（`bestEffortResolved`）が候補ごとに引いた実時刻と、縮退先の徒歩実測の記録（#462 の
-/// A/B 計測）。`reuse` が真なら、記録済みの候補は上流を引き直さずに使う。徒歩は失敗して
-/// 見積りが残った結果も記録する——徒歩レッグのキャッシュは失敗を残さないので、記録しないと
-/// B の引き直しだけが成功して、厳密走査と無関係な差が出る。
-interface BoardingResolutions {
-  byCandidate: Map<RouteCandidate, RouteCandidate>;
-  enrichedFallbacks: Map<RouteCandidate, RouteCandidate>;
-  reuse: boolean;
 }
 
 /// 乗車駅探索・ハイブリッドの候補点。コリドー座標（停車駅 or 線路点）から作る。

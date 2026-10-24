@@ -3,7 +3,7 @@
 import { dartDouble } from '../dart-number';
 import type { JsonMap } from '../json';
 import type { GeoPoint } from '../models/geo-point';
-import type { CancellationToken } from './cancellation';
+import { SearchCanceledException, type CancellationToken } from './cancellation';
 import { TimeoutException, type HttpClient, type HttpResponse } from './http-client';
 import { RouteException } from './route-service';
 import { SearchDeadline } from './search-deadline';
@@ -34,6 +34,11 @@ export interface TransitApiClientInit {
 
   /// 検索1回分の締切（#300）。既定（[SearchDeadline.none]）は無期限。
   deadline?: SearchDeadline;
+
+  /// 要求ごとの結末（応答・失敗）を記録し、[startReplay] 以降は記録済みの要求を上流へ
+  /// 投げずに同じ結末を返す。厳密走査の A/B 計測（#462）の B が、A と同じ上流の応答の上で
+  /// 選び直すために使う。既定 false。
+  recordForReplay?: boolean;
 }
 
 /// Transit API（`/guidance/plan` 直叩き）と Google Routes プロキシへの HTTP 通信を担う
@@ -54,6 +59,20 @@ export class TransitApiClient {
     this.proxyBase = stripTrailingSlashes(init.proxyBaseUrl ?? '');
     this.cancellation = init.cancellation ?? null;
     this.deadline = init.deadline ?? SearchDeadline.none();
+    this.recorded = init.recordForReplay === true ? new Map() : null;
+  }
+
+  private readonly recorded: Map<string, Promise<HttpResponse>> | null;
+  private replaying = false;
+
+  /// 以降、記録済みの要求は上流へ投げず、記録した結末（失敗を含む）を返す。記録の無い
+  /// 要求はふつうに投げる。
+  ///
+  /// 経路ごとのキャッシュで済ませていないのは、選定には失敗を残さない口（徒歩レッグの
+  /// キャッシュ・壊れた応答で落とした候補・縮退の実時刻解決）がいくつもあり、どれか1つでも
+  /// B が引き直すと2回目だけ成功して、厳密走査と無関係な差が出るから。
+  startReplay(): void {
+    this.replaying = true;
   }
 
   private readonly transit: HttpClient | null;
@@ -313,7 +332,31 @@ export class TransitApiClient {
   /// measure-first の実測は探索の**改善**ではなく確定経路の**検証**であり、締切より優先する。
   /// 探索側（乗車駅探索・代替検証）は [TransitRouteService] が締切でラウンドごと止めるので、
   /// 期限切れ後に走る徒歩実測は確定候補の検証だけ＝本数は候補の区間数で頭打ちになる。
-  private async getOrTimeout(
+  private getOrTimeout(
+    client: HttpClient | null,
+    uri: URL,
+    options: { deadlineApplies?: boolean; onIssued?: () => void },
+  ): Promise<HttpResponse> {
+    if (this.recorded === null) return this.issue(client, uri, options);
+    const key = uri.href;
+    const replayed = this.replaying ? this.recorded.get(key) : undefined;
+    if (replayed !== undefined) {
+      this.cancellation?.throwIfCanceled();
+      return replayed;
+    }
+    const outcome = this.issue(client, uri, options);
+    // キャンセルは結末ではない（B へ持ち込むと離脱していない B まで止まる）ので残さない。
+    // 同じ要求を A が何度も投げたら、最後の結末を残す。
+    outcome.then(
+      () => this.recorded!.set(key, outcome),
+      (error: unknown) => {
+        if (!(error instanceof SearchCanceledException)) this.recorded!.set(key, outcome);
+      },
+    );
+    return outcome;
+  }
+
+  private async issue(
     client: HttpClient | null,
     uri: URL,
     options: { deadlineApplies?: boolean; onIssued?: () => void },
