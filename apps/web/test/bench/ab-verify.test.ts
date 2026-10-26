@@ -180,7 +180,33 @@ describe('runVerify: 乗車駅の発車表で便の実在を確かめる', () =>
       { 大崎: [osaki], 神田: [otherFeedKanda] },
       { [osaki.id]: [departure('t1', 12, 40)], [otherFeedKanda.id]: [departure('t1', 13, 0)] },
     );
-    expect(results[0].verdict).toEqual('departureOnly');
+    expect(results[0].verdict).not.toEqual('sameTrip');
+  });
+
+  it('降車駅を持たないフィードの便は、同じ分に発っても乗車駅の発車の一致としない', async () => {
+    // 渋谷→末広町の銀座線（東京メトロは発車表を出さない）を、同じ渋谷の JR の発車表にあった
+    // 同じ分の湘南新宿ラインで「発車だけ一致」にしていた（#462 の照合）。
+    const otherFeedOsaki = station('Osaki', '大崎', 35.6197, 139.7283, 'rinkai');
+    const { results } = await verify(
+      { 大崎: [otherFeedOsaki, osaki], 神田: [kanda] },
+      {
+        [otherFeedOsaki.id]: [{ tripId: 'r1', routeName: 'りんかい線', headsign: '新木場', departureSecs: (12 * 60 + 40) * 60 }],
+        [osaki.id]: null,
+      },
+    );
+    expect(results[0]).toMatchObject({ verdict: 'noBoard', matchedLine: null, seen: [] });
+  });
+
+  it('降車駅を持たないフィードに同じ分の便が無くても、無いとしない（時刻表の誤りと取り違えない）', async () => {
+    const otherFeedOsaki = station('Osaki', '大崎', 35.6197, 139.7283, 'rinkai');
+    const { results } = await verify(
+      { 大崎: [otherFeedOsaki, osaki], 神田: [kanda] },
+      {
+        [otherFeedOsaki.id]: [{ tripId: 'r1', routeName: 'りんかい線', headsign: '新木場', departureSecs: (12 * 60 + 41) * 60 }],
+        [osaki.id]: null,
+      },
+    );
+    expect(results[0].verdict).toEqual('noBoard');
   });
 
   it('名前が違う駅・500m より遠い同名の駅は乗車駅としない', async () => {

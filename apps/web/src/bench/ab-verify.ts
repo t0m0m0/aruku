@@ -17,8 +17,9 @@ import type { BenchRecord, BenchRide } from './bench-record';
 /// - departureOnly: 乗車駅を同じ分に発つ便はあるが、降車駅の発車表で同じ便を確かめられない。
 ///   終点で降りる便は降車駅の発車表に載らないので、向きまでは確かめられていない
 /// - missing: 乗車駅の発車表はあるが、同じ分に発つ便が無い
-/// - noBoard: 乗車駅が見つからないか、発車表を出さない駅だけだった（ODPT 由来のフィードは
-///   駅の発車表を公開しない）。無いとは言えない
+/// - noBoard: 乗車駅が見つからないか、降車駅も持つフィードの乗車駅が発車表を出さなかった
+///   （ODPT 由来のフィードは駅の発車表を公開しない）。無いとは言えない。降車駅を持たない
+///   フィードの発車表は見ない——その便はこの区間を走らない
 export type VerifyVerdict = 'sameTrip' | 'departureOnly' | 'missing' | 'noBoard';
 
 export interface VerifyResult {
@@ -149,14 +150,21 @@ async function verifyRide(
 ): Promise<{ verdict: VerifyVerdict; matchedLine: string | null; seen: string[] }> {
   const dep = parseWallClock(ride.dep!);
   const arr = parseWallClock(ride.arr!);
-  const boarding = sameStations(
+  const boardingNamesakes = sameStations(
     await deps.findStations(ride.from),
     ride.from,
     new GeoPoint(ride.fromLat!, ride.fromLng!),
   );
   const seen: string[] = [];
-  if (boarding.length === 0) return { verdict: 'noBoard', matchedLine: null, seen };
-  let alighting: BoardStation[] | null = null;
+  if (boardingNamesakes.length === 0) return { verdict: 'noBoard', matchedLine: null, seen };
+  const alighting = sameStations(
+    await deps.findStations(ride.to),
+    ride.to,
+    new GeoPoint(ride.toLat!, ride.toLng!),
+  );
+  // 便の路線名と発車表の路線名は突き合わせない。時刻表パックと Transit API で表記が揃わない
+  // （東武スカイツリーライン と TS、京浜東北線・根岸線 と 京浜東北線（北行（大宮方面）））。
+  const boarding = boardingNamesakes.filter((s) => alighting.some((a) => a.feedId === s.feedId));
   let anyBoard = false;
   let departedOnly: BoardDeparture | null = null;
   for (const station of boarding) {
@@ -170,11 +178,6 @@ async function verifyRide(
     }
     const sameMinute = board.filter((d) => minuteOf(d) === minuteOfDay(dep));
     if (sameMinute.length === 0) continue;
-    alighting ??= sameStations(
-      await deps.findStations(ride.to),
-      ride.to,
-      new GeoPoint(ride.toLat!, ride.toLng!),
-    );
     // 同じフィードの降車駅は全部見る。事業者が乗り場・路線ごとに駅を分けて載せていると、
     // 近い方だけでは遠い方の乗り場に載る同じ便を確かめられない。
     for (const alightingStation of alighting.filter((s) => s.feedId === station.feedId)) {
