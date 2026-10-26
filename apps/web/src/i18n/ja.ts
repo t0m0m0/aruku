@@ -145,6 +145,7 @@ export const ja = {
     MIR: 'つくばエクスプレス',
     TWR: 'りんかい線',
     TamaMonorail: '多摩モノレール',
+    YokohamaMunicipal: '横浜市交通局',
     Toei: '東京都交通局',
   } as Readonly<Record<string, string>>,
 

@@ -114,6 +114,14 @@ describe("refreshTimetablePacks", () => {
     ]);
   });
 
+  it("フィードの路線名の写像をパックに効かせる", async () => {
+    const h = harness();
+    await refreshTimetablePacks(h.deps, [
+      { id: "Toei", url: "https://public.example/Toei.zip", key: null, group: "permanent", routeName: () => "写した名前" },
+    ]);
+    expect(unpack(h.uploads.get(packObjectPath("permanent"))!).trips[0].route).toBe("写した名前");
+  });
+
   it("取得日時をフィードごとにパックへ残す", async () => {
     const h = harness();
     await refreshTimetablePacks(h.deps, FEEDS);
@@ -206,7 +214,7 @@ describe("refreshTimetablePacks", () => {
 });
 
 describe("ODPT_FEEDS", () => {
-  it("9フィードを、#456 の表どおりのキーとグループに割り当てる", () => {
+  it("10フィードを、#456 の表（と #476 の横浜市営地下鉄）どおりのキーとグループに割り当てる", () => {
     expect(ODPT_FEEDS.map(({ id, key, group }) => `${id}:${key}:${group}`)).toEqual([
       "JR-East:ODPT_CHALLENGE_KEY:challenge",
       "Keio:ODPT_CHALLENGE_KEY:challenge",
@@ -216,8 +224,30 @@ describe("ODPT_FEEDS", () => {
       "MIR:ODPT_CENTER_KEY:permanent",
       "TWR:ODPT_CENTER_KEY:permanent",
       "TamaMonorail:ODPT_CENTER_KEY:permanent",
+      "YokohamaMunicipal:ODPT_CENTER_KEY:permanent",
       "Toei:null:permanent",
     ]);
+  });
+
+  // 版ごとのファイルへ飛ばす入口。date を外すと 404 になる（2026-10-26 実測）。
+  it("横浜市営地下鉄は、その日に有効な版を date=current で取る", () => {
+    const yokohama = ODPT_FEEDS.find((f) => f.id === "YokohamaMunicipal")!;
+    const url = new URL(yokohama.url);
+    expect(url.host).toBe("api.odpt.org");
+    expect(url.searchParams.get("date")).toBe("current");
+  });
+
+  // GTFS の route_long_name は「【BL】【快速】あざみ野　→　湘南台」のような向き・種別つきの系統名。
+  it("横浜市営地下鉄の系統名を、ブルーライン・グリーンラインへ寄せる", () => {
+    const routeName = ODPT_FEEDS.find((f) => f.id === "YokohamaMunicipal")!.routeName!;
+    expect(routeName("【BL】上永谷　→　湘南台")).toBe("ブルーライン");
+    expect(routeName("【BL】【快速】あざみ野　→　湘南台")).toBe("ブルーライン");
+    expect(routeName("【GL】中山　→　日吉")).toBe("グリーンライン");
+  });
+
+  it("横浜市営地下鉄の知らない系統名は、そのまま残す", () => {
+    const routeName = ODPT_FEEDS.find((f) => f.id === "YokohamaMunicipal")!.routeName!;
+    expect(routeName("【XX】どこか　→　どこか")).toBe("【XX】どこか　→　どこか");
   });
 
   it("チャレンジのキーは api-challenge にだけ送る", () => {

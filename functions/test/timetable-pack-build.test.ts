@@ -509,6 +509,19 @@ describe("パックに残すもの", () => {
     expect(pack.trips[0]).toMatchObject({ route: "A", headsign: null, block: null });
   });
 
+  it("フィードが路線名の写像を持てば、GTFS の路線名をそれで置き換える", () => {
+    const pack = buildTimetablePack([
+      {
+        ...feed({
+          routes: [{ route_id: "R", route_long_name: "【BL】あざみ野　→　湘南台" }],
+          stopTimes: [st("A", 1, "10:00:00"), st("B", 2, "10:05:00")],
+        }),
+        routeName: (name) => (name.startsWith("【BL】") ? "ブルーライン" : name),
+      },
+    ]);
+    expect(pack.trips[0].route).toBe("ブルーライン");
+  });
+
   it("フィードの取得日時と feed_info の版を残す", () => {
     const pack = buildTimetablePack([
       feed({

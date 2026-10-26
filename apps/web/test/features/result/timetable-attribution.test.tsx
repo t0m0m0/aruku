@@ -51,6 +51,15 @@ describe('TimetableAttribution', () => {
     }
   });
 
+  it('横浜市営地下鉄のフィードは事業者名（横浜市交通局）で出す', () => {
+    render(
+      <TimetableAttribution
+        sources={[{ feedId: 'YokohamaMunicipal', fetchedAt: at('2026-06-26T19:23:05Z') }]}
+      />,
+    );
+    expect(rowOf('横浜市交通局')).toContain('2026年6月27日 4:23');
+  });
+
   it('知らないフィードは id のまま出す', () => {
     render(
       <TimetableAttribution

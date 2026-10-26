@@ -88,7 +88,7 @@ async function fetchFeed(feed: OdptFeed, deps: RefreshDeps): Promise<FeedInput> 
       throw new FeedFetchError(feed.id, "not_gtfs_zip");
     }
     deps.log({ event: "timetable_feed_fetch", feed: feed.id, status: "success", bytes: bytes.byteLength });
-    return { id: feed.id, fetchedAt, files };
+    return { id: feed.id, fetchedAt, files, routeName: feed.routeName };
   } catch (e) {
     // fetch の例外は URL（＝キー）を含みうるので、原因ごと捨てる。
     const err = e instanceof FeedFetchError ? e : new FeedFetchError(feed.id, "network");
