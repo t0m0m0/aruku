@@ -302,7 +302,8 @@ export class RouteSearchMetrics {
   /// バス last-resort 再照会で**なお直列に待った**時間。
   busLastResortMs = 0;
 
-  /// 確定候補の駅名確定（`_finalizeStationNames`）に掛かった実時間。
+  /// 確定候補の駅名確定（`_finalizeStationNames`）に掛かった実時間。A/B モード（#462）では
+  /// A の確定候補の復元（B の復元は [abMs]）。
   finalizeMs = 0;
 
   /// `plan` 入口〜確定までの全体実時間。
@@ -339,8 +340,32 @@ export class RouteSearchMetrics {
   /// 厳密走査が実測する駅を片側の上限で打ち切ったか（応答の `stats.truncated`）。
   exactCapped = false;
 
-  /// 確定候補が厳密走査由来か。
+  /// 確定候補が厳密走査由来か。A/B モード（#462）では B の確定候補を見る。
   exactWon = false;
+
+  /// A/B モード（#462）の A ＝厳密走査の候補を混ぜずに最後まで走らせた確定経路の徒歩（分）。
+  /// A/B モードでなければ -1。
+  walkA = -1;
+
+  /// A/B モードの B ＝ A の最終候補プールへ厳密走査の候補を足して選び直した確定経路の
+  /// 徒歩（分）。上流の応答は A と同じものを使うので、`walkB - walkA` は厳密走査の候補
+  /// だけから来る。A/B モードでなければ -1。
+  walkB = -1;
+
+  /// 厳密走査の候補を足しても崩壊するか。B の確定候補が厳密走査由来ならそれで判定し直し、
+  /// そうでなければ B は A と同じ経路なので [collapseFired] と同じ。A は必ず全工程を走るので、
+  /// 厳密走査で崩壊が解けたぶん浮く board-search の時間は同じ実行の中では測れず、これと
+  /// A の [boardSearchMs] から推定する。null は B を選び直していない（1行ログでは -1）。
+  collapseB: boolean | null = null;
+
+  /// B の実時間（A を終えた時点でなお残っていた厳密走査の待ち・選び直し・B の駅名復元）。
+  /// [totalMs] に含まれるので、A だけの所要は差で出す。
+  abMs = 0;
+
+  /// 時刻表の路線で1回乗車が成立した検索か（#462）。A/B の効果の分母。
+  get coveredBase(): boolean {
+    return this.exactCandidates > 0;
+  }
 
   /// Google 徒歩ルート（enrich）の実 HTTP 往復本数。
   walkCalls = 0;
@@ -433,6 +458,8 @@ export class RouteSearchMetrics {
       `arrivalWaveWon=${flag(this.arrivalWaveWon)} ` +
       `exactMs=${this.exactMs} exactCandidates=${this.exactCandidates} ` +
       `exactCapped=${flag(this.exactCapped)} exactWon=${flag(this.exactWon)} ` +
+      `coveredBase=${flag(this.coveredBase)} walkA=${this.walkA} walkB=${this.walkB} ` +
+      `collapseB=${this.collapseB === null ? -1 : flag(this.collapseB)} abMs=${this.abMs} ` +
       `guidanceMs=${this.guidanceMs} hybridMs=${this.hybridMs} enrichMs=${this.enrichMs} ` +
       `boardSearchMs=${this.boardSearchMs} ` +
       `boardSearchRounds=${this.boardSearchRounds} ` +
