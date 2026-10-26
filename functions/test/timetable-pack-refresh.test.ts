@@ -104,6 +104,16 @@ describe("refreshTimetablePacks", () => {
     ]);
   });
 
+  it("クエリつきの URL には、キーを & でつないで足す", async () => {
+    const h = harness((url) => new Response(gtfsZip(new URL(url).pathname.slice(1, -4))));
+    await refreshTimetablePacks(h.deps, [
+      { id: "Dated", url: "https://center.example/Dated.zip?date=current", key: "ODPT_CENTER_KEY", group: "permanent" },
+    ]);
+    expect(h.requested).toEqual([
+      `https://center.example/Dated.zip?date=current&acl:consumerKey=${CENTER_KEY}`,
+    ]);
+  });
+
   it("取得日時をフィードごとにパックへ残す", async () => {
     const h = harness();
     await refreshTimetablePacks(h.deps, FEEDS);

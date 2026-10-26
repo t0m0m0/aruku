@@ -109,7 +109,7 @@ async function download(feed: OdptFeed, deps: RefreshDeps): Promise<Uint8Array> 
     const key = deps.keys[feed.key];
     if (!key) throw new FeedFetchError(feed.id, "missing_key");
     // URLSearchParams を使わないのは、パラメータ名のコロンが %3A になるため。
-    url += `?acl:consumerKey=${encodeURIComponent(key)}`;
+    url += `${url.includes("?") ? "&" : "?"}acl:consumerKey=${encodeURIComponent(key)}`;
   }
   const res = await deps.fetch(url);
   if (!res.ok) throw new FeedFetchError(feed.id, "http", res.status);
