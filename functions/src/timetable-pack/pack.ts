@@ -34,6 +34,8 @@ export interface FeedInput {
   /** ISO 8601。基本ライセンスで表示が要る「取得日時」。 */
   fetchedAt: string;
   files: GtfsFiles;
+  /** GTFS の路線名を、パックに残す路線名へ写す（feeds.ts の OdptFeed.routeName）。 */
+  routeName?: (gtfsRouteName: string) => string;
 }
 
 export interface PackFeed {
@@ -106,7 +108,7 @@ export function buildTimetablePack(feeds: readonly FeedInput[]): TimetablePack {
       fetchedAt: input.fetchedAt,
       version: feedVersion(input.files["feed_info.txt"]),
     });
-    addFeed(pack, feedIndex, input.files);
+    addFeed(pack, feedIndex, input.files, input.routeName ?? ((name) => name));
   });
   groupStations(pack);
   return pack;
@@ -151,7 +153,12 @@ function callsOf(trip: PackTrip, shift: number): StopCall[] {
   }));
 }
 
-function addFeed(pack: TimetablePack, feed: number, files: GtfsFiles): void {
+function addFeed(
+  pack: TimetablePack,
+  feed: number,
+  files: GtfsFiles,
+  routeName: (gtfsRouteName: string) => string,
+): void {
   const stopsById = new Map<string, { name: string; lat: number; lng: number }>();
   readCsv(files["stops.txt"] ?? "", (get) => {
     stopsById.set(get("stop_id"), {
@@ -163,7 +170,7 @@ function addFeed(pack: TimetablePack, feed: number, files: GtfsFiles): void {
 
   const routeNames = new Map<string, string>();
   readCsv(files["routes.txt"] ?? "", (get) => {
-    routeNames.set(get("route_id"), get("route_long_name") || get("route_short_name"));
+    routeNames.set(get("route_id"), routeName(get("route_long_name") || get("route_short_name")));
   });
 
   const serviceIndex = new Map<string, number>();

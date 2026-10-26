@@ -88,7 +88,7 @@ async function fetchFeed(feed: OdptFeed, deps: RefreshDeps): Promise<FeedInput> 
       throw new FeedFetchError(feed.id, "not_gtfs_zip");
     }
     deps.log({ event: "timetable_feed_fetch", feed: feed.id, status: "success", bytes: bytes.byteLength });
-    return { id: feed.id, fetchedAt, files };
+    return { id: feed.id, fetchedAt, files, routeName: feed.routeName };
   } catch (e) {
     // fetch の例外は URL（＝キー）を含みうるので、原因ごと捨てる。
     const err = e instanceof FeedFetchError ? e : new FeedFetchError(feed.id, "network");
@@ -109,7 +109,7 @@ async function download(feed: OdptFeed, deps: RefreshDeps): Promise<Uint8Array> 
     const key = deps.keys[feed.key];
     if (!key) throw new FeedFetchError(feed.id, "missing_key");
     // URLSearchParams を使わないのは、パラメータ名のコロンが %3A になるため。
-    url += `?acl:consumerKey=${encodeURIComponent(key)}`;
+    url += `${url.includes("?") ? "&" : "?"}acl:consumerKey=${encodeURIComponent(key)}`;
   }
   const res = await deps.fetch(url);
   if (!res.ok) throw new FeedFetchError(feed.id, "http", res.status);
