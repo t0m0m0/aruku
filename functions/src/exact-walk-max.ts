@@ -8,6 +8,7 @@ import {
   type LatLng,
   type Ride,
   type TimetableStop,
+  type TransferNeighbors,
 } from "./exact-scan";
 
 const MAX_STOPS_PER_SIDE = 12;
@@ -34,6 +35,7 @@ export interface MatrixElement {
 
 export interface ScanDay {
   compiled: CompiledTimetable;
+  neighbors: TransferNeighbors;
   stops: readonly TimetableStop[];
   feeds: readonly FeedFetchedAt[];
 }

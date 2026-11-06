@@ -86,6 +86,7 @@ export interface TimetablePack {
 }
 
 export interface DayTimetable extends Timetable {
+  stops: PackStop[];
   /** trips と同じ並びで、元になったパックの便と、その便の運行日（YYYYMMDD）。 */
   tripSources: { packTrip: number; serviceDate: string }[];
 }
