@@ -409,6 +409,9 @@ ODPT から GTFS を取り直して作り、非公開の Cloud Storage に置き
 フィードごとの取得日時だけです（[ルート最適化 仕様](docs/spec/route-optimization.md) §2.1）。取得日時は、
 ガイドラインが求める出典・問い合わせ先と一緒に結果画面の「時刻表データについて」に出します（#461）。
 
+本番の Web は `deploy-web.yml` が渡す `VITE_EXACT_WALK_MAX=1` で厳密走査を有効にしています（#477）。
+切り戻しの手順は `docs/ops/exact-scan-rollback.md`。
+
 ### 初回の用意
 
 ```bash
