@@ -14,8 +14,9 @@ export const WALK_RATE_LIMIT = 90;
 const WINDOW_MS = 60_000;
 
 // scope 付きのエンドポイントは、同じ IP でも別のドキュメントで数える（#459）。
-// 1検索で並列に叩かれるエンドポイント同士が同じドキュメントを取り合うと、
-// Firestore トランザクションが競合し、再試行で約1秒ずつ待つ（本番ログ・エミュレータで確認済み）。
+// 別のサービスのインスタンス同士が同じドキュメントを取り合うと、Firestore トランザクションが
+// 競合し、再試行で約1秒ずつ待つ（本番ログ・エミュレータで確認済み）。同じインスタンスの中の
+// 並列は admitInBatch がまとめるので競合しない。
 // 区切りに "|" を使うのは、IPv4・IPv6 のどちらにも現れない文字のため。
 function scopedKey(ip: string, scope: string | undefined): string {
   return scope === undefined ? ip : `${scope}|${ip}`;
@@ -74,10 +75,10 @@ export function rateLimitMapSize(): number {
 // IP 単位の上限がインスタンス横断で一貫して強制される。expireAt（Timestamp）は
 // Firestore の TTL ポリシー用で、期限切れドキュメントを自動削除し無限増殖を防ぐ。
 //
-// コスト・レイテンシ上のトレードオフ（Issue #161）: 呼び出しごとに 1 read + 1 write の
-// トランザクションが発生し、1 検索が最大 13 回ファンアウトする経路では積み上がる。
-// 将来的な移行先候補: (a) インスタンスローカルなメモリカウントを主とし確率的に
-// Firestore へ書き込む（横断精度を落として書き込み回数を削減）、(b) Cloud Armor /
+// コスト・レイテンシ上のトレードオフ（Issue #161）: トランザクションごとに 1 read + 1 write
+// が発生する。同じインスタンスで重なった判定は1回にまとまるが、別のインスタンス同士は
+// 競合し得る。将来的な移行先候補: (a) インスタンスローカルなメモリカウントを主とし
+// 確率的に Firestore へ書き込む（横断精度を落として書き込み回数を削減）、(b) Cloud Armor /
 // API Gateway 側でのレート制限への移行。現状は精度優先でこの実装を維持している。
 // ---------------------------------------------------------------------------
 const COLLECTION = "rateLimits";
@@ -157,42 +158,84 @@ function docIdForIp(ip: string, now: number): string {
     .digest("hex");
 }
 
+type PendingCheck = {
+  limit: number;
+  resolve: (allowed: boolean) => void;
+  reject: (error: unknown) => void;
+};
+
+// 文書 ID ごとの、次のトランザクションを待っている判定。キーがあるあいだは
+// その文書のトランザクションが実行中で、無ければ誰も走っていない。
+const _pendingChecks = new Map<string, PendingCheck[]>();
+
+// なぜ文書をエンドポイント別に分けて競合を避けないか:
+//   places・walk・matrix の共用カウンタが、1 IP の合計を WALK_RATE_LIMIT に抑えている。
+//   分けると合計が 30+90+90 へ緩み、課金 API の守りが弱くなる（#482）。
+function admitInBatch(docId: string, limit: number): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const check = { limit, resolve, reject };
+    const pending = _pendingChecks.get(docId);
+    if (pending) {
+      pending.push(check);
+      return;
+    }
+    _pendingChecks.set(docId, [check]);
+    void drainPendingChecks(docId);
+  });
+}
+
+async function drainPendingChecks(docId: string): Promise<void> {
+  for (;;) {
+    const batch = _pendingChecks.get(docId) ?? [];
+    if (batch.length === 0) {
+      _pendingChecks.delete(docId);
+      return;
+    }
+    _pendingChecks.set(docId, []);
+    try {
+      const decisions = await countBatch(docId, batch.map((c) => c.limit));
+      batch.forEach((check, i) => check.resolve(decisions[i]));
+    } catch (e) {
+      batch.forEach((check) => check.reject(e));
+    }
+  }
+}
+
+async function countBatch(docId: string, limits: number[]): Promise<boolean[]> {
+  const db = getFirestore();
+  const ref = db.collection(COLLECTION).doc(docId);
+  const now = Date.now();
+  // Firestore はドキュメント競合時にこのコールバックを再試行するため、数え直せるよう
+  // カウントは必ず内側で読んだ値から積む。
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const data = snap.data() as { count: number; resetAt: number } | undefined;
+    const windowExpired = !data || now > data.resetAt;
+    const before = windowExpired ? 0 : data.count;
+    let count = before;
+    const decisions = limits.map((limit) => {
+      if (count >= limit) return false;
+      count++;
+      return true;
+    });
+    if (windowExpired) {
+      const resetAt = now + WINDOW_MS;
+      tx.set(ref, { count, resetAt, expireAt: Timestamp.fromMillis(resetAt) });
+    } else if (count > before) {
+      tx.update(ref, { count });
+    }
+    return decisions;
+  });
+}
+
 export async function checkRateLimitFirestore(
   ip: string,
   limit: number = RATE_LIMIT,
   scope?: string
 ): Promise<boolean> {
   try {
-    const db = getFirestore();
-    // ドキュメント ID は日次ローテーション鍵に依存するため now を先に確定し、
-    // トランザクション内のウィンドウ判定にも同一の now を用いる（真夜中 UTC を
-    // 跨ぐ稀な再試行でも ID と判定の日付がずれない）。
-    const now = Date.now();
-    const ref = db.collection(COLLECTION).doc(docIdForIp(scopedKey(ip, scope), now));
-    // ログはトランザクション関数の外で結果を見てから1回だけ出す。Firestore は
-    // ドキュメント競合時にこのコールバックを再試行するため、内側で呼ぶと
-    // 1リクエストの over-limit が複数回の "blocked" イベントとして計上され、
-    // まさに高並行トラフィックの下で濫用メトリクス/アラートを水増ししてしまう。
-    const allowed = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      const data = snap.data() as
-        | { count: number; resetAt: number }
-        | undefined;
-      if (!data || now > data.resetAt) {
-        const resetAt = now + WINDOW_MS;
-        tx.set(ref, {
-          count: 1,
-          resetAt,
-          expireAt: Timestamp.fromMillis(resetAt),
-        });
-        return true;
-      }
-      if (data.count >= limit) {
-        return false;
-      }
-      tx.update(ref, { count: data.count + 1 });
-      return true;
-    });
+    const docId = docIdForIp(scopedKey(ip, scope), Date.now());
+    const allowed = await admitInBatch(docId, limit);
     if (!allowed) {
       logRateLimit({ decision: "blocked" });
     }
