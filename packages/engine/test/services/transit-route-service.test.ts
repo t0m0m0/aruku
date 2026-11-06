@@ -7485,7 +7485,7 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
       const withTransfer = (...transfers: JsonMap[]): JsonMap =>
         exactBody([exactCandidate({ board: at(9, 50), alight: at(9, 53) })], [], transfers);
 
-      it("B' は B のプールへ乗換つきを足して選び直し、勝てば B' を返す", async () => {
+      it("B' は B の勝者と乗換つきから選び直し、勝てば B' を返す", async () => {
         const { plan, m } = await runAb(
           exactMock({ onExact: () => json(withTransfer(transferCandidate())) }),
         );
@@ -7512,6 +7512,58 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
         expect(m.transferDropped).toEqual(1);
         expect(m.transferWon).toBe(false);
         expect(m.walkBPrime).toEqual(m.walkB);
+        expect(rides(plan)).toEqual(['厳密線']);
+      });
+
+      it('乗換の徒歩を実測できなければ、見積りで乗れても採用しない', async () => {
+        // 徒歩の実測が失敗すると見積りが残る。出発側・目的地側はサーバが実測済みだが、
+        // 乗換の徒歩は一度も測っていないので、見積り0分のままだと乗れない接続が勝つ
+        const client = mockClient((url) => {
+          const path = url.pathname;
+          if (path.includes('exactWalkMax')) {
+            return json(
+              withTransfer(transferCandidate({ secondBoard: at(9, 53), transferSec: 0 })),
+            );
+          }
+          if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+          if (path.includes('googleWalkProxy')) {
+            const goal = `${dartDouble(transferTo.lat)},${dartDouble(transferTo.lng)}`;
+            return url.searchParams.get('goal') === goal ? json({}, 503) : walkFor(url);
+          }
+          if (path.includes('guidance/plan')) return json(guidance([familyA(), familyB()]));
+          return json({}, 404);
+        });
+
+        const { plan, m } = await runAb(client);
+
+        expect(m.transferWon).toBe(false);
+        expect(m.transferDropped).toEqual(1);
+        expect(m.walkBPrime).toEqual(m.walkB);
+        expect(rides(plan)).toEqual(['厳密線']);
+      });
+
+      it('乗換つきが全部落ちても、B で検証済みの勝者を実測の上限で失わない', async () => {
+        // 見積りの徒歩 87 分で実測すると落ちる候補を、1回乗車に8本・乗換つきに5本並べる。
+        // B の勝者（86 分）は上限 13 本の9番目。同じプールへ乗換つきを足すと枠の外へ押し出され、
+        // 全滅のあと到着の早さで選ぶ縮退へ落ちて、徒歩の短い経路を返す
+        const failing = Array.from({ length: 8 }, () =>
+          exactCandidate({ board: at(9, 45), alight: at(9, 53), accessMin: 47 }),
+        );
+        const failingTransfers = Array.from({ length: 5 }, () => ({
+          ...transferCandidate({ secondBoard: at(9, 53), transferSec: 0 }),
+          accessWalk: { durationSec: 47 * 60, distanceMeters: 3650 },
+        }));
+        const body = exactBody(
+          [...failing, exactCandidate({ board: at(9, 50), alight: at(9, 53) })],
+          [],
+          failingTransfers,
+        );
+
+        const { plan, m } = await runAb(exactMock({ onExact: () => json(body) }));
+
+        expect(m.walkB).toEqual(86);
+        expect(m.walkBPrime).toEqual(86);
+        expect(m.transferDropped).toEqual(5);
         expect(rides(plan)).toEqual(['厳密線']);
       });
 

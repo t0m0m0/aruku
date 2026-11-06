@@ -402,6 +402,35 @@ export class TransitRouteService implements SearchEngine {
     }
   }
 
+  /// 乗換の徒歩を実測できた候補だけを残す。実測に失敗した徒歩は見積りのまま残るが
+  /// （[enrichWalkGeometry]）、乗換の徒歩はサーバも測っていない直線の見積りなので、
+  /// 残すと [firstMissedTransit] が乗れない接続を通す。選定の中で弾かないのは、best-effort
+  /// 縮退にも同じ判定が要るため。測った値は [walkCache] に残るので、enrich は投げ直さない。
+  private async withMeasuredTransferWalks(
+    candidates: RouteCandidate[],
+    walkCache: WalkLegCache,
+  ): Promise<RouteCandidate[]> {
+    const measured = await Promise.all(
+      candidates.map(async (c) => {
+        const walks = c.segments.filter(
+          (s, i, segs) =>
+            s.type === SegmentType.walk &&
+            i > 0 &&
+            i < segs.length - 1 &&
+            segs[i - 1].type !== SegmentType.walk &&
+            segs[i + 1].type !== SegmentType.walk,
+        );
+        const legs = await Promise.all(
+          walks.map((s) =>
+            this.tryWalk(s.polyline[0], s.polyline[1], s.fromName, s.toName, walkCache),
+          ),
+        );
+        return legs.every((leg) => leg !== null);
+      }),
+    );
+    return candidates.filter((_, i) => measured[i]);
+  }
+
   /// measure-first 選定。標準乗換・実測ハイブリッド・全徒歩を同一土俵で比較し、
   /// 採用候補を Google 実測（enrich）で検証して確定する。徒歩最大化が崩壊したときだけ
   /// 乗車駅探索（引き直し）を1本足して選び直す。
@@ -857,16 +886,19 @@ export class TransitRouteService implements SearchEngine {
             departureAt,
           )
         : collapse;
-      // B'（#474）。B を選び直した同じプールへ乗換つきの候補だけを足すので、walkB' − walkB は
-      // 乗換つきの候補だけから来る。返すのは B'——乗換つきの候補の乗り遅れ・予算超過は、
-      // 確定経路を返さないと結果の記録に残らない。
+      // B'（#474）。比べる相手は B の勝者と乗換つきの候補だけにする。全プールへ足さないのは、
+      // 実測の上限（maxMeasureShortlist）で B の勝者が押し出され、乗換つきが全滅すると検証済みの
+      // 勝者を失うため。B の勝者はプールの最良なので、他の候補は要らない。返すのは B'——
+      // 乗換つきの候補の乗り遅れ・予算超過は、確定経路を返さないと結果の記録に残らない。
       metrics.walkBPrime = metrics.walkB;
-      if (fromTransfer.size > 0) {
+      const measurable = await this.withMeasuredTransferWalks([...fromTransfer], walkCache);
+      metrics.transferDropped = fromTransfer.size - measurable.length;
+      if (measurable.length > 0) {
         const rejected = new Set<RouteCandidate>();
-        selected = await reselect([...pool, ...fromTransfer], rejected);
+        selected = await reselect([selected.chosen, ...measurable], rejected);
         metrics.walkBPrime = selected.enriched.walkMinutes;
         metrics.transferWon = fromTransfer.has(selected.chosen);
-        metrics.transferDropped = [...rejected].filter((c) => fromTransfer.has(c)).length;
+        metrics.transferDropped += [...rejected].filter((c) => fromTransfer.has(c)).length;
       }
       this.diag.log(
         () =>
