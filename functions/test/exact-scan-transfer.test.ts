@@ -4,6 +4,7 @@ import {
   bestJourneys,
   bestRides,
   compileTimetable,
+  pickStopsToMeasure,
   transferNeighbors,
   type CompiledTimetable,
   type Journey,
@@ -456,6 +457,40 @@ describe("bestJourneys", () => {
     }
   });
 
+  it("transfersOnly なら、1回乗車の徒歩のほうが長くても乗換つきの上位 k 本を返す", () => {
+    // 1回乗車 駅0→駅1 は徒歩 1000 秒。乗換つきは駅0→駅1、駅2→駅3 で徒歩 100 秒台
+    const ct = compileTimetable(
+      timetable(
+        [0, 10, 10.1, 20],
+        [
+          { calls: [call(0, t(10, 20)), call(1, t(10, 40))] },
+          { calls: [call(2, t(10, 50)), call(3, t(11, 10))] },
+        ],
+      ),
+    );
+    const n = transferNeighbors(ct, separateStations(4), { maxWalkSec: min(10) });
+    const walks = measured({ 0: 60 }, { 1: 940, 3: 60 });
+
+    expect(bestJourneys(ct, query(120), walks, n, { k: 1 }).map(legsOf)).toEqual([[[0, 0, 1]]]);
+    expect(bestJourneys(ct, query(120), walks, n, { k: 1, transfersOnly: true }).map(legsOf)).toEqual([
+      [
+        [0, 0, 1],
+        [1, 2, 3],
+      ],
+    ]);
+  });
+
+  it("transfersOnly で乗換つきの経路が無ければ空を返す", () => {
+    const ct = compileTimetable(
+      timetable([0, 10], [{ calls: [call(0, t(10, 20)), call(1, t(10, 40))] }]),
+    );
+    const n = transferNeighbors(ct, separateStations(2), { maxWalkSec: min(10) });
+
+    expect(
+      bestJourneys(ct, query(120), measured({ 0: 60 }, { 1: 60 }), n, { transfersOnly: true }),
+    ).toEqual([]);
+  });
+
   it("小さな乱数の時刻表で、全ての組を総当たりした上位 k 本と一致する", () => {
     const random = mulberry32(456);
     let withTransfer = 0;
@@ -473,6 +508,81 @@ describe("bestJourneys", () => {
     }
     // 乱数の作りが乗換を含む答えをほとんど作らないと、この照合は乗換の側を検査しない
     expect(withTransfer).toBeGreaterThan(300);
+  });
+
+  it("小さな乱数の時刻表で、transfersOnly の答えは総当たりの乗換つきの上位 k 本と一致する", () => {
+    const random = mulberry32(474);
+    let nonEmpty = 0;
+    for (let trial = 0; trial < 1500; trial++) {
+      const { ct, q, walks, stations } = randomCase(random);
+      const n = transferNeighbors(ct, stations, { maxWalkSec: 200 + random() * 1500 });
+      const minTransferSec = Math.floor(random() * 300);
+      const k = 1 + Math.floor(random() * 6);
+
+      const expected = bruteForce(ct, q, walks, n, { k: Infinity, minTransferSec })
+        .filter((j) => j.legs.length === 2)
+        .slice(0, k);
+      const actual = bestJourneys(ct, q, walks, n, { k, minTransferSec, transfersOnly: true });
+
+      expect(actual).toEqual(expected);
+      if (expected.length > 0) nonEmpty++;
+    }
+    expect(nonEmpty).toBeGreaterThan(300);
+  });
+});
+
+describe("pickStopsToMeasure（乗換つき）", () => {
+  // 出発地 0 km・目的地 20 km。徒歩は直線で 1 km = 750 秒
+  const near = (budgetMin: number): ScanQuery => ({
+    origin: pointAtKm(0),
+    goal: pointAtKm(20),
+    departAt: t(10, 0),
+    budgetMin,
+  });
+
+  // 駅0（2 km）→ 駅1（10 km）、歩いて駅2（10.1 km）→ 駅3（17 km）。徒歩は 2 + 0.1 + 3 = 5.1 km
+  const transferKms = [2, 10, 10.1, 17];
+  const transferTrips = [
+    { calls: [call(0, t(10, 30)), call(1, t(10, 50))] },
+    { calls: [call(2, t(11, 0)), call(3, t(11, 20))] },
+  ];
+
+  it("乗車側は最初の乗車から、降車側は最後の乗車から拾い、乗換の途中の駅は測らない", () => {
+    const ct = compileTimetable(timetable(transferKms, transferTrips));
+    const n = transferNeighbors(ct, separateStations(4), { maxWalkSec: min(10) });
+
+    // 締切 12:00。駅1 で降りて目的地へ歩くと 12:55 で1回乗車は成り立たない
+    const picked = pickStopsToMeasure(ct, near(120), { neighbors: n });
+
+    expect(picked).toMatchObject({ boards: [0], alights: [3] });
+  });
+
+  it("近傍の表を渡さなければ、乗換が要る検索では今までどおり測る駅が無い", () => {
+    const ct = compileTimetable(timetable(transferKms, transferTrips));
+
+    expect(pickStopsToMeasure(ct, near(120))).toMatchObject({ boards: [], alights: [] });
+  });
+
+  it("1回乗車と乗換つきを徒歩の長い順に混ぜて、上限まで拾う", () => {
+    // 締切 13:00。駅1に 11:00 に着くと歩いて 13:05 なので、駅0→駅1 の1回乗車は成り立たない。
+    // 1回乗車 駅4（5 km）→駅5（15 km）は徒歩 10 km で乗換つきより長く、
+    // 1回乗車 駅6（1 km）→駅7（19 km）は徒歩 2 km で乗換つきより短い
+    const ct = compileTimetable(
+      timetable(
+        [...transferKms, 5, 15, 1, 19],
+        [
+          { calls: [call(0, t(10, 30)), call(1, t(11, 0))] },
+          { calls: [call(2, t(11, 10)), call(3, t(11, 30))] },
+          { calls: [call(4, t(11, 10)), call(5, t(11, 20))] },
+          { calls: [call(6, t(10, 30)), call(7, t(11, 20))] },
+        ],
+      ),
+    );
+    const n = transferNeighbors(ct, separateStations(8), { maxWalkSec: min(10) });
+
+    const picked = pickStopsToMeasure(ct, near(180), { maxPerSide: 2, neighbors: n });
+
+    expect(picked).toMatchObject({ boards: [4, 0], alights: [5, 3], truncated: true });
   });
 });
 

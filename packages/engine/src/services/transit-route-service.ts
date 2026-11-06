@@ -28,7 +28,11 @@ import {
   walkFeasiblePrefixCount,
   type FrontierStations,
 } from './hybrid-route-selector';
-import { exactWalkCandidates, timetableSources } from './exact-walk-candidates';
+import {
+  exactWalkCandidates,
+  exactWalkTransferCandidates,
+  timetableSources,
+} from './exact-walk-candidates';
 import { TimeoutException, type HttpClient } from './http-client';
 import {
   ArrivalWaveOutcome,
@@ -93,7 +97,8 @@ export interface TransitRouteServiceInit {
 
   /// 厳密走査の効果を同じ実行の中で A/B 比較する計測モード（#462・§3.9）。既定 false。
   /// 真なら厳密走査を発行するが候補プールへは混ぜずに最後まで走らせ（A）、その最終候補
-  /// プールへ厳密走査の候補を足して選び直した結果（B）を返す。[exactWalkMax] の値は問わない。
+  /// プールへ厳密走査の候補を足して選び直し（B）、乗換つきの候補があれば足してさらに
+  /// 選び直した結果（B'・#474）を返す。[exactWalkMax] の値は問わない。
   exactWalkMaxAb?: boolean;
 }
 
@@ -367,31 +372,63 @@ export class TransitRouteService implements SearchEngine {
   /// 空リストへ落とす——厳密走査は改善であって必須ではない。[SearchCanceledException] だけは
   /// 飲まない（#316。[arrivalWaveOptions] と同じ理由）。
   ///
-  /// `candidates` が null なのは失敗したとき（計測で 0 件と分けるため）。
+  /// `candidates` が null なのは失敗したとき（計測で 0 件と分けるため）。乗換つきの候補は
+  /// A/B 計測（#474）だけが使うので、それ以外では読まない。
   private async exactWaveCandidates(
     wave: Promise<JsonMap>,
     ends: { origin: GeoPoint; goal: GeoPoint; from: string; to: string },
   ): Promise<{
     candidates: RouteCandidate[] | null;
+    transfers: RouteCandidate[];
     capped: boolean;
     sources: TimetableSource[];
   }> {
     try {
       const body = await wave;
       const candidates = exactWalkCandidates(body, ends);
+      const transfers = this.exactWalkMaxAb ? exactWalkTransferCandidates(body, ends) : [];
       const stats = body['stats'];
       const capped = isRecord(stats) && stats['truncated'] === true;
       this.diag.log(
         () => `exactWalkMax: ${candidates.length}件を合流（打ち切り=${capped}）`,
       );
-      return { candidates, capped, sources: timetableSources(body) };
+      return { candidates, transfers, capped, sources: timetableSources(body) };
     } catch (error) {
       if (error instanceof SearchCanceledException) throw error;
       this.diag.log(
         () => `exactWalkMax: 失敗（${String(error)}）→ 厳密走査の候補なしで続行`,
       );
-      return { candidates: null, capped: false, sources: [] };
+      return { candidates: null, transfers: [], capped: false, sources: [] };
     }
+  }
+
+  /// 乗換の徒歩を実測できた候補だけを残す。実測に失敗した徒歩は見積りのまま残るが
+  /// （[enrichWalkGeometry]）、乗換の徒歩はサーバも測っていない直線の見積りなので、
+  /// 残すと [firstMissedTransit] が乗れない接続を通す。選定の中で弾かないのは、best-effort
+  /// 縮退にも同じ判定が要るため。測った値は [walkCache] に残るので、enrich は投げ直さない。
+  private async withMeasuredTransferWalks(
+    candidates: RouteCandidate[],
+    walkCache: WalkLegCache,
+  ): Promise<RouteCandidate[]> {
+    const measured = await Promise.all(
+      candidates.map(async (c) => {
+        const walks = c.segments.filter(
+          (s, i, segs) =>
+            s.type === SegmentType.walk &&
+            i > 0 &&
+            i < segs.length - 1 &&
+            segs[i - 1].type !== SegmentType.walk &&
+            segs[i + 1].type !== SegmentType.walk,
+        );
+        const legs = await Promise.all(
+          walks.map((s) =>
+            this.tryWalk(s.polyline[0], s.polyline[1], s.fromName, s.toName, walkCache),
+          ),
+        );
+        return legs.every((leg) => leg !== null);
+      }),
+    );
+    return candidates.filter((_, i) => measured[i]);
   }
 
   /// measure-first 選定。標準乗換・実測ハイブリッド・全徒歩を同一土俵で比較し、
@@ -505,6 +542,7 @@ export class TransitRouteService implements SearchEngine {
     // 起こしてあり、ハイブリッドを作っている間に返っていれば待ちは 0 になる。
     // 出自は arrival 波と同じくインスタンス同一性で覚える（`exactWon`）。
     const fromExact = new Set<RouteCandidate>();
+    const fromTransfer = new Set<RouteCandidate>();
     let sources: TimetableSource[] = [];
     const takeExact = async (wave: Promise<JsonMap>): Promise<RouteCandidate[]> => {
       const result = await this.exactWaveCandidates(wave, {
@@ -521,6 +559,12 @@ export class TransitRouteService implements SearchEngine {
         fromExact.add(c);
         this.diag.log(
           () => `exact: ${this.diag.candLine(c, budgetMin, departureAt)}`,
+        );
+      }
+      for (const c of result.transfers) {
+        fromTransfer.add(c);
+        this.diag.log(
+          () => `exact transfer: ${this.diag.candLine(c, budgetMin, departureAt)}`,
         );
       }
       return exact;
@@ -811,12 +855,14 @@ export class TransitRouteService implements SearchEngine {
       metrics.finalizeMs = finalizeASw.elapsedMilliseconds;
       abSw = startedStopwatch();
       const heldExact = ctx.exactWave === null ? [] : await takeExact(ctx.exactWave);
+      metrics.transferCandidates = metrics.exactCandidates < 0 ? -1 : fromTransfer.size;
       this.api.startReplay();
-      selected = await this.selectAndEnrich(
-        [...candidates, ...(busCandidates ?? []), ...boardSearchExtra, ...heldExact],
-        budgetMin,
-        departureAt,
-        {
+      const pool = [...candidates, ...(busCandidates ?? []), ...boardSearchExtra, ...heldExact];
+      const reselect = (
+        from: RouteCandidate[],
+        rejected?: Set<RouteCandidate>,
+      ): Promise<Selection> =>
+        this.selectAndEnrich(from, budgetMin, departureAt, {
           origin,
           goal,
           walkCache,
@@ -825,9 +871,11 @@ export class TransitRouteService implements SearchEngine {
           bestEffortLedger: new BestEffortLedger(),
           lastResortBus,
           prefetchBus,
-        },
-      );
+          rejected,
+        });
+      selected = await reselect(pool);
       metrics.walkB = selected.enriched.walkMinutes;
+      metrics.exactWon = fromExact.has(selected.chosen);
       // B の勝者が厳密走査の候補でなければ B は A と同じ経路なので、崩壊も A のまま。
       // 勝者で判定し直すと、A の board-search が解いた崩壊を厳密走査の手柄に数える。
       metrics.collapseB = fromExact.has(selected.chosen)
@@ -838,16 +886,32 @@ export class TransitRouteService implements SearchEngine {
             departureAt,
           )
         : collapse;
+      // B'（#474）。比べる相手は B の勝者と乗換つきの候補だけにする。全プールへ足さないのは、
+      // 実測の上限（maxMeasureShortlist）で B の勝者が押し出され、乗換つきが全滅すると検証済みの
+      // 勝者を失うため。B の勝者はプールの最良なので、他の候補は要らない。返すのは B'——
+      // 乗換つきの候補の乗り遅れ・予算超過は、確定経路を返さないと結果の記録に残らない。
+      metrics.walkBPrime = metrics.walkB;
+      const measurable = await this.withMeasuredTransferWalks([...fromTransfer], walkCache);
+      metrics.transferDropped = fromTransfer.size - measurable.length;
+      if (measurable.length > 0) {
+        const rejected = new Set<RouteCandidate>();
+        selected = await reselect([selected.chosen, ...measurable], rejected);
+        metrics.walkBPrime = selected.enriched.walkMinutes;
+        metrics.transferWon = fromTransfer.has(selected.chosen);
+        metrics.transferDropped += [...rejected].filter((c) => fromTransfer.has(c)).length;
+      }
       this.diag.log(
         () =>
           `A/B: walkA=${metrics.walkA}m walkB=${metrics.walkB}m ` +
-          `B=${this.diag.candLine(selected.enriched, budgetMin, departureAt)}`,
+          `walkBPrime=${metrics.walkBPrime}m ` +
+          `B'=${this.diag.candLine(selected.enriched, budgetMin, departureAt)}`,
       );
+    } else {
+      metrics.exactWon = fromExact.has(selected.chosen);
     }
 
     // 確定候補が第2波（#376）由来かも同一性で引く。
     metrics.arrivalWaveWon = fromArrivalWave.has(selected.chosen);
-    metrics.exactWon = fromExact.has(selected.chosen);
 
     // 崩壊後の再選定も同じ台帳へ積むので、畳むのは board-search を抜けた後。
     metrics.enrichMs = enrichSw.elapsedMilliseconds;
@@ -856,7 +920,7 @@ export class TransitRouteService implements SearchEngine {
 
     const finalizeSw = startedStopwatch();
     const named = await this.finalizeStationNames(selected.enriched, departureAt);
-    // A/B モードの finalizeMs は A の駅名復元。B の復元は abMs に入れる。
+    // A/B モードの finalizeMs は A の駅名復元。確定経路（B か B'）の復元は abMs に入れる。
     if (abSw === null) metrics.finalizeMs = finalizeSw.elapsedMilliseconds;
     else metrics.abMs = abSw.elapsedMilliseconds;
     // 定性ログ（下の FINAL）は debug 限定なので、profile の計測では最終徒歩が読めない。
@@ -1237,10 +1301,13 @@ export class TransitRouteService implements SearchEngine {
       bestEffortLedger: BestEffortLedger;
       lastResortBus?: () => Promise<RouteCandidate[]>;
       prefetchBus?: () => void;
+      /// 実測して落ちた候補を積む先。呼び出し側が数える（A/B の `transferDropped`）。
+      rejected?: Set<RouteCandidate>;
     },
   ): Promise<Selection> {
     const { origin, goal, walkCache, enrichedCache, enrichLedger, bestEffortLedger } =
       ctx;
+    const rejected = ctx.rejected ?? new Set<RouteCandidate>();
 
     /// 縮退。まず従来どおり best-effort を求め、それでも予算外ならバス許容の再照会を
     /// 一度だけ試して候補を足し、選定をやり直す（#250）。
@@ -1296,6 +1363,7 @@ export class TransitRouteService implements SearchEngine {
           enrichedCache,
           enrichLedger,
           bestEffortLedger,
+          rejected,
         },
       );
     };
@@ -1320,7 +1388,6 @@ export class TransitRouteService implements SearchEngine {
     // 短リストを候補**間**並列で実測する（#315）。まず最上位の徒歩tier だけを測る——
     // [selectBestRoute] は徒歩最大を勝者にするので、共通ケースはこの1バッチで済み IO 最小。
     // 最上位 tier が全滅したら、残りを**1回の並列バッチ**で一括実測する（#315 B）。
-    const rejected = new Set<RouteCandidate>();
     const cap = Math.min(within.length, maxMeasureShortlist);
     const firstTierWalk = within[0].walkMinutes;
     let firstTierEnd = 0;

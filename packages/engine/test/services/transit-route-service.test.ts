@@ -6917,8 +6917,13 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
     },
   });
 
-  const exactBody = (candidates: JsonMap[], feeds: JsonMap[] = []): JsonMap => ({
+  const exactBody = (
+    candidates: JsonMap[],
+    feeds: JsonMap[] = [],
+    transferCandidates: JsonMap[] = [],
+  ): JsonMap => ({
     candidates,
+    transferCandidates,
     feeds,
     stats: { tripsScanned: 10, elementsMeasured: 2, truncated: false },
   });
@@ -7426,6 +7431,226 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
       const m = captured! as RouteSearchMetrics;
       expect(m.exactWon, '前提: B は厳密走査の候補').toBe(true);
       expect(m.finalizeMs, 'A の駅名復元（guidance 1往復）を測っている').toBeGreaterThanOrEqual(25);
+    });
+
+    describe("乗換つきの候補を足す B' (#474)", () => {
+      // 乗換の駅は 0.002 度（約2分）離れている。徒歩は 46 + 2 + 40 = 88 分で、B の 86 分より長い
+      const transferFrom = new GeoPoint(35.0, 139.05);
+      const transferTo = new GeoPoint(35.0, 139.052);
+      const leg = (a: {
+        from: GeoPoint;
+        to: GeoPoint;
+        name: string;
+        board: string;
+        alight: string;
+      }): JsonMap => ({
+        board: { name: `${a.name}乗車`, lat: a.from.lat, lng: a.from.lng },
+        alight: { name: `${a.name}降車`, lat: a.to.lat, lng: a.to.lng },
+        route: a.name,
+        headsign: null,
+        boardAt: a.board,
+        alightAt: a.alight,
+        stops: [
+          { lat: a.from.lat, lng: a.from.lng },
+          { lat: a.to.lat, lng: a.to.lng },
+        ],
+      });
+      const transferCandidate = (
+        a: { secondBoard?: string; transferSec?: number; sameStation?: boolean } = {},
+      ): JsonMap => ({
+        legs: [
+          leg({
+            from: boardPt,
+            to: transferFrom,
+            name: '一本目線',
+            board: at(9, 50),
+            alight: at(9, 52),
+          }),
+          leg({
+            from: transferTo,
+            to: alightPt,
+            name: '二本目線',
+            board: a.secondBoard ?? at(9, 55),
+            alight: at(9, 57),
+          }),
+        ],
+        accessWalk: { durationSec: walkMin(o, boardPt) * 60, distanceMeters: 3650 },
+        transferWalk: {
+          durationSec: a.transferSec ?? walkMin(transferFrom, transferTo) * 60,
+          distanceMeters: 180,
+        },
+        sameStation: a.sameStation ?? false,
+        egressWalk: { durationSec: walkMin(alightPt, g) * 60, distanceMeters: 3200 },
+      });
+      const withTransfer = (...transfers: JsonMap[]): JsonMap =>
+        exactBody([exactCandidate({ board: at(9, 50), alight: at(9, 53) })], [], transfers);
+
+      it("B' は B の勝者と乗換つきから選び直し、勝てば B' を返す", async () => {
+        const { plan, m } = await runAb(
+          exactMock({ onExact: () => json(withTransfer(transferCandidate())) }),
+        );
+
+        expect(m.walkB).toEqual(86);
+        expect(m.walkBPrime).toEqual(88);
+        expect(m.transferCandidates).toEqual(1);
+        expect(m.transferDropped).toEqual(0);
+        expect(m.transferWon).toBe(true);
+        expect(m.exactWon, 'exactWon は B の確定候補を見る').toBe(true);
+        expect(rides(plan)).toEqual(['一本目線', '二本目線']);
+        expect(walkOf(plan)).toEqual(m.walkBPrime);
+      });
+
+      it('見積り0分の別駅への乗換は実測で伸び、2本目に乗り遅れれば落ちて B のまま', async () => {
+        // 見積りでは 9:52 着・9:53 発で乗れるが、実測の徒歩は約2分
+        const { plan, m } = await runAb(
+          exactMock({
+            onExact: () =>
+              json(withTransfer(transferCandidate({ secondBoard: at(9, 53), transferSec: 0 }))),
+          }),
+        );
+
+        expect(m.transferDropped).toEqual(1);
+        expect(m.transferWon).toBe(false);
+        expect(m.walkBPrime).toEqual(m.walkB);
+        expect(rides(plan)).toEqual(['厳密線']);
+      });
+
+      it('乗換の徒歩を実測できなければ、見積りで乗れても採用しない', async () => {
+        // 徒歩の実測が失敗すると見積りが残る。出発側・目的地側はサーバが実測済みだが、
+        // 乗換の徒歩は一度も測っていないので、見積り0分のままだと乗れない接続が勝つ
+        const client = mockClient((url) => {
+          const path = url.pathname;
+          if (path.includes('exactWalkMax')) {
+            return json(
+              withTransfer(transferCandidate({ secondBoard: at(9, 53), transferSec: 0 })),
+            );
+          }
+          if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
+          if (path.includes('googleWalkProxy')) {
+            const goal = `${dartDouble(transferTo.lat)},${dartDouble(transferTo.lng)}`;
+            return url.searchParams.get('goal') === goal ? json({}, 503) : walkFor(url);
+          }
+          if (path.includes('guidance/plan')) return json(guidance([familyA(), familyB()]));
+          return json({}, 404);
+        });
+
+        const { plan, m } = await runAb(client);
+
+        expect(m.transferWon).toBe(false);
+        expect(m.transferDropped).toEqual(1);
+        expect(m.walkBPrime).toEqual(m.walkB);
+        expect(rides(plan)).toEqual(['厳密線']);
+      });
+
+      it('乗換つきが全部落ちても、B で検証済みの勝者を実測の上限で失わない', async () => {
+        // 見積りの徒歩 87 分で実測すると落ちる候補を、1回乗車に8本・乗換つきに5本並べる。
+        // B の勝者（86 分）は上限 13 本の9番目。同じプールへ乗換つきを足すと枠の外へ押し出され、
+        // 全滅のあと到着の早さで選ぶ縮退へ落ちて、徒歩の短い経路を返す
+        const failing = Array.from({ length: 8 }, () =>
+          exactCandidate({ board: at(9, 45), alight: at(9, 53), accessMin: 47 }),
+        );
+        const failingTransfers = Array.from({ length: 5 }, () => ({
+          ...transferCandidate({ secondBoard: at(9, 53), transferSec: 0 }),
+          accessWalk: { durationSec: 47 * 60, distanceMeters: 3650 },
+        }));
+        const body = exactBody(
+          [...failing, exactCandidate({ board: at(9, 50), alight: at(9, 53) })],
+          [],
+          failingTransfers,
+        );
+
+        const { plan, m } = await runAb(exactMock({ onExact: () => json(body) }));
+
+        expect(m.walkB).toEqual(86);
+        expect(m.walkBPrime).toEqual(86);
+        expect(m.transferDropped).toEqual(5);
+        expect(rides(plan)).toEqual(['厳密線']);
+      });
+
+      it('実測まで届かなかった乗換つきの候補は、落ちた数に入れない', async () => {
+        // 徒歩 88 分の1本目が勝つと、徒歩の短い2本目は実測されない
+        const short = transferCandidate();
+        const { m } = await runAb(
+          exactMock({
+            onExact: () =>
+              json(
+                withTransfer(transferCandidate(), {
+                  ...short,
+                  accessWalk: { durationSec: 40 * 60, distanceMeters: 3200 },
+                }),
+              ),
+          }),
+        );
+
+        expect(m.transferCandidates).toEqual(2);
+        expect(m.transferDropped).toEqual(0);
+      });
+
+      it("B' も A の上流応答を引き直さず、足す往復は乗換の徒歩の実測だけ", async () => {
+        const log: URL[] = [];
+        await runAb(
+          exactMock({ onExact: () => json(withTransfer(transferCandidate())), log }),
+        );
+        const without: URL[] = [];
+        await runAb(exactMock({ onExact: () => json(withTransfer()), log: without }));
+
+        const guidanceOf = (l: URL[]): number =>
+          l.filter((u) => u.pathname.includes('guidance/plan')).length;
+        const transferWalks = log.filter(
+          (u) =>
+            u.pathname.includes('googleWalkProxy') &&
+            u.searchParams.get('goal') ===
+              `${dartDouble(transferTo.lat)},${dartDouble(transferTo.lng)}`,
+        );
+        expect(guidanceOf(log)).toEqual(guidanceOf(without));
+        expect(transferWalks).toHaveLength(1);
+      });
+
+      it("乗換つきの候補が無ければ B' は B と同じで、選び直さない", async () => {
+        const { m } = await runAb(exactMock({ onExact: () => json(winning()) }));
+
+        expect(m.transferCandidates).toEqual(0);
+        expect(m.walkBPrime).toEqual(m.walkB);
+        expect(m.transferWon).toBe(false);
+      });
+
+      it('厳密走査が失敗すれば transferCandidates は -1', async () => {
+        const { m } = await runAb(exactMock({ onExact: () => json({}, 503) }));
+
+        expect(m.transferCandidates).toEqual(-1);
+        expect(m.walkBPrime).toEqual(m.walkB);
+      });
+
+      it('1行ログに出す', async () => {
+        const { m } = await runAb(
+          exactMock({ onExact: () => json(withTransfer(transferCandidate())) }),
+        );
+
+        expect(m.toLogLine()).toContain(
+          'walkBPrime=88 transferCandidates=1 transferDropped=0 transferWon=1',
+        );
+      });
+
+      it('A/B モードでなければ乗換つきの候補を読まず、経路にも出さない', async () => {
+        let captured: RouteSearchMetrics | null = null;
+        const plan = await service(
+          exactMock({ onExact: () => json(withTransfer(transferCandidate())) }),
+          { exactWalkMax: true, onMetrics: (m) => (captured = m) },
+        ).plan({
+          destination: '目的地',
+          destinationLatLng: g,
+          departure: new TimeValue({ h: 9, m: 0 }),
+          arrival: new TimeValue({ h: 10, m: 40 }),
+          origin: o,
+          originName: '出発',
+        });
+
+        const m = captured! as RouteSearchMetrics;
+        expect(rides(plan)).toEqual(['厳密線']);
+        expect(m.walkBPrime).toEqual(-1);
+        expect(m.transferCandidates).toEqual(-1);
+        expect(m.transferWon).toBe(false);
+      });
     });
 
     it('A/B モードでなければ walkA・walkB は -1、collapseB は null', async () => {

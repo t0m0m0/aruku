@@ -7,7 +7,7 @@
 //   3. bestRides: 実測値で走査し直し、徒歩最大の候補を返す
 //
 // bestJourneys は乗換1回（徒歩→乗車→徒歩→乗車→徒歩）まで広げた実験版（#474・
-// docs/notes/exact-scan-one-transfer.md）。exactWalkMax にはまだ配線していない。
+// docs/notes/exact-scan-one-transfer.md）。exactWalkMax の応答の transferCandidates を作る。
 
 export interface LatLng {
   lat: number;
@@ -177,12 +177,13 @@ export interface StopsToMeasure {
 
 /**
  * 直線の徒歩（実際の徒歩の下限）で全便を走査し、Google マトリクスで実測する駅を選ぶ。
- * 乗車側・降車側とも最大 maxPerSide 駅。
+ * 乗車側・降車側とも最大 maxPerSide 駅。neighbors を渡すと乗換つきの経路も徒歩の順に混ぜ、
+ * 乗車側を最初の乗車の駅、降車側を最後の乗車の駅から拾う。
  */
 export function pickStopsToMeasure(
   ct: CompiledTimetable,
   q: ScanQuery,
-  opts: { maxPerSide?: number } = {},
+  opts: { maxPerSide?: number; neighbors?: TransferNeighbors } = {},
 ): StopsToMeasure {
   const maxPerSide = opts.maxPerSide ?? 12;
   const access = new Float64Array(ct.stopCount);
@@ -196,12 +197,33 @@ export function pickStopsToMeasure(
   // 残って2パス目が空振りするため（駅の多い JR で顕著。試作で解けた検索が 10%→21%）。
   // 便ごとの最良の組を徒歩の長い順に並べ、その上位から両側を拾う。
   const { pairs, tripsScanned } = bestPairPerTrip(ct, q, access, egress);
-  pairs.sort((a, b) => b.walk - a.walk || a.trip - b.trip);
+  const ranked = pairs.map((p) => ({
+    trip: p.trip,
+    board: ct.callStop[p.boardCall],
+    alight: ct.callStop[p.alightCall],
+    walk: p.walk,
+  }));
+  if (opts.neighbors !== undefined) {
+    const straight = { access: new Map(access.entries()), egress: new Map(egress.entries()) };
+    const journeys = bestJourneys(ct, q, straight, opts.neighbors, {
+      k: maxPerSide * 2,
+      transfersOnly: true,
+    });
+    for (const j of journeys) {
+      ranked.push({
+        trip: j.legs[0].trip,
+        board: j.legs[0].board,
+        alight: j.legs[j.legs.length - 1].alight,
+        walk: j.walkSec,
+      });
+    }
+  }
+  ranked.sort((a, b) => b.walk - a.walk || a.trip - b.trip);
   const boards = new Set<number>();
   const alights = new Set<number>();
-  for (const p of pairs) {
-    boards.add(ct.callStop[p.boardCall]);
-    alights.add(ct.callStop[p.alightCall]);
+  for (const r of ranked) {
+    boards.add(r.board);
+    alights.add(r.alight);
   }
   return {
     boards: [...boards].slice(0, maxPerSide),
@@ -423,13 +445,15 @@ const PRUNE_SLACK_SEC = 1e-6;
  * （乗車駅, 降車駅）、乗換1回は（乗車駅, 降車駅, 乗換先, 降車駅）ごとに1本にまとめる。
  *
  * 乗換の徒歩は neighbors の値（直線）を使う。neighbors が null なら乗換0回だけを返す。
+ * transfersOnly なら乗換1回の経路だけで上位 k 本を作る。1回乗車の徒歩が長い検索でも、
+ * 1回乗車が落ちたときの次善になる乗換つきの候補を返すため。
  */
 export function bestJourneys(
   ct: CompiledTimetable,
   q: ScanQuery,
   measured: MeasuredWalks,
   neighbors: TransferNeighbors | null,
-  opts: { k?: number; minTransferSec?: number } = {},
+  opts: { k?: number; minTransferSec?: number; transfersOnly?: boolean } = {},
 ): Journey[] {
   const k = opts.k ?? 5;
   const minTransferSec = opts.minTransferSec ?? DEFAULT_MIN_TRANSFER_SEC;
@@ -504,6 +528,7 @@ export function bestJourneys(
   const topWalks: number[] = [];
   const threshold = () => (topWalks.length < k ? -Infinity : topWalks[k - 1] - PRUNE_SLACK_SEC);
   const offer = (j: Journey): void => {
+    if (opts.transfersOnly === true && j.legs.length < 2) return;
     if (j.walkSec < threshold()) return;
     const key = j.legs.map((l) => `${l.board}-${l.alight}`).join("/");
     const prev = found.get(key);

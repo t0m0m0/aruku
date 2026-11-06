@@ -27,6 +27,17 @@ export interface AbSummary {
   exactMsP90: number | null;
   /// A では崩壊したが B では崩壊しない検索（board-search が要らなくなった）。
   collapseResolved: number;
+  /// 乗換つきの候補を足した検索（`transferCandidates>0`）。B' の増分の分母。
+  transferCovered: number;
+  transferImproved: number;
+  transferWon: number;
+  transferGainMedian: number | null;
+  /// 改善した検索だけの増分の中央値。
+  transferGainMedianImproved: number | null;
+  transferGainMax: number | null;
+  transferCandidatesTotal: number;
+  transferDroppedTotal: number;
+  transferWonViolations: number;
 }
 
 export function median(xs: readonly number[]): number | null {
@@ -58,20 +69,35 @@ export function summarize(records: readonly BenchRecord[]): AbSummary {
   let violations = 0;
   let exactWonViolations = 0;
   let collapseResolved = 0;
+  const transferGains: number[] = [];
+  let transferWon = 0;
+  let transferCandidatesTotal = 0;
+  let transferDroppedTotal = 0;
+  let transferWonViolations = 0;
   for (const r of ok) {
     const m = r.metrics!;
     const won = num(m, 'exactWon') === 1;
     if (won) exactWon++;
+    const wonByTransfer = num(m, 'transferWon') === 1;
+    if (wonByTransfer) transferWon++;
+    // 記録の経路は B' の確定経路。乗換つきが勝てば、B で厳密走査が勝っていても B の経路ではない。
     const violated = !r.plan!.withinBudget || r.plan!.missed;
     if (violated) {
       violations++;
-      if (won) exactWonViolations++;
+      if (wonByTransfer) transferWonViolations++;
+      else if (won) exactWonViolations++;
     }
     const walkA = num(m, 'walkA');
     const walkB = num(m, 'walkB');
     if (num(m, 'coveredBase') === 1 && walkA >= 0 && walkB >= 0) {
       covered++;
       gains.push(walkB - walkA);
+    }
+    if (num(m, 'transferCandidates') > 0) {
+      transferCandidatesTotal += num(m, 'transferCandidates');
+      transferDroppedTotal += num(m, 'transferDropped');
+      const walkBPrime = num(m, 'walkBPrime');
+      if (walkB >= 0 && walkBPrime >= 0) transferGains.push(walkBPrime - walkB);
     }
     // A は必ず全工程を走るので、B の所要は同じ実行の中では測れない。崩壊が解けた検索で
     // 浮く board-search の時間を引いて推定する（§3.8 の collapseB）。
@@ -85,6 +111,7 @@ export function summarize(records: readonly BenchRecord[]): AbSummary {
     if (num(m, 'exactCalls') > 0) exactMs.push(num(m, 'exactMs'));
   }
   const improvedGains = gains.filter((g) => g > 0);
+  const improvedTransferGains = transferGains.filter((g) => g > 0);
   return {
     total: records.length,
     errors: records.length - ok.length,
@@ -103,6 +130,15 @@ export function summarize(records: readonly BenchRecord[]): AbSummary {
     exactMsMedian: median(exactMs),
     exactMsP90: quantile(exactMs, 0.9),
     collapseResolved,
+    transferCovered: transferGains.length,
+    transferImproved: improvedTransferGains.length,
+    transferWon,
+    transferGainMedian: median(transferGains),
+    transferGainMedianImproved: median(improvedTransferGains),
+    transferGainMax: transferGains.length === 0 ? null : Math.max(...transferGains),
+    transferCandidatesTotal,
+    transferDroppedTotal,
+    transferWonViolations,
   };
 }
 
@@ -112,22 +148,29 @@ const fmt = (v: number | null, unit = ''): string =>
 const pct = (n: number, d: number): string =>
   d === 0 ? '—' : `${Math.round((n / d) * 1000) / 10}%`;
 
-function gainRows(records: readonly BenchRecord[], keyOf: (r: BenchRecord) => string): string[] {
+function groupedRows(
+  records: readonly BenchRecord[],
+  keyOf: (r: BenchRecord) => string,
+  rowOf: (key: string, s: AbSummary) => string,
+): string[] {
   const groups = new Map<string, BenchRecord[]>();
   for (const r of records) groups.set(keyOf(r), [...(groups.get(keyOf(r)) ?? []), r]);
-  return [...groups.entries()].map(([key, rs]) => {
-    const s = summarize(rs);
-    return `| ${key} | ${s.covered} | ${s.improved}（${pct(s.improved, s.covered)}） | ${fmt(s.gainMedian, '分')} | ${fmt(s.gainMedianImproved, '分')} | ${fmt(s.gainMax, '分')} |`;
-  });
+  return [...groups.entries()].map(([key, rs]) => rowOf(key, summarize(rs)));
 }
+
+const gainRow = (key: string, s: AbSummary): string =>
+  `| ${key} | ${s.covered} | ${s.improved}（${pct(s.improved, s.covered)}） | ${fmt(s.gainMedian, '分')} | ${fmt(s.gainMedianImproved, '分')} | ${fmt(s.gainMax, '分')} |`;
+
+const transferGainRow = (key: string, s: AbSummary): string =>
+  `| ${key} | ${s.transferCovered} | ${s.transferImproved}（${pct(s.transferImproved, s.transferCovered)}） | ${fmt(s.transferGainMedian, '分')} | ${fmt(s.transferGainMedianImproved, '分')} | ${fmt(s.transferGainMax, '分')} |`;
 
 export function abReport(
   records: readonly BenchRecord[],
   verify: readonly VerifyResult[] = [],
 ): string {
   const s = summarize(records);
-  const header =
-    '| 区分 | 対象（coveredBase） | 改善した検索 | 増分の中央値 | 改善した検索の中央値 | 最大 |\n' +
+  const headerFor = (covered: string): string =>
+    `| 区分 | 対象（${covered}） | 改善した検索 | 増分の中央値 | 改善した検索の中央値 | 最大 |\n` +
     '| --- | --- | --- | --- | --- | --- |';
   const lines = [
     '## 厳密走査の A/B（同じ実行の中）',
@@ -136,15 +179,26 @@ export function abReport(
     '',
     '### 徒歩の増分（walkB − walkA）',
     '',
-    header,
-    `| 全体 | ${s.covered} | ${s.improved}（${pct(s.improved, s.covered)}） | ${fmt(s.gainMedian, '分')} | ${fmt(s.gainMedianImproved, '分')} | ${fmt(s.gainMax, '分')} |`,
-    ...gainRows(records, (r) => `予算 ×${r.ratio}`),
-    ...gainRows(records, (r) => `${r.slot} 発`),
+    headerFor('coveredBase'),
+    gainRow('全体', s),
+    ...groupedRows(records, (r) => `予算 ×${r.ratio}`, gainRow),
+    ...groupedRows(records, (r) => `${r.slot} 発`, gainRow),
     '',
-    '### 乗り遅れ・予算超過（B の確定経路）',
+    "### 乗換つきの候補の増分（walkB' − walkB）",
+    '',
+    headerFor('transferCandidates>0'),
+    transferGainRow('全体', s),
+    ...groupedRows(records, (r) => `予算 ×${r.ratio}`, transferGainRow),
+    ...groupedRows(records, (r) => `${r.slot} 発`, transferGainRow),
+    '',
+    `- 乗換つきが勝った検索: ${s.transferWon} 件`,
+    `- enrich で落ちた乗換つきの候補: ${s.transferDroppedTotal} / ${s.transferCandidatesTotal}（${pct(s.transferDroppedTotal, s.transferCandidatesTotal)}）`,
+    '',
+    "### 乗り遅れ・予算超過（B' の確定経路）",
     '',
     `- 全体: ${s.violations} 件（予算内の候補が無いときの best-effort 縮退を含む）`,
-    `- うち厳密走査が勝った経路: ${s.exactWonViolations} 件`,
+    `- うち厳密走査（1回乗車）が勝った経路: ${s.exactWonViolations} 件`,
+    `- うち乗換つきが勝った経路: ${s.transferWonViolations} 件`,
     '',
     '### 検索時間（totalMs）',
     '',

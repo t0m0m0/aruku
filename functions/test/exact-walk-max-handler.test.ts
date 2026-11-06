@@ -218,6 +218,7 @@ describe("exactWalkMax", () => {
           egressWalk: { durationSec: 900, distanceMeters: 1200 },
         },
       ],
+      transferCandidates: [],
       feeds: [{ id: "Toei", fetchedAt: "2026-10-22T19:23:00.000Z" }],
       stats: { tripsScanned: 1, elementsMeasured: 2, truncated: false },
     });

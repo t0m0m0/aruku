@@ -82,6 +82,50 @@ describe('summarize: 完了条件の数字', () => {
     expect(s.exactWonViolations).toEqual(1);
   });
 
+  it("乗換つきの増分（walkB' − walkB）は transferCandidates>0 の検索だけを分母にする", () => {
+    const s = summarize([
+      rec({ m: { transferCandidates: 3, walkB: 30, walkBPrime: 42, transferWon: 1 } }), // +12
+      rec({ m: { transferCandidates: 2, walkB: 30, walkBPrime: 30 } }), // ±0
+      rec({ m: { coveredBase: 0, transferCandidates: 1, walkB: 30, walkBPrime: 36, transferWon: 1 } }), // +6
+      rec({ m: { transferCandidates: 0, walkB: 30, walkBPrime: 30 } }), // 分母外
+      rec({ m: { transferCandidates: -1, walkB: 30, walkBPrime: 30 } }), // 分母外
+    ]);
+    expect(s.transferCovered).toEqual(3);
+    expect(s.transferImproved).toEqual(2);
+    expect(s.transferWon).toEqual(2);
+    expect(s.transferGainMedian).toEqual(6);
+    expect(s.transferGainMedianImproved).toEqual(9);
+    expect(s.transferGainMax).toEqual(12);
+  });
+
+  it('乗換つきの候補の数と enrich で落ちた数を足し上げる', () => {
+    const s = summarize([
+      rec({ m: { transferCandidates: 3, transferDropped: 1 } }),
+      rec({ m: { transferCandidates: 2, transferDropped: 2 } }),
+      rec({ m: { transferCandidates: -1, transferDropped: 0 } }),
+    ]);
+    expect(s.transferCandidatesTotal).toEqual(5);
+    expect(s.transferDroppedTotal).toEqual(3);
+  });
+
+  it('乗換つきが勝った経路の違反は、1回乗車の厳密走査の違反と分けて数える', () => {
+    // 返す経路は B' なので、B で厳密走査が勝っていても、確定経路が乗換つきなら乗換つきの違反
+    const s = summarize([
+      rec({ missed: true, m: { exactWon: 1, transferWon: 1 } }),
+      rec({ within: false, m: { exactWon: 1 } }),
+    ]);
+    expect(s.violations).toEqual(2);
+    expect(s.transferWonViolations).toEqual(1);
+    expect(s.exactWonViolations).toEqual(1);
+  });
+
+  it("B' の指標が無い記録（#474 より前の JSONL）は、乗換つきの集計に入れない", () => {
+    const s = summarize([rec({ m: { walkB: 50 } })]);
+    expect(s.transferCovered).toEqual(0);
+    expect(s.transferCandidatesTotal).toEqual(0);
+    expect(s.transferGainMedian).toBeNull();
+  });
+
   it('失敗した検索は数えるが、他の集計からは外す', () => {
     const s = summarize([rec({ error: 'boom' }), rec({})]);
     expect(s.total).toEqual(2);
@@ -125,5 +169,19 @@ describe('abReport', () => {
     expect(md).toContain('同じ分の便が無い: 1');
     expect(md).toContain('発車表なし: 1');
     expect(md).toContain('照会失敗: 1');
+  });
+
+  it("乗換つきの増分・勝った検索・enrich で落ちた割合を出す", () => {
+    const md = abReport([
+      rec({
+        m: { transferCandidates: 4, transferDropped: 1, walkB: 30, walkBPrime: 42, transferWon: 1 },
+        missed: true,
+      }),
+    ]);
+    expect(md).toContain("walkB' − walkB");
+    expect(md).toContain('| 全体 | 1 | 1（100%） | 12分 | 12分 | 12分 |');
+    expect(md).toContain('乗換つきが勝った検索: 1 件');
+    expect(md).toContain('enrich で落ちた乗換つきの候補: 1 / 4（25%）');
+    expect(md).toContain('うち乗換つきが勝った経路: 1 件');
   });
 });

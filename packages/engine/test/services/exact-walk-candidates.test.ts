@@ -4,9 +4,11 @@ import { GeoPoint } from '../../src/models/geo-point';
 import { SegmentType } from '../../src/models/route-plan';
 import {
   exactWalkCandidates,
+  exactWalkTransferCandidates,
   timetableSources,
 } from '../../src/services/exact-walk-candidates';
 import { haversineKm } from '../../src/services/hybrid-route-selector';
+import { firstMissedTransit } from '../../src/services/route-plan-builder';
 import { dateTime } from '../../src/time';
 import { inTimeZone } from '../support/time-zone';
 
@@ -27,6 +29,40 @@ const candidate = (patch: Record<string, unknown> = {}) => ({
     { lat: 35.6918, lng: 139.7709 },
   ],
   accessWalk: { durationSec: 2529, distanceMeters: 3400 },
+  egressWalk: { durationSec: 1470, distanceMeters: 2100 },
+  ...patch,
+});
+
+const transfer = (patch: Record<string, unknown> = {}) => ({
+  legs: [
+    {
+      board: { name: '大崎', lat: 35.6197, lng: 139.7283 },
+      alight: { name: '品川', lat: 35.6285, lng: 139.7388 },
+      route: '山手線',
+      headsign: null,
+      boardAt: '2026-06-27T10:42:00+09:00',
+      alightAt: '2026-06-27T10:46:00+09:00',
+      stops: [
+        { lat: 35.6197, lng: 139.7283 },
+        { lat: 35.6285, lng: 139.7388 },
+      ],
+    },
+    {
+      board: { name: '北品川', lat: 35.6226, lng: 139.7397 },
+      alight: { name: '神田', lat: 35.6918, lng: 139.7709 },
+      route: '京急本線',
+      headsign: null,
+      boardAt: '2026-06-27T10:55:00+09:00',
+      alightAt: '2026-06-27T11:10:00+09:00',
+      stops: [
+        { lat: 35.6226, lng: 139.7397 },
+        { lat: 35.6918, lng: 139.7709 },
+      ],
+    },
+  ],
+  accessWalk: { durationSec: 2529, distanceMeters: 3400 },
+  transferWalk: { durationSec: 480, distanceMeters: 640 },
+  sameStation: false,
   egressWalk: { durationSec: 1470, distanceMeters: 2100 },
   ...patch,
 });
@@ -171,5 +207,136 @@ describe('timetableSources (#461)', () => {
   it('feeds が配列でなければ空', () => {
     expect(timetableSources({})).toEqual([]);
     expect(timetableSources({ feeds: 'x' })).toEqual([]);
+  });
+});
+
+describe('exactWalkTransferCandidates (#474)', () => {
+  const types = (cs: ReturnType<typeof exactWalkTransferCandidates>) =>
+    cs[0].segments.map((s) => s.type);
+
+  it('候補を 徒歩→電車→徒歩→電車→徒歩 の RouteCandidate にする', () => {
+    const [c] = exactWalkTransferCandidates({ transferCandidates: [transfer()] }, ends);
+
+    expect(c.segments.map((s) => s.type)).toEqual([
+      SegmentType.walk,
+      SegmentType.train,
+      SegmentType.walk,
+      SegmentType.train,
+      SegmentType.walk,
+    ]);
+    const [access, first, walk, second, egress] = c.segments;
+    expect(access.toName).toEqual('大崎');
+    expect(first.toName).toEqual('品川');
+    expect(first.line).toEqual('山手線');
+    expect(first.depTime).toEqual(dateTime(2026, 6, 27, 10, 42));
+    expect(first.arrTime).toEqual(dateTime(2026, 6, 27, 10, 46));
+    expect(walk.fromName).toEqual('品川');
+    expect(walk.toName).toEqual('北品川');
+    expect(walk.minutes).toEqual(8);
+    expect(walk.km).toEqual(0.64);
+    expect(walk.polyline).toEqual([
+      new GeoPoint(35.6285, 139.7388),
+      new GeoPoint(35.6226, 139.7397),
+    ]);
+    expect(second.fromName).toEqual('北品川');
+    expect(second.line).toEqual('京急本線');
+    expect(second.depTime).toEqual(dateTime(2026, 6, 27, 10, 55));
+    expect(egress.fromName).toEqual('神田');
+    expect(egress.toName).toEqual('上野公園');
+    expect(c.transferCount).toEqual(1);
+  });
+
+  it('別の駅への乗換の徒歩は、見積りが0分でも区間を残して enrich に測らせる', () => {
+    const [c] = exactWalkTransferCandidates(
+      {
+        transferCandidates: [
+          transfer({ transferWalk: { durationSec: 20, distanceMeters: 26 } }),
+        ],
+      },
+      ends,
+    );
+
+    const walk = c.segments[2];
+    expect(walk.type).toEqual(SegmentType.walk);
+    expect(walk.minutes).toEqual(0);
+    expect(walk.polyline).toHaveLength(2);
+  });
+
+  it('残した0分の徒歩が実測で伸びれば、2本目の乗り遅れが分かる', () => {
+    const at = '2026-06-27T10:46:00+09:00';
+    const [c] = exactWalkTransferCandidates(
+      {
+        transferCandidates: [
+          transfer({
+            transferWalk: { durationSec: 0, distanceMeters: 0 },
+            legs: [transfer().legs[0], { ...transfer().legs[1], boardAt: at }],
+          }),
+        ],
+      },
+      ends,
+    );
+    const departureAt = dateTime(2026, 6, 27, 10, 0);
+    expect(firstMissedTransit(c.segments, departureAt)).toBeNull();
+
+    const measured = c.segments.map((s, i) => (i === 2 ? s.copyWith({ minutes: 5 }) : s));
+
+    expect(firstMissedTransit(measured, departureAt)).toEqual(3);
+  });
+
+  it('同じ駅の乗換は徒歩区間を作らず、2本の電車を直結する', () => {
+    const cs = exactWalkTransferCandidates(
+      {
+        transferCandidates: [
+          transfer({
+            sameStation: true,
+            transferWalk: { durationSec: 0, distanceMeters: 0 },
+          }),
+        ],
+      },
+      ends,
+    );
+
+    expect(types(cs)).toEqual([
+      SegmentType.walk,
+      SegmentType.train,
+      SegmentType.train,
+      SegmentType.walk,
+    ]);
+  });
+
+  it('出発側と目的地側の0分の徒歩区間は持たない', () => {
+    const zero = { durationSec: 20, distanceMeters: 15 };
+    const cs = exactWalkTransferCandidates(
+      { transferCandidates: [transfer({ accessWalk: zero, egressWalk: zero })] },
+      ends,
+    );
+
+    expect(types(cs)).toEqual([SegmentType.train, SegmentType.walk, SegmentType.train]);
+  });
+
+  it('形の崩れた候補だけを捨て、残りは返す', () => {
+    const [first, second] = transfer().legs;
+    const cs = exactWalkTransferCandidates(
+      {
+        transferCandidates: [
+          transfer({ legs: [first] }),
+          transfer({ legs: [first, second, second] }),
+          transfer({ legs: [first, { ...second, boardAt: 'not a time' }] }),
+          transfer({ accessWalk: null }),
+          transfer({ egressWalk: null }),
+          transfer({ transferWalk: null }),
+          transfer({ sameStation: undefined }),
+          transfer(),
+        ],
+      },
+      ends,
+    );
+
+    expect(cs.length).toEqual(1);
+  });
+
+  it('transferCandidates が配列でなければ空（古い Functions の応答）', () => {
+    expect(exactWalkTransferCandidates({}, ends)).toEqual([]);
+    expect(exactWalkTransferCandidates({ transferCandidates: 'x' }, ends)).toEqual([]);
   });
 });

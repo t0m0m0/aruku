@@ -2,6 +2,7 @@ import { gzipSync } from "node:zlib";
 
 import { describe, expect, it } from "vitest";
 
+import type { ScanDay } from "../src/exact-walk-max";
 import { packObjectPath, type PackGroup } from "../src/timetable-pack/feeds";
 import { createScanDaySource, type PackLoadDeps } from "../src/timetable-pack/load";
 import { PACK_FORMAT_VERSION, type TimetablePack } from "../src/timetable-pack/pack";
@@ -94,6 +95,53 @@ describe("createScanDaySource", () => {
       { id: "JR", fetchedAt: "2026-10-22T19:23:00.000Z" },
       { id: "Toei", fetchedAt: "2026-10-22T19:23:00.000Z" },
     ]);
+  });
+
+  describe("乗換の近傍の表", () => {
+    // 同じ座標の2つの stop を同じ駅（station 0）にしたパック。両方のパックが同じ番号を使う。
+    const twoPlatforms = (feedId: string): TimetablePack => {
+      const base = pack(feedId);
+      return {
+        ...base,
+        stops: [
+          { name: `${feedId}-1番線`, lat: 35.0, lng: 139.7, feed: 0, station: 0 },
+          { name: `${feedId}-2番線`, lat: 35.0, lng: 139.7, feed: 0, station: 0 },
+        ],
+      };
+    };
+
+    const entry = (day: ScanDay, from: string, to: string) => {
+      const index = (name: string) => day.stops.findIndex((s) => s.name === name);
+      const { start, stop, walkSec, sameStation } = day.neighbors;
+      for (let e = start[index(from)]; e < start[index(from) + 1]; e++) {
+        if (stop[e] === index(to)) return { walkSec: walkSec[e], same: sameStation[e] === 1 };
+      }
+      return null;
+    };
+
+    it("同じパックの同じ駅は同じ駅の乗換になる", async () => {
+      const h = harness({ permanent: gz(twoPlatforms("Toei")) });
+
+      const day = (await createScanDaySource(h.deps)(SERVICE_DATE))!;
+
+      expect(entry(day, "Toei-1番線", "Toei-2番線")).toEqual({ walkSec: 0, same: true });
+    });
+
+    it("パックごとに0から振られた番号が重なっても、別のパックの駅を同じ駅にしない", async () => {
+      const h = harness({ challenge: gz(twoPlatforms("JR")), permanent: gz(twoPlatforms("Toei")) });
+
+      const day = (await createScanDaySource(h.deps)(SERVICE_DATE))!;
+
+      expect(entry(day, "JR-1番線", "Toei-1番線")).toEqual({ walkSec: 0, same: false });
+    });
+
+    it("歩いて10分を超える駅は近傍に入れない", async () => {
+      const h = harness({ permanent: gz(pack("Toei")) });
+
+      const day = (await createScanDaySource(h.deps)(SERVICE_DATE))!;
+
+      expect(entry(day, "Toei-A", "Toei-B")).toBeNull();
+    });
   });
 
   it("片方のグループのパックが無ければ、もう片方だけで引く", async () => {
