@@ -3,9 +3,12 @@ import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // vi.mock はホイストされるため、参照する mock 関数は vi.hoisted で先に生成する。
-const { runTransactionMock } = vi.hoisted(() => ({
+const { runTransactionMock, logRateLimitMock } = vi.hoisted(() => ({
   runTransactionMock: vi.fn(),
+  logRateLimitMock: vi.fn(),
 }));
+
+vi.mock("../src/metrics", () => ({ logRateLimit: logRateLimitMock }));
 
 // Firestore をインメモリストアで擬似する。runTransaction は本物の
 // トランザクション意味論（get→set/update）を再現し、リミッタの判定ロジックを
@@ -52,6 +55,7 @@ describe("checkRateLimitFirestore", () => {
   beforeEach(() => {
     store = new Map();
     runTransactionMock.mockReset();
+    logRateLimitMock.mockReset();
     installTransaction();
     // 本番相当では十分な長さの HMAC 鍵が必須。テストは有効な鍵を注入する。
     vi.stubEnv("RATE_LIMIT_HMAC_KEY", "x".repeat(32));
@@ -177,5 +181,119 @@ describe("checkRateLimitFirestore", () => {
     vi.stubEnv("RATE_LIMIT_HMAC_KEY", "short");
     expect(await checkRateLimitFirestore("7.7.7.8")).toBe(true);
     expect(store.size).toBe(0);
+  });
+
+  describe("同時に来た判定の合流", () => {
+    // 1本目のトランザクションを止め、その間に残りの判定を積ませる。
+    function holdFirstTransaction(): () => void {
+      const run = runTransactionMock.getMockImplementation()!;
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      runTransactionMock.mockImplementationOnce(async (fn: unknown) => {
+        await gate;
+        return run(fn);
+      });
+      return release;
+    }
+
+    function parallelChecks(n: number, limit?: number): Promise<boolean>[] {
+      return Array.from({ length: n }, () =>
+        checkRateLimitFirestore("7.7.7.7", limit)
+      );
+    }
+
+    it("同じ文書への14並列は、実行中の1本と残りをまとめた1本のトランザクションになる", async () => {
+      const release = holdFirstTransaction();
+      const checks = parallelChecks(14, 90);
+      release();
+
+      expect(await Promise.all(checks)).toEqual(Array(14).fill(true));
+      expect(runTransactionMock).toHaveBeenCalledTimes(2);
+      expect([...store.values()][0].count).toBe(14);
+    });
+
+    it("並列でも上限ちょうどで止まり、先に来た判定から許可する", async () => {
+      const results = await Promise.all(parallelChecks(31));
+
+      expect(results.slice(0, 30)).toEqual(Array(30).fill(true));
+      expect(results[30]).toBe(false);
+      expect([...store.values()][0].count).toBe(30);
+    });
+
+    it("まとめた判定は、それぞれ自分の上限で判定する", async () => {
+      await Promise.all(parallelChecks(29, 90));
+      const release = holdFirstTransaction();
+      const holder = checkRateLimitFirestore("7.7.7.7", 90);
+      const batch = [
+        checkRateLimitFirestore("7.7.7.7", 30),
+        checkRateLimitFirestore("7.7.7.7", 90),
+      ];
+      release();
+      await holder;
+
+      expect(await Promise.all(batch)).toEqual([false, true]);
+      expect([...store.values()][0].count).toBe(31);
+    });
+
+    it("トランザクションが再試行されても二重に数えない", async () => {
+      const run = runTransactionMock.getMockImplementation()!;
+      runTransactionMock.mockImplementation(
+        async (fn: (tx: unknown) => Promise<unknown>) => {
+          await fn({
+            get: async (ref: { id: string }) => ({
+              data: () => store.get(ref.id),
+            }),
+            set: () => {},
+            update: () => {},
+          });
+          return run(fn);
+        }
+      );
+
+      await Promise.all(parallelChecks(5));
+
+      expect([...store.values()][0].count).toBe(5);
+    });
+
+    it("まとめたトランザクションが失敗すると全件がフェイルオープンし、次の判定は通常どおり数える", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const release = holdFirstTransaction();
+      const holder = checkRateLimitFirestore("7.7.7.7");
+      const batch = parallelChecks(3);
+      runTransactionMock.mockRejectedValueOnce(new Error("unavailable"));
+      release();
+      await holder;
+
+      expect(await Promise.all(batch)).toEqual([true, true, true]);
+      expect(
+        logRateLimitMock.mock.calls.filter(
+          ([p]) => p.decision === "fail-open"
+        )
+      ).toHaveLength(3);
+
+      expect(await checkRateLimitFirestore("7.7.7.7")).toBe(true);
+      expect([...store.values()][0].count).toBe(2);
+    });
+
+    it("拒否のログは、拒否したリクエスト1件につき1回出す", async () => {
+      await Promise.all(parallelChecks(32));
+
+      expect(logRateLimitMock.mock.calls).toEqual([
+        [{ decision: "blocked" }],
+        [{ decision: "blocked" }],
+      ]);
+    });
+
+    it("別の文書への判定は、実行中のトランザクションを待たない", async () => {
+      const release = holdFirstTransaction();
+      const held = checkRateLimitFirestore("7.7.7.7");
+
+      expect(await checkRateLimitFirestore("8.8.8.8")).toBe(true);
+
+      release();
+      expect(await held).toBe(true);
+    });
   });
 });
