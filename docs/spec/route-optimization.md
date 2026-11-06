@@ -97,14 +97,14 @@
 | `googleWalkProxy` | Google Routes `computeRoutes`(WALK)（基本素通し） |
 | `googleWalkMatrixProxy` | Google Routes `computeRouteMatrix`(WALK)（基本素通し） |
 | `placesProxy` | Google Places API (New) Autocomplete/Details（地点検索） |
-| `exactWalkMax` | 時刻表パック（ODPT の GTFS）を走査し、1回乗車（徒歩→乗車→徒歩）で徒歩最大の候補を返す（#459）。徒歩は Google Routes `computeRouteMatrix`(WALK) で実測する。応答は候補・フィードの取得日時・統計だけで、時刻表は返さない |
+| `exactWalkMax` | 時刻表パック（ODPT の GTFS）を走査し、1回乗車（徒歩→乗車→徒歩）で徒歩最大の候補を返す（#459）。乗換1回（徒歩→乗車→徒歩→乗車→徒歩）の候補は別の配列 `transferCandidates` で返す（#474。今は A/B の計測だけが読む・§3.9）。徒歩は Google Routes `computeRouteMatrix`(WALK) で実測する。ただし乗換の徒歩は測らず直線の見積りのまま返す。応答は候補・フィードの取得日時・統計だけで、時刻表は返さない |
 
 - **地点検索:** POI 検索は `placesProxy` 経由で Google Places API (New) の Autocomplete を叩く（App Check 必須・キーはサーバ側に秘匿）。仕様の正本は [place-search.md](place-search.md)。
 - **APIキー秘匿:** Secret Manager（`GOOGLE_MAPS_API_KEY`）。地図用キーとプロキシ用キーは Cloud Console で分離。
 - **認証:** App Check トークン必須（`X-Firebase-AppCheck`）。エミュレータは除外。App Check 保護は `allUsers` invoker を前提とし、invoker 欠落は 403 になる。
 - **レート制限（IP単位）:** 標準 `30 req/min`、徒歩系 `90 req/min`（1検索のファンアウト対応）。本番は Firestore トランザクション。`exactWalkMax` は標準の上限を、他のプロキシとは別のドキュメントで数える（同じ検索で並列に叩かれるプロキシと同じドキュメントを使うと、トランザクションの競合で再試行が約1秒ずつ積み上がる）。
   - **公共交通経路（`/guidance/plan`）はこのレート制限の対象外。** クライアント直叩きでプロキシを通らないため、`functions/src/rate-limiter.ts` の上限は掛からない。guidance のファンアウト設計をこの数値で縛ってはならない。
-- **マトリクス要素数上限:** `origins × destinations ≤ 25`（`MATRIX_MAX_ELEMENTS = 25`）。**measure-first のフロンティア絞り込みはこの上限が設計制約**。`exactWalkMax` は1検索で出発地→乗車候補・降車候補→目的地の2本（片側12駅・合わせて24要素以下・`EXACT_WALK_MAX_ELEMENTS`）。
+- **マトリクス要素数上限:** `origins × destinations ≤ 25`（`MATRIX_MAX_ELEMENTS = 25`）。**measure-first のフロンティア絞り込みはこの上限が設計制約**。`exactWalkMax` は1検索で出発地→乗車候補・降車候補→目的地の2本（片側12駅・合わせて24要素以下・`EXACT_WALK_MAX_ELEMENTS`）。測る駅は1回乗車と乗換つきを徒歩の順に混ぜて拾い、乗車側は最初の乗車の駅、降車側は最後の乗車の駅から取る。
 
 ### 2.2 Transit API の確定した制約
 

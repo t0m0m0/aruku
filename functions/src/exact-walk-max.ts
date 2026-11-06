@@ -2,11 +2,13 @@
 // IO（パックの読み込み・Google マトリクス）は deps で受け、ここは HTTP を知らない。
 
 import {
+  bestJourneys,
   bestRides,
   pickStopsToMeasure,
+  WALK_METERS_PER_MINUTE,
   type CompiledTimetable,
+  type JourneyLeg,
   type LatLng,
-  type Ride,
   type TimetableStop,
   type TransferNeighbors,
 } from "./exact-scan";
@@ -58,7 +60,7 @@ export interface Walk {
   distanceMeters: number;
 }
 
-export interface ExactWalkCandidate {
+export interface ExactWalkRide {
   board: TimetableStop;
   alight: TimetableStop;
   route: string;
@@ -67,12 +69,27 @@ export interface ExactWalkCandidate {
   alightAt: string;
   /** 乗車駅から降車駅までの停車駅の座標（両端を含む）。 */
   stops: LatLng[];
+}
+
+export interface ExactWalkCandidate extends ExactWalkRide {
   accessWalk: Walk;
+  egressWalk: Walk;
+}
+
+export interface ExactWalkTransferCandidate {
+  legs: ExactWalkRide[];
+  accessWalk: Walk;
+  /** 乗換の徒歩の直線の見積り。実測しないので、実際はこれより伸びる。同じ駅の乗換は 0。 */
+  transferWalk: Walk;
+  /** 徒歩0の別の駅（会社をまたぐ同じ座標の駅）と分けるために持つ。 */
+  sameStation: boolean;
   egressWalk: Walk;
 }
 
 export interface ExactWalkMaxResponse {
   candidates: ExactWalkCandidate[];
+  /** candidates と分けるのは、Functions と Web が別々にデプロイされ、古い Web が読み違えないため。 */
+  transferCandidates: ExactWalkTransferCandidate[];
   feeds: FeedFetchedAt[];
   stats: {
     tripsScanned: number;
@@ -143,10 +160,10 @@ export async function findExactWalkMax(
   const { serviceDate, sec } = toServiceTime(req.departAt);
   const day = await deps.day(serviceDate);
   if (day === null) return null;
-  const { compiled: ct } = day;
+  const { compiled: ct, neighbors } = day;
   const q = { origin: req.origin, goal: req.goal, departAt: sec, budgetMin: req.budgetMin };
 
-  const picked = pickStopsToMeasure(ct, q, { maxPerSide: MAX_STOPS_PER_SIDE });
+  const picked = pickStopsToMeasure(ct, q, { maxPerSide: MAX_STOPS_PER_SIDE, neighbors });
   const stats = {
     tripsScanned: picked.tripsScanned,
     elementsMeasured: picked.boards.length + picked.alights.length,
@@ -154,7 +171,12 @@ export async function findExactWalkMax(
   };
   const feeds = day.feeds.map(({ id, fetchedAt }) => ({ id, fetchedAt }));
   if (picked.boards.length === 0 || picked.alights.length === 0) {
-    return { candidates: [], feeds, stats: { ...stats, elementsMeasured: 0 } };
+    return {
+      candidates: [],
+      transferCandidates: [],
+      feeds,
+      stats: { ...stats, elementsMeasured: 0 },
+    };
   }
 
   const coordOf = (s: number): LatLng => ({ lat: ct.stopLat[s], lng: ct.stopLng[s] });
@@ -165,28 +187,46 @@ export async function findExactWalkMax(
   const access = walksByStop(accessRows, picked.boards, (e) => e.destinationIndex);
   const egress = walksByStop(egressRows, picked.alights, (e) => e.originIndex);
 
-  const rides = bestRides(
-    ct,
-    q,
-    {
-      access: new Map([...access].map(([s, w]) => [s, w.durationSec])),
-      egress: new Map([...egress].map(([s, w]) => [s, w.durationSec])),
-    },
-    { k: MAX_CANDIDATES },
-  );
+  const measured = {
+    access: new Map([...access].map(([s, w]) => [s, w.durationSec])),
+    egress: new Map([...egress].map(([s, w]) => [s, w.durationSec])),
+  };
   const midnight = serviceMidnightMs(serviceDate);
-  const candidates = rides.map((ride) => ({
-    board: stationOf(day.stops[ride.board]),
-    alight: stationOf(day.stops[ride.alight]),
-    route: ct.trips[ride.trip].route,
-    headsign: ct.trips[ride.trip].headsign,
-    boardAt: formatJst(midnight + ride.boardAt * 1000),
-    alightAt: formatJst(midnight + ride.alightAt * 1000),
-    stops: rideStops(ct, ride).map(coordOf),
+  const rideOf = (leg: JourneyLeg): ExactWalkRide => ({
+    board: stationOf(day.stops[leg.board]),
+    alight: stationOf(day.stops[leg.alight]),
+    route: ct.trips[leg.trip].route,
+    headsign: ct.trips[leg.trip].headsign,
+    boardAt: formatJst(midnight + leg.boardAt * 1000),
+    alightAt: formatJst(midnight + leg.alightAt * 1000),
+    stops: rideStops(ct, leg).map(coordOf),
+  });
+  const candidates = bestRides(ct, q, measured, { k: MAX_CANDIDATES }).map((ride) => ({
+    ...rideOf(ride),
     accessWalk: access.get(ride.board)!,
     egressWalk: egress.get(ride.alight)!,
   }));
-  return { candidates, feeds, stats };
+  const transferCandidates = bestJourneys(ct, q, measured, neighbors, {
+    k: MAX_CANDIDATES,
+    transfersOnly: true,
+  }).map(({ legs: [first, second], transferSec }) => ({
+    legs: [rideOf(first), rideOf(second)],
+    accessWalk: access.get(first.board)!,
+    transferWalk: {
+      durationSec: transferSec,
+      distanceMeters: Math.round((transferSec / 60) * WALK_METERS_PER_MINUTE),
+    },
+    sameStation: isSameStation(neighbors, first.alight, second.board),
+    egressWalk: egress.get(second.alight)!,
+  }));
+  return { candidates, transferCandidates, feeds, stats };
+}
+
+function isSameStation(n: TransferNeighbors, from: number, to: number): boolean {
+  for (let e = n.start[from]; e < n.start[from + 1]; e++) {
+    if (n.stop[e] === to) return n.sameStation[e] === 1;
+  }
+  return false;
 }
 
 // パックの駅は feed・station の添字も持つ。応答に載せるものは列挙して選ぶ。
@@ -209,7 +249,7 @@ function walksByStop(
 }
 
 /** 乗車から降車までの停車駅。同じ駅に戻る便があるので、駅ではなく発着時刻で位置を決める。 */
-function rideStops(ct: CompiledTimetable, ride: Ride): number[] {
+function rideStops(ct: CompiledTimetable, ride: JourneyLeg): number[] {
   const start = ct.tripStart[ride.trip];
   const end = start + ct.tripLength[ride.trip];
   let c = start;

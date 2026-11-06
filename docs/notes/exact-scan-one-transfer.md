@@ -1,6 +1,6 @@
 # 厳密走査を乗換1回まで広げる設計メモ（締切からの後ろ向きプロファイル）
 
-- **ステータス:** 純粋関数だけ実装済み（#474 の①: `functions/src/exact-scan.ts` の `transferNeighbors`・`bestJourneys`）。`exactWalkMax` とエンジンにはまだ配線していない。正本は [route-optimization.md](../spec/route-optimization.md)。実装したら §3.9 などを同じコミットで直し（§6）、本書は経緯として残すか消す。
+- **ステータス:** 純粋関数（#474 の①: `functions/src/exact-scan.ts` の `transferNeighbors`・`bestJourneys`）と `exactWalkMax` の応答の `transferCandidates` まで実装済み。エンジンにはまだ配線していない。正本は [route-optimization.md](../spec/route-optimization.md)。実装したら §3.9 などを同じコミットで直し（§6）、本書は経緯として残すか消す。
 - **対象コード:** `functions/src/exact-scan.ts`（`bestRides`・`pickStopsToMeasure`）、`functions/src/exact-walk-max.ts`（`findExactWalkMax`）、`packages/engine/src/services/exact-walk-candidates.ts`（`exactWalkCandidates`）
 - **関連:** epic #456、#458（1回乗車の純粋関数）・#459（`exactWalkMax`）・#460（候補プールへの合流）・#462（A/B 計測）。仕様は §2.1・§3.9・§4 #254。
 
@@ -126,7 +126,8 @@ aruku では、「遅く発車するほど選択肢が減る」という単調�
 
 ## 6. 応答とエンジン側・仕様書への影響
 
-- **応答は足すだけにする:** `exactWalkMax` の応答の `candidates`（1回乗車）は形を変えず、乗換つきは新しい配列（例: `transferCandidates`）に入れる。Functions と Web（Pages）は別々にデプロイされるので、古い Web が乗換つきの候補を1回乗車として読み違えないようにする
+- **応答は足すだけにする:** `exactWalkMax` の応答の `candidates`（1回乗車）は形を変えず、乗換つきは新しい配列 `transferCandidates` に入れる。Functions と Web（Pages）は別々にデプロイされるので、古い Web が乗換つきの候補を1回乗車として読み違えないようにする
+- **乗換つきの上位 k 本は別に取る:** `bestJourneys` は1回乗車と乗換つきを1つの順位にするので、そのまま上位 k 本を取ると、1回乗車が強い検索で乗換つきが0本になる。`transfersOnly` で乗換1回の経路だけの上位 k 本を取る。1回乗車が enrich で落ちたときの次善にもなる
 - **エンジン:** `exactWalkCandidates` を `徒歩 → 電車 → 徒歩 → 電車 → 徒歩` まで組めるように広げる。乗換の徒歩区間は polyline に乗換駅の2点を持つ（enrich に測らせるため）。0分の徒歩区間を落とす今の決まり（`exactWalkCandidates` の `minutes > 0`）は、出発側・目的地側と同じ駅の乗換にだけ当てる。**別の駅への乗換は、直線の見積りが0分に丸まっても区間を残す**。enrich が測るのは `segments` に在る徒歩区間だけなので、落とすと実測されず、`firstMissedTransit` は2本の電車を直結とみなして乗れない接続を通してしまう（§4 の安全網が効かない）
 - **仕様書（実装と同じコミットで直す）:** §3.9 の「対象は1回乗車だけ」・§2.1 の `exactWalkMax` の行・§3.2 の候補の種別4・§3.8 の計測項目（乗換つき候補の数と、enrich で落ちた数）
 
