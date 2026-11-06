@@ -30,6 +30,22 @@ export function exactWalkCandidates(body: JsonMap, ends: ExactWalkEnds): RouteCa
   });
 }
 
+/// `transferCandidates` を `徒歩 → 電車 → 徒歩 → 電車 → 徒歩` の [RouteCandidate] にする
+/// （#474）。同じ駅の乗換は2本の電車を直結する。
+///
+/// 応答に無ければ空。Functions と Web は別々にデプロイされるので、古い応答もある。
+export function exactWalkTransferCandidates(
+  body: JsonMap,
+  ends: ExactWalkEnds,
+): RouteCandidate[] {
+  const raw = body['transferCandidates'];
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((c) => {
+    const candidate = toTransferCandidate(c, ends);
+    return candidate === null ? [] : [candidate];
+  });
+}
+
 /// 応答の `feeds` を、選定に使った時刻表の取得日時にする（#461）。形の崩れたフィードは
 /// 1件ずつ捨てる（候補と同じ）。
 export function timetableSources(body: JsonMap): TimetableSource[] {
@@ -44,12 +60,67 @@ export function timetableSources(body: JsonMap): TimetableSource[] {
 
 function toCandidate(raw: unknown, ends: ExactWalkEnds): RouteCandidate | null {
   if (!isMap(raw)) return null;
+  const ride = toRide(raw);
+  const access = walk(raw['accessWalk']);
+  const egress = walk(raw['egressWalk']);
+  if (ride === null || access === null || egress === null) return null;
+  return withEndWalks(ends, access, ride, [ride.segment], ride, egress);
+}
+
+function toTransferCandidate(raw: unknown, ends: ExactWalkEnds): RouteCandidate | null {
+  if (!isMap(raw)) return null;
+  const legs = raw['legs'];
+  const sameStation = raw['sameStation'];
+  if (!Array.isArray(legs) || legs.length !== 2 || typeof sameStation !== 'boolean') return null;
+  const first = toRide(legs[0]);
+  const second = toRide(legs[1]);
+  const access = walk(raw['accessWalk']);
+  const transfer = walk(raw['transferWalk']);
+  const egress = walk(raw['egressWalk']);
+  if (
+    first === null ||
+    second === null ||
+    access === null ||
+    transfer === null ||
+    egress === null
+  ) {
+    return null;
+  }
+  // 別の駅への徒歩は0分でも落とさない。enrich が測るのは segments に在る徒歩だけなので、
+  // 落とすと実測されず、firstMissedTransit が2本を直結とみなして乗れない接続を通す。
+  const between = sameStation
+    ? []
+    : [
+        walkSegment(
+          first.alight.coord,
+          second.board.coord,
+          first.alight.name,
+          second.board.name,
+          transfer,
+        ),
+      ];
+  return withEndWalks(
+    ends,
+    access,
+    first,
+    [first.segment, ...between, second.segment],
+    second,
+    egress,
+  );
+}
+
+interface Ride {
+  board: Station;
+  alight: Station;
+  segment: RouteSegment;
+}
+
+function toRide(raw: unknown): Ride | null {
+  if (!isMap(raw)) return null;
   const board = station(raw['board']);
   const alight = station(raw['alight']);
   const boardAt = jstWallClock(raw['boardAt']);
   const alightAt = jstWallClock(raw['alightAt']);
-  const access = walk(raw['accessWalk']);
-  const egress = walk(raw['egressWalk']);
   const stops = Array.isArray(raw['stops']) ? raw['stops'].map(point) : [];
   if (
     board === null ||
@@ -57,8 +128,6 @@ function toCandidate(raw: unknown, ends: ExactWalkEnds): RouteCandidate | null {
     boardAt === null ||
     alightAt === null ||
     alightAt.getTime() < boardAt.getTime() ||
-    access === null ||
-    egress === null ||
     stops.length < 2 ||
     stops.some((p) => p === null)
   ) {
@@ -70,9 +139,10 @@ function toCandidate(raw: unknown, ends: ExactWalkEnds): RouteCandidate | null {
     rideKm += haversineKm(polyline[i - 1], polyline[i]);
   }
   const route = typeof raw['route'] === 'string' ? raw['route'] : '';
-  const segments = [
-    walkSegment(ends.origin, board.coord, ends.from, board.name, access),
-    new RouteSegment({
+  return {
+    board,
+    alight,
+    segment: new RouteSegment({
       type: SegmentType.train,
       fromName: board.name,
       toName: alight.name,
@@ -84,13 +154,34 @@ function toCandidate(raw: unknown, ends: ExactWalkEnds): RouteCandidate | null {
       depTime: boardAt,
       arrTime: alightAt,
     }),
-    walkSegment(alight.coord, ends.goal, alight.name, ends.to, egress),
-  ];
+  };
+}
+
+function withEndWalks(
+  ends: ExactWalkEnds,
+  access: Walk,
+  first: Ride,
+  middle: RouteSegment[],
+  last: Ride,
+  egress: Walk,
+): RouteCandidate {
+  const accessWalk = walkSegment(
+    ends.origin,
+    first.board.coord,
+    ends.from,
+    first.board.name,
+    access,
+  );
+  const egressWalk = walkSegment(last.alight.coord, ends.goal, last.alight.name, ends.to, egress);
   return new RouteCandidate({
     from: ends.from,
     to: ends.to,
     // 0分の徒歩を落とすのはコリドー由来のハイブリッドと同じ（buildMeasuredHybrids）。
-    segments: segments.filter((s) => s.type !== SegmentType.walk || s.minutes > 0),
+    segments: [
+      ...(accessWalk.minutes > 0 ? [accessWalk] : []),
+      ...middle,
+      ...(egressWalk.minutes > 0 ? [egressWalk] : []),
+    ],
   });
 }
 
@@ -118,7 +209,12 @@ function walkSegment(
   });
 }
 
-function station(raw: unknown): { name: string; coord: GeoPoint } | null {
+interface Station {
+  name: string;
+  coord: GeoPoint;
+}
+
+function station(raw: unknown): Station | null {
   if (!isMap(raw) || typeof raw['name'] !== 'string') return null;
   const coord = point(raw);
   return coord === null ? null : { name: raw['name'], coord };

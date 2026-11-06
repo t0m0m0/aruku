@@ -1,6 +1,6 @@
 # 厳密走査を乗換1回まで広げる設計メモ（締切からの後ろ向きプロファイル）
 
-- **ステータス:** 純粋関数（#474 の①: `functions/src/exact-scan.ts` の `transferNeighbors`・`bestJourneys`）と `exactWalkMax` の応答の `transferCandidates` まで実装済み。エンジンにはまだ配線していない。正本は [route-optimization.md](../spec/route-optimization.md)。実装したら §3.9 などを同じコミットで直し（§6）、本書は経緯として残すか消す。
+- **ステータス:** 純粋関数（#474 の①: `functions/src/exact-scan.ts` の `transferNeighbors`・`bestJourneys`）と `exactWalkMax` の応答の `transferCandidates` まで実装済み。エンジンは応答を候補にする `exactWalkTransferCandidates` までで、選定にはまだ配線していない。正本は [route-optimization.md](../spec/route-optimization.md)。実装したら §3.9 などを同じコミットで直し（§6）、本書は経緯として残すか消す。
 - **対象コード:** `functions/src/exact-scan.ts`（`bestRides`・`pickStopsToMeasure`）、`functions/src/exact-walk-max.ts`（`findExactWalkMax`）、`packages/engine/src/services/exact-walk-candidates.ts`（`exactWalkCandidates`）
 - **関連:** epic #456、#458（1回乗車の純粋関数）・#459（`exactWalkMax`）・#460（候補プールへの合流）・#462（A/B 計測）。仕様は §2.1・§3.9・§4 #254。
 
