@@ -109,6 +109,10 @@ export default defineConfig({
       VITE_FIREBASE_WEB_APP_ID: '',
       VITE_APP_CHECK_DEBUG_TOKEN: '',
 
+      // deploy-web.yml はジョブ全体へこのフラグを渡すので、E2E のビルドにも届く。
+      // 届くと偽の上流に無い exactWalkMax を叩き、`guards` の未対応の要求で赤くなる。
+      VITE_EXACT_WALK_MAX: '',
+
       // vitest の NODE_ENV=test が漏れて開発バンドルを検査した事故
       // （test/build/production-bundle.test.ts）と同じ穴を塞ぐ。
       NODE_ENV: 'production',
