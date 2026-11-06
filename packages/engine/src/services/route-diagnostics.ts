@@ -352,14 +352,29 @@ export class RouteSearchMetrics {
   /// だけから来る。A/B モードでなければ -1。
   walkB = -1;
 
+  /// A/B モードの B' ＝ B のプールへ乗換つきの候補（#474）を足して選び直した確定経路の
+  /// 徒歩（分）。乗換つきの候補が無ければ選び直さず [walkB] と同じ。A/B モードでなければ -1。
+  walkBPrime = -1;
+
+  /// B' へ足した乗換つきの候補数。-1 は A/B モードでない・厳密走査の失敗・猶予切れ
+  /// （[exactCandidates] と同じく、0 と分ける）。
+  transferCandidates = -1;
+
+  /// 乗換つきの候補のうち、B' の enrich で実測して落ちた数。実測まで届かなかった候補
+  /// （上の徒歩 tier で勝者が決まった）は数えない。
+  transferDropped = 0;
+
+  /// B' の確定候補が乗換つきの候補か。
+  transferWon = false;
+
   /// 厳密走査の候補を足しても崩壊するか。B の確定候補が厳密走査由来ならそれで判定し直し、
   /// そうでなければ B は A と同じ経路なので [collapseFired] と同じ。A は必ず全工程を走るので、
   /// 厳密走査で崩壊が解けたぶん浮く board-search の時間は同じ実行の中では測れず、これと
   /// A の [boardSearchMs] から推定する。null は B を選び直していない（1行ログでは -1）。
   collapseB: boolean | null = null;
 
-  /// B の実時間（A を終えた時点でなお残っていた厳密走査の待ち・選び直し・B の駅名復元）。
-  /// [totalMs] に含まれるので、A だけの所要は差で出す。
+  /// B の実時間（A を終えた時点でなお残っていた厳密走査の待ち・B と B' の選び直し・確定経路の
+  /// 駅名復元）。[totalMs] に含まれるので、A だけの所要は差で出す。
   abMs = 0;
 
   /// 時刻表の路線で1回乗車が成立した検索か（#462）。A/B の効果の分母。
@@ -459,6 +474,8 @@ export class RouteSearchMetrics {
       `exactMs=${this.exactMs} exactCandidates=${this.exactCandidates} ` +
       `exactCapped=${flag(this.exactCapped)} exactWon=${flag(this.exactWon)} ` +
       `coveredBase=${flag(this.coveredBase)} walkA=${this.walkA} walkB=${this.walkB} ` +
+      `walkBPrime=${this.walkBPrime} transferCandidates=${this.transferCandidates} ` +
+      `transferDropped=${this.transferDropped} transferWon=${flag(this.transferWon)} ` +
       `collapseB=${this.collapseB === null ? -1 : flag(this.collapseB)} abMs=${this.abMs} ` +
       `guidanceMs=${this.guidanceMs} hybridMs=${this.hybridMs} enrichMs=${this.enrichMs} ` +
       `boardSearchMs=${this.boardSearchMs} ` +

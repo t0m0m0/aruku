@@ -328,6 +328,10 @@ describe('RouteSearchMetrics.toLogLine', () => {
     m.exactWon = true;
     m.walkA = 70;
     m.walkB = 86;
+    m.walkBPrime = 90;
+    m.transferCandidates = 3;
+    m.transferDropped = 1;
+    m.transferWon = true;
     m.collapseB = false;
     m.abMs = 450;
     m.guidanceMs = 1200;
@@ -380,7 +384,9 @@ describe('RouteSearchMetrics.toLogLine', () => {
         'arrivalWaveOutcome=0 arrivalWaveOptions=2 ' +
         'arrivalWaveBaseUsed=1 arrivalWaveWon=1 ' +
         'exactMs=800 exactCandidates=3 exactCapped=1 exactWon=1 ' +
-        'coveredBase=1 walkA=70 walkB=86 collapseB=0 abMs=450 ' +
+        'coveredBase=1 walkA=70 walkB=86 ' +
+        'walkBPrime=90 transferCandidates=3 transferDropped=1 transferWon=1 ' +
+        'collapseB=0 abMs=450 ' +
         'guidanceMs=1200 hybridMs=500 enrichMs=2600 boardSearchMs=3400 ' +
         'boardSearchRounds=3 boardSearchScanCount=63 boardSearchBest=25 ' +
         'boardSearchTruncated=1 boardSearchProbeFailed=1 ' +
@@ -569,7 +575,9 @@ describe('RouteSearchMetrics.toLogLine', () => {
         'arrivalWaveOutcome=-1 arrivalWaveOptions=0 ' +
         'arrivalWaveBaseUsed=0 arrivalWaveWon=0 ' +
         'exactMs=0 exactCandidates=-1 exactCapped=0 exactWon=0 ' +
-        'coveredBase=0 walkA=-1 walkB=-1 collapseB=-1 abMs=0 ' +
+        'coveredBase=0 walkA=-1 walkB=-1 ' +
+        'walkBPrime=-1 transferCandidates=-1 transferDropped=0 transferWon=0 ' +
+        'collapseB=-1 abMs=0 ' +
         'guidanceMs=0 hybridMs=0 enrichMs=0 boardSearchMs=0 ' +
         'boardSearchRounds=0 boardSearchScanCount=0 boardSearchBest=-1 ' +
         'boardSearchTruncated=0 boardSearchProbeFailed=0 ' +

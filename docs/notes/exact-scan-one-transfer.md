@@ -1,6 +1,6 @@
 # 厳密走査を乗換1回まで広げる設計メモ（締切からの後ろ向きプロファイル）
 
-- **ステータス:** 純粋関数（#474 の①: `functions/src/exact-scan.ts` の `transferNeighbors`・`bestJourneys`）と `exactWalkMax` の応答の `transferCandidates` まで実装済み。エンジンは応答を候補にする `exactWalkTransferCandidates` までで、選定にはまだ配線していない。正本は [route-optimization.md](../spec/route-optimization.md)。実装したら §3.9 などを同じコミットで直し（§6）、本書は経緯として残すか消す。
+- **ステータス:** 純粋関数（#474 の①: `functions/src/exact-scan.ts` の `transferNeighbors`・`bestJourneys`）と `exactWalkMax` の応答の `transferCandidates` 、エンジンの `exactWalkTransferCandidates`、A/B の B' まで実装済み。本番の候補プールには入れていない（A/B の計測だけが読む）。正本は [route-optimization.md](../spec/route-optimization.md)。実装したら §3.9 などを同じコミットで直し（§6）、本書は経緯として残すか消す。
 - **対象コード:** `functions/src/exact-scan.ts`（`bestRides`・`pickStopsToMeasure`）、`functions/src/exact-walk-max.ts`（`findExactWalkMax`）、`packages/engine/src/services/exact-walk-candidates.ts`（`exactWalkCandidates`）
 - **関連:** epic #456、#458（1回乗車の純粋関数）・#459（`exactWalkMax`）・#460（候補プールへの合流）・#462（A/B 計測）。仕様は §2.1・§3.9・§4 #254。
 
@@ -134,7 +134,7 @@ aruku では、「遅く発車するほど選択肢が減る」という単調�
 ## 7. 計測と完了条件
 
 - **速さ:** #456 の試作と同じ9フィードで、1検索の計算時間の p50・p95・最大を測る（1回乗車は p50 0.048 ms・p95 0.30 ms・最大 2 ms）。近傍の半径を振って、計算時間と「乗換つき候補が勝った割合」の関係を見てから半径を決める
-- **効き目:** #462 の A/B（同じ実行の中で A＝今のパイプライン、B＝A の最終プール＋厳密走査で選び直す）に、乗換つきの候補を足した B' を加え、`walkB'` と `walkB` の差・`exactWon` の変化・検索時間を比べる
+- **効き目:** #462 の A/B（同じ実行の中で A＝今のパイプライン、B＝A の最終プール＋厳密走査で選び直す）に、乗換つきの候補を足した B' を加え、`walkBPrime` と `walkB` の差・`transferWon`・検索時間を比べる
 
 ### 7.1 速さ（#474 の①・2026-10-26）
 
@@ -148,6 +148,20 @@ aruku では、「遅く発車するほど選択肢が減る」という単調�
 | 15 分 | 5.9 | 0.44 / 1.43 / 1.68 ms | 1.05 / 5.40 / 12.6 ms | 63% | 5.5 分 |
 
 同じ条件の今の1回乗車（`pickStopsToMeasure` ＋ `bestRides`）は p50 0.068・p95 0.35・最大 0.88 ms。どの半径でも上流の往復（数百 ms〜）に比べて無視できる。勝った割合は直線の見積りの上での値で、乗換の徒歩が実測で伸びて落ちる分を含まない（③の A/B で測る）。
+
+### 7.2 配線後の速さと実測の枠（#474 の②・2026-11-06）
+
+§7.1 と同じ実パックで、近傍 10 分。OD は #462 の 20 組でなく、都心の駅から無作為に選んだ 120 検索（12時・22時 × 予算3種）。徒歩の実測の代わりに直線 × 1.3 を使った。
+
+| 工程 | p50 / p95 / 最大 |
+| --- | --- |
+| `pickStopsToMeasure`（近傍なし） | 0.06 / 0.20 / 0.27 ms |
+| `pickStopsToMeasure`（近傍あり） | 1.19 / 7.69 / 9.44 ms |
+| `bestJourneys`（`transfersOnly`・k=5） | 0.26 / 1.31 / 1.81 ms |
+
+`transfersOnly` は1回乗車の値で枝を切らなくなるぶん上界が緩むが、遅くはなっていない。上流の往復に比べて無視できる。
+
+120 検索のうち、実測した駅で1回乗車が成り立つのは 29 件、乗換つきの候補が出るのは 76 件、乗換つきの徒歩が1回乗車より長いのは 65 件。実測の枠を乗換つきと分け合うことで、1回乗車の最良の徒歩が短くなった検索は 29 件中 6 件あった。どれも見積りの上での値で、本番の悪化を示すものではない。③の A/B で `walkB` を #462 の値と比べ、悪化が大きければ枠を分ける（乗車・降車とも片側を半分ずつ）。
 
 ## 8. 未決事項
 
