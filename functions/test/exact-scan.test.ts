@@ -519,3 +519,43 @@ describe("pickStopsToMeasure", () => {
     expect(pickStopsToMeasure(ct, query(180)).tripsScanned).toBe(2);
   });
 });
+
+describe("compileTimetable の駅ごとの発車", () => {
+  // 乱数を固定した時刻表。発車時刻を5分刻みに丸め、同じ駅・同じ時刻の発車を多く作る。
+  const randomTimetable = (seed: number): Timetable => {
+    let x = seed;
+    const rand = (n: number) => {
+      x = (x * 1103515245 + 12345) % 2147483648;
+      return x % n;
+    };
+    const stops = Array.from({ length: 12 }, (_, i) => ({ name: `S${i}`, ...pointAtKm(i) }));
+    const trips = Array.from({ length: 300 }, (_, t) => {
+      let at = rand(48) * 300;
+      const calls: StopCall[] = Array.from({ length: 2 + rand(6) }, () => {
+        at += rand(3) * 300;
+        return { stop: rand(12), arr: at, dep: at, canBoard: rand(4) > 0, canAlight: true };
+      });
+      return { route: `R${t}`, headsign: null, calls };
+    });
+    return { stops, trips };
+  };
+
+  it("発車時刻の昇順、同じ時刻なら便・停車順の順に並び、乗車できない停車は入らない", () => {
+    const tt = randomTimetable(487);
+
+    const ct = compileTimetable(tt);
+
+    for (let s = 0; s < tt.stops.length; s++) {
+      const expected = tt.trips
+        .flatMap((trip, t) => trip.calls.map((c, pos) => ({ c, t, pos })))
+        .filter(({ c }) => c.stop === s && c.canBoard)
+        .sort((a, b) => a.c.dep - b.c.dep || a.t - b.t || a.pos - b.pos)
+        .map(({ c, t, pos }) => [t, pos, c.dep]);
+      const actual = [];
+      for (let i = ct.departureStart[s]; i < ct.departureStart[s + 1]; i++) {
+        actual.push([ct.departureTrip[i], ct.departurePos[i], ct.departureAt[i]]);
+      }
+      expect(actual).toEqual(expected);
+    }
+  });
+});

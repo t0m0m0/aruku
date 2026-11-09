@@ -12,7 +12,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
-import { compileTimetable, transferNeighbors, type StationKey, type Timetable } from "../exact-scan";
+import {
+  compileTimetable,
+  transferNeighbors,
+  type CompiledTimetable,
+  type StationKey,
+  type Timetable,
+} from "../exact-scan";
 import { buildScanDay } from "./day";
 import { PACK_GROUPS, packObjectPath, type PackGroup } from "./feeds";
 import { createScanDaySource } from "./load";
@@ -114,9 +120,36 @@ function verify(dir: string, dates: string[]): boolean {
     };
     const { day } = buildScanDay(packs, date, () => 0);
     const same = isDeepStrictEqual(day, naive);
-    console.error(JSON.stringify({ verify: date, same }));
-    return same;
+    const departures = departuresInOrder(day.compiled);
+    console.error(JSON.stringify({ verify: date, same, departures }));
+    return same && departures;
   });
+}
+
+/**
+ * 駅ごとの発車が、乗車できる停車をちょうど1回ずつ、（発車時刻・便・停車順）の昇順で持つか。
+ * 上の比較は両辺が同じ compileColumns を通るので、発車の索引はこちらで別に確かめる。
+ */
+function departuresInOrder(ct: CompiledTimetable): boolean {
+  let boardable = 0;
+  for (let c = 0; c < ct.callBoard.length; c++) boardable += ct.callBoard[c];
+  if (ct.departureStart[ct.stopCount] !== boardable) return false;
+  for (let s = 0; s < ct.stopCount; s++) {
+    for (let i = ct.departureStart[s]; i < ct.departureStart[s + 1]; i++) {
+      const trip = ct.departureTrip[i];
+      const pos = ct.departurePos[i];
+      const c = ct.tripStart[trip] + pos;
+      if (pos >= ct.tripLength[trip] || ct.callStop[c] !== s || !ct.callBoard[c]) return false;
+      if (ct.callDep[c] !== ct.departureAt[i]) return false;
+      if (i === ct.departureStart[s]) continue;
+      const order =
+        ct.departureAt[i - 1] - ct.departureAt[i] ||
+        ct.departureTrip[i - 1] - trip ||
+        ct.departurePos[i - 1] - pos;
+      if (order >= 0) return false;
+    }
+  }
+  return true;
 }
 
 function quantile(sorted: number[], q: number): number {

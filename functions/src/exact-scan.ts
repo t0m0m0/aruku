@@ -135,6 +135,8 @@ export function compileTimetable(tt: Timetable): CompiledTimetable {
   });
 }
 
+const POSITION_SPAN = 2 ** 21;
+
 export function compileColumns(columns: TimetableColumns): CompiledTimetable {
   const { stopLat, trips, tripStart, tripLength, callStop, callDep, callBoard } = columns;
   const stopCount = stopLat.length;
@@ -146,27 +148,44 @@ export function compileColumns(columns: TimetableColumns): CompiledTimetable {
   }
   for (let s = 0; s < stopCount; s++) departureStart[s + 1] += departureStart[s];
   const total = departureStart[stopCount];
-  const order: { trip: number; pos: number; at: number }[][] = Array.from(
-    { length: stopCount },
-    () => [],
-  );
-  for (let trip = 0; trip < tripCount; trip++) {
-    for (let pos = 0; pos < tripLength[trip]; pos++) {
-      const c = tripStart[trip] + pos;
-      if (callBoard[c]) order[callStop[c]].push({ trip, pos, at: callDep[c] });
-    }
-  }
   const departureTrip = new Int32Array(total);
   const departurePos = new Int32Array(total);
   const departureAt = new Int32Array(total);
+  const cursor = departureStart.slice(0, stopCount);
+  for (let trip = 0; trip < tripCount; trip++) {
+    for (let pos = 0; pos < tripLength[trip]; pos++) {
+      const c = tripStart[trip] + pos;
+      if (!callBoard[c]) continue;
+      const i = cursor[callStop[c]]++;
+      departureTrip[i] = trip;
+      departurePos[i] = pos;
+      departureAt[i] = callDep[c];
+    }
+  }
+  // 駅ごとの区間は便・停車順に入っているので、発車時刻で安定に並べ替えれば同じ時刻は便・停車順に残る。
+  // 比較関数つきの sort にしないのは、駅ごとに比較関数を呼ぶ分だけ1日ぶんで数十ミリ秒遅いため（#487）。
+  // 発車時刻と区間内の位置を1つの数（時刻×2^21＋位置）にまとめ、数値の並べ替え1回で済ませる。
+  // 時刻は運行日の0時からの秒なので 2^31 未満、1駅の発車は 2^21 本未満で、積は倍精度で正確に表せる。
   for (let s = 0; s < stopCount; s++) {
-    order[s].sort((a, b) => a.at - b.at);
-    order[s].forEach((d, j) => {
-      const i = departureStart[s] + j;
-      departureTrip[i] = d.trip;
-      departurePos[i] = d.pos;
-      departureAt[i] = d.at;
-    });
+    const from = departureStart[s];
+    const length = departureStart[s + 1] - from;
+    let sorted = true;
+    for (let j = 1; j < length && sorted; j++) {
+      sorted = departureAt[from + j - 1] <= departureAt[from + j];
+    }
+    if (sorted) continue;
+    const keys = new Float64Array(length);
+    for (let j = 0; j < length; j++) keys[j] = departureAt[from + j] * POSITION_SPAN + j;
+    keys.sort();
+    const trips = departureTrip.slice(from, from + length);
+    const positions = departurePos.slice(from, from + length);
+    const ats = departureAt.slice(from, from + length);
+    for (let j = 0; j < length; j++) {
+      const original = keys[j] - Math.floor(keys[j] / POSITION_SPAN) * POSITION_SPAN;
+      departureTrip[from + j] = trips[original];
+      departurePos[from + j] = positions[original];
+      departureAt[from + j] = ats[original];
+    }
   }
 
   return {
