@@ -191,10 +191,14 @@ function isTransit(type: SegmentType): boolean {
 
 /// 乗車駅（発）ノードを作る。表示時刻は乗車駅着の累積分 [arrivalCum] に乗車前待ちを
 /// 足した「発車時刻」。早着なら発車時刻、乗り遅れ・時刻欠落なら駅着時刻に化す（advance
-/// と同基準）。補足文は路線名。
+/// と同基準）。補足文は路線名。駅名は乗車区間 [seg] の乗車駅名を使い、欠けるときだけ
+/// 手前の区間の到着名 [arrivedAt] で補う。
+///
+/// 手前の徒歩の到着名を正にしないのは、徒歩は駅名を持たずに届くことがあるため。乗車駅探索の
+/// 継ぎ目の徒歩は名前を持たず、駅名を写された 0値徒歩は除外されて電車の直前から消える。
 function boardingNode(
   departure: TimeValue,
-  place: string,
+  arrivedAt: string,
   seg: RouteSegment,
   arrivalCum: number,
   departureAt: Date | null,
@@ -202,7 +206,7 @@ function boardingNode(
   const { wait } = advance(arrivalCum, seg, departureAt);
   return new TimelineNode({
     time: formatClock(departure, arrivalCum + wait),
-    place,
+    place: seg.fromName.length > 0 ? seg.fromName : arrivedAt,
     sub: transitSub(seg),
   });
 }
