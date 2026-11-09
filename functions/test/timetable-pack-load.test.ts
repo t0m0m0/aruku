@@ -193,6 +193,52 @@ describe("createScanDaySource", () => {
     );
   });
 
+  it("読み込みを Storage の読込・解凍・JSON の解析に分けて時間をログに出す", async () => {
+    const h = harness({ permanent: gz(pack("Toei")) });
+    // 工程ごとに時計を1ミリ秒ずつ進め、どの工程の時間かを取り違えていないことを見る。
+    const read = h.deps.read;
+    h.deps.read = async (path) => {
+      h.clock.now += 5;
+      return read(path);
+    };
+
+    await createScanDaySource(h.deps)(SERVICE_DATE);
+
+    const load = h.logs.find((e) => e.event === "timetable_pack_load" && e.group === "permanent");
+    expect(load).toEqual(
+      expect.objectContaining({
+        readMs: 5,
+        gunzipMs: expect.any(Number),
+        parseMs: expect.any(Number),
+      }),
+    );
+    expect(load!.loadMs).toBe(
+      (load!.readMs as number) + (load!.gunzipMs as number) + (load!.parseMs as number),
+    );
+  });
+
+  it("運行日の組み立てを抽出・compile・近傍に分けて時間とヒープをログに出す", async () => {
+    const h = harness({ permanent: gz(pack("Toei")) });
+    h.deps.heapUsed = () => 64 * 1048576;
+
+    await createScanDaySource(h.deps)(SERVICE_DATE);
+
+    const day = h.logs.find((e) => e.event === "timetable_day_compile")!;
+    expect(day).toEqual(
+      expect.objectContaining({
+        serviceDate: SERVICE_DATE,
+        trips: 1,
+        extractMs: expect.any(Number),
+        compileMs: expect.any(Number),
+        neighborsMs: expect.any(Number),
+        heapUsedMB: 64,
+      }),
+    );
+    expect(day.totalMs).toBe(
+      (day.extractMs as number) + (day.compileMs as number) + (day.neighborsMs as number),
+    );
+  });
+
   it("インスタンスが温まっている間は Storage を読み直さない", async () => {
     const h = harness({ challenge: gz(pack("JR")), permanent: gz(pack("Toei")) });
     const source = createScanDaySource(h.deps);
