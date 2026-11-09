@@ -101,7 +101,7 @@ jobs:
   # エージェントのフックはローカルでしか走らないので、壊れても誰も気付かない。
   # ガードが素通りになる退行をここで捕まえる。
   agent-guards:
-    name: agent hook guards (.claude)
+    name: agent config (.claude / .codex)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -111,6 +111,13 @@ jobs:
           python3 .claude/guard_test.py
           python3 .claude/bash_guard_test.py
           python3 .claude/typecheck_on_edit_test.py
+
+      # Codex 向けの写し（AGENTS.md・.codex/docs）は手で同期していて、節ごと抜け落ちていた
+      # （#495）。読み込み先のディレクトリ名だけが違うのが正しい状態。
+      - name: Claude / Codex rules in sync
+        run: |
+          diff <(sed 's#^@\.claude/#@.codex/#' CLAUDE.md) AGENTS.md
+          diff -r .claude/docs .codex/docs
 
   doc-consistency:
     name: doc / comment consistency

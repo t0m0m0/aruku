@@ -18,6 +18,11 @@
             "type": "command",
             "command": "python3 \"$(git rev-parse --show-toplevel)/.claude/bash_guard.py\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.claude/doc_consistency.py\"",
+            "timeout": 30
           }
         ]
       }
