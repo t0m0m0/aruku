@@ -414,6 +414,96 @@ const service = (
 const origin = new GeoPoint(35.68, 139.76);
 const goal = new GeoPoint(35.69, 139.7);
 
+// ---- 特性テスト（#486）----
+//
+// 検索の内部構造を組み替えても、固定応答に対する確定経路・上流への要求・計測が1つも
+// 変わらないことを固定する。個々の性質のテストは「その性質」しか見ないので、組み替えで
+// 要求が1本増えたり出自の計測がずれたりしても緑のまま通り得る。
+
+/// 送った要求をそのまま記録する。各 describe のモックに手を入れずに包めるようにしてある。
+const recording = (client: HttpClient, log: URL[]): HttpClient => ({
+  get: (url) => {
+    log.push(url);
+    return client.get(url);
+  },
+  close: () => client.close(),
+});
+
+/// 要求1本の識別子。クエリはキー順に並べる——並び順の違いは同じ要求。
+const requestKey = (url: URL): string => {
+  const params = [...url.searchParams.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, v]) => `${k}=${v}`)
+    .join('&');
+  return `${url.origin}${url.pathname}?${params}`;
+};
+
+const isoOrNull = (d: Date | null): string | null => (d === null ? null : d.toISOString());
+
+/// 確定経路・上流への要求・計測の指紋。
+///
+/// 要求は発行順でなく多重集合で比べる。並列に投げた要求の到達順はマイクロタスクの
+/// 並びで決まり、組み替えで変わっても振る舞いは同じ。計測のうち `…Ms` は壁時計なので外す。
+/// [timingDependent] は、本数が並列の進み具合で決まる要求（打ち切った投機の probe）を
+/// 持つ場面で使う——その本数は既存のテストが「1本以上」で押さえている。
+const fingerprint = (
+  plan: RoutePlan,
+  log: URL[],
+  metrics: RouteSearchMetrics | null,
+  o: { timingDependent?: string[] } = {},
+): unknown => {
+  const skip = new Set(o.timingDependent ?? []);
+  return {
+    plan: {
+      from: plan.from,
+      to: plan.to,
+      totalKm: plan.totalKm,
+      totalMin: plan.totalMin,
+      budgetMin: plan.budgetMin,
+      kcal: plan.kcal,
+      walkKm: plan.walkKm,
+      standardTransit: plan.standardTransit,
+      timetableSources: plan.timetableSources,
+      segments: plan.segments.map((s) => ({
+        type: s.type,
+        fromName: s.fromName,
+        toName: s.toName,
+        line: s.line,
+        minutes: s.minutes,
+        km: s.km,
+        stops: s.stops,
+        depTime: isoOrNull(s.depTime),
+        arrTime: isoOrNull(s.arrTime),
+        polyline: s.polyline.map((p) => `${p.lat},${p.lng}`).join(' '),
+      })),
+    },
+    requests: skip.has('requests') ? null : log.map(requestKey).sort(),
+    metrics:
+      metrics === null
+        ? null
+        : Object.fromEntries(
+            Object.entries(metrics)
+              .filter(([k]) => !k.endsWith('Ms') && !skip.has(k))
+              .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+          ),
+  };
+};
+
+/// [run] に記録つきのクライアントと計測の受け口を渡して1検索走らせ、指紋を返す。
+const characterize = async (
+  client: HttpClient,
+  run: (
+    client: HttpClient,
+    onMetrics: (m: RouteSearchMetrics) => void,
+  ) => Promise<RoutePlan>,
+  o: { timingDependent?: string[] } = {},
+): Promise<unknown> => {
+  const log: URL[] = [];
+  let captured: RouteSearchMetrics | null = null;
+  const plan = await run(recording(client, log), (m) => (captured = m));
+  return fingerprint(plan, log, captured, o);
+};
+
 describe('plan: 入力ガード', () => {
   it('origin が無ければ NO_ORIGIN', async () => {
     const svc = service(mock({ transit: guidance([singleTrainOption()]) }));
@@ -511,6 +601,40 @@ describe('plan: 標準乗換', () => {
     expect(train.fare).toBeNull();
     // 予算内に収まっている。
     expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+  });
+
+  it('固定応答で確定経路・上流への要求・計測が変わらない: 電車を含む通常の成功（#486）', async () => {
+    expect(
+      await characterize(
+        mock({ transit: guidance([singleTrainOption({ dep: 33300, arr: 35100 })]) }),
+        (client, onMetrics) =>
+          service(client, { onMetrics }).plan({
+            destination: '新宿駅',
+            destinationLatLng: goal,
+            departure: new TimeValue({ h: 9, m: 0 }),
+            arrival: new TimeValue({ h: 9, m: 50 }),
+            origin,
+            originName: '東京駅',
+          }),
+      ),
+    ).toMatchSnapshot();
+  });
+
+  it('固定応答で確定経路・上流への要求・計測が変わらない: 予算が十分なら全徒歩（#486）', async () => {
+    expect(
+      await characterize(
+        mock({ transit: guidance([singleTrainOption({ dep: 33300, arr: 35100 })]) }),
+        (client, onMetrics) =>
+          service(client, { onMetrics }).plan({
+            destination: '新宿駅',
+            destinationLatLng: goal,
+            departure: new TimeValue({ h: 9, m: 0 }),
+            arrival: new TimeValue({ h: 11, m: 0 }),
+            origin,
+            originName: '東京駅',
+          }),
+      ),
+    ).toMatchSnapshot();
   });
 
   it('guidance/plan に geo from/to・date/time・type=departure を送る', async () => {
@@ -792,6 +916,16 @@ describe('plan: 路線ごとのアクセス徒歩実測を検索単位で集約�
       origin: o,
       originName: '出発',
     });
+
+  it('固定応答で確定経路・上流への要求・計測が変わらない: 複数ファミリのハイブリッド（#486）', async () => {
+    expect(
+      await characterize(
+        mock({ transit: guidance([familyA(), familyB()]) }),
+        familyPlan,
+      ),
+    ).toMatchSnapshot();
+  });
+
   const matrixLegs = (log: URL[]): string[] =>
     log
       .filter((u) => u.pathname.includes('googleWalkMatrixProxy'))
@@ -4334,14 +4468,48 @@ describe('plan: 時刻なしハイブリッドの実発車時刻検証（approac
     });
   };
 
-  const nightService = (client: HttpClient): TransitRouteService =>
+  const nightService = (
+    client: HttpClient,
+    onMetrics?: (m: RouteSearchMetrics) => void,
+  ): TransitRouteService =>
     new TransitRouteService({
       transitClient: client,
       proxyClient: client,
       transitBaseUrl: transitBase,
       proxyBaseUrl: proxyBase,
       clock: () => dateTime(2026, 6, 27, 2, 0),
+      onMetrics,
     });
+
+  it('固定応答で確定経路・上流への要求・計測が変わらない: best-effort 縮退（#486）', async () => {
+    expect(
+      await characterize(nightMock(), (client, onMetrics) =>
+        nightService(client, onMetrics).plan({
+          destination: '終着駅',
+          destinationLatLng: goal6,
+          departure: new TimeValue({ h: 2, m: 0 }),
+          arrival: new TimeValue({ h: 2, m: 50 }),
+          origin: origin6,
+          originName: '出発',
+        }),
+      ),
+    ).toMatchSnapshot();
+  });
+
+  it('固定応答で確定経路・上流への要求・計測が変わらない: 時刻なしハイブリッドの実時刻検証（#486）', async () => {
+    expect(
+      await characterize(nightMock(), (client, onMetrics) =>
+        nightService(client, onMetrics).plan({
+          destination: '終着駅',
+          destinationLatLng: goal6,
+          departure: new TimeValue({ h: 2, m: 0 }),
+          arrival: new TimeValue({ h: 7, m: 0 }),
+          origin: origin6,
+          originName: '出発',
+        }),
+      ),
+    ).toMatchSnapshot();
+  });
 
   it('深夜のハイブリッドは始発05:00の実発車時刻が当たり乗車待ちが到着へ入る', async () => {
     const plan = await nightService(nightMock()).plan({
@@ -5053,6 +5221,52 @@ describe('plan: バス last-resort 再照会 (#250)', () => {
       plan.segments.filter((s) => s.type === SegmentType.bus),
       '今夜（今日）乗れないバスを提示してはならない',
     ).toHaveLength(0);
+  });
+
+  it('固定応答で確定経路・上流への要求・計測が変わらない: last-resort のバス採用（#486）', async () => {
+    expect(
+      await characterize(busMock({ busOption: busOption() }), (client, onMetrics) =>
+        service(client, { onMetrics }).plan({
+          destination: '目的地',
+          destinationLatLng: busGoal,
+          departure: new TimeValue({ h: 9, m: 0 }),
+          arrival: new TimeValue({ h: 10, m: 0 }),
+          origin: busOrigin,
+        }),
+      ),
+    ).toMatchSnapshot();
+  });
+
+  it('固定応答で確定経路・上流への要求・計測が変わらない: バス採用後の崩壊と board-search（#486）', async () => {
+    expect(
+      await characterize(
+        busMock({ busOption: busOption(), corridorOption: corridorTrainOption }),
+        (client, onMetrics) =>
+          service(client, { onMetrics }).plan({
+            destination: '目的地',
+            destinationLatLng: busGoal,
+            departure: new TimeValue({ h: 9, m: 0 }),
+            arrival: new TimeValue({ h: 10, m: 0 }),
+            origin: busOrigin,
+          }),
+      ),
+    ).toMatchSnapshot();
+  });
+
+  it('固定応答で確定経路・上流への要求・計測が変わらない: 乗り遅れる best-effort からのバス（#486）', async () => {
+    expect(
+      await characterize(
+        busMock({ busOption: busOption(), originOption: missedTrainOption() }),
+        (client, onMetrics) =>
+          service(client, { onMetrics }).plan({
+            destination: '目的地',
+            destinationLatLng: busGoal,
+            departure: new TimeValue({ h: 9, m: 0 }),
+            arrival: new TimeValue({ h: 10, m: 0 }),
+            origin: busOrigin,
+          }),
+      ),
+    ).toMatchSnapshot();
   });
 
   it('collapse→board-search が全滅してもバス候補を取り下げない', async () => {
@@ -5827,6 +6041,25 @@ describe('plan: 崩壊見込みの board-search を enrich と並行に起動す
     expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
   });
 
+  it('固定応答で確定経路・上流への要求・計測が変わらない: 投機した board-search が当たる崩壊（#486）', async () => {
+    expect(
+      await characterize(trackingMock(), (client, onMetrics) =>
+        planWith(client, { onMetrics }),
+      ),
+    ).toMatchSnapshot();
+  });
+
+  it('固定応答で確定経路・計測が変わらない: 投機した board-search の空振り（#486）', async () => {
+    // 打ち切った投機が何本 probe を打ち上げ終えるかは並列の進み具合で決まる。
+    expect(
+      await characterize(
+        trackingMock({ walkFactor: 20 }),
+        (client, onMetrics) => planWith(client, { onMetrics }),
+        { timingDependent: ['requests', 'boardSearchSpeculationProbes'] },
+      ),
+    ).toMatchSnapshot();
+  });
+
   it('崩壊しなければ結果を捨て、空振りを probe 本数で計上する', async () => {
     // 見積りでは予算内・崩壊ぎみ（→投機起動）だが、実測徒歩が20倍に膨らんで先頭電車に
     // 乗り遅れ、確定は予算外の best-effort へ縮退する＝ collapse は成立しない。投機は
@@ -6546,6 +6779,15 @@ describe('plan: 到着アンカー第2波 (#376)', () => {
     plan.segments
       .filter((s) => s.type === SegmentType.walk)
       .reduce((a, s) => a + s.minutes, 0);
+
+  it('固定応答で確定経路・上流への要求・計測が変わらない: 第2波だけが持つ base（#486）', async () => {
+    expect(
+      await characterize(
+        waveMock({ departure: guidance([familyA()]), arrival: guidance([familyB()]) }),
+        (client, onMetrics) => run(client, { onMetrics }),
+      ),
+    ).toMatchSnapshot();
+  });
 
   it('arrival 波が締切（出発+予算）をアンカーに type=arrival で発行される', async () => {
     const log: URL[] = [];
@@ -7593,6 +7835,44 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
       });
       const withTransfer = (...transfers: JsonMap[]): JsonMap =>
         exactBody([exactCandidate({ board: at(9, 50), alight: at(9, 53) })], [], transfers);
+
+      /// 1検索を固定応答で走らせ、指紋を取る。A/B でなければ厳密走査を候補プールへ混ぜる。
+      const characterizeExact = (body: JsonMap, ab: boolean): Promise<unknown> =>
+        characterize(exactMock({ onExact: () => json(body) }), (client, onMetrics) =>
+          service(client, {
+            exactWalkMax: !ab,
+            exactWalkMaxAb: ab,
+            onMetrics,
+          }).plan({
+            destination: '目的地',
+            destinationLatLng: g,
+            departure: new TimeValue({ h: 9, m: 0 }),
+            arrival: new TimeValue({ h: 10, m: 40 }),
+            origin: o,
+            originName: '出発',
+          }),
+        );
+
+      it('固定応答で確定経路・上流への要求・計測が変わらない: 厳密走査の候補が勝つ（#486）', async () => {
+        expect(
+          await characterizeExact(withTransfer(transferCandidate()), false),
+        ).toMatchSnapshot();
+      });
+
+      it("固定応答で確定経路・上流への要求・計測が変わらない: A/B で B' が勝つ（#486）", async () => {
+        expect(
+          await characterizeExact(withTransfer(transferCandidate()), true),
+        ).toMatchSnapshot();
+      });
+
+      it("固定応答で確定経路・上流への要求・計測が変わらない: A/B で B' が落ちて B を保つ（#486）", async () => {
+        expect(
+          await characterizeExact(
+            withTransfer(transferCandidate({ secondBoard: at(9, 53), transferSec: 0 })),
+            true,
+          ),
+        ).toMatchSnapshot();
+      });
 
       it("B' は B の勝者と乗換つきから選び直し、勝てば B' を返す", async () => {
         const { plan, m } = await runAb(
