@@ -1,7 +1,7 @@
 ---
 description: GitHub issueを1つ選んで実装→PR作成→reviewerで別コンテキストレビュー→指摘対応まで一気通貫。マージは手動。
 argument-hint: "[issue番号（省略時は一覧から選ぶ）]"
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(npx:*), Bash(python3:*), Read, Edit, Write, Grep, Glob, Task
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(npx:*), Bash(python3:*), Read, Edit, Write, Grep, Glob, Agent
 ---
 
 # /auto-issue — issue実装からレビュー対応までの半自動フロー
@@ -17,6 +17,8 @@ allowed-tools: Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(npx:*), Bash(python3:*
 - 変更したパッケージの検査（`CLAUDE.md`「Validation Commands」）を**コミット前に必ず**通す。
   `functions/` を変更したら `functions/` で `npm run build` と `npm test` も実行。
 - `.env`（`apps/web/.env` を含む）には触れない。
+- `gh pr` / `gh issue` は GraphQL を使うため、クラウド環境ではプロキシに拒否される。
+  PR・issue の操作は REST（`gh api repos/t0m0m0/aruku/...`）で行う。
 - `package.json` / `package-lock.json` は guard 対象。依存追加はユーザー承認必須（Bash経由で適用）。
 
 ---
@@ -37,11 +39,11 @@ git log --oneline -10
 
 - 引数 `$1` が渡っていれば、その番号のissueを対象にする:
   ```
-  gh issue view $1
+  gh api repos/t0m0m0/aruku/issues/$1 --jq '.title, .body'
   ```
 - 引数が無ければオープンなissueを一覧提示し、ユーザーに選んでもらう:
   ```
-  gh issue list --state open --limit 20
+  gh api 'repos/t0m0m0/aruku/issues?state=open&per_page=20' --jq '.[] | select(.pull_request | not) | "#\(.number) \(.title)"'
   ```
   → 対象が決まるまで**STOP**（勝手に選ばない）。
 
@@ -71,7 +73,7 @@ git checkout -b <type>/<issue番号>-<短いslug>
 2. `npm --prefix <対象パッケージ> test` で失敗を確認
 3. 実装する
 4. `npm --prefix <対象パッケージ> test` でパスを確認
-5. `npm --prefix <対象パッケージ> run typecheck` でエラーがないことを確認
+5. `npx tsc --noEmit`（対象パッケージで）でエラーがないことを確認
 6. 論理単位ごとにコミット（`feat(#ISSUE): ...`）
 
 `functions/` を変更した場合は、その配下で `npm run build` と `npm test` も通す。
@@ -81,6 +83,7 @@ git checkout -b <type>/<issue番号>-<短いslug>
 ```
 npm --prefix apps/web run typecheck && npm --prefix apps/web test && npm --prefix apps/web run build && npm --prefix apps/web run e2e
 npm --prefix packages/engine run typecheck && npm --prefix packages/engine test
+npm --prefix functions run build && npm --prefix functions test
 python3 .claude/doc_consistency.py --staged
 ```
 
@@ -90,7 +93,7 @@ python3 .claude/doc_consistency.py --staged
 
 ```
 git push -u origin HEAD
-gh pr create --fill --base main
+gh api repos/t0m0m0/aruku/pulls -f title="<コミット形式の要約>" -f head="$(git branch --show-current)" -f base=main -F draft=true -f body="<本文>" --jq '.number, .html_url'
 ```
 
 PR本文には次を明記する（`.claude/docs/workflow.md`）:
@@ -100,9 +103,13 @@ PR本文には次を明記する（`.claude/docs/workflow.md`）:
 
 作成された**PR番号を控える**（以降のレビューで使う）。
 
-## 7. 指摘対応
+## 7. 別コンテキストのレビューと指摘対応
 
-- PRが作成されるとCodexがreviewをしてくれるのでそれを待つ
+- `reviewer` subagent を起動し、PR番号を渡してレビューさせる（実装の文脈を持たせない）。
+- 変更が `functions/`・`firestore.rules`・`apps/web/src/firebase/`・`apps/web/src/http/` に及ぶときは
+  `firebase-security-reviewer` も起動する。
+- PR には Codex のレビューも付く。届いていれば
+  `gh api repos/t0m0m0/aruku/pulls/<番号>/comments` と `.../pulls/<番号>/reviews` で読み、同じく対応する。
 - reviewを確認し、コメントがあれば指摘に対応する。TDDで直し、5章の検証を再度通す。
 - `.claude/docs/workflow.md` に従い、**review指摘対応後は確認を取らずに commit & push** する。
 
@@ -120,4 +127,4 @@ git push
   - 追加・変更したテストとその結果
   - reviewer指摘への対応内容
 - **マージはしない**。PR URLを提示し、「マージはユーザーが手動で行ってください」と伝えて終了する。
-  （自動マージしたくなったら、この章に `gh pr merge <番号> --squash` を追加すればよい。）
+  （自動マージしたくなったら、この章に `gh api -X PUT repos/t0m0m0/aruku/pulls/<番号>/merge -f merge_method=squash` を追加すればよい。）
