@@ -317,6 +317,9 @@ describe('RouteSearchMetrics.toLogLine', () => {
     m.guidanceDupCalls = 1;
     m.walkCalls = 10;
     m.matrixCalls = 2;
+    m.matrixElements = 31;
+    m.accessMatrixRequestedLegs = 40;
+    m.accessMatrixUniqueLegs = 28;
     m.exactCalls = 1;
     m.arrivalWaveOutcome = ArrivalWaveOutcome.ok;
     m.arrivalWaveOptions = 2;
@@ -379,7 +382,9 @@ describe('RouteSearchMetrics.toLogLine', () => {
     m.totalMs = 9000;
     expect(m.toLogLine()).toEqual(
       'collapse=1 boardSearch=1 singlePass=1 http=16 ' +
-        'guidanceCalls=3 walkCalls=10 matrixCalls=2 exactCalls=1 ' +
+        'guidanceCalls=3 walkCalls=10 matrixCalls=2 ' +
+        'matrixElements=31 accessMatrixRequestedLegs=40 accessMatrixUniqueLegs=28 ' +
+        'exactCalls=1 ' +
         'guidanceDupCalls=1 ' +
         'arrivalWaveOutcome=0 arrivalWaveOptions=2 ' +
         'arrivalWaveBaseUsed=1 arrivalWaveWon=1 ' +
@@ -570,7 +575,9 @@ describe('RouteSearchMetrics.toLogLine', () => {
     expect(m.httpRoundTrips).toEqual(5);
     expect(m.toLogLine()).toEqual(
       'collapse=0 boardSearch=0 singlePass=0 http=5 ' +
-        'guidanceCalls=1 walkCalls=4 matrixCalls=0 exactCalls=0 ' +
+        'guidanceCalls=1 walkCalls=4 matrixCalls=0 ' +
+        'matrixElements=0 accessMatrixRequestedLegs=0 accessMatrixUniqueLegs=0 ' +
+        'exactCalls=0 ' +
         'guidanceDupCalls=0 ' +
         'arrivalWaveOutcome=-1 arrivalWaveOptions=0 ' +
         'arrivalWaveBaseUsed=0 arrivalWaveWon=0 ' +

@@ -89,6 +89,7 @@ export class TransitApiClient {
   private guidanceCallCount = 0;
   private walkCallCount = 0;
   private matrixCallCount = 0;
+  private matrixElementCount = 0;
   private exactCallCount = 0;
 
   // 1検索内で「同一 guidance リクエスト（同じ URI＝同じ from/to/date/time/mode）」を
@@ -116,6 +117,11 @@ export class TransitApiClient {
   /// Google 徒歩マトリクスの実 HTTP 往復本数。
   get matrixCalls(): number {
     return this.matrixCallCount;
+  }
+
+  /// Google 徒歩マトリクスで発行した要素数（origins × destinations）の合計。
+  get matrixElements(): number {
+    return this.matrixElementCount;
   }
 
   /// 厳密走査 `exactWalkMax`（#460）の実 HTTP 往復本数。
@@ -221,7 +227,10 @@ export class TransitApiClient {
       return await this.fetchProxyArray(
         'googleWalkMatrixProxy',
         { origins: join(origins), destinations: join(dests) },
-        () => this.matrixCallCount++,
+        () => {
+          this.matrixCallCount++;
+          this.matrixElementCount += origins.length * dests.length;
+        },
       );
     } catch (error) {
       // キャンセル（SearchCanceledException）は握り潰さない。ここで null へ化けると

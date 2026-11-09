@@ -516,6 +516,14 @@ describe('上流 HTTP 往復本数の計測 (#309)', () => {
     expect(rows).toBeNull();
     expect(c.matrixCalls).toEqual(1);
   });
+
+  it('マトリクスの発行要素数（origins × destinations）を合計する (#485)', async () => {
+    const c = client(mockClient(() => jsonResponse([])));
+    const p = (i: number): GeoPoint => new GeoPoint(35.0, 139.0 + i / 100);
+    await c.fetchWalkMatrix([p(0)], [p(1), p(2), p(3)]);
+    await c.fetchWalkMatrix([p(4), p(5)], [p(6)]);
+    expect(c.matrixElements).toEqual(3 + 2);
+  });
 });
 
 describe('baseUrl 正規化', () => {

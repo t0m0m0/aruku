@@ -14,6 +14,13 @@ import type { TimeValue } from '../models/time-value';
 import { decodePolyline } from '../polyline';
 import { startedStopwatch, type Stopwatch } from '../stopwatch';
 import { dateTime, seconds, type Duration } from '../time';
+import {
+  applyWalkMatrixRows,
+  parseDurationMin,
+  planAccessWalkMatrix,
+  walkCacheKey,
+  type AccessWalkDemand,
+} from './access-walk-matrix';
 import { SearchCanceledException, type CancellationToken } from './cancellation';
 import {
   evenSample,
@@ -70,6 +77,15 @@ import { TransitApiClient } from './transit-api-client';
 interface Selection {
   chosen: RouteCandidate;
   enriched: RouteCandidate;
+}
+
+/// 1本の base について、ハイブリッドを作るのに要るコリドー・フロンティアと、実測すべき
+/// アクセス徒歩の需要。
+interface CorridorAccessPlan {
+  base: TransitOption;
+  stops: CorridorStop[];
+  frontier: FrontierStations;
+  demand: AccessWalkDemand;
 }
 
 export interface TransitRouteServiceInit {
@@ -314,6 +330,7 @@ export class TransitRouteService implements SearchEngine {
     metrics.guidanceDupCalls = this.api.guidanceDupCalls;
     metrics.walkCalls = this.api.walkCalls;
     metrics.matrixCalls = this.api.matrixCalls;
+    metrics.matrixElements = this.api.matrixElements;
     metrics.exactCalls = this.api.exactCalls;
     if (exactWave !== null) metrics.exactMs = exactSw.elapsedMilliseconds;
     this.diag.logMetrics(metrics);
@@ -501,12 +518,14 @@ export class TransitRouteService implements SearchEngine {
     const hybridSw = startedStopwatch();
     if (bases.length > 0) {
       this.diag.log(() => `hybrid bases: ${bases.length}家系`);
-      // base ごとの実測（マトリクス IO）は互いに独立なので並列に投げる（#163）。
-      // `measured` は共有するが、書き込みは各 await 後に同一値で冪等なので競合しない。
-      const built = await Promise.all(
-        bases.map((b) =>
-          this.buildCorridorHybrids(b, origin, goal, budgetMin, departureAt, measured),
-        ),
+      const built = await this.buildCorridorHybrids(
+        bases,
+        origin,
+        goal,
+        budgetMin,
+        departureAt,
+        measured,
+        metrics,
       );
       for (let i = 0; i < bases.length; i++) {
         if (arrivalWaveOptions.has(bases[i])) {
@@ -524,7 +543,7 @@ export class TransitRouteService implements SearchEngine {
       );
     } else {
       this.diag.log(() => 'no base route (corridor<2); all-walk only');
-      await this.measureAccessWalks(origin, goal, [], [], measured);
+      await this.measureAccessWalks(origin, goal, [], measured, metrics);
     }
     metrics.hybridMs = hybridSw.elapsedMilliseconds;
 
@@ -763,14 +782,17 @@ export class TransitRouteService implements SearchEngine {
           (async (): Promise<RouteCandidate[]> => {
             this.diag.log(() => 'バス corridor を基準に徒歩最大化（#251）');
             return [
-              ...(await this.buildCorridorHybrids(
-                busBase,
-                origin,
-                goal,
-                budgetMin,
-                departureAt,
-                measured,
-              )),
+              ...(
+                await this.buildCorridorHybrids(
+                  [busBase],
+                  origin,
+                  goal,
+                  budgetMin,
+                  departureAt,
+                  measured,
+                  metrics,
+                )
+              )[0],
               ...(await this.buildBoardSearchCandidate(
                 busBase,
                 origin,
@@ -1842,62 +1864,46 @@ export class TransitRouteService implements SearchEngine {
     return walkFeasiblePrefixCount(walk1, budgetMin);
   }
 
-  /// 乗降アクセス徒歩を1回（最大2コール）のマトリクスで一括実測し、[measured] にレッグキー
-  /// →徒歩分で格納する。goal を乗車側 destinations 末尾に相乗りさせ全徒歩(origin→goal)も
-  /// 同時に測る。失敗レッグは未格納（直線推定へフォールバック）。
+  /// 全 base のアクセス徒歩（origin→乗車駅・降車駅→goal・origin→goal）を検索単位で
+  /// 集約し、まだ実測値の無い有向レッグだけを要素数上限以下の要求に分けて並列に測る。
+  /// 成功した要素だけを [measured] に書く。失敗したレッグは書かないので直線推定へ
+  /// フォールバックし、後の呼び出しで要求されれば測り直す（失敗は覚えない）。
   private async measureAccessWalks(
     origin: GeoPoint,
     goal: GeoPoint,
-    boardStops: GeoPoint[],
-    alightStops: GeoPoint[],
+    demands: readonly AccessWalkDemand[],
     measured: Map<string, number>,
+    metrics: RouteSearchMetrics,
   ): Promise<void> {
-    // 乗車側・降車側のマトリクスは互いに独立なので並列に投げる（#163）。
-    //
-    // 移植元は2本を順に await しているが、`Promise.all` で**両方に同時にハンドラを付ける**。
-    // 片方ずつ await すると、先に待つ側が倒れた時点で関数を抜け、もう一方の拒否を誰も
-    // 観測しないまま残る——キャンセルで共有クライアントを閉じると両方が
+    const plan = planAccessWalkMatrix(origin, goal, demands, (k) =>
+      measured.has(k),
+    );
+    metrics.accessMatrixRequestedLegs += plan.requestedLegs;
+    metrics.accessMatrixUniqueLegs += plan.uniqueLegs;
+    // 移植元は2本を順に await しているが、`Promise.all` で**全要求に同時にハンドラを付ける**。
+    // 1本ずつ await すると、先に待つ側が倒れた時点で関数を抜け、残りの拒否を誰も
+    // 観測しないまま残る——キャンセルで共有クライアントを閉じると全要求が
     // [SearchCanceledException] で倒れるので、これは実際に起こる。Dart は未処理の非同期
     // エラーをゾーンへ報告するだけだが、Node はプロセスを落とし、ブラウザは
     // `unhandledrejection` を上げる。同じコードの形が処理系で違う結末になる箇所。
-    const boardDests = [...boardStops, goal];
-    const [boardRows, alightRows] = await Promise.all([
-      this.api.fetchWalkMatrix([origin], boardDests),
-      alightStops.length === 0
-        ? Promise.resolve<unknown[] | null>(null)
-        : this.api.fetchWalkMatrix(alightStops, [goal]),
-    ]);
-    if (boardRows !== null) {
-      for (const e of boardRows) {
-        if (!isRecord(e)) continue;
-        const di = intOr(e['destinationIndex'], 0);
-        const min = parseDurationMin(e['duration']);
-        if (min === null || di < 0 || di >= boardDests.length) continue;
-        measured.set(walkCacheKey(origin, boardDests[di]), min);
-      }
-    }
-    if (alightRows !== null) {
-      for (const e of alightRows) {
-        if (!isRecord(e)) continue;
-        const oi = intOr(e['originIndex'], 0);
-        const min = parseDurationMin(e['duration']);
-        if (min === null || oi < 0 || oi >= alightStops.length) continue;
-        measured.set(walkCacheKey(alightStops[oi], goal), min);
-      }
+    const rows = await Promise.all(
+      plan.requests.map((r) =>
+        this.api.fetchWalkMatrix([...r.origins], [...r.dests]),
+      ),
+    );
+    for (let i = 0; i < plan.requests.length; i++) {
+      applyWalkMatrixRows(plan.requests[i], rows[i], measured);
     }
   }
 
-  /// [base] のコリドーからフロンティアを絞り、アクセス徒歩を一括実測してハイブリッド候補を
-  /// 作る（途中乗降＝徒歩最大化の主経路）。[measured] は呼び出し間で共有し、全徒歩
-  /// (origin→goal) のレッグもここで測る。
-  private async buildCorridorHybrids(
+  /// [base] のコリドーからフロンティアを絞る。I/O を持たないので、複数 base の需要を
+  /// 実測の前に集約できる（#485）。
+  private corridorAccessPlan(
     base: TransitOption,
     origin: GeoPoint,
     goal: GeoPoint,
     budgetMin: number,
-    departureAt: Date,
-    measured: Map<string, number>,
-  ): Promise<RouteCandidate[]> {
+  ): CorridorAccessPlan {
     const stops = this.corridorStops(base);
     const frontier = frontierStations(
       stops.map((s) => s.coord),
@@ -1913,12 +1919,38 @@ export class TransitRouteService implements SearchEngine {
         `frontier.boarding=[${frontier.boarding.join(', ')}] ` +
         `alighting=[${frontier.alighting.join(', ')}]`,
     );
+    return {
+      base,
+      stops,
+      frontier,
+      demand: {
+        boardStops: frontier.boarding.map((i) => stops[i].coord),
+        alightStops: frontier.alighting.map((i) => stops[i].coord),
+      },
+    };
+  }
+
+  /// [bases] のコリドーからアクセス徒歩をまとめて実測し、base ごとのハイブリッド候補を
+  /// 作る（途中乗降＝徒歩最大化の主経路）。[measured] は呼び出し間で共有し、全徒歩
+  /// (origin→goal) のレッグもここで測る。戻り値は [bases] と同順。
+  private async buildCorridorHybrids(
+    bases: readonly TransitOption[],
+    origin: GeoPoint,
+    goal: GeoPoint,
+    budgetMin: number,
+    departureAt: Date,
+    measured: Map<string, number>,
+    metrics: RouteSearchMetrics,
+  ): Promise<RouteCandidate[][]> {
+    const plans = bases.map((b) =>
+      this.corridorAccessPlan(b, origin, goal, budgetMin),
+    );
     await this.measureAccessWalks(
       origin,
       goal,
-      frontier.boarding.map((i) => stops[i].coord),
-      frontier.alighting.map((i) => stops[i].coord),
+      plans.map((p) => p.demand),
       measured,
+      metrics,
     );
     this.diag.log(
       () =>
@@ -1926,21 +1958,23 @@ export class TransitRouteService implements SearchEngine {
         `allWalk(origin->goal)=${measured.get(walkCacheKey(origin, goal))}m ` +
         '(null=matrix失敗→直線推定へ)',
     );
-    const hybrids = this.buildMeasuredHybrids(
-      base,
-      stops,
-      frontier,
-      measured,
-      origin,
-      goal,
-    );
-    this.diag.log(() => `built ${hybrids.length} hybrids:`);
-    for (const c of hybrids) {
-      this.diag.log(
-        () => `  hybrid: ${this.diag.candLine(c, budgetMin, departureAt)}`,
+    return plans.map((p) => {
+      const hybrids = this.buildMeasuredHybrids(
+        p.base,
+        p.stops,
+        p.frontier,
+        measured,
+        origin,
+        goal,
       );
-    }
-    return hybrids;
+      this.diag.log(() => `built ${hybrids.length} hybrids:`);
+      for (const c of hybrids) {
+        this.diag.log(
+          () => `  hybrid: ${this.diag.candLine(c, budgetMin, departureAt)}`,
+        );
+      }
+      return hybrids;
+    });
   }
 
   /// フロンティアの乗車駅 b → 降車駅 a（同一コリドー・b より後方）の分割を、実測アクセス
@@ -2651,25 +2685,11 @@ function coordKey(p: GeoPoint | null): string {
   return p === null ? '-' : `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`;
 }
 
-function walkCacheKey(origin: GeoPoint, dest: GeoPoint): string {
-  return (
-    `${origin.lat.toFixed(5)},${origin.lng.toFixed(5)}` +
-    `|${dest.lat.toFixed(5)},${dest.lng.toFixed(5)}`
-  );
-}
-
 /// Dart の `DateTime.toIso8601String()` に相当する位置。UTC の `Z` 付きになる点は
 /// 移植元と違うが、用途は同一検索内での**便の同一性**の判定だけで、どちらも時刻に対して
 /// 単射なので畳み方は変わらない。
 function isoOrEmpty(d: Date | null): string {
   return d === null ? '' : d.toISOString();
-}
-
-function parseDurationMin(duration: unknown): number | null {
-  if (typeof duration !== 'string') return null;
-  const digits = duration.replaceAll('s', '');
-  if (!/^[+-]?\d+$/.test(digits)) return null;
-  return dartRound(Number.parseInt(digits, 10) / 60);
 }
 
 function parseEncodedPolyline(polyline: unknown): GeoPoint[] {
