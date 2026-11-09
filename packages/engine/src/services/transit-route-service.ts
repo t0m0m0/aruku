@@ -25,6 +25,7 @@ import {
   comparableFrom,
   isComparableOption,
   maxMeasureShortlist,
+  type Selection,
 } from './candidate-measurer';
 import { SearchCanceledException, type CancellationToken } from './cancellation';
 import {
@@ -76,6 +77,16 @@ import {
   type TransitOption,
 } from './transit-plan-parser';
 import { TransitApiClient } from './transit-api-client';
+
+/// 検索1回ぶんの入力と状態。[TransitRouteService.selectMeasured] から切り出した段へ渡す。
+interface SearchFrame {
+  origin: GeoPoint;
+  goal: GeoPoint;
+  budgetMin: number;
+  departureAt: Date;
+  metrics: RouteSearchMetrics;
+  session: SearchSession;
+}
 
 /// 1本の base について、ハイブリッドを作るのに要るコリドー・フロンティアと、実測すべき
 /// アクセス徒歩の需要。
@@ -248,7 +259,7 @@ export class TransitRouteService implements SearchEngine {
     );
     // 捨てる経路（departure 波が先に落ちる）で未処理例外にしないための番人。Promise は
     // 複数のリスナを持てるので、後から await する経路の例外伝播は妨げない——キャンセル
-    // （[SearchCanceledException]）を握り潰さないために必要な性質（`prefetchBus` と同型・#316）。
+    // （[SearchCanceledException]）を握り潰さないために必要な性質（`LastResortBus.prefetch` と同型・#316）。
     ignore(arrivalWave);
     // 厳密走査（#460・§3.9）も同じく departure 波より先に起こす。guidance の結果を使わない
     // ので、並列に置けば直列の段は増えない。
@@ -423,7 +434,7 @@ export class TransitRouteService implements SearchEngine {
 
   /// measure-first 選定。標準乗換・実測ハイブリッド・全徒歩を同一土俵で比較し、
   /// 採用候補を Google 実測（enrich）で検証して確定する。徒歩最大化が崩壊したときだけ
-  /// 乗車駅探索（引き直し）を1本足して選び直す。
+  /// 乗車駅探索（引き直し）を足して選び直す。
   ///
   /// `arrivalWaveOptions` は [options] のうち到着アンカー第2波（#376）由来のインスタンス。
   /// 選定そのものには影響せず、採用状況の計測だけに使う。
@@ -451,82 +462,17 @@ export class TransitRouteService implements SearchEngine {
         `options=${options.length} ===`,
     );
     const session = new SearchSession();
-    const { walkCache, enrichedCache, enrichLedger, bestEffortLedger, provenance } = session;
-    const measured = session.accessWalks;
-    const hybrids = provenance.hybrids;
+    const { provenance } = session;
+    const search: SearchFrame = { origin, goal, budgetMin, departureAt, metrics, session };
 
-    // 標準乗換候補（guidance の door-to-door をそのまま候補化）。
-    const candidates: RouteCandidate[] = options.map(
-      (o) => new RouteCandidate({ from: o.from, to: o.to, segments: o.segments }),
-    );
-    for (const c of candidates) {
-      this.diag.log(
-        () => `standard: ${this.diag.candLine(c, budgetMin, departureAt)}`,
-      );
-    }
-
-    // 到着アンカー第2波（#376）由来の候補を覚える（`arrivalWaveWon`）。上の map は options と
-    // 1対1・同順。
-    const fromArrivalWave = provenance.arrivalWave;
-    for (let i = 0; i < options.length; i++) {
-      if (arrivalWaveOptions.has(options[i])) fromArrivalWave.add(candidates[i]);
-    }
-
-    // 単一最速ではなく路線ファミリの異なる複数 base を土台にする（#292・限界2）。
-    const bases = this.basesForHybrid(options);
-    // 崩壊時の board-search は単一 base を土台にする（#137）。先頭は総所要最小＝従来の
-    // baseForHybrid と一致するため、崩壊フォールバックの挙動は #292 前と変わらない。
-    const base = bases.length === 0 ? null : bases[0];
-    metrics.arrivalWaveBaseUsed = bases.some((b) => arrivalWaveOptions.has(b));
-    const hybridSw = startedStopwatch();
-    if (bases.length > 0) {
-      this.diag.log(() => `hybrid bases: ${bases.length}家系`);
-      const built = await this.buildCorridorHybrids(
-        bases,
-        origin,
-        goal,
-        budgetMin,
-        departureAt,
-        measured,
-        metrics,
-      );
-      for (let i = 0; i < bases.length; i++) {
-        if (arrivalWaveOptions.has(bases[i])) {
-          for (const c of built[i]) fromArrivalWave.add(c);
-        }
-      }
-      const merged = this.mergeHybrids(
-        built,
-        (h) => arrivalMinutes(h.segments, departureAt) <= budgetMin,
-      );
-      candidates.push(...merged);
-      for (const h of merged) hybrids.add(h);
-      this.diag.log(
-        () => `merged hybrids: ${merged.length}件（上限${maxHybridCandidates}）`,
-      );
-    } else {
-      this.diag.log(() => 'no base route (corridor<2); all-walk only');
-      await this.measureAccessWalks(origin, goal, [], measured, metrics);
-    }
-    metrics.hybridMs = hybridSw.elapsedMilliseconds;
-
-    const allWalk = this.measuredWalk(
-      origin,
-      goal,
-      options[0].from,
-      options[0].to,
-      measured,
-    );
-    candidates.push(allWalk);
-    this.diag.log(
-      () => `allWalk: ${this.diag.candLine(allWalk, budgetMin, departureAt)}`,
+    const { candidates, base } = await this.initialCandidates(
+      options,
+      arrivalWaveOptions,
+      search,
     );
 
     // 厳密走査の候補は estWinner の直前に足す。ここまで待たずに済むよう入口で並列に
     // 起こしてあり、ハイブリッドを作っている間に返っていれば待ちは 0 になる。
-    // 出自は arrival 波と同じくインスタンス同一性で覚える（`exactWon`）。
-    const fromExact = provenance.exact;
-    const fromTransfer = provenance.transfer;
     let sources: TimetableSource[] = [];
     const takeExact = async (wave: Promise<JsonMap>): Promise<RouteCandidate[]> => {
       const result = await this.exactWaveCandidates(wave, {
@@ -540,22 +486,21 @@ export class TransitRouteService implements SearchEngine {
       metrics.exactCapped = result.capped;
       sources = result.sources;
       for (const c of exact) {
-        fromExact.add(c);
+        provenance.exact.add(c);
         this.diag.log(
           () => `exact: ${this.diag.candLine(c, budgetMin, departureAt)}`,
         );
       }
       for (const c of result.transfers) {
-        fromTransfer.add(c);
+        provenance.transfer.add(c);
         this.diag.log(
           () => `exact transfer: ${this.diag.candLine(c, budgetMin, departureAt)}`,
         );
       }
       return exact;
     };
-    // A/B モードでは A を今のパイプラインのまま走らせるため、ここでは待たない——待つと
-    // A が使わない応答の待ちが「厳密走査なし」の A の所要へ乗る。B の直前で受け取る
-    // （猶予は departure 波の確定から数えているので、受け取る時刻で結末は変わらない）。
+    // A/B モードでは A を今のパイプラインのまま走らせるため、ここでは待たない（B の直前で
+    // 受け取る・[runExactWalkAb]）。
     if (ctx.exactWave !== null && !this.exactWalkMaxAb) {
       candidates.push(...(await takeExact(ctx.exactWave)));
     }
@@ -568,11 +513,17 @@ export class TransitRouteService implements SearchEngine {
         metrics.busLastResortMs = ms;
       },
     );
-    const prefetchBus = (): void => bus.prefetch();
-    const lastResortBus = (): Promise<RouteCandidate[]> => bus.adopt();
+    const select = (pool: RouteCandidate[]): Promise<Selection> =>
+      this.measurer.selectAndEnrich(pool, budgetMin, departureAt, {
+        origin,
+        goal,
+        session,
+        enrichLedger: session.enrichLedger,
+        bestEffortLedger: session.bestEffortLedger,
+        bus,
+      });
 
-    // 崩壊が見込まれないなら、見積りフロントを1回の並列パスで先行実測して
-    // [enrichedCache] を温める（#315）。判定は見積り勝者で行い、実測を待たない。
+    // 崩壊の見込みは見積り勝者で判定し、実測を待たない。
     const estWinner = selectBestRoute({
       candidates,
       budgetMin,
@@ -594,10 +545,7 @@ export class TransitRouteService implements SearchEngine {
     // **バス系（busBase）は前倒ししない。** あちらは `selected.chosen` から決まる＝enrich の
     // 出力に依存するので、勝者未確定の時点では基準コリドーがまだ存在しない。
     const trainBoardSearch = new BoardSearchStats();
-    // 確定候補が board-search の何ラウンド由来かを引くための同一性マップ（両系統で共有）。
-    const boardSearchRoundOf = provenance.boardSearchRound;
     let speculationAbandoned = false;
-    let boardSearchExtra: RouteCandidate[] = [];
     let trainBoardSearchFuture: Promise<RouteCandidate[]> | null = null;
     if (base !== null && preCollapse) {
       this.diag.log(
@@ -610,62 +558,19 @@ export class TransitRouteService implements SearchEngine {
         goal,
         budgetMin,
         departureAt,
-        walkCache,
+        session.walkCache,
         trainBoardSearch,
-        boardSearchRoundOf,
+        provenance.boardSearchRound,
         () => speculationAbandoned,
       );
-      // 捨てる経路（collapse=false）で未処理例外にしないための番人（`prefetchBus` と同型）。
+      // 捨てる経路（collapse=false）で未処理例外にしないための番人（[LastResortBus.prefetch]
+      // と同型）。
       ignore(trainBoardSearchFuture);
     }
 
     const enrichSw = startedStopwatch();
-    if (estWithin && !preCollapse) {
-      // 先行実測の対象は [prewarmFront] が決める：予算内ハイブリッドが多い reject 多発ルートは
-      // 短リスト全体を1パスで温めて reject 後の2パス目を畳み（Option A・#318）、そうでなければ
-      // 従来どおり見積りフロントだけを温める（Option B・#315）。
-      const shortlist = measureShortlist({
-        candidates,
-        budgetMin,
-        departureAt,
-        origin,
-        goal,
-      });
-      // 締切切れなら Option A の広い先行実測を許さない（#318 レビュー対応）。
-      const front = prewarmFront({
-        shortlist,
-        chosen: estWinner,
-        hybrids,
-        singlePassHybridThreshold,
-        maxMeasureShortlist,
-        allowSinglePass: !this.deadline.isExpired,
-      });
-      const prewarm = front.prewarm;
-      metrics.singlePassMeasure = front.singlePass;
-      this.diag.log(() =>
-        front.singlePass
-          ? `非崩壊: 予算内短リスト${prewarm.length}件を1パスで先行実測（#318 Option A: reject多発ルート）`
-          : `非崩壊: 見積りフロント${prewarm.length}件を1パスで先行実測（#315 winner 先行実測）`,
-      );
-      // 例外は候補単位で握る。先行実測はキャッシュ温めの最適化にすぎず、壊れた応答1件で
-      // plan() 全体を落としてはならない。ただしキャンセルだけは飲まない（#316）。
-      await Promise.all(
-        prewarm.map((c) =>
-          this.measurer.measureOrDrop(c, departureAt, walkCache, enrichedCache, enrichLedger),
-        ),
-      );
-      enrichLedger.endPass();
-    }
-    let selected = await this.measurer.selectAndEnrich(candidates, budgetMin, departureAt, {
-      origin,
-      goal,
-      walkCache,
-      enrichedCache,
-      enrichLedger,
-      bestEffortLedger,
-      lastResortBus,
-      prefetchBus,
-    });
+    if (estWithin && !preCollapse) await this.prewarm(candidates, estWinner, search);
+    let selected = await select(candidates);
     // 崩壊後の再選定でも enrich は走り、その費用は同じ台帳へ積まれる。ここで時計を
     // 止めっぱなしにすると、台帳が覆う区間より enrichMs が短くなり計上外の残りが負に化ける。
     enrichSw.stop();
@@ -687,78 +592,15 @@ export class TransitRouteService implements SearchEngine {
       (base !== null || busBase !== null) &&
       this.isCollapse(selected.chosen, collapseOptions, budgetMin, departureAt);
     metrics.collapseFired = collapse;
+    let boardSearchExtra: RouteCandidate[] = [];
     if (collapse) {
       metrics.boardSearchActivated = true;
       const boardSw = startedStopwatch();
       this.diag.log(() => 'collapse=true → board-search フォールバック起動');
-      // 電車系（base）とバス系（busBase）は基準コリドーが独立なので並列に走らせる（#304）。
-      // 計上も探索ごとに分ける——1つの metrics を両方から触ると scanCount/best が別々の
-      // 探索の値で対を成さなくなり、rounds は並列に走ったものの和になる。
-      const busBoardSearch = new BoardSearchStats();
-      const systems: Promise<RouteCandidate[]>[] = [];
-      if (base !== null) {
-        // バスが勝ったときも電車 base の board-search は走らせる（#250 の発火条件は
-        // 「予算外**または乗り遅れ**」なので、手前の駅から引き直せば後続便で予算内に
-        // 入ることがある）。投機起動済み（#341）ならその Promise をそのまま待つ——
-        // ここで起こし直すと同じ探索を二重に走らせて上流本数が倍になる。
-        systems.push(
-          trainBoardSearchFuture ??
-            this.buildBoardSearchCandidate(
-              base,
-              origin,
-              goal,
-              budgetMin,
-              departureAt,
-              walkCache,
-              trainBoardSearch,
-              boardSearchRoundOf,
-            ),
-        );
-      }
-      if (busBase !== null) {
-        // バス corridor は基準になったのがここが初めてなので、途中乗降ハイブリッドも
-        // ここで作る（通常照会の base と違い、事前に作る機会がなかった）。
-        systems.push(
-          (async (): Promise<RouteCandidate[]> => {
-            this.diag.log(() => 'バス corridor を基準に徒歩最大化（#251）');
-            return [
-              ...(
-                await this.buildCorridorHybrids(
-                  [busBase],
-                  origin,
-                  goal,
-                  budgetMin,
-                  departureAt,
-                  measured,
-                  metrics,
-                )
-              )[0],
-              ...(await this.buildBoardSearchCandidate(
-                busBase,
-                origin,
-                goal,
-                budgetMin,
-                departureAt,
-                walkCache,
-                busBoardSearch,
-                boardSearchRoundOf,
-              )),
-            ];
-          })(),
-        );
-      }
-      const builtPerSystem = await Promise.all(systems);
-      // 電車系の探索結果は base（＝`bases[0]`）のコリドー由来なので、その base が第2波
-      // 由来ならここで生まれた候補も第2波由来（#376 の `arrivalWaveWon`）。先頭が電車系
-      // なのは上の push 順が保証する。
-      if (base !== null && arrivalWaveOptions.has(base)) {
-        for (const c of builtPerSystem[0]) fromArrivalWave.add(c);
-      }
-      const extra = builtPerSystem.flat();
-      metrics.recordBoardSearches([
-        ...(base !== null ? [trainBoardSearch] : []),
-        ...(busBase !== null ? [busBoardSearch] : []),
-      ]);
+      const extra = await this.collapseBoardSearch(
+        { base, busBase, trainBoardSearchFuture, trainBoardSearch, arrivalWaveOptions },
+        search,
+      );
       if (extra.length > 0) {
         boardSearchExtra = extra;
         this.diag.log(() => `徒歩最大化候補: ${extra.length}件をプールへ追加`);
@@ -766,21 +608,7 @@ export class TransitRouteService implements SearchEngine {
         // 逆戻り・乗り遅れ・幽霊便で全滅したとき、last-resort で見つけた予算内のバスへ
         // 戻れるようにするため。
         enrichSw.start();
-        selected = await this.measurer.selectAndEnrich(
-          [...candidates, ...(bus.candidates ?? []), ...extra],
-          budgetMin,
-          departureAt,
-          {
-            origin,
-            goal,
-            walkCache,
-            enrichedCache,
-            enrichLedger,
-            bestEffortLedger,
-            lastResortBus,
-            prefetchBus,
-          },
-        );
+        selected = await select([...candidates, ...(bus.candidates ?? []), ...extra]);
         enrichSw.stop();
         this.diag.log(
           () =>
@@ -793,7 +621,7 @@ export class TransitRouteService implements SearchEngine {
       // 確定候補が board-search 由来かを同一性で引く。best-effort 縮退は実時刻を当てた
       // コピーを作るため切れる——その場合の 0 は「無駄だった」ではなく「特定不能」。
       metrics.boardSearchWinnerRound =
-        boardSearchRoundOf.get(selected.chosen) ?? 0;
+        provenance.boardSearchRound.get(selected.chosen) ?? 0;
       metrics.boardSearchMs = boardSw.elapsedMilliseconds;
     } else if (base !== null || busBase !== null) {
       this.diag.log(() => 'collapse=false → フォールバック起動せず');
@@ -816,6 +644,8 @@ export class TransitRouteService implements SearchEngine {
           collapseA: collapse,
           takeExact: () =>
             ctx.exactWave === null ? Promise.resolve([]) : takeExact(ctx.exactWave),
+          // 比較集合は今のバスで組み直す。崩壊後の選び直しでバスを採用していれば、
+          // A の崩壊判定の時点より広がっている。
           isCollapse: (chosen) =>
             this.isCollapse(
               chosen,
@@ -827,16 +657,14 @@ export class TransitRouteService implements SearchEngine {
             this.measurer.selectAndEnrich(from, budgetMin, departureAt, {
               origin,
               goal,
-              walkCache,
-              enrichedCache,
+              session,
               enrichLedger: new EnrichLatencyLedger(),
               bestEffortLedger: new BestEffortLedger(),
-              lastResortBus,
-              prefetchBus,
+              bus,
               rejected,
             }),
           provenance,
-          walkCache,
+          walkCache: session.walkCache,
           metrics,
           budgetMin,
           departureAt,
@@ -845,16 +673,16 @@ export class TransitRouteService implements SearchEngine {
       selected = ab.selected;
       abSw = ab.abSw;
     } else {
-      metrics.exactWon = fromExact.has(selected.chosen);
+      metrics.exactWon = provenance.exact.has(selected.chosen);
     }
 
     // 確定候補が第2波（#376）由来かも同一性で引く。
-    metrics.arrivalWaveWon = fromArrivalWave.has(selected.chosen);
+    metrics.arrivalWaveWon = provenance.arrivalWave.has(selected.chosen);
 
     // 崩壊後の再選定も同じ台帳へ積むので、畳むのは board-search を抜けた後。
     metrics.enrichMs = enrichSw.elapsedMilliseconds;
-    metrics.recordEnrich(enrichLedger);
-    metrics.recordBestEffort(bestEffortLedger);
+    metrics.recordEnrich(session.enrichLedger);
+    metrics.recordBestEffort(session.bestEffortLedger);
 
     const finalizeSw = startedStopwatch();
     const named = await this.measurer.finalizeStationNames(selected.enriched, departureAt);
@@ -881,6 +709,213 @@ export class TransitRouteService implements SearchEngine {
       standardTransit: ctx.standardTransit,
       timetableSources: sources,
     });
+  }
+
+  /// 選定の土俵に載せる候補プール（厳密走査の候補を除く）: 標準乗換・ハイブリッド・全徒歩。
+  /// `base` は崩壊時の board-search の土台（#137）で、コリドーを作れる option が無ければ null。
+  private async initialCandidates(
+    options: TransitOption[],
+    arrivalWaveOptions: Set<TransitOption>,
+    search: SearchFrame,
+  ): Promise<{ candidates: RouteCandidate[]; base: TransitOption | null }> {
+    const { origin, goal, budgetMin, departureAt, metrics, session } = search;
+    const { provenance } = session;
+
+    // 標準乗換候補（guidance の door-to-door をそのまま候補化）。
+    const candidates: RouteCandidate[] = options.map(
+      (o) => new RouteCandidate({ from: o.from, to: o.to, segments: o.segments }),
+    );
+    for (const c of candidates) {
+      this.diag.log(
+        () => `standard: ${this.diag.candLine(c, budgetMin, departureAt)}`,
+      );
+    }
+
+    // 到着アンカー第2波（#376）由来の候補を覚える（`arrivalWaveWon`）。上の map は options と
+    // 1対1・同順。
+    for (let i = 0; i < options.length; i++) {
+      if (arrivalWaveOptions.has(options[i])) provenance.arrivalWave.add(candidates[i]);
+    }
+
+    // 単一最速ではなく路線ファミリの異なる複数 base を土台にする（#292・限界2）。
+    const bases = this.basesForHybrid(options);
+    // 崩壊時の board-search は単一 base を土台にする（#137）。先頭は総所要最小＝従来の
+    // baseForHybrid と一致するため、崩壊フォールバックの挙動は #292 前と変わらない。
+    const base = bases.length === 0 ? null : bases[0];
+    metrics.arrivalWaveBaseUsed = bases.some((b) => arrivalWaveOptions.has(b));
+    const hybridSw = startedStopwatch();
+    if (bases.length > 0) {
+      this.diag.log(() => `hybrid bases: ${bases.length}家系`);
+      const built = await this.buildCorridorHybrids(
+        bases,
+        origin,
+        goal,
+        budgetMin,
+        departureAt,
+        session.accessWalks,
+        metrics,
+      );
+      for (let i = 0; i < bases.length; i++) {
+        if (arrivalWaveOptions.has(bases[i])) {
+          for (const c of built[i]) provenance.arrivalWave.add(c);
+        }
+      }
+      const merged = this.mergeHybrids(
+        built,
+        (h) => arrivalMinutes(h.segments, departureAt) <= budgetMin,
+      );
+      candidates.push(...merged);
+      for (const h of merged) provenance.hybrids.add(h);
+      this.diag.log(
+        () => `merged hybrids: ${merged.length}件（上限${maxHybridCandidates}）`,
+      );
+    } else {
+      this.diag.log(() => 'no base route (corridor<2); all-walk only');
+      await this.measureAccessWalks(origin, goal, [], session.accessWalks, metrics);
+    }
+    metrics.hybridMs = hybridSw.elapsedMilliseconds;
+
+    const allWalk = this.measuredWalk(
+      origin,
+      goal,
+      options[0].from,
+      options[0].to,
+      session.accessWalks,
+    );
+    candidates.push(allWalk);
+    this.diag.log(
+      () => `allWalk: ${this.diag.candLine(allWalk, budgetMin, departureAt)}`,
+    );
+    return { candidates, base };
+  }
+
+  /// 崩壊が見込まれない検索で、確定ループより先に1回の並列パスで実測して
+  /// [SearchSession.enrichedCache] を温める。対象は [prewarmFront] が決める：予算内
+  /// ハイブリッドが多い reject 多発ルートは短リスト全体を1パスで温めて reject 後の2パス目を
+  /// 畳み（Option A・#318）、そうでなければ見積りフロントだけを温める（Option B・#315）。
+  private async prewarm(
+    candidates: RouteCandidate[],
+    estWinner: RouteCandidate,
+    search: SearchFrame,
+  ): Promise<void> {
+    const { origin, goal, budgetMin, departureAt, metrics, session } = search;
+    const shortlist = measureShortlist({
+      candidates,
+      budgetMin,
+      departureAt,
+      origin,
+      goal,
+    });
+    // 締切切れなら Option A の広い先行実測を許さない（#318 レビュー対応）。
+    const front = prewarmFront({
+      shortlist,
+      chosen: estWinner,
+      hybrids: session.provenance.hybrids,
+      singlePassHybridThreshold,
+      maxMeasureShortlist,
+      allowSinglePass: !this.deadline.isExpired,
+    });
+    const prewarm = front.prewarm;
+    metrics.singlePassMeasure = front.singlePass;
+    this.diag.log(() =>
+      front.singlePass
+        ? `非崩壊: 予算内短リスト${prewarm.length}件を1パスで先行実測（#318 Option A: reject多発ルート）`
+        : `非崩壊: 見積りフロント${prewarm.length}件を1パスで先行実測（#315 winner 先行実測）`,
+    );
+    // 例外は候補単位で握る。先行実測はキャッシュ温めの最適化にすぎず、壊れた応答1件で
+    // plan() 全体を落としてはならない。ただしキャンセルだけは飲まない（#316）。
+    await Promise.all(
+      prewarm.map((c) =>
+        this.measurer.measureOrDrop(c, departureAt, session, session.enrichLedger),
+      ),
+    );
+    session.enrichLedger.endPass();
+  }
+
+  /// 崩壊時の徒歩最大化候補（乗車駅探索・バス corridor のハイブリッド）を作る。プールへ
+  /// 足して選び直すのは呼び出し側。
+  private async collapseBoardSearch(
+    a: {
+      base: TransitOption | null;
+      busBase: TransitOption | null;
+      /// 投機起動済み（#341）の電車系の探索。null なら起こしていない。
+      trainBoardSearchFuture: Promise<RouteCandidate[]> | null;
+      trainBoardSearch: BoardSearchStats;
+      arrivalWaveOptions: Set<TransitOption>;
+    },
+    search: SearchFrame,
+  ): Promise<RouteCandidate[]> {
+    const { base, busBase, trainBoardSearch } = a;
+    const { origin, goal, budgetMin, departureAt, metrics, session } = search;
+    const { provenance } = session;
+    // 電車系（base）とバス系（busBase）は基準コリドーが独立なので並列に走らせる（#304）。
+    // 計上も探索ごとに分ける——1つの metrics を両方から触ると scanCount/best が別々の
+    // 探索の値で対を成さなくなり、rounds は並列に走ったものの和になる。
+    const busBoardSearch = new BoardSearchStats();
+    const systems: Promise<RouteCandidate[]>[] = [];
+    if (base !== null) {
+      // バスが勝ったときも電車 base の board-search は走らせる（#250 の発火条件は
+      // 「予算外**または乗り遅れ**」なので、手前の駅から引き直せば後続便で予算内に
+      // 入ることがある）。投機起動済み（#341）ならその Promise をそのまま待つ——
+      // ここで起こし直すと同じ探索を二重に走らせて上流本数が倍になる。
+      systems.push(
+        a.trainBoardSearchFuture ??
+          this.buildBoardSearchCandidate(
+            base,
+            origin,
+            goal,
+            budgetMin,
+            departureAt,
+            session.walkCache,
+            trainBoardSearch,
+            provenance.boardSearchRound,
+          ),
+      );
+    }
+    if (busBase !== null) {
+      // バス corridor は基準になったのがここが初めてなので、途中乗降ハイブリッドも
+      // ここで作る（通常照会の base と違い、事前に作る機会がなかった）。
+      systems.push(
+        (async (): Promise<RouteCandidate[]> => {
+          this.diag.log(() => 'バス corridor を基準に徒歩最大化（#251）');
+          return [
+            ...(
+              await this.buildCorridorHybrids(
+                [busBase],
+                origin,
+                goal,
+                budgetMin,
+                departureAt,
+                session.accessWalks,
+                metrics,
+              )
+            )[0],
+            ...(await this.buildBoardSearchCandidate(
+              busBase,
+              origin,
+              goal,
+              budgetMin,
+              departureAt,
+              session.walkCache,
+              busBoardSearch,
+              provenance.boardSearchRound,
+            )),
+          ];
+        })(),
+      );
+    }
+    const builtPerSystem = await Promise.all(systems);
+    // 電車系の探索結果は base（＝`bases[0]`）のコリドー由来なので、その base が第2波
+    // 由来ならここで生まれた候補も第2波由来（#376 の `arrivalWaveWon`）。先頭が電車系
+    // なのは上の push 順が保証する。
+    if (base !== null && a.arrivalWaveOptions.has(base)) {
+      for (const c of builtPerSystem[0]) provenance.arrivalWave.add(c);
+    }
+    metrics.recordBoardSearches([
+      ...(base !== null ? [trainBoardSearch] : []),
+      ...(busBase !== null ? [busBoardSearch] : []),
+    ]);
+    return builtPerSystem.flat();
   }
 
   /// last-resort のバス option（#250）。`avoidModes` からバスを外して door-to-door を1回だけ

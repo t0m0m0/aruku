@@ -24,7 +24,7 @@ import {
   kcalPerKm,
 } from './route-plan-builder';
 import { RouteException } from './route-service';
-import type { WalkLegCache } from './search-session';
+import type { LastResortBus, SearchSession, WalkLegCache } from './search-session';
 import type { TransitApiClient } from './transit-api-client';
 import { parseGuidancePlan, type TransitOption } from './transit-plan-parser';
 
@@ -53,8 +53,11 @@ export class CandidateMeasurer {
   /// 乗り遅れが判明した候補は除外して乗れる次善へ選び直す。除外しきれないときは確定させず
   /// best-effort へ縮退する（#254）。
   ///
-  /// `lastResortBus` を渡すと、縮退した best-effort が**なお予算外か乗り遅れる**ときに限り
-  /// 呼び、得られた候補をプールへ足して選定をやり直す（#250）。
+  /// `bus` を渡すと、縮退した best-effort が**なお予算外か乗り遅れる**ときに限り
+  /// 採用し、得られた候補をプールへ足して選定をやり直す（#250）。
+  ///
+  /// 台帳を `session` から取らずに受け取るのは、A/B 計測（#462）の選び直しが同じキャッシュで
+  /// 別の台帳へ積むため。
   async selectAndEnrich(
     candidates: RouteCandidate[],
     budgetMin: number,
@@ -62,18 +65,15 @@ export class CandidateMeasurer {
     ctx: {
       origin: GeoPoint;
       goal: GeoPoint;
-      walkCache: WalkLegCache;
-      enrichedCache: Map<RouteCandidate, RouteCandidate>;
+      session: SearchSession;
       enrichLedger: EnrichLatencyLedger;
       bestEffortLedger: BestEffortLedger;
-      lastResortBus?: () => Promise<RouteCandidate[]>;
-      prefetchBus?: () => void;
+      bus?: LastResortBus;
       /// 実測して落ちた候補を積む先。呼び出し側が数える（A/B の `transferDropped`）。
       rejected?: Set<RouteCandidate>;
     },
   ): Promise<Selection> {
-    const { origin, goal, walkCache, enrichedCache, enrichLedger, bestEffortLedger } =
-      ctx;
+    const { origin, goal, session, enrichLedger, bestEffortLedger } = ctx;
     const rejected = ctx.rejected ?? new Set<RouteCandidate>();
 
     /// 縮退。まず従来どおり best-effort を求め、それでも予算外ならバス許容の再照会を
@@ -88,26 +88,27 @@ export class CandidateMeasurer {
     const giveUp = async (): Promise<Selection> => {
       // バス照会は best-effort の結果に依存しない（依存するのは採用の可否だけ）ので、
       // 判断を待たずに発行して直列の段を重ねる。
-      ctx.prefetchBus?.();
+      ctx.bus?.prefetch();
       const fallback = await this.bestEffortResolved(
         candidates,
         budgetMin,
         departureAt,
-        walkCache,
+        session.walkCache,
         bestEffortLedger,
       );
       const segs = fallback.enriched.segments;
       const arrival = arrivalMinutes(segs, departureAt);
       const missed = firstMissedTransit(segs, departureAt) !== null;
-      if (ctx.lastResortBus === undefined) return fallback;
+      if (ctx.bus === undefined) return fallback;
       if (arrival <= budgetMin && !missed) {
         this.diag.log(
           () => `  → best-effort が予算内(arr=${arrival}m) → バス再照会せず`,
         );
         return fallback;
       }
-      const bus = await ctx.lastResortBus();
+      const bus = await ctx.bus.adopt();
       // 再入時（バス追加後の選び直しから再び縮退したとき）に同じ候補を積み増さない。
+      // 下の選び直しへ `bus` を渡さないのも同じ理由（照会は高々1回）。
       const fresh = bus.filter((b) => !candidates.some((c) => c === b));
       if (fresh.length === 0) {
         this.diag.log(() => '  → 追加できるバス候補なし → best-effort のまま');
@@ -126,8 +127,7 @@ export class CandidateMeasurer {
         {
           origin,
           goal,
-          walkCache,
-          enrichedCache,
+          session,
           enrichLedger,
           bestEffortLedger,
           rejected,
@@ -174,7 +174,7 @@ export class CandidateMeasurer {
       // 全体を落とさないよう、失敗候補は null（棄却扱い）に落とす。
       const enriched = await Promise.all(
         batch.map((c) =>
-          this.measureOrDrop(c, departureAt, walkCache, enrichedCache, enrichLedger),
+          this.measureOrDrop(c, departureAt, session, enrichLedger),
         ),
       );
       // tier バッチは直列に降りるので、バッチ境界＝パス境界。
@@ -284,16 +284,15 @@ export class CandidateMeasurer {
     }
   }
 
-  /// 候補1件を実測（enrich 徒歩＋実発車時刻解決）し、identity でメモ化する（#315）。
-  /// [RouteCandidate] は値等価を持たないので Map は同一インスタンス単位で畳む。
+  /// 候補1件を実測（enrich 徒歩＋実発車時刻解決）し、[SearchSession.enrichedCache] へ
+  /// identity でメモ化する（#315）。
   async measureCandidate(
     c: RouteCandidate,
     departureAt: Date,
-    walkCache: WalkLegCache,
-    enrichedCache: Map<RouteCandidate, RouteCandidate>,
+    session: SearchSession,
     ledger: EnrichLatencyLedger,
   ): Promise<RouteCandidate> {
-    const hit = enrichedCache.get(c);
+    const hit = session.enrichedCache.get(c);
     // キャッシュヒットは壁時計を払っていないので台帳へ入れない。入れると「本数×段数」の
     // 分母が水増しされ、ファンアウトの実コストを読み違える。
     if (hit !== undefined) return hit;
@@ -302,7 +301,7 @@ export class CandidateMeasurer {
     const walkSw = startedStopwatch();
     let steps = 0;
     try {
-      const walked = await this.enrichWalkGeometry(c, walkCache);
+      const walked = await this.enrichWalkGeometry(c, session.walkCache);
       walkSw.stop();
       const e = await this.resolveBoardingTimes(walked, departureAt, () => {
         steps++;
@@ -313,7 +312,7 @@ export class CandidateMeasurer {
         walkMs: walkSw.elapsedMilliseconds,
         resolveSteps: steps,
       });
-      enrichedCache.set(c, e);
+      session.enrichedCache.set(c, e);
       return e;
     } catch (error) {
       // 離脱した検索の計上は無意味（metrics ごと捨てる）。
@@ -338,18 +337,11 @@ export class CandidateMeasurer {
   async measureOrDrop(
     c: RouteCandidate,
     departureAt: Date,
-    walkCache: WalkLegCache,
-    enrichedCache: Map<RouteCandidate, RouteCandidate>,
+    session: SearchSession,
     ledger: EnrichLatencyLedger,
   ): Promise<RouteCandidate | null> {
     try {
-      return await this.measureCandidate(
-        c,
-        departureAt,
-        walkCache,
-        enrichedCache,
-        ledger,
-      );
+      return await this.measureCandidate(c, departureAt, session, ledger);
     } catch (error) {
       if (error instanceof SearchCanceledException) throw error;
       return null;

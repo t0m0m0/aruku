@@ -5127,7 +5127,7 @@ describe('plan: バス last-resort 再照会 (#250)', () => {
     });
     expect(
       plan.segments.filter((s) => s.type === SegmentType.bus),
-      '前提: バスが採用される（lastResortBus が await される）',
+      '前提: バスが採用される（LastResortBus.adopt が await される）',
     ).not.toHaveLength(0);
     expect(
       captured!.busLastResortMs,
