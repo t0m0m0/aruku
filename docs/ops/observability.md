@@ -395,3 +395,4 @@ gcloud alpha monitoring policies create --policy-from-file=policy_latency_routes
   `timetable_pack_load` の `loadMs` と、コールドスタート直後の `exact_walk_max` の `dayMs`（パックの読み込みと
   コンパイルを含む）・`request_latency` の `totalLatencyMs` を見て、設定するかを決める（#459）。ウォームの目安は
   `totalLatencyMs` が1秒前後で、内訳は `request_latency.appCheckMs`・`exact_walk_max.matrixMs`・`scanMs`。
+  パックの読み込みと運行日の組み立ての工程別の内訳・手元での測り方は [timetable-pack-preprocess.md](../notes/timetable-pack-preprocess.md)（#487）。
