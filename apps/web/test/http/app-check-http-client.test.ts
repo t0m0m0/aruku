@@ -20,7 +20,12 @@ import {
 } from '@aruku/engine/services/http-client';
 
 import { AppCheckHttpClient } from '../../src/http/app-check-http-client';
-import { BaseHttpClient, type HttpHeaders, type StreamedResponse } from '../../src/http/http';
+import {
+  BaseHttpClient,
+  type HttpHeaders,
+  type RequestOptions,
+  type StreamedResponse,
+} from '../../src/http/http';
 import { TimeoutHttpClient } from '../../src/http/timeout-http-client';
 
 const headerName = 'X-Firebase-AppCheck';
@@ -28,10 +33,16 @@ const headerName = 'X-Firebase-AppCheck';
 /// send されたヘッダと close 呼び出しを記録する内側クライアント。
 class FakeInnerClient extends BaseHttpClient {
   lastHeaders: HttpHeaders | null = null;
+  lastSignal: AbortSignal | undefined = undefined;
   closed = false;
 
-  async send(_url: URL, headers: HttpHeaders): Promise<StreamedResponse> {
+  async send(
+    _url: URL,
+    headers: HttpHeaders,
+    options: RequestOptions = {},
+  ): Promise<StreamedResponse> {
     this.lastHeaders = headers;
+    this.lastSignal = options.signal;
     return {
       statusCode: 200,
       body: new ReadableStream({
@@ -258,6 +269,74 @@ describe('AppCheckHttpClient.close によるトークン待ちの打ち切り (#
 
     await expect(client.send(url(), {})).rejects.toThrow(ClientException);
     expect(inner.lastHeaders).toBeNull();
+  });
+});
+
+describe('要求単位の中止によるトークン待ちの打ち切り (#488)', () => {
+  it('トークン待ちの最中に要求の signal を倒すと、送信せずに倒れる', async () => {
+    const inner = new FakeInnerClient();
+    let resolveToken: (token: string) => void = () => {};
+    const client = new AppCheckHttpClient(inner, {
+      tokenProvider: () => new Promise<string>((r) => (resolveToken = r)),
+      limitedUseTokenProvider: () => new Promise<string>((r) => (resolveToken = r)),
+    });
+    const aborter = new AbortController();
+
+    const pending = client.send(url(), {}, { signal: aborter.signal });
+    aborter.abort();
+    resolveToken('late');
+
+    await expect(pending).rejects.toThrow(ClientException);
+    expect(inner.lastHeaders).toBeNull();
+  });
+
+  it('中止済みの signal ではトークンを取りに行かない', async () => {
+    let calls = 0;
+    const client = new AppCheckHttpClient(new FakeInnerClient(), {
+      tokenProvider: async () => {
+        calls++;
+        return 't';
+      },
+      limitedUseTokenProvider: async () => {
+        calls++;
+        return 't';
+      },
+    });
+    const aborter = new AbortController();
+    aborter.abort();
+
+    await expect(client.send(url(), {}, { signal: aborter.signal })).rejects.toThrow(
+      ClientException,
+    );
+    expect(calls).toBe(0);
+  });
+
+  it('要求の signal を内側へ渡す', async () => {
+    const inner = new FakeInnerClient();
+    const client = new AppCheckHttpClient(inner, {
+      tokenProvider: async () => 't',
+      limitedUseTokenProvider: async () => 't',
+    });
+    const aborter = new AbortController();
+
+    await client.send(url(), {}, { signal: aborter.signal });
+
+    expect(inner.lastSignal).toBe(aborter.signal);
+  });
+
+  it('要求の中止で client 全体は閉じない', async () => {
+    const inner = new FakeInnerClient();
+    const client = new AppCheckHttpClient(inner, {
+      tokenProvider: () => new Promise<string>(() => {}),
+      limitedUseTokenProvider: () => new Promise<string>(() => {}),
+    });
+    const aborter = new AbortController();
+
+    const pending = client.send(url(), {}, { signal: aborter.signal });
+    aborter.abort();
+    await pending.catch(() => {});
+
+    expect(inner.closed).toBe(false);
   });
 });
 

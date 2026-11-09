@@ -12,7 +12,12 @@ import {
 } from '@aruku/engine/services/http-client';
 import { seconds, type Duration } from '@aruku/engine/time';
 
-import { BaseHttpClient, type HttpHeaders, type StreamedResponse } from '../../src/http/http';
+import {
+  BaseHttpClient,
+  type HttpHeaders,
+  type RequestOptions,
+  type StreamedResponse,
+} from '../../src/http/http';
 import { TimeoutHttpClient } from '../../src/http/timeout-http-client';
 
 function delay(duration: Duration): Promise<void> {
@@ -105,6 +110,29 @@ describe('TimeoutHttpClient.send', () => {
     });
 
     await expect(client.get(url)).rejects.toThrow(TimeoutException);
+  });
+});
+
+describe('要求単位の中止 (#488)', () => {
+  it('get() に渡した signal を内側へ渡す', async () => {
+    let received: AbortSignal | undefined;
+    class RecordingClient extends BaseHttpClient {
+      async send(
+        _url: URL,
+        _headers: HttpHeaders,
+        options: RequestOptions = {},
+      ): Promise<StreamedResponse> {
+        received = options.signal;
+        return { statusCode: 200, body: bodyOf('ok') };
+      }
+      close(): void {}
+    }
+    const client = new TimeoutHttpClient(new RecordingClient());
+    const aborter = new AbortController();
+
+    await client.get(url, { signal: aborter.signal });
+
+    expect(received).toBe(aborter.signal);
   });
 });
 
