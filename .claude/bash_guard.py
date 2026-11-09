@@ -69,19 +69,24 @@ def split_simple_commands(command):
 
 ASSIGNMENT_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
 COMMAND_WRAPPERS = {'env', 'command', 'sudo', 'nohup', 'time', 'exec'}
+# 値を別トークンで取るラッパのオプション（env -u NAME / env -C DIR / sudo -u USER など）。
+# 値を飛ばさないと、値のほうを起動コマンドと取り違える。
+WRAPPER_VALUE_OPTIONS = {'-u', '--unset', '-C', '--chdir', '-g', '--group', '--user', '-S', '--split-string'}
 
 
-def strip_command_prefix(tokens):
-    """`A=1 env -i B=2 git ...` の先頭の代入とラッパ（とその引数）を外し、起動されるコマンドから始める。"""
+def command_start(tokens):
+    """`A=1 env -u X git ...` の先頭の代入とラッパ（とその引数）を飛ばし、起動されるコマンドの位置を返す。"""
     index, after_wrapper = 0, False
     while index < len(tokens):
         token = tokens[index]
         if ASSIGNMENT_RE.match(token) or token in COMMAND_WRAPPERS:
             after_wrapper = after_wrapper or token in COMMAND_WRAPPERS
+        elif after_wrapper and token in WRAPPER_VALUE_OPTIONS:
+            index += 1
         elif not (after_wrapper and token.startswith('-')):
             break
         index += 1
-    return tokens[index:]
+    return index
 
 
 def git_subcommand(tokens):
@@ -181,9 +186,13 @@ def deny_reason(command, branch):
             return reason
 
     for tokens in split_simple_commands(command):
-        tokens = strip_command_prefix(tokens)
-        parsed = git_subcommand(tokens)
-        if mentions_env_file(tokens, literal_text_positions(tokens, parsed)):
+        # 先頭を飛ばすのは起動コマンドを見分けるためだけ。代入の値（`T="$(cat ...)"`）も
+        # シェルが実行するので、秘密ファイルの検査は飛ばす前の全トークンにかける。
+        start = command_start(tokens)
+        command_tokens = tokens[start:]
+        parsed = git_subcommand(command_tokens)
+        literal = {start + i for i in literal_text_positions(command_tokens, parsed)}
+        if mentions_env_file(tokens, literal):
             return '.env（秘密情報）へのアクセスは禁止です'
         if parsed is None:
             continue

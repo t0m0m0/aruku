@@ -80,6 +80,15 @@ class DenyReasonTest(unittest.TestCase):
         self.assertIsNotNone(self.deny("env GIT_TRACE=1 git push -f origin topic"))
         self.assertIsNotNone(self.deny("A=1 B=2 git commit -m x", branch="main"))
 
+    def test_still_checks_secret_files_read_in_leading_assignments(self):
+        self.assertIsNotNone(self.deny('TOKEN="$(cat .env)" npm test'))
+        self.assertIsNotNone(self.deny("KEY=`cat apps/web/.env` git commit -m x"))
+
+    def test_skips_values_of_wrapper_options_when_finding_the_command(self):
+        self.assertIsNotNone(self.deny("env -u GIT_TRACE git push --force origin topic"))
+        self.assertIsNotNone(self.deny("sudo -u me git push -f origin topic"))
+        self.assertIsNotNone(self.deny("env -C /repo git commit -m x", branch="main"))
+
     def test_treats_unquoted_newlines_as_command_separators(self):
         self.assertIsNotNone(self.deny("git status\ngit commit -m x", branch="main"))
         self.assertIsNotNone(self.deny("echo starting\ngit push --force origin topic"))
