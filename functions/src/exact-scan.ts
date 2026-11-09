@@ -89,8 +89,13 @@ export interface Ride {
 export const WALK_METERS_PER_MINUTE = 80;
 const EARTH_RADIUS_M = 6371008.8;
 
+/** 停車を列ごとの配列にした時刻表。compileColumns が駅ごとの発車の索引を足す。 */
+export type TimetableColumns = Omit<
+  CompiledTimetable,
+  "stopCount" | "tripCount" | "departureStart" | "departureTrip" | "departurePos" | "departureAt"
+>;
+
 export function compileTimetable(tt: Timetable): CompiledTimetable {
-  const stopCount = tt.stops.length;
   const tripCount = tt.trips.length;
   let callCount = 0;
   for (const trip of tt.trips) callCount += trip.calls.length;
@@ -102,7 +107,6 @@ export function compileTimetable(tt: Timetable): CompiledTimetable {
   const callDep = new Int32Array(callCount);
   const callBoard = new Uint8Array(callCount);
   const callAlight = new Uint8Array(callCount);
-  const departureCount = new Int32Array(stopCount + 1);
   let k = 0;
   tt.trips.forEach((trip, i) => {
     tripStart[i] = k;
@@ -113,15 +117,34 @@ export function compileTimetable(tt: Timetable): CompiledTimetable {
       callDep[k] = c.dep;
       callBoard[k] = c.canBoard ? 1 : 0;
       callAlight[k] = c.canAlight ? 1 : 0;
-      if (c.canBoard) departureCount[c.stop + 1]++;
       k++;
     }
   });
 
+  return compileColumns({
+    stopLat: Float64Array.from(tt.stops, (s) => s.lat),
+    stopLng: Float64Array.from(tt.stops, (s) => s.lng),
+    trips: tt.trips.map(({ route, headsign }) => ({ route, headsign })),
+    tripStart,
+    tripLength,
+    callStop,
+    callArr,
+    callDep,
+    callBoard,
+    callAlight,
+  });
+}
+
+export function compileColumns(columns: TimetableColumns): CompiledTimetable {
+  const { stopLat, trips, tripStart, tripLength, callStop, callDep, callBoard } = columns;
+  const stopCount = stopLat.length;
+  const tripCount = trips.length;
+
   const departureStart = new Int32Array(stopCount + 1);
-  for (let s = 0; s < stopCount; s++) {
-    departureStart[s + 1] = departureStart[s] + departureCount[s + 1];
+  for (let c = 0; c < callStop.length; c++) {
+    if (callBoard[c]) departureStart[callStop[c] + 1]++;
   }
+  for (let s = 0; s < stopCount; s++) departureStart[s + 1] += departureStart[s];
   const total = departureStart[stopCount];
   const order: { trip: number; pos: number; at: number }[][] = Array.from(
     { length: stopCount },
@@ -149,16 +172,7 @@ export function compileTimetable(tt: Timetable): CompiledTimetable {
   return {
     stopCount,
     tripCount,
-    stopLat: Float64Array.from(tt.stops, (s) => s.lat),
-    stopLng: Float64Array.from(tt.stops, (s) => s.lng),
-    trips: tt.trips.map(({ route, headsign }) => ({ route, headsign })),
-    tripStart,
-    tripLength,
-    callStop,
-    callArr,
-    callDep,
-    callBoard,
-    callAlight,
+    ...columns,
     departureStart,
     departureTrip,
     departurePos,

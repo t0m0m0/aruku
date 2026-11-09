@@ -24,7 +24,7 @@ Places / Google Routes への薄いプロキシ（`placesProxy`, `googleWalkProx
 | `app_check_denied` | `verifyAppCheck` | `endpoint`, `reason`（`missing`\|`invalid`\|`replayed`） | warn |
 | `exact_walk_max` | `exactWalkMax`（成功応答のみ） | `dayMs`（運行日の時刻表を用意するまで。コールドスタートではパックの読み込みを含む）, `matrixMs`（並列2本の遅い方）, `scanMs`（走査と応答の組み立て）, `pickMs`・`ridesMs`・`journeysMs`（`scanMs` のうち、実測する駅の選定・1回乗車の走査・乗換つきの走査。乗換つきは要求されたときだけ走るので、されなければ `journeysMs=0`・#484）, `transfers`（乗換つきの候補を要求されたか。A/B 計測だけが要求する）, `candidates`, `tripsScanned`, `elementsMeasured`, `truncated` | info |
 | `timetable_pack_load` | `exactWalkMax` のパック読み込み（`functions/src/timetable-pack/load.ts`。インスタンスごとに起動時と6時間ごと。読めなかったグループがあれば1分後） | `group`（`challenge`\|`permanent`）, `status`（`success`\|`missing`\|`failure`）, `loadMs`（下の工程の和）, `readMs`（Storage の読込。もう一方のグループの解凍・解析が終わるまで再開できないので、その待ちを含み得る）, `gunzipMs`・`parseMs`（解凍と JSON の解析。読めたときだけ）, `bytes`・`trips`（success のみ）, `reason`（failure のみ。`read`\|`format`） | success→info, それ以外→warn |
-| `timetable_day_compile` | 同上（運行日ごと。`functions/src/timetable-pack/day.ts`） | `serviceDate`, `trips`, `totalMs`（下の工程の和）, `extractMs`（パックごとの運行日の切り出しと連結）, `compileMs`（`compileTimetable`）, `neighborsMs`（乗換の近傍）, `heapUsedMB`（組み立て直後のヒープ） | info |
+| `timetable_day_compile` | 同上（運行日ごと。`functions/src/timetable-pack/day.ts`） | `serviceDate`, `trips`, `totalMs`（下の工程の和）, `extractMs`（運行日に掛かる便の選び出しと、2つのパックの停車を列の配列へ書く時間）, `compileMs`（駅ごとの発車の索引。`compileColumns`）, `neighborsMs`（乗換の近傍）, `heapUsedMB`（組み立て直後のヒープ） | info |
 | `rate_limit` | `checkRateLimit` 呼び出し元 | `decision`（`blocked`\|`fail-open`。`allowed`は型上のみ存在し実際には出力されない）, `reason`（`fail-open`のときのみ必ず付く。`config`\|`transient`） | blocked→warn, fail-open→error |
 
 PII: 生IP・検索クエリ・座標・駅名はログに含まれない（`metrics.ts` 冒頭コメント）。
