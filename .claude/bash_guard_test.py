@@ -59,6 +59,21 @@ class DenyReasonTest(unittest.TestCase):
         self.assertIsNone(self.deny("gh api repos/o/r/issues -f body='.env を読まない'"))
         self.assertIsNotNone(self.deny("git commit -m x && cat .env"))
 
+    def test_still_checks_arguments_that_read_a_file_into_the_message_or_body(self):
+        self.assertIsNotNone(self.deny("git commit -F .env"))
+        self.assertIsNotNone(self.deny("git commit --file=apps/web/.env"))
+        self.assertIsNotNone(self.deny("gh api repos/o/r/issues -F body=@.env"))
+        self.assertIsNotNone(self.deny("gh issue create --body-file .env"))
+        self.assertIsNotNone(self.deny("git commit -m x < .env"))
+
+    def test_treats_unquoted_newlines_as_command_separators(self):
+        self.assertIsNotNone(self.deny("git status\ngit commit -m x", branch="main"))
+        self.assertIsNotNone(self.deny("echo starting\ngit push --force origin topic"))
+        self.assertIsNotNone(self.deny("git commit -m x\ncat .env"))
+
+    def test_keeps_a_quoted_multiline_message_as_one_argument(self):
+        self.assertIsNone(self.deny("git commit -m 'feat: x\n\ngit push -f の説明'"))
+
     def test_allows_env_example_and_similarly_named_paths(self):
         self.assertIsNone(self.deny("cat apps/web/.env.example"))
         self.assertIsNone(self.deny("ls src/.environment"))

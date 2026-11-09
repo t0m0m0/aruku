@@ -23,7 +23,7 @@ ENV_FILE_RE = re.compile(r'(?<![\w.-])\.env(?:\.([\w-]+))?(?![\w-])')
 ENV_TEMPLATE_SUFFIXES = {'example', 'sample', 'template'}
 
 PROTECTED_BRANCH = 'main'
-SHELL_OPERATORS = {'&&', '||', ';', '|', '&', '\n', '(', ')'}
+SEPARATOR_CHARS = set('&|;()\n')
 
 
 def current_branch(cwd):
@@ -40,7 +40,10 @@ def current_branch(cwd):
 
 def split_simple_commands(command):
     # 文字列を `;` などで素朴に割ると、コミットメッセージ内の `;` で切れてしまう。
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    # shlex は既定で改行を空白として読み捨てるため、引用符の外の改行を区切りとして
+    # 残すよう whitespace から外し、句読点として扱わせる。
+    lexer = shlex.shlex(command, posix=True, punctuation_chars='();<>|&\n')
+    lexer.whitespace = ' \t\r'
     lexer.whitespace_split = True
     try:
         tokens = list(lexer)
@@ -48,7 +51,7 @@ def split_simple_commands(command):
         tokens = command.split()
     commands, current = [], []
     for token in tokens:
-        if token in SHELL_OPERATORS or set(token) <= set('&|;()'):
+        if set(token) <= SEPARATOR_CHARS:
             if current:
                 commands.append(current)
             current = []
@@ -93,19 +96,45 @@ def push_deny_reason(args, branch):
     return None
 
 
-def mentions_env_file(tokens):
+# コミットメッセージや issue 本文は散文で、`.env` という語が出てもファイルには触れない。
+# ただし `-F <file>`・`--body-file`・`key=@file` はファイルを読み込んで送るので免除しない。
+COMMIT_LITERAL_FLAGS = ('-m', '--message')
+GH_LITERAL_FLAGS = ('-f', '--raw-field', '-b', '--body', '-t', '--title')
+GH_FIELD_FLAGS = ('-F', '--field')
+
+
+def literal_value_positions(tokens, flags, accepts):
+    positions = set()
+    for index, token in enumerate(tokens):
+        for flag in flags:
+            if token == flag and index + 1 < len(tokens) and accepts(tokens[index + 1]):
+                positions.add(index + 1)
+            elif token.startswith(flag + '=') and accepts(token[len(flag) + 1:]):
+                positions.add(index)
+            elif len(flag) == 2 and token.startswith(flag) and len(token) > 2 \
+                    and not token.startswith('--') and accepts(token[2:]):
+                positions.add(index)
+    return positions
+
+
+def literal_text_positions(tokens, parsed):
+    if parsed is not None and parsed[0] == 'commit':
+        return literal_value_positions(tokens, COMMIT_LITERAL_FLAGS, lambda _: True)
+    if tokens and tokens[0] == 'gh':
+        literal = literal_value_positions(tokens, GH_LITERAL_FLAGS, lambda _: True)
+        fields = literal_value_positions(
+            tokens, GH_FIELD_FLAGS, lambda value: '=@' not in value)
+        return literal | fields
+    return set()
+
+
+def mentions_env_file(tokens, skipped):
     return any(
         match.group(1) not in ENV_TEMPLATE_SUFFIXES
-        for token in tokens
+        for index, token in enumerate(tokens)
+        if index not in skipped
         for match in ENV_FILE_RE.finditer(token)
     )
-
-
-def carries_free_text(tokens, parsed):
-    # コミットメッセージや issue 本文は散文で、`.env` という語が出てもファイルには触れない。
-    if tokens and tokens[0] == 'gh':
-        return True
-    return parsed is not None and parsed[0] == 'commit'
 
 
 def deny_reason(command, branch):
@@ -115,7 +144,7 @@ def deny_reason(command, branch):
 
     for tokens in split_simple_commands(command):
         parsed = git_subcommand(tokens)
-        if not carries_free_text(tokens, parsed) and mentions_env_file(tokens):
+        if mentions_env_file(tokens, literal_text_positions(tokens, parsed)):
             return '.env（秘密情報）へのアクセスは禁止です'
         if parsed is None:
             continue
