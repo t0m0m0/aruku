@@ -43,6 +43,19 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/typecheck_on_edit.py\"",
+            "timeout": 90,
+            "statusMessage": "型検査中"
+          }
+        ]
+      }
     ]
   }
 }

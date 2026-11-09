@@ -110,6 +110,7 @@ jobs:
         run: |
           python3 .claude/guard_test.py
           python3 .claude/bash_guard_test.py
+          python3 .claude/typecheck_on_edit_test.py
 
   doc-consistency:
     name: doc / comment consistency
