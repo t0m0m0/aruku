@@ -155,3 +155,104 @@ describe('FetchHttpClient.close', () => {
     expect(() => client.close()).not.toThrow();
   });
 });
+
+describe('要求単位の中止 (#488)', () => {
+  /// 中止されるまで応答しない fetch。渡された signal を記録する。
+  function hangingFetch(): { fetch: Fetch; signals: AbortSignal[] } {
+    const signals: AbortSignal[] = [];
+    const fetch: Fetch = (_url, init) =>
+      new Promise((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal) signals.push(signal);
+        signal?.addEventListener('abort', () =>
+          reject(new DOMException('aborted', 'AbortError')),
+        );
+      });
+    return { fetch, signals };
+  }
+
+  it('渡した signal を倒すと、その要求だけが ClientException で倒れる', async () => {
+    const { fetch } = hangingFetch();
+    const client = new FetchHttpClient({ fetch });
+    const aborter = new AbortController();
+
+    const canceled = client.get(new URL('https://example.test/a'), {
+      signal: aborter.signal,
+    });
+    const other = client.get(new URL('https://example.test/b'));
+    let otherSettled = false;
+    other.catch(() => {}).finally(() => (otherSettled = true));
+    aborter.abort();
+
+    await expect(canceled).rejects.toThrow(ClientException);
+    expect(otherSettled).toBe(false);
+    client.close();
+  });
+
+  it('中止済みの signal では fetch を呼ばない', async () => {
+    const fetch = vi.fn<Fetch>(async () => new Response(streamOf('{}'), { status: 200 }));
+    const client = new FetchHttpClient({ fetch });
+    const aborter = new AbortController();
+    aborter.abort();
+
+    await expect(
+      client.get(new URL('https://example.test/a'), { signal: aborter.signal }),
+    ).rejects.toThrow(ClientException);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('要求の signal を渡していても close() で in-flight が倒れる', async () => {
+    const { fetch } = hangingFetch();
+    const client = new FetchHttpClient({ fetch });
+
+    const pending = client.get(new URL('https://example.test/a'), {
+      signal: new AbortController().signal,
+    });
+    client.close();
+
+    await expect(pending).rejects.toThrow(ClientException);
+  });
+
+  it('ボディ受信中に中止しても ClientException になる', async () => {
+    const client = new FetchHttpClient({
+      fetch: async (_url, init) =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              init?.signal?.addEventListener('abort', () =>
+                controller.error(new DOMException('aborted', 'AbortError')),
+              );
+            },
+          }),
+          { status: 200 },
+        ),
+    });
+    const aborter = new AbortController();
+
+    const pending = client.get(new URL('https://example.test/a'), {
+      signal: aborter.signal,
+    });
+    await Promise.resolve();
+    aborter.abort();
+
+    await expect(pending).rejects.toThrow(ClientException);
+  });
+
+  it('読み終えた要求の後で client を close しても、その signal は倒れない', async () => {
+    const signals: AbortSignal[] = [];
+    const client = new FetchHttpClient({
+      fetch: async (_url, init) => {
+        if (init?.signal) signals.push(init.signal);
+        return new Response(streamOf('{}'), { status: 200 });
+      },
+    });
+
+    await client.get(new URL('https://example.test/a'), {
+      signal: new AbortController().signal,
+    });
+    client.close();
+
+    // 読み終えた要求は client の中止から切り離されている（リスナを残さない）。
+    expect(signals[0]?.aborted).toBe(false);
+  });
+});

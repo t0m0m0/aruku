@@ -34,7 +34,7 @@ export interface SearchActions {
   search(query: string): void;
   setNearby(value: boolean): void;
 
-  /// 待っている debounce を捨てる。画面のアンマウントで呼ぶ。
+  /// 待っている debounce と走っている要求を捨てる。画面のアンマウントで呼ぶ。
   dispose(): void;
 }
 
@@ -52,7 +52,18 @@ export function createSearchState(options: SearchStateOptions): SearchState {
 
   // 検索ごとに増やすリクエスト世代。新しい検索が始まった後に古い結果で
   // 表示を上書きしないよう、反映前に世代一致を確かめる。
+  //
+  // 下の中止（#488）があっても世代は外さない。中止に間に合わず完了した応答や、
+  // signal を無視するサービスでも、表示の正しさを中止に預けないため。
   let generation = 0;
+
+  // 走っている Autocomplete 要求の中止口。完了したら外す（完了済みを中止扱いしない）。
+  let inflight: AbortController | null = null;
+
+  function abortInflight(): void {
+    inflight?.abort();
+    inflight = null;
+  }
 
   // 直近の取得結果（関連度順・未ソート）。距離は通常検索でも各候補に付くため、
   // モード切替はこれを並べ替えるだけで済み、再フェッチ（課金・遅延）を避けられる。
@@ -61,11 +72,17 @@ export function createSearchState(options: SearchStateOptions): SearchState {
   return createStore<SearchStateValue & SearchActions>()((set, get) => {
     async function fetch(query: string, gen: number): Promise<void> {
       const location = options.currentLocation();
+      const aborter = new AbortController();
+      inflight = aborter;
       try {
         // 系統は常に Autocomplete（typeahead を壊さない・#146 C案）。現在地が
         // 分かるときは位置バイアスを掛け（#144）、proxy 側で origin も渡るため
         // 各候補に距離が付く。
-        const fetched = await options.service.autocomplete(query, location);
+        const fetched = await options.service.autocomplete(
+          query,
+          location,
+          aborter.signal,
+        );
         if (gen !== generation) return;
         raw = fetched;
         set({
@@ -74,6 +91,9 @@ export function createSearchState(options: SearchStateOptions): SearchState {
           errorStatus: null,
         });
       } catch (error) {
+        // 中止で倒れた要求は必ず世代が進んだ後なので、ここで捨てられる。
+        // 例外の型で中止を見分けないのは、層ごとに中止の顔が違う（ClientException・
+        // DOMException）うえ、世代で足りるため。
         if (gen !== generation) return;
         set({
           status: 'error',
@@ -81,6 +101,8 @@ export function createSearchState(options: SearchStateOptions): SearchState {
           errorStatus:
             error instanceof PlacesException ? error.status : null,
         });
+      } finally {
+        if (inflight === aborter) inflight = null;
       }
     }
 
@@ -95,6 +117,7 @@ export function createSearchState(options: SearchStateOptions): SearchState {
         // 空のクエリでも世代を進める。進めないと、走っている取得が後から
         // 「候補あり」を書き戻し、消したはずの入力に候補が残る。
         generation++;
+        abortInflight();
 
         if (query === '') {
           raw = [];
@@ -135,8 +158,9 @@ export function createSearchState(options: SearchStateOptions): SearchState {
       dispose() {
         if (debounce !== null) clearTimeout(debounce);
         debounce = null;
-        // 走っている取得を捨てる。解決しても世代が合わず反映されない。
+        // 走っている取得を捨てる。中止に間に合わず解決しても、世代が合わず反映されない。
         generation++;
+        abortInflight();
       },
     };
   });

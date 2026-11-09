@@ -1,7 +1,12 @@
 import { TimeoutException } from '@aruku/engine/services/http-client';
 import { seconds, type Duration } from '@aruku/engine/time';
 
-import { BaseHttpClient, type HttpHeaders, type StreamedResponse } from './http';
+import {
+  BaseHttpClient,
+  type HttpHeaders,
+  type RequestOptions,
+  type StreamedResponse,
+} from './http';
 
 export interface TimeoutHttpClientOptions {
   readonly timeout?: Duration;
@@ -21,7 +26,8 @@ export interface TimeoutHttpClientOptions {
 /// 最外側に置き、トークン取得のハングも [timeout] の内側に収める。
 ///
 /// 超過しても内側は**止めない**。Dart の `Future.timeout` と同じで、実際の中断は
-/// `close()` が担う（#259。エンジン側も `withDeadline` で同じ意味論を敷いている）。
+/// `close()` か要求の `signal`（#488）が担う（#259。エンジン側も `withDeadline` で
+/// 同じ意味論を敷いている）。
 export class TimeoutHttpClient extends BaseHttpClient {
   constructor(
     private readonly inner: BaseHttpClient,
@@ -34,9 +40,13 @@ export class TimeoutHttpClient extends BaseHttpClient {
   /// 1リクエストあたりの応答待ち上限。超過で [TimeoutException] を送出する。
   readonly timeout: Duration;
 
-  async send(url: URL, headers: HttpHeaders): Promise<StreamedResponse> {
+  async send(
+    url: URL,
+    headers: HttpHeaders,
+    options: RequestOptions = {},
+  ): Promise<StreamedResponse> {
     const response = await withTimeout(
-      this.inner.send(url, headers),
+      this.inner.send(url, headers, options),
       this.timeout,
       `header timeout after ${this.timeout}ms: ${url.href}`,
     );

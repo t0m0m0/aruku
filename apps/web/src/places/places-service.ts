@@ -4,12 +4,10 @@
 // 地点検索は入力系——`packages/engine` の範囲外だったため（#385）。
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
-import {
-  TimeoutException,
-  type HttpClient,
-} from '@aruku/engine/services/http-client';
+import { TimeoutException } from '@aruku/engine/services/http-client';
 
 import { requireUsableBase } from '../http/base-url';
+import type { AbortableHttpClient } from '../http/http';
 import type { PlacePrediction } from './place-prediction';
 
 /// 地点検索の失敗。[status] は上流の生ステータス（例: 'REQUEST_DENIED'）で、
@@ -25,17 +23,22 @@ export interface PlacesService {
   /// 地点検索（typeahead）。[bias] が渡されたときは現在地周辺を優先する位置バイアスを
   /// 掛ける。現在地が分かるときは proxy が origin も渡すため、各候補に現在地からの
   /// 距離（[PlacePrediction.distanceMeters]）が付く（#146）。
-  autocomplete(query: string, bias?: GeoPoint | null): Promise<PlacePrediction[]>;
+  ///
+  /// [signal] を倒すとこの要求1本だけを中止し、例外で倒れる（#488）。中止に対応しない
+  /// 実装は無視してよい——呼び出し側（search-state.ts）は中止に頼らず世代で古い結果を
+  /// 捨てる。送信済みの要求の上流処理・課金までは取り消せない。
+  autocomplete(query: string, bias?: GeoPoint | null, signal?: AbortSignal): Promise<PlacePrediction[]>;
 
   /// 候補（placeId）から座標を引く。Google autocomplete は座標を返さないため、
   /// 確定時にこの details 呼び出しで補う2段フロー。
   fetchLatLng(placeId: string): Promise<GeoPoint | null>;
 
+  /// サービス全体の終了。要求単位の中止には使わない（autocomplete の [signal] を使う）。
   close(): void;
 }
 
 export interface GooglePlacesServiceOptions {
-  readonly client: HttpClient;
+  readonly client: AbortableHttpClient;
   readonly proxyBaseUrl: string;
 }
 
@@ -60,12 +63,13 @@ export class GooglePlacesService implements PlacesService {
     this.proxyBaseUrl = options.proxyBaseUrl.replace(/\/+$/, '');
   }
 
-  private readonly client: HttpClient;
+  private readonly client: AbortableHttpClient;
   private readonly proxyBaseUrl: string;
 
   async autocomplete(
     query: string,
     bias: GeoPoint | null = null,
+    signal?: AbortSignal,
   ): Promise<PlacePrediction[]> {
     const url = this.endpoint({
       action: 'autocomplete',
@@ -76,7 +80,7 @@ export class GooglePlacesService implements PlacesService {
       ...(bias !== null ? { lat: `${bias.lat}`, lon: `${bias.lng}` } : {}),
     });
 
-    const body = await this.getJson(url);
+    const body = await this.getJson(url, signal);
     const status = body['status'];
     if (status === 'ZERO_RESULTS') return [];
     if (status !== 'OK') throw new PlacesException(String(status));
@@ -110,10 +114,13 @@ export class GooglePlacesService implements PlacesService {
   }
 
   /// 200 を確かめて JSON として読む。autocomplete / details で同じ規則。
-  private async getJson(url: URL): Promise<Record<string, unknown>> {
+  private async getJson(
+    url: URL,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>> {
     let response;
     try {
-      response = await this.client.get(url);
+      response = await this.client.get(url, signal === undefined ? {} : { signal });
     } catch (error) {
       // タイムアウトは TimeoutHttpClient が投げる（#156）。他の失敗と同じ語彙へ
       // 寄せて、画面が生ステータスを出す経路に乗せる。
