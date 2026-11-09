@@ -40,3 +40,9 @@ export function dateTime(
 export function differenceInMinutes(a: Date, b: Date): number {
   return Math.trunc((a.getTime() - b.getTime()) / 60000);
 }
+
+/// 出発絶対時刻に経過分を足す。移植元の `departureAt.add(Duration(minutes: n))` に対応する
+/// ——ここは**経過時間**の加算で正しい（`n` は行程を進んだ実所要分であって暦の量ではない）。
+export function plusMinutes(at: Date, minutes: number): Date {
+  return new Date(at.getTime() + minutes * 60000);
+}
