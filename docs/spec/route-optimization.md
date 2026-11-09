@@ -2,7 +2,7 @@
 
 - **位置づけ:** 本書はルート最適化ロジックの **仕様の正本（source of truth）**。挙動を変える実装・レビュー・再設計は本書を基準に判断し、仕様が変わったら本書を更新する。
 - **記述範囲:** **現行ロジックの仕様のみ**を書く。設計に至った経緯・棄却した案・過去の実測ログは本書に置かず、commit ログと issue を参照する。
-- **対象コード:** `packages/engine/src/services/transit-route-service.ts`（`apps/web/src/search/route-service.ts` の `createRouteService` が配線。候補の実測・確定は `candidate-measurer.ts`、検索1回ぶんの状態は `search-session.ts`）, `packages/engine/src/services/hybrid-route-selector.ts`, `packages/engine/src/services/route-plan-builder.ts`, `packages/engine/src/services/transit-plan-parser.ts`, `functions/src/`
+- **対象コード:** `packages/engine/src/services/transit-route-service.ts`（`apps/web/src/search/route-service.ts` の `createRouteService` が配線。候補の実測・確定は `candidate-measurer.ts`、検索1回ぶんの状態は `search-session.ts`、A/B 計測の B・B' は `exact-walk-ab.ts`）, `packages/engine/src/services/hybrid-route-selector.ts`, `packages/engine/src/services/route-plan-builder.ts`, `packages/engine/src/services/transit-plan-parser.ts`, `functions/src/`
 - **関連:** [place-search.md](place-search.md)（地点検索の正本）, [security_hardening.md](../security_hardening.md)（キー・App Check・CORS の運用手順）
 - **節番号:** §番号はコード内コメントの参照先なので固定する。欠番は削除した節の跡で、繰り上げない。
 

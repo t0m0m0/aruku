@@ -25,7 +25,6 @@ import {
   comparableFrom,
   isComparableOption,
   maxMeasureShortlist,
-  type Selection,
 } from './candidate-measurer';
 import { SearchCanceledException, type CancellationToken } from './cancellation';
 import {
@@ -69,6 +68,7 @@ import {
   type PlanArgs,
   type SearchEngine,
 } from './route-service';
+import { runExactWalkAb } from './exact-walk-ab';
 import { SearchDeadline } from './search-deadline';
 import { LastResortBus, SearchSession, WalkLegCache } from './search-session';
 import {
@@ -808,68 +808,42 @@ export class TransitRouteService implements SearchEngine {
 
     let abSw: Stopwatch | null = null;
     if (this.exactWalkMaxAb) {
-      // B（#462）。A の最終候補プールに厳密走査の候補を足して選び直す。A が投げた要求は
-      // 上流へ投げ直さず A の結末（失敗を含む）を使う＝差は厳密走査の候補だけから来る。
-      // 台帳は分ける——同じ台帳に積むと enrich の内訳が A の実測でなくなる。
-      metrics.walkA = selected.enriched.walkMinutes;
-      // A の駅名復元も A の工程として先に済ませる。B の勝者だけを復元すると、A の所要
-      // （totalMs − abMs）からこの往復が抜け、代わりに B の復元が入る。結果は使わない。
-      const finalizeASw = startedStopwatch();
-      await this.measurer.finalizeStationNames(selected.enriched, departureAt);
-      metrics.finalizeMs = finalizeASw.elapsedMilliseconds;
-      abSw = startedStopwatch();
-      const heldExact = ctx.exactWave === null ? [] : await takeExact(ctx.exactWave);
-      metrics.transferCandidates = metrics.exactCandidates < 0 ? -1 : fromTransfer.size;
-      this.api.startReplay();
-      const pool = [...candidates, ...(bus.candidates ?? []), ...boardSearchExtra, ...heldExact];
-      const reselect = (
-        from: RouteCandidate[],
-        rejected?: Set<RouteCandidate>,
-      ): Promise<Selection> =>
-        this.measurer.selectAndEnrich(from, budgetMin, departureAt, {
-          origin,
-          goal,
+      const ab = await runExactWalkAb(
+        { measurer: this.measurer, api: this.api, diag: this.diag },
+        {
+          a: selected,
+          poolA: [...candidates, ...(bus.candidates ?? []), ...boardSearchExtra],
+          collapseA: collapse,
+          takeExact: () =>
+            ctx.exactWave === null ? Promise.resolve([]) : takeExact(ctx.exactWave),
+          isCollapse: (chosen) =>
+            this.isCollapse(
+              chosen,
+              bus.options === null ? options : [...options, ...bus.options],
+              budgetMin,
+              departureAt,
+            ),
+          reselect: (from, rejected) =>
+            this.measurer.selectAndEnrich(from, budgetMin, departureAt, {
+              origin,
+              goal,
+              walkCache,
+              enrichedCache,
+              enrichLedger: new EnrichLatencyLedger(),
+              bestEffortLedger: new BestEffortLedger(),
+              lastResortBus,
+              prefetchBus,
+              rejected,
+            }),
+          provenance,
           walkCache,
-          enrichedCache,
-          enrichLedger: new EnrichLatencyLedger(),
-          bestEffortLedger: new BestEffortLedger(),
-          lastResortBus,
-          prefetchBus,
-          rejected,
-        });
-      selected = await reselect(pool);
-      metrics.walkB = selected.enriched.walkMinutes;
-      metrics.exactWon = fromExact.has(selected.chosen);
-      // B の勝者が厳密走査の候補でなければ B は A と同じ経路なので、崩壊も A のまま。
-      // 勝者で判定し直すと、A の board-search が解いた崩壊を厳密走査の手柄に数える。
-      metrics.collapseB = fromExact.has(selected.chosen)
-        ? this.isCollapse(
-            selected.chosen,
-            bus.options === null ? options : [...options, ...bus.options],
-            budgetMin,
-            departureAt,
-          )
-        : collapse;
-      // B'（#474）。比べる相手は B の勝者と乗換つきの候補だけにする。全プールへ足さないのは、
-      // 実測の上限（maxMeasureShortlist）で B の勝者が押し出され、乗換つきが全滅すると検証済みの
-      // 勝者を失うため。B の勝者はプールの最良なので、他の候補は要らない。返すのは B'——
-      // 乗換つきの候補の乗り遅れ・予算超過は、確定経路を返さないと結果の記録に残らない。
-      metrics.walkBPrime = metrics.walkB;
-      const measurable = await this.measurer.withMeasuredTransferWalks([...fromTransfer], walkCache);
-      metrics.transferDropped = fromTransfer.size - measurable.length;
-      if (measurable.length > 0) {
-        const rejected = new Set<RouteCandidate>();
-        selected = await reselect([selected.chosen, ...measurable], rejected);
-        metrics.walkBPrime = selected.enriched.walkMinutes;
-        metrics.transferWon = fromTransfer.has(selected.chosen);
-        metrics.transferDropped += [...rejected].filter((c) => fromTransfer.has(c)).length;
-      }
-      this.diag.log(
-        () =>
-          `A/B: walkA=${metrics.walkA}m walkB=${metrics.walkB}m ` +
-          `walkBPrime=${metrics.walkBPrime}m ` +
-          `B'=${this.diag.candLine(selected.enriched, budgetMin, departureAt)}`,
+          metrics,
+          budgetMin,
+          departureAt,
+        },
       );
+      selected = ab.selected;
+      abSw = ab.abSw;
     } else {
       metrics.exactWon = fromExact.has(selected.chosen);
     }
