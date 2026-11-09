@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
+import { ClientException } from '@aruku/engine/services/http-client';
 
 import type { PlacePrediction } from '../../../src/places/place-prediction';
 import { PlacesException, type PlacesService } from '../../../src/places/places-service';
@@ -27,13 +28,18 @@ interface Harness {
 
 function harness(
   options: {
-    respond?: (query: string, bias: GeoPoint | null) => Promise<PlacePrediction[]>;
+    respond?: (
+      query: string,
+      bias: GeoPoint | null,
+      signal: AbortSignal | undefined,
+    ) => Promise<PlacePrediction[]>;
     location?: GeoPoint | null;
   } = {},
 ): Harness {
   const respond = options.respond ?? (async () => []);
   const autocomplete = vi.fn(
-    async (query: string, bias: GeoPoint | null = null) => respond(query, bias),
+    async (query: string, bias: GeoPoint | null = null, signal?: AbortSignal) =>
+      respond(query, bias, signal),
   );
   const service: PlacesService = {
     autocomplete,
@@ -76,7 +82,7 @@ describe('入力の待ち合わせ', () => {
     state.getState().search('渋谷');
     await settle();
 
-    expect(autocomplete).toHaveBeenCalledWith('渋谷', null);
+    expect(autocomplete).toHaveBeenCalledWith('渋谷', null, expect.anything());
   });
 
   // 1文字ごとに投げると課金リクエストが打鍵数だけ出る。
@@ -91,7 +97,7 @@ describe('入力の待ち合わせ', () => {
     await settle();
 
     expect(autocomplete).toHaveBeenCalledOnce();
-    expect(autocomplete).toHaveBeenCalledWith('渋谷駅', null);
+    expect(autocomplete).toHaveBeenCalledWith('渋谷駅', null, expect.anything());
   });
 
   it('問い合わせの前から待ち状態を出す', () => {
@@ -140,7 +146,7 @@ describe('位置バイアス', () => {
     state.getState().search('コンビニ');
     await settle();
 
-    expect(autocomplete).toHaveBeenCalledWith('コンビニ', here);
+    expect(autocomplete).toHaveBeenCalledWith('コンビニ', here, expect.anything());
   });
 });
 
@@ -203,6 +209,147 @@ describe('世代のガード', () => {
 
     expect(state.getState().status).toBe('idle');
     expect(state.getState().suggestions).toEqual([]);
+  });
+});
+
+describe('古い要求の中止 (#488)', () => {
+  /// 中止に従う偽サービス。走っている要求を query ごとに持ち、中止で ClientException。
+  function abortable() {
+    const requests = new Map<
+      string,
+      { signal: AbortSignal; resolve: (value: PlacePrediction[]) => void; reject: (reason: unknown) => void }
+    >();
+    const respond = (query: string, _bias: GeoPoint | null, signal: AbortSignal | undefined) =>
+      new Promise<PlacePrediction[]>((resolve, reject) => {
+        requests.set(query, { signal: signal!, resolve, reject });
+        signal!.addEventListener('abort', () =>
+          reject(new ClientException('Request was aborted')),
+        );
+      });
+    return { requests, respond };
+  }
+
+  it('打ち替えた時点で、走っている前の要求を中止する', async () => {
+    const { requests, respond } = abortable();
+    const { state } = harness({ respond });
+
+    state.getState().search('A');
+    await settle();
+    state.getState().search('AB');
+
+    expect(requests.get('A')!.signal.aborted).toBe(true);
+  });
+
+  it('中止した要求が遅れて成功しても、新しい入力の状態を上書きしない', async () => {
+    // 中止に間に合わず完了した応答の再現。中止に従わない実装と同じ形になる。
+    const pending = new Map<string, (value: PlacePrediction[]) => void>();
+    const signals = new Map<string, AbortSignal>();
+    const { state } = harness({
+      respond: (query, _bias, signal) => {
+        signals.set(query, signal!);
+        return new Promise<PlacePrediction[]>((resolve) => pending.set(query, resolve));
+      },
+    });
+
+    state.getState().search('A');
+    await settle();
+    state.getState().search('B');
+    pending.get('A')!([prediction('a')]);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(signals.get('A')!.aborted).toBe(true);
+    expect(state.getState().status).toBe('loading');
+    expect(state.getState().suggestions).toEqual([]);
+
+    await settle();
+    pending.get('B')!([prediction('b')]);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(state.getState().suggestions.map((p) => p.placeId)).toEqual(['b']);
+  });
+
+  it('中止で倒れた要求をエラーにしない', async () => {
+    const { respond } = abortable();
+    const { state } = harness({ respond });
+
+    state.getState().search('A');
+    await settle();
+    state.getState().search('B');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(state.getState().status).toBe('loading');
+    expect(state.getState().errorStatus).toBeNull();
+  });
+
+  it('最新の要求の本当の失敗は表示する', async () => {
+    const { requests, respond } = abortable();
+    const { state } = harness({ respond });
+
+    state.getState().search('A');
+    await settle();
+    state.getState().search('B');
+    await settle();
+    requests.get('B')!.reject(new PlacesException('TIMEOUT'));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(state.getState().status).toBe('error');
+    expect(state.getState().errorStatus).toBe('TIMEOUT');
+  });
+
+  it('入力を消すと、走っている要求を中止する', async () => {
+    const { requests, respond } = abortable();
+    const { state } = harness({ respond });
+
+    state.getState().search('A');
+    await settle();
+    state.getState().search('');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(requests.get('A')!.signal.aborted).toBe(true);
+    expect(state.getState().status).toBe('idle');
+  });
+
+  it('後片付けで、走っている要求を中止する', async () => {
+    const { requests, respond } = abortable();
+    const { state } = harness({ respond });
+
+    state.getState().search('A');
+    await settle();
+    state.getState().dispose();
+
+    expect(requests.get('A')!.signal.aborted).toBe(true);
+  });
+
+  it('debounce 中の打ち替えは要求を出さず、走っている要求だけを中止する', async () => {
+    const { requests, respond } = abortable();
+    const { state, autocomplete } = harness({ respond });
+
+    state.getState().search('A');
+    await settle();
+    state.getState().search('AB');
+    await vi.advanceTimersByTimeAsync(searchDebounce - 1);
+    state.getState().search('ABC');
+    await settle();
+
+    expect(autocomplete.mock.calls.map(([query]) => query)).toEqual(['A', 'ABC']);
+    expect(requests.get('A')!.signal.aborted).toBe(true);
+    expect(requests.get('ABC')!.signal.aborted).toBe(false);
+  });
+
+  it('完了した要求は、次の入力で中止扱いにしない', async () => {
+    const signals: AbortSignal[] = [];
+    const { state } = harness({
+      respond: async (_query, _bias, signal) => {
+        signals.push(signal!);
+        return [prediction('a')];
+      },
+    });
+
+    state.getState().search('A');
+    await settle();
+    state.getState().search('B');
+
+    expect(signals[0]!.aborted).toBe(false);
   });
 });
 
