@@ -1183,8 +1183,9 @@ export class TransitRouteService implements SearchEngine {
   }
 
   /// transit 区間の乗降地名を、直前（乗車側）・直後（降車側）の徒歩区間の端点が空のときだけ
-  /// 写す。タイムラインの乗車ノードは直前徒歩の toName、降車後の徒歩は fromName を place に
-  /// 使うため。出発地・目的地の端（非空）は上書きしない。
+  /// 写す。徒歩区間の端点名は結果画面（Google マップへの引き継ぎの読み上げ名など）に出るため。
+  /// タイムラインの乗車ノードの駅名は電車区間の fromName を直接読むので、これに頼らない。
+  /// 出発地・目的地の端（非空）は上書きしない。
   private propagateStationNames(segs: RouteSegment[]): void {
     for (let i = 0; i < segs.length; i++) {
       if (segs[i].type === SegmentType.walk) continue;

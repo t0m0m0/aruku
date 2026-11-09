@@ -178,6 +178,47 @@ describe('buildRoutePlan timeline', () => {
     expect(plan.timelineNodes[2].sub).toEqual('2号線');
   });
 
+  it('乗車駅ノードの駅名は手前の徒歩の到着名でなく電車の乗車駅名を出す', () => {
+    // 手前の徒歩は駅名を持たないことがある（乗車駅探索の継ぎ目の徒歩が、駅名を写された
+    // 0値徒歩の除外で電車の直前に残る）。乗車駅は電車区間自身が知っている。
+    const segments = [
+      new RouteSegment({
+        type: SegmentType.walk,
+        fromName: '現在地',
+        toName: '',
+        minutes: 50,
+        km: 3.6,
+        kcal: 202,
+      }),
+      new RouteSegment({
+        type: SegmentType.walk,
+        fromName: '',
+        toName: '沼部',
+        minutes: 0,
+        km: 0,
+        kcal: 0,
+      }),
+      new RouteSegment({
+        type: SegmentType.train,
+        fromName: '沼部',
+        toName: '多摩川',
+        minutes: 3,
+        line: '東急多摩川線',
+      }),
+    ];
+
+    const plan = buildRoutePlan({
+      from: '現在地',
+      to: '多摩川',
+      segments,
+      departure: new TimeValue({ h: 11, m: 21 }),
+      budgetMin: 90,
+    });
+
+    expect(plan.timelineNodes[1].place).toEqual('沼部');
+    expect(plan.timelineNodes[1].sub).toEqual('東急多摩川線');
+  });
+
   it('全区間が0値徒歩の退化入力でも出発・到着ノードは残す（#225）', () => {
     // from≈to の 0km・0分ルート等。フィルタ後 segments が空でも到着ノードを欠落
     // させない。
