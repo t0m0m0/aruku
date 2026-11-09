@@ -2,7 +2,7 @@
 
 - **位置づけ:** 本書はルート最適化ロジックの **仕様の正本（source of truth）**。挙動を変える実装・レビュー・再設計は本書を基準に判断し、仕様が変わったら本書を更新する。
 - **記述範囲:** **現行ロジックの仕様のみ**を書く。設計に至った経緯・棄却した案・過去の実測ログは本書に置かず、commit ログと issue を参照する。
-- **対象コード:** `packages/engine/src/services/transit-route-service.ts`（`apps/web/src/search/route-service.ts` の `createRouteService` が配線）, `packages/engine/src/services/hybrid-route-selector.ts`, `packages/engine/src/services/route-plan-builder.ts`, `packages/engine/src/services/transit-plan-parser.ts`, `functions/src/`
+- **対象コード:** `packages/engine/src/services/transit-route-service.ts`（`apps/web/src/search/route-service.ts` の `createRouteService` が配線。候補の実測・確定は `candidate-measurer.ts`、検索1回ぶんの状態は `search-session.ts`、A/B 計測の B・B' は `exact-walk-ab.ts`）, `packages/engine/src/services/hybrid-route-selector.ts`, `packages/engine/src/services/route-plan-builder.ts`, `packages/engine/src/services/transit-plan-parser.ts`, `functions/src/`
 - **関連:** [place-search.md](place-search.md)（地点検索の正本）, [security_hardening.md](../security_hardening.md)（キー・App Check・CORS の運用手順）
 - **節番号:** §番号はコード内コメントの参照先なので固定する。欠番は削除した節の跡で、繰り上げない。
 
@@ -286,7 +286,7 @@
   - **効くのは縮退する検索だけ。** 中央値はほとんど動かない。判断は発火率（`boardSearchSpeculated`）と空振り率（`boardSearchSpeculationWasted`）の対で行う（§3.8）。
   - **空振り（`collapse` が偽）なら結果を捨て、新ラウンドを起こさせない**（`shouldContinue`）。走らせ続けると、捨てると決めた探索が第三者 API の未知のレート枠（§2.1）を焼き、同じ枠を使う次の検索の board-search が浅くなる＝徒歩が静かに短くなる。**進行中のラウンドまでは止められない**が、`plan()` を抜けた直後に検索スコープのクライアントが閉じて in-flight は切れる（#259）。打ち切りが効くのはその手前——確定経路の駅名復元（上流1往復）が走る窓。
   - **空振りの対価は `ms` ではなく probe 本数で数える**（`boardSearchSpeculationProbes`）。投機は enrich と並行に走るので、捨てた探索がユーザーへ払わせた壁時計はほぼ 0。実際に消費するのは上流の往復枠。
-  - **キャンセルを握り潰さない。** 投機の Promise は捨てる経路で未処理例外にしないため `ignore()` するが、崩壊時は同じ Promise を `await` するので `SearchCanceledException` はそのまま上へ抜ける（`prefetchBus` と同型・#316）。**投機の結果を捨てる `catch` を足すときは、キャンセルまで一緒に飲まないこと。**
+  - **キャンセルを握り潰さない。** 投機の Promise は捨てる経路で未処理例外にしないため `ignore()` するが、崩壊時は同じ Promise を `await` するので `SearchCanceledException` はそのまま上へ抜ける（`LastResortBus.prefetch` と同型・#316）。**投機の結果を捨てる `catch` を足すときは、キャンセルまで一緒に飲まないこと。**
   - **前提だった #333。** 縮退プール解決（実測で候補47件の guidance を1パス）と probe が重なり瞬間同時発行が 50 本超になるため、上流失敗を「予算外」と誤認する #333 を先に修理してある。誤認が残っていると、境界を実測ではなくレート制限が決める。
 - **#115 との関係:** 乗り遅れ再照会（§4 #115）は基準経路の採用候補1本の救済、本フォールバックは候補生成のやり直し。崩壊時のみ後者が補う。
 - **バス corridor への適用:** 本節の探索・ハイブリッド生成はデータ源非依存で、基準が電車 corridor でもバス corridor でも同じロジックが走る。基準がバスのときは引き直し（`fetchTransitOptionsFrom`）とコリドー由来の地名復元をバス許容モードに揃える（バス停起点でバスを除外して引くと全徒歩に落ちて空振りする）。どの基準を採るかは §1.1 ③ が正本。
