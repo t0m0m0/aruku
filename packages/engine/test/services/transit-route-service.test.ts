@@ -778,6 +778,101 @@ describe('plan: 複数ファミリ base のハイブリッド生成 (#292)', () 
   });
 });
 
+describe('plan: 路線ごとのアクセス徒歩実測を検索単位で集約する (#485)', () => {
+  // familyA と familyB は乗車駅 139.002・降車駅 139.098 を共有し、どちらの base も
+  // origin→goal（全徒歩）を測る。路線ごとに投げると同じ有向レッグが重複する。
+  const o = familyOrigin;
+  const g = familyGoal;
+  const familyPlan = (client: HttpClient, onMetrics?: (m: RouteSearchMetrics) => void) =>
+    service(client, { onMetrics }).plan({
+      destination: '目的地',
+      destinationLatLng: g,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 10, m: 40 }),
+      origin: o,
+      originName: '出発',
+    });
+  const matrixLegs = (log: URL[]): string[] =>
+    log
+      .filter((u) => u.pathname.includes('googleWalkMatrixProxy'))
+      .flatMap((u) => {
+        const split = (k: string): string[] =>
+          (u.searchParams.get(k) ?? '').split(';').filter((s) => s.length > 0);
+        return split('origins').flatMap((a) =>
+          split('destinations').map((b) => `${a}|${b}`),
+        );
+      });
+
+  it('複数 base が共有するレッグを重複して実測しない', async () => {
+    const log: URL[] = [];
+    let captured: RouteSearchMetrics | null = null;
+    await familyPlan(
+      mock({ transit: guidance([familyA(), familyB()]), log }),
+      (m) => (captured = m),
+    );
+    const legs = matrixLegs(log);
+    expect(legs.length).toBeGreaterThan(0);
+    expect(legs.length, `重複: ${legs.join(' ')}`).toEqual(new Set(legs).size);
+    const m = captured!;
+    expect(m.matrixElements).toEqual(legs.length);
+    expect(m.accessMatrixUniqueLegs).toBeLessThan(m.accessMatrixRequestedLegs);
+  });
+
+  it('マトリクス応答の並び順が変わっても勝者は同じ', async () => {
+    const reversed = mockClient((url) => {
+      const path = url.pathname;
+      if (path.includes('googleWalkMatrixProxy')) {
+        const rows = JSON.parse(
+          new TextDecoder().decode(matrixFor(url).bodyBytes),
+        ) as unknown[];
+        return json(rows.reverse());
+      }
+      if (path.includes('googleWalkProxy')) return walkFor(url);
+      if (path.includes('guidance/plan')) {
+        return json(guidance([familyA(), familyB()]));
+      }
+      return json({}, 404);
+    });
+    const normal = await familyPlan(
+      mock({ transit: guidance([familyA(), familyB()]) }),
+    );
+    const flipped = await familyPlan(reversed);
+    expect(flipped.segments).toEqual(normal.segments);
+  });
+
+  it('マトリクスが全滅しても直線推定で候補を作り、全徒歩を候補に残す', async () => {
+    const failing = mockClient((url) => {
+      const path = url.pathname;
+      if (path.includes('googleWalkMatrixProxy')) return json({}, 500);
+      if (path.includes('googleWalkProxy')) return walkFor(url);
+      if (path.includes('guidance/plan')) {
+        return json(guidance([familyA(), familyB()]));
+      }
+      return json({}, 404);
+    });
+    const plan = await familyPlan(failing);
+    expect(plan.totalMin).toBeLessThanOrEqual(plan.budgetMin);
+    expect(
+      plan.segments.some((s) => s.type === SegmentType.train && s.line === '各停線'),
+    ).toBe(true);
+  });
+
+  it('マトリクス実測中のキャンセルを握り潰さず plan ごと落とす', async () => {
+    const canceling = mockClient((url) => {
+      const path = url.pathname;
+      if (path.includes('googleWalkMatrixProxy')) {
+        throw new SearchCanceledException();
+      }
+      if (path.includes('googleWalkProxy')) return walkFor(url);
+      if (path.includes('guidance/plan')) {
+        return json(guidance([familyA(), familyB()]));
+      }
+      return json({}, 404);
+    });
+    await expectThrowsA(() => familyPlan(canceling), SearchCanceledException);
+  });
+});
+
 describe('basesForHybrid: 路線ファミリ別 base 選定 (#292)', () => {
   // 電車1本＋2点コリドーの最小 option。line がファミリ、minutes が総所要を決める。
   const opt = (line: string, minutes: number): TransitOption => {

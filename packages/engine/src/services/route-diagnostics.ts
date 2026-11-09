@@ -388,6 +388,16 @@ export class RouteSearchMetrics {
   /// Google 徒歩マトリクスの実 HTTP 往復本数。
   matrixCalls = 0;
 
+  /// 徒歩マトリクスで発行した要素数（origins × destinations）の合計。課金はこの単位。
+  matrixElements = 0;
+
+  /// アクセス徒歩を base ごとに投げていたら測ることになるレッグ数の合計（#485）。
+  /// [accessMatrixUniqueLegs] との差が、検索単位の集約で消えた重複。
+  accessMatrixRequestedLegs = 0;
+
+  /// 検索単位で集約したアクセス徒歩のユニークな有向レッグ数（#485）。
+  accessMatrixUniqueLegs = 0;
+
   /// 厳密走査 `exactWalkMax` の実 HTTP 往復本数。
   exactCalls = 0;
 
@@ -465,6 +475,9 @@ export class RouteSearchMetrics {
       `singlePass=${flag(this.singlePassMeasure)} ` +
       `http=${this.httpRoundTrips} ` +
       `guidanceCalls=${this.guidanceCalls} walkCalls=${this.walkCalls} matrixCalls=${this.matrixCalls} ` +
+      `matrixElements=${this.matrixElements} ` +
+      `accessMatrixRequestedLegs=${this.accessMatrixRequestedLegs} ` +
+      `accessMatrixUniqueLegs=${this.accessMatrixUniqueLegs} ` +
       `exactCalls=${this.exactCalls} ` +
       `guidanceDupCalls=${this.guidanceDupCalls} ` +
       `arrivalWaveOutcome=${this.arrivalWaveOutcome ?? -1} ` +

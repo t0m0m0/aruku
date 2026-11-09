@@ -195,10 +195,13 @@
       reachableWithinBudget が弾く（§4 #254）
   → 標準乗換候補（door-to-door をそのまま候補化）
   → basesForHybrid で路線ファミリの異なる base を最大 maxHybridBases 本選ぶ
-  → base ごとに buildCorridorHybrids を並列実行:
-       ・frontierStations で乗降候補を直線フロンティアで片側 K に絞る
-       ・measureAccessWalks: 1回（最大2コール）のマトリクスで
-         origin→{各乗車地点, goal} と {各降車地点}→goal を一括実測
+  → buildCorridorHybrids で全 base のハイブリッドをまとめて作る（#485）:
+       ・base ごとに frontierStations で乗降候補を直線フロンティアで片側 K に絞る（I/O なし）
+       ・measureAccessWalks: 全 base の origin→{各乗車地点, goal} と {各降車地点}→goal を
+         有向レッグ（`walkCacheKey`・小数5桁、逆方向は別）で重複除去し、実測済みのレッグを
+         省いて、要素数 ≤ 25 の要求に分けて並列に一括実測する。I/O の段は base 数によらず1段。
+         成功した要素だけを再利用し、失敗したレッグは覚えない（直線推定へ縮退し、後で要求されれば測り直す）
+       ・実測値から base ごとにハイブリッドを組む
      → mergeHybrids で構造フィンガープリント重複除去（上限 maxHybridCandidates）
   → 全徒歩候補を追加
   → 厳密走査の候補を追加（exactWalkMax を待つのはここ。失敗・猶予切れは空・§3.9）
@@ -233,7 +236,7 @@
 ### 3.3 フロンティア絞り込み `frontierStations`
 
 - 乗車側は `origin→駅`、降車側は `駅→goal` の**直線徒歩分が予算内**の駅だけを feasible とする。直線（haversine）は道なり徒歩の下限なので、直線ですら予算超過なら確実に予算外。逆に直線が予算内なら、予算の大半を1本のアクセス徒歩に使う候補（短い乗車＋長い徒歩）も残すため、**道なり迂回の割増は掛けない**（掛けると徒歩最大の正当な候補を誤って落とす）。
-- feasible な駅が **片側 `maxMatrixSideStations`(=10) を超えれば均等間隔で間引く（両端を含む）**（要素数課金 ≤ 25 の範囲。乗車側コールは `origin→{各乗車駅, goal}` の 上限+1 要素）。**徒歩分降順の top-K にしてはならない**——乗車側＝origin から遠い駅・降車側＝goal から遠い駅という互いに逆相関の集合になり、同一 section・`b<a` の乗降ペアが作れず「中間駅で短く乗り両端を長く歩く」候補（ride-one-stop）を取りこぼす。両端＋中間を均等に残せば両側のインデックス域が重なり `b<a` ペアを保てる。
+- feasible な駅が **片側 `maxMatrixSideStations`(=10) を超えれば均等間隔で間引く（両端を含む）**（base 1本あたりの要素数課金を抑える。複数 base を集約した要求は §3.1 のとおり 25 要素ごとに分割する）。**徒歩分降順の top-K にしてはならない**——乗車側＝origin から遠い駅・降車側＝goal から遠い駅という互いに逆相関の集合になり、同一 section・`b<a` の乗降ペアが作れず「中間駅で短く乗り両端を長く歩く」候補（ride-one-stop）を取りこぼす。両端＋中間を均等に残せば両側のインデックス域が重なり `b<a` ペアを保てる。
 - 純粋関数。Google を呼ばない。実測（マトリクス）の楽観/過大は採用候補の enrich 検証（§3.1）が是正する。
 
 ### 3.6 乗車駅探索フォールバック（崩壊時のみ・徒歩最大化）
@@ -315,6 +318,8 @@
 | 〃 | `boardSearchSpeculated` / `boardSearchSpeculationWasted` / `boardSearchSpeculationProbes` | 電車系 board-search の投機起動（§3.6・#341）・その空振り・空振りが上流へ捨てた probe 本数。**空振り率の分母は総検索数ではなく投機件数**（総数で割ると、投機の起きないルートを混ぜたぶんだけ当たって見える）。`boardSearch` とは別に持つ——空振りは候補をプールへ1件も足しておらず、同じ印にすると board-search 本体の起動率が読めなくなる |
 | 往復本数 | `guidanceCalls` / `walkCalls` / `matrixCalls` / `exactCalls` / `http` | 実際に GET を発行した回数（種別ごと＋合計）。締切切れ・キャンセルで発行前に落ちた要求は数えない |
 | 〃 | `guidanceDupCalls` | 同一 guidance URI の重複発行数＝per-search キャッシュで消せる上限 |
+| 〃 | `matrixElements` | 徒歩マトリクスで発行した要素数（origins × destinations）の合計。課金の単位で、board-search の t1 走査も含む |
+| 〃 | `accessMatrixRequestedLegs` / `accessMatrixUniqueLegs` | アクセス徒歩（§3.1 の measureAccessWalks）を base ごとに投げていたら測るレッグ数と、検索単位で集約したユニークな有向レッグ数（#485）。差が集約で消えた重複。後者には実測済みで要求を省いたレッグも含む |
 | 到着アンカー波 | `arrivalWaveOutcome` / `arrivalWaveOptions` | 第2波（§3.1・#376）の結末コード（`0`=ok／`1`=猶予切れ／`2`=HTTP・パース不能／`3`=200 だが option 0本。`-1` は第2波を待つ前＝未確定）と、dedup 後に候補プールへ**純増**した option 数。`0`（ok）でも `Options=0` なら、その経路では departure 波と同じ便しか返らなかった＝何も足していない |
 | 〃 | `arrivalWaveBaseUsed` / `arrivalWaveWon` | 第2波由来の option が `basesForHybrid` の base に採られたか／確定候補（またはその土台 base）が第2波由来か。**これが #376 の判定基準**——両方がほぼ 0 なら毎検索 +1 本の対価に見合わないので revert する。**ただし分母は総検索数ではなく `arrivalWaveOutcome=0` の件数**——猶予切れ（`=1`）と上流エラー（`=2`）は第2波の中身を一度も見ておらず、仮説の是非を語らない。総数で割ると「間に合わなかった」を「効果がなかった」と読み違える（実機確認では departure 波が速い検索ほど `=1` に倒れた）。`Won=0` は「由来でない」と「best-effort 縮退でコピーが作られ同一性が切れた＝特定不能」を兼ねる（`boardSearchWinnerRound` の 0 と同じ事情） |
 | 厳密走査 | `exactMs` / `exactCandidates` / `exactCapped` / `exactWon` | §3.9・#460。`exactMs` は発行から応答（猶予切れならその時点）までの実時間で、guidance と並列なので**検索全体へ直列に乗った待ちではない**（発行しなければ 0）。`exactCandidates` は候補プールへ足した候補数で、**`-1` は発行していない・失敗・猶予切れ**、`0` は応答は有効だったが候補が無い——arrival 波と同じく、中身を見ていない検索を「効果がなかった」へ数えないため、効果の分母は `exactCandidates≥0` の件数にする。`exactCapped` は実測する駅を片側の上限で打ち切ったか（応答の `stats.truncated`）。`exactWon` は確定候補が厳密走査由来か（同一性で引くので、best-effort 縮退でコピーが作られると 0 になる＝`arrivalWaveWon` と同じ事情） |
