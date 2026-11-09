@@ -1068,6 +1068,7 @@ function newScanDaySource() {
       }
     },
     now: () => Date.now(),
+    heapUsed: () => process.memoryUsage().heapUsed,
   });
 }
 

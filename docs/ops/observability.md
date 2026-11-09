@@ -23,8 +23,8 @@ Places / Google Routes への薄いプロキシ（`placesProxy`, `googleWalkProx
 | `search_request` | `callUpstream`（全プロキシと `exactWalkMax` のマトリクス共通） | `endpoint`（例: `placesProxy.autocomplete`, `googleWalkProxy`, `exactWalkMax`）, `upstream`（`places`\|`routes-walk`\|`routes-matrix`）, `status`（`success`\|`failure`）, `latencyMs`, `httpStatus`（任意・タイムアウトは504）, `rateLimited`（上流429のときのみ`true`）, `semanticFailure`（上流が2xxでもボディがエラー形状＝クライアントへ502変換される失敗のときのみ`true`。このとき`status="failure"`・`httpStatus`は上流値のまま、通常200） | success→info, failure→error |
 | `app_check_denied` | `verifyAppCheck` | `endpoint`, `reason`（`missing`\|`invalid`\|`replayed`） | warn |
 | `exact_walk_max` | `exactWalkMax`（成功応答のみ） | `dayMs`（運行日の時刻表を用意するまで。コールドスタートではパックの読み込みを含む）, `matrixMs`（並列2本の遅い方）, `scanMs`（走査と応答の組み立て）, `pickMs`・`ridesMs`・`journeysMs`（`scanMs` のうち、実測する駅の選定・1回乗車の走査・乗換つきの走査。乗換つきは要求されたときだけ走るので、されなければ `journeysMs=0`・#484）, `transfers`（乗換つきの候補を要求されたか。A/B 計測だけが要求する）, `candidates`, `tripsScanned`, `elementsMeasured`, `truncated` | info |
-| `timetable_pack_load` | `exactWalkMax` のパック読み込み（`functions/src/timetable-pack/load.ts`。インスタンスごとに起動時と6時間ごと。読めなかったグループがあれば1分後） | `group`（`challenge`\|`permanent`）, `status`（`success`\|`missing`\|`failure`）, `loadMs`, `bytes`・`trips`（success のみ）, `reason`（failure のみ。`read`\|`format`） | success→info, それ以外→warn |
-| `timetable_day_compile` | 同上（運行日ごと） | `serviceDate`, `trips`, `compileMs` | info |
+| `timetable_pack_load` | `exactWalkMax` のパック読み込み（`functions/src/timetable-pack/load.ts`。インスタンスごとに起動時と6時間ごと。読めなかったグループがあれば1分後） | `group`（`challenge`\|`permanent`）, `status`（`success`\|`missing`\|`failure`）, `loadMs`（下の工程の和）, `readMs`（Storage の読込。もう一方のグループの解凍・解析が終わるまで再開できないので、その待ちを含み得る）, `gunzipMs`・`parseMs`（解凍と JSON の解析。読めたときだけ）, `bytes`・`trips`（success のみ）, `reason`（failure のみ。`read`\|`format`） | success→info, それ以外→warn |
+| `timetable_day_compile` | 同上（運行日ごと。`functions/src/timetable-pack/day.ts`） | `serviceDate`, `trips`, `totalMs`（下の工程の和）, `extractMs`（運行日に掛かる便の選び出しと、2つのパックの停車を列の配列へ書く時間）, `compileMs`（駅ごとの発車の索引。`compileColumns`）, `neighborsMs`（乗換の近傍）, `heapUsedMB`（組み立て直後のヒープ） | info |
 | `rate_limit` | `checkRateLimit` 呼び出し元 | `decision`（`blocked`\|`fail-open`。`allowed`は型上のみ存在し実際には出力されない）, `reason`（`fail-open`のときのみ必ず付く。`config`\|`transient`） | blocked→warn, fail-open→error |
 
 PII: 生IP・検索クエリ・座標・駅名はログに含まれない（`metrics.ts` 冒頭コメント）。
@@ -395,3 +395,4 @@ gcloud alpha monitoring policies create --policy-from-file=policy_latency_routes
   `timetable_pack_load` の `loadMs` と、コールドスタート直後の `exact_walk_max` の `dayMs`（パックの読み込みと
   コンパイルを含む）・`request_latency` の `totalLatencyMs` を見て、設定するかを決める（#459）。ウォームの目安は
   `totalLatencyMs` が1秒前後で、内訳は `request_latency.appCheckMs`・`exact_walk_max.matrixMs`・`scanMs`。
+  パックの読み込みと運行日の組み立ての工程別の内訳・手元での測り方は [timetable-pack-preprocess.md](../notes/timetable-pack-preprocess.md)（#487）。

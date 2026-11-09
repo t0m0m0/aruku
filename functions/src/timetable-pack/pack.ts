@@ -117,6 +117,30 @@ export function buildTimetablePack(feeds: readonly FeedInput[]): TimetablePack {
 
 /** serviceDate（YYYYMMDD）の0時を起点にした、その日に乗れる便の時刻表。 */
 export function timetableForDate(pack: TimetablePack, serviceDate: string): DayTimetable {
+  const onDate = tripsOnDate(pack, serviceDate);
+  const trips: Timetable["trips"] = onDate.map(({ packTrip, shift }) => {
+    const trip = pack.trips[packTrip];
+    const calls = callsOf(trip, shift).filter((_, i) => keepsCall(trip, i, shift));
+    return { route: trip.route, headsign: trip.headsign, calls };
+  });
+  const tripSources = onDate.map(({ packTrip, serviceDate }) => ({ packTrip, serviceDate }));
+  return { stops: pack.stops, trips, tripSources };
+}
+
+/** serviceDate の検索に掛かる便の1本。 */
+export interface TripOnDate {
+  packTrip: number;
+  /** 便の運行日（YYYYMMDD）。前日の運行日の便は serviceDate の前日。 */
+  serviceDate: string;
+  /** パックの時刻から引く秒。serviceDate の0時からの秒にする。 */
+  shift: number;
+}
+
+/**
+ * serviceDate の検索に掛かる便を、timetableForDate の trips と同じ並びで返す。停車を作らずに
+ * 運行日の時刻表を組み立てる（day.ts）ためのもので、停車は keepsCall で選ぶ。
+ */
+export function tripsOnDate(pack: TimetablePack, serviceDate: string): TripOnDate[] {
   const today = Number(serviceDate);
   const yesterday = shiftDate(today, -1);
   const runsOn = pack.services.map((s) => ({
@@ -124,24 +148,24 @@ export function timetableForDate(pack: TimetablePack, serviceDate: string): DayT
     yesterday: includesSorted(s.dates, yesterday),
   }));
 
-  const trips: Timetable["trips"] = [];
-  const tripSources: DayTimetable["tripSources"] = [];
+  const onDate: TripOnDate[] = [];
   pack.trips.forEach((trip, packTrip) => {
     const runs = runsOn[trip.service];
-    if (runs.today) {
-      trips.push({ route: trip.route, headsign: trip.headsign, calls: callsOf(trip, 0) });
-      tripSources.push({ packTrip, serviceDate });
-    }
+    if (runs.today) onDate.push({ packTrip, serviceDate, shift: 0 });
     if (runs.yesterday) {
-      // 前日の運行日の便は、24:00 を越えた部分だけが当日の検索に掛かる。
-      const calls = callsOf(trip, SECONDS_PER_DAY).filter((c) => c.dep >= 0);
-      if (calls.length >= 2) {
-        trips.push({ route: trip.route, headsign: trip.headsign, calls });
-        tripSources.push({ packTrip, serviceDate: String(yesterday) });
+      let kept = 0;
+      for (let i = 0; i < trip.stops.length; i++) if (keepsCall(trip, i, SECONDS_PER_DAY)) kept++;
+      if (kept >= 2) {
+        onDate.push({ packTrip, serviceDate: String(yesterday), shift: SECONDS_PER_DAY });
       }
     }
   });
-  return { stops: pack.stops, trips, tripSources };
+  return onDate;
+}
+
+/** 前日の運行日の便は、24:00 を越えた部分だけが当日の検索に掛かる。 */
+export function keepsCall(trip: PackTrip, i: number, shift: number): boolean {
+  return shift === 0 || trip.dep[i] - shift >= 0;
 }
 
 function callsOf(trip: PackTrip, shift: number): StopCall[] {
