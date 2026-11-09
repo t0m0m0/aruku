@@ -98,6 +98,19 @@ jobs:
           path: apps/web/test-results/
           retention-days: 7
 
+  # エージェントのフックはローカルでしか走らないので、壊れても誰も気付かない。
+  # ガードが素通りになる退行をここで捕まえる。
+  agent-guards:
+    name: agent hook guards (.claude)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Guard tests
+        run: |
+          python3 .claude/guard_test.py
+          python3 .claude/bash_guard_test.py
+
   doc-consistency:
     name: doc / comment consistency
     runs-on: ubuntu-latest
