@@ -8,10 +8,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
 import {
+  ClientException,
   TimeoutException,
-  type HttpClient,
   type HttpResponse,
 } from '@aruku/engine/services/http-client';
+
+import type { AbortableHttpClient, RequestOptions } from '../../src/http/http';
 
 import {
   GooglePlacesService,
@@ -23,12 +25,15 @@ const base = 'https://proxy.example';
 /// 応答を JSON で返す偽クライアント。呼ばれた URL を記録する。
 function stubClient(
   respond: (url: URL) => HttpResponse | Promise<HttpResponse>,
-): HttpClient & { calls: URL[] } {
+): AbortableHttpClient & { calls: URL[]; signals: (AbortSignal | undefined)[] } {
   const calls: URL[] = [];
+  const signals: (AbortSignal | undefined)[] = [];
   return {
     calls,
-    async get(url: URL) {
+    signals,
+    async get(url: URL, options?: RequestOptions) {
       calls.push(url);
+      signals.push(options?.signal);
       return respond(url);
     },
     close() {},
@@ -98,6 +103,35 @@ describe('autocomplete のリクエスト', () => {
     await places.autocomplete('渋谷');
 
     expect(client.calls[0]!.pathname).toBe('/placesProxy');
+  });
+});
+
+describe('autocomplete の中止 (#488)', () => {
+  it('渡した signal を client へ渡す', async () => {
+    const { client, places } = service(() => okPredictions([]));
+    const aborter = new AbortController();
+
+    await places.autocomplete('渋谷', null, aborter.signal);
+
+    expect(client.signals).toEqual([aborter.signal]);
+  });
+
+  it('中止で倒れた要求は例外のまま伝える（候補なしへ畳まない）', async () => {
+    const { places } = service(() => {
+      throw new ClientException('Request was aborted');
+    });
+
+    await expect(
+      places.autocomplete('渋谷', null, new AbortController().signal),
+    ).rejects.toThrow(ClientException);
+  });
+
+  it('fetchLatLng には要求単位の中止を渡さない', async () => {
+    const { client, places } = service(() => json({ status: 'NOT_FOUND' }));
+
+    await places.fetchLatLng('p1');
+
+    expect(client.signals).toEqual([undefined]);
   });
 });
 

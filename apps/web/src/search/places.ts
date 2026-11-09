@@ -18,8 +18,8 @@ export interface PlacesServiceOptions {
 /// placesProxy を叩く地点検索を組み立てる。
 ///
 /// 経路検索（createRouteService）と違い、検索1回ごとに作って捨てる形にしていない。
-/// 地点検索に中断の要求が無く、クライアントの寿命を画面に合わせれば typeahead の
-/// 連続要求で keep-alive がそのまま効く。
+/// typeahead の古い要求は要求単位の signal で中止する（#488・search-state.ts）ので、
+/// 中止のために client を作り直す必要が無い。close() はサービス全体の終了。
 ///
 /// placesProxy はサーバが consume:true で検証する（リプレイ保護・#155）。
 /// createProxyClient 越しに通すことで使い捨てトークンが付く。
