@@ -97,7 +97,7 @@
 | `googleWalkProxy` | Google Routes `computeRoutes`(WALK)（基本素通し） |
 | `googleWalkMatrixProxy` | Google Routes `computeRouteMatrix`(WALK)（基本素通し） |
 | `placesProxy` | Google Places API (New) Autocomplete/Details（地点検索） |
-| `exactWalkMax` | 時刻表パック（ODPT の GTFS）を走査し、1回乗車（徒歩→乗車→徒歩）で徒歩最大の候補を返す（#459）。乗換1回（徒歩→乗車→徒歩→乗車→徒歩）の候補は別の配列 `transferCandidates` で返す（#474。今は A/B の計測だけが読む・§3.9）。徒歩は Google Routes `computeRouteMatrix`(WALK) で実測する。ただし乗換の徒歩は測らず直線の見積りのまま返す。応答は候補・フィードの取得日時・統計だけで、時刻表は返さない |
+| `exactWalkMax` | 時刻表パック（ODPT の GTFS）を走査し、1回乗車（徒歩→乗車→徒歩）で徒歩最大の候補を返す（#459）。乗換1回（徒歩→乗車→徒歩→乗車→徒歩）の候補は、要求に `transfers=1` があるときだけ別の配列 `transferCandidates` で返す（#474・#484。読むのは A/B の計測だけ・§3.9）。`transfers` を省くか `0` なら乗換つきの走査をせず、配列も載せない（`0`・`1` 以外は 400）。省略を「返さない」にしたのは、本番の Web が乗換つきの候補を読まないため——Functions と Web は別々にデプロイされるので、古い Web が送らなくても計算が減る。新しい Web が古い Functions に送っても `transfers` は読み捨てられ、従来どおり配列が返る。省いても1回乗車の候補は変わらない（実測する駅は、要求の有無に関わらず乗換つきの経路も混ぜて拾う）。徒歩は Google Routes `computeRouteMatrix`(WALK) で実測する。ただし乗換の徒歩は測らず直線の見積りのまま返す。応答は候補・フィードの取得日時・統計だけで、時刻表は返さない |
 
 - **地点検索:** POI 検索は `placesProxy` 経由で Google Places API (New) の Autocomplete を叩く（App Check 必須・キーはサーバ側に秘匿）。仕様の正本は [place-search.md](place-search.md)。
 - **APIキー秘匿:** Secret Manager（`GOOGLE_MAPS_API_KEY`）。地図用キーとプロキシ用キーは Cloud Console で分離。

@@ -23,6 +23,7 @@ import { createScanDaySource } from "./timetable-pack/load";
 import {
   findExactWalkMax,
   parseExactWalkMaxQuery,
+  type ScanStage,
   type MatrixElement,
 } from "./exact-walk-max";
 import type { LatLng } from "./exact-scan";
@@ -1158,8 +1159,17 @@ export const exactWalkMax = onRequest(
     const start = Date.now();
     let dayMs = 0;
     let matrixMs = 0;
+    const stageMs: Record<ScanStage, number> = { pick: 0, rides: 0, journeys: 0 };
     try {
       const body = await findExactWalkMax(parsed, {
+        timed: (stage, run) => {
+          const t0 = performance.now();
+          try {
+            return run();
+          } finally {
+            stageMs[stage] = Math.round((performance.now() - t0) * 10) / 10;
+          }
+        },
         day: async (serviceDate) => {
           const t0 = Date.now();
           try {
@@ -1186,6 +1196,10 @@ export const exactWalkMax = onRequest(
         dayMs,
         matrixMs,
         scanMs: totalMs - dayMs - matrixMs,
+        pickMs: stageMs.pick,
+        ridesMs: stageMs.rides,
+        journeysMs: stageMs.journeys,
+        transfers: parsed.transfers,
         candidates: body.candidates.length,
         ...body.stats,
       });

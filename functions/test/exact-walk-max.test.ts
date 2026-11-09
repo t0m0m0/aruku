@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  bestJourneys,
   compileTimetable,
   transferNeighbors,
   type LatLng,
@@ -18,6 +19,13 @@ import {
   type MatrixElement,
   type ScanDay,
 } from "../src/exact-walk-max";
+
+// exact-walk-max.ts からの呼び出しだけを数える。pickStopsToMeasure がモジュール内で呼ぶ
+// bestJourneys はこの差し替えを通らない。
+vi.mock("../src/exact-scan", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/exact-scan")>();
+  return { ...actual, bestJourneys: vi.fn(actual.bestJourneys) };
+});
 
 const EARTH_RADIUS_KM = 6371.0088;
 const pointAtKm = (km: number): LatLng => ({
@@ -84,11 +92,12 @@ function depsFor(
 }
 
 // 2026-10-23 10:00 JST
-const request = (budgetMin = 180): ExactWalkMaxRequest => ({
+const request = (budgetMin = 180, transfers = false): ExactWalkMaxRequest => ({
   origin: pointAtKm(0),
   goal: pointAtKm(20),
   departAt: new Date("2026-10-23T01:00:00Z"),
   budgetMin,
+  transfers,
 });
 
 describe("parseExactWalkMaxQuery", () => {
@@ -105,6 +114,16 @@ describe("parseExactWalkMaxQuery", () => {
       goal: { lat: 35.71, lng: 139.77 },
       departAt: new Date("2026-10-23T01:00:00Z"),
       budgetMin: 180,
+      transfers: false,
+    });
+  });
+
+  it.each([
+    ["1", true],
+    ["0", false],
+  ])("transfers=%s は乗換つきの候補を%sとして読む", (value, expected) => {
+    expect(parseExactWalkMaxQuery({ ...valid, transfers: value })).toMatchObject({
+      transfers: expected,
     });
   });
 
@@ -119,6 +138,9 @@ describe("parseExactWalkMaxQuery", () => {
     ["budgetMin が0", { ...valid, budgetMin: "0" }],
     ["budgetMin が1日を超える", { ...valid, budgetMin: "1441" }],
     ["同じパラメータが2回渡された", { ...valid, origin: ["35.56,139.71", "35.57,139.71"] }],
+    ["transfers が 0/1 でない", { ...valid, transfers: "true" }],
+    ["transfers が空", { ...valid, transfers: "" }],
+    ["transfers が2回渡された", { ...valid, transfers: ["1", "1"] }],
   ])("%s入力は拒否する", (_name, query) => {
     expect(parseExactWalkMaxQuery(query)).toHaveProperty("error");
   });
@@ -164,12 +186,7 @@ describe("findExactWalkMax", () => {
   it("応答は候補・フィードの取得日時・統計だけで、時刻表そのものを含まない", async () => {
     const body = await findExactWalkMax(request(), depsFor(tt));
 
-    expect(Object.keys(body).sort()).toEqual([
-      "candidates",
-      "feeds",
-      "stats",
-      "transferCandidates",
-    ]);
+    expect(Object.keys(body).sort()).toEqual(["candidates", "feeds", "stats"]);
     expect(body.feeds).toEqual(FEEDS);
     expect(body.stats).toEqual({ tripsScanned: 1, elementsMeasured: 2, truncated: false });
   });
@@ -255,7 +272,7 @@ describe("findExactWalkMax", () => {
     );
 
     it("両方の乗車の駅・路線・実発着時刻・停車駅と、直線の乗換の徒歩を載せる", async () => {
-      const body = await findExactWalkMax(request(120), depsFor(walkTransfer));
+      const body = await findExactWalkMax(request(120, true), depsFor(walkTransfer));
 
       expect(body.transferCandidates).toEqual([
         {
@@ -290,7 +307,7 @@ describe("findExactWalkMax", () => {
     it("実測するのは最初の乗車駅と最後の降車駅で、乗換の駅は測らない", async () => {
       const measure = straightMatrix();
 
-      await findExactWalkMax(request(120), depsFor(walkTransfer, measure));
+      await findExactWalkMax(request(120, true), depsFor(walkTransfer, measure));
 
       expect(measure.calls).toEqual([
         [[request().origin], [pointAtKm(2)]],
@@ -300,7 +317,7 @@ describe("findExactWalkMax", () => {
 
     it("1回乗車の候補は candidates のまま、乗換つきと混ざらない", async () => {
       // 予算 180 分なら駅2で降りて歩く1回乗車も成り立ち、徒歩はそちらのほうが長い
-      const body = await findExactWalkMax(request(180), depsFor(walkTransfer));
+      const body = await findExactWalkMax(request(180, true), depsFor(walkTransfer));
 
       expect(body.candidates.map((c) => [c.board.name, c.alight.name])).toEqual([["S0", "S2"]]);
       expect(body.candidates[0]).not.toHaveProperty("legs");
@@ -318,7 +335,7 @@ describe("findExactWalkMax", () => {
         ],
       );
 
-      const body = await findExactWalkMax(request(120), depsFor(sameStop));
+      const body = await findExactWalkMax(request(120, true), depsFor(sameStop));
 
       expect(body.transferCandidates).toHaveLength(1);
       expect(body.transferCandidates[0]).toMatchObject({
@@ -344,7 +361,7 @@ describe("findExactWalkMax", () => {
       ];
 
       const body = await findExactWalkMax(
-        request(120),
+        request(120, true),
         depsFor(sameSpot, straightMatrix(), stations),
       );
 
@@ -356,9 +373,67 @@ describe("findExactWalkMax", () => {
     });
 
     it("乗れる便が無ければ空の配列を返す", async () => {
-      const body = await findExactWalkMax(request(10), depsFor(walkTransfer));
+      const body = await findExactWalkMax(request(10, true), depsFor(walkTransfer));
 
       expect(body.transferCandidates).toEqual([]);
+    });
+
+    describe("要求しないとき", () => {
+      it("乗換つきの候補を走査せず、応答に transferCandidates を載せない", async () => {
+        vi.mocked(bestJourneys).mockClear();
+
+        const body = await findExactWalkMax(request(180, false), depsFor(walkTransfer));
+
+        expect(bestJourneys).not.toHaveBeenCalled();
+        expect(body).not.toHaveProperty("transferCandidates");
+      });
+
+      it("1回乗車の候補・実測する駅・統計は、要求したときと並びまで同じ", async () => {
+        const without = straightMatrix();
+        const withTransfers = straightMatrix();
+
+        const a = await findExactWalkMax(request(180, false), depsFor(walkTransfer, without));
+        const b = await findExactWalkMax(request(180, true), depsFor(walkTransfer, withTransfers));
+
+        expect(a.candidates).toEqual(b.candidates);
+        expect(a.stats).toEqual(b.stats);
+        expect(without.calls).toEqual(withTransfers.calls);
+      });
+
+      it("乗れる便が無くても transferCandidates を載せない", async () => {
+        const body = await findExactWalkMax(request(10, false), depsFor(walkTransfer));
+
+        expect(body).not.toHaveProperty("transferCandidates");
+      });
+    });
+  });
+
+  describe("工程ごとの計測", () => {
+    const tt = timetable(
+      [2, 10, 10.1, 17],
+      [
+        [call(0, t(10, 30)), call(1, t(10, 50))],
+        [call(2, t(11, 0)), call(3, t(11, 20))],
+      ],
+    );
+    const stagesOf = async (req: ExactWalkMaxRequest): Promise<string[]> => {
+      const stages: string[] = [];
+      await findExactWalkMax(req, {
+        ...depsFor(tt),
+        timed: (stage, run) => {
+          stages.push(stage);
+          return run();
+        },
+      });
+      return stages;
+    };
+
+    it("実測する駅の選定・1回乗車の走査・乗換つきの走査を別々に測る", async () => {
+      expect(await stagesOf(request(180, true))).toEqual(["pick", "rides", "journeys"]);
+    });
+
+    it("乗換つきを要求しなければ、その走査は測らない", async () => {
+      expect(await stagesOf(request(180, false))).toEqual(["pick", "rides"]);
     });
   });
 });
