@@ -6993,6 +6993,13 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
     expect(req.searchParams.get('budgetMin')).toEqual('100');
   });
 
+  it('通常の検索は乗換つきの候補を読まないので、exactWalkMax に要求しない（#484）', async () => {
+    const log: URL[] = [];
+    await run(exactMock({ onExact: () => json(exactBody([])), log }));
+    const req = singleWhere(log, (u) => u.pathname.includes('exactWalkMax'));
+    expect(req.searchParams.has('transfers')).toBe(false);
+  });
+
   describe('時刻表の出典（#461）', () => {
     const feeds = [{ id: 'Toei', fetchedAt: '2026-06-27T04:23:10.000Z' }];
     const toei = [
@@ -7318,6 +7325,13 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
       expect(m.exactWon).toBe(true);
       expect(m.coveredBase).toBe(true);
       expect(m.collapseB).toBe(false);
+    });
+
+    it("A/B モードは B' が読む乗換つきの候補を exactWalkMax に要求する（#484）", async () => {
+      const log: URL[] = [];
+      await runAb(exactMock({ onExact: () => json(winning()), log }));
+      const req = singleWhere(log, (u) => u.pathname.includes('exactWalkMax'));
+      expect(req.searchParams.get('transfers')).toEqual('1');
     });
 
     it('A/B モードでも厳密走査は1回だけ発行し、A の上流応答を B で引き直さない', async () => {

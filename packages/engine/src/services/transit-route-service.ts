@@ -238,7 +238,9 @@ export class TransitRouteService implements SearchEngine {
     // ので、並列に置けば直列の段は増えない。
     const exactWave =
       this.exactWalkMax || this.exactWalkMaxAb
-        ? this.api.fetchExactWalkMax(origin, destinationLatLng, departureAt, budgetMin)
+        ? this.api.fetchExactWalkMax(origin, destinationLatLng, departureAt, budgetMin, {
+            transfers: this.exactWalkMaxAb,
+          })
         : null;
     const exactSw = startedStopwatch();
     if (exactWave !== null) {
@@ -373,7 +375,7 @@ export class TransitRouteService implements SearchEngine {
   /// 飲まない（#316。[arrivalWaveOptions] と同じ理由）。
   ///
   /// `candidates` が null なのは失敗したとき（計測で 0 件と分けるため）。乗換つきの候補は
-  /// A/B 計測（#474）だけが使うので、それ以外では読まない。
+  /// A/B 計測（#474）だけが使うので、それ以外では要求せず（#484）、読まない。
   private async exactWaveCandidates(
     wave: Promise<JsonMap>,
     ends: { origin: GeoPoint; goal: GeoPoint; from: string; to: string },

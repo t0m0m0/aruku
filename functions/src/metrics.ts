@@ -155,6 +155,14 @@ export interface ExactWalkMaxParams {
   matrixMs: number;
   /** 走査（2パス）と応答の組み立て。 */
   scanMs: number;
+  /** scanMs のうち、実測する駅の選定（直線の徒歩での走査）。 */
+  pickMs: number;
+  /** scanMs のうち、実測した徒歩での1回乗車の走査。 */
+  ridesMs: number;
+  /** scanMs のうち、実測した徒歩での乗換つきの走査。要求しなければ走らせず 0（#484）。 */
+  journeysMs: number;
+  /** 乗換つきの候補を要求されたか（A/B 計測だけが要求する）。 */
+  transfers: boolean;
   candidates: number;
   tripsScanned: number;
   elementsMeasured: number;

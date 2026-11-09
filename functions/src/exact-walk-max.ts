@@ -26,6 +26,8 @@ export interface ExactWalkMaxRequest {
   goal: LatLng;
   departAt: Date;
   budgetMin: number;
+  /** 乗換つきの候補（transferCandidates）も返すか。読むのは A/B 計測の B' だけ（#474・#484）。 */
+  transfers: boolean;
 }
 
 export interface MatrixElement {
@@ -53,7 +55,11 @@ export interface ExactWalkMaxDeps {
   day: (serviceDate: string) => Promise<ScanDay | null>;
   /** 徒歩の実測。経路の無い要素は返さなくてよい。 */
   measure: (origins: LatLng[], destinations: LatLng[]) => Promise<MatrixElement[]>;
+  /** 走査の工程ごとの計測（#484）。省略すればそのまま走らせる。 */
+  timed?: <T>(stage: ScanStage, run: () => T) => T;
 }
+
+export type ScanStage = "pick" | "rides" | "journeys";
 
 export interface Walk {
   durationSec: number;
@@ -88,8 +94,11 @@ export interface ExactWalkTransferCandidate {
 
 export interface ExactWalkMaxResponse {
   candidates: ExactWalkCandidate[];
-  /** candidates と分けるのは、Functions と Web が別々にデプロイされ、古い Web が読み違えないため。 */
-  transferCandidates: ExactWalkTransferCandidate[];
+  /**
+   * 要求の transfers が真のときだけ載る。candidates と分けるのは、Functions と Web が別々に
+   * デプロイされ、古い Web が読み違えないため。
+   */
+  transferCandidates?: ExactWalkTransferCandidate[];
   feeds: FeedFetchedAt[];
   stats: {
     tripsScanned: number;
@@ -120,7 +129,19 @@ export function parseExactWalkMaxQuery(query: Query): ExactWalkMaxRequest | { er
   if (!Number.isInteger(budgetMin) || budgetMin < 1 || budgetMin > MAX_BUDGET_MIN) {
     return { error: `budgetMin must be an integer in 1..${MAX_BUDGET_MIN}` };
   }
-  return { origin, goal, departAt, budgetMin };
+  const transfers = parseFlag(query["transfers"]);
+  if (transfers === null) {
+    return { error: "transfers must be 0 or 1" };
+  }
+  return { origin, goal, departAt, budgetMin, transfers };
+}
+
+// 省略を偽と読むのは、乗換つきの候補を読まない本番の Web が送らないため。古い Web は
+// これを知らないので、真を既定にすると本番の計算が減らない。
+function parseFlag(value: unknown): boolean | null {
+  if (value === undefined || value === "0") return false;
+  if (value === "1") return true;
+  return null;
 }
 
 function parsePoint(value: string | undefined): LatLng | null {
@@ -162,8 +183,13 @@ export async function findExactWalkMax(
   if (day === null) return null;
   const { compiled: ct, neighbors } = day;
   const q = { origin: req.origin, goal: req.goal, departAt: sec, budgetMin: req.budgetMin };
+  const timed = deps.timed ?? ((_stage, run) => run());
 
-  const picked = pickStopsToMeasure(ct, q, { maxPerSide: MAX_STOPS_PER_SIDE, neighbors });
+  // 乗換つきを要求しなくても neighbors を渡すのは、乗換つきの経路の駅も実測の候補に混ぜるため。
+  // 外すと実測する駅が変わり、1回乗車の候補まで変わる。
+  const picked = timed("pick", () =>
+    pickStopsToMeasure(ct, q, { maxPerSide: MAX_STOPS_PER_SIDE, neighbors }),
+  );
   const stats = {
     tripsScanned: picked.tripsScanned,
     elementsMeasured: picked.boards.length + picked.alights.length,
@@ -173,7 +199,7 @@ export async function findExactWalkMax(
   if (picked.boards.length === 0 || picked.alights.length === 0) {
     return {
       candidates: [],
-      transferCandidates: [],
+      ...(req.transfers ? { transferCandidates: [] } : {}),
       feeds,
       stats: { ...stats, elementsMeasured: 0 },
     };
@@ -201,15 +227,19 @@ export async function findExactWalkMax(
     alightAt: formatJst(midnight + leg.alightAt * 1000),
     stops: rideStops(ct, leg).map(coordOf),
   });
-  const candidates = bestRides(ct, q, measured, { k: MAX_CANDIDATES }).map((ride) => ({
+  const candidates = timed("rides", () =>
+    bestRides(ct, q, measured, { k: MAX_CANDIDATES }),
+  ).map((ride) => ({
     ...rideOf(ride),
     accessWalk: access.get(ride.board)!,
     egressWalk: egress.get(ride.alight)!,
   }));
-  const transferCandidates = bestJourneys(ct, q, measured, neighbors, {
-    k: MAX_CANDIDATES,
-    transfersOnly: true,
-  }).map(({ legs: [first, second], transferSec }) => ({
+  if (!req.transfers) return { candidates, feeds, stats };
+
+  const journeys = timed("journeys", () =>
+    bestJourneys(ct, q, measured, neighbors, { k: MAX_CANDIDATES, transfersOnly: true }),
+  );
+  const transferCandidates = journeys.map(({ legs: [first, second], transferSec }) => ({
     legs: [rideOf(first), rideOf(second)],
     accessWalk: access.get(first.board)!,
     transferWalk: {

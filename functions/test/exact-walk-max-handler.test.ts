@@ -185,6 +185,7 @@ describe("exactWalkMax", () => {
     ["origin が無い", { ...QUERY, origin: "" }],
     ["departAt に時差が無い", { ...QUERY, departAt: "2026-10-23T10:00:00" }],
     ["budgetMin が0", { ...QUERY, budgetMin: "0" }],
+    ["transfers が 0/1 でない", { ...QUERY, transfers: "yes" }],
   ])("%s入力は 400 を返し、上流を呼ばない", async (_name, query) => {
     storageHas(PACK);
 
@@ -218,11 +219,19 @@ describe("exactWalkMax", () => {
           egressWalk: { durationSec: 900, distanceMeters: 1200 },
         },
       ],
-      transferCandidates: [],
       feeds: [{ id: "Toei", fetchedAt: "2026-10-22T19:23:00.000Z" }],
       stats: { tripsScanned: 1, elementsMeasured: 2, truncated: false },
     });
     expect(httpsRequestMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("transfers=1 のときだけ乗換つきの候補 transferCandidates を返す", async () => {
+    storageHas(PACK);
+    matrixResponds([{ duration: "900s", distanceMeters: 1200 }]);
+
+    const res = await invoke({ ...QUERY, transfers: "1" });
+
+    expect(res.body).toMatchObject({ transferCandidates: [] });
   });
 
   it("読めるパックが無ければ 503 を返し、マトリクスを呼ばない", async () => {

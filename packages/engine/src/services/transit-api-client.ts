@@ -252,11 +252,15 @@ export class TransitApiClient {
   /// [departureAt] は JST の壁時計を表す naive な `Date`（§4 #121）なので、`toISOString` で
   /// 送ってはいけない——端末が JST でないと実際の時刻がその時差ぶんずれ、別の時間帯の便を
   /// 引く。壁時計のフィールドに +09:00 を付けて送る。
+  ///
+  /// 乗換つきの候補 `transferCandidates` は [transfers] が真のときだけ求める（#484）。求めなければ
+  /// サーバはその走査を省き、応答に載せない。
   fetchExactWalkMax(
     origin: GeoPoint,
     goal: GeoPoint,
     departureAt: Date,
     budgetMin: number,
+    { transfers = false }: { transfers?: boolean } = {},
   ): Promise<JsonMap> {
     return this.fetchProxy(
       'exactWalkMax',
@@ -265,6 +269,7 @@ export class TransitApiClient {
         goal: `${dartDouble(goal.lat)},${dartDouble(goal.lng)}`,
         departAt: formatJstInstant(departureAt),
         budgetMin: `${budgetMin}`,
+        ...(transfers ? { transfers: '1' } : {}),
       },
       () => this.exactCallCount++,
     );

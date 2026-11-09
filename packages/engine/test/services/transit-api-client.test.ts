@@ -361,6 +361,25 @@ describe('fetchExactWalkMax (#460)', () => {
     expect(captured.searchParams.get('goal')).toEqual('35.3,139.4');
     expect(captured.searchParams.get('departAt')).toEqual('2026-06-27T09:05:00+09:00');
     expect(captured.searchParams.get('budgetMin')).toEqual('90');
+    expect(captured.searchParams.has('transfers')).toBe(false);
+  });
+
+  it('乗換つきの候補を求めるときだけ transfers=1 を送る（#484）', async () => {
+    let captured!: URL;
+    const c = client(
+      mockClient((url) => {
+        captured = url;
+        return jsonResponse({ candidates: [] });
+      }),
+    );
+    await c.fetchExactWalkMax(
+      new GeoPoint(35.1, 139.2),
+      new GeoPoint(35.3, 139.4),
+      dateTime(2026, 6, 27, 9, 5),
+      90,
+      { transfers: true },
+    );
+    expect(captured.searchParams.get('transfers')).toEqual('1');
   });
 
   it('JST 以外の端末でも、選んだ壁時計を JST の時刻として送る（§4 #121）', async () => {
