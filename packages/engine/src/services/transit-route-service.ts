@@ -41,6 +41,7 @@ import {
   timetableSources,
 } from './exact-walk-candidates';
 import { TimeoutException, type HttpClient } from './http-client';
+import { ignore, withGrace } from '../promises';
 import {
   ArrivalWaveOutcome,
   BestEffortLedger,
@@ -66,6 +67,7 @@ import {
   type SearchEngine,
 } from './route-service';
 import { SearchDeadline } from './search-deadline';
+import { LastResortBus, SearchSession, WalkLegCache } from './search-session';
 import {
   parseGuidancePlan,
   type TransitOption,
@@ -479,17 +481,10 @@ export class TransitRouteService implements SearchEngine {
         `=== plan start: budget=${budgetMin}m departureAt=${String(departureAt)} ` +
         `options=${options.length} ===`,
     );
-    const walkCache = new WalkLegCache();
-    // enrich の臨界パスを「パス本数」と「1候補の直列段数」に分けて計上する（#318）。
-    const enrichLedger = new EnrichLatencyLedger();
-    // 縮退は測定口を通らないので別台帳。実測では enrichMs の9割がここだった。
-    const bestEffortLedger = new BestEffortLedger();
-    const measured = new Map<string, number>();
-    // 候補の実測（enrich 徒歩＋実発車時刻解決）を identity で畳むキャッシュ（#315）。
-    const enrichedCache = new Map<RouteCandidate, RouteCandidate>();
-    // ハイブリッド候補（コリドー実測由来）の identity 集合。予算内にこれが多いほど
-    // reject 多発＝先行実測を短リスト全体へ広げる（Option A・#318）。
-    const hybrids = new Set<RouteCandidate>();
+    const session = new SearchSession();
+    const { walkCache, enrichedCache, enrichLedger, bestEffortLedger, provenance } = session;
+    const measured = session.accessWalks;
+    const hybrids = provenance.hybrids;
 
     // 標準乗換候補（guidance の door-to-door をそのまま候補化）。
     const candidates: RouteCandidate[] = options.map(
@@ -501,10 +496,9 @@ export class TransitRouteService implements SearchEngine {
       );
     }
 
-    // 到着アンカー第2波（#376）由来の候補をインスタンス同一性で覚える（`arrivalWaveWon`）。
-    // 候補にも option にも出自欄は無く、足すと選定の純粋関数群まで型が波及するので、
-    // 生成箇所で対応を控える側を採る。上の map は options と1対1・同順。
-    const fromArrivalWave = new Set<RouteCandidate>();
+    // 到着アンカー第2波（#376）由来の候補を覚える（`arrivalWaveWon`）。上の map は options と
+    // 1対1・同順。
+    const fromArrivalWave = provenance.arrivalWave;
     for (let i = 0; i < options.length; i++) {
       if (arrivalWaveOptions.has(options[i])) fromArrivalWave.add(candidates[i]);
     }
@@ -562,8 +556,8 @@ export class TransitRouteService implements SearchEngine {
     // 厳密走査の候補は estWinner の直前に足す。ここまで待たずに済むよう入口で並列に
     // 起こしてあり、ハイブリッドを作っている間に返っていれば待ちは 0 になる。
     // 出自は arrival 波と同じくインスタンス同一性で覚える（`exactWon`）。
-    const fromExact = new Set<RouteCandidate>();
-    const fromTransfer = new Set<RouteCandidate>();
+    const fromExact = provenance.exact;
+    const fromTransfer = provenance.transfer;
     let sources: TimetableSource[] = [];
     const takeExact = async (wave: Promise<JsonMap>): Promise<RouteCandidate[]> => {
       const result = await this.exactWaveCandidates(wave, {
@@ -598,37 +592,15 @@ export class TransitRouteService implements SearchEngine {
     }
     this.diag.log(() => `total candidates: ${candidates.length}`);
 
-    // last-resort のバス再照会は高々1回。**採用**されるのは予算内候補が出ないときだけ（#250）。
-    let busOptions: TransitOption[] | null = null;
-    let busCandidates: RouteCandidate[] | null = null;
-    let busFetch: Promise<TransitOption[]> | null = null;
-
-    // 照会だけ先に始める（投機）。`giveUp` は best-effort の実測結果が出るまで採用の可否を
-    // 決められないが、**照会自体はその結果に依存しない**。直列に置くと上流1本ぶんの段が
-    // 丸ごと体感へ乗る（実機 12.6s）ので、判断を待たずに発行して段を重ねる。
-    //
-    // **ここで `busOptions` を埋めてはいけない。** `isCollapse` の比較集合と `busBaseFor` は
-    // `busOptions` の非 null を「バスが土俵に乗ったか」の判定に使っている。投機で埋めると、
-    // バスが勝っていない検索でも比較集合が膨らんで `bestStandardWalk` が上がり、崩壊が
-    // 不成立になって board-search が静かに抑制され得る（＝徒歩最大化の劣化）。
-    const prefetchBus = (): void => {
-      if (busCandidates !== null || busFetch !== null) return;
-      busFetch = this.fetchBusOptions(origin, goal, departureAt);
-      ignore(busFetch);
-    };
-
-    const lastResortBus = async (): Promise<RouteCandidate[]> => {
-      if (busCandidates !== null) return busCandidates;
-      prefetchBus();
-      // 計上するのは**投機で覆えなかった残りの直列待ち**（発行から完了までの全体ではない）。
-      const waitSw = startedStopwatch();
-      busOptions = await busFetch!;
-      metrics.busLastResortMs = waitSw.elapsedMilliseconds;
-      busCandidates = busOptions.map(
-        (o) => new RouteCandidate({ from: o.from, to: o.to, segments: o.segments }),
-      );
-      return busCandidates;
-    };
+    // last-resort のバス再照会（#250）。照会は投機で先に起こせるが、採用は縮退の後。
+    const bus = new LastResortBus(
+      () => this.fetchBusOptions(origin, goal, departureAt),
+      (ms) => {
+        metrics.busLastResortMs = ms;
+      },
+    );
+    const prefetchBus = (): void => bus.prefetch();
+    const lastResortBus = (): Promise<RouteCandidate[]> => bus.adopt();
 
     // 崩壊が見込まれないなら、見積りフロントを1回の並列パスで先行実測して
     // [enrichedCache] を温める（#315）。判定は見積り勝者で行い、実測を待たない。
@@ -654,7 +626,7 @@ export class TransitRouteService implements SearchEngine {
     // 出力に依存するので、勝者未確定の時点では基準コリドーがまだ存在しない。
     const trainBoardSearch = new BoardSearchStats();
     // 確定候補が board-search の何ラウンド由来かを引くための同一性マップ（両系統で共有）。
-    const boardSearchRoundOf = new Map<RouteCandidate, number>();
+    const boardSearchRoundOf = provenance.boardSearchRound;
     let speculationAbandoned = false;
     let boardSearchExtra: RouteCandidate[] = [];
     let trainBoardSearchFuture: Promise<RouteCandidate[]> | null = null;
@@ -737,12 +709,11 @@ export class TransitRouteService implements SearchEngine {
     );
 
     // last-resort のバスが勝ったら、そのバス corridor も徒歩最大化の基準に据える（#251）。
-    const busBase = this.busBaseFor(selected.chosen, busCandidates, busOptions);
+    const busBase = this.busBaseFor(selected.chosen, bus.candidates, bus.options);
 
     // 崩壊判定は enrich 前の選定候補で行う。enrich 後の徒歩は Google 実街路で膨らみ、
     // 標準乗換の guidance 見積り徒歩と測定基準がずれるため。
-    const collapseOptions =
-      busOptions === null ? options : [...options, ...(busOptions as TransitOption[])];
+    const collapseOptions = bus.options === null ? options : [...options, ...bus.options];
     const collapse =
       (base !== null || busBase !== null) &&
       this.isCollapse(selected.chosen, collapseOptions, budgetMin, departureAt);
@@ -827,7 +798,7 @@ export class TransitRouteService implements SearchEngine {
         // 戻れるようにするため。
         enrichSw.start();
         selected = await this.selectAndEnrich(
-          [...candidates, ...(busCandidates ?? []), ...extra],
+          [...candidates, ...(bus.candidates ?? []), ...extra],
           budgetMin,
           departureAt,
           {
@@ -881,7 +852,7 @@ export class TransitRouteService implements SearchEngine {
       const heldExact = ctx.exactWave === null ? [] : await takeExact(ctx.exactWave);
       metrics.transferCandidates = metrics.exactCandidates < 0 ? -1 : fromTransfer.size;
       this.api.startReplay();
-      const pool = [...candidates, ...(busCandidates ?? []), ...boardSearchExtra, ...heldExact];
+      const pool = [...candidates, ...(bus.candidates ?? []), ...boardSearchExtra, ...heldExact];
       const reselect = (
         from: RouteCandidate[],
         rejected?: Set<RouteCandidate>,
@@ -905,7 +876,7 @@ export class TransitRouteService implements SearchEngine {
       metrics.collapseB = fromExact.has(selected.chosen)
         ? this.isCollapse(
             selected.chosen,
-            busOptions === null ? options : [...options, ...(busOptions as TransitOption[])],
+            bus.options === null ? options : [...options, ...bus.options],
             budgetMin,
             departureAt,
           )
@@ -2525,48 +2496,6 @@ class CorridorStop {
   }
 }
 
-/// 徒歩レッグ実測の1検索分キャッシュ。完了結果に加えて **in-flight の Promise** も
-/// レッグキーで共有する。#315 で予算内候補を候補**間**並列で一括実測するようになり、
-/// 同一 egress レッグを持つ候補が同時に enrich されるが、完了結果しか持たない素の Map では
-/// 両者ともキャッシュを外して `googleWalkProxy` を二重発行する。
-class WalkLegCache {
-  private readonly done = new Map<string, RouteCandidate>();
-  private readonly inflight = new Map<string, Promise<RouteCandidate | null>>();
-
-  /// [key] の実測を単一化する。完了済みなら即返し、実行中なら同じ Promise に相乗り、
-  /// どちらも無ければ [fetch] を1回だけ起こす。失敗（null 解決や例外）は永続キャッシュ
-  /// しない——一過性のプロキシ失敗を検索の残り全体へ固定しないため。
-  resolve(
-    key: string,
-    fetch: () => Promise<RouteCandidate | null>,
-  ): Promise<RouteCandidate | null> {
-    const done = this.done.get(key);
-    if (done !== undefined) return Promise.resolve(done);
-    // 相乗り者・起動者が全員この1本を await するよう、in-flight は単一の Promise に統一する。
-    // 後始末を別 Promise へ枝分かれさせると、fetch がエラーで倒れたとき誰も await しない枝が
-    // 未処理例外になる（catch 済みでもテストが落ちる）。try/finally ならエラーは唯一の
-    // Promise に載ってすべての await 側で処理される。
-    const existing = this.inflight.get(key);
-    if (existing !== undefined) return existing;
-    const started = this.resolveUncached(key, fetch);
-    this.inflight.set(key, started);
-    return started;
-  }
-
-  private async resolveUncached(
-    key: string,
-    fetch: () => Promise<RouteCandidate | null>,
-  ): Promise<RouteCandidate | null> {
-    try {
-      const result = await fetch();
-      if (result !== null) this.done.set(key, result);
-      return result;
-    } finally {
-      this.inflight.delete(key);
-    }
-  }
-}
-
 /// 出発〜到着の予算（分）。[budgetMinutes] を直接使わず薄く包むのは、このファイルが
 /// `budgetMin` という名前の局所変数を多用するため。
 function budgetMinutesOf(departure: TimeValue, arrival: TimeValue): number {
@@ -2711,22 +2640,4 @@ function intOr(value: unknown, fallback: number): number {
 /// ——ここは**経過時間**の加算で正しい（`n` は行程を進んだ実所要分であって暦の量ではない）。
 function plusMinutes(at: Date, minutes: number): Date {
   return new Date(at.getTime() + minutes * 60000);
-}
-
-/// Dart の `Future.ignore()` に対応する。拒否を捨てる**別の** Promise を作るだけなので、
-/// 後から元を await する経路の例外伝播は妨げない——キャンセルを握り潰さないために必要な性質。
-function ignore(promise: Promise<unknown>): void {
-  void promise.catch(() => {});
-}
-
-/// Dart の `future.timeout(d)` に対応する。[limit] 内に解決しなければ [TimeoutException]。
-function withGrace<T>(promise: Promise<T>, limit: Duration): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  const expiry = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new TimeoutException(`grace exceeded after ${limit}ms`)),
-      limit,
-    );
-  });
-  return Promise.race([promise, expiry]).finally(() => clearTimeout(timer));
 }
