@@ -66,6 +66,20 @@ class DenyReasonTest(unittest.TestCase):
         self.assertIsNotNone(self.deny("gh issue create --body-file .env"))
         self.assertIsNotNone(self.deny("git commit -m x < .env"))
 
+    def test_still_checks_command_substitutions_inside_a_message(self):
+        self.assertIsNotNone(self.deny('git commit -m "$(cat .env)"'))
+        self.assertIsNotNone(self.deny('git commit -m "`cat .env`"'))
+        self.assertIsNotNone(self.deny('gh api repos/o/r/issues -f body="$(cat apps/web/.env)"'))
+
+    def test_allows_a_message_built_from_a_quoted_heredoc(self):
+        command = "git commit -m \"$(cat <<'EOF'\nfix: .env の Read を拒否する\nEOF\n)\""
+        self.assertIsNone(self.deny(command))
+
+    def test_sees_through_leading_assignments_and_wrappers(self):
+        self.assertIsNotNone(self.deny('GIT_SSH_COMMAND="ssh -i key" git push --force origin topic'))
+        self.assertIsNotNone(self.deny("env GIT_TRACE=1 git push -f origin topic"))
+        self.assertIsNotNone(self.deny("A=1 B=2 git commit -m x", branch="main"))
+
     def test_treats_unquoted_newlines_as_command_separators(self):
         self.assertIsNotNone(self.deny("git status\ngit commit -m x", branch="main"))
         self.assertIsNotNone(self.deny("echo starting\ngit push --force origin topic"))

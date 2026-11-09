@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
 PreToolUse hook: 危険なbashコマンドのガード
+
+エージェントのうっかりを止める柵であって、サンドボックスではない。`bash -c "..."`・`eval`・
+スクリプトファイル経由の実行までは追わない——シェルを完全に解釈しない限り塞げず、
+それを目指すと誤検知で普段のコマンドが止まる。秘密の読み出しの本命の防御は
+settings.json の permissions.deny とリポジトリに秘密を置かないこと。
 """
 
 import json
@@ -62,6 +67,23 @@ def split_simple_commands(command):
     return commands
 
 
+ASSIGNMENT_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
+COMMAND_WRAPPERS = {'env', 'command', 'sudo', 'nohup', 'time', 'exec'}
+
+
+def strip_command_prefix(tokens):
+    """`A=1 env -i B=2 git ...` の先頭の代入とラッパ（とその引数）を外し、起動されるコマンドから始める。"""
+    index, after_wrapper = 0, False
+    while index < len(tokens):
+        token = tokens[index]
+        if ASSIGNMENT_RE.match(token) or token in COMMAND_WRAPPERS:
+            after_wrapper = after_wrapper or token in COMMAND_WRAPPERS
+        elif not (after_wrapper and token.startswith('-')):
+            break
+        index += 1
+    return tokens[index:]
+
+
 def git_subcommand(tokens):
     """`git [-C dir] <sub> args...` を (sub, args) にする。git でなければ None。"""
     if not tokens or tokens[0] != 'git':
@@ -103,6 +125,19 @@ GH_LITERAL_FLAGS = ('-f', '--raw-field', '-b', '--body', '-t', '--title')
 GH_FIELD_FLAGS = ('-F', '--field')
 
 
+# shlex は引用符を剥がすので `$(...)` が実際に展開されるかは区別できない。安全側に倒し、
+# 置換を含む値は中身を検査する。区切りを引用符で囲んだヒアドキュメントの本文だけは
+# 展開されない散文なので外す（コミットメッセージを `$(cat <<'EOF' ...)` で渡す形のため）。
+QUOTED_HEREDOC_RE = re.compile(
+    r"""<<-?[ \t]*(['"])(\w+)\1.*?\n[ \t]*\2[ \t]*(?=\n|\)|$)""", re.DOTALL)
+
+
+def executed_part(value):
+    """リテラルとして渡る値のうち、シェルが実行しうる部分（置換が無ければ空）。"""
+    active = QUOTED_HEREDOC_RE.sub('', value)
+    return active if ('$(' in active or '`' in active) else ''
+
+
 def literal_value_positions(tokens, flags, accepts):
     positions = set()
     for index, token in enumerate(tokens):
@@ -128,12 +163,15 @@ def literal_text_positions(tokens, parsed):
     return set()
 
 
-def mentions_env_file(tokens, skipped):
+def mentions_env_file(tokens, literal_positions):
+    inspected = (
+        executed_part(token) if index in literal_positions else token
+        for index, token in enumerate(tokens)
+    )
     return any(
         match.group(1) not in ENV_TEMPLATE_SUFFIXES
-        for index, token in enumerate(tokens)
-        if index not in skipped
-        for match in ENV_FILE_RE.finditer(token)
+        for text in inspected
+        for match in ENV_FILE_RE.finditer(text)
     )
 
 
@@ -143,6 +181,7 @@ def deny_reason(command, branch):
             return reason
 
     for tokens in split_simple_commands(command):
+        tokens = strip_command_prefix(tokens)
         parsed = git_subcommand(tokens)
         if mentions_env_file(tokens, literal_text_positions(tokens, parsed)):
             return '.env（秘密情報）へのアクセスは禁止です'
