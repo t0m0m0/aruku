@@ -48,10 +48,10 @@ TypeScript / React のコーディングスタイルは別の `reviewer` エー�
 
 ## レビューの手順
 
-1. 対象 diff を取得する（PR番号が渡されていれば `gh pr diff PR番号`、なければ `git diff` で未コミット差分）
+1. 対象 diff を取得する（PR番号が渡されていれば `gh api repos/t0m0m0/aruku/pulls/PR番号 -H "Accept: application/vnd.github.diff"`、なければ `git diff` で未コミット差分）
 2. `firestore.rules` 等のルールファイルがあれば必ず読む
 3. 上記観点で問題点を重大度（高/中/低）付きでリストアップする
-4. PR レビュー対象なら `gh pr review PR番号 --comment --body "..."`、重大な問題は `--request-changes` で投稿する
+4. PR レビュー対象なら `gh api repos/t0m0m0/aruku/pulls/PR番号/reviews -f event=COMMENT -f body="..."`、重大な問題は `event=REQUEST_CHANGES` で投稿する（`gh pr` は GraphQL でクラウドのプロキシに拒否される）
 
 ## 注意
 

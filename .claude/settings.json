@@ -1,5 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -34,6 +40,19 @@
             "model": "claude-sonnet-5",
             "timeout": 180,
             "statusMessage": "コメントとコードの整合を確認中"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/typecheck_on_edit.py\"",
+            "timeout": 90,
+            "statusMessage": "型検査中"
           }
         ]
       }
