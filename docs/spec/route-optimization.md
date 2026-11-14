@@ -36,7 +36,7 @@
 | **締切（deadline）** | 失敗ではなく**打ち切り**。Transit の引き直しにだけ掛け、徒歩実測には掛けない | §2.4 |
 | **truncated** | 締切で打ち切られた印。境界が本来より手前になり得るので分布から除く | §3.8 |
 | **臨界パス / 段数 / 幅** | 壁時計を決める最長の連鎖と、直列に積んだ上流呼び出しの数／1段の同時発行数。**段数が床を決める**——固定パスの中で幅を広げても床は下がらない。ただし board-search は幅が段数に効く（ラウンド数が `O(log_{fanout+1}(count))`）ので、そこでは fanout 拡大が段数の削減になる（§3.6） | §3.8 |
-| **パス（pass）** | 候補群を1回の `Promise.all` でまとめて実測する単位。パス間は直列、パス内は並列 | §3.7 |
+| **パス（pass）** | 候補群をまとめて並列に実測する単位。パス間は直列、パス内は並列。勝者が決まった時点で抜ける | §3.7 |
 | **反実仮想** | 同じ実行の中で「もし直列を解いていたら」を同時に計算する測り方。別 run の A/B では上流のばらつきと区別できない | §3.8 |
 
 ### 0.1 「縮退」は2つの異なるものを指す
@@ -295,9 +295,12 @@
 
 崩壊が見込まれない通常ルートでは、確定選定の前に**見積り予算内候補を1回の並列パスで先行実測**して enrich キャッシュを温める。以降の winner-phase はキャッシュヒットで純粋計算に畳まれ、勝者棄却時のフォールバック実測も1パスに統合される。判定は見積り勝者で行い実測を待たない（崩壊判定は見積り基準）。温める候補は `prewarmFront`（§5）が決める：
 
-- **Option B（既定）:** 見積り勝者だけを温める。勝者が最上位徒歩 tier で即生存する標準乗換中心のルートでは、これで1パスに収まり guidance ファンアウトも最小。**勝者以外を投機的に温めない**——返るのは1本だけで、勝者が生存する共通ケースでは下位候補の実測結果はどこにも使われないうえ、`plan()` は全実測を `await` するため遅い候補が応答を引き延ばしレート枠も消費する。棄却時の次候補は winner-phase の tier 実測が改めて測る。
-- **Option A（reject 多発時）:** 見積り予算内ハイブリッドが `singlePassHybridThreshold`（=3）件以上並ぶルートでは、**予算内短リスト全体（`measureShortlist` の上位 `maxMeasureShortlist` 件）**を1パスで先行実測する。時刻なしハイブリッドは見積りが楽観で実測すると予算超過・乗り遅れに転じやすく（§4 #137）、フロントだけ温めると「勝者棄却 → 残りを一括実測」が2パス逐次になる。短リスト全体を先に温めれば確定選定の tier 実測は全てキャッシュヒットになる。
+- **Option B（既定）:** 見積り勝者だけを温める。勝者が最上位徒歩 tier で即生存する標準乗換中心のルートでは、これで1パスに収まり guidance ファンアウトも最小。**勝者以外を投機的に温めない**——返るのは1本だけで、勝者が生存する共通ケースでは下位候補の実測結果はどこにも使われないうえ、発行した実測は上流のレート枠を消費する。棄却時の次候補は winner-phase の tier 実測が改めて測る。
+- **Option A（reject 多発時）:** 見積り予算内ハイブリッドが `singlePassHybridThreshold`（=3）件以上並ぶルートでは、**予算内短リスト全体（`measureShortlist` の上位 `maxMeasureShortlist` 件）**を1パスで先行実測する。時刻なしハイブリッドは見積りが楽観で実測すると予算超過・乗り遅れに転じやすく（§4 #137）、フロントだけ温めると「勝者棄却 → 残りを一括実測」が2パス逐次になる。短リスト全体を先に温めれば、確定選定の tier 実測はキャッシュヒットか実測中の照会への相乗りになり、発行し直さない。
 - **発火条件にハイブリッド数を使う理由:** 無条件 Option A は共通ケースでも下位候補まで測って guidance ファンアウトを増やす（1検索最大13）。ハイブリッド数はルートの reject 起きやすさの指標で、標準乗換（実ダイヤ由来で reject しにくい）中心のルートを巻き込まない。徒歩 tier の深さでは標準中心ルートと区別できない。
+- **勝者が決まった時点でパスを抜ける（#497）:** 先行実測も確定選定の tier バッチも、候補を選好順に並べて並列に測り、**順で最初の生存者が決まった時点**で返る（`measureUntilWinner`）。それより上位が全部「棄却」と決着していることが条件で、上位が未決着のうちは下位が生存していても確定しない。下位の応答を待たないのは、生存しても棄却されても勝者を変えないから——全部を待つと、引き直しの最遅1本（上流の裾・§2.2-6）がパスの所要になる。
+  - **発行する本数は変わらない。** 待たなかった実測は止めず（止める口が無い）、`plan()` を抜けた時点で検索スコープのクライアントが閉じて切れる。後のパス（崩壊後の再選定など）が同じ候補を測るときは、実測中の照会へ相乗りする。
+  - **A/B 計測の B' だけは全部を待つ。** 落ちた候補を数える（`transferDropped`・§3.8）ので、勝者より後ろの候補も結末まで見る。
 - **cache 整合の不変条件:** 先行実測（Option A）と確定選定の tier 実測は**同一の `measureShortlist`**（同一集合・同一順序）を測る。両者がずれると温めたキャッシュがヒットせず1パスへ畳めないため、短リストの並びは単一実装に集約する。
 
 ### 3.8 計測 `RouteSearchMetrics`
@@ -306,7 +309,7 @@
 
 ```
 [route-metrics] collapse=1 boardSearch=1 singlePass=0 http=45
-  guidanceCalls=13 walkCalls=21 matrixCalls=11 guidanceDupCalls=0
+  guidanceCalls=13 walkCalls=21 matrixCalls=11 guidanceDupCalls=0 guidanceCacheHits=0
   arrivalWaveOutcome=0 arrivalWaveOptions=2 arrivalWaveBaseUsed=1 arrivalWaveWon=0
   guidanceMs=10217 hybridMs=7213 enrichMs=5563 boardSearchMs=70334
   finalizeMs=0 totalMs=93361
@@ -317,7 +320,8 @@
 | 発火 | `collapse` / `boardSearch` / `singlePass` | 崩壊判定・board-search 起動・Option A 発火（0/1。総数で割れば発火率） |
 | 〃 | `boardSearchSpeculated` / `boardSearchSpeculationWasted` / `boardSearchSpeculationProbes` | 電車系 board-search の投機起動（§3.6・#341）・その空振り・空振りが上流へ捨てた probe 本数。**空振り率の分母は総検索数ではなく投機件数**（総数で割ると、投機の起きないルートを混ぜたぶんだけ当たって見える）。`boardSearch` とは別に持つ——空振りは候補をプールへ1件も足しておらず、同じ印にすると board-search 本体の起動率が読めなくなる |
 | 往復本数 | `guidanceCalls` / `walkCalls` / `matrixCalls` / `exactCalls` / `http` | 実際に GET を発行した回数（種別ごと＋合計）。締切切れ・キャンセルで発行前に落ちた要求は数えない |
-| 〃 | `guidanceDupCalls` | 同一 guidance URI の重複発行数＝per-search キャッシュで消せる上限 |
+| 〃 | `guidanceDupCalls` | 同一 guidance URI を発行し直した本数。応答は検索内で覚えて使い回すので（§4 #499）、ここに入るのは失敗した照会の引き直しだけ |
+| 〃 | `guidanceCacheHits` | 発行せずに、同じ検索で覚えた応答（応答待ちへの相乗りを含む）で返した guidance の本数（§4 #499）。`guidanceCalls` には入らない |
 | 〃 | `matrixElements` | 徒歩マトリクスで発行した要素数（origins × destinations）の合計。課金の単位で、board-search の t1 走査も含む |
 | 〃 | `accessMatrixRequestedLegs` / `accessMatrixUniqueLegs` | アクセス徒歩（§3.1 の measureAccessWalks）を base ごとに投げていたら測るレッグ数と、検索単位で集約したユニークな有向レッグ数（#485）。差が集約で消えた重複。後者には実測済みで要求を省いたレッグも含む |
 | 到着アンカー波 | `arrivalWaveOutcome` / `arrivalWaveOptions` | 第2波（§3.1・#376）の結末コード（`0`=ok／`1`=猶予切れ／`2`=HTTP・パース不能／`3`=200 だが option 0本。`-1` は第2波を待つ前＝未確定）と、dedup 後に候補プールへ**純増**した option 数。`0`（ok）でも `Options=0` なら、その経路では departure 波と同じ便しか返らなかった＝何も足していない |
@@ -327,7 +331,7 @@
 | 〃 | `walkBPrime` / `transferCandidates` / `transferDropped` / `transferWon` | §3.9 の B'（#474）。`walkBPrime` は B の勝者と乗換つきの候補から選び直した確定経路の徒歩（分。A/B モードでなければ -1。乗換つきの候補が無ければ選び直さず `walkB` と同じ）で、`walkBPrime − walkB` は乗換つきの候補だけから来る。`transferCandidates` は足した候補数で、**`-1` は A/B モードでない・失敗・猶予切れ**、`0` は候補が無い（`exactCandidates` と同じ分け方）。`transferDropped` はそのうち乗換の徒歩を実測できなかった数と enrich で実測して落ちた数の合計で、上の徒歩 tier で勝者が決まって実測まで届かなかった候補は数えない。落ちた割合の分母に足した候補数を使うと低く出る。`transferWon` は B' の確定候補が乗換つきの候補か |
 | フェーズ所要 | `guidanceMs` / `hybridMs` / `enrichMs` / `boardSearchMs` / `finalizeMs` / `totalMs` | 各区間の実時間。**崩壊時の再選定は `boardSearchMs` と `enrichMs` の両方に入る**——台帳（下2行）が再選定の enrich も積むので、時計だけ board-search 突入で止めると計上外の残りが負に化ける。意図的な重なりなので、フェーズを足し上げるときは注意する |
 | 〃 | `boardSearchMs` の読み方（#341 以降） | **電車系 board-search で「なお直列に待った」残りの時間**であって、探索が始まってから終わるまでの全体ではない（`busLastResortMs` と同じ語法）。投機起動（§3.6）が enrich と並行に走るぶん `totalMs` への寄与が減り、投機が完全に間に合えば電車系の寄与は 0 に近づく——それがこの最適化の効き目そのもの。**したがって #341 前後で `boardSearchMs` を直接比較してはいけない**（縮んだのは段であって探索ではない）。探索そのものの重さは `boardSearchRounds` と `boardSearchProbeSerialMs` で見る。区間には依然としてバス系の探索と崩壊後の再選定が含まれる |
-| enrich 内訳 | `enrichCriticalMs` / `enrichWalkMs` / `enrichPasses` / `enrichResolveDepth` / `enrichCandidates` | 測定口 `measureCandidate` を通る臨界パスの所要・パス数・区間解決の段数・測った候補数。壊れた応答で落ちた候補も**払った壁時計ごと計上する**（障害時ほど小さく出る歪みを避ける）。**縮退パス（`bestEffortResolved`・バス last-resort・再帰）はここを通らない**。`enrichWalkMs` は臨界パスのうち徒歩 enrich が占めた分で、差 `enrichCriticalMs − enrichWalkMs` が実発車時刻の引き直しに消えた分。**この対でしか短縮の打ち手は決まらない**——徒歩なら往復の削減、引き直しなら段数の削減と、手が正反対になる。内訳は最遅候補と対で採る（`max` を取らない） |
+| enrich 内訳 | `enrichCriticalMs` / `enrichWalkMs` / `enrichPasses` / `enrichResolveDepth` / `enrichCandidates` / `enrichAbandoned` | 測定口 `measureCandidate` を通る臨界パスの所要・パス数・区間解決の段数・測った候補数・勝者が決まった時点で応答を待たなかった候補数（§3.7・#497）。**臨界パスと段数は待った候補だけから採る**——待たなかった候補の応答は壁時計を払わせていない（発行はしているので `enrichCandidates` には入る）。`enrichAbandoned>0` の検索が、早抜けで最遅の応答を待たずに済んだ検索。壊れた応答で落ちた候補も**払った壁時計ごと計上する**（障害時ほど小さく出る歪みを避ける）。**縮退パス（`bestEffortResolved`・バス last-resort・再帰）はここを通らない**。`enrichWalkMs` は臨界パスのうち徒歩 enrich が占めた分で、差 `enrichCriticalMs − enrichWalkMs` が実発車時刻の引き直しに消えた分。**この対でしか短縮の打ち手は決まらない**——徒歩なら往復の削減、引き直しなら段数の削減と、手が正反対になる。内訳は最遅候補と対で採る（`max` を取らない） |
 | 縮退内訳 | `bestEffortMs` / `bestEffortEntries` / `bestEffortCandidates` / `bestEffortResolveDepth` / `bestEffortRetries` | best-effort 縮退の所要・突入回数・解決したのべ候補数（`maxMeasureShortlist` の上限が効かない幅）・1候補の直列段数・乗り遅れ除外の再試行段数 |
 | 〃 | `busLastResortMs` | バス last-resort で**なお直列に待った**時間。照会は縮退と並行して投機発行するので発行〜完了の全体ではなく残りの待ちで、0 に近いほど投機が効いている |
 | 探索 | `boardSearchRounds` / `boardSearchScanCount` / `boardSearchBest` / `truncated` / `probeFailed` | ラウンド数・走査対象の点数・評価済み予算内で最遠の index・締切打ち切り・プローブ失敗 |
@@ -396,6 +400,12 @@
 
 - 採用経路の徒歩実測（enrich）は `plan()` スコープでレッグ（start|goal 座標を小数5桁丸めしたキー）単位にキャッシュする。**失敗（null）は負キャッシュしない**（一時的な通信失敗が検索全体へ波及しない）。
 
+### #499 — guidance 照会の検索内キャッシュ
+
+- `/guidance/plan` の応答は `plan()` スコープで URI（from/to/date/time/type/avoidModes）単位に覚え、同じ照会は発行せずに使い回す。応答待ちの照会と同じ照会は、その応答を待って相乗りする。別々の候補が同じ電車区間を持つとき（並列の実測で同時に重なる）や、best-effort 縮退・board-search が直前のパスで引いた区間を引き直すときに効く。
+- **失敗（非200・TIMEOUT・通信エラー）は覚えない。** タイムアウトした区間をその検索の間ずっと引けなくすると、後の引き直しで救えたはずの候補まで `unverified` で落ちる。#116 と同じく、一時的な失敗を検索全体へ波及させない。
+- 寿命は検索1回（`TransitApiClient` は検索ごとに作り捨て・#259）。検索をまたいで古いダイヤを返すことは無い。覚えた応答で返すときもキャンセルは確かめる。
+
 ### #121 — 深夜帯・日跨ぎ・タイムゾーン
 
 - **①日跨ぎ:** 出発の絶対時刻 `departureAt` は **ユーザー選択の壁時計値そのもの**を持つ naive な `Date`（TZ 変換しない）。これを基点に待ち時間を算出するため端末 TZ に依存しない。`dateOffset`（翌日など）を反映。
@@ -420,7 +430,7 @@ Transit API 経路（`transit-route-service.ts`）固有。
 - **機構（2つの確定境界を塞ぐ）:**
   - `bestEffortResolved`: 選んだ候補を enrich してから `firstMissedTransit` を測り直し、乗り遅れが判明したら除外して選び直す。**予算超過では除外しない**（best-effort は予算内候補が無いときの縮退先なので、超過は想定内で最早到着こそが選定基準）。見積りの足切り（`reachableWithinBudget`）は enrich の IO 回数を減らす安価な前段として残す。
     - **この除外ループに試行上限を置いてはならない。** プールは毎反復で厳密に1件減るため停止性は候補数が保証しており、上限は「全徒歩へ到達する前に打ち切って乗り遅れ経路を返す」＝不変条件を壊す方向にしか働かない。enrich の IO も `walkCache`（#116）が同一レッグを1回に畳む。
-  - `selectAndEnrich` の確定パス: 見積り予算内の短リスト（`measureShortlist`）を候補**間並列**の tier バッチで実測し、実測で脱落（予算超過・乗り遅れ・時刻なし transit）した候補は勝者から外す。短リストを測り尽くしても勝者が残らなければ `overBudget` / `missedAfterEnrich` / `unverifiedTransit` を素通りさせず、検証済みの best-effort へ縮退する。
+  - `selectAndEnrich` の確定パス: 見積り予算内の短リスト（`measureShortlist`）を候補**間並列**の tier バッチで実測し、実測で脱落（予算超過・乗り遅れ・時刻なし transit）した候補は勝者から外す。勝者にするのは、選好順でそれより上位の候補が全部脱落と決着した生存者だけ（§3.7・#497）。短リストを測り尽くしても勝者が残らなければ `overBudget` / `missedAfterEnrich` / `unverifiedTransit` を素通りさせず、検証済みの best-effort へ縮退する。
 - **`arrivalMinutes` の楽観近似は変更しない。** 「選定（予算判定）と表示（タイムライン）が同じ到着時刻を用いる」（`route-plan-builder.ts` の設計方針）を壊さないため。上記2境界で乗り遅れ経路を確定させなければ、この近似がユーザーに観測されることはない。
 
 ### 逆戻りフィルタ

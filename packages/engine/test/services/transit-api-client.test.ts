@@ -78,22 +78,123 @@ describe('fetchGuidanceAt', () => {
     expect(captured.searchParams.get('avoidModes')).toEqual('ferry,air');
   });
 
-  it('同一リクエストの再発行を guidanceDupCalls に数える（enrich 削減の実測）', async () => {
-    const c = client(mockClient(() => jsonResponse({ ok: true })));
+  it('同じ問い合わせは1検索の中で1本だけ発行し、2回目以降は同じ応答を返す', async () => {
+    let calls = 0;
+    const c = client(
+      mockClient(() => {
+        calls++;
+        return jsonResponse({ ok: true });
+      }),
+    );
     const from = new GeoPoint(35.1, 139.2);
     const to = new GeoPoint(35.3, 139.4);
     const at = dateTime(2026, 6, 27, 9, 5);
 
-    await c.fetchGuidanceAt(from, to, at); // 初回＝ユニーク
-    await c.fetchGuidanceAt(from, to, at); // 同一 URI＝重複
-    await c.fetchGuidanceAt(from, to, at); // 同一 URI＝重複
-    // 目的地違いは別 URI＝重複でない。
-    await c.fetchGuidanceAt(from, new GeoPoint(35.9, 139.9), at);
-    // モード違い（allowBus）も avoidModes が変わり別 URI。
-    await c.fetchGuidanceAt(from, to, at, { allowBus: true });
+    expect(await c.fetchGuidanceAt(from, to, at)).toEqual({ ok: true });
+    expect(await c.fetchGuidanceAt(from, to, at)).toEqual({ ok: true });
+    expect(await c.fetchGuidanceAt(from, to, at)).toEqual({ ok: true });
 
-    expect(c.guidanceCalls).toEqual(5);
+    expect(calls).toEqual(1);
+    expect(c.guidanceCalls).toEqual(1);
+    expect(c.guidanceCacheHits).toEqual(2);
+    expect(c.guidanceDupCalls).toEqual(0);
+  });
+
+  it('応答待ちの問い合わせと同じ問い合わせは、発行せずにその応答を待つ', async () => {
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const c = client(
+      mockClient(async () => {
+        calls++;
+        await gate;
+        return jsonResponse({ ok: true });
+      }),
+    );
+    const from = new GeoPoint(35.1, 139.2);
+    const to = new GeoPoint(35.3, 139.4);
+    const at = dateTime(2026, 6, 27, 9, 5);
+
+    const first = c.fetchGuidanceAt(from, to, at);
+    const second = c.fetchGuidanceAt(from, to, at);
+    release();
+
+    expect(await Promise.all([first, second])).toEqual([{ ok: true }, { ok: true }]);
+    expect(calls).toEqual(1);
+    expect(c.guidanceCacheHits).toEqual(1);
+  });
+
+  it('呼び出し側が応答を書き換えても、次の呼び出しには元の応答を返す', async () => {
+    const c = client(mockClient(() => jsonResponse({ plans: [1] })));
+    const from = new GeoPoint(35.1, 139.2);
+    const to = new GeoPoint(35.3, 139.4);
+    const at = dateTime(2026, 6, 27, 9, 5);
+
+    const first = await c.fetchGuidanceAt(from, to, at);
+    first['plans'] = [];
+
+    expect(await c.fetchGuidanceAt(from, to, at)).toEqual({ plans: [1] });
+  });
+
+  it('条件が違う問い合わせ（目的地・時刻・バス可否・出発/到着の別）は別々に発行する', async () => {
+    let calls = 0;
+    const c = client(
+      mockClient(() => {
+        calls++;
+        return jsonResponse({ ok: true });
+      }),
+    );
+    const from = new GeoPoint(35.1, 139.2);
+    const to = new GeoPoint(35.3, 139.4);
+    const at = dateTime(2026, 6, 27, 9, 5);
+
+    await c.fetchGuidanceAt(from, to, at);
+    await c.fetchGuidanceAt(from, new GeoPoint(35.9, 139.9), at);
+    await c.fetchGuidanceAt(from, to, dateTime(2026, 6, 27, 9, 6));
+    await c.fetchGuidanceAt(from, to, at, { allowBus: true });
+    await c.fetchGuidanceArrivalAt(from, to, at, 0);
+
+    expect(calls).toEqual(5);
+    expect(c.guidanceCacheHits).toEqual(0);
+  });
+
+  it('失敗した問い合わせは覚えず、次に同じ問い合わせが来たら発行し直す', async () => {
+    let calls = 0;
+    const c = client(
+      mockClient(() => {
+        calls++;
+        if (calls === 1) throw new TimeoutException('slow');
+        return calls === 2 ? jsonResponse({}, 503) : jsonResponse({ ok: true });
+      }),
+    );
+    const from = new GeoPoint(35.1, 139.2);
+    const to = new GeoPoint(35.3, 139.4);
+    const at = dateTime(2026, 6, 27, 9, 5);
+
+    await expectThrowsA(() => c.fetchGuidanceAt(from, to, at), RouteException);
+    await expectThrowsA(() => c.fetchGuidanceAt(from, to, at), RouteException);
+    expect(await c.fetchGuidanceAt(from, to, at)).toEqual({ ok: true });
+
+    expect(calls).toEqual(3);
+    expect(c.guidanceCacheHits).toEqual(0);
     expect(c.guidanceDupCalls).toEqual(2);
+  });
+
+  it('応答を覚えている問い合わせでも、キャンセル後は SearchCanceledException を投げる', async () => {
+    const token = new CancellationToken();
+    const c = new TransitApiClient({
+      transitClient: mockClient(() => jsonResponse({ ok: true })),
+      transitBaseUrl: transitBase,
+      cancellation: token,
+    });
+    const from = new GeoPoint(35.1, 139.2);
+    const to = new GeoPoint(35.3, 139.4);
+    const at = dateTime(2026, 6, 27, 9, 5);
+
+    await c.fetchGuidanceAt(from, to, at);
+    token.cancel();
+
+    await expectThrowsA(() => c.fetchGuidanceAt(from, to, at), SearchCanceledException);
   });
 
   it('非200は RouteException(HTTP <code>)', async () => {
