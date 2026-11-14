@@ -339,8 +339,11 @@ export class RouteSearchMetrics {
   /// `/guidance/plan` の実 HTTP 往復本数（初回＋引き直し）。
   guidanceCalls = 0;
 
-  /// [guidanceCalls] のうち同一リクエストの重複発行だった本数。
+  /// [guidanceCalls] のうち同一リクエストを発行し直した本数（失敗した照会の引き直し）。
   guidanceDupCalls = 0;
+
+  /// 発行せずに、同じ検索で覚えた応答（応答待ちを含む）で返した guidance の本数。
+  guidanceCacheHits = 0;
 
   /// 到着アンカー第2波（#376）の結末。null は第2波を await する前＝未確定で、
   /// 1行ログには -1 で出す。
@@ -508,6 +511,7 @@ export class RouteSearchMetrics {
       `accessMatrixUniqueLegs=${this.accessMatrixUniqueLegs} ` +
       `exactCalls=${this.exactCalls} ` +
       `guidanceDupCalls=${this.guidanceDupCalls} ` +
+      `guidanceCacheHits=${this.guidanceCacheHits} ` +
       `arrivalWaveOutcome=${this.arrivalWaveOutcome ?? -1} ` +
       `arrivalWaveOptions=${this.arrivalWaveOptions} ` +
       `arrivalWaveBaseUsed=${flag(this.arrivalWaveBaseUsed)} ` +

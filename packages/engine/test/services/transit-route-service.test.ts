@@ -5163,8 +5163,12 @@ describe('plan: バス last-resort 再照会 (#250)', () => {
     log?: URL[];
     busDelay?: number;
     corridorDelay?: number;
-  }): HttpClient =>
-    mockClient(async (url) => {
+    /// 引き直しの各区間の1回目を 503 で落とす。失敗した照会は覚えないので、縮退プールの
+    /// 解決が同じ区間を改めて発行する（覚えた応答で即座に返らない）。
+    corridorFailsFirst?: boolean;
+  }): HttpClient => {
+    const corridorSeen = new Set<string>();
+    return mockClient(async (url) => {
       a.log?.push(url);
       const path = url.pathname;
       if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
@@ -5180,6 +5184,12 @@ describe('plan: バス last-resort 再照会 (#250)', () => {
         // 効き目は「バス応答が縮退プールの解決中に返り切るか」なので、両者の遅延差でしか
         // 決定的に固定できない。
         if (allowsBus && (a.busDelay ?? 0) > 0) await delay(a.busDelay!);
+        if (!allowsBus && !fromOrigin && (a.corridorFailsFirst ?? false)) {
+          if (!corridorSeen.has(url.href)) {
+            corridorSeen.add(url.href);
+            return json({}, 503);
+          }
+        }
         if (!allowsBus && !fromOrigin && (a.corridorDelay ?? 0) > 0) {
           await delay(a.corridorDelay!);
         }
@@ -5195,6 +5205,7 @@ describe('plan: バス last-resort 再照会 (#250)', () => {
       }
       return json({}, 404);
     });
+  };
 
   it('バス照会を縮退プール解決と並行に発行し、直列の段を消す', async () => {
     // giveUp は best-effort の結果が出るまで採用の可否を決められないが、照会自体はその
@@ -5208,6 +5219,7 @@ describe('plan: バス last-resort 再照会 (#250)', () => {
         originOption: missedTrainOption(),
         busDelay: 60,
         corridorDelay: 200,
+        corridorFailsFirst: true,
       }),
       { onMetrics: (m) => (captured = m) },
     );

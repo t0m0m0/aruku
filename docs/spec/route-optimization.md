@@ -309,7 +309,7 @@
 
 ```
 [route-metrics] collapse=1 boardSearch=1 singlePass=0 http=45
-  guidanceCalls=13 walkCalls=21 matrixCalls=11 guidanceDupCalls=0
+  guidanceCalls=13 walkCalls=21 matrixCalls=11 guidanceDupCalls=0 guidanceCacheHits=0
   arrivalWaveOutcome=0 arrivalWaveOptions=2 arrivalWaveBaseUsed=1 arrivalWaveWon=0
   guidanceMs=10217 hybridMs=7213 enrichMs=5563 boardSearchMs=70334
   finalizeMs=0 totalMs=93361
@@ -320,7 +320,8 @@
 | 発火 | `collapse` / `boardSearch` / `singlePass` | 崩壊判定・board-search 起動・Option A 発火（0/1。総数で割れば発火率） |
 | 〃 | `boardSearchSpeculated` / `boardSearchSpeculationWasted` / `boardSearchSpeculationProbes` | 電車系 board-search の投機起動（§3.6・#341）・その空振り・空振りが上流へ捨てた probe 本数。**空振り率の分母は総検索数ではなく投機件数**（総数で割ると、投機の起きないルートを混ぜたぶんだけ当たって見える）。`boardSearch` とは別に持つ——空振りは候補をプールへ1件も足しておらず、同じ印にすると board-search 本体の起動率が読めなくなる |
 | 往復本数 | `guidanceCalls` / `walkCalls` / `matrixCalls` / `exactCalls` / `http` | 実際に GET を発行した回数（種別ごと＋合計）。締切切れ・キャンセルで発行前に落ちた要求は数えない |
-| 〃 | `guidanceDupCalls` | 同一 guidance URI の重複発行数＝per-search キャッシュで消せる上限 |
+| 〃 | `guidanceDupCalls` | 同一 guidance URI を発行し直した本数。応答は検索内で覚えて使い回すので（§4 #499）、ここに入るのは失敗した照会の引き直しだけ |
+| 〃 | `guidanceCacheHits` | 発行せずに、同じ検索で覚えた応答（応答待ちへの相乗りを含む）で返した guidance の本数（§4 #499）。`guidanceCalls` には入らない |
 | 〃 | `matrixElements` | 徒歩マトリクスで発行した要素数（origins × destinations）の合計。課金の単位で、board-search の t1 走査も含む |
 | 〃 | `accessMatrixRequestedLegs` / `accessMatrixUniqueLegs` | アクセス徒歩（§3.1 の measureAccessWalks）を base ごとに投げていたら測るレッグ数と、検索単位で集約したユニークな有向レッグ数（#485）。差が集約で消えた重複。後者には実測済みで要求を省いたレッグも含む |
 | 到着アンカー波 | `arrivalWaveOutcome` / `arrivalWaveOptions` | 第2波（§3.1・#376）の結末コード（`0`=ok／`1`=猶予切れ／`2`=HTTP・パース不能／`3`=200 だが option 0本。`-1` は第2波を待つ前＝未確定）と、dedup 後に候補プールへ**純増**した option 数。`0`（ok）でも `Options=0` なら、その経路では departure 波と同じ便しか返らなかった＝何も足していない |
@@ -398,6 +399,12 @@
 ### #116 — 徒歩実測のレッグ単位キャッシュ
 
 - 採用経路の徒歩実測（enrich）は `plan()` スコープでレッグ（start|goal 座標を小数5桁丸めしたキー）単位にキャッシュする。**失敗（null）は負キャッシュしない**（一時的な通信失敗が検索全体へ波及しない）。
+
+### #499 — guidance 照会の検索内キャッシュ
+
+- `/guidance/plan` の応答は `plan()` スコープで URI（from/to/date/time/type/avoidModes）単位に覚え、同じ照会は発行せずに使い回す。応答待ちの照会と同じ照会は、その応答を待って相乗りする。別々の候補が同じ電車区間を持つとき（並列の実測で同時に重なる）や、best-effort 縮退・board-search が直前のパスで引いた区間を引き直すときに効く。
+- **失敗（非200・TIMEOUT・通信エラー）は覚えない。** タイムアウトした区間をその検索の間ずっと引けなくすると、後の引き直しで救えたはずの候補まで `unverified` で落ちる。#116 と同じく、一時的な失敗を検索全体へ波及させない。
+- 寿命は検索1回（`TransitApiClient` は検索ごとに作り捨て・#259）。検索をまたいで古いダイヤを返すことは無い。覚えた応答で返すときもキャンセルは確かめる。
 
 ### #121 — 深夜帯・日跨ぎ・タイムゾーン
 

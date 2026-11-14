@@ -339,6 +339,7 @@ export class TransitRouteService implements SearchEngine {
     metrics.totalMs = totalSw.elapsedMilliseconds;
     metrics.guidanceCalls = this.api.guidanceCalls;
     metrics.guidanceDupCalls = this.api.guidanceDupCalls;
+    metrics.guidanceCacheHits = this.api.guidanceCacheHits;
     metrics.walkCalls = this.api.walkCalls;
     metrics.matrixCalls = this.api.matrixCalls;
     metrics.matrixElements = this.api.matrixElements;
