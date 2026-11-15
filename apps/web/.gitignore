@@ -12,3 +12,7 @@ playwright-report/
 .env
 .env.*
 !.env.example
+
+# 再生ハーネス（docs/ops/replay-bench.md）のビルド出力と、録画・計測結果の既定の置き場所。
+# 録画は第三者 API（Transit API）の応答そのもので数十 MB になるので追跡しない。
+.replay/

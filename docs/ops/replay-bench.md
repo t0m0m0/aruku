@@ -1,0 +1,88 @@
+# Transit 応答の録画・再生ハーネスの回し方（#504）
+
+Transit API（`/guidance/plan`）の応答を URL ごとに録画し、同じ応答を録画した遅延で返して、
+エンジンの2つの版を比べる。上流は中央値 9〜11 秒・裾 30 秒超とばらつく
+（`docs/spec/route-optimization.md` §2.2-6）ので、別々に実 API で回すと「版の差」と
+「上流の調子」を区別できない。録画を共有すれば、差は版からしか来ない。
+
+本体は `apps/web/src/bench/replay/`。検索の組み立てと JSONL の1行は、ブラウザのベンチ
+（`bench-runner.ts`・`docs/ops/exact-ab-bench.md`）と同じものを使う。
+
+## 何が本物で、何が模擬か
+
+| 部分 | 扱い |
+|---|---|
+| Transit API | 録画の再生。録画に無い照会だけ実 API へ取りに行き（`misses`）、録画に足す |
+| 徒歩プロキシ（`googleWalkProxy`・`googleWalkMatrixProxy`） | **合成応答。** 直線距離×1.25 を分速 80m で歩いた所要を、固定の遅延（単発 600ms・マトリクス 900ms）で返す（`synthetic-walk.ts`）。本物は App Check が要り、ブラウザの外から叩けないため。**徒歩の実測が効く結果（enrich で落ちる候補・徒歩分）は実際と違い得る** |
+| 厳密走査（`exactWalkMax`） | 使わない（404 を返す）。ハーネスは `exactWalkMax` を有効にしない |
+| 1本の上限 | 録画時は `transitRequestTimeout`（35 秒）で打ち切る。再生時の `--refetch-limit-ms` は**ハーネス側の模擬**で、エンジンの定数は通らない。初回の2波（出発地→目的地・電車のみ）には掛けない |
+| 出発日 | `--date` で固定する。照会 URL に日付が入るので、録画と同じ日を渡さないと全部外れる。エンジンの「今日」もこの日にする |
+
+## 手順
+
+前提: `npm --prefix apps/web ci` 済み。`apps/web/.env` は不要（ビルドは `.env` を読まない）。
+
+1. **録画する**（実 API を直列に叩く。検索の間に 3 秒置く）
+
+   ```sh
+   cd apps/web
+   node scripts/replay.mjs -- --mode record --store .replay/rec.json \
+     --out .replay/record.jsonl --date 2026-11-16 --slots 12:00 --ratios 1.2,1.5,2
+   ```
+
+   - 出発日は録画する日より後の日にする（今日より前の日は検索を組めない）。平日と土休日で時刻表が違うので、比べる計測の中で曜日を揃える
+   - `--pairs '^yokohama-kawasaki$'` で組（`od-pairs.ts` の `id`）を絞れる
+   - 1検索で十数〜数十本を叩く。**ほかの計測と同時に回さない**（第三者 API のレート制限は非公開）
+
+2. **比べる版を用意する**
+
+   ```sh
+   git worktree add /tmp/aruku-base origin/main
+   ```
+
+   エンジンは実行時の依存を持たないので、worktree 側で `npm ci` は要らない（束ねるのは apps/web の vite）。
+
+3. **再生する**（上流は叩かない。並列に回してよい）
+
+   ```sh
+   node scripts/replay.mjs --engine /tmp/aruku-base/packages/engine -- \
+     --store .replay/rec.json --out .replay/base.jsonl --date 2026-11-16 \
+     --slots 12:00 --ratios 1.2,1.5,2 --label main
+   node scripts/replay.mjs -- \
+     --store .replay/rec.json --out .replay/head.jsonl --date 2026-11-16 \
+     --slots 12:00 --ratios 1.2,1.5,2 --label head
+   ```
+
+   - `--engine` を省くと、この作業ツリーの `packages/engine` を使う。束ねるのはエンジンだけで、ハーネス側（`apps/web/src/bench/`）は常にこの作業ツリーのもの
+   - 終わりに stderr へ `misses N` が出る。**0 でなければ、その実行は上流のばらつきを含む**（録画外れを実 API へ取りに行った）。録画は足されるので、もう一度再生すれば当たる
+   - 並列に回した再生が同じ録画へ書き足しても、保存の直前に読み直して合流させるので消えない
+
+4. **集計する**
+
+   ```sh
+   node scripts/replay-report.mjs .replay/base.jsonl .replay/head.jsonl
+   ```
+
+   組・出発時刻・倍率で突き合わせ、検索ごとの所要（`totalMs`）・guidance 本数・経路が同じかと、
+   所要の中央値・平均・p90 を Markdown で出す。経路が違う検索は両方の中身を書き出す。
+
+## 引き直しの上限を模擬する（#503）
+
+```sh
+node scripts/replay.mjs -- --store .replay/rec.json --out .replay/l20000.jsonl \
+  --date 2026-11-16 --refetch-limit-ms 20000 --label l20000
+```
+
+録画の遅延が上限を超える照会（初回の2波を除く）を、上限の時刻にタイムアウトさせる。各行の
+`refetchLimitHits` がその検索で打ち切った本数。打ち切りで別の探索経路に入ると録画に無い照会を
+引くことがあり、そのときは `misses` が立つ（上の注意と同じ）。
+
+## 呼び出し元を記録する
+
+`--url-log .replay/urls.jsonl` を渡すと、発行した Transit の照会ごとに URL と呼び出し元のスタックを
+1行ずつ書く。どの段（実時刻の解決・best-effort・board-search）が何本引いたかを1検索の単位で見るのに使う。
+
+## 置き場所
+
+apps/web の下の `.replay` ディレクトリ（手順の既定の出力先）は `.gitignore` 済み。録画は第三者 API の応答そのもので数十 MB になるので、
+repo に入れない。計測の結論は issue に数字で残す。
