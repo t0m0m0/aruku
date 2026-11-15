@@ -180,6 +180,52 @@ describe('fetchGuidanceAt', () => {
     expect(c.guidanceDupCalls).toEqual(2);
   });
 
+  it('200 でも本文が JSON のオブジェクトとして読めない応答は覚えず、次の同じ問い合わせで発行し直す', async () => {
+    let calls = 0;
+    const c = client(
+      mockClient(() => {
+        calls++;
+        if (calls === 1) return { statusCode: 200, bodyBytes: new TextEncoder().encode('<html>') };
+        if (calls === 2) return jsonResponse([1, 2]);
+        return jsonResponse({ ok: true });
+      }),
+    );
+    const from = new GeoPoint(35.1, 139.2);
+    const to = new GeoPoint(35.3, 139.4);
+    const at = dateTime(2026, 6, 27, 9, 5);
+
+    await expect(c.fetchGuidanceAt(from, to, at)).rejects.toThrow();
+    await expect(c.fetchGuidanceAt(from, to, at)).rejects.toThrow();
+    expect(await c.fetchGuidanceAt(from, to, at)).toEqual({ ok: true });
+
+    expect(calls).toEqual(3);
+    expect(c.guidanceCacheHits).toEqual(0);
+  });
+
+  it('本文の読めない応答を待っていた同時の問い合わせにも、同じ失敗を返す', async () => {
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const c = client(
+      mockClient(async () => {
+        calls++;
+        await gate;
+        return { statusCode: 200, bodyBytes: new TextEncoder().encode('<html>') };
+      }),
+    );
+    const from = new GeoPoint(35.1, 139.2);
+    const to = new GeoPoint(35.3, 139.4);
+    const at = dateTime(2026, 6, 27, 9, 5);
+
+    const first = c.fetchGuidanceAt(from, to, at);
+    const second = c.fetchGuidanceAt(from, to, at);
+    release();
+
+    await expect(first).rejects.toThrow();
+    await expect(second).rejects.toThrow();
+    expect(calls).toEqual(1);
+  });
+
   it('応答を覚えている問い合わせでも、キャンセル後は SearchCanceledException を投げる', async () => {
     const token = new CancellationToken();
     const c = new TransitApiClient({

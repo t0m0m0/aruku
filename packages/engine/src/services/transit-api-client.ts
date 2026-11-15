@@ -99,8 +99,8 @@ export class TransitApiClient {
 
   // guidance の応答（応答待ちを含む）。URI → 応答。クライアントは検索1回ごとに作り捨て
   // （#259）なので寿命＝1検索で、検索をまたいで古いダイヤを返すことは無い。
-  // 失敗は覚えない——タイムアウトした区間をその検索の間ずっと引けなくすると、後の
-  // 引き直しで救えたはずの候補まで落ちる。
+  // 失敗（非200・本文が読めない応答を含む）は覚えない——タイムアウトした区間をその検索の
+  // 間ずっと引けなくすると、後の引き直しで救えたはずの候補まで落ちる。
   private readonly guidanceResponses = new Map<string, Promise<HttpResponse>>();
   private guidanceCacheHitCount = 0;
 
@@ -216,23 +216,22 @@ export class TransitApiClient {
           if (this.guidanceKeys.has(key)) this.guidanceDupCallCount++;
           this.guidanceKeys.add(key);
         },
+      }).then((res) => {
+        if (res.statusCode !== 200) {
+          throw new RouteException(`HTTP ${res.statusCode}`);
+        }
+        decodeJsonMap(res);
+        return res;
       });
       this.guidanceResponses.set(key, response);
-      response.then(
-        (res) => {
-          if (res.statusCode !== 200) this.guidanceResponses.delete(key);
-        },
-        () => this.guidanceResponses.delete(key),
-      );
+      response.catch(() => this.guidanceResponses.delete(key));
     } else {
       this.cancellation?.throwIfCanceled();
       this.guidanceCacheHitCount++;
     }
-    const res = await response;
-    if (res.statusCode !== 200) {
-      throw new RouteException(`HTTP ${res.statusCode}`);
-    }
-    return decodeJsonMap(res);
+    // 覚えた応答も呼び出しごとに読み直す。読んだ JsonMap を共有すると、呼び出し側の
+    // 書き換えが次の呼び出しへ漏れる。
+    return decodeJsonMap(await response);
   }
 
   // ---- Google Routes（プロキシ） ----
