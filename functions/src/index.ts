@@ -1151,7 +1151,7 @@ export const exactWalkMax = onRequest(
       return;
     }
 
-    const parsed = parseExactWalkMaxQuery(req.query as Record<string, unknown>);
+    const parsed = parseExactWalkMaxQuery(req.query as Record<string, unknown>, new Date());
     if ("error" in parsed) {
       res.status(400).json({ error: parsed.error });
       return;

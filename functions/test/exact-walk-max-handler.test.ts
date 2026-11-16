@@ -154,10 +154,14 @@ describe("exactWalkMax", () => {
     verifyTokenMock.mockReset();
     downloadMock.mockReset();
     vi.stubEnv("FUNCTIONS_EMULATOR", "true");
+    // departAt は今から見た範囲しか受けないので、QUERY の日（PACK の運行日）の朝に時計を合わせる。
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-23T00:30:00Z"));
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.useRealTimers();
   });
 
   it("App Check のトークンが無ければ 401 を返し、パックもマトリクスも読まない", async () => {
@@ -186,12 +190,14 @@ describe("exactWalkMax", () => {
     ["departAt に時差が無い", { ...QUERY, departAt: "2026-10-23T10:00:00" }],
     ["budgetMin が0", { ...QUERY, budgetMin: "0" }],
     ["transfers が 0/1 でない", { ...QUERY, transfers: "yes" }],
-  ])("%s入力は 400 を返し、上流を呼ばない", async (_name, query) => {
+    ["departAt が遠い未来", { ...QUERY, departAt: "2099-12-31T10:00:00+09:00" }],
+  ])("%s入力は 400 を返し、時刻表も上流も読まない", async (_name, query) => {
     storageHas(PACK);
 
     const res = await invoke(query);
 
     expect(res.statusCode).toBe(400);
+    expect(downloadMock).not.toHaveBeenCalled();
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
