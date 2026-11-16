@@ -390,22 +390,77 @@ describe("createScanDaySource", () => {
       expect(h.logs.filter((e) => e.event === "timetable_day_compile")).toHaveLength(1);
     });
 
-    it("2日分まで持ち、3日目を引くと一番古い日を組み立て直す", async () => {
-      const h = harness({ permanent: gz(pack("Toei")) });
-      const source = createScanDaySource(h.deps);
-      const compiles = () =>
-        h.logs.filter((e) => e.event === "timetable_day_compile").map((e) => e.serviceDate);
+    describe("持つ運行日と、組み立ての間引き", () => {
+      const jst = (local: string) => Date.parse(`${local}+09:00`);
+      const MINUTE = 60 * 1000;
+      const setup = (now: string) => {
+        const h = harness({ permanent: gz(pack("Toei")) });
+        h.clock.now = jst(now);
+        const compiles = () =>
+          h.logs.filter((e) => e.event === "timetable_day_compile").map((e) => e.serviceDate);
+        return { h, source: createScanDaySource(h.deps), compiles };
+      };
 
-      const first = await source("20261023");
-      expect(await source("20261023")).toBe(first);
-      await source("20261024");
-      await source("20261024");
-      expect(compiles()).toEqual(["20261023", "20261024"]);
+      it("今日と明日の運行日は、ほかの日を引いても追い出さない", async () => {
+        const { h, source, compiles } = setup("2026-10-23T10:00:00");
 
-      await source("20261025");
-      await source("20261024");
-      await source("20261023");
-      expect(compiles()).toEqual(["20261023", "20261024", "20261025", "20261023"]);
+        await source("20261023");
+        await source("20261024");
+        await source("20261101");
+        h.clock.now += MINUTE;
+        await source("20261102");
+        await source("20261023");
+        await source("20261024");
+
+        expect(compiles()).toEqual(["20261023", "20261024", "20261101", "20261102"]);
+      });
+
+      it("今日と明日以外の運行日は1日分だけ持つ", async () => {
+        const { h, source, compiles } = setup("2026-10-23T10:00:00");
+
+        const first = await source("20261101");
+        expect(await source("20261101")).toBe(first);
+        h.clock.now += MINUTE;
+        await source("20261102");
+        h.clock.now += MINUTE;
+        await source("20261101");
+
+        expect(compiles()).toEqual(["20261101", "20261102", "20261101"]);
+      });
+
+      it("今日と明日以外の運行日の組み立ては1分に1回までで、超えた要求には null を返す", async () => {
+        const { h, source, compiles } = setup("2026-10-23T10:00:00");
+        const held = await source("20261101");
+
+        h.clock.now += MINUTE - 1;
+        expect(await source("20261102")).toBeNull();
+        expect(h.logs).toContainEqual(
+          expect.objectContaining({ event: "timetable_day_throttled", serviceDate: "20261102" }),
+        );
+        // 間引いている間も、持っている日はそのまま返す。
+        expect(await source("20261101")).toBe(held);
+
+        h.clock.now += 1;
+        expect(await source("20261102")).not.toBeNull();
+        expect(compiles()).toEqual(["20261101", "20261102"]);
+      });
+
+      it("今日と明日は、ほかの日を組み立てた直後でも間引かない", async () => {
+        const { source } = setup("2026-10-23T10:00:00");
+        await source("20261101");
+
+        expect(await source("20261023")).not.toBeNull();
+        expect(await source("20261024")).not.toBeNull();
+      });
+
+      it("日付が変わると、新しい明日を間引かずに組み立てる", async () => {
+        const { h, source } = setup("2026-10-23T23:59:30");
+        await source("20261101");
+
+        h.clock.now = jst("2026-10-24T00:00:30");
+
+        expect(await source("20261025")).not.toBeNull();
+      });
     });
 
     it("読み直した後は、読み直す前に組み立てた運行日も新しいパックで組み立て直す", async () => {

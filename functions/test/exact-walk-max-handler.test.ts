@@ -249,6 +249,18 @@ describe("exactWalkMax", () => {
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
+  it("今日と明日以外の運行日を1分のうちに変えて引くと、2つ目は組み立てずに 503 を返す", async () => {
+    storageHas(PACK);
+    matrixResponds([]);
+    await invoke({ ...QUERY, departAt: "2026-11-01T10:00:00+09:00" });
+    httpsRequestMock.mockClear();
+
+    const res = await invoke({ ...QUERY, departAt: "2026-11-02T10:00:00+09:00" });
+
+    expect(res.statusCode).toBe(503);
+    expect(httpsRequestMock).not.toHaveBeenCalled();
+  });
+
   it("マトリクスが失敗したら 502 を返す", async () => {
     storageHas(PACK);
     matrixResponds({ error: { code: 403, status: "PERMISSION_DENIED" } }, 403);

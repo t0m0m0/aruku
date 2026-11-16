@@ -1061,7 +1061,7 @@ function newScanDaySource() {
       }
     },
     log: (event) => {
-      if (event.status === "failure" || event.status === "missing") {
+      if (event.status === "failure" || event.status === "missing" || event.status === "throttled") {
         logger.write({ severity: "WARNING", message: String(event.event), ...event });
       } else {
         logger.info(String(event.event), event);
