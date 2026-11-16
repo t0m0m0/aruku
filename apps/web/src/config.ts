@@ -4,7 +4,7 @@
 /// 動かない機能として #386 で UI ごと作らないと決めたため。
 
 /// 経路検索（Transit API）のベース URL の既定。移植元の `transitApiBaseUrl` と同じ。
-const defaultTransitApiBaseUrl = 'https://api.transit.ls8h.com';
+export const defaultTransitApiBaseUrl = 'https://api.transit.ls8h.com';
 
 /// Firebase Web アプリの設定。秘匿値ではない（バンドルへ焼かれ、ブラウザから読める）。
 /// 実際の保護はリファラー制限と App Check が担う——docs/security_hardening.md。
