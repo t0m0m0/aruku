@@ -92,19 +92,42 @@ export class EnrichLatencyLedger {
   private closedPasses = 0;
   private passHasCandidate = false;
 
+  private passId = 0;
+  private readonly abandonedCandidates = new Set<object>();
+
   /// 実測した候補数（キャッシュヒットを除く）＝上流ファンアウトの幅。
   candidates = 0;
 
   /// 1候補が `resolveBoardingTimes` で直列に積んだ guidance の最大段数。
   resolveDepth = 0;
 
-  /// 候補1件の実測を現在のパスへ記録する。
+  /// 勝者が決まった時点で応答を待たずに置いていった候補数（#497）。
+  get abandoned(): number {
+    return this.abandonedCandidates.size;
+  }
+
+  /// 候補1件の実測を始める。返り値は今のパスの印で、[record] へ渡す。
+  begin(): number {
+    this.candidates++;
+    return this.passId;
+  }
+
+  abandon(candidate: object): void {
+    this.abandonedCandidates.add(candidate);
+  }
+
+  /// 候補1件の実測を現在のパスへ記録する。`pass`（[begin] の返り値）が締めたパスのもの
+  /// なら捨てる——待たなかった応答は壁時計を払わせていない。置いていった候補を後のパスが
+  /// 待つことになった場合もその時間は入らないが、次のパスへ混ぜて水増しするよりは
+  /// 小さく出る方を採った。
   record(args: {
     chainMs: number;
     walkMs: number;
     resolveSteps: number;
+    pass?: number;
   }): void {
-    this.candidates++;
+    if (args.pass === undefined) this.candidates++;
+    else if (args.pass !== this.passId) return;
     this.passHasCandidate = true;
     if (args.chainMs > this.passCritical) {
       this.passCritical = args.chainMs;
@@ -118,6 +141,7 @@ export class EnrichLatencyLedger {
   /// 現在のパスを締めて累積へ畳む。候補が1件も無いパスは本数に数えない——先行実測が
   /// 発火しない検索では空の締めが先に来るため。
   endPass(): void {
+    this.passId++;
     if (!this.passHasCandidate) return;
     this.closedCritical += this.passCritical;
     this.closedWalk += this.passWalk;
@@ -284,6 +308,9 @@ export class RouteSearchMetrics {
   /// 実測した候補数（キャッシュヒットを除く）＝上流ファンアウトの幅。
   enrichCandidates = 0;
 
+  /// 勝者が決まった時点で応答を待たずに置いていった候補数（#497）。
+  enrichAbandoned = 0;
+
   /// best-effort 縮退に費やした実時間。
   bestEffortMs = 0;
 
@@ -312,8 +339,11 @@ export class RouteSearchMetrics {
   /// `/guidance/plan` の実 HTTP 往復本数（初回＋引き直し）。
   guidanceCalls = 0;
 
-  /// [guidanceCalls] のうち同一リクエストの重複発行だった本数。
+  /// [guidanceCalls] のうち同一リクエストを発行し直した本数（失敗した照会の引き直し）。
   guidanceDupCalls = 0;
+
+  /// 発行せずに、同じ検索で覚えた応答（応答待ちを含む）で返した guidance の本数。
+  guidanceCacheHits = 0;
 
   /// 到着アンカー第2波（#376）の結末。null は第2波を await する前＝未確定で、
   /// 1行ログには -1 で出す。
@@ -455,6 +485,7 @@ export class RouteSearchMetrics {
     this.enrichPasses = ledger.passes;
     this.enrichResolveDepth = ledger.resolveDepth;
     this.enrichCandidates = ledger.candidates;
+    this.enrichAbandoned = ledger.abandoned;
   }
 
   /// best-effort 台帳を1検索ぶんの指標へ畳む。
@@ -480,6 +511,7 @@ export class RouteSearchMetrics {
       `accessMatrixUniqueLegs=${this.accessMatrixUniqueLegs} ` +
       `exactCalls=${this.exactCalls} ` +
       `guidanceDupCalls=${this.guidanceDupCalls} ` +
+      `guidanceCacheHits=${this.guidanceCacheHits} ` +
       `arrivalWaveOutcome=${this.arrivalWaveOutcome ?? -1} ` +
       `arrivalWaveOptions=${this.arrivalWaveOptions} ` +
       `arrivalWaveBaseUsed=${flag(this.arrivalWaveBaseUsed)} ` +
@@ -506,6 +538,7 @@ export class RouteSearchMetrics {
       `enrichPasses=${this.enrichPasses} ` +
       `enrichResolveDepth=${this.enrichResolveDepth} ` +
       `enrichCandidates=${this.enrichCandidates} ` +
+      `enrichAbandoned=${this.enrichAbandoned} ` +
       `bestEffortMs=${this.bestEffortMs} bestEffortEntries=${this.bestEffortEntries} ` +
       `bestEffortCandidates=${this.bestEffortCandidates} ` +
       `bestEffortResolveDepth=${this.bestEffortResolveDepth} ` +

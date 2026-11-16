@@ -2596,6 +2596,99 @@ describe('plan: reject多発ルートは短リスト全体を1パスで先行実
     });
     expect(captured!.singlePassMeasure).toBe(false);
   });
+
+  /// 出発地以外から引く guidance（＝ハイブリッドの実発車時刻の引き直し）だけを [redraw] へ
+  /// 振る。初回照会・徒歩・マトリクスは [mock] と同じ。
+  const redrawMock = (
+    redraw: (url: URL) => Promise<HttpResponse>,
+  ): HttpClient => {
+    const base = mock({ transit: baseOption() });
+    const fromOrigin = `geo:${dartDouble(o.lat)},${dartDouble(o.lng)}`;
+    return {
+      get: (url) =>
+        url.pathname.includes('guidance/plan') &&
+        url.searchParams.get('from') !== fromOrigin
+          ? redraw(url)
+          : base.get(url),
+      close: () => {},
+    };
+  };
+
+  const summary = (plan: RoutePlan): unknown =>
+    plan.segments.map((s) => [s.type, s.line, s.minutes]);
+
+  it('下位の候補の引き直しが返らなくても、上位で勝者が決まれば経路を返す (#497)', async () => {
+    const search = {
+      destination: '目的地',
+      destinationLatLng: g,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 11, m: 0 }), // 全徒歩（111分）が予算内で徒歩最大
+      origin: o,
+      originName: '出発',
+    };
+    const expected = await service(mock({ transit: baseOption() })).plan(search);
+
+    let captured: RouteSearchMetrics | null = null;
+    let redraws = 0;
+    const svc = service(
+      redrawMock(() => {
+        redraws++;
+        return new Promise<HttpResponse>(() => {});
+      }),
+      { onMetrics: (m) => (captured = m) },
+    );
+    const plan = await withTimeout(svc.plan(search), 3000, () =>
+      expect.fail('勝者が決まっているのに、下位の候補の引き直しを待ち続けている'),
+    );
+
+    expect(redraws, '前提: 下位のハイブリッドは引き直しを発行している').toBeGreaterThan(0);
+    expect(summary(plan), '待たなくても確定経路は変わらない').toEqual(summary(expected));
+    expect(captured!.singlePassMeasure).toBe(true);
+    expect(
+      captured!.enrichAbandoned,
+      '応答を待たなかった候補は引き直しを発行した本数ぶん',
+    ).toBe(redraws);
+  });
+
+  it('上位の候補の引き直しが返るまでは確定しない (#497)', async () => {
+    const held: { complete: (r: HttpResponse) => void }[] = [];
+    const svc = service(
+      redrawMock(() => {
+        const d = deferred<HttpResponse>();
+        held.push(d);
+        return d.promise;
+      }),
+    );
+    let done = false;
+    const planning = svc
+      .plan({
+        destination: '目的地',
+        destinationLatLng: g,
+        departure: new TimeValue({ h: 9, m: 0 }),
+        arrival: new TimeValue({ h: 10, m: 30 }), // 全徒歩は予算外。上位はハイブリッド
+        origin: o,
+        originName: '出発',
+      })
+      .then((p) => {
+        done = true;
+        return p;
+      });
+    await delay(50);
+    expect(held.length, '前提: 上位のハイブリッドが引き直しを発行している').toBeGreaterThan(0);
+    expect(done, '上位が生存か棄却か分かるまで下位を勝者にしない').toBe(false);
+
+    // 返した端から次の引き直し（縮退の実時刻解決など）が出るので、尽きるまで返す。
+    const release = setInterval(() => {
+      for (const d of held.splice(0)) d.complete(json(baseOption()));
+    }, 5);
+    try {
+      await withTimeout(planning, 3000, () =>
+        expect.fail('引き直しを全部返しても検索が終わらない'),
+      );
+    } finally {
+      clearInterval(release);
+    }
+  });
 });
 
 describe('plan: 乗車駅探索は非単調コリドーでも徒歩最大を返す（#137）', () => {
@@ -5070,8 +5163,12 @@ describe('plan: バス last-resort 再照会 (#250)', () => {
     log?: URL[];
     busDelay?: number;
     corridorDelay?: number;
-  }): HttpClient =>
-    mockClient(async (url) => {
+    /// 引き直しの各区間の1回目を 503 で落とす。失敗した照会は覚えないので、縮退プールの
+    /// 解決が同じ区間を改めて発行する（覚えた応答で即座に返らない）。
+    corridorFailsFirst?: boolean;
+  }): HttpClient => {
+    const corridorSeen = new Set<string>();
+    return mockClient(async (url) => {
       a.log?.push(url);
       const path = url.pathname;
       if (path.includes('googleWalkMatrixProxy')) return matrixFor(url);
@@ -5087,6 +5184,12 @@ describe('plan: バス last-resort 再照会 (#250)', () => {
         // 効き目は「バス応答が縮退プールの解決中に返り切るか」なので、両者の遅延差でしか
         // 決定的に固定できない。
         if (allowsBus && (a.busDelay ?? 0) > 0) await delay(a.busDelay!);
+        if (!allowsBus && !fromOrigin && (a.corridorFailsFirst ?? false)) {
+          if (!corridorSeen.has(url.href)) {
+            corridorSeen.add(url.href);
+            return json({}, 503);
+          }
+        }
         if (!allowsBus && !fromOrigin && (a.corridorDelay ?? 0) > 0) {
           await delay(a.corridorDelay!);
         }
@@ -5102,6 +5205,7 @@ describe('plan: バス last-resort 再照会 (#250)', () => {
       }
       return json({}, 404);
     });
+  };
 
   it('バス照会を縮退プール解決と並行に発行し、直列の段を消す', async () => {
     // giveUp は best-effort の結果が出るまで採用の可否を決められないが、照会自体はその
@@ -5115,6 +5219,7 @@ describe('plan: バス last-resort 再照会 (#250)', () => {
         originOption: missedTrainOption(),
         busDelay: 60,
         corridorDelay: 200,
+        corridorFailsFirst: true,
       }),
       { onMetrics: (m) => (captured = m) },
     );

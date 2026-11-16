@@ -14,6 +14,10 @@ export class SearchSession {
   /// [RouteCandidate] は値等価を持たないので同一インスタンス単位で畳む。
   readonly enrichedCache = new Map<RouteCandidate, RouteCandidate>();
 
+  /// 実測中の候補。勝者が決まった時点で置いていった実測（#497）を、後のパスが同じ候補を
+  /// 測るときに発行し直さず相乗りするために持つ。
+  readonly enrichInflight = new Map<RouteCandidate, Promise<RouteCandidate>>();
+
   /// アクセス徒歩の一括実測（マトリクス）の結果。レッグキー → 分（#485）。
   readonly accessWalks = new Map<string, number>();
 

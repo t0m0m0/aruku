@@ -92,21 +92,31 @@ export class TransitApiClient {
   private matrixElementCount = 0;
   private exactCallCount = 0;
 
-  // 1検索内で「同一 guidance リクエスト（同じ URI＝同じ from/to/date/time/mode）」を
-  // 何本重複発行したかの実測（enrich 削減の判断材料）。クライアントは検索1回ごとに
-  // 作り捨て（#259）なので、この Set の寿命＝1検索。値は「guidance キャッシュを噛ませたら
-  // 消える本数の上限」を意味する。振る舞いは変えない——キャッシュはまだ入れない。
+  // 同じ URI（同じ from/to/date/time/mode）を発行し直した本数。応答は覚えて使い回すので
+  // （[guidanceResponses]）、ここに入るのは失敗した照会の引き直しだけ。
   private guidanceDupCallCount = 0;
   private readonly guidanceKeys = new Set<string>();
+
+  // guidance の応答（応答待ちを含む）。URI → 応答。クライアントは検索1回ごとに作り捨て
+  // （#259）なので寿命＝1検索で、検索をまたいで古いダイヤを返すことは無い。
+  // 失敗（非200・本文が読めない応答を含む）は覚えない——タイムアウトした区間をその検索の
+  // 間ずっと引けなくすると、後の引き直しで救えたはずの候補まで落ちる。
+  private readonly guidanceResponses = new Map<string, Promise<HttpResponse>>();
+  private guidanceCacheHitCount = 0;
 
   /// `/guidance/plan` の実 HTTP 往復本数（初回＋引き直し）。
   get guidanceCalls(): number {
     return this.guidanceCallCount;
   }
 
-  /// 上記のうち、同一 URI の重複発行だった本数（guidance キャッシュで消える上限）。
+  /// 上記のうち、同一 URI を発行し直した本数（失敗した照会の引き直し）。
   get guidanceDupCalls(): number {
     return this.guidanceDupCallCount;
+  }
+
+  /// 発行せずに覚えた応答（応答待ちを含む）で返した guidance の本数。
+  get guidanceCacheHits(): number {
+    return this.guidanceCacheHitCount;
   }
 
   /// Google 徒歩ルート（enrich）の実 HTTP 往復本数。
@@ -197,20 +207,31 @@ export class TransitApiClient {
         : avoidModesTrainOnly
       ).join(','),
     });
-    // 重複判定は実発行時（onIssued）に行い guidanceCalls と数え方を揃える。同一 URI が
-    // 二度目以降なら「キャッシュがあればヒットしていた」1本として dup に計上する。
     const key = uri.href;
-    const res = await this.getOrTimeout(this.transit, uri, {
-      onIssued: () => {
-        this.guidanceCallCount++;
-        if (this.guidanceKeys.has(key)) this.guidanceDupCallCount++;
-        this.guidanceKeys.add(key);
-      },
-    });
-    if (res.statusCode !== 200) {
-      throw new RouteException(`HTTP ${res.statusCode}`);
+    let response = this.guidanceResponses.get(key);
+    if (response === undefined) {
+      response = this.getOrTimeout(this.transit, uri, {
+        onIssued: () => {
+          this.guidanceCallCount++;
+          if (this.guidanceKeys.has(key)) this.guidanceDupCallCount++;
+          this.guidanceKeys.add(key);
+        },
+      }).then((res) => {
+        if (res.statusCode !== 200) {
+          throw new RouteException(`HTTP ${res.statusCode}`);
+        }
+        decodeJsonMap(res);
+        return res;
+      });
+      this.guidanceResponses.set(key, response);
+      response.catch(() => this.guidanceResponses.delete(key));
+    } else {
+      this.cancellation?.throwIfCanceled();
+      this.guidanceCacheHitCount++;
     }
-    return decodeJsonMap(res);
+    // 覚えた応答も呼び出しごとに読み直す。読んだ JsonMap を共有すると、呼び出し側の
+    // 書き換えが次の呼び出しへ漏れる。
+    return decodeJsonMap(await response);
   }
 
   // ---- Google Routes（プロキシ） ----

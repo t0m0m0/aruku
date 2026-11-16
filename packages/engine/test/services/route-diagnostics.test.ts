@@ -214,6 +214,39 @@ describe('EnrichLatencyLedger', () => {
     expect(l.candidates).toEqual(1);
   });
 
+  it('候補は発行した時点で数える（応答を待たずに抜けても幅に入る）', () => {
+    const l = new EnrichLatencyLedger();
+    l.begin();
+    l.begin();
+    expect(l.candidates).toEqual(2);
+  });
+
+  it('締めたパスへ遅れて届いた実測は、臨界パスにも段数にも入れない (#497)', () => {
+    // 勝者が決まった時点でパスを抜けるので、待たなかった候補の応答は後から届く。
+    // 次のパスへ混ぜると、払っていない壁時計が臨界パスに乗る。
+    const l = new EnrichLatencyLedger();
+    const fast = l.begin();
+    const slow = l.begin();
+    l.record({ chainMs: 8000, walkMs: 1000, resolveSteps: 1, pass: fast });
+    l.endPass();
+    l.record({ chainMs: 30000, walkMs: 1000, resolveSteps: 3, pass: slow });
+    expect(l.criticalPathMs).toEqual(8000);
+    expect(l.passes).toEqual(1);
+    expect(l.resolveDepth).toEqual(1);
+    expect(l.candidates, 'begin で数えた候補を record で二重に数えない').toEqual(2);
+  });
+
+  it('応答を待たなかった候補は、何度置き去りにしても1件と数える (#497)', () => {
+    // 先行実測が置き去りにした候補は、確定選定のバッチでもう一度置き去りになる。
+    const l = new EnrichLatencyLedger();
+    const a = {};
+    const b = {};
+    l.abandon(a);
+    l.abandon(b);
+    l.abandon(a);
+    expect(l.abandoned).toEqual(2);
+  });
+
   it('1件も測らなければすべて0', () => {
     const l = new EnrichLatencyLedger();
     expect(l.criticalPathMs).toEqual(0);
@@ -315,6 +348,7 @@ describe('RouteSearchMetrics.toLogLine', () => {
     m.singlePassMeasure = true;
     m.guidanceCalls = 3;
     m.guidanceDupCalls = 1;
+    m.guidanceCacheHits = 6;
     m.walkCalls = 10;
     m.matrixCalls = 2;
     m.matrixElements = 31;
@@ -386,6 +420,7 @@ describe('RouteSearchMetrics.toLogLine', () => {
         'matrixElements=31 accessMatrixRequestedLegs=40 accessMatrixUniqueLegs=28 ' +
         'exactCalls=1 ' +
         'guidanceDupCalls=1 ' +
+        'guidanceCacheHits=6 ' +
         'arrivalWaveOutcome=0 arrivalWaveOptions=2 ' +
         'arrivalWaveBaseUsed=1 arrivalWaveWon=1 ' +
         'exactMs=800 exactCandidates=3 exactCapped=1 exactWon=1 ' +
@@ -400,6 +435,7 @@ describe('RouteSearchMetrics.toLogLine', () => {
         'boardSearchSpeculationProbes=7 ' +
         'enrichCriticalMs=19000 enrichWalkMs=4750 enrichPasses=2 enrichResolveDepth=2 ' +
         'enrichCandidates=7 ' +
+        'enrichAbandoned=0 ' +
         'bestEffortMs=41000 bestEffortEntries=1 bestEffortCandidates=19 ' +
         'bestEffortResolveDepth=2 bestEffortRetries=2 ' +
         'busLastResortMs=20000 ' +
@@ -579,6 +615,7 @@ describe('RouteSearchMetrics.toLogLine', () => {
         'matrixElements=0 accessMatrixRequestedLegs=0 accessMatrixUniqueLegs=0 ' +
         'exactCalls=0 ' +
         'guidanceDupCalls=0 ' +
+        'guidanceCacheHits=0 ' +
         'arrivalWaveOutcome=-1 arrivalWaveOptions=0 ' +
         'arrivalWaveBaseUsed=0 arrivalWaveWon=0 ' +
         'exactMs=0 exactCandidates=-1 exactCapped=0 exactWon=0 ' +
@@ -593,6 +630,7 @@ describe('RouteSearchMetrics.toLogLine', () => {
         'boardSearchSpeculationProbes=0 ' +
         'enrichCriticalMs=0 enrichWalkMs=0 enrichPasses=0 enrichResolveDepth=0 ' +
         'enrichCandidates=0 ' +
+        'enrichAbandoned=0 ' +
         'bestEffortMs=0 bestEffortEntries=0 bestEffortCandidates=0 ' +
         'bestEffortResolveDepth=0 bestEffortRetries=0 ' +
         'busLastResortMs=0 ' +

@@ -339,6 +339,7 @@ export class TransitRouteService implements SearchEngine {
     metrics.totalMs = totalSw.elapsedMilliseconds;
     metrics.guidanceCalls = this.api.guidanceCalls;
     metrics.guidanceDupCalls = this.api.guidanceDupCalls;
+    metrics.guidanceCacheHits = this.api.guidanceCacheHits;
     metrics.walkCalls = this.api.walkCalls;
     metrics.matrixCalls = this.api.matrixCalls;
     metrics.matrixElements = this.api.matrixElements;
@@ -822,14 +823,13 @@ export class TransitRouteService implements SearchEngine {
         ? `非崩壊: 予算内短リスト${prewarm.length}件を1パスで先行実測（#318 Option A: reject多発ルート）`
         : `非崩壊: 見積りフロント${prewarm.length}件を1パスで先行実測（#315 winner 先行実測）`,
     );
-    // 例外は候補単位で握る。先行実測はキャッシュ温めの最適化にすぎず、壊れた応答1件で
-    // plan() 全体を落としてはならない。ただしキャンセルだけは飲まない（#316）。
-    await Promise.all(
-      prewarm.map((c) =>
-        this.measurer.measureOrDrop(c, departureAt, session, session.enrichLedger),
-      ),
+    await this.measurer.measureUntilWinner(
+      prewarm,
+      budgetMin,
+      departureAt,
+      session,
+      session.enrichLedger,
     );
-    session.enrichLedger.endPass();
   }
 
   /// 崩壊時の徒歩最大化候補（乗車駅探索・バス corridor のハイブリッド）を作る。プールへ

@@ -3,6 +3,7 @@ import { intOr, isRecord, type JsonMap } from '../json';
 import { GeoPoint } from '../models/geo-point';
 import { RouteSegment, SegmentType } from '../models/route-plan';
 import { decodePolyline } from '../polyline';
+import { firstAcceptedInOrder } from '../promises';
 import { startedStopwatch } from '../stopwatch';
 import { plusMinutes } from '../time';
 import { parseDurationMin, walkCacheKey } from './access-walk-matrix';
@@ -170,18 +171,19 @@ export class CandidateMeasurer {
           ? `measure tier: walk=${firstTierWalk}m ${batch.length}件を候補間並列で実測`
           : `reject後の残り予算内候補 ${batch.length}件を1並列バッチで一括実測（#315 B）`,
       );
-      // 候補単位で隔離して一括実測する。壊れた応答1件（非勝者）で Promise.all が plan()
-      // 全体を落とさないよう、失敗候補は null（棄却扱い）に落とす。
-      const enriched = await Promise.all(
-        batch.map((c) =>
-          this.measureOrDrop(c, departureAt, session, enrichLedger),
-        ),
+      const { winnerIdx, enriched } = await this.measureUntilWinner(
+        batch,
+        budgetMin,
+        departureAt,
+        session,
+        enrichLedger,
+        // 落ちた候補を呼び出し側が数えるとき（A/B の `transferDropped`）は全部を待つ。
+        // 勝者より後ろの候補を待たないと、落ちたかどうかが分からないまま数から漏れる。
+        { waitAll: ctx.rejected !== undefined },
       );
-      // tier バッチは直列に降りるので、バッチ境界＝パス境界。
-      enrichLedger.endPass();
-      let winnerIdx: number | null = null;
       for (let k = 0; k < batch.length; k++) {
         const e = enriched[k];
+        if (e === undefined) continue;
         if (e === null) {
           this.diag.log(
             () =>
@@ -199,9 +201,6 @@ export class CandidateMeasurer {
               `): ${this.diag.candLine(e, budgetMin, departureAt)}`,
           );
           rejected.add(batch[k]);
-        } else {
-          // batch は選好順（徒歩降順→到着昇順）なので最初の生存者が徒歩最大＝勝者。
-          winnerIdx ??= k;
         }
       }
       if (winnerIdx !== null) {
@@ -296,6 +295,20 @@ export class CandidateMeasurer {
     // キャッシュヒットは壁時計を払っていないので台帳へ入れない。入れると「本数×段数」の
     // 分母が水増しされ、ファンアウトの実コストを読み違える。
     if (hit !== undefined) return hit;
+    const inflight = session.enrichInflight.get(c);
+    if (inflight !== undefined) return inflight;
+    const started = this.measureUncached(c, departureAt, session, ledger);
+    session.enrichInflight.set(c, started);
+    return started;
+  }
+
+  private async measureUncached(
+    c: RouteCandidate,
+    departureAt: Date,
+    session: SearchSession,
+    ledger: EnrichLatencyLedger,
+  ): Promise<RouteCandidate> {
+    const pass = ledger.begin();
     const sw = startedStopwatch();
     // 徒歩 enrich と引き直しは厳密な直列なので、内側の await を別時計で挟むだけで内訳が割れる。
     const walkSw = startedStopwatch();
@@ -311,6 +324,7 @@ export class CandidateMeasurer {
         chainMs: sw.elapsedMilliseconds,
         walkMs: walkSw.elapsedMilliseconds,
         resolveSteps: steps,
+        pass,
       });
       session.enrichedCache.set(c, e);
       return e;
@@ -326,9 +340,58 @@ export class CandidateMeasurer {
         chainMs: sw.elapsedMilliseconds,
         walkMs: walkSw.elapsedMilliseconds,
         resolveSteps: steps,
+        pass,
       });
       throw error;
+    } finally {
+      session.enrichInflight.delete(c);
     }
+  }
+
+  /// [batch]（選好順）を候補間並列で実測し、順で最初の生存者が決まった時点で返る（#497）。
+  /// `enriched` は返った時点の結果で、null は実測失敗、undefined は応答を待たなかった候補。
+  ///
+  /// 全部を待たないのは、勝者が「順で最初の生存者」だから——それより後ろの候補は、
+  /// 生存しても棄却されても勝者を変えない。待つと、引き直しの最遅1本（上流の裾）が
+  /// パスの所要になる。置いていった実測は止めない（止める口が無い）が、`plan()` を抜ければ
+  /// 検索スコープのクライアントが閉じて切れる（#259）。
+  ///
+  /// 壊れた応答1件で全体を落とさないよう候補単位で隔離する（[measureOrDrop]）。
+  async measureUntilWinner(
+    batch: RouteCandidate[],
+    budgetMin: number,
+    departureAt: Date,
+    session: SearchSession,
+    ledger: EnrichLatencyLedger,
+    options: { waitAll?: boolean } = {},
+  ): Promise<{
+    winnerIdx: number | null;
+    enriched: (RouteCandidate | null | undefined)[];
+  }> {
+    const survives = (e: RouteCandidate | null): boolean => {
+      if (e === null) return false;
+      const v = invariantViolation(e.segments, budgetMin, departureAt);
+      return !v.overBudget && !v.missed && !v.unverified;
+    };
+    const measuring = batch.map((c) =>
+      this.measureOrDrop(c, departureAt, session, ledger),
+    );
+    let index: number | null;
+    let values: (RouteCandidate | null | undefined)[];
+    if (options.waitAll ?? false) {
+      const all = await Promise.all(measuring);
+      const first = all.findIndex(survives);
+      index = first < 0 ? null : first;
+      values = all;
+    } else {
+      ({ index, values } = await firstAcceptedInOrder(measuring, survives));
+    }
+    values.forEach((e, k) => {
+      if (e === undefined) ledger.abandon(batch[k]);
+    });
+    // バッチは直列に降りるので、バッチ境界＝パス境界。
+    ledger.endPass();
+    return { winnerIdx: index, enriched: values };
   }
 
   /// 候補**間**並列（#315）の実測を候補単位で隔離する。壊れた応答は null にして当該候補
