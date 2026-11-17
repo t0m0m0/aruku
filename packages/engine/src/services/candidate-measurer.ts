@@ -470,7 +470,7 @@ export class CandidateMeasurer {
       const body = await this.api.fetchWalkRoute(origin, dest);
       const routes = body['routes'];
       if (!Array.isArray(routes) || routes.length === 0) return null;
-      const route = routes[0];
+      const route: unknown = routes[0];
       if (!isRecord(route)) return null;
       const minutes = parseDurationMin(route['duration']);
       if (minutes === null) return null;
