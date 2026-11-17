@@ -13,7 +13,8 @@
     "pack:bench": "npm run build && node lib/timetable-pack/bench.js",
     "test:rules": "firebase emulators:exec --only firestore \"vitest run --config vitest.rules.config.ts\"",
     "lint": "oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity=error",
-    "lint:deps": "depcruise --config ../.dependency-cruiser.cjs packages/engine/src packages/engine/test packages/engine/scripts apps/web/src apps/web/test apps/web/e2e apps/web/vite apps/web/scripts functions/src functions/test"
+    "lint:deps": "depcruise --config ../.dependency-cruiser.cjs packages/engine/src packages/engine/test packages/engine/scripts apps/web/src apps/web/test apps/web/e2e apps/web/vite apps/web/scripts functions/src functions/test functions/scripts",
+    "lint:policy": "node --experimental-strip-types scripts/repo-policy/cli.ts"
   },
   "engines": {
     "node": "22"
