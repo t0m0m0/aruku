@@ -21,9 +21,10 @@ import {
 } from '../exact-scan';
 import { buildScanDay } from './day';
 import { PACK_GROUPS, packObjectPath, type PackGroup } from './feeds';
+import { isRecord } from '../json';
+import { decodePack } from './decode';
 import { createScanDaySource } from './load';
 import { timetableForDate, type TimetablePack } from './pack';
-import { gunzipSync } from 'node:zlib';
 
 const SCENARIOS = ['cold', 'warm', 'daySwitch', 'reload', 'concurrent'] as const;
 type Scenario = (typeof SCENARIOS)[number];
@@ -95,7 +96,9 @@ async function runOnce(dir: string, date: string): Promise<Record<Scenario, Samp
 function verify(dir: string, dates: string[]): boolean {
   const packs = new Map<PackGroup, TimetablePack>();
   for (const g of PACK_GROUPS) {
-    packs.set(g, JSON.parse(gunzipSync(readFileSync(join(dir, `${g}.json.gz`))).toString('utf8')));
+    const decoded = decodePack(readFileSync(join(dir, `${g}.json.gz`)), () => 0);
+    if (decoded.status === 'failure') throw new Error(`pack is not ${g} of this format: ${dir}`);
+    packs.set(g, decoded.pack);
   }
   return dates.every((date) => {
     const tt: Timetable = { stops: [], trips: [] };
@@ -155,6 +158,25 @@ function departuresInOrder(ct: CompiledTimetable): boolean {
   return true;
 }
 
+/** 子プロセスが標準出力へ書いた runOnce の結果を読み戻す。 */
+function parseRunOnce(value: unknown): Record<Scenario, Sample> {
+  if (!isRecord(value)) throw new Error('child output is not an object');
+  const sampleOf = (scenario: Scenario): Sample => {
+    const sample = value[scenario];
+    if (!isRecord(sample)) throw new Error(`child output lacks ${scenario}`);
+    return Object.fromEntries(
+      Object.entries(sample).filter((e): e is [string, number] => typeof e[1] === 'number'),
+    );
+  };
+  return {
+    cold: sampleOf('cold'),
+    warm: sampleOf('warm'),
+    daySwitch: sampleOf('daySwitch'),
+    reload: sampleOf('reload'),
+    concurrent: sampleOf('concurrent'),
+  };
+}
+
 function quantile(sorted: number[], q: number): number {
   return sorted[Math.min(sorted.length - 1, Math.ceil(q * sorted.length) - 1)];
 }
@@ -180,7 +202,7 @@ async function main(): Promise<void> {
       '--date',
       date,
     ]);
-    samples.push(JSON.parse(out.toString()));
+    samples.push(parseRunOnce(JSON.parse(out.toString())));
   }
   for (const scenario of SCENARIOS) {
     const keys = Object.keys(samples[0][scenario]);
