@@ -92,6 +92,8 @@ test('アプリ内で開いた子をリロードしても home が増えない',
 
 test('リロードで前提を失った結果画面からは、真下の home へ降りる', async ({
   page,
+  // 偽の上流を起こすためだけに要る（フィクスチャは引数に名前を書くと立ち上がる）。
+  // oxlint-disable-next-line no-unused-vars
   upstream,
 }) => {
   await page.goto('/');

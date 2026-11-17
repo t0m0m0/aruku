@@ -119,14 +119,14 @@ describe('ArukuMap', () => {
   it('Wakaba のスタイルを渡す', () => {
     render(<ArukuMap apiKey="maps-key" />);
 
-    expect(mapProps.mock.calls[0]![0].styles).toBeInstanceOf(Array);
+    expect(mapProps.mock.calls[0][0].styles).toBeInstanceOf(Array);
   });
 
   // 移植元は zoomControls/mapToolbar/myLocationButton を個別に落としている。
   it('地図自前のコントロールを出さない', () => {
     render(<ArukuMap apiKey="maps-key" />);
 
-    expect(mapProps.mock.calls[0]![0].disableDefaultUI).toBe(true);
+    expect(mapProps.mock.calls[0][0].disableDefaultUI).toBe(true);
   });
 });
 
@@ -315,7 +315,7 @@ describe('経路の描き直し', () => {
     );
 
     expect(polylines).toHaveLength(2);
-    expect(polylines[0]!.setMap).toHaveBeenCalledWith(null);
+    expect(polylines[0].setMap).toHaveBeenCalledWith(null);
   });
 
   it('同じ経路のまま描き直されても線は増やさない', () => {
@@ -334,7 +334,7 @@ describe('経路の描き直し', () => {
 
     unmount();
 
-    expect(polylines[0]!.setMap).toHaveBeenCalledWith(null);
+    expect(polylines[0].setMap).toHaveBeenCalledWith(null);
   });
 
   it('画面を閉じたら始終点の印も消す', () => {
@@ -343,7 +343,7 @@ describe('経路の描き直し', () => {
 
     unmount();
 
-    expect(markers[0]!.setMap).toHaveBeenCalledWith(null);
+    expect(markers[0].setMap).toHaveBeenCalledWith(null);
   });
 });
 

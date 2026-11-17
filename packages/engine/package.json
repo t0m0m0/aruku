@@ -7,10 +7,13 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity=error"
   },
   "devDependencies": {
     "@types/node": "^26.5.0",
+    "oxlint": "^1.94.0",
+    "oxlint-tsgolint": "^7.0.2007",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
   }

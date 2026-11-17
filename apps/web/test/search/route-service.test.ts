@@ -216,7 +216,7 @@ describe('createRouteService', () => {
       appCheck,
       exactWalkMax: true,
       fetch: async (url) => {
-        urls.push(String(url));
+        urls.push(url);
         return new Response('{}', { status: 200 });
       },
     });
@@ -236,7 +236,7 @@ describe('createRouteService', () => {
       appCheck,
       exactWalkMaxAb: true,
       fetch: async (url) => {
-        urls.push(String(url));
+        urls.push(url);
         return new Response('{}', { status: 200 });
       },
     });
@@ -251,7 +251,7 @@ describe('createRouteService', () => {
   it('既定では厳密走査を叩かない (#460)', async () => {
     const urls: string[] = [];
     await build(async (url) => {
-      urls.push(String(url));
+      urls.push(url);
       return new Response('{}', { status: 200 });
     })
       .plan(planArgs)

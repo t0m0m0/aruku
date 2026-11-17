@@ -33,7 +33,7 @@ const stringStates = new Set<ScanState>(['single', 'double', 'template']);
 /// 外した場合の損害が非対称なのでこちらを選ぶ——正規表現を見逃しても、その中に
 /// 引用符があるときだけ状態がずれる（現在のソースには無い）のに対し、正規表現と
 /// 誤読すると任意の長さのソースを黙って飲み込む。
-const regexCanFollow = /[(,;=:!&|?\[{]/u;
+const regexCanFollow = /[(,;=:!&|?[{]/u;
 
 /// 文字列リテラルの中身だけを取り出す。
 ///
@@ -52,7 +52,7 @@ function* scanStringLiterals(source: string): Generator<string> {
   let lastSignificant = '';
 
   for (let i = 0; i < source.length; i++) {
-    const ch = source[i]!;
+    const ch = source[i];
     const next = source[i + 1];
 
     if (stringStates.has(state) || state === 'regex') {
@@ -149,7 +149,7 @@ export function collectVocabularyFromSources(sources: Iterable<string>): string 
 /// 「電車に乗らず、時間内で最大限歩く」のために 80 KB を取っていた）。
 function collectFromHtml(html: string): string[] {
   const attributes = [...html.matchAll(/content\s*=\s*"([^"]*)"/gu)].map(
-    (m) => m[1]!,
+    (m) => m[1],
   );
   const text = html.replace(/<[^>]*>/gu, ' ');
   return [...[text, ...attributes].join(' ').matchAll(/\S/gu)].map((m) => m[0]);
@@ -210,8 +210,8 @@ const rangeDecl = /unicode-range:\s*([^;]+);/u;
 export function parseFontFaces(css: string): FontFace[] {
   const faces: FontFace[] = [];
   for (const [, body] of css.matchAll(faceBlock)) {
-    const file = srcFile.exec(body!)?.[1];
-    const declared = rangeDecl.exec(body!)?.[1];
+    const file = srcFile.exec(body)?.[1];
+    const declared = rangeDecl.exec(body)?.[1];
     if (file === undefined || declared === undefined) continue;
     faces.push({ file, ranges: parseRanges(declared) });
   }
@@ -222,7 +222,7 @@ function parseRanges(declared: string): [number, number][] {
   return declared.split(',').map((part) => {
     const body = part.trim().replace(/^U\+/iu, '');
     const [lo, hi] = body.split('-');
-    const start = Number.parseInt(lo!, 16);
+    const start = Number.parseInt(lo, 16);
     return [start, hi === undefined ? start : Number.parseInt(hi, 16)];
   });
 }
@@ -236,6 +236,8 @@ function parseRanges(declared: string): [number, number][] {
 export function subsetPlan(faces: FontFace[], vocabulary: string): SubsetEntry[] {
   const entries: SubsetEntry[] = [];
   for (const face of faces) {
+    // サブセットはコードポイント単位で切る（unicode-range がコードポイントで書かれる）。
+    // oxlint-disable-next-line typescript/no-misused-spread
     const chars = [...vocabulary]
       .filter((ch) => {
         const cp = ch.codePointAt(0)!;
@@ -250,14 +252,14 @@ export function subsetPlan(faces: FontFace[], vocabulary: string): SubsetEntry[]
 /// 連続したコードポイントを `U+3042-3045` の形へ畳む。畳まないと宣言が語彙の
 /// 長さぶん伸び、CSS 自体が絞った甲斐を食う。
 export function formatUnicodeRange(chars: string): string {
-  const points = [...new Set([...chars])]
+  const points = [...new Set(chars)]
     .map((ch) => ch.codePointAt(0)!)
     .sort((a, b) => a - b);
   const parts: string[] = [];
   for (let i = 0; i < points.length; i++) {
-    const start = points[i]!;
-    while (i + 1 < points.length && points[i + 1] === points[i]! + 1) i++;
-    const end = points[i]!;
+    const start = points[i];
+    while (i + 1 < points.length && points[i + 1] === points[i] + 1) i++;
+    const end = points[i];
     const hex = (cp: number) => cp.toString(16).toUpperCase();
     parts.push(start === end ? `U+${hex(start)}` : `U+${hex(start)}-${hex(end)}`);
   }
@@ -377,6 +379,8 @@ export function arukuFontSubset(options: FontSubsetOptions = {}): Plugin {
         void subsets().then(({ files }) => {
           const body = name === undefined ? undefined : files.get(name);
           if (body === undefined) {
+            // Connect のミドルウェアは next() で次へ渡す約束で、Promise を返す形が無い。
+            // oxlint-disable-next-line promise/no-callback-in-promise
             next();
             return;
           }

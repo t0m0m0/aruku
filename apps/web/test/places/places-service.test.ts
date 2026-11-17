@@ -65,7 +65,7 @@ describe('autocomplete のリクエスト', () => {
 
     await places.autocomplete('渋谷');
 
-    const url = client.calls[0]!;
+    const url = client.calls[0];
     expect(url.pathname).toBe('/placesProxy');
     expect(url.searchParams.get('action')).toBe('autocomplete');
     expect(url.searchParams.get('input')).toBe('渋谷');
@@ -76,7 +76,7 @@ describe('autocomplete のリクエスト', () => {
 
     await places.autocomplete('渋谷');
 
-    const url = client.calls[0]!;
+    const url = client.calls[0];
     expect(url.searchParams.get('language')).toBe('ja');
     expect(url.searchParams.get('components')).toBe('country:jp');
   });
@@ -88,11 +88,11 @@ describe('autocomplete のリクエスト', () => {
     await places.autocomplete('渋谷', new GeoPoint(35.6, 139.7));
     await places.autocomplete('渋谷');
 
-    const withBias = client.calls[0]!;
+    const withBias = client.calls[0];
     expect(withBias.searchParams.get('lat')).toBe('35.6');
     expect(withBias.searchParams.get('lon')).toBe('139.7');
 
-    const without = client.calls[1]!;
+    const without = client.calls[1];
     expect(without.searchParams.has('lat')).toBe(false);
     expect(without.searchParams.has('lon')).toBe(false);
   });
@@ -102,7 +102,7 @@ describe('autocomplete のリクエスト', () => {
 
     await places.autocomplete('渋谷');
 
-    expect(client.calls[0]!.pathname).toBe('/placesProxy');
+    expect(client.calls[0].pathname).toBe('/placesProxy');
   });
 });
 
@@ -149,9 +149,9 @@ describe('autocomplete の応答', () => {
 
     const [p] = await places.autocomplete('ハチ');
 
-    expect(p!.placeId).toBe('p1');
-    expect(p!.name).toBe('ハチ公前');
-    expect(p!.address).toBe('日本、東京都渋谷区');
+    expect(p.placeId).toBe('p1');
+    expect(p.name).toBe('ハチ公前');
+    expect(p.address).toBe('日本、東京都渋谷区');
   });
 
   it('terms が無ければ description を名称にする', async () => {
@@ -161,7 +161,7 @@ describe('autocomplete の応答', () => {
 
     const [p] = await places.autocomplete('渋谷');
 
-    expect(p!.name).toBe('渋谷駅');
+    expect(p.name).toBe('渋谷駅');
   });
 
   it('カンマが無い description は丸ごと住所にする', async () => {
@@ -171,7 +171,7 @@ describe('autocomplete の応答', () => {
 
     const [p] = await places.autocomplete('渋谷');
 
-    expect(p!.address).toBe('渋谷駅');
+    expect(p.address).toBe('渋谷駅');
   });
 
   // 移植元が indexOf+1 で切っている理由。末尾カンマで範囲外にしない。
@@ -182,7 +182,7 @@ describe('autocomplete の応答', () => {
 
     const [p] = await places.autocomplete('渋谷');
 
-    expect(p!.address).toBe('');
+    expect(p.address).toBe('');
   });
 
   it('カンマ直後の空白の有無に依らず住所を切り出す', async () => {
@@ -208,8 +208,8 @@ describe('autocomplete の応答', () => {
 
     const list = await places.autocomplete('x');
 
-    expect(list[0]!.distanceMeters).toBe(320);
-    expect(list[1]!.distanceMeters).toBeNull();
+    expect(list[0].distanceMeters).toBe(320);
+    expect(list[1].distanceMeters).toBeNull();
   });
 
   it('ZERO_RESULTS は候補なしであって失敗ではない', async () => {
@@ -259,8 +259,8 @@ describe('autocomplete の応答', () => {
 
     const [p] = await places.autocomplete('代々木');
 
-    expect(p!.name).toBe('代々木公園');
-    expect(p!.address).toBe('東京都渋谷区');
+    expect(p.name).toBe('代々木公園');
+    expect(p.address).toBe('東京都渋谷区');
   });
 });
 
@@ -275,7 +275,7 @@ describe('fetchLatLng', () => {
 
     await places.fetchLatLng('p1');
 
-    const url = client.calls[0]!;
+    const url = client.calls[0];
     expect(url.searchParams.get('action')).toBe('details');
     expect(url.searchParams.get('place_id')).toBe('p1');
   });
@@ -352,7 +352,7 @@ describe('ベース URL の検査', () => {
 
     expect(
       () => new GooglePlacesService({ client, proxyBaseUrl: '' }),
-    ).toThrow();
+    ).toThrow('VITE_PROXY_BASE_URL');
     expect(client.calls).toEqual([]);
   });
 });

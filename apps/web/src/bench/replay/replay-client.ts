@@ -74,7 +74,7 @@ export class ReplaySession {
   /// 上流の fetch を止めない（猶予切れで捨てた照会など）ので、保存の前に呼ぶ。
   async settle(): Promise<void> {
     while (this.inflight.size > 0) {
-      await Promise.allSettled([...this.inflight.values()]);
+      await Promise.allSettled(this.inflight.values());
     }
   }
 

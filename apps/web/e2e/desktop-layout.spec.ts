@@ -185,7 +185,7 @@ async function timeFieldPart(page: Page, pseudo: string) {
     return undefined;
   };
 
-  const input = find(root as CdpNode, (n) => attr(n, 'aria-label') === '出発の時刻');
+  const input = find(root, (n) => attr(n, 'aria-label') === '出発の時刻');
   if (input === undefined) throw new Error('出発の時刻欄が無い');
   const node = find(input, (n) => attr(n, 'pseudo') === pseudo);
   return node === undefined ? undefined : { cdp, node };

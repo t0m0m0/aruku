@@ -11,7 +11,8 @@
     "test": "vitest run",
     "pack:local": "npm run build && node lib/timetable-pack/cli.js",
     "pack:bench": "npm run build && node lib/timetable-pack/bench.js",
-    "test:rules": "firebase emulators:exec --only firestore \"vitest run --config vitest.rules.config.ts\""
+    "test:rules": "firebase emulators:exec --only firestore \"vitest run --config vitest.rules.config.ts\"",
+    "lint": "oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity=error"
   },
   "engines": {
     "node": "22"
@@ -26,6 +27,8 @@
     "@firebase/rules-unit-testing": "^5.0.1",
     "@types/node": "^22.10.5",
     "firebase": "^12.15.0",
+    "oxlint": "^1.94.0",
+    "oxlint-tsgolint": "^7.0.2007",
     "typescript": "^5.6.3",
     "vitest": "^4.1.6"
   },

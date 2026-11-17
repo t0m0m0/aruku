@@ -118,7 +118,7 @@ export class CandidateMeasurer {
       this.diag.log(
         () =>
           '  → best-effort が' +
-          `${missed ? '乗り遅れ' : `予算外(arr=${arrival}m)`}` +
+          (missed ? '乗り遅れ' : `予算外(arr=${arrival}m)`) +
           ` → バス候補 ${fresh.length}件をプールへ追加して選び直し（last-resort）`,
       );
       return this.selectAndEnrich(
@@ -197,7 +197,7 @@ export class CandidateMeasurer {
           this.diag.log(
             () =>
               '  → 棄却(' +
-              `${v.overBudget ? '予算超過' : v.missed ? '乗り遅れ' : '未確認便'}` +
+              (v.overBudget ? '予算超過' : v.missed ? '乗り遅れ' : '未確認便') +
               `): ${this.diag.candLine(e, budgetMin, departureAt)}`,
           );
           rejected.add(batch[k]);
@@ -276,7 +276,7 @@ export class CandidateMeasurer {
       this.diag.log(
         () =>
           '  → best-effort: enrich実測で乗り遅れ→除外して選び直し: ' +
-          `${this.diag.candLine(enriched, budgetMin, departureAt)}`,
+          this.diag.candLine(enriched, budgetMin, departureAt),
       );
       ledger.recordRetry();
       pool = pool.filter((c) => c !== fallback);

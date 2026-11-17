@@ -42,7 +42,7 @@ describe('parseFontFaces', () => {
       'noto-sans-jp-119-wght-normal.woff2',
       'noto-sans-jp-latin-wght-normal.woff2',
     ]);
-    expect(faces[0]!.ranges).toEqual([
+    expect(faces[0].ranges).toEqual([
       [0x3042, 0x3042],
       [0x3044, 0x3046],
       [0x6b69, 0x6b69],

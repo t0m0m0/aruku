@@ -39,7 +39,9 @@ describe('parseReplayArgs', () => {
   });
 
   it('厳密走査の遅延は 0 以上の整数だけを受ける', () => {
-    expect(() => parseReplayArgs([...required, '--exact-delay-ms', '-1'])).toThrow();
+    expect(() => parseReplayArgs([...required, '--exact-delay-ms', '-1'])).toThrow(
+      'bad --exact-delay-ms: -1',
+    );
     expect(parseReplayArgs([...required, '--exact-delay-ms', '0']).exactDelayMs).toBe(0);
   });
 
@@ -83,18 +85,18 @@ describe('parseReplayArgs', () => {
   });
 
   it.each([
-    ['録画ファイルが無い', ['--out', 'o', '--date', '2026-11-16']],
-    ['出力先が無い', ['--store', 's', '--date', '2026-11-16']],
-    ['出発日が無い', ['--store', 's', '--out', 'o']],
-    ['出発日の形が違う', ['--store', 's', '--out', 'o', '--date', '2026/11/16']],
-    ['存在しない日付', ['--store', 's', '--out', 'o', '--date', '2026-02-30']],
-    ['モードが違う', [...required, '--mode', 'live']],
-    ['出発時刻の形が違う', [...required, '--slots', '25:00']],
-    ['倍率が数でない', [...required, '--ratios', '1.2,x']],
-    ['上限が正の整数でない', [...required, '--refetch-limit-ms', '-1']],
-    ['知らない引数', [...required, '--engine', 'x']],
-    ['値の無い引数', [...required, '--label']],
-  ])('%s なら投げる', (_, argv) => {
-    expect(() => parseReplayArgs(argv)).toThrow();
+    ['録画ファイルが無い', ['--out', 'o', '--date', '2026-11-16'], '--store is required'],
+    ['出力先が無い', ['--store', 's', '--date', '2026-11-16'], '--out is required'],
+    ['出発日が無い', ['--store', 's', '--out', 'o'], '--date is required'],
+    ['出発日の形が違う', ['--store', 's', '--out', 'o', '--date', '2026/11/16'], 'bad --date: 2026/11/16'],
+    ['存在しない日付', ['--store', 's', '--out', 'o', '--date', '2026-02-30'], 'bad --date: 2026-02-30'],
+    ['モードが違う', [...required, '--mode', 'live'], 'bad --mode: live'],
+    ['出発時刻の形が違う', [...required, '--slots', '25:00'], 'bad --slots: 25:00'],
+    ['倍率が数でない', [...required, '--ratios', '1.2,x'], 'bad --ratios: x'],
+    ['上限が正の整数でない', [...required, '--refetch-limit-ms', '-1'], 'bad --refetch-limit-ms: -1'],
+    ['知らない引数', [...required, '--engine', 'x'], 'unknown argument: --engine'],
+    ['値の無い引数', [...required, '--label'], 'missing value: --label'],
+  ])('%s なら投げる', (_, argv, message) => {
+    expect(() => parseReplayArgs(argv)).toThrow(message);
   });
 });

@@ -349,7 +349,7 @@ describe('古い要求の中止 (#488)', () => {
     await settle();
     state.getState().search('B');
 
-    expect(signals[0]!.aborted).toBe(false);
+    expect(signals[0].aborted).toBe(false);
   });
 });
 

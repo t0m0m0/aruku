@@ -440,14 +440,14 @@ function attemptRequestJsonNew(
           chunks.push(chunk);
         });
         res.on("end", () => {
+          let data: unknown;
           try {
-            resolve({
-              statusCode: res.statusCode ?? 0,
-              data: JSON.parse(Buffer.concat(chunks).toString("utf8")),
-            });
+            data = JSON.parse(Buffer.concat(chunks).toString("utf8"));
           } catch {
             reject(new UpstreamError("invalid JSON from upstream", "parse"));
+            return;
           }
+          resolve({ statusCode: res.statusCode ?? 0, data });
         });
       }
     );
@@ -458,7 +458,7 @@ function attemptRequestJsonNew(
       const canRetryStaleSocket =
         !isRetry &&
         method === "GET" &&
-        req.reusedSocket === true &&
+        req.reusedSocket &&
         !(err instanceof UpstreamError);
       if (canRetryStaleSocket) {
         resolve(attemptRequestJsonNew(url, method, headers, body, true));
@@ -1151,7 +1151,7 @@ export const exactWalkMax = onRequest(
       return;
     }
 
-    const parsed = parseExactWalkMaxQuery(req.query as Record<string, unknown>, new Date());
+    const parsed = parseExactWalkMaxQuery(req.query, new Date());
     if ("error" in parsed) {
       res.status(400).json({ error: parsed.error });
       return;

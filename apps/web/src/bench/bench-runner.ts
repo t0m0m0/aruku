@@ -32,10 +32,10 @@ export interface BenchConfig {
 
 export interface BenchDeps {
   /// ふつうの乗換ルートの所要（分）。基準にできる経路が無ければ null。
-  calibrate(pair: OdPair, departureAt: Date): Promise<number | null>;
-  search(args: PlanArgs): Promise<{ plan: RoutePlan; metrics: RouteSearchMetrics | null }>;
-  write(record: BenchRecord): void;
-  shouldStop(): boolean;
+  calibrate: (pair: OdPair, departureAt: Date) => Promise<number | null>;
+  search: (args: PlanArgs) => Promise<{ plan: RoutePlan; metrics: RouteSearchMetrics | null }>;
+  write: (record: BenchRecord) => void;
+  shouldStop: () => boolean;
   onProgress?(done: number, total: number): void;
   /// 検索と検索の間の待ち。
   pause?(): Promise<void>;

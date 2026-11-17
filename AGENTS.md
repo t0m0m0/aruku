@@ -123,21 +123,29 @@ When `packages/engine/` changes, also run in `packages/engine/`:
 
 - `npx tsc --noEmit`
 - `npm test`
+- `npm run lint`
 
 When `functions/` changes, also run in `functions/`:
 
 - `npm run build`  (tsc)
 - `npm test`       (vitest)
+- `npm run lint`   (oxlint)
 
 When `apps/web/` changes, also run in `apps/web/`:
 
 - `npx tsc --noEmit`
 - `npm test`
+- `npm run lint`
 - `npx vite build`
 - `npm run e2e`   (Playwright)
 
 `npm run e2e` は自分でビルドしてプレビューを起こすので、`npx vite build` とは別に走らせる。
 初回だけブラウザの取得が要る（`npx playwright install chromium`）。
+
+Lint（oxlint + tsgolint）の規則はルートの `.oxlintrc.json` に置き、各パッケージが extends する。
+規則は error / off の二値で、警告は使わない。違反は既定で直す。規則が正しいのに書き方を崩せない
+行だけ、理由のコメントを添えて `// oxlint-disable-next-line <rule>` で抑止する（使われない抑止は
+それ自体がエラーになる）。
 
 ---
 

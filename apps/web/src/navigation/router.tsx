@@ -63,6 +63,8 @@ export function appRoutes(
   // 履歴に残してはいけない。
   const guard = ({ request }: { request: Request }): null => {
     const to = resolveRedirect(request.url, store.getState(), now());
+    // react-router のローダーは Response を投げて遷移させる約束になっている。
+    // oxlint-disable-next-line typescript/only-throw-error
     if (to !== null) throw replace(to);
     return null;
   };

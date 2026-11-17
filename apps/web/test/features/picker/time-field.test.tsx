@@ -34,8 +34,8 @@ function setup(
     mode === PickerMode.depart ? ja.homeDepartureLabel : ja.homeArrivalLabel;
   render(<TimeField store={store} mode={mode} label={label} now={clock} />);
   return {
-    time: screen.getByLabelText(ja.timeFieldTime(label)) as HTMLInputElement,
-    date: screen.getByLabelText(ja.timeFieldDate(label)) as HTMLInputElement,
+    time: screen.getByLabelText<HTMLInputElement>(ja.timeFieldTime(label)),
+    date: screen.getByLabelText<HTMLInputElement>(ja.timeFieldDate(label)),
   };
 }
 
@@ -58,9 +58,9 @@ function setupBoth(initial: Partial<RouteCore>, clock: () => Date) {
     </>,
   );
   const field = (label: string, kind: '時刻' | '日付') =>
-    screen.getByLabelText(
+    screen.getByLabelText<HTMLInputElement>(
       kind === '時刻' ? ja.timeFieldTime(label) : ja.timeFieldDate(label),
-    ) as HTMLInputElement;
+    );
   return {
     departTime: field(ja.homeDepartureLabel, '時刻'),
     departDate: field(ja.homeDepartureLabel, '日付'),
@@ -477,9 +477,9 @@ describe('デスクトップ幅の日送り', () => {
     stubViewport(true);
     setupTime({ departure: at(13, 0), arrival: at(14, 0) });
 
-    const earlier = screen.getByRole('button', {
+    const earlier = screen.getByRole<HTMLButtonElement>('button', {
       name: '出発を1日まえにする',
-    }) as HTMLButtonElement;
+    });
 
     expect(earlier.disabled).toBe(true);
   });
@@ -488,9 +488,9 @@ describe('デスクトップ幅の日送り', () => {
     stubViewport(true);
     setupTime({ departure: at(13, 0, 3), arrival: at(14, 0, 3) }, PickerMode.arrival);
 
-    const earlier = screen.getByRole('button', {
+    const earlier = screen.getByRole<HTMLButtonElement>('button', {
       name: '到着を1日まえにする',
-    }) as HTMLButtonElement;
+    });
 
     expect(earlier.disabled).toBe(true);
   });
@@ -502,9 +502,9 @@ describe('デスクトップ幅の日送り', () => {
       arrival: at(14, 0, kMaxDateOffsetDays),
     });
 
-    const later = screen.getByRole('button', {
+    const later = screen.getByRole<HTMLButtonElement>('button', {
       name: '出発を1日あとにする',
-    }) as HTMLButtonElement;
+    });
 
     expect(later.disabled).toBe(true);
   });
@@ -611,13 +611,13 @@ describe('先頭のアイコン', () => {
 
 /// デスクトップ幅の日付欄（カレンダーを開くボタン）。
 function dateTrigger(label: string): HTMLButtonElement {
-  return screen.getByRole('button', {
+  return screen.getByRole<HTMLButtonElement>('button', {
     name: new RegExp(`^${ja.timeFieldDate(label)} `),
-  }) as HTMLButtonElement;
+  });
 }
 
 function dayButton(name: string): HTMLButtonElement {
-  return screen.getByRole('button', { name }) as HTMLButtonElement;
+  return screen.getByRole<HTMLButtonElement>('button', { name });
 }
 
 describe('デスクトップ幅のカレンダー', () => {
@@ -752,7 +752,7 @@ describe('デスクトップ幅のカレンダー（PR #425 のレビュー）',
         now={() => clock}
       />,
     );
-    const time = screen.getByLabelText(ja.timeFieldTime('出発')) as HTMLInputElement;
+    const time = screen.getByLabelText<HTMLInputElement>(ja.timeFieldTime('出発'));
     const trigger = dateTrigger('出発');
 
     fireEvent.change(time, { target: { value: '23:58' } });
@@ -855,5 +855,5 @@ function setupTime(initial: Partial<RouteCore>, mode: PickerMode = PickerMode.de
   const label =
     mode === PickerMode.depart ? ja.homeDepartureLabel : ja.homeArrivalLabel;
   render(<TimeField store={store} mode={mode} label={label} now={() => noon} />);
-  return { time: screen.getByLabelText(ja.timeFieldTime(label)) as HTMLInputElement };
+  return { time: screen.getByLabelText<HTMLInputElement>(ja.timeFieldTime(label)) };
 }

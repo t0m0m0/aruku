@@ -210,6 +210,9 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
   /// 焦点がまだ欄の中（時刻を打っている途中）なら確定しない——blur が後で来るうえ、
   /// ここで確定すると打ちかけの空文字で欄が元の値へ戻される。
   const shownDesktop = useRef(isDesktop);
+  // 依存配列を付けない。commit は描画ごとに作り直されるので、付けても毎回動くうえ、
+  // [isDesktop] だけにすると古い commit を掴む。動くのは shownDesktop と食い違った描画だけ。
+  // oxlint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (shownDesktop.current === isDesktop) return;
     shownDesktop.current = isDesktop;
@@ -432,8 +435,8 @@ interface SteppersProps {
   later: string;
   earlierDisabled?: boolean;
   laterDisabled?: boolean;
-  onStep(dir: 1 | -1): void;
-  onBlur(movedTo: EventTarget | null): void;
+  onStep: (dir: 1 | -1) => void;
+  onBlur: (movedTo: EventTarget | null) => void;
 }
 
 /// ◀ ▶ の対。

@@ -31,7 +31,8 @@ function source(visible: boolean) {
     listenerCount: () => listeners.length,
     set(next: boolean) {
       isVisible = next;
-      for (const l of [...listeners]) l();
+      // 呼び出し中の購読解除で splice されても全員へ届くよう、写しを回す。
+      for (const l of listeners.slice()) l();
     },
   };
 }
@@ -96,7 +97,7 @@ describe('締切のタイマー', () => {
       now: () => current,
     };
     const routeService: RouteService = {
-      plan: (async () => aRoute) as RouteService['plan'],
+      plan: (async () => aRoute),
     };
     const store = createAppStore(
       { destination: '渋谷駅', destinationLatLng: goal },

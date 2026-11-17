@@ -48,7 +48,7 @@ interface Entry {
   readonly key: string;
   readonly name: string;
   readonly detail: string;
-  select(): void;
+  select: () => void;
 }
 
 export function TypeaheadField({

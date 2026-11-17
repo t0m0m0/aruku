@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""PostToolUse hook: 編集した TypeScript ファイルのパッケージを型検査し、エラーを返す。
+"""PostToolUse hook: 編集した TypeScript ファイルのパッケージを型検査し、そのファイルを
+oxlint にかけて、エラーを返す。
 
 exit 2 の stderr は Claude に渡る（PostToolUse では編集を取り消さず、知らせるだけ）。
 """
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -55,6 +57,66 @@ def summarize(output, edited_relative):
     return summary
 
 
+# oxlint の unix 形式の1件。末尾の [Error] は規則を持たない検出（使われない抑止など）。
+LINT_FINDING_RE = re.compile(r"\[(Error|Warning)(/[^\]]+)?\]$")
+
+
+def summarize_lint(output):
+    findings = [line for line in output.splitlines() if LINT_FINDING_RE.search(line)]
+    lines = findings[:MAX_LINES]
+    hidden = len(findings) - len(lines)
+    summary = "\n".join(lines)
+    if hidden:
+        summary += f"\n（…ほか {hidden} 件）"
+    return summary
+
+
+def lint_command(package_dir, edited_relative):
+    # パッケージ全体ではなく編集したファイルだけを見る。型情報は tsconfig から引くので、
+    # 1ファイルでも型付きの規則は効く。フラグは package.json の lint スクリプトと揃える。
+    return [
+        str(package_dir / "node_modules" / ".bin" / "oxlint"),
+        "--type-aware",
+        "--deny-warnings",
+        "--report-unused-disable-directives-severity=error",
+        "--format",
+        "unix",
+        edited_relative,
+    ]
+
+
+def run_typecheck(package_dir, edited_relative):
+    tsc = package_dir / "node_modules" / ".bin" / "tsc"
+    if not tsc.exists():
+        # 依存未導入の環境で毎回失敗を返すと、編集のたびに雑音になる。
+        return ""
+    try:
+        result = subprocess.run(
+            [str(tsc), "--noEmit", "--pretty", "false"],
+            cwd=package_dir, capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if result.returncode == 0:
+        return ""
+    return summarize(result.stdout + result.stderr, edited_relative)
+
+
+def run_lint(package_dir, edited_relative):
+    command = lint_command(package_dir, edited_relative)
+    if not Path(command[0]).exists():
+        return ""
+    try:
+        result = subprocess.run(
+            command, cwd=package_dir, capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if result.returncode == 0:
+        return ""
+    return summarize_lint(result.stdout + result.stderr)
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
@@ -70,26 +132,17 @@ def main():
         sys.exit(0)
 
     package_dir = Path(root) / package
-    tsc = package_dir / "node_modules" / ".bin" / "tsc"
-    if not tsc.exists():
-        # 依存未導入の環境で毎回失敗を返すと、編集のたびに雑音になる。
-        sys.exit(0)
-
-    try:
-        result = subprocess.run(
-            [str(tsc), "--noEmit", "--pretty", "false"],
-            cwd=package_dir, capture_output=True, text=True, timeout=60,
-        )
-    except (OSError, subprocess.SubprocessError):
-        sys.exit(0)
-    if result.returncode == 0:
-        sys.exit(0)
-
     edited_relative = Path(file_path).resolve().relative_to(package_dir.resolve()).as_posix()
-    summary = summarize(result.stdout + result.stderr, edited_relative)
-    if not summary:
+    reports = []
+    type_errors = run_typecheck(package_dir, edited_relative)
+    if type_errors:
+        reports.append(f"[TYPECHECK] {package} で型エラー:\n{type_errors}")
+    lint_errors = run_lint(package_dir, edited_relative)
+    if lint_errors:
+        reports.append(f"[LINT] {package}/{edited_relative} で Lint の違反:\n{lint_errors}")
+    if not reports:
         sys.exit(0)
-    sys.stderr.write(f"[TYPECHECK] {package} で型エラー:\n{summary}\n")
+    sys.stderr.write("\n".join(reports) + "\n")
     sys.exit(2)
 
 

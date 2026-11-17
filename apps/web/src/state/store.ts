@@ -40,23 +40,23 @@ export type Navigate = (path: string) => void;
 
 export interface AppActions {
   /// 現在地を取り直す。起動直後の初回取得と、エラー画面の再試行から呼ぶ。
-  refreshLocation(): Promise<void>;
+  refreshLocation: () => Promise<void>;
 
   /// 目的地を設定する。名前と座標は必ず対で入れ替える。
   ///
   /// 座標を省いた呼び出しは前の座標を**消す**（移植元の sentinel なし copyWith と
   /// 同じ）。残すと、表示は新しい目的地なのに検索は前の座標へ行く。
-  setDestination(name: string | null, latLng?: GeoPoint | null): void;
+  setDestination: (name: string | null, latLng?: GeoPoint | null) => void;
 
   /// 出発地を設定する。null は「未設定」ではなく**現在地を使う**の意味で、
   /// home の表示名（departureLabelText）がそれを取得状況へ読み替える。
-  setOrigin(name: string | null, latLng?: GeoPoint | null): void;
+  setOrigin: (name: string | null, latLng?: GeoPoint | null) => void;
 
   /// 画面と、その表示前提データを書き換える唯一の入口。
   ///
   /// 状態を先に確定してから遷移する。逆順にすると、遷移先のガードがまだ古い状態を
   /// 読み、表示前提データが揃っているのに home へ跳ね返される（#386 の不変条件）。
-  go(screen: Screen, update?: Partial<RouteCore>): void;
+  go: (screen: Screen, update?: Partial<RouteCore>) => void;
 
   /// ピッカーが確定した時刻を出発／到着へ反映する。
   ///
@@ -64,12 +64,12 @@ export interface AppActions {
   /// 後ろへ押し出し、到着を変えたときは出発 + [kMinBudgetMinutes] へ寄せる。
   /// 押し出した到着は [kMaxDateOffsetDays] の外に立ち得る——選べる範囲を越えたから
   /// といって丸めると、丸めた先が出発より前になる。
-  applyPickedTime(picked: {
+  applyPickedTime: (picked: {
     mode: PickerMode;
     h: number;
     m: number;
     dateOffset: number;
-  }): void;
+  }) => void;
 
   /// 基準日が [days] 日進んだぶん、出発・到着を詰め直す。
   ///
@@ -79,29 +79,29 @@ export interface AppActions {
   /// [days] が 0 でも素通しにしない。跨いでいなくても、今日の過ぎた時刻と「今すぐ」の
   /// 古びは引き上げが要る。[now] を受け取るのは、呼び出し側が [days] を数えた時計と
   /// 揃えるため——ここで読み直すと、その隙に日が変われば基準が食い違う。
-  rebaseDates(days: number, now: Date): void;
+  rebaseDates: (days: number, now: Date) => void;
 
   /// 保持している出発・到着が数えている基準日を、実時刻の「今日」へ揃える。
   ///
   /// 跨いでいなければ何もしない。跨いでいたら [rebaseDates] と同じ詰め直しが走る。
-  rebaseToToday(at: Date): void;
+  rebaseToToday: (at: Date) => void;
 
   /// 経路を検索する。home の CTA と、エラー画面の再試行から呼ぶ。
   ///
   /// 画面は home→loading→result / error と進む。移植元は screen と表示前提データを
   /// 同一 copyWith で書いていたが、こちらは 3 つの遷移すべてを [go] 経由にすることで
   /// 同じ不変条件を保つ。
-  startSearch(): Promise<void>;
+  startSearch: () => Promise<void>;
 
   /// 開いたままの「今すぐ」経路が猶予を超えていれば捨てて home へ戻す（#264）。
   ///
   /// 移植元 `onAppResumed` に相当する。ガードは画面へ**入る**ときしか走らず、
   /// 検索の完了時の砦も照会中の経過しか見ない——結果を開いたまま放置した経路は
   /// どちらにも掛からない。
-  revalidateRoute(): void;
+  revalidateRoute: () => void;
 
   /// 進行中の検索を捨てて home へ戻す（#221）。
-  cancelSearch(): void;
+  cancelSearch: () => void;
 
   /// 進行中の検索を捨てる。**遷移はしない。**
   ///
@@ -116,13 +116,13 @@ export interface AppActions {
   /// 判断はここには無く、呼ぶ側——離脱の**時点**で現在地を読み直す購読——が持つ
   /// （navigation/search-abandon.ts）。新しい検索が待ち画面へ入り直していれば、
   /// そちらの購読が早期に戻るので巻き添えにならない。
-  abandonSearch(): void;
+  abandonSearch: () => void;
 
   /// ルーターを繋ぐ。
   ///
   /// コンストラクタ引数にしないのは循環のため——ルーターはガードのためにストアを
   /// 読み、ストアは遷移のためにルーターを呼ぶ。どちらかを後から差す必要がある。
-  attachNavigator(navigate: Navigate): void;
+  attachNavigator: (navigate: Navigate) => void;
 }
 
 /// 経路の表示前提（[RouteCore]）に含めない状態。

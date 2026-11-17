@@ -1,0 +1,10 @@
+{
+  "extends": ["../.oxlintrc.json"],
+  // lib/ は tsc の出力先。
+  "ignorePatterns": ["lib/**"],
+  "rules": {
+    // tsconfig が target es2017 で lib を指定しておらず、Error の第2引数（cause）が型に無い。
+    // tsconfig を他パッケージと揃えるとき（#517）に error へ戻す。
+    "preserve-caught-error": "off"
+  }
+}

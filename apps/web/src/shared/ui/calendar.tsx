@@ -15,6 +15,7 @@ import {
   DayButton as DayButtonBase,
   DayPicker,
   getDefaultClassNames,
+  type ChevronProps,
   type DayButtonProps,
 } from 'react-day-picker';
 
@@ -55,8 +56,8 @@ function Calendar({
         labelGrid: (month) => ja.calendarCaption(month.getFullYear(), month.getMonth() + 1),
         labelDayButton: (date, modifiers) =>
           ja.calendarDayLabel(todayDateLabel(date), {
-            today: modifiers.today === true,
-            selected: modifiers.selected === true,
+            today: modifiers.today,
+            selected: modifiers.selected,
           }),
         labelWeekday: (weekday) => ja.calendarWeekdayLabel(ja.weekdays[(weekday.getDay() + 6) % 7]),
         labelNext: () => ja.calendarNextMonth,
@@ -96,15 +97,17 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        Chevron: ({ orientation }) => (
-          <ChevronIcon size={16} dir={orientation === 'left' ? 'left' : 'right'} />
-        ),
+        Chevron: CalendarChevron,
         DayButton: CalendarDayButton,
         ...components,
       }}
       {...props}
     />
   );
+}
+
+function CalendarChevron({ orientation }: ChevronProps) {
+  return <ChevronIcon size={16} dir={orientation === 'left' ? 'left' : 'right'} />;
 }
 
 function CalendarDayButton({

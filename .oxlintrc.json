@@ -1,0 +1,72 @@
+{
+  // 各パッケージの .oxlintrc.json がこれを extends する。警告は使わず error / off の二値にする
+  // ——警告は CI を落とさないので誰も読まず、決定論的な縛りにならない（#516）。
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "import", "promise", "vitest"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "rules": {
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/await-thenable": "error",
+    "typescript/return-await": "error",
+    "typescript/only-throw-error": "error",
+    // catch で受けた unknown をそのまま reject へ渡す（握った例外の転送）は正当。
+    "typescript/prefer-promise-reject-errors": ["error", { "allowThrowingUnknown": true }],
+    "typescript/switch-exhaustiveness-check": "error",
+    "typescript/restrict-template-expressions": "error",
+    "typescript/no-base-to-string": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/prefer-nullish-coalescing": "error",
+    "typescript/no-deprecated": "error",
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
+    "import/no-cycle": "error",
+    "vitest/no-focused-tests": "error",
+    "vitest/no-disabled-tests": "error",
+    // Vitest の expect は第2引数に失敗時のメッセージを取る。
+    "vitest/valid-expect": ["error", { "maxArgs": 2 }],
+    // Testing Library の getBy* は見つからなければ投げるので、それ自体が表示の検査になる。
+    "vitest/expect-expect": [
+      "error",
+      {
+        "assertFunctionNames": [
+          "expect",
+          "expect*",
+          "assertSucceeds",
+          "assertFails",
+          "screen.getBy*",
+          "screen.getAllBy*"
+        ]
+      }
+    ],
+    // 日本語の文言・コメントの全角空白を誤検知する。
+    "no-irregular-whitespace": [
+      "error",
+      { "skipComments": true, "skipStrings": true, "skipTemplates": true }
+    ],
+
+    // 件数が多く、直してから1つずつ error に上げる（#521）。
+    "typescript/no-unsafe-type-assertion": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "vitest/require-mock-type-parameters": "off",
+    // 返り値の欠けは tsc の noImplicitReturns で見る（#517）。こちらは網羅した switch の
+    // 後ろの暗黙の undefined まで拾い、型で網羅を保証している関数を誤検知する。
+    "typescript/consistent-return": "off",
+    // その場で作った配列の sort / reverse まで拾う。破壊的な変更が共有された配列に
+    // 及ぶ場面は型でも読みでも分かり、toSorted へ機械的に書き換える益が薄い。
+    "unicorn/no-array-sort": "off",
+    "unicorn/no-array-reverse": "off",
+    // モジュール内の非公開状態を _ で示す慣習を使っている。
+    "no-underscore-dangle": "off",
+    // then が値を返さないと次の then が undefined を受けることは、型が void として見せる。
+    // 型の無い JS 向けの規則で、ここでは連鎖の途中で状態を書くだけの then を誤検知する。
+    "promise/always-return": "off",
+    // 単一の数を渡す new Array(n) が長さの指定か要素かは、型引数と引数の型で読める。
+    // 長さを決めて fill する用途に Array.from({ length }) を強いる益が薄い。
+    "unicorn/no-new-array": "off",
+    // 導入時に全 21 件を見たが取り違えは無く、どれも同名の再利用だった（vi.hoisted の中の
+    // クラス名、引数の value など）。名前を替えて避ける益が、読みにくさに見合わない。
+    "no-shadow": "off"
+  }
+}

@@ -28,7 +28,7 @@ let store: StoreApi<AppStore>;
 function setup(kind: RouteErrorKind | null, located = false) {
   const navigate = vi.fn();
   const plan = vi.fn(async (_args: PlanArgs) => ({}) as RoutePlan);
-  const routeService: RouteService = { plan: plan as RouteService['plan'] };
+  const routeService: RouteService = { plan };
   const request = vi.fn(async () =>
     located ? locationAvailable(here) : locationDenied,
   );
@@ -146,7 +146,7 @@ describe('現在地が取れなかったときの再試行', () => {
     expect(request).toHaveBeenCalledOnce();
     expect(plan).toHaveBeenCalledOnce();
     // 取り直した座標が出発地として届く。
-    expect(plan.mock.calls[0]![0].origin).toEqual(here);
+    expect(plan.mock.calls[0][0].origin).toEqual(here);
   });
 
   it('取り直しても取れなければそのまま引き直す', async () => {
@@ -184,7 +184,7 @@ describe('画面を離れた後の再試行', () => {
       { routeErrorKind: RouteErrorKind.noLocation, destination: '渋谷駅' },
       () => new Date(2026, 8, 13, 12, 0, 0),
       { request: () => new Promise((r) => (resolve = r)) },
-      { plan: plan as RouteService['plan'] },
+      { plan },
     );
     store.setState({ locationState: locationDenied });
     store.getState().attachNavigator(navigate);

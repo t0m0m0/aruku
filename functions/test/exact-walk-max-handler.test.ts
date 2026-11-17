@@ -2,7 +2,7 @@ import { gzipSync } from "node:zlib";
 import { EventEmitter } from "events";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HttpsFunction, Request } from "firebase-functions/v2/https";
+import type { Request } from "firebase-functions/v2/https";
 import type { Response } from "express";
 
 import { PACK_FORMAT_VERSION, type TimetablePack } from "../src/timetable-pack/pack";
@@ -141,7 +141,7 @@ async function invoke(
     ip: "127.0.0.1",
   };
   const res = makeRes();
-  await (exactWalkMax as HttpsFunction)(req as unknown as Request, res as unknown as Response);
+  await (exactWalkMax)(req as unknown as Request, res as unknown as Response);
   return res;
 }
 

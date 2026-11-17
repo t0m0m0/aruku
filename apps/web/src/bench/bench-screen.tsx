@@ -23,9 +23,9 @@ export interface VerifyHooks {
 export interface BenchScreenProps {
   now: () => Date;
   total: number;
-  run(date: Date, hooks: BenchHooks): Promise<void>;
+  run: (date: Date, hooks: BenchHooks) => Promise<void>;
   /// 厳密走査が勝った経路の便を Transit API で照合する（src/bench/ab-verify.ts）。
-  verify(records: BenchRecord[], hooks: VerifyHooks): Promise<void>;
+  verify: (records: BenchRecord[], hooks: VerifyHooks) => Promise<void>;
 }
 
 export function BenchScreen({ now, total, run, verify }: BenchScreenProps) {

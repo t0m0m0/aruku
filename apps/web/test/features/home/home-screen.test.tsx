@@ -241,8 +241,8 @@ describe('ホームの時刻', () => {
     });
 
     // 値は入力欄が持つ（#386 スライス5 で表示だけの欄を置き換えた）。
-    expect((screen.getByLabelText('出発の時刻') as HTMLInputElement).value).toBe('09:05');
-    expect((screen.getByLabelText('到着の時刻') as HTMLInputElement).value).toBe('10:30');
+    expect(screen.getByLabelText<HTMLInputElement>('出発の時刻').value).toBe('09:05');
+    expect(screen.getByLabelText<HTMLInputElement>('到着の時刻').value).toBe('10:30');
   });
 
   // 押せない › が ◀▶ のステッパーと並ぶと、押せる矢印と見分けがつかない。
@@ -287,9 +287,9 @@ describe('ホームの時刻', () => {
     });
 
     expect(screen.getByText('1時間 30分')).toBeDefined();
-    const arrivalDate = screen.getByLabelText(
+    const arrivalDate = screen.getByLabelText<HTMLInputElement>(
       ja.timeFieldDate(ja.homeArrivalLabel),
-    ) as HTMLInputElement;
+    );
     expect(arrivalDate.value).toBe('2026-09-12');
   });
 });
@@ -446,7 +446,7 @@ describe('デスクトップ幅の出発地', () => {
 
     setup({}, { locations: [locationAvailable(somewhere)] });
 
-    const field = screen.getByRole('combobox', { name: '出発地を検索' }) as HTMLInputElement;
+    const field = screen.getByRole<HTMLInputElement>('combobox', { name: '出発地を検索' });
     expect(field.value).toBe('');
     await vi.waitFor(() => {
       expect(field.placeholder).toBe('現在地');
@@ -458,7 +458,7 @@ describe('デスクトップ幅の出発地', () => {
 
     setup({}, { locations: [locationDenied] });
 
-    const field = screen.getByRole('combobox', { name: '出発地を検索' }) as HTMLInputElement;
+    const field = screen.getByRole<HTMLInputElement>('combobox', { name: '出発地を検索' });
     await vi.waitFor(() => {
       expect(field.placeholder).toBe('位置情報なし');
     });
@@ -470,7 +470,7 @@ describe('デスクトップ幅の出発地', () => {
     setup({ origin: '新宿駅', originLatLng: somewhere });
 
     expect(
-      (screen.getByRole('combobox', { name: '出発地を検索' }) as HTMLInputElement).value,
+      screen.getByRole<HTMLInputElement>('combobox', { name: '出発地を検索' }).value,
     ).toBe('新宿駅');
   });
 

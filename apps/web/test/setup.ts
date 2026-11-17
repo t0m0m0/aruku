@@ -20,7 +20,10 @@ window.matchMedia = (query: string): MediaQueryList => ({
   matches: false,
   media: query,
   onchange: null,
+  // 非推奨だが MediaQueryList の型が要求するので、呼ばずに埋めるだけ。
+  // oxlint-disable-next-line typescript/no-deprecated
   addListener: () => {},
+  // oxlint-disable-next-line typescript/no-deprecated
   removeListener: () => {},
   addEventListener: () => {},
   removeEventListener: () => {},
