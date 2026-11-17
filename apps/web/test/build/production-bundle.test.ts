@@ -22,7 +22,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 // vitest はブラウザ向けの import.meta.url を配るので、new URL(...) は file: にならない。
 // この設定の `root`（= apps/web）から辿る。
 const webRoot = resolve(
-  dirname(fileURLToPath(`file://${__filename ?? ''}`)) || process.cwd(),
+  dirname(fileURLToPath(`file://${__filename}`)) || process.cwd(),
   '..',
   '..',
 );
@@ -69,6 +69,8 @@ beforeAll(() => {
 }, 120_000);
 
 afterAll(() => {
+  // beforeAll が一時ディレクトリを作る前に失敗しても afterAll は走り、outDir は未代入のまま。
+  // oxlint-disable-next-line typescript/no-unnecessary-condition
   if (outDir !== undefined) rmSync(outDir, { recursive: true, force: true });
 });
 

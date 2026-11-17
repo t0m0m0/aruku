@@ -22,7 +22,7 @@ export interface ReplayEntry {
 }
 
 /// 照会 URL（`href`）→ 録画。
-export type ReplayStoreData = Record<string, ReplayEntry>;
+export type ReplayStoreData = Partial<Record<string, ReplayEntry>>;
 
 /// 上流が返さなかった照会（タイムアウト・通信失敗）の印。HTTP のステータスとは重ならない。
 export const timedOutStatus = 599;
@@ -130,13 +130,19 @@ class ReplayHttpClient implements HttpClient {
   private readonly waiting = new Set<(error: Error) => void>();
 
   async get(url: URL): Promise<HttpResponse> {
-    if (this.closed) throw new ClientException('closed');
+    this.throwIfClosed();
     const { entry, delayMs } = await this.session.resolve(url);
     if (delayMs > 0) await this.wait(delayMs);
-    if (this.closed) throw new ClientException('closed');
+    this.throwIfClosed();
     if (entry.status === timedOutStatus)
       throw new TimeoutException(`replayed timeout: ${url.href}`);
     return { statusCode: entry.status, bodyBytes: Buffer.from(entry.body, 'base64') };
+  }
+
+  // get の中で this.closed を直に見ないのは、TS が await を跨いでも一度 false と絞った
+  // フィールドを false のまま扱い、待ちの間に close された判定を「起きない」と見なすため。
+  private throwIfClosed(): void {
+    if (this.closed) throw new ClientException('closed');
   }
 
   close(): void {

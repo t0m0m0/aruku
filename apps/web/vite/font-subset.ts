@@ -216,7 +216,9 @@ export function parseFontFaces(css: string): FontFace[] {
 function parseRanges(declared: string): [number, number][] {
   return declared.split(',').map((part) => {
     const body = part.trim().replace(/^U\+/iu, '');
-    const [lo, hi] = body.split('-');
+    const bounds = body.split('-');
+    const [lo] = bounds;
+    const hi = bounds.at(1);
     const start = Number.parseInt(lo, 16);
     return [start, hi === undefined ? start : Number.parseInt(hi, 16)];
   });

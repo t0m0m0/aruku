@@ -34,8 +34,8 @@ export function syntheticWalkResponse(url: URL): { body: string; delayMs: number
     return { body: JSON.stringify(rows), delayMs: syntheticMatrixDelayMs };
   }
   if (url.pathname.endsWith('/googleWalkProxy')) {
-    const [start] = points(url.searchParams.get('start'));
-    const [goal] = points(url.searchParams.get('goal'));
+    const start = points(url.searchParams.get('start')).at(0);
+    const goal = points(url.searchParams.get('goal')).at(0);
     if (start === undefined || goal === undefined) return null;
     const body = {
       routes: [

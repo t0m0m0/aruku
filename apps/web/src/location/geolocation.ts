@@ -29,8 +29,17 @@ export const locationRequestTimeoutMs = 10_000;
 /// しか生えておらず、コールバックが呼ばれない経路では参照できない。
 const permissionDenied = 1;
 
+// lib.dom は navigator も geolocation も常に在るとするが、Node（テスト）には navigator が
+// 無く、非セキュアコンテキストでは geolocation を生やさないブラウザがある。型どおりに
+// 読むと undefined の判定が「起きない分岐」に見えるので、在るとは限らない形で受ける。
+function ambientGeolocation(
+  navigator: { readonly geolocation?: Geolocation } | undefined,
+): Geolocation | undefined {
+  return navigator?.geolocation;
+}
+
 export function browserLocationService(
-  geolocation: Geolocation | undefined = globalThis.navigator?.geolocation,
+  geolocation: Geolocation | undefined = ambientGeolocation(globalThis.navigator),
   timeoutMs: number = locationRequestTimeoutMs,
 ): LocationService {
   return {

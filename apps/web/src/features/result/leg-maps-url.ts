@@ -17,7 +17,9 @@ import { ja } from '../../i18n/ja';
 /// [route] の [index] 番目の区間を Google マップで開く URL。行き先が決まらない区間は
 /// null（空の destination で開くと目的地未設定の検索画面になる。移植元 #323）。
 export function buildLegMapsUrl(route: RoutePlan, index: number): string | null {
-  const leg = route.segments[index];
+  // 素直な segments[index] は、noUncheckedIndexedAccess の無い型では常に在ると見なされ、
+  // 範囲外の判定が「起きない分岐」に見える。.at() は負の添字を末尾から数えるので先に弾く。
+  const leg = index < 0 ? undefined : route.segments.at(index);
   if (leg === undefined) return null;
   const destination = legDestination(route, index);
   if (destination === null) return null;

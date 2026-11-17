@@ -265,7 +265,7 @@ describe('区間の所要時間', () => {
         )}
       />,
     );
-    return steps()[0].textContent ?? '';
+    return steps()[0].textContent;
   }
 
   it('60分未満はそのまま分で出す', () => {

@@ -12,7 +12,8 @@ import { replayReport } from '../src/bench/replay/replay-report.ts';
 const args = process.argv.slice(2);
 const at = args.indexOf('--labels');
 const labels = at < 0 ? null : args.splice(at, 2)[1]?.split(',');
-const [aPath, bPath] = args;
+const aPath = args.at(0);
+const bPath = args.at(1);
 if (aPath === undefined || bPath === undefined || (labels !== null && labels.length !== 2)) {
   console.error('usage: node scripts/replay-report.mjs <a.jsonl> <b.jsonl> [--labels a,b]');
   process.exit(2);

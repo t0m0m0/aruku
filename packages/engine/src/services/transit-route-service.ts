@@ -225,9 +225,7 @@ export class TransitRouteService implements SearchEngine {
     const onProgress = args.onProgress;
     if (!this.api.hasTransitApi) throw new RouteException('NO_TRANSIT_API');
     if (origin === null) throw new RouteException('NO_ORIGIN');
-    if (destinationLatLng === null || destinationLatLng === undefined) {
-      throw new RouteException('NO_DESTINATION');
-    }
+    if (destinationLatLng === null) throw new RouteException('NO_DESTINATION');
     const budgetMin = budgetMinutesOf(departure, arrival);
 
     // 定量指標（#309）は plan 入口〜確定までを1オブジェクトに集約する。ZERO_RESULTS 等で
@@ -761,7 +759,7 @@ export class TransitRouteService implements SearchEngine {
       hybrids: session.provenance.hybrids,
       singlePassHybridThreshold,
       maxMeasureShortlist,
-      allowSinglePass: !this.deadline.isExpired,
+      allowSinglePass: !this.deadline.isExpired(),
     });
     const prewarm = front.prewarm;
     metrics.singlePassMeasure = front.singlePass;
@@ -971,7 +969,7 @@ export class TransitRouteService implements SearchEngine {
     // 締切切れなら scan/probe を一切起こさず縮退する（#317 レビュー対応）。先頭の matrix
     // プレ実測（proxy・deadlineApplies:false）は締切に縛られず走ってしまうため、探索自体を
     // 起こさないのが正しい縮退。
-    if (this.deadline.isExpired) {
+    if (this.deadline.isExpired()) {
       this.diag.log(() => 'board-search: 締切切れのため起動せず縮退');
       return [];
     }
@@ -1112,7 +1110,7 @@ export class TransitRouteService implements SearchEngine {
         // （§2.1）を焼かせ続けると、同じ枠を使う次の検索の board-search が浅くなる。
         // [BoardSearchStats.truncated] は立てない——捨てる探索の境界はそもそも報告されない。
         if (abandoned?.() ?? false) return false;
-        if (!this.deadline.isExpired) return true;
+        if (!this.deadline.isExpired()) return true;
         stats.truncated = true;
         return false;
       },
@@ -1128,7 +1126,7 @@ export class TransitRouteService implements SearchEngine {
     // [maxWalkBoardingIndexParallel] がそのラウンドで打ち切り、shouldContinue を再び
     // 通らずにループを抜ける。つまり「新ラウンドを起こさなかった」判定だけでは打ち切りを
     // 取りこぼす——境界を実測でなく締切が決めた、最も記録すべきケースで。
-    if (this.deadline.isExpired) stats.truncated = true;
+    if (this.deadline.isExpired()) stats.truncated = true;
     // 最終ラウンドぶんを締める。ここを呼び出し側の義務にすると、締切 break で抜けた
     // ——最も測りたい重い探索——で系列が1つ短くなる。
     if (stats.rounds > 0) stats.walkByRound.push(bestWalkSoFar());

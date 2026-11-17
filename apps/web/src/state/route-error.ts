@@ -28,7 +28,7 @@ export interface RouteErrorView {
 /// 移植元にあった `NOT_FOUND` / `UNKNOWN_ERROR` / `UNKNOWN` / `OVER_QUERY_LIMIT` は
 /// 運んでいない。NAVITIME 時代の名残で、#330 の撤去以降は Dart のサービス層も
 /// これらを投げない（実際に投げているのは下の6つと `HTTP <code>` だけ）。
-const kindByStatus: Readonly<Record<string, RouteErrorKind>> = {
+const kindByStatus: Readonly<Partial<Record<string, RouteErrorKind>>> = {
   NO_ORIGIN: RouteErrorKind.noLocation,
   NO_DESTINATION: RouteErrorKind.noDestination,
   ZERO_RESULTS: RouteErrorKind.noResults,

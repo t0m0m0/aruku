@@ -286,6 +286,13 @@ function stationOf({ name, lat, lng }: TimetableStop): TimetableStop {
   return { name, lat, lng };
 }
 
+// 上流の行列が返した添字は stops の範囲に収まる保証が無い。stops[i] の undefined で
+// 弾かないのは、noUncheckedIndexedAccess の無い型では添字の読みが常に在ると見なされ、
+// 判定が「起きない分岐」に見えるため。tsconfig の lib が es2017 で .at() も使えない（#517）。
+function isIndexOf(xs: readonly unknown[], i: number): boolean {
+  return Number.isInteger(i) && i >= 0 && i < xs.length;
+}
+
 function walksByStop(
   rows: readonly MatrixElement[],
   stops: readonly number[],
@@ -293,9 +300,9 @@ function walksByStop(
 ): Map<number, Walk> {
   const out = new Map<number, Walk>();
   for (const e of rows) {
-    const stop = stops[indexOf(e)];
-    if (stop === undefined || !Number.isFinite(e.durationSec)) continue;
-    out.set(stop, { durationSec: e.durationSec, distanceMeters: e.distanceMeters });
+    const at = indexOf(e);
+    if (!isIndexOf(stops, at) || !Number.isFinite(e.durationSec)) continue;
+    out.set(stops[at], { durationSec: e.durationSec, distanceMeters: e.distanceMeters });
   }
   return out;
 }

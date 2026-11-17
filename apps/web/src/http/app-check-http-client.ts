@@ -123,16 +123,17 @@ export class AppCheckHttpClient extends BaseHttpClient {
     }
 
     const signals = signal === undefined ? [this.aborter.signal] : [this.aborter.signal, signal];
-    let onAbort: (() => void) | null = null;
+    let rejectClosed: (error: ClientException) => void = () => undefined;
+    // executor は同期に走るので、ここを抜けた時点で rejectClosed は reject に繋がっている。
     const closed = new Promise<never>((_resolve, reject) => {
-      onAbort = () =>
-        reject(
-          new ClientException(
-            `Request was aborted while acquiring an App Check token: ${url.href}`,
-          ),
-        );
-      for (const s of signals) s.addEventListener('abort', onAbort, { once: true });
+      rejectClosed = reject;
     });
+    const onAbort = (): void => {
+      rejectClosed(
+        new ClientException(`Request was aborted while acquiring an App Check token: ${url.href}`),
+      );
+    };
+    for (const s of signals) s.addEventListener('abort', onAbort, { once: true });
 
     try {
       return await Promise.race([tokenFrom(provider), closed]);
@@ -140,9 +141,7 @@ export class AppCheckHttpClient extends BaseHttpClient {
       // 決着後にリスナを残さない。1リクエストごとに積むので、外さないと
       // 検索1回（最大13本）ぶん——地点検索ではアプリ寿命の client に打鍵ぶん——が
       // close まで居座る。
-      if (onAbort !== null) {
-        for (const s of signals) s.removeEventListener('abort', onAbort);
-      }
+      for (const s of signals) s.removeEventListener('abort', onAbort);
     }
   }
 }

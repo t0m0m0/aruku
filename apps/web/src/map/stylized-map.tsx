@@ -105,7 +105,7 @@ function useFrameSize(ref: React.RefObject<HTMLDivElement | null>) {
     if (el === null || typeof ResizeObserver !== 'function') return;
 
     const observer = new ResizeObserver((entries) => {
-      const rect = entries[0]?.contentRect;
+      const rect = entries.at(0)?.contentRect;
       if (rect === undefined || rect.width <= 0 || rect.height <= 0) return;
       setSize({ w: rect.width, h: rect.height });
     });

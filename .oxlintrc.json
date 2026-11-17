@@ -54,6 +54,12 @@
     // null 許容のオブジェクトは null 以外に偽が無い。崩すと 77 件が増えるが、取り違えの余地が
     // 無い書き方を比較に書き換えるだけになる（#521）。
     "typescript/strict-boolean-expressions": "error",
+    // 型の上で常に同じ値になる条件は、消し忘れの防御か、型が実際の値を表していない印。
+    // 後者が多い——noUncheckedIndexedAccess の無い添字の読み、Record<string, …> の表、
+    // await を跨いで変わるフィールド・getter の絞り込み。違反は分岐を消す前に型を正す
+    // （.at()・Partial・メソッド化）。テストのフックで代入する let のように型で表せない
+    // 防御だけ、理由を添えて抑止する（#521）。
+    "typescript/no-unnecessary-condition": "error",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "import/no-cycle": "error",
     "vitest/no-focused-tests": "error",
