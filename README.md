@@ -390,18 +390,20 @@ Firestore 呼び出しが失敗した場合はフェイルオープン（リク�
 - **レイテンシ・コスト**: プロキシ呼び出しのたびに Firestore トランザクション（1 read + 1 write、重なった分は1回にまとまる）を待つので、
   呼び出しレイテンシと Firestore 課金が増えます。課金 API の濫用防止という保険のためのコストです。
 
-## 時刻表パック（ODPT の GTFS）
+## 時刻表パック（ODPT の GTFS と mini-tokyo-3d）
 
 厳密走査（#456）が読む時刻表パックは、定期関数 `refreshTimetablePacks` が毎日 4:23（JST）に
-ODPT から GTFS を取り直して作り、非公開の Cloud Storage に置きます。取得するフィードとキーは
-`functions/src/timetable-pack/feeds.ts`。
+ODPT の GTFS と mini-tokyo-3d の時刻表を取り直して作り、非公開の Cloud Storage に置きます。
+取得するフィード・キー・mini-tokyo-3d の固定コミットと事業者は `functions/src/timetable-pack/feeds.ts`。
 
 | オブジェクト | 中身 | ライセンス |
 |---|---|---|
 | `challenge/timetable-pack.json.gz` | JR東日本・京王・東武・相鉄 | チャレンジ限定（**2027-03-12 で削除**・#463） |
 | `permanent/timetable-pack.json.gz` | 東京メトロ・TX・りんかい線・多摩モノレール・横浜市営地下鉄・都営 | 基本ライセンス・CC BY 4.0 |
+| `minitokyo3d/timetable-pack.json.gz` | ODPT に無い（または列車をつなげない）事業者: 東急・小田急・京急・西武・京成・北総・東京モノレール・ゆりかもめ・JR東海など36事業者 | mini-tokyo-3d の MIT 表記（元データの権利は未確認・#510） |
 
-グループの中で1フィードでも取れなかった日（必須ファイルの欠けた zip・便が1本も無いフィードを含む）は、
+グループの中で1フィードでも取れなかった日（必須ファイルの欠けた zip・便が1本も無いフィードを含む。
+mini-tokyo-3d は、どれか1つのファイルが取れなかった日と、便が1本も無い事業者があった日）は、
 そのグループを上書きせず前回のパックを残し、
 実行を失敗として記録します（ログの `jsonPayload.event="timetable_pack_refresh"`）。
 

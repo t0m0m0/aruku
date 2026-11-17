@@ -1,16 +1,74 @@
-// 取得する ODPT の鉄道 GTFS（#456 の「対象データ」の表）。
+// 時刻表パックの取得元。ODPT の鉄道 GTFS（#456 の「対象データ」の表）と、
+// ODPT で列車をつなげない・ODPT に無い事業者を補う mini-tokyo-3d（#510）。
 //
-// 東急・小田急・京急・西武は駅時刻表しか無く列車をつなげないので対象外。
+// 東急・小田急・京急・西武は ODPT に駅時刻表しか無く（列車番号も無い）、列車をつなげない。
 
 export type OdptKeyName = "ODPT_CENTER_KEY" | "ODPT_CHALLENGE_KEY";
 
 /**
  * challenge: チャレンジ限定ライセンス（2027-03-12 まで。期限後に消す・#463）
  * permanent: 公共交通オープンデータ基本ライセンス・CC BY 4.0
+ * minitokyo3d: mini-tokyo-3d の時刻表（MIT・Copyright (c) 2019-2025 Akihiko Kusanagi）。
+ *   README はデータの出典を ODPT としていて、時刻表そのものの権利関係は確かめていない（#510）。
+ *   問題が分かったらグループごと外せるよう、ODPT とは別のパックにしている。
  */
-export type PackGroup = "challenge" | "permanent";
+export type PackGroup = "challenge" | "permanent" | "minitokyo3d";
 
-export const PACK_GROUPS: readonly PackGroup[] = ["challenge", "permanent"];
+export const PACK_GROUPS: readonly PackGroup[] = ["challenge", "permanent", "minitokyo3d"];
+
+export interface MiniTokyo3dSource {
+  commit: string;
+  /** railways の ID の先頭。ODPT から取っている事業者は入れない（同じ列車が2本ずつ入る）。 */
+  operators: readonly string[];
+}
+
+/** ダイヤ改正で mini-tokyo-3d の時刻表が直ったら、commit を上げる。 */
+export const MINI_TOKYO_3D: MiniTokyo3dSource = {
+  commit: "fa7833f18a288aeca171b68892bb7f67e229e4ca",
+  // railways.json の事業者のうち、ODPT から取っている10事業者を除いた全部（2026-11 時点）。
+  operators: [
+    "Tokyu",
+    "Odakyu",
+    "OdakyuHakone",
+    "Keikyu",
+    "Seibu",
+    "Keisei",
+    "Hokuso",
+    "Shibayama",
+    "Minatomirai",
+    "SaitamaRailway",
+    "ToyoRapid",
+    "TokyoMonorail",
+    "Yurikamome",
+    "YokohamaSeaside",
+    "ChibaMonorail",
+    "SaitamaTransit",
+    "ShonanMonorail",
+    "JR-Central",
+    "KantoRailway",
+    "Ryutetsu",
+    "Kominato",
+    "Isumi",
+    "Choshi",
+    "KashimaRinkai",
+    "Hitachinaka",
+    "Moka",
+    "UtsunomiyaLightRail",
+    "Enoden",
+    "IzuHakone",
+    "Izukyu",
+    "Fujikyu",
+    "Chichibu",
+    "Jomo",
+    "Joshin",
+    "WataraseKeikoku",
+    "Yamaman",
+  ],
+};
+
+// リポジトリ全体の zip を取らないのは、data/ 以外（地図・画像・ビルド成果物）が大半を占めるため。
+export const miniTokyo3dDataUrl = (commit: string, path: string): string =>
+  `https://raw.githubusercontent.com/nagix/mini-tokyo-3d/${commit}/data/${path}`;
 
 export interface OdptFeed {
   id: string;

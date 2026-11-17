@@ -181,8 +181,8 @@ async function readPack(deps: PackLoadDeps, group: PackGroup): Promise<ReadResul
   }
   const readMs = deps.now() - start;
   if (gzipped === null) return { status: "missing", loadMs: readMs, readMs };
-  // 解凍と解析は同期なので、もう一方のグループの同期処理が割り込まない。一方 readMs は、読込の完了後も
-  // もう一方の解凍・解析が終わるまで再開できず、その待ちを含み得る。工程に分けて出すのはそのため。
+  // 解凍と解析は同期なので、ほかのグループの同期処理が割り込まない。一方 readMs は、読込の完了後も
+  // ほかのグループの解凍・解析が終わるまで再開できず、その待ちを含み得る。工程に分けて出すのはそのため。
   const decoded = decodePack(gzipped, deps.now);
   const loadMs = readMs + decoded.gunzipMs + decoded.parseMs;
   if (decoded.status === "failure") return { ...decoded, loadMs, readMs };
