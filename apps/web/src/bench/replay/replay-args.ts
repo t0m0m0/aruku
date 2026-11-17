@@ -3,6 +3,7 @@
 import { dateTime } from '@aruku/engine/time';
 
 import { benchBudgetRatios, benchSlots, type BenchSlot } from '../bench-cases';
+import { syntheticMatrixDelayMs } from './synthetic-walk';
 
 export interface ReplayArgs {
   readonly mode: 'record' | 'replay';
@@ -18,6 +19,11 @@ export interface ReplayArgs {
   readonly urlLog: string | null;
   /// JSONL の各行に載せる版の名前。
   readonly label: string;
+  /// 厳密走査に答える時刻表パックの置き場所（`pack:local` の出力）。null は厳密走査を使わない（#513）。
+  readonly exactPacks: string | null;
+  /// 厳密走査の応答を返すまでの遅延。既定は徒歩マトリクスの合成遅延と同じ——本番の exactWalkMax の
+  /// 中で支配的なのは Google マトリクス1回の往復で、走査そのものは数 ms で終わる（#459）。
+  readonly exactDelayMs: number;
 }
 
 const flags = [
@@ -31,13 +37,16 @@ const flags = [
   'refetch-limit-ms',
   'url-log',
   'label',
+  'exact-packs',
+  'exact-delay-ms',
 ] as const;
 type Flag = (typeof flags)[number];
 
 export const replayUsage =
   'usage: --store <rec.json> --out <out.jsonl> --date YYYY-MM-DD ' +
   '[--mode record|replay] [--slots 12:00,22:00] [--ratios 1.2,1.5,2] [--pairs <regex>] ' +
-  '[--refetch-limit-ms <ms>] [--url-log <path>] [--label <name>]';
+  '[--refetch-limit-ms <ms>] [--url-log <path>] [--label <name>] ' +
+  '[--exact-packs <dir>] [--exact-delay-ms <ms>]';
 
 export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
   const raw = new Map<Flag, string>();
@@ -70,6 +79,10 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
     refetchLimitMs: limit === undefined ? null : parseLimit(limit),
     urlLog: raw.get('url-log') ?? null,
     label: raw.get('label') ?? 'replay',
+    exactPacks: raw.get('exact-packs') ?? null,
+    exactDelayMs: raw.has('exact-delay-ms')
+      ? parseDelay(raw.get('exact-delay-ms')!)
+      : syntheticMatrixDelayMs,
   };
 }
 
@@ -102,4 +115,9 @@ function parseLimit(s: string): number {
   const n = Number(s);
   if (!/^\d+$/.test(s) || n <= 0) throw new Error(`bad --refetch-limit-ms: ${s}`);
   return n;
+}
+
+function parseDelay(s: string): number {
+  if (!/^\d+$/.test(s)) throw new Error(`bad --exact-delay-ms: ${s}`);
+  return Number(s);
 }

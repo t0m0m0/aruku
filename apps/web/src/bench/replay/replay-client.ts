@@ -43,6 +43,11 @@ export interface ReplaySessionInit {
   readonly isInitial?: (url: URL) => boolean;
   /// 発行した Transit の照会の通知（呼び出し元の記録など）。
   readonly onRequest?: (url: URL) => void;
+  /// 徒歩プロキシの origin 宛ての `exactWalkMax` に答える関数（#513・exact-replay.ts）。
+  /// 省略すると、合成できない経路として 404 を返す。
+  readonly exactWalkMax?: (url: URL) => Promise<{ status: number; body: string }>;
+  /// [exactWalkMax] の応答を返すまでの遅延。
+  readonly exactDelayMs?: number;
 }
 
 /// 1回の実行で共有する録画と計数。クライアントは検索ごとに作って閉じる（エンジンが検索の
@@ -76,6 +81,12 @@ export class ReplaySession {
   /// 照会1本の応答と、それを返すまでに待つ時間。
   async resolve(url: URL): Promise<{ entry: ReplayEntry; delayMs: number }> {
     if (url.origin === new URL(this.init.proxyOrigin).origin) {
+      if (this.init.exactWalkMax !== undefined && url.pathname.endsWith('/exactWalkMax')) {
+        const res = await this.init.exactWalkMax(url);
+        const delayMs = this.init.exactDelayMs ?? 0;
+        const body = Buffer.from(res.body).toString('base64');
+        return { entry: { status: res.status, body, ms: delayMs }, delayMs };
+      }
       const walk = syntheticWalkResponse(url);
       const entry =
         walk === null

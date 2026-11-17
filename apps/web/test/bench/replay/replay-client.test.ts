@@ -233,10 +233,41 @@ describe('ReplaySession', () => {
       expect(s.store).toEqual({});
     });
 
-    it('合成できない経路（厳密走査など）は 404 を返す', async () => {
+    it('合成できない経路（厳密走査を渡していないときの exactWalkMax など）は 404 を返す', async () => {
       const s = session();
       const res = await s.client().get(new URL(`${proxy}/exactWalkMax`));
       expect(res.statusCode).toBe(404);
+    });
+  });
+
+  describe('厳密走査（#513）', () => {
+    it('exactWalkMax の照会は渡した関数に答えさせ、指定の遅延のあとで返す', async () => {
+      const fetchLive = vi.fn();
+      const exactWalkMax = vi.fn(async () => ({ status: 200, body: '{"candidates":[]}' }));
+      const s = session({ fetchLive, exactWalkMax, exactDelayMs: 900 });
+      const url = new URL(`${proxy}/exactWalkMax?origin=1,2`);
+
+      let settled = false;
+      const res = s.client().get(url).finally(() => (settled = true));
+      await vi.advanceTimersByTimeAsync(899);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+
+      const got = await res;
+      expect(got.statusCode).toBe(200);
+      expect(text(got.bodyBytes)).toBe('{"candidates":[]}');
+      expect(exactWalkMax).toHaveBeenCalledWith(url);
+      expect(fetchLive).not.toHaveBeenCalled();
+      expect(s.store).toEqual({});
+    });
+
+    it('本番の失敗（503 の時刻表なしなど）も、そのまま返す', async () => {
+      const s = session({
+        exactWalkMax: async () => ({ status: 503, body: '{"error":"timetable unavailable"}' }),
+        exactDelayMs: 0,
+      });
+      const res = await s.client().get(new URL(`${proxy}/exactWalkMax`));
+      expect(res.statusCode).toBe(503);
     });
   });
 
