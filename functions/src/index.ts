@@ -315,7 +315,7 @@ export async function verifyAppCheck(
   const endpoint = opts.endpoint ?? 'unknown';
   const consume = shouldConsumeAppCheckToken(endpoint);
   const token = req.header('X-Firebase-AppCheck');
-  if (!token) {
+  if (token === undefined || token === '') {
     console.warn('AppCheck: token missing');
     logAppCheckDenied({ endpoint, reason: 'missing' });
     res.status(401).json({ error: 'App Check token missing' });
@@ -329,7 +329,7 @@ export async function verifyAppCheck(
     const result = consume
       ? await getAppCheck().verifyToken(token, { consume: true })
       : await getAppCheck().verifyToken(token);
-    if (consume && result.alreadyConsumed) {
+    if (consume && result.alreadyConsumed === true) {
       console.warn('AppCheck: token already consumed (replay)');
       logAppCheckDenied({ endpoint, reason: 'replayed' });
       res.status(401).json({ error: 'App Check token already consumed' });
@@ -465,7 +465,7 @@ function attemptRequestJsonNew(
       }
       reject(err instanceof UpstreamError ? err : new UpstreamError(err.message, 'network'));
     });
-    if (body) req.write(body);
+    if (body !== undefined) req.write(body);
     req.end();
   });
 }
@@ -587,7 +587,9 @@ async function callUpstream(
   };
 
   // TTL 保持は 2xx かつ意味的に有効な成功のみ（失敗を数十秒固定して回復を遅らせない）。
-  return cacheKey ? upstreamCache.dedupe(cacheKey, call, isUpstreamCacheable(validate)) : call();
+  return cacheKey !== undefined
+    ? upstreamCache.dedupe(cacheKey, call, isUpstreamCacheable(validate))
+    : call();
 }
 
 // upstreamCache の TTL 保持可否。2xx かつ（validate があれば）意味的に有効な
@@ -607,7 +609,7 @@ function isUpstreamCacheable(
 // Routes API はエラー時 {error:{...}} を返し routes を含まない。
 function isRoutesWalkSuccessBody(data: unknown): boolean {
   const record = asRecord(data);
-  return !(record && record['error'] && !record['routes']);
+  return record?.['error'] == null || record['routes'] != null;
 }
 
 // computeRouteMatrix は成功時に要素オブジェクトの配列を返す。
@@ -684,7 +686,7 @@ function handleCors(req: Request, res: Response): boolean {
   // 使い回さないよう、許可・不許可にかかわらず必ず付ける。
   res.set('Vary', 'Origin');
   const origin = req.header('Origin');
-  if (origin && isAllowedOrigin(origin)) {
+  if (origin !== undefined && isAllowedOrigin(origin)) {
     res.set('Access-Control-Allow-Origin', origin);
   }
 
@@ -791,7 +793,7 @@ export const placesProxy = onRequest(
       const input = queryParam(req.query, 'input');
       const language = queryParam(req.query, 'language') ?? 'ja';
       const components = queryParam(req.query, 'components') ?? 'country:jp';
-      if (!input) {
+      if (input === undefined || input === '') {
         res.status(400).json({ error: 'input is required' });
         return;
       }
@@ -837,7 +839,7 @@ export const placesProxy = onRequest(
 
     if (action === 'details') {
       const placeId = queryParam(req.query, 'place_id');
-      if (!placeId) {
+      if (placeId === undefined || placeId === '') {
         res.status(400).json({ error: 'place_id is required' });
         return;
       }
@@ -981,7 +983,7 @@ export const googleWalkMatrixProxy = onRequest(
       const record = asRecord(data);
       console.error(
         '[googleWalkMatrixProxy] Routes API non-array response:',
-        JSON.stringify(record && record['error'] ? record['error'] : data),
+        JSON.stringify(record?.['error'] ?? data),
       );
       res.status(502).json(data);
       return;

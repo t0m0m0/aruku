@@ -18,6 +18,7 @@ if (leaf === undefined) throw new Error('logo.tsx から葉のパスを読めな
 // ArukuLogo と同じ比率: 角丸は一辺の 1/3、葉は一辺の 65% の枠に中央寄せ。
 // maskable と apple-touch は OS が自前で切り抜くので角を丸めず四隅まで塗る。
 // 葉の外接は枠の中心から一辺の 27% 程度に収まり、maskable の安全域（半径 40%）の内側。
+/** @param {{ rounded: boolean }} options */
 function iconSvg({ rounded }) {
   const radius = rounded ? (100 / 3).toFixed(2) : 0;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">

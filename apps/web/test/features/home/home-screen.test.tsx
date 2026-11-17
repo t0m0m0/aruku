@@ -199,7 +199,8 @@ describe('ホームの出発地', () => {
 
 describe('ホームの目的地', () => {
   it('未指定なら入力を促す', () => {
-    expect(setup() && screen.getByRole('button', { name: '目的地 どこへ歩く?' })).toBeDefined();
+    setup();
+    expect(screen.getByRole('button', { name: '目的地 どこへ歩く?' })).toBeDefined();
   });
 
   it('指定済みならその名前を読み上げる', () => {

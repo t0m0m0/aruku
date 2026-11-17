@@ -149,6 +149,13 @@ describe('toLegacyAutocomplete', () => {
       predictions: [],
     });
   });
+
+  it('error が null のボディはエラーとして扱わない', () => {
+    expect(toLegacyAutocomplete({ error: null, suggestions: [] })).toEqual({
+      status: 'ZERO_RESULTS',
+      predictions: [],
+    });
+  });
 });
 
 describe('toLegacyDetails', () => {
@@ -172,5 +179,9 @@ describe('toLegacyDetails', () => {
       error: { code: 400, message: 'bad', status: 'INVALID_ARGUMENT' },
     };
     expect(toLegacyDetails(raw)).toEqual({ status: 'REQUEST_DENIED' });
+  });
+
+  it('error が null のボディはエラーとして扱わない', () => {
+    expect(toLegacyDetails({ error: null })).toEqual({ status: 'NOT_FOUND' });
   });
 });

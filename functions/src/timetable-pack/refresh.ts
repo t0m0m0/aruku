@@ -229,7 +229,7 @@ async function download(feed: OdptFeed, deps: RefreshDeps): Promise<Uint8Array> 
   let url = feed.url;
   if (feed.key !== null) {
     const key = deps.keys[feed.key];
-    if (!key) throw new FeedFetchError(feed.id, 'missing_key');
+    if (key === undefined || key === '') throw new FeedFetchError(feed.id, 'missing_key');
     // URLSearchParams を使わないのは、パラメータ名のコロンが %3A になるため。
     url += `${url.includes('?') ? '&' : '?'}acl:consumerKey=${encodeURIComponent(key)}`;
   }

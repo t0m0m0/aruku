@@ -31,7 +31,7 @@ const ZERO_AUTOCOMPLETE: LegacyAutocompleteResponse = {
 export function toLegacyAutocomplete(raw: unknown): LegacyAutocompleteResponse {
   const body = asRecord(raw);
   if (!body) return ZERO_AUTOCOMPLETE;
-  if (body['error']) return { status: 'REQUEST_DENIED', predictions: [] };
+  if (body['error'] != null) return { status: 'REQUEST_DENIED', predictions: [] };
 
   const suggestions = body['suggestions'];
   if (!Array.isArray(suggestions)) return ZERO_AUTOCOMPLETE;
@@ -72,7 +72,7 @@ export function toLegacyAutocomplete(raw: unknown): LegacyAutocompleteResponse {
 export function toLegacyDetails(raw: unknown): LegacyDetailsResponse {
   const body = asRecord(raw);
   if (!body) return { status: 'NOT_FOUND' };
-  if (body['error']) return { status: 'REQUEST_DENIED' };
+  if (body['error'] != null) return { status: 'REQUEST_DENIED' };
 
   const location = asRecord(body['location']);
   const lat = location?.['latitude'];
