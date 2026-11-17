@@ -13,11 +13,11 @@ import {
 } from './feeds';
 import {
   miniTokyo3dFeed,
+  parseM3dRailways,
+  parseM3dStations,
+  parseM3dTrains,
   railwaysOf,
   timetableFileOf,
-  type M3dRailway,
-  type M3dStation,
-  type M3dTrain,
 } from './mini-tokyo-3d';
 import { buildTimetablePack, type FeedInput } from './pack';
 import { readGtfsZip } from './zip';
@@ -39,7 +39,8 @@ export type GroupResult =
 class FeedFetchError extends Error {
   constructor(
     readonly feed: string,
-    readonly reason: 'missing_key' | 'http' | 'network' | 'not_gtfs_zip' | 'not_json',
+    readonly reason:
+      'missing_key' | 'http' | 'network' | 'not_gtfs_zip' | 'not_json' | 'unexpected_shape',
     readonly httpStatus?: number,
   ) {
     super(`${feed}: ${reason}${httpStatus === undefined ? '' : ` ${httpStatus}`}`);
@@ -74,7 +75,7 @@ export async function refreshTimetablePacks(
       results.push(skip(group, failedFeeds, deps));
       continue;
     }
-    const inputs = settled.map((s) => (s as PromiseFulfilledResult<FeedInput>).value);
+    const inputs = settled.flatMap((s) => (s.status === 'fulfilled' ? [s.value] : []));
     results.push(await publish(group, inputs, deps));
   }
   if (miniTokyo3d !== null) {
@@ -150,25 +151,29 @@ async function fetchMiniTokyo3d(
 ): Promise<FeedInput[]> {
   try {
     const fetchedAt = deps.now().toISOString();
-    const get = async <T>(path: string): Promise<T> => {
+    const get = async <T>(path: string, parse: (raw: unknown) => T | null): Promise<T> => {
       const res = await fetchOrThrow(
         MINI_TOKYO_3D_FEED,
         miniTokyo3dDataUrl(source.commit, path),
         deps,
       );
+      let raw: unknown;
       try {
-        return (await res.json()) as T;
+        raw = await res.json();
       } catch {
         throw new FeedFetchError(MINI_TOKYO_3D_FEED, 'not_json');
       }
+      const parsed = parse(raw);
+      if (parsed === null) throw new FeedFetchError(MINI_TOKYO_3D_FEED, 'unexpected_shape');
+      return parsed;
     };
     const [stations, railways] = await Promise.all([
-      get<M3dStation[]>('stations.json'),
-      get<M3dRailway[]>('railways.json'),
+      get('stations.json', parseM3dStations),
+      get('railways.json', parseM3dRailways),
     ]);
     const targets = railwaysOf(railways, source.operators);
     const timetables = await Promise.all(
-      targets.map((r) => get<M3dTrain[]>(`train-timetables/${timetableFileOf(r.id)}`)),
+      targets.map((r) => get(`train-timetables/${timetableFileOf(r.id)}`, parseM3dTrains)),
     );
     deps.log({
       event: 'timetable_feed_fetch',

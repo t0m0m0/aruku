@@ -184,6 +184,18 @@ describe('createScanDaySource', () => {
     );
   });
 
+  it.each([
+    ['JSON の null', null],
+    ['便の一覧を欠くパック', { ...pack('Toei'), trips: undefined }],
+  ])('オブジェクトとして形の合わないパック（%s）も形式の違いとして使わない', async (_, broken) => {
+    const h = harness({ permanent: gz(broken) });
+
+    expect(await createScanDaySource(h.deps)(SERVICE_DATE)).toBeNull();
+    expect(h.logs).toContainEqual(
+      expect.objectContaining({ group: 'permanent', status: 'failure', reason: 'format' }),
+    );
+  });
+
   it('読み込みに掛かった時間とサイズをログに出す', async () => {
     const h = harness({ permanent: gz(pack('Toei')) });
 

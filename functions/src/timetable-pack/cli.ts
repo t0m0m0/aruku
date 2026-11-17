@@ -11,11 +11,11 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { gunzipSync } from 'node:zlib';
 
 import { compileTimetable } from '../exact-scan';
+import { decodePack } from './decode';
 import { ODPT_FEEDS } from './feeds';
-import { timetableForDate, type TimetablePack } from './pack';
+import { timetableForDate } from './pack';
 import { refreshTimetablePacks } from './refresh';
 
 function arg(name: string): string | undefined {
@@ -60,8 +60,10 @@ async function main(): Promise<void> {
     const gzipped = readFileSync(file);
     const heapBefore = process.memoryUsage().heapUsed;
     const t0 = performance.now();
-    const pack = JSON.parse(gunzipSync(gzipped).toString()) as TimetablePack;
+    const decoded = decodePack(gzipped, () => performance.now());
     const t1 = performance.now();
+    if (decoded.status === 'failure') throw new Error(`パックを読めない: ${file}`);
+    const { pack } = decoded;
     const day = timetableForDate(pack, date);
     const t2 = performance.now();
     const ct = compileTimetable(day);
