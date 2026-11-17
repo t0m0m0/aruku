@@ -1130,15 +1130,18 @@ export function toMatrixElement(e: unknown): MatrixElement[] {
   const r = asRecord(e) ?? {};
   const m = typeof r['duration'] === 'string' ? /^(\d+(?:\.\d+)?)s$/.exec(r['duration']) : null;
   if (m === null) return [];
-  const int = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) ? v : 0);
   return [
     {
-      originIndex: int(r['originIndex']),
-      destinationIndex: int(r['destinationIndex']),
+      originIndex: integerOrZero(r['originIndex']),
+      destinationIndex: integerOrZero(r['destinationIndex']),
       durationSec: Number(m[1]),
       distanceMeters: typeof r['distanceMeters'] === 'number' ? r['distanceMeters'] : 0,
     },
   ];
+}
+
+function integerOrZero(v: unknown): number {
+  return typeof v === 'number' && Number.isInteger(v) ? v : 0;
 }
 
 export const exactWalkMax = onRequest(

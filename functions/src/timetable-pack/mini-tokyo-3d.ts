@@ -232,6 +232,9 @@ function gtfsTime(seconds: number): string {
 }
 
 function csv(columns: readonly string[], rows: readonly (readonly string[])[]): string {
-  const field = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-  return [columns, ...rows].map((r) => r.map(field).join(',')).join('\n') + '\n';
+  return [columns, ...rows].map((r) => r.map(csvField).join(',')).join('\n') + '\n';
+}
+
+function csvField(v: string): string {
+  return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }
