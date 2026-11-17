@@ -31,79 +31,89 @@ interface ResolvedEntry<T> {
   expiresAt: number;
 }
 
-// in-flight（解決前）の promise。成否問わず同一キーの並行 caller が相乗りする。
-const _inflight = new Map<string, Promise<unknown>>();
-// 解決済みの成功結果（TTL 付き）。
-const _resolved = new Map<string, ResolvedEntry<unknown>>();
-
-/** テスト用: 重複排除の状態（in-flight・保持キャッシュ）を初期化する。 */
-export function resetUpstreamCache(): void {
-  _inflight.clear();
-  _resolved.clear();
+export interface UpstreamCache<T> {
+  /**
+   * key で上流呼び出しを重複排除する。
+   * - 解決済みキャッシュが TTL 内なら producer を呼ばずその値を返す。
+   * - 同一キーが in-flight ならその promise を共有する（single-flight）。
+   * - それ以外は producer を呼び、成功かつ isCacheable が真なら TTL 保持する。
+   * producer の reject はキャッシュせず、共有中の全 caller へそのまま伝播する。
+   */
+  dedupe(
+    key: string,
+    producer: () => Promise<T>,
+    isCacheable: (value: T) => boolean,
+    ttlMs?: number,
+  ): Promise<T>;
+  /** 保持済みと in-flight を捨てる。 */
+  reset(): void;
+  /** 保持済みの件数。 */
+  size(): number;
 }
 
-/** テスト用: 保持キャッシュの現在のエントリ数を返す。 */
-export function upstreamCacheSize(): number {
-  return _resolved.size;
-}
+// 値の型ごとに1つ作る。キーが同じでも型の違う値を1つの Map に混ぜると、取り出しで
+// 型を名乗らせるキャストが要り、キーの取り違えを型で捕まえられない。
+export function createUpstreamCache<T>(): UpstreamCache<T> {
+  // in-flight（解決前）の promise。成否問わず同一キーの並行 caller が相乗りする。
+  const inflight = new Map<string, Promise<T>>();
+  // 解決済みの成功結果（TTL 付き）。
+  const resolved = new Map<string, ResolvedEntry<T>>();
 
-function pruneExpired(now: number): void {
-  for (const [k, entry] of _resolved) {
-    if (now >= entry.expiresAt) _resolved.delete(k);
-  }
-}
+  const pruneExpired = (now: number): void => {
+    for (const [k, entry] of resolved) {
+      if (now >= entry.expiresAt) resolved.delete(k);
+    }
+  };
 
-// 保持前に上限を強制する。まず期限切れを掃除し、なお満杯なら最古を退避する。
-// TTL 内で高カーディナリティ（多数の異なる経路/秒）が続くと期限切れが無く掃除が
-// 効かないため、掃除だけでは QPS×TTL まで膨らむ。ハード上限を保つには退避が要る。
-// Map は挿入順を保つため最古の挿入キー＝一様 TTL では最も早く期限切れになるキーで、
-// FIFO 退避は「もうすぐ消える分を先に落とす」ことに一致する。
-function evictForInsert(now: number): void {
-  if (_resolved.size < MAX_CACHE_ENTRIES) return;
-  pruneExpired(now);
-  while (_resolved.size >= MAX_CACHE_ENTRIES) {
-    const oldest = _resolved.keys().next().value;
-    if (oldest === undefined) break;
-    _resolved.delete(oldest);
-  }
-}
+  // 保持前に上限を強制する。まず期限切れを掃除し、なお満杯なら最古を退避する。
+  // TTL 内で高カーディナリティ（多数の異なる経路/秒）が続くと期限切れが無く掃除が
+  // 効かないため、掃除だけでは QPS×TTL まで膨らむ。ハード上限を保つには退避が要る。
+  // Map は挿入順を保つため最古の挿入キー＝一様 TTL では最も早く期限切れになるキーで、
+  // FIFO 退避は「もうすぐ消える分を先に落とす」ことに一致する。
+  const evictForInsert = (now: number): void => {
+    if (resolved.size < MAX_CACHE_ENTRIES) return;
+    pruneExpired(now);
+    while (resolved.size >= MAX_CACHE_ENTRIES) {
+      const oldest = resolved.keys().next().value;
+      if (oldest === undefined) break;
+      resolved.delete(oldest);
+    }
+  };
 
-/**
- * key で上流呼び出しを重複排除する。
- * - 解決済みキャッシュが TTL 内なら producer を呼ばずその値を返す。
- * - 同一キーが in-flight ならその promise を共有する（single-flight）。
- * - それ以外は producer を呼び、成功かつ isCacheable が真なら TTL 保持する。
- * producer の reject はキャッシュせず、共有中の全 caller へそのまま伝播する。
- */
-export function dedupeUpstream<T>(
-  key: string,
-  producer: () => Promise<T>,
-  isCacheable: (value: T) => boolean,
-  ttlMs: number = UPSTREAM_CACHE_TTL_MS,
-): Promise<T> {
-  const now = Date.now();
+  return {
+    dedupe(key, producer, isCacheable, ttlMs = UPSTREAM_CACHE_TTL_MS) {
+      const now = Date.now();
 
-  const cached = _resolved.get(key);
-  if (cached) {
-    if (now < cached.expiresAt) return Promise.resolve(cached.value as T);
-    _resolved.delete(key);
-  }
-
-  const pending = _inflight.get(key);
-  if (pending) return pending as Promise<T>;
-
-  const promise = producer()
-    .then((value) => {
-      if (isCacheable(value)) {
-        evictForInsert(Date.now());
-        _resolved.set(key, { value, expiresAt: Date.now() + ttlMs });
+      const cached = resolved.get(key);
+      if (cached) {
+        if (now < cached.expiresAt) return Promise.resolve(cached.value);
+        resolved.delete(key);
       }
-      return value;
-    })
-    .finally(() => {
-      _inflight.delete(key);
-    });
 
-  _inflight.set(key, promise);
-  return promise;
+      const pending = inflight.get(key);
+      if (pending) return pending;
+
+      const promise = producer()
+        .then((value) => {
+          if (isCacheable(value)) {
+            evictForInsert(Date.now());
+            resolved.set(key, { value, expiresAt: Date.now() + ttlMs });
+          }
+          return value;
+        })
+        .finally(() => {
+          inflight.delete(key);
+        });
+
+      inflight.set(key, promise);
+      return promise;
+    },
+    reset() {
+      inflight.clear();
+      resolved.clear();
+    },
+    size() {
+      return resolved.size;
+    },
+  };
 }

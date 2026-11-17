@@ -37,8 +37,8 @@ import {
   resetExactWalkMaxPacks,
   resetRateLimit,
   toMatrixElement,
+  resetUpstreamCache,
 } from '../src/index';
-import { resetUpstreamCache } from '../src/upstream-cache';
 
 // 駅2つ（蒲田付近→神田付近）・便1本だけのパック。2026-10-23 10:30 発・10:50 着。
 const PACK: TimetablePack = {
