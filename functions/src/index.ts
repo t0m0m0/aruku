@@ -440,14 +440,14 @@ function attemptRequestJsonNew(
           chunks.push(chunk);
         });
         res.on("end", () => {
+          let data: unknown;
           try {
-            resolve({
-              statusCode: res.statusCode ?? 0,
-              data: JSON.parse(Buffer.concat(chunks).toString("utf8")),
-            });
+            data = JSON.parse(Buffer.concat(chunks).toString("utf8"));
           } catch {
             reject(new UpstreamError("invalid JSON from upstream", "parse"));
+            return;
           }
+          resolve({ statusCode: res.statusCode ?? 0, data });
         });
       }
     );
