@@ -9,7 +9,9 @@ import { readFileSync } from 'node:fs';
 
 import { abReport } from '../src/bench/ab-report.ts';
 
-const [recordsPath, verifyPath] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const recordsPath = args.at(0);
+const verifyPath = args.at(1);
 if (recordsPath === undefined) {
   console.error('usage: node scripts/ab-report.mjs <records.jsonl> [verify.jsonl]');
   process.exit(2);

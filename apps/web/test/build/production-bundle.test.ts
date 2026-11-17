@@ -22,7 +22,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 // vitest はブラウザ向けの import.meta.url を配るので、new URL(...) は file: にならない。
 // この設定の `root`（= apps/web）から辿る。
 const webRoot = resolve(
-  dirname(fileURLToPath(`file://${__filename ?? ''}`)) || process.cwd(),
+  dirname(fileURLToPath(`file://${__filename}`)) || process.cwd(),
   '..',
   '..',
 );

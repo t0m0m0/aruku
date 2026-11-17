@@ -56,7 +56,7 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
   const raw = new Map<Flag, string>();
   for (let i = 0; i < argv.length; i += 2) {
     const name = argv[i].replace(/^--/, '');
-    const value = argv[i + 1];
+    const value = argv.at(i + 1);
     if (!argv[i].startsWith('--') || !isFlag(name)) {
       throw new Error(`unknown argument: ${argv[i]}`);
     }

@@ -25,8 +25,9 @@ const harnessArgs = sep < 0 ? argv : argv.slice(sep + 1);
 
 let engineDir = resolve(appDir, '../../packages/engine');
 for (let i = 0; i < own.length; i += 2) {
-  if (own[i] === '--engine' && own[i + 1] !== undefined) {
-    engineDir = resolve(own[i + 1]);
+  const value = own.at(i + 1);
+  if (own[i] === '--engine' && value !== undefined) {
+    engineDir = resolve(value);
   } else {
     console.error(`unknown argument: ${own[i]}`);
     process.exit(2);

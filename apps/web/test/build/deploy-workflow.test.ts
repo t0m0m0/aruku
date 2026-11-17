@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const webRoot = resolve(
-  dirname(fileURLToPath(`file://${__filename ?? ''}`)) || process.cwd(),
+  dirname(fileURLToPath(`file://${__filename}`)) || process.cwd(),
   '..',
   '..',
 );
