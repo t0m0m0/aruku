@@ -47,6 +47,13 @@
     // any を呼ぶと、関数であるかも引数・返り値の型も確かめないまま進む。呼ぶ値は unknown で
     // 受けて型述語・パース関数で絞り、モックには本物の型を持たせる（#521）。
     "typescript/no-unsafe-call": "error",
+    // 条件に置いた string | undefined・boolean | undefined・any は、'' や false を「無い」と
+    // 黙って同じに扱う。無いことと空・偽を分けたいかを、=== undefined・=== '' の比較で書かせる。
+    // オプションは既定（allowString・allowNumber・allowNullableObject は許す）にする。null に
+    // ならない string・number の真偽（.length や非空の文字列）は空・0 を偽とする意図が明らかで、
+    // null 許容のオブジェクトは null 以外に偽が無い。崩すと 77 件が増えるが、取り違えの余地が
+    // 無い書き方を比較に書き換えるだけになる（#521）。
+    "typescript/strict-boolean-expressions": "error",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "import/no-cycle": "error",
     "vitest/no-focused-tests": "error",
