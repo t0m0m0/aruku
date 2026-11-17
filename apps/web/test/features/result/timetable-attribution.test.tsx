@@ -83,6 +83,43 @@ describe('TimetableAttribution', () => {
     expect(screen.queryByText(/CC BY/)).toBeNull();
   });
 
+  describe('mini-tokyo-3d の時刻表（#510）', () => {
+    const tokyu: TimetableSource = {
+      feedId: 'mini-tokyo-3d/Tokyu',
+      fetchedAt: at('2026-06-26T19:23:20Z'),
+    };
+    const keisei: TimetableSource = {
+      feedId: 'mini-tokyo-3d/Keisei',
+      fetchedAt: at('2026-06-26T19:23:20Z'),
+    };
+
+    it('使っていれば MIT の著作権表示と取得元へのリンクを出す', () => {
+      render(<TimetableAttribution sources={[jrEast, tokyu]} />);
+      screen.getByText(/Copyright \(c\) 2019-2025 Akihiko Kusanagi/);
+      const repo = screen.getByRole('link', { name: 'mini-tokyo-3d' });
+      expect(repo.getAttribute('href')).toBe('https://github.com/nagix/mini-tokyo-3d');
+    });
+
+    it('使っていなければ著作権表示を出さない', () => {
+      render(<TimetableAttribution sources={[jrEast]} />);
+      expect(screen.queryByText(/Akihiko Kusanagi/)).toBeNull();
+    });
+
+    // 事業者ごとに分けても、取得元と取得日時は1つ。数十行並べても読む人の役に立たない。
+    it('取得日時は事業者ごとでなく mini-tokyo-3d の1行にまとめる', () => {
+      render(<TimetableAttribution sources={[jrEast, tokyu, keisei]} />);
+      expect(screen.getAllByRole('listitem')).toHaveLength(2);
+      expect(screen.getByText('mini-tokyo-3d', { selector: 'li span' }).closest('li')?.textContent).toContain(
+        '2026年6月27日 4:23',
+      );
+    });
+
+    it('ODPT のフィードが無ければ、公共交通オープンデータセンターのデータとは書かない', () => {
+      render(<TimetableAttribution sources={[tokyu]} />);
+      expect(screen.queryByText(/公共交通オープンデータセンターが提供するデータ/)).toBeNull();
+    });
+  });
+
   // 結果画面の主役は行程（#453）。出典は気になった人が開く。
   it('閉じた状態で置き、見出しから開ける', () => {
     render(<TimetableAttribution sources={[jrEast]} />);

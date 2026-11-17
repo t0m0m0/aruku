@@ -135,6 +135,11 @@ export const ja = {
   /// 都営のデータは CC BY 4.0。出典とライセンスの表示が要る。
   timetableAttributionToeiCredit:
     '東京都交通局の時刻表は、東京都交通局・公共交通オープンデータ協議会が提供するデータを加工して利用しています。ライセンス：',
+  /// mini-tokyo-3d は MIT。著作権表示が要る（#510）。
+  timetableAttributionMiniTokyo3dLead:
+    '東急・小田急・京急・西武・京成など、公共交通オープンデータセンターから取れない事業者の時刻表は、',
+  timetableAttributionMiniTokyo3dCredit:
+    '（Copyright (c) 2019-2025 Akihiko Kusanagi・MIT License）のデータを加工して利用しています。',
   /// ODPT のフィード id（functions/src/timetable-pack/feeds.ts）から事業者名へ。
   timetableFeedNames: {
     'JR-East': 'JR東日本',

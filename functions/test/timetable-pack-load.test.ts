@@ -9,7 +9,7 @@ import {
   type Timetable,
 } from "../src/exact-scan";
 import type { ScanDay } from "../src/exact-walk-max";
-import { packObjectPath, type PackGroup } from "../src/timetable-pack/feeds";
+import { PACK_GROUPS, packObjectPath, type PackGroup } from "../src/timetable-pack/feeds";
 import { createScanDaySource, type PackLoadDeps } from "../src/timetable-pack/load";
 import { PACK_FORMAT_VERSION, timetableForDate, type TimetablePack } from "../src/timetable-pack/pack";
 
@@ -197,8 +197,9 @@ describe("createScanDaySource", () => {
     const h = harness({ permanent: gz(pack("Toei")) });
     // 工程ごとに時計を1ミリ秒ずつ進め、どの工程の時間かを取り違えていないことを見る。
     const read = h.deps.read;
+    // 進めるのは permanent の読込だけ。ほかのグループの読込も並列に走り、同じ時計を進めるため。
     h.deps.read = async (path) => {
-      h.clock.now += 5;
+      if (path === packObjectPath("permanent")) h.clock.now += 5;
       return read(path);
     };
 
@@ -245,7 +246,7 @@ describe("createScanDaySource", () => {
 
     await Promise.all([source(SERVICE_DATE), source(SERVICE_DATE), source("20261024")]);
 
-    expect(h.reads).toHaveLength(2);
+    expect(h.reads).toHaveLength(PACK_GROUPS.length);
   });
 
   it("読み込みから6時間経つと読み直し、日次の更新を拾う", async () => {
