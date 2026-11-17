@@ -243,26 +243,34 @@ export async function findExactWalkMax(
   });
   const candidates = timed("rides", () =>
     bestRides(ct, q, measured, { k: MAX_CANDIDATES }),
-  ).map((ride) => ({
-    ...rideOf(ride),
-    accessWalk: access.get(ride.board)!,
-    egressWalk: egress.get(ride.alight)!,
-  }));
+  ).flatMap((ride) => {
+    const accessWalk = access.get(ride.board);
+    const egressWalk = egress.get(ride.alight);
+    if (accessWalk === undefined || egressWalk === undefined) return [];
+    return [{ ...rideOf(ride), accessWalk, egressWalk }];
+  });
   if (!req.transfers) return { candidates, feeds, stats };
 
   const journeys = timed("journeys", () =>
     bestJourneys(ct, q, measured, neighbors, { k: MAX_CANDIDATES, transfersOnly: true }),
   );
-  const transferCandidates = journeys.map(({ legs: [first, second], transferSec }) => ({
-    legs: [rideOf(first), rideOf(second)],
-    accessWalk: access.get(first.board)!,
-    transferWalk: {
-      durationSec: transferSec,
-      distanceMeters: Math.round((transferSec / 60) * WALK_METERS_PER_MINUTE),
-    },
-    sameStation: isSameStation(neighbors, first.alight, second.board),
-    egressWalk: egress.get(second.alight)!,
-  }));
+  const transferCandidates = journeys.flatMap(({ legs: [first, second], transferSec }) => {
+    const accessWalk = access.get(first.board);
+    const egressWalk = egress.get(second.alight);
+    if (accessWalk === undefined || egressWalk === undefined) return [];
+    return [
+      {
+        legs: [rideOf(first), rideOf(second)],
+        accessWalk,
+        transferWalk: {
+          durationSec: transferSec,
+          distanceMeters: Math.round((transferSec / 60) * WALK_METERS_PER_MINUTE),
+        },
+        sameStation: isSameStation(neighbors, first.alight, second.board),
+        egressWalk,
+      },
+    ];
+  });
   return { candidates, transferCandidates, feeds, stats };
 }
 

@@ -178,6 +178,13 @@ function callsOf(trip: PackTrip, shift: number): StopCall[] {
   }));
 }
 
+interface TripMeta {
+  route: string;
+  headsign: string | null;
+  block: string | null;
+  service: number;
+}
+
 function addFeed(
   pack: TimetablePack,
   feed: number,
@@ -204,10 +211,7 @@ function addFeed(
     pack.services.push({ dates });
   }
 
-  const tripMeta = new Map<
-    string,
-    { route: string; headsign: string | null; block: string | null; service: number }
-  >();
+  const tripMeta = new Map<string, TripMeta>();
   readCsv(files["trips.txt"] ?? "", (get) => {
     const service = serviceIndex.get(get("service_id"));
     if (service === undefined) return;
@@ -221,11 +225,15 @@ function addFeed(
 
   const callsByTrip = new Map<
     string,
-    { seq: number; stopId: string; arr: number; dep: number; board: 0 | 1; alight: 0 | 1 }[]
+    {
+      meta: TripMeta;
+      calls: { seq: number; stopId: string; arr: number; dep: number; board: 0 | 1; alight: 0 | 1 }[];
+    }
   >();
   readCsv(files["stop_times.txt"] ?? "", (get) => {
     const tripId = get("trip_id");
-    if (!tripMeta.has(tripId)) return;
+    const meta = tripMeta.get(tripId);
+    if (meta === undefined) return;
     const board = canUse(get("pickup_type"));
     const alight = canUse(get("drop_off_type"));
     if (!board && !alight) return;
@@ -236,9 +244,9 @@ function addFeed(
     const arr = arrRaw ?? depRaw;
     const dep = depRaw ?? arrRaw;
     if (arr === null || dep === null) return;
-    let calls = callsByTrip.get(tripId);
-    if (calls === undefined) callsByTrip.set(tripId, (calls = []));
-    calls.push({
+    let entry = callsByTrip.get(tripId);
+    if (entry === undefined) callsByTrip.set(tripId, (entry = { meta, calls: [] }));
+    entry.calls.push({
       seq: Number(get("stop_sequence")),
       stopId: get("stop_id"),
       arr,
@@ -260,9 +268,8 @@ function addFeed(
     return index;
   };
 
-  for (const [tripId, rawCalls] of callsByTrip) {
+  for (const { meta, calls: rawCalls } of callsByTrip.values()) {
     rawCalls.sort((a, b) => a.seq - b.seq);
-    const meta = tripMeta.get(tripId)!;
     const trip: PackTrip = {
       feed,
       service: meta.service,
