@@ -119,7 +119,7 @@ describe('追加', () => {
 
     repo.add(place('渋谷駅'));
 
-    expect(repo.load()[0]!.usedAt).toEqual(now);
+    expect(repo.load()[0].usedAt).toEqual(now);
   });
 
   it('すでに時刻を持つ記録は打ち直さない', () => {
@@ -132,7 +132,7 @@ describe('追加', () => {
 
     repo.add(place('渋谷駅', { usedAt: stamped }));
 
-    expect(repo.load()[0]!.usedAt).toEqual(stamped);
+    expect(repo.load()[0].usedAt).toEqual(stamped);
   });
 
   // localStorage は同期なので、Dart 版の _writeLock が防いでいた
@@ -153,9 +153,9 @@ describe('追加', () => {
     repo.add(place('渋谷駅', { placeId: 'p1', address: '東京都渋谷区' }));
 
     const [restored] = repo.load();
-    expect(restored!.latLng).toEqual(new GeoPoint(35.6, 139.7));
-    expect(restored!.address).toBe('東京都渋谷区');
-    expect(restored!.placeId).toBe('p1');
+    expect(restored.latLng).toEqual(new GeoPoint(35.6, 139.7));
+    expect(restored.address).toBe('東京都渋谷区');
+    expect(restored.placeId).toBe('p1');
   });
 });
 

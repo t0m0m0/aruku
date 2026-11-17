@@ -54,7 +54,7 @@ describe('BenchScreen', () => {
       c.hooks().onProgress(2, 120);
     });
     expect(screen.getByText('2 / 120')).toBeTruthy();
-    const jsonl = (screen.getByLabelText('JSONL') as HTMLTextAreaElement).value;
+    const jsonl = screen.getByLabelText<HTMLTextAreaElement>('JSONL').value;
     expect(jsonl.trim().split('\n').map((l) => JSON.parse(l).pair)).toEqual(['p1', 'p2']);
     await act(async () => c.finish());
   });
@@ -98,7 +98,7 @@ describe('BenchScreen', () => {
       fireEvent.click(screen.getByRole('button', { name: '照合' }));
     });
     expect(given[0].map((r) => r.pair)).toEqual(['p1']);
-    const jsonl = (screen.getByLabelText('照合 JSONL') as HTMLTextAreaElement).value;
+    const jsonl = screen.getByLabelText<HTMLTextAreaElement>('照合 JSONL').value;
     expect(JSON.parse(jsonl).verdict).toEqual('sameTrip');
   });
 
@@ -130,7 +130,7 @@ describe('BenchScreen', () => {
       fireEvent.click(screen.getByRole('button', { name: '照合' }));
     });
     fireEvent.click(screen.getByRole('button', { name: '開始' }));
-    expect((screen.getByLabelText('照合 JSONL') as HTMLTextAreaElement).value).toEqual('');
+    expect(screen.getByLabelText<HTMLTextAreaElement>('照合 JSONL').value).toEqual('');
     await act(async () => c.finish());
   });
 });

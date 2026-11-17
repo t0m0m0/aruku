@@ -29,7 +29,7 @@ function succeedsAt(latitude: number, longitude: number): Geolocation {
       coords: { latitude, longitude } as GeolocationCoordinates,
       timestamp: 0,
       toJSON: () => ({}),
-    } as GeolocationPosition),
+    }),
   );
 }
 

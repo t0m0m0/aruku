@@ -29,7 +29,7 @@ beforeEach(() => {
         emitResize = (width, height) => {
           this.cb(
             [{ contentRect: { width, height } } as ResizeObserverEntry],
-            this as unknown as ResizeObserver,
+            this,
           );
         };
       }
@@ -111,7 +111,7 @@ describe('枠に合わせた配置', () => {
     fireResize(360, 800);
 
     // 水面は高さの 82% から下（移植元 Rect.fromLTWH(0, h*0.82, w, h*0.18)）。
-    const water = container.querySelectorAll('rect')[1]!;
+    const water = container.querySelectorAll('rect')[1];
     expect(water.getAttribute('y')).toBe(String(800 * 0.82));
     expect(water.getAttribute('height')).toBe(String(800 * 0.18));
   });

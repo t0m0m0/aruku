@@ -60,7 +60,7 @@ const harness = (
     logs,
     deps: {
       fetch: async (input) => {
-        const url = String(input);
+        const url = input;
         requested.push(url);
         return respond(url);
       },

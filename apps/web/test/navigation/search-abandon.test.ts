@@ -24,7 +24,8 @@ function source(initial: NavigationSnapshot) {
     },
   };
   const notify = () => {
-    for (const l of [...listeners]) l();
+    // 呼び出し中の購読解除で splice されても全員へ届くよう、写しを回す。
+    for (const l of listeners.slice()) l();
   };
   return {
     api,

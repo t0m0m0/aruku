@@ -77,7 +77,7 @@ describe('toOverlayPaths', () => {
       seg(SegmentType.train, [p(35.61, 139.71), p(35.65, 139.75)]),
     ]);
 
-    expect(toOverlayPaths(route)[0]!.id).toBe('seg-1');
+    expect(toOverlayPaths(route)[0].id).toBe('seg-1');
   });
 
   it('徒歩は moss500 の破線で描く', () => {
@@ -104,13 +104,13 @@ describe('toOverlayPaths', () => {
   it('バスは電車と同じ見た目へ倒す', () => {
     const route = plan([seg(SegmentType.bus, [p(35.6, 139.7), p(35.61, 139.71)])]);
 
-    expect(toOverlayPaths(route)[0]!.strokeColor).toBe('#3E6792');
+    expect(toOverlayPaths(route)[0].strokeColor).toBe('#3E6792');
   });
 
   it('点を緯度経度のまま渡す', () => {
     const route = plan([seg(SegmentType.walk, [p(35.6, 139.7), p(35.61, 139.71)])]);
 
-    expect(toOverlayPaths(route)[0]!.points).toEqual([
+    expect(toOverlayPaths(route)[0].points).toEqual([
       { lat: 35.6, lng: 139.7 },
       { lat: 35.61, lng: 139.71 },
     ]);

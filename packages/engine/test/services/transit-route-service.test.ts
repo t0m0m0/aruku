@@ -1765,7 +1765,7 @@ describe('plan: 乗車駅探索の実測駆動（#137 主因）', () => {
       origin: origin3,
       originName: '出発',
     });
-    const m = captured! as RouteSearchMetrics;
+    const m = captured!;
     expect(m.collapseFired, '前提: A は崩壊する').toBe(true);
     expect(m.boardSearchWinnerRound, '前提: board-search の候補が勝つ').toBeGreaterThanOrEqual(1);
     expect(m.exactWon).toBe(false);
@@ -4684,7 +4684,7 @@ describe('plan: 時刻なしハイブリッドの実発車時刻検証（approac
       });
       return {
         calls: log.filter((u) => u.pathname.includes('guidance/plan')).length,
-        m: captured! as RouteSearchMetrics,
+        m: captured!,
       };
     };
     const plain = await guidanceCalls(false);
@@ -4727,7 +4727,7 @@ describe('plan: 時刻なしハイブリッドの実発車時刻検証（approac
         origin: origin6,
         originName: '出発',
       });
-      expect((captured! as RouteSearchMetrics).bestEffortEntries, '前提: 縮退へ落ちる')
+      expect((captured!).bestEffortEntries, '前提: 縮退へ落ちる')
         .toBeGreaterThan(0);
       return walks;
     };
@@ -6788,7 +6788,7 @@ describe('plan: 候補間並列の例外境界と共有レッグ (#316)', () => 
         origin: o,
         originName: '出発',
       });
-      return { bAccess, m: captured! as RouteSearchMetrics };
+      return { bAccess, m: captured! };
     };
     const plain = await run(false, Number.POSITIVE_INFINITY);
     expect(plain.bAccess, '前提: B の access を実測する').toBeGreaterThan(0);
@@ -7844,7 +7844,7 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
         origin: o,
         originName: '出発',
       });
-      const m = captured! as RouteSearchMetrics;
+      const m = captured!;
       expect(m.exactCandidates).toEqual(1);
       expect(m.exactWon).toBe(true);
       expect(rides(plan)).toEqual(['厳密線']);
@@ -7884,7 +7884,7 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
         origin: o,
         originName: '出発',
       });
-      const m = captured! as RouteSearchMetrics;
+      const m = captured!;
       expect(m.exactWon, '前提: B は厳密走査の候補').toBe(true);
       expect(m.finalizeMs, 'A の駅名復元（guidance 1往復）を測っている').toBeGreaterThanOrEqual(25);
     });
@@ -8139,7 +8139,7 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
           originName: '出発',
         });
 
-        const m = captured! as RouteSearchMetrics;
+        const m = captured!;
         expect(rides(plan)).toEqual(['厳密線']);
         expect(m.walkBPrime).toEqual(-1);
         expect(m.transferCandidates).toEqual(-1);
@@ -8160,7 +8160,7 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
         origin: o,
         originName: '出発',
       });
-      const m = captured! as RouteSearchMetrics;
+      const m = captured!;
       expect(m.walkA).toEqual(-1);
       expect(m.walkB).toEqual(-1);
       expect(m.collapseB).toBeNull();

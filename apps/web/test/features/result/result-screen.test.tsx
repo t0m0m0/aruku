@@ -67,14 +67,14 @@ function plan(overrides: Partial<RoutePlan> = {}): RoutePlan {
     standardTransit: null,
     timetableSources: [],
     ...overrides,
-  } as RoutePlan;
+  };
 }
 
 let store: StoreApi<AppStore>;
 
 function setup(initial: Partial<RouteCore> = {}) {
   const navigate = vi.fn();
-  const routeService: RouteService = { plan: (async () => plan()) as RouteService['plan'] };
+  const routeService: RouteService = { plan: (async () => plan()) };
   store = createAppStore(
     {
       destination: '渋谷駅',
@@ -392,7 +392,7 @@ describe('日を跨いでから見た固定出発の日付', () => {
       },
       () => searchedOn,
       { request: async () => locationDenied },
-      { plan: (async () => plan()) as RouteService['plan'] },
+      { plan: (async () => plan()) },
     );
     store.getState().attachNavigator(vi.fn());
 

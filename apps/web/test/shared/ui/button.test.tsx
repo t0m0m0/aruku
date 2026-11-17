@@ -32,7 +32,7 @@ describe('Button', () => {
     render(
       <form
         onSubmit={(event) => {
-          onSubmit(event.nativeEvent as SubmitEvent);
+          onSubmit(event.nativeEvent);
         }}
       >
         <Button>ルートを検索</Button>

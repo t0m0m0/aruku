@@ -141,7 +141,7 @@ async function invoke(
     ip: "127.0.0.1",
   };
   const res = makeRes();
-  await (exactWalkMax as HttpsFunction)(req as unknown as Request, res as unknown as Response);
+  await (exactWalkMax)(req as unknown as Request, res as unknown as Response);
   return res;
 }
 

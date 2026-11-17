@@ -62,7 +62,7 @@ export function toEndpoints(
 ): { start: LatLng; end: LatLng } | null {
   const points = allPoints(route);
   if (points.length === 0) return null;
-  return { start: points[0]!, end: points[points.length - 1]! };
+  return { start: points[0], end: points[points.length - 1] };
 }
 
 export function toBounds(route: RoutePlan): RouteBounds | null {
@@ -71,10 +71,10 @@ export function toBounds(route: RoutePlan): RouteBounds | null {
   // Math.min(...lats) で書かない。経路の polyline は区間ごとに数千点になり得て、
   // 展開した引数は呼び出しスタックに載る——上限を越えると RangeError で落ちる。
   let box = {
-    south: points[0]!.lat,
-    west: points[0]!.lng,
-    north: points[0]!.lat,
-    east: points[0]!.lng,
+    south: points[0].lat,
+    west: points[0].lng,
+    north: points[0].lat,
+    east: points[0].lng,
   };
   for (const p of points) {
     box = {

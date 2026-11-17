@@ -614,7 +614,7 @@ export class TransitRouteService implements SearchEngine {
         this.diag.log(
           () =>
             'selected(after board-search): ' +
-            `${this.diag.candLine(selected.enriched, budgetMin, departureAt)}`,
+            this.diag.candLine(selected.enriched, budgetMin, departureAt),
         );
       } else {
         this.diag.log(() => '徒歩最大化候補: なし');
@@ -1143,7 +1143,7 @@ export class TransitRouteService implements SearchEngine {
           `board-search i=${i} walk1=${walk1.totalMin}m ` +
           `乗車駅=${this.diag.boardingStationOf(cand)} ` +
           `候補${cands.length}本(予算内${withinHere.length}) ` +
-          `${this.diag.candLine(cand, budgetMin, departureAt)}`,
+          this.diag.candLine(cand, budgetMin, departureAt),
       );
       built.set(i, cand);
       return cand;
@@ -1615,7 +1615,7 @@ export class TransitRouteService implements SearchEngine {
         (s) =>
           `${s.type}:${s.line ?? ''}:` +
           `${coordKey(s.polyline.length > 0 ? s.polyline[0] : null)}>` +
-          `${coordKey(s.polyline.length > 0 ? s.polyline[s.polyline.length - 1] : null)}`,
+          coordKey(s.polyline.length > 0 ? s.polyline[s.polyline.length - 1] : null),
       )
       .join('|');
   }

@@ -50,7 +50,7 @@ function harness(
   const plan = vi.fn(async (args: PlanArgs) =>
     options.respond ? options.respond(args) : aRoute,
   );
-  const routeService: RouteService = { plan: plan as RouteService['plan'] };
+  const routeService: RouteService = { plan };
 
   const store = createAppStore(
     options.initial ?? {},
@@ -127,7 +127,7 @@ describe('検索へ渡すもの', () => {
 
     await store.getState().startSearch();
 
-    expect(plan.mock.calls[0]![0].origin).toEqual(somewhere);
+    expect(plan.mock.calls[0][0].origin).toEqual(somewhere);
   });
 
   it('出発地が設定されていればその座標を優先する', async () => {
@@ -138,8 +138,8 @@ describe('検索へ渡すもの', () => {
 
     await store.getState().startSearch();
 
-    expect(plan.mock.calls[0]![0].origin).toEqual(home);
-    expect(plan.mock.calls[0]![0].originName).toBe('自宅');
+    expect(plan.mock.calls[0][0].origin).toEqual(home);
+    expect(plan.mock.calls[0][0].originName).toBe('自宅');
   });
 
   it('現在地しか無いときの名前は「現在地」', async () => {
@@ -147,7 +147,7 @@ describe('検索へ渡すもの', () => {
 
     await store.getState().startSearch();
 
-    expect(plan.mock.calls[0]![0].originName).toBe('現在地');
+    expect(plan.mock.calls[0][0].originName).toBe('現在地');
   });
 
   it('現在地も出発地も無ければ名前を持たせない', async () => {
@@ -155,7 +155,7 @@ describe('検索へ渡すもの', () => {
 
     await store.getState().startSearch();
 
-    expect(plan.mock.calls[0]![0].originName).toBeNull();
+    expect(plan.mock.calls[0][0].originName).toBeNull();
   });
 
   // isNow の出発は起動時刻のまま腐る。照会の直前に現在時刻へ更新する（#264）。
@@ -171,7 +171,7 @@ describe('検索へ渡すもの', () => {
 
     await store.getState().startSearch();
 
-    const args = plan.mock.calls[0]![0];
+    const args = plan.mock.calls[0][0];
     expect(args.departure.h).toBe(9);
     expect(args.departure.m).toBe(45);
     // 予算90分を保って到着も追従する。
@@ -191,7 +191,7 @@ describe('検索へ渡すもの', () => {
 
     await store.getState().startSearch();
 
-    expect(plan.mock.calls[0]![0].departure.m).toBe(0);
+    expect(plan.mock.calls[0][0].departure.m).toBe(0);
   });
 });
 
@@ -379,7 +379,7 @@ describe('中断', () => {
 
     store.getState().cancelSearch();
 
-    expect(plan.mock.calls[0]![0].cancellation?.isCanceled).toBe(true);
+    expect(plan.mock.calls[0][0].cancellation?.isCanceled).toBe(true);
   });
 
   it('再検索の連打でも古い通信を切る', async () => {
@@ -388,8 +388,8 @@ describe('中断', () => {
 
     await store.getState().startSearch();
 
-    expect(plan.mock.calls[0]![0].cancellation?.isCanceled).toBe(true);
-    expect(plan.mock.calls[1]![0].cancellation?.isCanceled).toBe(false);
+    expect(plan.mock.calls[0][0].cancellation?.isCanceled).toBe(true);
+    expect(plan.mock.calls[1][0].cancellation?.isCanceled).toBe(false);
   });
 
   it('後から始めた検索の結果だけが残る', async () => {
@@ -402,8 +402,8 @@ describe('中断', () => {
     const first = store.getState().startSearch();
     const latest = store.getState().startSearch();
 
-    plans[1]!(second);
-    plans[0]!(aRoute);
+    plans[1](second);
+    plans[0](aRoute);
     await Promise.all([first, latest]);
 
     expect(store.getState().route).toBe(second);
