@@ -432,8 +432,8 @@ interface SteppersProps {
   later: string;
   earlierDisabled?: boolean;
   laterDisabled?: boolean;
-  onStep(dir: 1 | -1): void;
-  onBlur(movedTo: EventTarget | null): void;
+  onStep: (dir: 1 | -1) => void;
+  onBlur: (movedTo: EventTarget | null) => void;
 }
 
 /// ◀ ▶ の対。
