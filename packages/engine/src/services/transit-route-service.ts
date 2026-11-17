@@ -140,8 +140,6 @@ export const defaultArrivalWaveGrace: Duration = seconds(5);
 /// 待ち切って毎検索の体感へ乗せないため。
 export const defaultExactWalkMaxGrace: Duration = seconds(5);
 
-export { maxMeasureShortlist } from './candidate-measurer';
-
 /// base ごとのハイブリッド候補をマージするときの総数上限（#292）。
 export const maxHybridCandidates = 40;
 
