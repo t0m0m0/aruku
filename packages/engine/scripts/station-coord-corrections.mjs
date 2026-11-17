@@ -34,6 +34,7 @@ function haversineM(aLat, aLon, bLat, bLon) {
 
 const round5 = (x) => Math.round(x * 1e5) / 1e5;
 
+/** @param {string} url */
 async function getJson(url) {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url);
@@ -44,11 +45,13 @@ async function getJson(url) {
 }
 
 const m3d = await getJson(M3D_STATIONS);
+/** @type {Map<string, { lat: number, lon: number }[]>} */
 const m3dByName = new Map();
 for (const s of m3d) {
   // 範囲外の駅は座標を持たない（路線の端だけ名前を載せている）。
   if (!s.id.startsWith('JR-East.') || s.coord === undefined) continue;
   const name = s.title.ja;
+  if (typeof name !== 'string') continue;
   if (!m3dByName.has(name)) m3dByName.set(name, []);
   m3dByName.get(name).push({ lat: s.coord[1], lon: s.coord[0] });
 }
