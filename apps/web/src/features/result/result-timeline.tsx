@@ -16,11 +16,7 @@ import {
   type TimelineNode,
 } from '@aruku/engine/models/route-plan';
 
-import {
-  ja,
-  resultLegOpenInMapsLabel,
-  resultSegmentDuration,
-} from '../../i18n/ja';
+import { ja, resultLegOpenInMapsLabel, resultSegmentDuration } from '../../i18n/ja';
 import { TrainIcon, WalkIcon } from '../../shared/icons';
 import { cn } from '../../shared/utils';
 import { buildLegMapsUrl } from './leg-maps-url';
@@ -186,9 +182,7 @@ function Leg({ segment, mapsUrl }: { segment: RouteSegment; mapsUrl: string | nu
 function legLabel(segment: RouteSegment): string {
   if (segment.type === SegmentType.walk) return ja.resultWalkLabel;
   if (segment.line !== null) return segment.line;
-  return segment.type === SegmentType.bus
-    ? ja.resultBusDefaultLabel
-    : ja.resultTrainDefaultLabel;
+  return segment.type === SegmentType.bus ? ja.resultBusDefaultLabel : ja.resultTrainDefaultLabel;
 }
 
 // 徒歩レッグの km は経路生成が必ず埋めるが、型は null を許す。移植元は `!` で

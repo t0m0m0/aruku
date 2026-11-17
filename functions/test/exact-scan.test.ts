@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from 'vitest';
 
 import {
   bestRides,
@@ -8,7 +8,7 @@ import {
   type MeasuredWalks,
   type StopCall,
   type Timetable,
-} from "../src/exact-scan";
+} from '../src/exact-scan';
 
 // 同じ経線上に km 単位で点を置く。経線に沿った大円距離は緯度差そのものなので、
 // 2点の直線距離が km の差にちょうど一致する（ハバーサインの近似誤差を持ち込まない）。
@@ -26,7 +26,7 @@ const min = (m: number): number => m * 60;
 const call = (
   stop: number,
   at: number,
-  flags: Partial<Pick<StopCall, "canBoard" | "canAlight">> = {},
+  flags: Partial<Pick<StopCall, 'canBoard' | 'canAlight'>> = {},
 ): StopCall => ({
   stop,
   arr: at,
@@ -63,14 +63,14 @@ const query = (budgetMin: number, departAt = t(10, 0)) => ({
   budgetMin,
 });
 
-describe("bestRides", () => {
-  it("便が無ければ空を返す", () => {
+describe('bestRides', () => {
+  it('便が無ければ空を返す', () => {
     const ct = compileTimetable(timetable([0, 10], []));
 
     expect(bestRides(ct, query(120), measured({ 0: min(10) }, { 1: min(10) }))).toEqual([]);
   });
 
-  it("出発地から歩いて乗り、降りて目的地まで歩く1本を返す", () => {
+  it('出発地から歩いて乗り、降りて目的地まで歩く1本を返す', () => {
     const ct = compileTimetable(
       timetable([2, 18], [{ calls: [call(0, t(10, 30)), call(1, t(10, 50))] }]),
     );
@@ -91,7 +91,7 @@ describe("bestRides", () => {
     ]);
   });
 
-  it("同じ駅で乗って降りる組は返さない", () => {
+  it('同じ駅で乗って降りる組は返さない', () => {
     const ct = compileTimetable(
       timetable([2, 18], [{ calls: [call(0, t(10, 30)), call(1, t(10, 50))] }]),
     );
@@ -100,12 +100,9 @@ describe("bestRides", () => {
     expect(bestRides(ct, query(120), measured({ 1: min(10) }, { 1: min(10) }))).toEqual([]);
   });
 
-  it("同じ駅に戻ってくる便でも、その駅で乗って降りる組は返さない", () => {
+  it('同じ駅に戻ってくる便でも、その駅で乗って降りる組は返さない', () => {
     const ct = compileTimetable(
-      timetable(
-        [2, 18],
-        [{ calls: [call(0, t(10, 10)), call(1, t(10, 20)), call(0, t(10, 30))] }],
-      ),
+      timetable([2, 18], [{ calls: [call(0, t(10, 10)), call(1, t(10, 20)), call(0, t(10, 30))] }]),
     );
 
     // 駅0で乗って駅0に戻る方が徒歩は長いが、乗り降りが同じ駅
@@ -114,7 +111,7 @@ describe("bestRides", () => {
     expect(rides.map((r) => [r.board, r.alight])).toEqual([[0, 1]]);
   });
 
-  it("降車駅が乗車駅より手前になる組は返さない", () => {
+  it('降車駅が乗車駅より手前になる組は返さない', () => {
     const ct = compileTimetable(
       timetable([2, 18], [{ calls: [call(0, t(10, 30)), call(1, t(10, 50))] }]),
     );
@@ -123,7 +120,7 @@ describe("bestRides", () => {
     expect(bestRides(ct, query(120), measured({ 1: min(10) }, { 0: min(10) }))).toEqual([]);
   });
 
-  it("歩いて着く前に発車する便には乗らず、次の便に乗る", () => {
+  it('歩いて着く前に発車する便には乗らず、次の便に乗る', () => {
     const ct = compileTimetable(
       timetable(
         [2, 18],
@@ -140,7 +137,7 @@ describe("bestRides", () => {
     expect(rides.map((r) => r.trip)).toEqual([1]);
   });
 
-  it("降車後の徒歩で締切ちょうどに着く便は返し、1分でも過ぎる便は返さない", () => {
+  it('降車後の徒歩で締切ちょうどに着く便は返し、1分でも過ぎる便は返さない', () => {
     const tt = timetable([2, 18], [{ calls: [call(0, t(10, 30)), call(1, t(11, 0))] }]);
     const ct = compileTimetable(tt);
 
@@ -149,7 +146,7 @@ describe("bestRides", () => {
     expect(bestRides(ct, query(80), measured({ 0: min(10) }, { 1: min(21) }))).toEqual([]);
   });
 
-  it("乗車できない駅では乗らない", () => {
+  it('乗車できない駅では乗らない', () => {
     const ct = compileTimetable(
       timetable(
         [2, 6, 18],
@@ -171,7 +168,7 @@ describe("bestRides", () => {
     expect(rides.map((r) => r.board)).toEqual([1]);
   });
 
-  it("同じ便の中でも、歩いて着く前に発車する駅からは乗らない", () => {
+  it('同じ便の中でも、歩いて着く前に発車する駅からは乗らない', () => {
     const ct = compileTimetable(
       timetable(
         [2, 6, 18],
@@ -185,7 +182,7 @@ describe("bestRides", () => {
     expect(rides.map((r) => r.board)).toEqual([1]);
   });
 
-  it("便が発車順に並んでいなくても、乗れる最初の便を見落とさない", () => {
+  it('便が発車順に並んでいなくても、乗れる最初の便を見落とさない', () => {
     const ct = compileTimetable(
       timetable(
         [2, 18],
@@ -203,7 +200,7 @@ describe("bestRides", () => {
     expect(rides.map((r) => r.trip)).toEqual([0]);
   });
 
-  it("降車できない駅では降りない", () => {
+  it('降車できない駅では降りない', () => {
     const ct = compileTimetable(
       timetable(
         [2, 14, 18],
@@ -225,7 +222,7 @@ describe("bestRides", () => {
     expect(rides.map((r) => r.alight)).toEqual([2]);
   });
 
-  it("出発地からの徒歩が駅の並びに対して単調でなくても、徒歩最大の乗車駅を取りこぼさない", () => {
+  it('出発地からの徒歩が駅の並びに対して単調でなくても、徒歩最大の乗車駅を取りこぼさない', () => {
     // 駅2は駅1より出発地に近い（路線が戻る）。徒歩最大の乗車駅は奥の駅3
     const ct = compileTimetable(
       timetable(
@@ -253,7 +250,7 @@ describe("bestRides", () => {
     expect(rides[0]).toMatchObject({ board: 3, walkSec: min(85) });
   });
 
-  it("同じ乗車駅・降車駅の組は1本にまとめ、到着の早い便を残す", () => {
+  it('同じ乗車駅・降車駅の組は1本にまとめ、到着の早い便を残す', () => {
     const ct = compileTimetable(
       timetable(
         [2, 18],
@@ -269,7 +266,7 @@ describe("bestRides", () => {
     expect(rides.map((r) => r.trip)).toEqual([1]);
   });
 
-  it("徒歩の長い順に並べ、同じ徒歩なら目的地への到着が早い順に並べる", () => {
+  it('徒歩の長い順に並べ、同じ徒歩なら目的地への到着が早い順に並べる', () => {
     const ct = compileTimetable(
       timetable(
         [1, 3, 17, 19],
@@ -295,18 +292,13 @@ describe("bestRides", () => {
     ]);
   });
 
-  it("徒歩が同じ組は、同じ便の中でも目的地への到着が早い方を先に並べる", () => {
+  it('徒歩が同じ組は、同じ便の中でも目的地への到着が早い方を先に並べる', () => {
     const ct = compileTimetable(
       timetable(
         [1, 3, 5, 17],
         [
           {
-            calls: [
-              call(0, t(10, 10)),
-              call(1, t(10, 20)),
-              call(2, t(10, 30)),
-              call(3, t(10, 35)),
-            ],
+            calls: [call(0, t(10, 10)), call(1, t(10, 20)), call(2, t(10, 30)), call(3, t(10, 35))],
           },
         ],
       ),
@@ -325,18 +317,13 @@ describe("bestRides", () => {
     ]);
   });
 
-  it("1本の便で結べる組が複数あれば、別々の候補として上位 k 本に入れる", () => {
+  it('1本の便で結べる組が複数あれば、別々の候補として上位 k 本に入れる', () => {
     const ct = compileTimetable(
       timetable(
         [1, 2, 17, 18],
         [
           {
-            calls: [
-              call(0, t(10, 30)),
-              call(1, t(10, 35)),
-              call(2, t(10, 50)),
-              call(3, t(10, 55)),
-            ],
+            calls: [call(0, t(10, 30)), call(1, t(10, 35)), call(2, t(10, 50)), call(3, t(10, 55))],
           },
         ],
       ),
@@ -356,7 +343,7 @@ describe("bestRides", () => {
     ]);
   });
 
-  it("上位 k 本だけを返す", () => {
+  it('上位 k 本だけを返す', () => {
     const ct = compileTimetable(
       timetable(
         [1, 2, 3, 17],
@@ -379,8 +366,8 @@ describe("bestRides", () => {
   });
 });
 
-describe("pickStopsToMeasure", () => {
-  it("乗車側と降車側を別々に選ぶと同じ便で結べない配置でも、組で選んで解ける駅を返す", () => {
+describe('pickStopsToMeasure', () => {
+  it('乗車側と降車側を別々に選ぶと同じ便で結べない配置でも、組で選んで解ける駅を返す', () => {
     // 便0: 出発地から遠い駅0で乗れるが、降りられるのは目的地に近い駅1だけ
     // 便1: 目的地から遠い駅3で降りられるが、乗れるのは出発地に近い駅2だけ
     // 別々に遠い順で1駅ずつ選ぶと {乗車: 駅0, 降車: 駅3} になり、どちらの便でも結べない
@@ -401,14 +388,11 @@ describe("pickStopsToMeasure", () => {
     expect(bestRides(ct, q, measured(access, egress))).not.toEqual([]);
   });
 
-  it("同じ駅に戻ってくる便では、その駅で乗って降りる組で実測の枠を使わない", () => {
+  it('同じ駅に戻ってくる便では、その駅で乗って降りる組で実測の枠を使わない', () => {
     // 駅0（5km）で乗って駅0に戻る組は直線で徒歩20km分になるが、乗り降りが同じ駅。
     // 選ぶべき組は駅0→駅1（18km）
     const ct = compileTimetable(
-      timetable(
-        [5, 18],
-        [{ calls: [call(0, t(11, 10)), call(1, t(11, 20)), call(0, t(11, 30))] }],
-      ),
+      timetable([5, 18], [{ calls: [call(0, t(11, 10)), call(1, t(11, 20)), call(0, t(11, 30))] }]),
     );
 
     const picked = pickStopsToMeasure(ct, query(300), { maxPerSide: 1 });
@@ -416,7 +400,7 @@ describe("pickStopsToMeasure", () => {
     expect(picked).toMatchObject({ boards: [0], alights: [1] });
   });
 
-  it("同じ駅に戻ってくる便で、戻った駅で降りる組は、それより前の別の駅から乗る組として選ぶ", () => {
+  it('同じ駅に戻ってくる便で、戻った駅で降りる組は、それより前の別の駅から乗る組として選ぶ', () => {
     // 駅1（2km）→駅0（5km・乗車のみ）→駅2（18km）→駅0 と回る便。駅0で乗って駅0で降りる組は除き、
     // 徒歩最大は駅1で乗って戻った駅0で降りる組（2km+15km）。駅0→駅2（5km+2km）より長い
     const ct = compileTimetable(
@@ -440,7 +424,7 @@ describe("pickStopsToMeasure", () => {
     expect(picked).toMatchObject({ boards: [1], alights: [0] });
   });
 
-  it("直線の徒歩ですら発車に間に合わない駅は、実測の対象に選ばない", () => {
+  it('直線の徒歩ですら発車に間に合わない駅は、実測の対象に選ばない', () => {
     // 駅0（8km・直線で100分）は 10:30 発で、直線でも間に合わない。駅1（3km・37.5分）は 10:45 発で間に合う
     const ct = compileTimetable(
       timetable(
@@ -458,7 +442,7 @@ describe("pickStopsToMeasure", () => {
     expect(picked.alights).toEqual([2]);
   });
 
-  it("直線の徒歩でぎりぎり発車に間に合う駅は、実測の対象に残す", () => {
+  it('直線の徒歩でぎりぎり発車に間に合う駅は、実測の対象に残す', () => {
     // 駅0（3km・直線で37.5分）は 10:38 発。直線より長く見積もると落ちてしまう駅
     const ct = compileTimetable(
       timetable([3, 18], [{ calls: [call(0, t(10, 38)), call(1, t(10, 58))] }]),
@@ -469,7 +453,7 @@ describe("pickStopsToMeasure", () => {
     expect(picked.boards).toEqual([0]);
   });
 
-  it("各側 maxPerSide 駅までに絞り、同じ駅は重ねない", () => {
+  it('各側 maxPerSide 駅までに絞り、同じ駅は重ねない', () => {
     const ct = compileTimetable(
       timetable(
         [1, 2, 3, 18],
@@ -488,7 +472,7 @@ describe("pickStopsToMeasure", () => {
     expect(picked.alights).toEqual([3]);
   });
 
-  it("上限で落とした駅があれば truncated を立てる", () => {
+  it('上限で落とした駅があれば truncated を立てる', () => {
     const ct = compileTimetable(
       timetable(
         [1, 2, 18],
@@ -503,7 +487,7 @@ describe("pickStopsToMeasure", () => {
     expect(pickStopsToMeasure(ct, query(180), { maxPerSide: 2 }).truncated).toBe(false);
   });
 
-  it("締切までに乗れる発車がある便の数を tripsScanned で返す", () => {
+  it('締切までに乗れる発車がある便の数を tripsScanned で返す', () => {
     // 便2は締切（13:00）より後の発車なので走査しない
     const ct = compileTimetable(
       timetable(
@@ -520,7 +504,7 @@ describe("pickStopsToMeasure", () => {
   });
 });
 
-describe("compileTimetable の駅ごとの発車", () => {
+describe('compileTimetable の駅ごとの発車', () => {
   // 乱数を固定した時刻表。発車時刻を5分刻みに丸め、同じ駅・同じ時刻の発車を多く作る。
   const randomTimetable = (seed: number): Timetable => {
     let x = seed;
@@ -540,7 +524,7 @@ describe("compileTimetable の駅ごとの発車", () => {
     return { stops, trips };
   };
 
-  it("発車時刻の昇順、同じ時刻なら便・停車順の順に並び、乗車できない停車は入らない", () => {
+  it('発車時刻の昇順、同じ時刻なら便・停車順の順に並び、乗車できない停車は入らない', () => {
     const tt = randomTimetable(487);
 
     const ct = compileTimetable(tt);

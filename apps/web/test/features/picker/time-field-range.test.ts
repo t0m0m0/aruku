@@ -63,8 +63,7 @@ describe('clampDepartureMinutes', () => {
 });
 
 describe('firstSelectableOffset', () => {
-  const departAt = (h: number, m: number, dateOffset = 0) =>
-    new TimeValue({ h, m, dateOffset });
+  const departAt = (h: number, m: number, dateOffset = 0) => new TimeValue({ h, m, dateOffset });
 
   it('出発は今日から選べる', () => {
     expect(firstSelectableOffset(PickerMode.depart, departAt(23, 59, 3))).toBe(0);
@@ -92,17 +91,15 @@ describe('lastSelectableOffset', () => {
   const dep = new TimeValue({ h: 10, m: 0 });
 
   it('既定は選べる上限の日', () => {
-    expect(
-      lastSelectableOffset(PickerMode.depart, dep, new TimeValue({ h: 10, m: 0 })),
-    ).toBe(kMaxDateOffsetDays);
+    expect(lastSelectableOffset(PickerMode.depart, dep, new TimeValue({ h: 10, m: 0 }))).toBe(
+      kMaxDateOffsetDays,
+    );
   });
 
   it('押し出された到着が上限の外に居るなら、その日まで出す', () => {
     // 定数で切るとその日がカレンダーから消え、開いて確定しただけで値が動く。
     const pushedOut = new TimeValue({ h: 0, m: 30, dateOffset: kMaxDateOffsetDays + 1 });
-    expect(lastSelectableOffset(PickerMode.arrival, dep, pushedOut)).toBe(
-      kMaxDateOffsetDays + 1,
-    );
+    expect(lastSelectableOffset(PickerMode.arrival, dep, pushedOut)).toBe(kMaxDateOffsetDays + 1);
   });
 
   it('下限が上限を越えるなら、下限まで出す', () => {

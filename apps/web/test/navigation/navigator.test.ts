@@ -46,18 +46,15 @@ function fakeHistory(
       currentUrl: () => `${url.pathname}${url.search}${url.hash}`,
       isRouterEntry: () => options.isRouterEntry === true,
       hasParentEntry: () => options.hasParentEntry === true,
-      replaceState: (path: string, index: number) =>
-        calls.push({ path, replace: true, index }),
-      pushState: (path: string, index: number) =>
-        calls.push({ path, replace: false, index }),
+      replaceState: (path: string, index: number) => calls.push({ path, replace: true, index }),
+      pushState: (path: string, index: number) => calls.push({ path, replace: false, index }),
       back: () => calls.push({ path: '(back)', replace: false }),
     } satisfies HistoryLike,
     calls,
   };
 }
 
-const settled = (): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, 0));
+const settled = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('navigationIntent', () => {
   it('home から子へは push する（戻ると home に戻る）', () => {

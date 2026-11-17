@@ -15,10 +15,7 @@ import {
 
 import type { AbortableHttpClient, RequestOptions } from '../../src/http/http';
 
-import {
-  GooglePlacesService,
-  PlacesException,
-} from '../../src/places/places-service';
+import { GooglePlacesService, PlacesException } from '../../src/places/places-service';
 
 const base = 'https://proxy.example';
 
@@ -51,10 +48,7 @@ function okPredictions(predictions: unknown[]): HttpResponse {
   return json({ status: 'OK', predictions });
 }
 
-function service(
-  respond: (url: URL) => HttpResponse | Promise<HttpResponse>,
-  proxyBaseUrl = base,
-) {
+function service(respond: (url: URL) => HttpResponse | Promise<HttpResponse>, proxyBaseUrl = base) {
   const client = stubClient(respond);
   return { client, places: new GooglePlacesService({ client, proxyBaseUrl }) };
 }
@@ -121,9 +115,9 @@ describe('autocomplete の中止 (#488)', () => {
       throw new ClientException('Request was aborted');
     });
 
-    await expect(
-      places.autocomplete('渋谷', null, new AbortController().signal),
-    ).rejects.toThrow(ClientException);
+    await expect(places.autocomplete('渋谷', null, new AbortController().signal)).rejects.toThrow(
+      ClientException,
+    );
   });
 
   it('fetchLatLng には要求単位の中止を渡さない', async () => {
@@ -155,9 +149,7 @@ describe('autocomplete の応答', () => {
   });
 
   it('terms が無ければ description を名称にする', async () => {
-    const { places } = service(() =>
-      okPredictions([{ place_id: 'p1', description: '渋谷駅' }]),
-    );
+    const { places } = service(() => okPredictions([{ place_id: 'p1', description: '渋谷駅' }]));
 
     const [p] = await places.autocomplete('渋谷');
 
@@ -165,9 +157,7 @@ describe('autocomplete の応答', () => {
   });
 
   it('カンマが無い description は丸ごと住所にする', async () => {
-    const { places } = service(() =>
-      okPredictions([{ place_id: 'p1', description: '渋谷駅' }]),
-    );
+    const { places } = service(() => okPredictions([{ place_id: 'p1', description: '渋谷駅' }]));
 
     const [p] = await places.autocomplete('渋谷');
 
@@ -176,9 +166,7 @@ describe('autocomplete の応答', () => {
 
   // 移植元が indexOf+1 で切っている理由。末尾カンマで範囲外にしない。
   it('カンマが末尾でも落ちず、住所は空になる', async () => {
-    const { places } = service(() =>
-      okPredictions([{ place_id: 'p1', description: '渋谷駅,' }]),
-    );
+    const { places } = service(() => okPredictions([{ place_id: 'p1', description: '渋谷駅,' }]));
 
     const [p] = await places.autocomplete('渋谷');
 
@@ -229,9 +217,7 @@ describe('autocomplete の応答', () => {
   it('HTTP が 200 でなければ例外にする', async () => {
     const { places } = service(() => json({ status: 'OK' }, 503));
 
-    await expect(places.autocomplete('渋谷')).rejects.toThrow(
-      new PlacesException('HTTP 503'),
-    );
+    await expect(places.autocomplete('渋谷')).rejects.toThrow(new PlacesException('HTTP 503'));
   });
 
   // タイムアウトは TimeoutHttpClient が投げる（#156）。UI は生ステータスを
@@ -241,9 +227,7 @@ describe('autocomplete の応答', () => {
       throw new TimeoutException('header timeout');
     });
 
-    await expect(places.autocomplete('渋谷')).rejects.toThrow(
-      new PlacesException('TIMEOUT'),
-    );
+    await expect(places.autocomplete('渋谷')).rejects.toThrow(new PlacesException('TIMEOUT'));
   });
 
   it('マルチバイトの応答を UTF-8 として読む', async () => {
@@ -288,9 +272,7 @@ describe('fetchLatLng', () => {
       }),
     );
 
-    await expect(places.fetchLatLng('p1')).resolves.toEqual(
-      new GeoPoint(35.6, 139.7),
-    );
+    await expect(places.fetchLatLng('p1')).resolves.toEqual(new GeoPoint(35.6, 139.7));
   });
 
   it('OK 以外は座標なしとして null にする', async () => {
@@ -308,9 +290,7 @@ describe('fetchLatLng', () => {
   it('HTTP が 200 でなければ例外にする', async () => {
     const { places } = service(() => json({ status: 'OK' }, 500));
 
-    await expect(places.fetchLatLng('p1')).rejects.toThrow(
-      new PlacesException('HTTP 500'),
-    );
+    await expect(places.fetchLatLng('p1')).rejects.toThrow(new PlacesException('HTTP 500'));
   });
 
   it('タイムアウトを TIMEOUT として畳む', async () => {
@@ -318,9 +298,7 @@ describe('fetchLatLng', () => {
       throw new TimeoutException('header timeout');
     });
 
-    await expect(places.fetchLatLng('p1')).rejects.toThrow(
-      new PlacesException('TIMEOUT'),
-    );
+    await expect(places.fetchLatLng('p1')).rejects.toThrow(new PlacesException('TIMEOUT'));
   });
 });
 
@@ -350,9 +328,9 @@ describe('ベース URL の検査', () => {
   it('拒んだ時点では通信しない', () => {
     const client = stubClient(() => json({}));
 
-    expect(
-      () => new GooglePlacesService({ client, proxyBaseUrl: '' }),
-    ).toThrow('VITE_PROXY_BASE_URL');
+    expect(() => new GooglePlacesService({ client, proxyBaseUrl: '' })).toThrow(
+      'VITE_PROXY_BASE_URL',
+    );
     expect(client.calls).toEqual([]);
   });
 });
@@ -361,7 +339,12 @@ describe('close', () => {
   it('内側のクライアントを閉じる', () => {
     const close = vi.fn();
     const places = new GooglePlacesService({
-      client: { async get() { return json({}); }, close },
+      client: {
+        async get() {
+          return json({});
+        },
+        close,
+      },
       proxyBaseUrl: base,
     });
 

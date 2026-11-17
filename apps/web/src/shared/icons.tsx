@@ -83,7 +83,12 @@ export function TrainIcon({ size = 16 }: IconProps) {
       <path d="M5 11h14" stroke="currentColor" strokeWidth="1.7" />
       <circle cx="9" cy="14" r="1" fill="currentColor" />
       <circle cx="15" cy="14" r="1" fill="currentColor" />
-      <path d="M8 17l-2 4M16 17l2 4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <path
+        d="M8 17l-2 4M16 17l2 4"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -101,7 +106,15 @@ export function ClockIcon({ size = 18 }: IconProps) {
 export function CalendarIcon({ size = 18 }: IconProps) {
   return (
     <svg {...svgProps(size)}>
-      <rect x="4" y="5.5" width="16" height="14.5" rx="2.5" stroke="currentColor" strokeWidth="1.7" />
+      <rect
+        x="4"
+        y="5.5"
+        width="16"
+        height="14.5"
+        rx="2.5"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
       <path
         d="M4 10h16M8.5 3.5v4M15.5 3.5v4"
         stroke="currentColor"

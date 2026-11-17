@@ -2,11 +2,11 @@
 // パックの読み込みと読み直し、運行日ごとの時刻表のキャッシュを受け持つ。パックの復元は decode.ts、
 // 運行日の組み立ては day.ts。
 
-import { toServiceTime, type ScanDay } from "../exact-walk-max";
-import { buildScanDay } from "./day";
-import { decodePack } from "./decode";
-import { PACK_GROUPS, packObjectPath, type PackGroup } from "./feeds";
-import type { TimetablePack } from "./pack";
+import { toServiceTime, type ScanDay } from '../exact-walk-max';
+import { buildScanDay } from './day';
+import { decodePack } from './decode';
+import { PACK_GROUPS, packObjectPath, type PackGroup } from './feeds';
+import type { TimetablePack } from './pack';
 
 export interface PackLoadDeps {
   /** オブジェクトの中身。オブジェクトが無ければ null。 */
@@ -75,7 +75,7 @@ export function createScanDaySource(
     const pinned = pinnedServiceDates(now);
     if (!pinned.has(serviceDate)) {
       if (now < nextOtherCompileAt) {
-        deps.log({ event: "timetable_day_throttled", status: "throttled", serviceDate });
+        deps.log({ event: 'timetable_day_throttled', status: 'throttled', serviceDate });
         return null;
       }
       nextOtherCompileAt = now + OTHER_DAY_COMPILE_INTERVAL_MS;
@@ -109,7 +109,7 @@ function buildDay(
 ): ScanDay {
   const { day, timings } = buildScanDay(packs, serviceDate, deps.now);
   deps.log({
-    event: "timetable_day_compile",
+    event: 'timetable_day_compile',
     serviceDate,
     trips: day.compiled.tripCount,
     totalMs: timings.extractMs + timings.compileMs + timings.neighborsMs,
@@ -128,18 +128,18 @@ async function loadPacks(
   await Promise.all(
     PACK_GROUPS.map(async (group) => {
       const result = await readPack(deps, group);
-      if (result.status === "success") {
+      if (result.status === 'success') {
         packs.set(group, result.pack);
         const { pack, ...timings } = result;
-        deps.log({ event: "timetable_pack_load", group, ...timings, trips: pack.trips.length });
+        deps.log({ event: 'timetable_pack_load', group, ...timings, trips: pack.trips.length });
         return;
       }
-      deps.log({ event: "timetable_pack_load", group, ...result });
-      if (result.status === "failure") failed = true;
+      deps.log({ event: 'timetable_pack_load', group, ...result });
+      if (result.status === 'failure') failed = true;
       // 無いグループは前のパックも捨てる。チャレンジ限定データは期限（2027-03-12）で
       // オブジェクトを消す（#463）ので、温まったインスタンスに残しておくと消した後も検索に使い続ける。
       const kept = previous.get(group);
-      if (result.status === "failure" && kept !== undefined) packs.set(group, kept);
+      if (result.status === 'failure' && kept !== undefined) packs.set(group, kept);
     }),
   );
   return {
@@ -151,7 +151,7 @@ async function loadPacks(
 
 type ReadResult =
   | {
-      status: "success";
+      status: 'success';
       pack: TimetablePack;
       bytes: number;
       loadMs: number;
@@ -159,11 +159,11 @@ type ReadResult =
       gunzipMs: number;
       parseMs: number;
     }
-  | { status: "missing"; loadMs: number; readMs: number }
-  | { status: "failure"; reason: "read"; loadMs: number; readMs: number }
+  | { status: 'missing'; loadMs: number; readMs: number }
+  | { status: 'failure'; reason: 'read'; loadMs: number; readMs: number }
   | {
-      status: "failure";
-      reason: "format";
+      status: 'failure';
+      reason: 'format';
       loadMs: number;
       readMs: number;
       gunzipMs: number;
@@ -177,14 +177,14 @@ async function readPack(deps: PackLoadDeps, group: PackGroup): Promise<ReadResul
     gzipped = await deps.read(packObjectPath(group));
   } catch {
     const readMs = deps.now() - start;
-    return { status: "failure", reason: "read", loadMs: readMs, readMs };
+    return { status: 'failure', reason: 'read', loadMs: readMs, readMs };
   }
   const readMs = deps.now() - start;
-  if (gzipped === null) return { status: "missing", loadMs: readMs, readMs };
+  if (gzipped === null) return { status: 'missing', loadMs: readMs, readMs };
   // 解凍と解析は同期なので、ほかのグループの同期処理が割り込まない。一方 readMs は、読込の完了後も
   // ほかのグループの解凍・解析が終わるまで再開できず、その待ちを含み得る。工程に分けて出すのはそのため。
   const decoded = decodePack(gzipped, deps.now);
   const loadMs = readMs + decoded.gunzipMs + decoded.parseMs;
-  if (decoded.status === "failure") return { ...decoded, loadMs, readMs };
+  if (decoded.status === 'failure') return { ...decoded, loadMs, readMs };
   return { ...decoded, bytes: gzipped.byteLength, loadMs, readMs };
 }

@@ -90,9 +90,7 @@ export function ErrorScreen({ store }: ErrorScreenProps) {
       <p className="text-[14px] font-medium text-ink-3">{view.description}</p>
 
       <div className="mt-[22px] flex w-full max-w-80 flex-col gap-2.5">
-        <Button onClick={primary.onPress}>
-          {primary.label}
-        </Button>
+        <Button onClick={primary.onPress}>{primary.label}</Button>
         <Button variant="outline" onClick={secondary.onPress}>
           {secondary.label}
         </Button>

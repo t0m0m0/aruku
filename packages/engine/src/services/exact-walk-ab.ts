@@ -47,8 +47,7 @@ export async function runExactWalkAb(
   metrics.finalizeMs = finalizeASw.elapsedMilliseconds;
   const abSw = startedStopwatch();
   const heldExact = await x.takeExact();
-  metrics.transferCandidates =
-    metrics.exactCandidates < 0 ? -1 : provenance.transfer.size;
+  metrics.transferCandidates = metrics.exactCandidates < 0 ? -1 : provenance.transfer.size;
   api.startReplay();
   let selected = await x.reselect([...x.poolA, ...heldExact]);
   metrics.walkB = selected.enriched.walkMinutes;

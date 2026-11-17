@@ -7,10 +7,7 @@ import { waitForCurrentLocation } from './flows';
 
 test.use({ viewport: { width: 1280, height: 900 } });
 
-test('打って ↓ と Enter だけで目的地が決まり、画面は動かない', async ({
-  page,
-  upstream,
-}) => {
+test('打って ↓ と Enter だけで目的地が決まり、画面は動かない', async ({ page, upstream }) => {
   await page.goto('/');
   await waitForCurrentLocation(page, 'inline');
 

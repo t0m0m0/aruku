@@ -32,10 +32,7 @@ for (const [name, viewport] of [
   });
 }
 
-test('デスクトップ幅の結果は左パネルと全面地図の2カラムになる', async ({
-  page,
-  upstream,
-}) => {
+test('デスクトップ幅の結果は左パネルと全面地図の2カラムになる', async ({ page, upstream }) => {
   expect(upstream.unmatched).toEqual([]);
   await page.setViewportSize(desktop);
   await goToResult(page);
@@ -63,12 +60,10 @@ test('デスクトップ幅の結果はページごとではなく左パネル�
   await page.setViewportSize({ width: 1280, height: 420 });
   await goToResult(page);
 
-  const scrolled = await page
-    .getByTestId('result-panel')
-    .evaluate((el) => {
-      el.scrollTop = 120;
-      return el.scrollTop;
-    });
+  const scrolled = await page.getByTestId('result-panel').evaluate((el) => {
+    el.scrollTop = 120;
+    return el.scrollTop;
+  });
   const pageScrolls = await page.evaluate(() => {
     const root = document.scrollingElement;
     if (root === null) throw new Error('scrollingElement が無い');
@@ -97,10 +92,7 @@ test('モバイル幅の結果は区間・地図・補助情報の縦積み', as
   expect(auxiliary.y).toBeGreaterThanOrEqual(map.y + map.height);
 });
 
-test('デスクトップ幅の待ち画面は上部バーの下を地図で埋める', async ({
-  page,
-  upstream,
-}) => {
+test('デスクトップ幅の待ち画面は上部バーの下を地図で埋める', async ({ page, upstream }) => {
   expect(upstream.unmatched).toEqual([]);
   await page.setViewportSize(desktop);
 
@@ -218,8 +210,7 @@ for (const [name, viewport] of [
     await page.setViewportSize(viewport);
     await page.goto('/');
 
-    const fontSize = (locator: Locator) =>
-      locator.evaluate((el) => getComputedStyle(el).fontSize);
+    const fontSize = (locator: Locator) => locator.evaluate((el) => getComputedStyle(el).fontSize);
     const date =
       viewport === desktop
         ? page.getByRole('button', { name: /^出発の日付 / })
@@ -258,7 +249,10 @@ for (const [name, viewport] of [
       const b = await box(target);
       for (const line of underlines) {
         const overlaps = line.left < b.x + b.width && b.x < line.right;
-        expect(overlaps, `${await target.getAttribute('aria-label') ?? await target.getAttribute('data-testid')} の下に線がある`).toBe(false);
+        expect(
+          overlaps,
+          `${(await target.getAttribute('aria-label')) ?? (await target.getAttribute('data-testid'))} の下に線がある`,
+        ).toBe(false);
       }
     }
   });

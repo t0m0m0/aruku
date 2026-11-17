@@ -109,9 +109,9 @@ describe('TimetableAttribution', () => {
     it('取得日時は事業者ごとでなく mini-tokyo-3d の1行にまとめる', () => {
       render(<TimetableAttribution sources={[jrEast, tokyu, keisei]} />);
       expect(screen.getAllByRole('listitem')).toHaveLength(2);
-      expect(screen.getByText('mini-tokyo-3d', { selector: 'li span' }).closest('li')?.textContent).toContain(
-        '2026年6月27日 4:23',
-      );
+      expect(
+        screen.getByText('mini-tokyo-3d', { selector: 'li span' }).closest('li')?.textContent,
+      ).toContain('2026年6月27日 4:23');
     });
 
     it('ODPT のフィードが無ければ、公共交通オープンデータセンターのデータとは書かない', () => {

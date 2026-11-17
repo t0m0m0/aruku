@@ -35,7 +35,14 @@ describe('ridesToVerify: 照合する経路を選ぶ', () => {
     standardMin: 40,
     budgetMin: 60,
     metrics: { exactWon },
-    plan: { totalMin: 55, budgetMin: 60, walkMinutes: 40, withinBudget: true, missed: false, rides },
+    plan: {
+      totalMin: 55,
+      budgetMin: 60,
+      walkMinutes: 40,
+      withinBudget: true,
+      missed: false,
+      rides,
+    },
     error: null,
   });
 
@@ -49,7 +56,9 @@ describe('ridesToVerify: 照合する経路を選ぶ', () => {
 
   it('到着時刻の無い便は選ばない（降車駅で同じ便を確かめられない）', () => {
     const noArrival = { ...ride, arr: null };
-    expect(ridesToVerify([rec('p1', 1, [noArrival]), rec('p2', 1)], 10).map((p) => p.record.pair)).toEqual(['p2']);
+    expect(
+      ridesToVerify([rec('p1', 1, [noArrival]), rec('p2', 1)], 10).map((p) => p.record.pair),
+    ).toEqual(['p2']);
   });
 
   it('座標の片方が欠けた便は選ばない（駅を位置で引き当てられない）', () => {
@@ -78,11 +87,24 @@ describe('runVerify: 乗車駅の発車表で便の実在を確かめる', () =>
     standardMin: 40,
     budgetMin: 60,
     metrics: { exactWon: 1 },
-    plan: { totalMin: 55, budgetMin: 60, walkMinutes: 40, withinBudget: true, missed: false, rides: [ride] },
+    plan: {
+      totalMin: 55,
+      budgetMin: 60,
+      walkMinutes: 40,
+      withinBudget: true,
+      missed: false,
+      rides: [ride],
+    },
     error: null,
   };
 
-  const station = (id: string, name: string, lat: number, lng: number, feedId = 'yamanote'): BoardStation => ({
+  const station = (
+    id: string,
+    name: string,
+    lat: number,
+    lng: number,
+    feedId = 'yamanote',
+  ): BoardStation => ({
     id: `${feedId}:${id}`,
     feedId,
     name,
@@ -91,7 +113,12 @@ describe('runVerify: 乗車駅の発車表で便の実在を確かめる', () =>
   });
   const osaki = station('Osaki', '大崎', 35.6197, 139.7283);
   const kanda = station('Kanda', '神田', 35.6918, 139.7709);
-  const departure = (tripId: string, h: number, m: number, headsign = '東京・上野方面'): BoardDeparture => ({
+  const departure = (
+    tripId: string,
+    h: number,
+    m: number,
+    headsign = '東京・上野方面',
+  ): BoardDeparture => ({
     tripId,
     routeName: '山手線',
     headsign,
@@ -139,11 +166,19 @@ describe('runVerify: 乗車駅の発車表で便の実在を確かめる', () =>
     const { results, calls } = await verify(
       { 大崎: [osaki], 神田: [kanda] },
       {
-        [osaki.id]: [departure('t-before', 12, 39), departure('t1', 12, 40), departure('t-later', 12, 50)],
+        [osaki.id]: [
+          departure('t-before', 12, 39),
+          departure('t1', 12, 40),
+          departure('t-later', 12, 50),
+        ],
         [kanda.id]: [departure('t-other', 13, 0), departure('t1', 13, 1)],
       },
     );
-    expect(results[0]).toMatchObject({ verdict: 'sameTrip', matchedLine: '山手線 東京・上野方面', error: null });
+    expect(results[0]).toMatchObject({
+      verdict: 'sameTrip',
+      matchedLine: '山手線 東京・上野方面',
+      error: null,
+    });
     // 乗車駅は発車の少し前から引き、前後の数分の便だけを seen に残す（ずれていたとき人が見比べられる）。
     expect(calls).toContain(`departures ${osaki.id} 20261027 12:38`);
     expect(calls).toContain(`departures ${kanda.id} 20261027 12:58`);
@@ -165,7 +200,10 @@ describe('runVerify: 乗車駅の発車表で便の実在を確かめる', () =>
       { 大崎: [osaki], 神田: [kanda] },
       { [osaki.id]: [departure('t1', 12, 40)], [kanda.id]: [departure('t-other', 13, 0)] },
     );
-    expect(results[0]).toMatchObject({ verdict: 'departureOnly', matchedLine: '山手線 東京・上野方面' });
+    expect(results[0]).toMatchObject({
+      verdict: 'departureOnly',
+      matchedLine: '山手線 東京・上野方面',
+    });
   });
 
   it('降車駅で同じ便が到着から3分以上ずれていれば、同じ便としない', async () => {
@@ -181,7 +219,11 @@ describe('runVerify: 乗車駅の発車表で便の実在を確かめる', () =>
       { 大崎: [osaki], 神田: [kanda] },
       { [osaki.id]: [departure('t1', 12, 41)] },
     );
-    expect(results[0]).toMatchObject({ verdict: 'missing', matchedLine: null, seen: ['12:41 山手線 東京・上野方面'] });
+    expect(results[0]).toMatchObject({
+      verdict: 'missing',
+      matchedLine: null,
+      seen: ['12:41 山手線 東京・上野方面'],
+    });
     expect(calls.some((c) => c.startsWith(`departures ${kanda.id}`))).toBe(false);
   });
 
@@ -201,7 +243,14 @@ describe('runVerify: 乗車駅の発車表で便の実在を確かめる', () =>
     const { results } = await verify(
       { 大崎: [otherFeedOsaki, osaki], 神田: [kanda] },
       {
-        [otherFeedOsaki.id]: [{ tripId: 'r1', routeName: 'りんかい線', headsign: '新木場', departureSecs: (12 * 60 + 40) * 60 }],
+        [otherFeedOsaki.id]: [
+          {
+            tripId: 'r1',
+            routeName: 'りんかい線',
+            headsign: '新木場',
+            departureSecs: (12 * 60 + 40) * 60,
+          },
+        ],
         [osaki.id]: null,
       },
     );
@@ -213,7 +262,14 @@ describe('runVerify: 乗車駅の発車表で便の実在を確かめる', () =>
     const { results } = await verify(
       { 大崎: [otherFeedOsaki, osaki], 神田: [kanda] },
       {
-        [otherFeedOsaki.id]: [{ tripId: 'r1', routeName: 'りんかい線', headsign: '新木場', departureSecs: (12 * 60 + 41) * 60 }],
+        [otherFeedOsaki.id]: [
+          {
+            tripId: 'r1',
+            routeName: 'りんかい線',
+            headsign: '新木場',
+            departureSecs: (12 * 60 + 41) * 60,
+          },
+        ],
         [osaki.id]: null,
       },
     );
@@ -249,21 +305,31 @@ describe('runVerify: 乗車駅の発車表で便の実在を確かめる', () =>
     const localFeed = station('Osaki', '大崎', 35.6197, 139.7283, 'local');
     const { results } = await verify(
       { 大崎: [localFeed, osaki], 神田: [kanda] },
-      { [localFeed.id]: null, [osaki.id]: [departure('t1', 12, 40)], [kanda.id]: [departure('t1', 13, 0)] },
+      {
+        [localFeed.id]: null,
+        [osaki.id]: [departure('t1', 12, 40)],
+        [kanda.id]: [departure('t1', 13, 0)],
+      },
     );
     expect(results[0].verdict).toEqual('sameTrip');
   });
 
   it('照会が失敗しても理由を書いて次へ進む', async () => {
     const results: VerifyResult[] = [];
-    await runVerify([{ record, ride }, { record, ride }], {
-      findStations: async () => {
-        throw new Error('HTTP 429');
+    await runVerify(
+      [
+        { record, ride },
+        { record, ride },
+      ],
+      {
+        findStations: async () => {
+          throw new Error('HTTP 429');
+        },
+        fetchDepartures: async () => [],
+        write: (r) => results.push(r),
+        shouldStop: () => false,
       },
-      fetchDepartures: async () => [],
-      write: (r) => results.push(r),
-      shouldStop: () => false,
-    });
+    );
     expect(results).toHaveLength(2);
     expect(results[0].verdict).toBeNull();
     expect(results[0].error).toContain('HTTP 429');

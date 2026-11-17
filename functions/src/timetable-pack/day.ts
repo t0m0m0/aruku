@@ -1,9 +1,9 @@
 // 読み込んだ全グループのパックから、運行日1日ぶんの走査用の時刻表を組み立てる（#459・#487）。
 
-import { compileColumns, transferNeighbors, type StationKey } from "../exact-scan";
-import type { ScanDay } from "../exact-walk-max";
-import { PACK_GROUPS, type PackGroup } from "./feeds";
-import { keepsCall, tripsOnDate, type TimetablePack } from "./pack";
+import { compileColumns, transferNeighbors, type StationKey } from '../exact-scan';
+import type { ScanDay } from '../exact-walk-max';
+import { PACK_GROUPS, type PackGroup } from './feeds';
+import { keepsCall, tripsOnDate, type TimetablePack } from './pack';
 
 // 乗換の近傍の半径。A/B の計測（#474）で「勝った割合」と enrich で落ちる割合を見て決めるまでの値。
 const TRANSFER_RADIUS_SEC = 10 * 60;
@@ -36,9 +36,9 @@ export function buildScanDay(
       for (let i = 0; i < trip.stops.length; i++) if (keepsCall(trip, i, shift)) callCount++;
     }
   }
-  const stops: ScanDay["stops"][number][] = [];
+  const stops: ScanDay['stops'][number][] = [];
   const stations: StationKey[] = [];
-  const feeds: ScanDay["feeds"][number][] = [];
+  const feeds: ScanDay['feeds'][number][] = [];
   const trips: { route: string; headsign: string | null }[] = new Array(tripCount);
   const tripStart = new Int32Array(tripCount);
   const tripLength = new Int32Array(tripCount);

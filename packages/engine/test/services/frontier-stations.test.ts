@@ -43,10 +43,7 @@ describe('frontierStations', () => {
     // origin 西・goal 東、12駅が等間隔。予算大で全12駅が両側 feasible。
     // 片側 top-K（徒歩降順）だと乗車側=東寄り・降車側=西寄りに割れて b<a が作れないが、
     // 均等間引きなら両端＋中間が残り b<a ペアが存在する。
-    const stops = Array.from(
-      { length: 12 },
-      (_, i) => new GeoPoint(35.0, 139.0 + (i + 1) * 0.005),
-    );
+    const stops = Array.from({ length: 12 }, (_, i) => new GeoPoint(35.0, 139.0 + (i + 1) * 0.005));
     const farOrigin = new GeoPoint(35.0, 139.0);
     const farGoal = new GeoPoint(35.0, 139.07);
     const r = frontierStations(stops, farOrigin, farGoal, 1000, {

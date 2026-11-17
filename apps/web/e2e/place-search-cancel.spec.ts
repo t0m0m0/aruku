@@ -7,10 +7,7 @@ import type { Page, Request } from '@playwright/test';
 import { expect, test } from './fixtures';
 
 function isAutocomplete(url: URL): boolean {
-  return (
-    url.pathname.endsWith('/placesProxy') &&
-    url.searchParams.get('action') === 'autocomplete'
-  );
+  return url.pathname.endsWith('/placesProxy') && url.searchParams.get('action') === 'autocomplete';
 }
 
 /// autocomplete の応答を [delayFor] ミリ秒遅らせ、ブラウザが落とした要求を記録する。
@@ -39,9 +36,7 @@ test.describe('デスクトップ幅の欄', () => {
   test.use({ viewport: { width: 1280, height: 900 } });
 
   test('打ち替えると前の要求を中止し、最新の候補だけが出る', async ({ page, upstream }) => {
-    const { aborted } = await delayAutocomplete(page, (input) =>
-      input === 'テスト公' ? 3000 : 0,
-    );
+    const { aborted } = await delayAutocomplete(page, (input) => (input === 'テスト公' ? 3000 : 0));
     await page.goto('/');
     const field = page.getByRole('combobox', { name: '目的地を検索' });
 
@@ -81,10 +76,7 @@ test.describe('デスクトップ幅の欄', () => {
 test.describe('モバイル幅の全画面検索', () => {
   test.use({ viewport: { width: 375, height: 812 } });
 
-  test('検索の途中で画面を離れると要求を中止し、エラーを出さない', async ({
-    page,
-    upstream,
-  }) => {
+  test('検索の途中で画面を離れると要求を中止し、エラーを出さない', async ({ page, upstream }) => {
     expect(upstream.unmatched).toEqual([]);
     const { aborted } = await delayAutocomplete(page, () => 3000);
     await page.goto('/');

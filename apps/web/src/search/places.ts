@@ -23,9 +23,7 @@ export interface PlacesServiceOptions {
 ///
 /// placesProxy はサーバが consume:true で検証する（リプレイ保護・#155）。
 /// createProxyClient 越しに通すことで使い捨てトークンが付く。
-export function createPlacesService(
-  options: PlacesServiceOptions,
-): PlacesService {
+export function createPlacesService(options: PlacesServiceOptions): PlacesService {
   return new GooglePlacesService({
     client: createProxyClient({
       appCheck: options.appCheck,

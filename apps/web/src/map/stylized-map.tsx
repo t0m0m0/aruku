@@ -6,7 +6,6 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-
 /// 枠を測れるまでの寸法。
 ///
 /// 移植元は実ピクセルの Size を受け取り、図形ごとに「割合で置くもの」（公園・道路・経路）と
@@ -40,71 +39,59 @@ export function StylizedMap({ showRoute = true }: StylizedMapProps) {
   return (
     // svg は測った実寸で描くので、枠のほうが大きさを決める。
     <div ref={frame} className="size-full">
-    <svg
-      className="block size-full"
-      viewBox={`0 0 ${w} ${h}`}
-      aria-hidden={true}
-      focusable={false}
-    >
-      <rect className="fill-map-bg" x="0" y="0" width={w} height={h} />
+      <svg
+        className="block size-full"
+        viewBox={`0 0 ${w} ${h}`}
+        aria-hidden={true}
+        focusable={false}
+      >
+        <rect className="fill-map-bg" x="0" y="0" width={w} height={h} />
 
-      <ellipse
-        className="fill-map-park"
-        cx={x(0.2)}
-        cy={y(0.3)}
-        rx={x(0.55) / 2}
-        ry={y(0.32) / 2}
-      />
-      <ellipse
-        className="fill-map-park"
-        cx={x(0.78)}
-        cy={y(0.72)}
-        rx={x(0.5) / 2}
-        ry={y(0.3) / 2}
-      />
-
-      <rect className="fill-map-water" x="0" y={y(0.82)} width={w} height={y(0.18)} />
-
-      <g className="stroke-map-major stroke-10">
-        <line x1="0" y1={y(0.45)} x2={w} y2={y(0.55)} />
-        <line x1={x(0.6)} y1="0" x2={x(0.5)} y2={h} />
-      </g>
-
-      <g className="stroke-map-road stroke-5">
-        {minorRoads.map((i) => (
-          <line
-            key={`h-${i}`}
-            x1="0"
-            y1={y(0.15 * i)}
-            x2={w}
-            y2={y(0.15 * i + 0.05)}
-          />
-        ))}
-        {minorRoads.map((i) => (
-          <line
-            key={`v-${i}`}
-            x1={x(0.2 * i)}
-            y1="0"
-            x2={x(0.2 * i - 0.05)}
-            y2={h}
-          />
-        ))}
-      </g>
-
-      {buildings.map((r) => (
-        <rect
-          key={r}
-          className="fill-map-build"
-          x={x(r) - 13}
-          y={y(0.2 + r * 0.5) - 11}
-          width="26"
-          height="22"
-          rx="3"
+        <ellipse
+          className="fill-map-park"
+          cx={x(0.2)}
+          cy={y(0.3)}
+          rx={x(0.55) / 2}
+          ry={y(0.32) / 2}
         />
-      ))}
+        <ellipse
+          className="fill-map-park"
+          cx={x(0.78)}
+          cy={y(0.72)}
+          rx={x(0.5) / 2}
+          ry={y(0.3) / 2}
+        />
 
-      {showRoute ? <StylizedRoute start={start} board={board} alight={alight} end={end} /> : null}
-    </svg>
+        <rect className="fill-map-water" x="0" y={y(0.82)} width={w} height={y(0.18)} />
+
+        <g className="stroke-map-major stroke-10">
+          <line x1="0" y1={y(0.45)} x2={w} y2={y(0.55)} />
+          <line x1={x(0.6)} y1="0" x2={x(0.5)} y2={h} />
+        </g>
+
+        <g className="stroke-map-road stroke-5">
+          {minorRoads.map((i) => (
+            <line key={`h-${i}`} x1="0" y1={y(0.15 * i)} x2={w} y2={y(0.15 * i + 0.05)} />
+          ))}
+          {minorRoads.map((i) => (
+            <line key={`v-${i}`} x1={x(0.2 * i)} y1="0" x2={x(0.2 * i - 0.05)} y2={h} />
+          ))}
+        </g>
+
+        {buildings.map((r) => (
+          <rect
+            key={r}
+            className="fill-map-build"
+            x={x(r) - 13}
+            y={y(0.2 + r * 0.5) - 11}
+            width="26"
+            height="22"
+            rx="3"
+          />
+        ))}
+
+        {showRoute ? <StylizedRoute start={start} board={board} alight={alight} end={end} /> : null}
+      </svg>
     </div>
   );
 }

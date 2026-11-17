@@ -242,12 +242,7 @@ describe('selectBestRoute', () => {
   });
 
   it('徒歩時間に差があれば乗換回数が多くても徒歩時間最大を優先する', () => {
-    const moreWalkAndTransfers = candidate([
-      walk(10),
-      train(5),
-      walk(10),
-      train(5),
-    ]);
+    const moreWalkAndTransfers = candidate([walk(10), train(5), walk(10), train(5)]);
     const fewerWalkAndTransfers = candidate([walk(15), train(5)]);
 
     const best = selectBestRoute({
@@ -590,18 +585,13 @@ describe('RouteCandidate.transferCount', () => {
 describe('haversineKm', () => {
   it('同一点は0', () => {
     expect(
-      Math.abs(
-        haversineKm(new GeoPoint(35.7, 139.7), new GeoPoint(35.7, 139.7)) - 0,
-      ),
+      Math.abs(haversineKm(new GeoPoint(35.7, 139.7), new GeoPoint(35.7, 139.7)) - 0),
     ).toBeLessThanOrEqual(1e-9);
   });
 
   it('既知の2点間距離（東京駅〜品川駅 約6.8km）', () => {
     // 東京駅 35.681, 139.767 / 品川駅 35.628, 139.738
-    const d = haversineKm(
-      new GeoPoint(35.681, 139.767),
-      new GeoPoint(35.628, 139.738),
-    );
+    const d = haversineKm(new GeoPoint(35.681, 139.767), new GeoPoint(35.628, 139.738));
     expect(Math.abs(d - 6.4)).toBeLessThanOrEqual(0.6);
   });
 });
@@ -778,10 +768,7 @@ describe('maxWalkBoardingIndexParallel', () => {
         }
         await delay(0);
       }
-      expect(
-        await future,
-        '境界(予算内の最遠 index)は fanout に依らず不変',
-      ).toEqual(20);
+      expect(await future, '境界(予算内の最遠 index)は fanout に依らず不変').toEqual(20);
       return rounds;
     };
 
@@ -1027,10 +1014,7 @@ describe('walkFeasiblePrefixCount', () => {
     for (let i = 0; i < walk1.length; i++) {
       if (walk1[i] + rideRemainFromBase[i] <= budgetMin) rejected = i + 1;
     }
-    expect(
-      rejected,
-      '上界を足すと index 3（50+60=110>100）が探索範囲から落ちる',
-    ).toEqual(3);
+    expect(rejected, '上界を足すと index 3（50+60=110>100）が探索範囲から落ちる').toEqual(3);
 
     // 現行は t1 単独。到着 = t1 + t2 かつ t2 ≥ 0 なので `t1 ≤ 予算` は下界による
     // 刈り込みで、実到着が予算内になり得る点を落とさない。

@@ -6,10 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  CancellationToken,
-  SearchCanceledException,
-} from '../../src/services/cancellation';
+import { CancellationToken, SearchCanceledException } from '../../src/services/cancellation';
 
 describe('CancellationToken', () => {
   it('初期状態は未キャンセルで throwIfCanceled が通る', () => {

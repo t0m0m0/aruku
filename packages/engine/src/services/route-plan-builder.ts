@@ -40,10 +40,7 @@ export function absoluteMinutes(t: TimeValue): number {
 }
 
 /// 出発〜到着の予算（分）。日跨ぎ（dateOffset / isNow）を考慮する。
-export function budgetMinutes(
-  departure: TimeValue,
-  arrival: TimeValue,
-): number {
+export function budgetMinutes(departure: TimeValue, arrival: TimeValue): number {
   return absoluteMinutes(arrival) - absoluteMinutes(departure);
 }
 
@@ -73,8 +70,7 @@ function advance(
   if (anchor !== null && dep !== null) {
     const boardRel = differenceInMinutes(dep, anchor);
     // 乗車時間は到着時刻があればその差、無ければ距離概算（seg.minutes）。
-    const ride =
-      arr !== null ? differenceInMinutes(arr, anchor) - boardRel : seg.minutes;
+    const ride = arr !== null ? differenceInMinutes(arr, anchor) - boardRel : seg.minutes;
     // 降車が発車より前の不整合データ（ride < 0）は所要分にフォールバックする。
     if (ride >= 0) {
       // boardRel <= cum は発車後に駅着＝乗り遅れ。ここでは待ち0で乗車時間を足す近似で
@@ -90,10 +86,7 @@ function advance(
 /// 乗車前・乗り換え待ちを含む #65）。[departureAt] は出発の絶対時刻で、省略時は
 /// 時刻表を使わず各区間の所要分を累積する。選定（予算判定）と表示（タイムライン）が
 /// 同じ到着時刻を用いるよう、累積ロジックを [advance] に一本化して共有する。
-export function arrivalMinutes(
-  segments: RouteSegment[],
-  departureAt: Date | null,
-): number {
+export function arrivalMinutes(segments: RouteSegment[], departureAt: Date | null): number {
   let cum = 0;
   for (const seg of segments) {
     cum = advance(cum, seg, departureAt).cum;
@@ -111,10 +104,7 @@ export function arrivalMinutes(
 /// =不整合データを併せて除外する）。発車時刻が欠落した区間は判定できないため対象外。
 /// バスも電車と同じ基準で判定する（#250。バス限定の緩和は入れない——時刻表を信じる
 /// 決定と「その便が実在するか」の検証は別物）。
-export function firstMissedTransit(
-  segments: RouteSegment[],
-  departureAt: Date,
-): number | null {
+export function firstMissedTransit(segments: RouteSegment[], departureAt: Date): number | null {
   let cum = 0;
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
@@ -147,10 +137,7 @@ export function hasUnverifiedTransit(segments: RouteSegment[]): boolean {
 /// 無い区間・transit を含まない経路（全徒歩）は 0。best-effort 選定で「乗車待ちが予算を
 /// 超える＝今夜乗れない便」を全徒歩より後回しにする判定に使う。バスも同じ基準で数える
 /// （#250。運行終了後の翌朝始発バスが待ち0に見えて全徒歩を押しのけるのを防ぐ）。
-export function maxBoardingWait(
-  segments: RouteSegment[],
-  departureAt: Date,
-): number {
+export function maxBoardingWait(segments: RouteSegment[], departureAt: Date): number {
   let cum = 0;
   let maxWait = 0;
   for (const seg of segments) {
@@ -213,11 +200,7 @@ function boardingNode(
 
 /// 時刻表を持たない徒歩区間か。統合（[mergeConsecutiveWalks]）の可否判定に使う。
 function isUntimedWalk(seg: RouteSegment): boolean {
-  return (
-    seg.type === SegmentType.walk &&
-    seg.depTime === null &&
-    seg.arrTime === null
-  );
+  return seg.type === SegmentType.walk && seg.depTime === null && seg.arrTime === null;
 }
 
 /// 隣り合う徒歩 [a] [b] を 1 本へ畳む。所要・距離・kcal は子の合計をそのまま持つ。
@@ -231,8 +214,7 @@ function isUntimedWalk(seg: RouteSegment): boolean {
 /// 次区間の始点・区間名へのフォールバックが働く。
 function joinWalks(a: RouteSegment, b: RouteSegment): RouteSegment {
   const aLast = a.polyline.at(-1);
-  const overlaps =
-    aLast !== undefined && b.polyline.length > 0 && aLast.isAt(b.polyline[0]);
+  const overlaps = aLast !== undefined && b.polyline.length > 0 && aLast.isAt(b.polyline[0]);
   return new RouteSegment({
     type: SegmentType.walk,
     fromName: a.fromName,
@@ -240,10 +222,7 @@ function joinWalks(a: RouteSegment, b: RouteSegment): RouteSegment {
     minutes: a.minutes + b.minutes,
     km: a.km === null && b.km === null ? null : (a.km ?? 0) + (b.km ?? 0),
     kcal: a.kcal === null && b.kcal === null ? null : (a.kcal ?? 0) + (b.kcal ?? 0),
-    polyline:
-      b.polyline.length === 0
-        ? []
-        : [...a.polyline, ...b.polyline.slice(overlaps ? 1 : 0)],
+    polyline: b.polyline.length === 0 ? [] : [...a.polyline, ...b.polyline.slice(overlaps ? 1 : 0)],
   });
 }
 
@@ -292,9 +271,7 @@ export function buildRoutePlan(args: BuildRoutePlanArgs): RoutePlan {
   // segments と timelineNodes の 1:1 対応を保つため、ノード生成前にここで落とす。全データ源が
   // 通る共有関数なので、parser 側で漏れても表示前に確実に取り除く保険になる。
   // 統合（#337）より先に落とすのは、0値徒歩に分断されていた徒歩どうしも 1 本に畳むため。
-  const segments = mergeConsecutiveWalks(
-    args.segments.filter((s) => !s.isZeroWalk),
-  );
+  const segments = mergeConsecutiveWalks(args.segments.filter((s) => !s.isZeroWalk));
 
   const totalKm = segments.reduce((a, s) => a + (s.km ?? 0), 0);
   const walkKm = segments

@@ -91,9 +91,7 @@ describe('壊れた JSON の読み', () => {
   });
 
   it('数値でない座標は座標なしにする', () => {
-    expect(
-      recentPlaceFromJson({ name: 'A', lat: '35.6', lng: '139.7' })?.latLng,
-    ).toBeNull();
+    expect(recentPlaceFromJson({ name: 'A', lat: '35.6', lng: '139.7' })?.latLng).toBeNull();
   });
 
   // Dart の DateTime.parse は投げるので上位の捕捉に入るが、new Date は静かに

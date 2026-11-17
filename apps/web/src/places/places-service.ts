@@ -27,7 +27,11 @@ export interface PlacesService {
   /// [signal] を倒すとこの要求1本だけを中止し、例外で倒れる（#488）。中止に対応しない
   /// 実装は無視してよい——呼び出し側（search-state.ts）は中止に頼らず世代で古い結果を
   /// 捨てる。送信済みの要求の上流処理・課金までは取り消せない。
-  autocomplete(query: string, bias?: GeoPoint | null, signal?: AbortSignal): Promise<PlacePrediction[]>;
+  autocomplete(
+    query: string,
+    bias?: GeoPoint | null,
+    signal?: AbortSignal,
+  ): Promise<PlacePrediction[]>;
 
   /// 候補（placeId）から座標を引く。Google autocomplete は座標を返さないため、
   /// 確定時にこの details 呼び出しで補う2段フロー。
@@ -52,11 +56,7 @@ export interface GooglePlacesServiceOptions {
 /// 誰も気付けない。`createRouteService` が同じ理由でベース URL を組み立て時に拒んでいる。
 export class GooglePlacesService implements PlacesService {
   constructor(options: GooglePlacesServiceOptions) {
-    requireUsableBase(
-      options.proxyBaseUrl,
-      'VITE_PROXY_BASE_URL',
-      'GooglePlacesService',
-    );
+    requireUsableBase(options.proxyBaseUrl, 'VITE_PROXY_BASE_URL', 'GooglePlacesService');
     this.client = options.client;
     // 末尾スラッシュは検査を通る（リライト運用の `https://example.com/api/` がある）ので、
     // 連結前にここで畳む。
@@ -114,10 +114,7 @@ export class GooglePlacesService implements PlacesService {
   }
 
   /// 200 を確かめて JSON として読む。autocomplete / details で同じ規則。
-  private async getJson(
-    url: URL,
-    signal?: AbortSignal,
-  ): Promise<Record<string, unknown>> {
+  private async getJson(url: URL, signal?: AbortSignal): Promise<Record<string, unknown>> {
     let response;
     try {
       response = await this.client.get(url, signal === undefined ? {} : { signal });

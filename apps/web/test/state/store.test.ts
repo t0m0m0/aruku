@@ -52,9 +52,7 @@ describe('go', () => {
       routeAsOf: null,
       routePhase: null,
     });
-    store
-      .getState()
-      .go(Screen.error, { routeErrorKind: RouteErrorKind.timeout });
+    store.getState().go(Screen.error, { routeErrorKind: RouteErrorKind.timeout });
 
     expect(seen.map((s) => s.redirectedTo)).toEqual([null, null]);
   });
@@ -135,11 +133,7 @@ describe('初期状態', () => {
     const store = createAppStore();
 
     expect(resolveRedirect('/home', store.getState(), new Date())).toBeNull();
-    for (const path of [
-      screenPath.result,
-      screenPath.loading,
-      screenPath.error,
-    ]) {
+    for (const path of [screenPath.result, screenPath.loading, screenPath.error]) {
       expect(resolveRedirect(path, store.getState(), new Date())).toBe('/home');
     }
   });

@@ -130,16 +130,11 @@ describe('exactWalkCandidates (#460)', () => {
   it('0分の徒歩区間は持たない', () => {
     const [c] = exactWalkCandidates(
       {
-        candidates: [
-          candidate({ accessWalk: { durationSec: 20, distanceMeters: 15 } }),
-        ],
+        candidates: [candidate({ accessWalk: { durationSec: 20, distanceMeters: 15 } })],
       },
       ends,
     );
-    expect(c.segments.map((s) => s.type)).toEqual([
-      SegmentType.train,
-      SegmentType.walk,
-    ]);
+    expect(c.segments.map((s) => s.type)).toEqual([SegmentType.train, SegmentType.walk]);
   });
 
   it('路線記号コードは guidance の路線名と同じく和名へ写す', () => {
@@ -249,9 +244,7 @@ describe('exactWalkTransferCandidates (#474)', () => {
   it('別の駅への乗換の徒歩は、見積りが0分でも区間を残して enrich に測らせる', () => {
     const [c] = exactWalkTransferCandidates(
       {
-        transferCandidates: [
-          transfer({ transferWalk: { durationSec: 20, distanceMeters: 26 } }),
-        ],
+        transferCandidates: [transfer({ transferWalk: { durationSec: 20, distanceMeters: 26 } })],
       },
       ends,
     );

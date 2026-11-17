@@ -60,10 +60,7 @@ test('幅を狭めても上部バーは残る', async ({ page }) => {
   await expect(page.getByRole('banner')).toBeVisible();
 });
 
-test('結果画面からロゴで home へ戻っても履歴は [home, 子] のまま', async ({
-  page,
-  upstream,
-}) => {
+test('結果画面からロゴで home へ戻っても履歴は [home, 子] のまま', async ({ page, upstream }) => {
   // ロゴは go() を通る。通さずに router.navigate を直に呼ぶと、子から home への
   // pop が push になり、履歴が伸びる（navigator.ts）。
   expect(upstream.unmatched).toEqual([]);

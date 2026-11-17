@@ -12,10 +12,7 @@ import type { PlanArgs, RouteService } from '@aruku/engine/services/route-servic
 import { ErrorScreen } from '../../../src/features/error/error-screen';
 import { GeoPoint } from '@aruku/engine/models/geo-point';
 
-import {
-  locationAvailable,
-  locationDenied,
-} from '../../../src/location/location-state';
+import { locationAvailable, locationDenied } from '../../../src/location/location-state';
 import { Screen, screenPath } from '../../../src/navigation/screens';
 import { RouteErrorKind } from '../../../src/state/app-state';
 import { createAppStore, type AppStore } from '../../../src/state/store';
@@ -29,9 +26,7 @@ function setup(kind: RouteErrorKind | null, located = false) {
   const navigate = vi.fn();
   const plan = vi.fn(async (_args: PlanArgs) => ({}) as RoutePlan);
   const routeService: RouteService = { plan };
-  const request = vi.fn(async () =>
-    located ? locationAvailable(here) : locationDenied,
-  );
+  const request = vi.fn(async () => (located ? locationAvailable(here) : locationDenied));
   store = createAppStore(
     { routeErrorKind: kind, destination: '渋谷駅' },
     () => new Date(2026, 8, 13, 12, 0, 0),
@@ -80,9 +75,7 @@ describe('失敗の説明', () => {
   it('種別が無くても原因不明として成立する', () => {
     setup(null);
 
-    expect(
-      screen.getByRole('heading', { name: 'ルートを取得できませんでした' }),
-    ).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'ルートを取得できませんでした' })).toBeTruthy();
   });
 });
 

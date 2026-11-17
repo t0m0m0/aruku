@@ -9,10 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ClientException } from '@aruku/engine/services/http-client';
 
-import {
-  FetchHttpClient,
-  type Fetch,
-} from '../../src/http/fetch-http-client';
+import { FetchHttpClient, type Fetch } from '../../src/http/fetch-http-client';
 
 function streamOf(...chunks: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -77,9 +74,7 @@ describe('FetchHttpClient.get', () => {
       },
     });
 
-    await expect(client.get(new URL('https://example.test/a'))).rejects.toThrow(
-      ClientException,
-    );
+    await expect(client.get(new URL('https://example.test/a'))).rejects.toThrow(ClientException);
   });
 
   it('ボディ受信中の失敗も ClientException になる', async () => {
@@ -95,15 +90,11 @@ describe('FetchHttpClient.get', () => {
         ),
     });
 
-    await expect(client.get(new URL('https://example.test/a'))).rejects.toThrow(
-      ClientException,
-    );
+    await expect(client.get(new URL('https://example.test/a'))).rejects.toThrow(ClientException);
   });
 
   it('渡したヘッダを fetch へ引き渡す', async () => {
-    const fetch = vi.fn<Fetch>(
-      async () => new Response(streamOf('{}'), { status: 200 }),
-    );
+    const fetch = vi.fn<Fetch>(async () => new Response(streamOf('{}'), { status: 200 }));
     const client = new FetchHttpClient({ fetch });
 
     await client.send(new URL('https://example.test/a'), { 'X-Test': 'v' });
@@ -140,9 +131,7 @@ describe('FetchHttpClient.close', () => {
 
     client.close();
 
-    await expect(client.get(new URL('https://example.test/a'))).rejects.toThrow(
-      ClientException,
-    );
+    await expect(client.get(new URL('https://example.test/a'))).rejects.toThrow(ClientException);
   });
 
   it('二重の close() は例外にならない', () => {
@@ -164,9 +153,7 @@ describe('要求単位の中止 (#488)', () => {
       new Promise((_resolve, reject) => {
         const signal = init?.signal;
         if (signal) signals.push(signal);
-        signal?.addEventListener('abort', () =>
-          reject(new DOMException('aborted', 'AbortError')),
-        );
+        signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
       });
     return { fetch, signals };
   }

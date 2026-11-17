@@ -14,10 +14,7 @@ import {
   type SearchState,
 } from '../../../src/features/search/search-state';
 
-function prediction(
-  placeId: string,
-  distanceMeters: number | null = null,
-): PlacePrediction {
+function prediction(placeId: string, distanceMeters: number | null = null): PlacePrediction {
   return { placeId, name: placeId, address: `${placeId}の住所`, distanceMeters };
 }
 
@@ -155,8 +152,7 @@ describe('世代のガード', () => {
   it('追い越された結果は反映しない', async () => {
     const pending = new Map<string, (value: PlacePrediction[]) => void>();
     const { state } = harness({
-      respond: (query) =>
-        new Promise<PlacePrediction[]>((resolve) => pending.set(query, resolve)),
+      respond: (query) => new Promise<PlacePrediction[]>((resolve) => pending.set(query, resolve)),
     });
 
     state.getState().search('古い');
@@ -176,9 +172,7 @@ describe('世代のガード', () => {
     const pending = new Map<string, (reason: unknown) => void>();
     const { state } = harness({
       respond: (query) =>
-        new Promise<PlacePrediction[]>((_resolve, reject) =>
-          pending.set(query, reject),
-        ),
+        new Promise<PlacePrediction[]>((_resolve, reject) => pending.set(query, reject)),
     });
 
     state.getState().search('古い');
@@ -217,14 +211,16 @@ describe('古い要求の中止 (#488)', () => {
   function abortable() {
     const requests = new Map<
       string,
-      { signal: AbortSignal; resolve: (value: PlacePrediction[]) => void; reject: (reason: unknown) => void }
+      {
+        signal: AbortSignal;
+        resolve: (value: PlacePrediction[]) => void;
+        reject: (reason: unknown) => void;
+      }
     >();
     const respond = (query: string, _bias: GeoPoint | null, signal: AbortSignal | undefined) =>
       new Promise<PlacePrediction[]>((resolve, reject) => {
         requests.set(query, { signal: signal!, resolve, reject });
-        signal!.addEventListener('abort', () =>
-          reject(new ClientException('Request was aborted')),
-        );
+        signal!.addEventListener('abort', () => reject(new ClientException('Request was aborted')));
       });
     return { requests, respond };
   }
@@ -366,10 +362,7 @@ describe('近くの店モード', () => {
     state.getState().search('コンビニ');
     await settle();
 
-    expect(state.getState().suggestions.map((p) => p.placeId)).toEqual([
-      'near',
-      'far',
-    ]);
+    expect(state.getState().suggestions.map((p) => p.placeId)).toEqual(['near', 'far']);
   });
 
   // 距離が取れない候補を 0 扱いにすると、無関係な候補が先頭へ来る。
@@ -405,10 +398,7 @@ describe('近くの店モード', () => {
     state.getState().search('コンビニ');
     await settle();
 
-    expect(state.getState().suggestions.map((p) => p.placeId)).toEqual([
-      'far',
-      'near',
-    ]);
+    expect(state.getState().suggestions.map((p) => p.placeId)).toEqual(['far', 'near']);
   });
 
   it('現在地が無ければ並べ替えない', async () => {
@@ -421,10 +411,7 @@ describe('近くの店モード', () => {
     state.getState().search('コンビニ');
     await settle();
 
-    expect(state.getState().suggestions.map((p) => p.placeId)).toEqual([
-      'far',
-      'near',
-    ]);
+    expect(state.getState().suggestions.map((p) => p.placeId)).toEqual(['far', 'near']);
   });
 
   // 切替のたびに問い合わせると、課金リクエストと 400ms 待ちが積み上がる。
@@ -439,10 +426,7 @@ describe('近くの店モード', () => {
     state.getState().setNearby(true);
 
     expect(autocomplete).toHaveBeenCalledOnce();
-    expect(state.getState().suggestions.map((p) => p.placeId)).toEqual([
-      'near',
-      'far',
-    ]);
+    expect(state.getState().suggestions.map((p) => p.placeId)).toEqual(['near', 'far']);
   });
 
   it('切り戻すと関連度順へ戻る', async () => {
@@ -456,10 +440,7 @@ describe('近くの店モード', () => {
     state.getState().setNearby(true);
     state.getState().setNearby(false);
 
-    expect(state.getState().suggestions.map((p) => p.placeId)).toEqual([
-      'far',
-      'near',
-    ]);
+    expect(state.getState().suggestions.map((p) => p.placeId)).toEqual(['far', 'near']);
   });
 
   it('取得中はフラグだけ更新する', async () => {
@@ -476,10 +457,7 @@ describe('近くの店モード', () => {
     await settle();
 
     // 走っていた取得が、切り替わった後のモードで反映される。
-    expect(state.getState().suggestions.map((p) => p.placeId)).toEqual([
-      'near',
-      'far',
-    ]);
+    expect(state.getState().suggestions.map((p) => p.placeId)).toEqual(['near', 'far']);
   });
 
   it('同じ値での切替は何もしない', async () => {

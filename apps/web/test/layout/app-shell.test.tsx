@@ -19,7 +19,6 @@ import { createNavigator } from '../../src/navigation/navigator';
 import { Screen, screenPath } from '../../src/navigation/screens';
 import { createAppStore, type AppStore } from '../../src/state/store';
 
-
 /// シェルをレイアウトルートに置いた最小のルート表で描く。画面の中身は
 /// 差し替えている——ここで見るのはシェルと、シェルが起こす遷移だけ。
 function renderShell(entries: string[], store: StoreApi<AppStore> = createAppStore()) {
@@ -67,7 +66,9 @@ describe('AppShell', () => {
 
     const banner = screen.getByRole('banner');
     expect(
-      within(banner).getAllByRole('button').map((b) => b.getAttribute('aria-label')),
+      within(banner)
+        .getAllByRole('button')
+        .map((b) => b.getAttribute('aria-label')),
     ).toEqual(['あるく ホームへ戻る']);
     expect(screen.getByText('ホーム本文')).toBeDefined();
   });
@@ -84,10 +85,7 @@ describe('AppShell', () => {
 
   it('待ち画面からロゴを押すと、検索を打ち切って home へ降りる', async () => {
     stubViewport(true);
-    const { store, router } = renderShell([
-      screenPath[Screen.home],
-      screenPath[Screen.loading],
-    ]);
+    const { store, router } = renderShell([screenPath[Screen.home], screenPath[Screen.loading]]);
     store.setState({ routePhase: RoutePhase.routing });
 
     screen.getByRole('button', { name: 'あるく ホームへ戻る' }).click();

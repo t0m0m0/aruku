@@ -10,14 +10,10 @@ const POSITION_UNAVAILABLE = 2;
 const TIMEOUT = 3;
 
 function geolocation(
-  behaviour: (
-    onSuccess: PositionCallback,
-    onError: PositionErrorCallback,
-  ) => void,
+  behaviour: (onSuccess: PositionCallback, onError: PositionErrorCallback) => void,
 ): Geolocation {
   return {
-    getCurrentPosition: (onSuccess, onError) =>
-      behaviour(onSuccess, onError ?? (() => {})),
+    getCurrentPosition: (onSuccess, onError) => behaviour(onSuccess, onError ?? (() => {})),
     watchPosition: () => 0,
     clearWatch: () => {},
   };

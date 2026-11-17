@@ -47,9 +47,7 @@ export interface SearchEngine {
 }
 
 /// キャンセル可能な検索エンジンを組み立てる工場。
-export type SearchEngineFactory = (
-  cancellation: CancellationToken,
-) => SearchEngine;
+export type SearchEngineFactory = (cancellation: CancellationToken) => SearchEngine;
 
 export class RouteException extends Error {
   constructor(readonly status: string) {
@@ -63,9 +61,7 @@ export class RouteException extends Error {
 export class SearchScopedRouteService implements RouteService {
   constructor(private readonly buildEngine: SearchEngineFactory) {}
 
-  async plan(
-    args: PlanArgs & { cancellation?: CancellationToken | null },
-  ): Promise<RoutePlan> {
+  async plan(args: PlanArgs & { cancellation?: CancellationToken | null }): Promise<RoutePlan> {
     const token = args.cancellation ?? new CancellationToken();
     const engine = this.buildEngine(token);
 

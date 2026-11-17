@@ -34,10 +34,8 @@ describe('stationCoordTable', () => {
   it('どの行も、ずれが補正の対象とする幅（500m 超・5km 以下）に収まり、offsetM と一致する', () => {
     for (const row of stationCoordTable) {
       const m =
-        haversineKm(
-          new GeoPoint(row.from[0], row.from[1]),
-          new GeoPoint(row.to[0], row.to[1]),
-        ) * 1000;
+        haversineKm(new GeoPoint(row.from[0], row.from[1]), new GeoPoint(row.to[0], row.to[1])) *
+        1000;
       expect(m, row.station).toBeGreaterThan(500);
       expect(m, row.station).toBeLessThanOrEqual(5000);
       expect(Math.abs(m - row.offsetM), row.station).toBeLessThan(1);

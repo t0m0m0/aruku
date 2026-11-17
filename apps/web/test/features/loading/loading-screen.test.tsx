@@ -22,10 +22,7 @@ const aRoute = {} as RoutePlan;
 
 let store: StoreApi<AppStore>;
 
-function setup(
-  initial: Partial<RouteCore> = {},
-  options: { plan?: RouteService['plan'] } = {},
-) {
+function setup(initial: Partial<RouteCore> = {}, options: { plan?: RouteService['plan'] } = {}) {
   const navigate = vi.fn();
   const routeService: RouteService = {
     plan: options.plan ?? (async () => aRoute),
@@ -172,7 +169,6 @@ describe('中断', () => {
   });
 });
 
-
 // 移植元の「地図を敷いた背景」。装飾であって進捗の一部ではない。
 describe('地図の背景', () => {
   it('地図を敷く', () => {
@@ -186,9 +182,7 @@ describe('地図の背景', () => {
   it('まだ出ていない経路を背景に描かない', () => {
     setup();
 
-    expect(
-      screen.getByTestId('loading-map').querySelector('[data-part="route"]'),
-    ).toBeNull();
+    expect(screen.getByTestId('loading-map').querySelector('[data-part="route"]')).toBeNull();
   });
 
   it('装飾なので読み上げへ出さない', () => {

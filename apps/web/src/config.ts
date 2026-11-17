@@ -64,8 +64,7 @@ export interface AppConfig {
 
 export const appConfig: AppConfig = {
   proxyBaseUrl: import.meta.env.VITE_PROXY_BASE_URL ?? '',
-  transitApiBaseUrl:
-    import.meta.env.VITE_TRANSIT_API_BASE_URL ?? defaultTransitApiBaseUrl,
+  transitApiBaseUrl: import.meta.env.VITE_TRANSIT_API_BASE_URL ?? defaultTransitApiBaseUrl,
   firebase: {
     apiKey: import.meta.env.VITE_FIREBASE_WEB_API_KEY ?? '',
     appId: import.meta.env.VITE_FIREBASE_WEB_APP_ID ?? '',

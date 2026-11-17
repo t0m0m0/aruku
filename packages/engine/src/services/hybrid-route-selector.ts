@@ -39,9 +39,7 @@ export class RouteCandidate {
   }
 
   get transferCount(): number {
-    const transitSegmentCount = this.segments.filter(
-      (s) => s.type !== SegmentType.walk,
-    ).length;
+    const transitSegmentCount = this.segments.filter((s) => s.type !== SegmentType.walk).length;
     return transitSegmentCount === 0 ? 0 : transitSegmentCount - 1;
   }
 
@@ -112,9 +110,7 @@ export function selectBestRoute(args: SelectBestRouteArgs): RouteCandidate {
   // （全徒歩は待ち0で常に含む）から最早到着を選ぶ（#121 原因②）。予算が十分大きく
   // 実際に待てる場合は電車も残るため、原理的に正しい挙動になる。
   const fallback =
-    departureAt === null
-      ? pool
-      : (reachableWithinBudget(pool, budgetMin, departureAt) ?? pool);
+    departureAt === null ? pool : (reachableWithinBudget(pool, budgetMin, departureAt) ?? pool);
   return fallback.reduce((a, b) => {
     const arrivalA = arrival(a);
     const arrivalB = arrival(b);
@@ -150,11 +146,8 @@ export function forwardCandidates(
   options: { maxBacktrackRatio?: number } = {},
 ): RouteCandidate[] {
   if (origin === null || goal === null) return candidates;
-  const maxBacktrackRatio =
-    options.maxBacktrackRatio ?? defaultMaxBacktrackRatio;
-  const forward = candidates.filter(
-    (c) => !isBacktrackDetour(c, origin, goal, maxBacktrackRatio),
-  );
+  const maxBacktrackRatio = options.maxBacktrackRatio ?? defaultMaxBacktrackRatio;
+  const forward = candidates.filter((c) => !isBacktrackDetour(c, origin, goal, maxBacktrackRatio));
   return forward.length > 0 ? forward : candidates;
 }
 
@@ -199,12 +192,7 @@ const maxBacktrackSamplesPerLeg = 32;
 /// （目的地と逆方向）なら負。余弦定理で origin→p ベクトルを origin→goal 方向へ
 /// 射影して求める。[dog] は origin→goal 距離（呼び出し側で算出済みを渡す）。
 /// 球面距離を平面の余弦定理へ投入する近似だが、都市スケールでは十分。
-function advanceKm(
-  origin: GeoPoint,
-  goal: GeoPoint,
-  dog: number,
-  p: GeoPoint,
-): number {
+function advanceKm(origin: GeoPoint, goal: GeoPoint, dog: number, p: GeoPoint): number {
   const dop = haversineKm(origin, p);
   const dpg = haversineKm(p, goal);
   return (dop * dop + dog * dog - dpg * dpg) / (2 * dog);
@@ -220,15 +208,9 @@ export interface MeasureShortlistArgs {
 
 /// 見積り予算内候補を実測する短リスト（#315/#318）。逆戻り除外の上で見積り実到着が
 /// 予算内の候補だけを、徒歩降順→実到着昇順→乗換少ない順で返す（cap は掛けない）。
-export function measureShortlist(
-  args: MeasureShortlistArgs,
-): RouteCandidate[] {
+export function measureShortlist(args: MeasureShortlistArgs): RouteCandidate[] {
   const { candidates, budgetMin, departureAt } = args;
-  const forward = forwardCandidates(
-    candidates,
-    args.origin ?? null,
-    args.goal ?? null,
-  );
+  const forward = forwardCandidates(candidates, args.origin ?? null, args.goal ?? null);
   return forward
     .filter((c) => arrivalMinutes(c.segments, departureAt) <= budgetMin)
     .sort((a, b) => {
@@ -359,10 +341,7 @@ function range(from: number, to: number): number[] {
 ///
 /// **単調性に依存しない安全上界**：到着 = t1 + t2（t2 ≥ 0）なので `t1 > budgetMin` の
 /// 点は到着も必ず予算外。刈るのは「t1 単独で既に予算外」の確実に無駄な引き直しだけ。
-export function walkFeasiblePrefixCount(
-  walk1Min: number[],
-  budgetMin: number,
-): number {
+export function walkFeasiblePrefixCount(walk1Min: number[], budgetMin: number): number {
   let last = -1;
   for (let i = 0; i < walk1Min.length; i++) {
     if (walk1Min[i] <= budgetMin) last = i;
@@ -420,9 +399,7 @@ export function frontierStations(
     dartRound((haversineKm(a, b) * 1000) / walkMetersPerMinute);
 
   const pick = (sideWalk: (i: number) => number): number[] => {
-    const feasible = stops
-      .map((_, i) => i)
-      .filter((i) => sideWalk(i) <= budgetMin);
+    const feasible = stops.map((_, i) => i).filter((i) => sideWalk(i) <= budgetMin);
     if (feasible.length <= maxPerSide || maxPerSide < 2) {
       return feasible.slice(0, Math.max(maxPerSide, 0));
     }

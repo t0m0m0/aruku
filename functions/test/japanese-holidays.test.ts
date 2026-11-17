@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from 'vitest';
 
-import { isJapaneseHoliday, runsSaturdayHolidaySchedule } from "../src/timetable-pack/japanese-holidays";
+import {
+  isJapaneseHoliday,
+  runsSaturdayHolidaySchedule,
+} from '../src/timetable-pack/japanese-holidays';
 
 // 内閣府「国民の祝日について」の 2026・2027 年の一覧。
 const HOLIDAYS_2026 = [
@@ -14,42 +17,46 @@ const HOLIDAYS_2027 = [
 
 const everyDayOf = (year: number): number[] => {
   const days: number[] = [];
-  for (let d = new Date(Date.UTC(year, 0, 1)); d.getUTCFullYear() === year; d.setUTCDate(d.getUTCDate() + 1)) {
+  for (
+    let d = new Date(Date.UTC(year, 0, 1));
+    d.getUTCFullYear() === year;
+    d.setUTCDate(d.getUTCDate() + 1)
+  ) {
     days.push(d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate());
   }
   return days;
 };
 
-describe("isJapaneseHoliday", () => {
+describe('isJapaneseHoliday', () => {
   it.each([
     [2026, HOLIDAYS_2026],
     [2027, HOLIDAYS_2027],
-  ])("%i 年の祝日・振替休日・国民の休日をちょうど返す", (year, expected) => {
+  ])('%i 年の祝日・振替休日・国民の休日をちょうど返す', (year, expected) => {
     expect(everyDayOf(year).filter(isJapaneseHoliday)).toEqual(expected);
   });
 
-  it("春分・秋分を年ごとの計算で求める", () => {
+  it('春分・秋分を年ごとの計算で求める', () => {
     expect(isJapaneseHoliday(20280320)).toBe(true);
     expect(isJapaneseHoliday(20280922)).toBe(true);
     expect(isJapaneseHoliday(20280923)).toBe(false);
   });
 });
 
-describe("runsSaturdayHolidaySchedule", () => {
-  it("平日は平日ダイヤ", () => {
+describe('runsSaturdayHolidaySchedule', () => {
+  it('平日は平日ダイヤ', () => {
     expect(runsSaturdayHolidaySchedule(20261117)).toBe(false);
   });
 
-  it("土曜・日曜は土休日ダイヤ", () => {
+  it('土曜・日曜は土休日ダイヤ', () => {
     expect(runsSaturdayHolidaySchedule(20261121)).toBe(true);
     expect(runsSaturdayHolidaySchedule(20261122)).toBe(true);
   });
 
-  it("平日の祝日は土休日ダイヤ", () => {
+  it('平日の祝日は土休日ダイヤ', () => {
     expect(runsSaturdayHolidaySchedule(20261123)).toBe(true);
   });
 
-  it("年末年始（12/30〜1/3）は平日でも土休日ダイヤ", () => {
+  it('年末年始（12/30〜1/3）は平日でも土休日ダイヤ', () => {
     expect(runsSaturdayHolidaySchedule(20261229)).toBe(false);
     expect(runsSaturdayHolidaySchedule(20261230)).toBe(true);
     expect(runsSaturdayHolidaySchedule(20261231)).toBe(true);

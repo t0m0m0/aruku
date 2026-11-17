@@ -3,11 +3,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { GeoPoint } from '../../src/models/geo-point';
-import {
-  RouteSegment,
-  SegmentType,
-  type RoutePlan,
-} from '../../src/models/route-plan';
+import { RouteSegment, SegmentType, type RoutePlan } from '../../src/models/route-plan';
 import { TimeValue } from '../../src/models/time-value';
 import {
   budgetMinutes,
@@ -54,11 +50,7 @@ describe('buildRoutePlan timeline', () => {
       departureAt: dateTime(2026, 5, 22, 9, 0),
     });
 
-    expect(plan.timelineNodes.map((n) => n.time)).toEqual([
-      '9:00',
-      '9:12',
-      '9:30',
-    ]);
+    expect(plan.timelineNodes.map((n) => n.time)).toEqual(['9:00', '9:12', '9:30']);
     // 乗車駅は発車時刻＋路線名（駅着 9:05 → 9:12 発。待ちは表示しない）。
     expect(plan.timelineNodes[1].sub).toEqual('○○線');
     expect(last(plan.timelineNodes).sub).toEqual('到着 · 制限内 ✓');
@@ -166,10 +158,7 @@ describe('buildRoutePlan timeline', () => {
     });
 
     // 0値 walk は segments から除外され電車2本のみ。
-    expect(plan.segments.map((s) => s.type)).toEqual([
-      SegmentType.train,
-      SegmentType.train,
-    ]);
+    expect(plan.segments.map((s) => s.type)).toEqual([SegmentType.train, SegmentType.train]);
     // ノード列は [S1出発, S2着(カード無し), S2発, S3到着]。
     // S2 は「着（カード無し）」＋「発」の直結乗換2行になる。
     expect(plan.timelineNodes[1].place).toEqual('S2');
@@ -361,11 +350,7 @@ describe('buildRoutePlan timeline', () => {
       departureAt: dateTime(2026, 5, 22, 9, 0),
     });
 
-    expect(plan.timelineNodes.map((n) => n.time)).toEqual([
-      '9:00',
-      '9:05',
-      '9:23',
-    ]);
+    expect(plan.timelineNodes.map((n) => n.time)).toEqual(['9:00', '9:05', '9:23']);
     expect(plan.totalMin).toEqual(23);
   });
 
@@ -431,12 +416,7 @@ describe('buildRoutePlan timeline', () => {
       departureAt: dateTime(2026, 5, 22, 9, 0),
     });
 
-    expect(plan.timelineNodes.map((n) => n.time)).toEqual([
-      '9:00',
-      '9:20',
-      '9:38',
-      '9:41',
-    ]);
+    expect(plan.timelineNodes.map((n) => n.time)).toEqual(['9:00', '9:20', '9:38', '9:41']);
     expect(plan.totalMin).toEqual(41);
     // 乗り遅れは待ち無し扱いなので乗車駅（発）は「○分待ち」を前置きしない。
     expect(plan.timelineNodes[1].sub).toEqual('○○線');
@@ -556,9 +536,11 @@ describe('buildRoutePlan 連続徒歩の統合', () => {
     expect(first(plan.segments).fromName).toEqual('現在地');
     expect(first(plan.segments).toName).toEqual('久が原');
     // 出発 → 乗車駅（発車時刻）→ 到着 の 3 行だけ。徒歩が続いただけの行は出さない。
-    expect(
-      plan.timelineNodes.map((n) => `${n.time} ${n.place} ${n.sub}`),
-    ).toEqual(['14:51 現在地 出発', '15:51 久が原 東急池上線', '16:01 池上 到着 · 制限内 ✓']);
+    expect(plan.timelineNodes.map((n) => `${n.time} ${n.place} ${n.sub}`)).toEqual([
+      '14:51 現在地 出発',
+      '15:51 久が原 東急池上線',
+      '16:01 池上 到着 · 制限内 ✓',
+    ]);
   });
 
   it('統合しても所要・距離・kcal・到着時刻は子の合計と一致する', () => {
@@ -693,12 +675,7 @@ describe('buildRoutePlan 連続徒歩の統合', () => {
     );
 
     expect(plan.segments).toHaveLength(3);
-    expect(plan.timelineNodes.map((n) => n.place)).toEqual([
-      '現在地',
-      '久が原',
-      '池上',
-      '目的地',
-    ]);
+    expect(plan.timelineNodes.map((n) => n.place)).toEqual(['現在地', '久が原', '池上', '目的地']);
   });
 
   it('端点名が空の徒歩を含んでも空欄のまま描かれるノードが残らない', () => {
@@ -896,9 +873,7 @@ describe('firstMissedTransit', () => {
       }),
     ];
 
-    expect(
-      firstMissedTransit(segments, dateTime(2026, 6, 15, 3, 58)),
-    ).toBeNull();
+    expect(firstMissedTransit(segments, dateTime(2026, 6, 15, 3, 58))).toBeNull();
   });
 
   it('departureAt 起点で先行区間の待ちを吸収した累積で判定する', () => {
@@ -930,24 +905,15 @@ describe('firstMissedTransit', () => {
 
     // 9:20発（発車相対20分）: 累積25分 > 20 で乗り遅れ。
     expect(
-      firstMissedTransit(
-        segmentsWithSecondDeparture(dateTime(2026, 5, 22, 9, 20)),
-        departureAt,
-      ),
+      firstMissedTransit(segmentsWithSecondDeparture(dateTime(2026, 5, 22, 9, 20)), departureAt),
     ).toEqual(1);
     // 9:24発（発車相対24分）: 累積25分 > 24 で、1分の差でも乗り遅れ側に落ちる。
     expect(
-      firstMissedTransit(
-        segmentsWithSecondDeparture(dateTime(2026, 5, 22, 9, 24)),
-        departureAt,
-      ),
+      firstMissedTransit(segmentsWithSecondDeparture(dateTime(2026, 5, 22, 9, 24)), departureAt),
     ).toEqual(1);
     // 9:25発（発車相対25分）: 累積25分ちょうど＝待ち0で乗車できる（境界は乗れる側）。
     expect(
-      firstMissedTransit(
-        segmentsWithSecondDeparture(dateTime(2026, 5, 22, 9, 25)),
-        departureAt,
-      ),
+      firstMissedTransit(segmentsWithSecondDeparture(dateTime(2026, 5, 22, 9, 25)), departureAt),
     ).toBeNull();
   });
 });
@@ -1060,18 +1026,15 @@ describe('hasUnverifiedTransit', () => {
 
 describe('budgetMinutes', () => {
   it('同日内は到着−出発の差をそのまま返す', () => {
-    expect(
-      budgetMinutes(new TimeValue({ h: 9, m: 0 }), new TimeValue({ h: 10, m: 30 })),
-    ).toEqual(90);
+    expect(budgetMinutes(new TimeValue({ h: 9, m: 0 }), new TimeValue({ h: 10, m: 30 }))).toEqual(
+      90,
+    );
   });
 
   it('到着が翌日(dateOffset:1)なら日跨ぎ分を加算する', () => {
     // 23:55 出発 → 翌 0:55 着。dateOffset で +1440 され予算は 60 分。
     expect(
-      budgetMinutes(
-        new TimeValue({ h: 23, m: 55 }),
-        new TimeValue({ h: 0, m: 55, dateOffset: 1 }),
-      ),
+      budgetMinutes(new TimeValue({ h: 23, m: 55 }), new TimeValue({ h: 0, m: 55, dateOffset: 1 })),
     ).toEqual(60);
   });
 

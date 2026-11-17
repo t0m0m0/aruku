@@ -14,10 +14,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  ClientException,
-  TimeoutException,
-} from '@aruku/engine/services/http-client';
+import { ClientException, TimeoutException } from '@aruku/engine/services/http-client';
 
 import { AppCheckHttpClient } from '../../src/http/app-check-http-client';
 import {
@@ -61,8 +58,7 @@ class FakeInnerClient extends BaseHttpClient {
 
 // 既定は consume 対象外のパス。ヘッダ付与そのものを見るテストが
 // tokenProvider（標準トークン側）の注入を確実に通るようにする。
-const url = (path = 'googleWalkProxy'): URL =>
-  new URL(`https://proxy.example.com/${path}`);
+const url = (path = 'googleWalkProxy'): URL => new URL(`https://proxy.example.com/${path}`);
 
 describe('AppCheckHttpClient.send', () => {
   it('トークン取得成功時に X-Firebase-AppCheck ヘッダが付与される', async () => {
@@ -157,15 +153,9 @@ describe('limited-use トークン（リプレイ保護, issue #155・#366）', 
   });
 
   it('requiresLimitedUseToken は consume 対象のみ true', () => {
-    expect(AppCheckHttpClient.requiresLimitedUseToken(url('placesProxy'))).toBe(
-      true,
-    );
-    expect(
-      AppCheckHttpClient.requiresLimitedUseToken(url('googleWalkMatrixProxy')),
-    ).toBe(true);
-    expect(
-      AppCheckHttpClient.requiresLimitedUseToken(url('googleWalkProxy')),
-    ).toBe(false);
+    expect(AppCheckHttpClient.requiresLimitedUseToken(url('placesProxy'))).toBe(true);
+    expect(AppCheckHttpClient.requiresLimitedUseToken(url('googleWalkMatrixProxy'))).toBe(true);
+    expect(AppCheckHttpClient.requiresLimitedUseToken(url('googleWalkProxy'))).toBe(false);
   });
 });
 
@@ -250,10 +240,7 @@ describe('AppCheckHttpClient.close によるトークン待ちの打ち切り (#
   };
 
   it('トークン待ちの最中に close すると ClientException で倒れる', async () => {
-    const client = new AppCheckHttpClient(
-      new FakeInnerClient(),
-      hangingProviders,
-    );
+    const client = new AppCheckHttpClient(new FakeInnerClient(), hangingProviders);
 
     const pending = client.send(url(), {});
     client.close();
@@ -354,8 +341,7 @@ describe('AppCheckHttpClient.close', () => {
   });
 });
 
-const hangs = (): Promise<string> =>
-  new Promise((resolve) => setTimeout(() => resolve('t'), 200));
+const hangs = (): Promise<string> => new Promise((resolve) => setTimeout(() => resolve('t'), 200));
 
 describe('TimeoutHttpClient との合成', () => {
   it('内側の App Check トークン取得がハングしても打ち切る (#156)', async () => {

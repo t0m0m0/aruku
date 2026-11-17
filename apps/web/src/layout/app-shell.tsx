@@ -74,9 +74,7 @@ export function AppShell({ store }: AppShellProps) {
             onClick={goHome}
           >
             <ArukuLogo size={34} />
-            <span className="text-[19px] font-black tracking-[0.04em] text-ink">
-              {ja.appTitle}
-            </span>
+            <span className="text-[19px] font-black tracking-[0.04em] text-ink">{ja.appTitle}</span>
           </button>
         </div>
       </header>

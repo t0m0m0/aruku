@@ -3,14 +3,10 @@ import { stationCoordTable } from './station-coord-table';
 
 // 駅 id ではなくずれた座標で引く。停車駅を結んだ polyline の途中の頂点は id を持たず、
 // id で引くと上流が座標を直した後も古い補正先へ動かし続けてしまう。
-const coordKey = (lat: number, lng: number): string =>
-  `${lat.toFixed(5)},${lng.toFixed(5)}`;
+const coordKey = (lat: number, lng: number): string => `${lat.toFixed(5)},${lng.toFixed(5)}`;
 
 const correctedByRawCoord = new Map<string, GeoPoint>(
-  stationCoordTable.map((r) => [
-    coordKey(r.from[0], r.from[1]),
-    new GeoPoint(r.to[0], r.to[1]),
-  ]),
+  stationCoordTable.map((r) => [coordKey(r.from[0], r.from[1]), new GeoPoint(r.to[0], r.to[1])]),
 );
 
 /// [p] が補正表に載ったずれた駅座標なら正しい座標を、そうでなければ null を返す。

@@ -8,16 +8,8 @@ import { startedStopwatch } from '../stopwatch';
 import { plusMinutes } from '../time';
 import { parseDurationMin, walkCacheKey } from './access-walk-matrix';
 import { SearchCanceledException } from './cancellation';
-import {
-  measureShortlist,
-  reachableWithinBudget,
-  RouteCandidate,
-} from './hybrid-route-selector';
-import {
-  BestEffortLedger,
-  EnrichLatencyLedger,
-  RouteDiagnostics,
-} from './route-diagnostics';
+import { measureShortlist, reachableWithinBudget, RouteCandidate } from './hybrid-route-selector';
+import { BestEffortLedger, EnrichLatencyLedger, RouteDiagnostics } from './route-diagnostics';
 import {
   arrivalMinutes,
   firstMissedTransit,
@@ -102,9 +94,7 @@ export class CandidateMeasurer {
       const missed = firstMissedTransit(segs, departureAt) !== null;
       if (ctx.bus === undefined) return fallback;
       if (arrival <= budgetMin && !missed) {
-        this.diag.log(
-          () => `  → best-effort が予算内(arr=${arrival}m) → バス再照会せず`,
-        );
+        this.diag.log(() => `  → best-effort が予算内(arr=${arrival}m) → バス再照会せず`);
         return fallback;
       }
       const bus = await ctx.bus.adopt();
@@ -121,19 +111,14 @@ export class CandidateMeasurer {
           (missed ? '乗り遅れ' : `予算外(arr=${arrival}m)`) +
           ` → バス候補 ${fresh.length}件をプールへ追加して選び直し（last-resort）`,
       );
-      return this.selectAndEnrich(
-        [...candidates, ...fresh],
-        budgetMin,
-        departureAt,
-        {
-          origin,
-          goal,
-          session,
-          enrichLedger,
-          bestEffortLedger,
-          rejected,
-        },
-      );
+      return this.selectAndEnrich([...candidates, ...fresh], budgetMin, departureAt, {
+        origin,
+        goal,
+        session,
+        enrichLedger,
+        bestEffortLedger,
+        rejected,
+      });
     };
 
     // 見積り予算内候補を短リスト化。逆戻り除外＋予算内フィルタ＋選好順は先行実測
@@ -186,8 +171,7 @@ export class CandidateMeasurer {
         if (e === undefined) continue;
         if (e === null) {
           this.diag.log(
-            () =>
-              `  → 棄却(実測失敗): ${this.diag.candLine(batch[k], budgetMin, departureAt)}`,
+            () => `  → 棄却(実測失敗): ${this.diag.candLine(batch[k], budgetMin, departureAt)}`,
           );
           rejected.add(batch[k]);
           continue;
@@ -373,9 +357,7 @@ export class CandidateMeasurer {
       const v = invariantViolation(e.segments, budgetMin, departureAt);
       return !v.overBudget && !v.missed && !v.unverified;
     };
-    const measuring = batch.map((c) =>
-      this.measureOrDrop(c, departureAt, session, ledger),
-    );
+    const measuring = batch.map((c) => this.measureOrDrop(c, departureAt, session, ledger));
     let index: number | null;
     let values: (RouteCandidate | null | undefined)[];
     if (options.waitAll ?? false) {
@@ -442,10 +424,7 @@ export class CandidateMeasurer {
 
   /// 確定経路の徒歩区間を Google Routes の街路ジオメトリ・所要・距離で上書きする。
   /// 取得失敗時は元（guidance の polyline / 直線）を保つ。
-  async enrichWalkGeometry(
-    chosen: RouteCandidate,
-    cache: WalkLegCache,
-  ): Promise<RouteCandidate> {
+  async enrichWalkGeometry(chosen: RouteCandidate, cache: WalkLegCache): Promise<RouteCandidate> {
     // 徒歩区間の実測は互いに独立なので並列に投げる（#163）。
     const segments = await Promise.all(
       chosen.segments.map(async (seg) => {
@@ -486,10 +465,7 @@ export class CandidateMeasurer {
   /// origin→dest の徒歩を Google 実測で1レッグ分取得する。区間名はキャッシュ共有のため
   /// 素の空名で組み、呼び出し側が被せる。上流失敗（[RouteException]）は null へ縮退するが、
   /// [SearchCanceledException] は別型なのでそのまま伝播する。
-  private async fetchWalkLeg(
-    origin: GeoPoint,
-    dest: GeoPoint,
-  ): Promise<RouteCandidate | null> {
+  private async fetchWalkLeg(origin: GeoPoint, dest: GeoPoint): Promise<RouteCandidate | null> {
     try {
       const body = await this.api.fetchWalkRoute(origin, dest);
       const routes = body['routes'];
@@ -631,17 +607,11 @@ export class CandidateMeasurer {
     );
     // 時刻の妥当性は**徒歩で絞る前に**見る。順序が逆だと、壊れた便が最小徒歩を占めた
     // ときにまともな便が先に消え、残った壊れた便を [comparableFrom] の縮退が拾ってしまう。
-    const comparable = requireTimetable
-      ? comparableFrom(direct, at)
-      : direct;
+    const comparable = requireTimetable ? comparableFrom(direct, at) : direct;
     // 元区間と同じ路線の便を優先する。一致が無ければ絞らない。
-    const sameLine = comparable.filter(
-      (o) => firstOfType(o, type).line === line,
-    );
+    const sameLine = comparable.filter((o) => firstOfType(o, type).line === line);
     const cands =
-      line === null || line.length === 0 || sameLine.length === 0
-        ? comparable
-        : sameLine;
+      line === null || line.length === 0 || sameLine.length === 0 ? comparable : sameLine;
     // 徒歩で別駅へ回る便を採ると、その徒歩も返り値から落ちて区間の所要から消える。
     // 徒歩0を要求せず最小を採るのは、照会の端点がコリドー座標＝実駅とわずかにずれるため
     // 上流が数分の access/egress を必ず付けるから（そこで弾くと駅名復元ごと失う）。
@@ -649,9 +619,7 @@ export class CandidateMeasurer {
     // 分へ丸めた値で比べる（パーサが `(secs / 60).round()` する）。同じ丸め分に並ぶ便
     // どうしの徒歩差は定義上60秒未満で、駅間ではなく同一駅の出入口ぶんの距離しかない。
     const walkMinutesOf = (o: TransitOption): number =>
-      o.segments
-        .filter((s) => s.type === SegmentType.walk)
-        .reduce((a, s) => a + s.minutes, 0);
+      o.segments.filter((s) => s.type === SegmentType.walk).reduce((a, s) => a + s.minutes, 0);
     let leastWalk: number | null = null;
     for (const o of cands) {
       const w = walkMinutesOf(o);
@@ -665,10 +633,7 @@ export class CandidateMeasurer {
     // 起点の駅名ではない。**空欄より誤りの方が悪い。**
     const fillsNeeded = (o: TransitOption): boolean => {
       const leg = firstOfType(o, type);
-      return (
-        (!needFrom || leg.fromName.length > 0) &&
-        (!needTo || leg.toName.length > 0)
-      );
+      return (!needFrom || leg.fromName.length > 0) && (!needTo || leg.toName.length > 0);
     };
     const named = shortest.filter(fillsNeeded);
     const best = earliestArrival(named.length > 0 ? named : shortest, at);
@@ -685,10 +650,7 @@ export class CandidateMeasurer {
   /// 確定経路の transit 区間に乗降地名が無い（コリドー座標由来の候補）ときだけ、その乗車座標
   /// →降車座標で `/guidance/plan` を1回引き直して leg の実駅名・バス停名を復元する。
   /// 続けて隣接徒歩区間の端点へ地名を伝播する。バス区間も対象にする（#251）。
-  async finalizeStationNames(
-    chosen: RouteCandidate,
-    departureAt: Date,
-  ): Promise<RouteCandidate> {
+  async finalizeStationNames(chosen: RouteCandidate, departureAt: Date): Promise<RouteCandidate> {
     const segs = [...chosen.segments];
     // 区間ごとの照会は互いに独立なので並列に投げる（#304）。実時刻解決と違い boardAt の
     // 累積依存が無く、全区間を departureAt で引くため直列にする理由がない。
@@ -792,10 +754,7 @@ export function comparableFrom(options: TransitOption[], at: Date): TransitOptio
 /// 素直には応答の先頭を採りたいが、`numItineraries` 本の並びは所要順である保証が無く、
 /// 実測では乗り換えを失って降車後166分歩く経路が先頭に来た（#343）。判定と同じ尺度
 /// （[arrivalMinutes]）で選べば、採る候補は必ず先頭採用時と同じか良い。
-export function earliestArrival(
-  options: TransitOption[],
-  at: Date,
-): TransitOption | null {
+export function earliestArrival(options: TransitOption[], at: Date): TransitOption | null {
   let best: TransitOption | null = null;
   let bestArr = 0;
   for (const o of comparableFrom(options, at)) {
@@ -829,21 +788,13 @@ function bestEffort(
   budgetMin: number,
   departureAt: Date,
 ): RouteCandidate {
-  const pool =
-    reachableWithinBudget(candidates, budgetMin, departureAt) ?? candidates;
+  const pool = reachableWithinBudget(candidates, budgetMin, departureAt) ?? candidates;
   return pool.reduce((a, b) =>
-    arrivalMinutes(a.segments, departureAt) <=
-    arrivalMinutes(b.segments, departureAt)
-      ? a
-      : b,
+    arrivalMinutes(a.segments, departureAt) <= arrivalMinutes(b.segments, departureAt) ? a : b,
   );
 }
 
-function renameWalk(
-  cached: RouteCandidate,
-  fromName: string,
-  toName: string,
-): RouteCandidate {
+function renameWalk(cached: RouteCandidate, fromName: string, toName: string): RouteCandidate {
   return new RouteCandidate({
     from: fromName,
     to: toName,

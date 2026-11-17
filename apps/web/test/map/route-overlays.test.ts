@@ -7,18 +7,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
-import {
-  RoutePlan,
-  RouteSegment,
-  SegmentType,
-} from '@aruku/engine/models/route-plan';
+import { RoutePlan, RouteSegment, SegmentType } from '@aruku/engine/models/route-plan';
 
-import {
-  boundsEqual,
-  toBounds,
-  toEndpoints,
-  toOverlayPaths,
-} from '../../src/map/route-overlays';
+import { boundsEqual, toBounds, toEndpoints, toOverlayPaths } from '../../src/map/route-overlays';
 
 function seg(
   type: SegmentType,

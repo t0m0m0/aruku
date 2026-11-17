@@ -52,14 +52,10 @@ export function toOverlayPaths(route: RoutePlan): RouteOverlayPath[] {
 }
 
 function allPoints(route: RoutePlan): LatLng[] {
-  return route.segments.flatMap((seg) =>
-    seg.polyline.map((p) => ({ lat: p.lat, lng: p.lng })),
-  );
+  return route.segments.flatMap((seg) => seg.polyline.map((p) => ({ lat: p.lat, lng: p.lng })));
 }
 
-export function toEndpoints(
-  route: RoutePlan,
-): { start: LatLng; end: LatLng } | null {
+export function toEndpoints(route: RoutePlan): { start: LatLng; end: LatLng } | null {
   const points = allPoints(route);
   if (points.length === 0) return null;
   return { start: points[0], end: points[points.length - 1] };
@@ -89,10 +85,5 @@ export function toBounds(route: RoutePlan): RouteBounds | null {
 
 export function boundsEqual(a: RouteBounds | null, b: RouteBounds | null): boolean {
   if (a === null || b === null) return a === b;
-  return (
-    a.south === b.south &&
-    a.west === b.west &&
-    a.north === b.north &&
-    a.east === b.east
-  );
+  return a.south === b.south && a.west === b.west && a.north === b.north && a.east === b.east;
 }

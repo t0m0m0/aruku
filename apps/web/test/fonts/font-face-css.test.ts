@@ -63,9 +63,7 @@ describe('subsetPlan', () => {
 
   it('語彙を1文字も含まない face は落とす（空のフォントを配らない）', () => {
     const plan = subsetPlan(parseFontFaces(fontsourceCss), 'A');
-    expect(plan.map((p) => p.file)).toEqual([
-      'noto-sans-jp-latin-wght-normal.woff2',
-    ]);
+    expect(plan.map((p) => p.file)).toEqual(['noto-sans-jp-latin-wght-normal.woff2']);
   });
 
   // 重なった range の文字は両方へ入れる。どちらが当たっても持っている状態にする

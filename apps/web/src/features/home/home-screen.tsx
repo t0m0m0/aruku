@@ -23,12 +23,7 @@ import { ja } from '../../i18n/ja';
 import type { ScreenDeps } from '../../navigation/screen-deps';
 import { Screen } from '../../navigation/screens';
 import { Button } from '../../shared/ui/button';
-import {
-  ClockIcon,
-  PinIcon,
-  RoutesIcon,
-  SearchIcon,
-} from '../../shared/icons';
+import { ClockIcon, PinIcon, RoutesIcon, SearchIcon } from '../../shared/icons';
 import { TimeField } from '../picker/time-field';
 import { PlaceFieldButton } from '../search/place-field-button';
 import { TypeaheadField } from '../search/typeahead-field';
@@ -89,12 +84,8 @@ export function HomeScreen({
   return (
     <main className="mx-auto flex min-h-(--screen-min-height) max-w-[620px] flex-col gap-3 px-5 pt-5 pb-9">
       <header className="px-1 pt-1 pb-2">
-        <h1 className="text-[20px] leading-snug font-extrabold text-ink">
-          {ja.homeTagline}
-        </h1>
-        <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
-          {ja.homeTaglineDescription}
-        </p>
+        <h1 className="text-[20px] leading-snug font-extrabold text-ink">{ja.homeTagline}</h1>
+        <p className="mt-1 text-[13px] leading-relaxed text-ink-2">{ja.homeTaglineDescription}</p>
       </header>
 
       <section className="relative rounded-[22px] border border-border bg-card px-3.5 py-1.5 shadow-card-subtle">
@@ -157,9 +148,7 @@ export function HomeScreen({
         {/* 上下の余白は h2 の UA 既定（0.83em）。preflight が 0 に均すので明示して保つ。 */}
         <h2 className="my-[0.83em] flex items-center gap-[5px] px-1 pb-2 text-[13px] font-extrabold tracking-[0.08em] text-ink-2">
           <ClockIcon size={14} />
-          <span className="min-w-0 flex-1">
-            {ja.homeTimeSectionLabel}
-          </span>
+          <span className="min-w-0 flex-1">{ja.homeTimeSectionLabel}</span>
           <span className="text-end font-semibold tracking-normal">
             {ja.homeWalkablePrefix}
             <span className="font-extrabold text-moss-600">
@@ -211,10 +200,7 @@ const placeLabel = 'block text-[12px] font-bold tracking-[0.06em] text-ink-2';
 
 /// 目的地が決まっていなければ選びに行く CTA、決まっていれば検索の CTA。
 /// ただし検索そのものがまだ無いときは、それが分かるラベルにする。
-function ctaLabel(
-  destination: string | null,
-  onStartSearch: (() => void) | null,
-): string {
+function ctaLabel(destination: string | null, onStartSearch: (() => void) | null): string {
   if (destination === null) return ja.homeChooseDestination;
   return onStartSearch === null ? ja.homeSearchRouteNotReady : ja.homeSearchRoute;
 }
@@ -235,4 +221,3 @@ function LegalLink({ label, href }: { label: string; href: string }) {
     </a>
   );
 }
-

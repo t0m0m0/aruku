@@ -133,10 +133,7 @@ export interface VerifyDeps {
 }
 
 /// 直列に照合する。理由は bench-runner.ts と同じ（第三者 API のレート制限が非公開）。
-export async function runVerify(
-  picked: readonly RideToVerify[],
-  deps: VerifyDeps,
-): Promise<void> {
+export async function runVerify(picked: readonly RideToVerify[], deps: VerifyDeps): Promise<void> {
   for (const { record, ride } of picked) {
     if (deps.shouldStop()) return;
     const base = {
@@ -189,13 +186,18 @@ async function verifyRide(
   let anyBoard = false;
   let departedOnly: BoardDeparture | null = null;
   for (const station of boarding) {
-    const board = await deps.fetchDepartures(station.id, ymd(dep), hm(addMinutes(dep, -boardLookBehindMin)));
+    const board = await deps.fetchDepartures(
+      station.id,
+      ymd(dep),
+      hm(addMinutes(dep, -boardLookBehindMin)),
+    );
     if (board === null) continue;
     anyBoard = true;
     for (const d of board) {
       const offset = minuteOf(d) - minuteOfDay(dep);
       const label = `${hmSecs(d.departureSecs)} ${departureLine(d)}`;
-      if (offset >= -boardLookBehindMin && offset <= seenAheadMin && !seen.includes(label)) seen.push(label);
+      if (offset >= -boardLookBehindMin && offset <= seenAheadMin && !seen.includes(label))
+        seen.push(label);
     }
     const sameMinute = board.filter((d) => minuteOf(d) === minuteOfDay(dep));
     if (sameMinute.length === 0) continue;
@@ -214,7 +216,8 @@ async function verifyRide(
             Math.abs(minuteOf(a) - minuteOfDay(arr)) <= arrivalToleranceMin,
         ),
       );
-      if (same !== undefined) return { verdict: 'sameTrip', matchedLine: departureLine(same), seen };
+      if (same !== undefined)
+        return { verdict: 'sameTrip', matchedLine: departureLine(same), seen };
     }
     departedOnly ??= sameMinute[0];
   }
@@ -226,7 +229,11 @@ async function verifyRide(
 
 /// 名前が同じで、時刻表の停留所から [sameStationKm] 以内の駅を近い順に。名前だけだと
 /// 遠くの同名のバス停を、距離だけだと隣接する別名の駅（新宿と新宿三丁目）を拾う。
-function sameStations(stations: readonly BoardStation[], name: string, at: GeoPoint): BoardStation[] {
+function sameStations(
+  stations: readonly BoardStation[],
+  name: string,
+  at: GeoPoint,
+): BoardStation[] {
   return stations
     .filter((s) => sameStationName(s.name, name))
     .map((s) => ({ s, km: haversineKm(at, new GeoPoint(s.lat, s.lng)) }))
@@ -262,7 +269,8 @@ const ymd = (d: Date): string => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pa
 
 const hm = (d: Date): string => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
-const hmSecs = (secs: number): string => `${pad(Math.floor(secs / 3600))}:${pad(Math.floor(secs / 60) % 60)}`;
+const hmSecs = (secs: number): string =>
+  `${pad(Math.floor(secs / 3600))}:${pad(Math.floor(secs / 60) % 60)}`;
 
 /// bench-record.ts が書いた JST の壁時計（`YYYY-MM-DDTHH:mm`）を naive な Date に戻す。
 export function parseWallClock(s: string): Date {

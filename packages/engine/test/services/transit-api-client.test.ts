@@ -3,10 +3,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { GeoPoint } from '../../src/models/geo-point';
-import {
-  CancellationToken,
-  SearchCanceledException,
-} from '../../src/services/cancellation';
+import { CancellationToken, SearchCanceledException } from '../../src/services/cancellation';
 import {
   ClientException,
   TimeoutException,
@@ -25,10 +22,7 @@ import { inTimeZone } from '../support/time-zone';
 const transitBase = 'https://transit.example';
 const proxyBase = 'https://proxy.example';
 
-const client = (
-  c: HttpClient,
-  o: { transitBase?: string; proxy?: string } = {},
-) =>
+const client = (c: HttpClient, o: { transitBase?: string; proxy?: string } = {}) =>
   new TransitApiClient({
     transitClient: c,
     proxyClient: c,
@@ -246,12 +240,7 @@ describe('fetchGuidanceAt', () => {
   it('非200は RouteException(HTTP <code>)', async () => {
     const c = client(mockClient(() => jsonResponse({}, 503)));
     const e = await expectThrowsA(
-      () =>
-        c.fetchGuidanceAt(
-          new GeoPoint(0, 0),
-          new GeoPoint(1, 1),
-          dateTime(2026, 1, 1),
-        ),
+      () => c.fetchGuidanceAt(new GeoPoint(0, 0), new GeoPoint(1, 1), dateTime(2026, 1, 1)),
       RouteException,
     );
     expect(e.status).toEqual('HTTP 503');
@@ -264,12 +253,7 @@ describe('fetchGuidanceAt', () => {
       }),
     );
     const e = await expectThrowsA(
-      () =>
-        c.fetchGuidanceAt(
-          new GeoPoint(0, 0),
-          new GeoPoint(1, 1),
-          dateTime(2026, 1, 1),
-        ),
+      () => c.fetchGuidanceAt(new GeoPoint(0, 0), new GeoPoint(1, 1), dateTime(2026, 1, 1)),
       RouteException,
     );
     expect(e.status).toEqual('TIMEOUT');
@@ -409,12 +393,8 @@ describe('fetchWalkMatrix', () => {
       mockClient((url) => {
         expect(url.pathname).toEqual('/googleWalkMatrixProxy');
         expect(url.searchParams.get('origins')).toEqual('35.0,139.0');
-        expect(url.searchParams.get('destinations')).toEqual(
-          '35.1,139.1;35.2,139.2',
-        );
-        return jsonResponse([
-          { originIndex: 0, destinationIndex: 0, duration: '600s' },
-        ]);
+        expect(url.searchParams.get('destinations')).toEqual('35.1,139.1;35.2,139.2');
+        return jsonResponse([{ originIndex: 0, destinationIndex: 0, duration: '600s' }]);
       }),
     );
     const rows = await c.fetchWalkMatrix(
@@ -427,19 +407,13 @@ describe('fetchWalkMatrix', () => {
 
   it('非200は null（直線推定へフォールバック）', async () => {
     const c = client(mockClient(() => jsonResponse([], 500)));
-    const rows = await c.fetchWalkMatrix(
-      [new GeoPoint(0, 0)],
-      [new GeoPoint(1, 1)],
-    );
+    const rows = await c.fetchWalkMatrix([new GeoPoint(0, 0)], [new GeoPoint(1, 1)]);
     expect(rows).toBeNull();
   });
 
   it('配列でないレスポンスも null', async () => {
     const c = client(mockClient(() => jsonResponse({ not: 'array' })));
-    const rows = await c.fetchWalkMatrix(
-      [new GeoPoint(0, 0)],
-      [new GeoPoint(1, 1)],
-    );
+    const rows = await c.fetchWalkMatrix([new GeoPoint(0, 0)], [new GeoPoint(1, 1)]);
     expect(rows).toBeNull();
   });
 
@@ -451,10 +425,7 @@ describe('fetchWalkMatrix', () => {
         throw new TimeoutException('slow');
       }),
     );
-    const rows = await c.fetchWalkMatrix(
-      [new GeoPoint(0, 0)],
-      [new GeoPoint(1, 1)],
-    );
+    const rows = await c.fetchWalkMatrix([new GeoPoint(0, 0)], [new GeoPoint(1, 1)]);
     expect(rows).toBeNull();
   });
 });
@@ -469,10 +440,7 @@ describe('fetchWalkRoute', () => {
         return jsonResponse({ routes: [{ duration: '300s' }] });
       }),
     );
-    const body = await c.fetchWalkRoute(
-      new GeoPoint(35.0, 139.0),
-      new GeoPoint(35.5, 139.5),
-    );
+    const body = await c.fetchWalkRoute(new GeoPoint(35.0, 139.0), new GeoPoint(35.5, 139.5));
     expect((body['routes'] as unknown[]).length).toEqual(1);
   });
 
@@ -570,12 +538,7 @@ describe('fetchExactWalkMax (#460)', () => {
     const c = client(mockClient(() => jsonResponse({}, 502)));
     expect(c.exactCalls).toEqual(0);
     await c
-      .fetchExactWalkMax(
-        new GeoPoint(0, 0),
-        new GeoPoint(1, 1),
-        dateTime(2026, 6, 27, 9, 0),
-        60,
-      )
+      .fetchExactWalkMax(new GeoPoint(0, 0), new GeoPoint(1, 1), dateTime(2026, 6, 27, 9, 0), 60)
       .catch(() => {});
     expect(c.exactCalls).toEqual(1);
   });
@@ -618,9 +581,7 @@ describe('上流 HTTP 往復本数の計測 (#309)', () => {
     const c = client(
       mockClient((url) => {
         if (url.pathname === '/googleWalkMatrixProxy') {
-          return jsonResponse([
-            { originIndex: 0, destinationIndex: 0, duration: '60s' },
-          ]);
+          return jsonResponse([{ originIndex: 0, destinationIndex: 0, duration: '60s' }]);
         }
         if (url.pathname === '/googleWalkProxy') {
           return jsonResponse({ routes: [{ duration: '300s' }] });
@@ -638,14 +599,8 @@ describe('上流 HTTP 往復本数の計測 (#309)', () => {
       new GeoPoint(35.6, 139.6),
       dateTime(2026, 6, 27, 9, 5),
     );
-    await c.fetchWalkRoute(
-      new GeoPoint(35.0, 139.0),
-      new GeoPoint(35.5, 139.5),
-    );
-    await c.fetchWalkMatrix(
-      [new GeoPoint(35.0, 139.0)],
-      [new GeoPoint(35.1, 139.1)],
-    );
+    await c.fetchWalkRoute(new GeoPoint(35.0, 139.0), new GeoPoint(35.5, 139.5));
+    await c.fetchWalkMatrix([new GeoPoint(35.0, 139.0)], [new GeoPoint(35.1, 139.1)]);
 
     expect(c.guidanceCalls).toEqual(2);
     expect(c.walkCalls).toEqual(1);
@@ -656,10 +611,7 @@ describe('上流 HTTP 往復本数の計測 (#309)', () => {
   // （本数は「叩いた回数」であって「成功回数」ではない）。
   it('マトリクスが非200で null 縮退しても往復本数は数える', async () => {
     const c = client(mockClient(() => jsonResponse([], 500)));
-    const rows = await c.fetchWalkMatrix(
-      [new GeoPoint(0, 0)],
-      [new GeoPoint(1, 1)],
-    );
+    const rows = await c.fetchWalkMatrix([new GeoPoint(0, 0)], [new GeoPoint(1, 1)]);
     expect(rows).toBeNull();
     expect(c.matrixCalls).toEqual(1);
   });
@@ -675,15 +627,21 @@ describe('上流 HTTP 往復本数の計測 (#309)', () => {
 
 describe('baseUrl 正規化', () => {
   it('transitBaseUrl 末尾スラッシュを除去する', () => {
-    const c = client(mockClient(() => jsonResponse({})), {
-      transitBase: 'https://transit.example///',
-    });
+    const c = client(
+      mockClient(() => jsonResponse({})),
+      {
+        transitBase: 'https://transit.example///',
+      },
+    );
     expect(c.transitBaseUrl).toEqual('https://transit.example');
     expect(c.hasTransitApi).toBe(true);
   });
 
   it('空の transitBaseUrl は hasTransitApi=false', () => {
-    const c = client(mockClient(() => jsonResponse({})), { transitBase: '' });
+    const c = client(
+      mockClient(() => jsonResponse({})),
+      { transitBase: '' },
+    );
     expect(c.hasTransitApi).toBe(false);
   });
 
@@ -698,10 +656,7 @@ describe('baseUrl 正規化', () => {
       }),
       { proxy: 'https://proxy.example///' },
     );
-    await c.fetchWalkRoute(
-      new GeoPoint(35.0, 139.0),
-      new GeoPoint(35.5, 139.5),
-    );
+    await c.fetchWalkRoute(new GeoPoint(35.0, 139.0), new GeoPoint(35.5, 139.5));
     expect(captured.pathname).toEqual('/googleWalkProxy');
   });
 });
@@ -748,8 +703,7 @@ describe('キャンセル (#259)', () => {
     });
 
     await expectThrowsA(
-      () =>
-        c.fetchWalkRoute(new GeoPoint(35.0, 139.0), new GeoPoint(35.5, 139.5)),
+      () => c.fetchWalkRoute(new GeoPoint(35.0, 139.0), new GeoPoint(35.5, 139.5)),
       SearchCanceledException,
     );
     expect(calls).toEqual(0);
@@ -772,11 +726,7 @@ describe('キャンセル (#259)', () => {
     });
 
     await expectThrowsA(
-      () =>
-        c.fetchWalkMatrix(
-          [new GeoPoint(35.0, 139.0)],
-          [new GeoPoint(35.5, 139.5)],
-        ),
+      () => c.fetchWalkMatrix([new GeoPoint(35.0, 139.0)], [new GeoPoint(35.5, 139.5)]),
       SearchCanceledException,
     );
     expect(calls).toEqual(0);
@@ -963,12 +913,9 @@ describe('締切による残予算クランプ (#300)', () => {
       }),
     });
 
-    expect(
-      await c.fetchWalkRoute(
-        new GeoPoint(35.0, 139.0),
-        new GeoPoint(35.5, 139.5),
-      ),
-    ).toEqual({ routes: [] });
+    expect(await c.fetchWalkRoute(new GeoPoint(35.0, 139.0), new GeoPoint(35.5, 139.5))).toEqual({
+      routes: [],
+    });
     expect(calls).toEqual(1);
   });
 
@@ -984,10 +931,7 @@ describe('締切による残予算クランプ (#300)', () => {
 
     // null（＝直線推定へフォールバック）ではなく実測が返ることの反証。
     expect(
-      await c.fetchWalkMatrix(
-        [new GeoPoint(35.0, 139.0)],
-        [new GeoPoint(35.5, 139.5)],
-      ),
+      await c.fetchWalkMatrix([new GeoPoint(35.0, 139.0)], [new GeoPoint(35.5, 139.5)]),
     ).not.toBeNull();
   });
 });

@@ -16,11 +16,7 @@
 /// 設定漏れが「徒歩が長い経路」や「何も出ない検索」として静かに出てしまう
 /// （transit-api-client.ts の 'no HTTP client was injected'）。環境変数名を載せるのは、
 /// バンドル後のスタックからは出どころが読めないため。
-export function requireUsableBase(
-  base: string,
-  envName: string,
-  context: string,
-): void {
+export function requireUsableBase(base: string, envName: string, context: string): void {
   if (isUsableBase(base)) return;
   throw new Error(
     `${context}: ${envName} がエンドポイントの前置きに使えません` +
@@ -45,9 +41,5 @@ function isUsableBase(base: string): boolean {
   const probePath = '/__endpoint_probe__';
   if (!URL.canParse(`${base}${probePath}`)) return false;
   const built = new URL(`${base}${probePath}`);
-  return (
-    built.pathname.endsWith(probePath) &&
-    built.search === '' &&
-    built.hash === ''
-  );
+  return built.pathname.endsWith(probePath) && built.search === '' && built.hash === '';
 }

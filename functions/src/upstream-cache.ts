@@ -79,7 +79,7 @@ export function dedupeUpstream<T>(
   key: string,
   producer: () => Promise<T>,
   isCacheable: (value: T) => boolean,
-  ttlMs: number = UPSTREAM_CACHE_TTL_MS
+  ttlMs: number = UPSTREAM_CACHE_TTL_MS,
 ): Promise<T> {
   const now = Date.now();
 

@@ -69,13 +69,11 @@ export function appRoutes(
     return null;
   };
 
-  const screens: RouteObject[] = Object.entries(screenPath).map(
-    ([screen, path]) => ({
-      path,
-      loader: guard,
-      Component: componentFor(screen as Screen, store, now, deps),
-    }),
-  );
+  const screens: RouteObject[] = Object.entries(screenPath).map(([screen, path]) => ({
+    path,
+    loader: guard,
+    Component: componentFor(screen as Screen, store, now, deps),
+  }));
 
   // 画面をレイアウトルートの下へ置く。ネストは `<Outlet>` の入れ子であって履歴を
   // 積まない（戻り先を作るのは navigator.ts）ので、包んでも戻り挙動には触れない。
@@ -83,11 +81,7 @@ export function appRoutes(
   return [
     {
       Component: () => <AppShell store={store} />,
-      children: [
-        { path: '/', loader: guard },
-        ...screens,
-        { path: '*', loader: guard },
-      ],
+      children: [{ path: '/', loader: guard }, ...screens, { path: '*', loader: guard }],
     },
   ];
 }

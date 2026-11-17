@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import type { BenchRide } from '../../../src/bench/bench-record';
-import { compareRuns, replayReport, type ReplayRecord } from '../../../src/bench/replay/replay-report';
+import {
+  compareRuns,
+  replayReport,
+  type ReplayRecord,
+} from '../../../src/bench/replay/replay-report';
 
 const ride = (line: string): BenchRide => ({
   type: 'train',
@@ -59,7 +63,11 @@ describe('compareRuns', () => {
   it('徒歩分と乗車区間が同じなら同じ経路とみなす', () => {
     const rows = compareRuns(
       [record('p', 1.2, 1), record('q', 1.2, 1), record('r', 1.2, 1)],
-      [record('p', 1.2, 2), record('q', 1.2, 2, { walk: 12 }), record('r', 1.2, 2, { line: '京急本線' })],
+      [
+        record('p', 1.2, 2),
+        record('q', 1.2, 2, { walk: 12 }),
+        record('r', 1.2, 2, { line: '京急本線' }),
+      ],
     );
 
     expect(rows.map((r) => r.sameRoute)).toEqual([true, false, false]);
@@ -74,8 +82,14 @@ describe('compareRuns', () => {
 
 describe('replayReport', () => {
   it('検索ごとの表と、所要の中央値・平均・p90・照会本数の合計・経路の一致数を出す', () => {
-    const a = [record('p', 1.2, 10_000, { guidance: 10 }), record('q', 1.2, 30_000, { guidance: 20 })];
-    const b = [record('p', 1.2, 8_000, { guidance: 9 }), record('q', 1.2, 30_000, { walk: 5, guidance: 20 })];
+    const a = [
+      record('p', 1.2, 10_000, { guidance: 10 }),
+      record('q', 1.2, 30_000, { guidance: 20 }),
+    ];
+    const b = [
+      record('p', 1.2, 8_000, { guidance: 9 }),
+      record('q', 1.2, 30_000, { walk: 5, guidance: 20 }),
+    ];
 
     const md = replayReport(a, b, { a: 'main', b: '#503' });
 

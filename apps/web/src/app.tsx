@@ -9,17 +9,10 @@ import {
 } from './navigation/navigator';
 import { appRoutes } from './navigation/router';
 import type { ScreenDeps } from './navigation/screen-deps';
-import {
-  documentVisibility,
-  watchRouteFreshness,
-} from './navigation/route-freshness';
+import { documentVisibility, watchRouteFreshness } from './navigation/route-freshness';
 import { watchSearchAbandon } from './navigation/search-abandon';
 import { initializeFirebaseAppCheck } from './firebase/app-check';
-import {
-  createRecentsRepository,
-  destinationsKey,
-  originsKey,
-} from './places/recents-repository';
+import { createRecentsRepository, destinationsKey, originsKey } from './places/recents-repository';
 import { appConfig } from './config';
 import { createPlacesService } from './search/places';
 import { createRouteService } from './search/route-service';
@@ -54,8 +47,9 @@ const deps: ScreenDeps = {
 // ルーターを作る前に敷く。ルーターは RouterProvider がマウントするまで履歴に
 // 繋がらないので、作った後では履歴に現れない（navigator.ts 参照）。
 // ルーター由来のエントリ（＝リロード）と、起動直後のガードを通れない画面は除く。
-seedInitialHistory(browserHistory(), (url) =>
-  resolveRedirect(url, appStore.getState(), new Date()) === null,
+seedInitialHistory(
+  browserHistory(),
+  (url) => resolveRedirect(url, appStore.getState(), new Date()) === null,
 );
 
 const router = createBrowserRouter(appRoutes(appStore, undefined, deps));

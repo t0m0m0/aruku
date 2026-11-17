@@ -10,9 +10,10 @@ import { describe, expect, it } from 'vitest';
 
 import * as icons from '../../src/shared/icons';
 
-const components = Object.entries(icons).filter(
-  ([name]) => name.endsWith('Icon'),
-) as [string, () => ReactElement][];
+const components = Object.entries(icons).filter(([name]) => name.endsWith('Icon')) as [
+  string,
+  () => ReactElement,
+][];
 
 describe('アイコン', () => {
   it('取りこぼしなく列挙できている', () => {

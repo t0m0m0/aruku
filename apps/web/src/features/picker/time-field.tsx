@@ -86,9 +86,7 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
   /// 正午へ更新した結果 16:00 着を探しに行く（PR #399 の Codex レビュー）。
   function rebased(): Date {
     const closed = now();
-    store
-      .getState()
-      .rebaseDates(calendarDaysBetween({ from: basis, to: closed }), closed);
+    store.getState().rebaseDates(calendarDaysBetween({ from: basis, to: closed }), closed);
     return closed;
   }
 
@@ -283,7 +281,11 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
       {/* 移植元の「明日」「M/D(曜)」ラベル（TimeValue.dateLabel）は運ばない。
           日付欄と同じ日を二重に出すことになる。 */}
       <div className={row}>
-        <span data-testid="time-icon" className={leadingIcon} onClick={() => openPicker(timeInput.current)}>
+        <span
+          data-testid="time-icon"
+          className={leadingIcon}
+          onClick={() => openPicker(timeInput.current)}
+        >
           <ClockIcon size={18} />
         </span>
         <input
@@ -295,7 +297,9 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
           // 確定は blur で行う。ここは打っている最中の見た目を持つだけ。
           // step は置かない。5 分刻みを step へ預けると、その倍数でない時刻
           // （12:03 など）が :invalid として扱われる。刻みは ↑↓ の横取りが持つ。
-          min={mode === PickerMode.depart && current.dateOffset === 0 ? clockTime(basis) : undefined}
+          min={
+            mode === PickerMode.depart && current.dateOffset === 0 ? clockTime(basis) : undefined
+          }
           onChange={(e) => timeDraft.edit(e.target.value)}
           onBlur={(e) => onBlur(e.relatedTarget)}
           onKeyDown={(e) => onTimeKeyDown(e.key, () => e.preventDefault())}
@@ -322,8 +326,14 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
                   時刻欄の blur が relatedTarget なしで走り、打ちかけの時刻を日付より先に
                   確定してしまう（PR #436 の Codex レビュー）。下線はボタンでなく文字に引く。 */}
               <PopoverTrigger
-                className={cn(focusRing, 'group flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left')}
-                aria-label={ja.timeFieldDateButton(label, pickerDateLabel(selectedDate, current.dateOffset))}
+                className={cn(
+                  focusRing,
+                  'group flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left',
+                )}
+                aria-label={ja.timeFieldDateButton(
+                  label,
+                  pickerDateLabel(selectedDate, current.dateOffset),
+                )}
                 onBlur={(e) => onBlur(e.relatedTarget)}
               >
                 <span data-testid="date-icon" className={leadingIcon}>
@@ -370,7 +380,11 @@ export function TimeField({ store, mode, label, now = () => new Date() }: TimeFi
           </>
         ) : (
           <>
-            <span data-testid="date-icon" className={leadingIcon} onClick={() => openPicker(dateInput.current)}>
+            <span
+              data-testid="date-icon"
+              className={leadingIcon}
+              onClick={() => openPicker(dateInput.current)}
+            >
               <CalendarIcon size={18} />
             </span>
             <input
@@ -444,7 +458,14 @@ interface SteppersProps {
 /// blur を見るのは時刻・日付の欄だけでは足りない。ここへ Tab で入って
 /// そのまま欄の外へ出ると、打った値が確定されないまま残り、検索は
 /// 古い時刻で走る（PR #407 の Codex レビュー）。
-function Steppers({ earlier, later, earlierDisabled, laterDisabled, onStep, onBlur }: SteppersProps) {
+function Steppers({
+  earlier,
+  later,
+  earlierDisabled,
+  laterDisabled,
+  onStep,
+  onBlur,
+}: SteppersProps) {
   return (
     <span className="flex shrink-0 items-center">
       <button

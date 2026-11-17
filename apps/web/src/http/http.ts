@@ -55,9 +55,7 @@ export abstract class BaseHttpClient implements AbortableHttpClient {
   }
 }
 
-async function readAllBytes(
-  body: ReadableStream<Uint8Array> | null,
-): Promise<Uint8Array> {
+async function readAllBytes(body: ReadableStream<Uint8Array> | null): Promise<Uint8Array> {
   if (body === null) return new Uint8Array(0);
 
   const reader = body.getReader();

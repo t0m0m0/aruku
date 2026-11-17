@@ -71,7 +71,10 @@ describe('ReplaySession', () => {
       const s = session({ store: { [url.href]: entry('{"options":[]}', 1000, 200) } });
 
       let settled = false;
-      const res = s.client().get(url).finally(() => (settled = true));
+      const res = s
+        .client()
+        .get(url)
+        .finally(() => (settled = true));
       await vi.advanceTimersByTimeAsync(999);
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
@@ -254,7 +257,10 @@ describe('ReplaySession', () => {
       const url = new URL(`${proxy}/exactWalkMax?origin=1,2`);
 
       let settled = false;
-      const res = s.client().get(url).finally(() => (settled = true));
+      const res = s
+        .client()
+        .get(url)
+        .finally(() => (settled = true));
       await vi.advanceTimersByTimeAsync(899);
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);

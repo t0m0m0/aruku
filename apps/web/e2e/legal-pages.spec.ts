@@ -13,7 +13,10 @@ test.describe('home の法的情報', () => {
 
       const [opened] = await Promise.all([
         context.waitForEvent('page'),
-        page.getByRole('navigation', { name: '法的情報' }).getByRole('link', { name: link }).click(),
+        page
+          .getByRole('navigation', { name: '法的情報' })
+          .getByRole('link', { name: link })
+          .click(),
       ]);
       await opened.waitForLoadState();
 

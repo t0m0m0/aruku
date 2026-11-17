@@ -21,12 +21,10 @@ describe('firstAcceptedInOrder', () => {
     const first = deferred<number>();
     const second = deferred<number>();
     let done = false;
-    const race = firstAcceptedInOrder([first.promise, second.promise], even).then(
-      (r) => {
-        done = true;
-        return r;
-      },
-    );
+    const race = firstAcceptedInOrder([first.promise, second.promise], even).then((r) => {
+      done = true;
+      return r;
+    });
     second.complete(4);
     await delay(0);
     expect(done, '上位が棄却か受理か分かるまで勝者は決まらない').toBe(false);
@@ -38,10 +36,7 @@ describe('firstAcceptedInOrder', () => {
     const first = deferred<number>();
     const second = deferred<number>();
     const third = deferred<number>();
-    const race = firstAcceptedInOrder(
-      [first.promise, second.promise, third.promise],
-      even,
-    );
+    const race = firstAcceptedInOrder([first.promise, second.promise, third.promise], even);
     second.complete(4);
     first.complete(1);
     const result = await race;
@@ -50,10 +45,7 @@ describe('firstAcceptedInOrder', () => {
   });
 
   it('全部が受理されずに決着したら index は null', async () => {
-    const result = await firstAcceptedInOrder(
-      [Promise.resolve(1), Promise.resolve(3)],
-      even,
-    );
+    const result = await firstAcceptedInOrder([Promise.resolve(1), Promise.resolve(3)], even);
     expect(result.index).toBeNull();
     expect(result.values).toEqual([1, 3]);
   });

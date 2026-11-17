@@ -71,9 +71,7 @@ export class AppCheckHttpClient extends BaseHttpClient {
   ): Promise<StreamedResponse> {
     const needsLimitedUse = AppCheckHttpClient.requiresLimitedUseToken(url);
     let token = await this.tokenOrClosed(
-      needsLimitedUse
-        ? this.options.limitedUseTokenProvider
-        : this.options.tokenProvider,
+      needsLimitedUse ? this.options.limitedUseTokenProvider : this.options.tokenProvider,
       url,
       options.signal,
     );
@@ -124,8 +122,7 @@ export class AppCheckHttpClient extends BaseHttpClient {
       throw new ClientException(`Request was aborted: ${url.href}`);
     }
 
-    const signals =
-      signal === undefined ? [this.aborter.signal] : [this.aborter.signal, signal];
+    const signals = signal === undefined ? [this.aborter.signal] : [this.aborter.signal, signal];
     let onAbort: (() => void) | null = null;
     const closed = new Promise<never>((_resolve, reject) => {
       onAbort = () =>

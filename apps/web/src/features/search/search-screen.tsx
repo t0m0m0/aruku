@@ -170,12 +170,8 @@ export function SearchScreen({ store, mode, places, recents }: SearchScreenProps
             className="min-w-0 flex-1 bg-transparent text-[16px] font-semibold text-ink caret-moss-500 placeholder:font-medium placeholder:text-ink-3 focus:outline-none [&::-webkit-search-cancel-button]:appearance-none"
             // 中身から名前を組ませない。placeholder だけだと、値が入った時点で
             // 読み上げ名が入力値へ差し替わる。
-            aria-label={
-              mode === 'origin' ? ja.searchOriginHint : ja.searchDestinationHint
-            }
-            placeholder={
-              mode === 'origin' ? ja.searchOriginHint : ja.searchDestinationHint
-            }
+            aria-label={mode === 'origin' ? ja.searchOriginHint : ja.searchDestinationHint}
+            placeholder={mode === 'origin' ? ja.searchOriginHint : ja.searchDestinationHint}
             value={query}
             autoFocus
             onChange={(event) => {
@@ -285,9 +281,7 @@ function Results({
       <div className={notice}>
         <SearchIcon size={32} />
         <p className={noticeTitle}>
-          {errorStatus !== null
-            ? searchErrorWithStatus(errorStatus)
-            : ja.searchErrorGeneric}
+          {errorStatus !== null ? searchErrorWithStatus(errorStatus) : ja.searchErrorGeneric}
         </p>
         <p className={noticeHint}>{ja.searchNetworkHint}</p>
       </div>
@@ -313,10 +307,11 @@ function Results({
         {selecting ? ja.searchResolvingPlace : ''}
       </span>
       {pickFailed && (
-        <p className="mx-[22px] mt-2 mb-1 rounded-sm bg-burnt-soft px-3.5 py-3 text-[13px] font-semibold text-burnt" role="alert">
-          {mode === 'origin'
-            ? ja.searchPickFailedOrigin
-            : ja.searchPickFailedDestination}
+        <p
+          className="mx-[22px] mt-2 mb-1 rounded-sm bg-burnt-soft px-3.5 py-3 text-[13px] font-semibold text-burnt"
+          role="alert"
+        >
+          {mode === 'origin' ? ja.searchPickFailedOrigin : ja.searchPickFailedDestination}
         </p>
       )}
       <div className={list}>
@@ -376,9 +371,7 @@ function Recents({
         <>
           <div className="flex items-center justify-between px-[22px] pt-4 pb-1.5">
             <h2 className="text-[12px] font-bold text-ink-3">
-              {mode === 'origin'
-                ? ja.searchRecentOrigins
-                : ja.searchRecentDestinations}
+              {mode === 'origin' ? ja.searchRecentOrigins : ja.searchRecentDestinations}
             </h2>
             <button
               type="button"

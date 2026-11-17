@@ -44,7 +44,7 @@ export interface CompiledTimetable {
   readonly tripCount: number;
   readonly stopLat: Float64Array;
   readonly stopLng: Float64Array;
-  readonly trips: ReadonlyArray<Pick<TimetableTrip, "route" | "headsign">>;
+  readonly trips: ReadonlyArray<Pick<TimetableTrip, 'route' | 'headsign'>>;
   readonly tripStart: Int32Array;
   readonly tripLength: Int32Array;
   readonly callStop: Int32Array;
@@ -92,7 +92,7 @@ const EARTH_RADIUS_M = 6371008.8;
 /** 停車を列ごとの配列にした時刻表。compileColumns が駅ごとの発車の索引を足す。 */
 export type TimetableColumns = Omit<
   CompiledTimetable,
-  "stopCount" | "tripCount" | "departureStart" | "departureTrip" | "departurePos" | "departureAt"
+  'stopCount' | 'tripCount' | 'departureStart' | 'departureTrip' | 'departurePos' | 'departureAt'
 >;
 
 export function compileTimetable(tt: Timetable): CompiledTimetable {
@@ -369,7 +369,8 @@ export function transferNeighbors(
     else list.push(s);
   }
   for (const group of members.values()) {
-    for (const a of group) for (const b of group) lists[a].push({ stop: b, walkSec: 0, same: true });
+    for (const a of group)
+      for (const b of group) lists[a].push({ stop: b, walkSec: 0, same: true });
   }
 
   const maxMeters = (opts.maxWalkSec / 60) * WALK_METERS_PER_MINUTE;
@@ -516,7 +517,12 @@ export function bestJourneys(
   const ensureStopP0 = (s: number): void => {
     if (sc.stopP0[s] === sc.stamp) return;
     sc.stopP0[s] = sc.stamp;
-    const lo = lowerBound(ct.departureAt, ct.departureStart[s], ct.departureStart[s + 1], q.departAt);
+    const lo = lowerBound(
+      ct.departureAt,
+      ct.departureStart[s],
+      ct.departureStart[s + 1],
+      q.departAt,
+    );
     const hi = departuresEnd(s);
     sc.stopP0End[s] = hi;
     let best = -Infinity;
@@ -563,7 +569,7 @@ export function bestJourneys(
   const offer = (j: Journey): void => {
     if (opts.transfersOnly === true && j.legs.length < 2) return;
     if (j.walkSec < threshold()) return;
-    const key = j.legs.map((l) => `${l.board}-${l.alight}`).join("/");
+    const key = j.legs.map((l) => `${l.board}-${l.alight}`).join('/');
     const prev = found.get(key);
     if (prev === undefined) {
       found.set(key, j);
@@ -646,7 +652,8 @@ export function bestJourneys(
           const ready = arr + f + (neighbors.sameStation[e] ? minTransferSec : 0);
           const to = neighbors.stop[e];
           const bound = accessSec + f + best0(to, ready);
-          if (bound > -Infinity && bound >= threshold()) transfers.push({ leg1, to, walkSec: f, ready, bound });
+          if (bound > -Infinity && bound >= threshold())
+            transfers.push({ leg1, to, walkSec: f, ready, bound });
         }
       }
       transfers.sort((x, y) => y.bound - x.bound);
@@ -655,11 +662,7 @@ export function bestJourneys(
         if (tr.bound < threshold()) break;
         const s2 = tr.to;
         const hi = sc.stopP0End[s2];
-        for (
-          let i = lowerBound(ct.departureAt, ct.departureStart[s2], hi, tr.ready);
-          i < hi;
-          i++
-        ) {
+        for (let i = lowerBound(ct.departureAt, ct.departureStart[s2], hi, tr.ready); i < hi; i++) {
           const t2 = ct.departureTrip[i];
           const c2 = callOf(i);
           if (t2 === t1 || accessSec + tr.walkSec + sc.callV0[c2] < threshold()) continue;

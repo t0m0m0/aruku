@@ -31,9 +31,7 @@ export function recentPlaceToJson(place: RecentPlace): Record<string, unknown> {
   return {
     name: place.name,
     ...(place.placeId !== null ? { placeId: place.placeId } : {}),
-    ...(place.latLng !== null
-      ? { lat: place.latLng.lat, lng: place.latLng.lng }
-      : {}),
+    ...(place.latLng !== null ? { lat: place.latLng.lat, lng: place.latLng.lng } : {}),
     ...(place.address !== null ? { address: place.address } : {}),
     ...(place.usedAt !== null ? { usedAt: place.usedAt.toISOString() } : {}),
   };
@@ -59,16 +57,10 @@ export function recentPlaceFromJson(json: unknown): RecentPlace | null {
   return {
     name,
     placeId: typeof map['placeId'] === 'string' ? map['placeId'] : null,
-    latLng:
-      typeof lat === 'number' && typeof lng === 'number'
-        ? new GeoPoint(lat, lng)
-        : null,
+    latLng: typeof lat === 'number' && typeof lng === 'number' ? new GeoPoint(lat, lng) : null,
     address: typeof map['address'] === 'string' ? map['address'] : null,
     // パースできない日付を Invalid Date のまま通さない。JSON へ書き戻す段で
     // toISOString() が RangeError を投げ、履歴の保存ごと落ちる。
-    usedAt:
-      parsedUsedAt !== null && !Number.isNaN(parsedUsedAt.getTime())
-        ? parsedUsedAt
-        : null,
+    usedAt: parsedUsedAt !== null && !Number.isNaN(parsedUsedAt.getTime()) ? parsedUsedAt : null,
   };
 }

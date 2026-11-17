@@ -13,10 +13,7 @@ import { expect, it } from 'vitest';
 
 import { GeoPoint } from '../../src/models/geo-point';
 import { TimeValue } from '../../src/models/time-value';
-import {
-  CancellationToken,
-  SearchCanceledException,
-} from '../../src/services/cancellation';
+import { CancellationToken, SearchCanceledException } from '../../src/services/cancellation';
 import type { HttpClient, HttpResponse } from '../../src/services/http-client';
 import { TransitRouteService } from '../../src/services/transit-route-service';
 import { dateTime } from '../../src/time';

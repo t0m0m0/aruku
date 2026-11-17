@@ -9,10 +9,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { TimeoutException } from '@aruku/engine/services/http-client';
-import {
-  proxyRequestTimeout,
-  transitRequestTimeout,
-} from '@aruku/engine/services/route-service';
+import { proxyRequestTimeout, transitRequestTimeout } from '@aruku/engine/services/route-service';
 import { CancellationToken } from '@aruku/engine/services/cancellation';
 import { GeoPoint } from '@aruku/engine/models/geo-point';
 import { TimeValue } from '@aruku/engine/models/time-value';
@@ -39,9 +36,7 @@ describe('クライアントの組み立て', () => {
   it('Transit 直叩きには App Check を通さない', async () => {
     const fetch = vi.fn<Fetch>(okFetch());
 
-    await createTransitClient({ fetch }).get(
-      new URL('https://api.transit.example/guidance/plan'),
-    );
+    await createTransitClient({ fetch }).get(new URL('https://api.transit.example/guidance/plan'));
 
     const headers = new Headers(fetch.mock.calls[0]?.[1]?.headers);
     expect(headers.has(headerName)).toBe(false);
@@ -60,12 +55,8 @@ describe('クライアントの組み立て', () => {
 
   it('Transit とプロキシで別のタイムアウトを張る (#300)', () => {
     // 直叩きは上流の裾が長い。プロキシの無応答は本当に異常なので早く縮退させる。
-    expect(createTransitClient({ fetch: okFetch() }).timeout).toBe(
-      transitRequestTimeout,
-    );
-    expect(createProxyClient({ appCheck, fetch: okFetch() }).timeout).toBe(
-      proxyRequestTimeout,
-    );
+    expect(createTransitClient({ fetch: okFetch() }).timeout).toBe(transitRequestTimeout);
+    expect(createProxyClient({ appCheck, fetch: okFetch() }).timeout).toBe(proxyRequestTimeout);
   });
 
   it('プロキシでは App Check をタイムアウトの内側に置く (#156)', async () => {
@@ -78,9 +69,9 @@ describe('クライアントの組み立て', () => {
       timeout: 20,
     });
 
-    await expect(
-      client.get(new URL('https://proxy.example/googleWalkProxy')),
-    ).rejects.toThrow(TimeoutException);
+    await expect(client.get(new URL('https://proxy.example/googleWalkProxy'))).rejects.toThrow(
+      TimeoutException,
+    );
   });
 });
 
@@ -101,9 +92,7 @@ describe('ベース URL の検証', () => {
   };
 
   it('プロキシのベース URL が空なら組み立てを拒む', () => {
-    expect(() => createRouteService({ ...valid, proxyBaseUrl: '' })).toThrow(
-      /VITE_PROXY_BASE_URL/,
-    );
+    expect(() => createRouteService({ ...valid, proxyBaseUrl: '' })).toThrow(/VITE_PROXY_BASE_URL/);
   });
 
   it('Transit のベース URL が空なら組み立てを拒む', () => {
@@ -113,9 +102,9 @@ describe('ベース URL の検証', () => {
   });
 
   it('絶対 URL でないベースも拒む', () => {
-    expect(() =>
-      createRouteService({ ...valid, proxyBaseUrl: '/api' }),
-    ).toThrow(/VITE_PROXY_BASE_URL/);
+    expect(() => createRouteService({ ...valid, proxyBaseUrl: '/api' })).toThrow(
+      /VITE_PROXY_BASE_URL/,
+    );
   });
 
   // URL.canParse は「絶対 URL か」しか見ない。エンジンは base と path を**文字列連結**
@@ -133,16 +122,16 @@ describe('ベース URL の検証', () => {
   });
 
   it('フラグメントを持つベース URL を拒む', () => {
-    expect(() =>
-      createRouteService({ ...valid, proxyBaseUrl: 'https://proxy.example#x' }),
-    ).toThrow(/VITE_PROXY_BASE_URL/);
+    expect(() => createRouteService({ ...valid, proxyBaseUrl: 'https://proxy.example#x' })).toThrow(
+      /VITE_PROXY_BASE_URL/,
+    );
   });
 
   it('http / https 以外のスキームを拒む', () => {
     // canParse は通すが、fetch まで行って初めて失敗する。
-    expect(() =>
-      createRouteService({ ...valid, proxyBaseUrl: 'mailto:a@example.com' }),
-    ).toThrow(/VITE_PROXY_BASE_URL/);
+    expect(() => createRouteService({ ...valid, proxyBaseUrl: 'mailto:a@example.com' })).toThrow(
+      /VITE_PROXY_BASE_URL/,
+    );
   });
 
   // 素の区切り文字だけが末尾に付いた値は、URL API では search も hash も空文字に
@@ -168,9 +157,9 @@ describe('ベース URL の検証', () => {
 
   it('末尾に空白のあるベース URL を拒む', () => {
     // URL のパースは空白を落とすので単体では通るが、連結した URL は例外になる。
-    expect(() =>
-      createRouteService({ ...valid, proxyBaseUrl: 'https://proxy.example ' }),
-    ).toThrow(/VITE_PROXY_BASE_URL/);
+    expect(() => createRouteService({ ...valid, proxyBaseUrl: 'https://proxy.example ' })).toThrow(
+      /VITE_PROXY_BASE_URL/,
+    );
   });
 
   it('末尾スラッシュのあるベース URL は通す', () => {
@@ -223,9 +212,7 @@ describe('createRouteService', () => {
 
     await service.plan(planArgs).catch(() => {});
 
-    expect(urls.some((u) => u.startsWith('https://proxy.example/exactWalkMax?'))).toBe(
-      true,
-    );
+    expect(urls.some((u) => u.startsWith('https://proxy.example/exactWalkMax?'))).toBe(true);
   });
 
   it('A/B 計測モードでも検索の入口で厳密走査を叩く (#462)', async () => {
@@ -243,9 +230,7 @@ describe('createRouteService', () => {
 
     await service.plan(planArgs).catch(() => {});
 
-    expect(urls.some((u) => u.startsWith('https://proxy.example/exactWalkMax?'))).toBe(
-      true,
-    );
+    expect(urls.some((u) => u.startsWith('https://proxy.example/exactWalkMax?'))).toBe(true);
   });
 
   it('既定では厳密走査を叩かない (#460)', async () => {

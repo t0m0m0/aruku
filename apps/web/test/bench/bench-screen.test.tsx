@@ -55,7 +55,12 @@ describe('BenchScreen', () => {
     });
     expect(screen.getByText('2 / 120')).toBeTruthy();
     const jsonl = screen.getByLabelText<HTMLTextAreaElement>('JSONL').value;
-    expect(jsonl.trim().split('\n').map((l) => JSON.parse(l).pair)).toEqual(['p1', 'p2']);
+    expect(
+      jsonl
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l).pair),
+    ).toEqual(['p1', 'p2']);
     await act(async () => c.finish());
   });
 
@@ -84,8 +89,18 @@ describe('BenchScreen', () => {
     const verify = async (records: BenchRecord[], hooks: VerifyHooks): Promise<void> => {
       given.push(records);
       const result: VerifyResult = {
-        pair: 'p1', slot: '12:00', ratio: 1.2, line: 'x', from: 'a', to: 'b',
-        dep: null, arr: null, verdict: 'sameTrip', matchedLine: 'x', seen: [], error: null,
+        pair: 'p1',
+        slot: '12:00',
+        ratio: 1.2,
+        line: 'x',
+        from: 'a',
+        to: 'b',
+        dep: null,
+        arr: null,
+        verdict: 'sameTrip',
+        matchedLine: 'x',
+        seen: [],
+        error: null,
       };
       hooks.write(result);
     };
@@ -118,8 +133,18 @@ describe('BenchScreen', () => {
     const c = controllableRun();
     const verify = async (_records: BenchRecord[], hooks: VerifyHooks): Promise<void> => {
       hooks.write({
-        pair: 'p1', slot: '12:00', ratio: 1.2, line: 'x', from: 'a', to: 'b',
-        dep: null, arr: null, verdict: 'sameTrip', matchedLine: 'x', seen: [], error: null,
+        pair: 'p1',
+        slot: '12:00',
+        ratio: 1.2,
+        line: 'x',
+        from: 'a',
+        to: 'b',
+        dep: null,
+        arr: null,
+        verdict: 'sameTrip',
+        matchedLine: 'x',
+        seen: [],
+        error: null,
       });
     };
     render(<BenchScreen now={now} total={120} run={c.run} verify={verify} />);

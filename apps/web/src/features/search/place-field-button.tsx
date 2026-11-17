@@ -19,12 +19,7 @@ interface PlaceFieldButtonProps {
   onClick: () => void;
 }
 
-export function PlaceFieldButton({
-  label,
-  value,
-  placeholder,
-  onClick,
-}: PlaceFieldButtonProps) {
+export function PlaceFieldButton({ label, value, placeholder, onClick }: PlaceFieldButtonProps) {
   const shown = value ?? placeholder;
   return (
     <button

@@ -15,11 +15,7 @@ import { parseGuidancePlan } from '@aruku/engine/services/transit-plan-parser';
 import { appConfig } from '../config';
 import { initializeFirebaseAppCheck } from '../firebase/app-check';
 import { createRouteService, createTransitClient } from '../search/route-service';
-import {
-  benchBudgetRatios,
-  benchSlots,
-  standardTotalMin,
-} from './bench-cases';
+import { benchBudgetRatios, benchSlots, standardTotalMin } from './bench-cases';
 import { ridesToVerify, runVerify } from './ab-verify';
 import { runBench } from './bench-runner';
 import type { BenchRecord } from './bench-record';

@@ -63,19 +63,11 @@ import {
   trainMetersPerMinute,
   walkMetersPerMinute,
 } from './route-plan-builder';
-import {
-  RouteException,
-  RoutePhase,
-  type PlanArgs,
-  type SearchEngine,
-} from './route-service';
+import { RouteException, RoutePhase, type PlanArgs, type SearchEngine } from './route-service';
 import { runExactWalkAb } from './exact-walk-ab';
 import { SearchDeadline } from './search-deadline';
 import { LastResortBus, SearchSession, WalkLegCache } from './search-session';
-import {
-  parseGuidancePlan,
-  type TransitOption,
-} from './transit-plan-parser';
+import { parseGuidancePlan, type TransitOption } from './transit-plan-parser';
 import { TransitApiClient } from './transit-api-client';
 
 /// 検索1回ぶんの入力と状態。[TransitRouteService.selectMeasured] から切り出した段へ渡す。
@@ -277,11 +269,7 @@ export class TransitRouteService implements SearchEngine {
     }
 
     const guidanceSw = startedStopwatch();
-    const body = await this.api.fetchGuidanceAt(
-      origin,
-      destinationLatLng,
-      departureAt,
-    );
+    const body = await this.api.fetchGuidanceAt(origin, destinationLatLng, departureAt);
     metrics.guidanceMs = guidanceSw.elapsedMilliseconds;
     const options = parseGuidancePlan(body);
     if (options.length === 0) throw new RouteException('ZERO_RESULTS');
@@ -291,8 +279,7 @@ export class TransitRouteService implements SearchEngine {
     // 厳密走査の猶予も departure 波の確定から数える。arrival 波を待ち終えてから起こすと、
     // 両方が遅い検索で猶予が直列に積まれる（§3.9）。待つのはハイブリッドを作った後
     // （`selectMeasured`）なので、その間に届いた拒否で未処理例外にしない。
-    const exactGraced =
-      exactWave === null ? null : withGrace(exactWave, this.exactWalkMaxGrace);
+    const exactGraced = exactWave === null ? null : withGrace(exactWave, this.exactWalkMaxGrace);
     if (exactGraced !== null) {
       ignore(exactGraced);
       // 猶予切れで捨てた応答が後から届いても、測るのは捨てた時点まで。
@@ -312,25 +299,20 @@ export class TransitRouteService implements SearchEngine {
     metrics.arrivalWaveOutcome = wave.outcome;
     metrics.arrivalWaveOptions = wave.fresh.length;
 
-    const plan = await this.selectMeasured(
-      [...options, ...wave.fresh],
-      budgetMin,
-      departure,
-      {
-        origin,
-        goal: destinationLatLng,
-        onProgress,
-        fromName: args.originName ?? null,
-        toName: destination,
-        metrics,
-        // option には出自欄が無いのでインスタンス同一性で追う（合流も `basesForHybrid` も
-        // インスタンスをそのまま持ち回るので保たれる）。
-        arrivalWaveOptions: new Set(wave.fresh),
-        exactWave: exactGraced,
-        // 第2波を混ぜない。締切から逆算した便は、ふつうに検索して出る経路ではない。
-        standardTransit: standardTransitSummary(options, departureAt),
-      },
-    );
+    const plan = await this.selectMeasured([...options, ...wave.fresh], budgetMin, departure, {
+      origin,
+      goal: destinationLatLng,
+      onProgress,
+      fromName: args.originName ?? null,
+      toName: destination,
+      metrics,
+      // option には出自欄が無いのでインスタンス同一性で追う（合流も `basesForHybrid` も
+      // インスタンスをそのまま持ち回るので保たれる）。
+      arrivalWaveOptions: new Set(wave.fresh),
+      exactWave: exactGraced,
+      // 第2波を混ぜない。締切から逆算した便は、ふつうに検索して出る経路ではない。
+      standardTransit: standardTransitSummary(options, departureAt),
+    });
 
     // 上流本数は API クライアントの実測カウンタから、全体時間は Stopwatch から確定させ、
     // 1検索分の指標を1行に出す。
@@ -374,12 +356,9 @@ export class TransitRouteService implements SearchEngine {
         seen.add(key);
         fresh.push(o);
       }
-      this.diag.log(
-        () => `arrival 波: ${parsed.length} options → 純増 ${fresh.length}件を合流`,
-      );
+      this.diag.log(() => `arrival 波: ${parsed.length} options → 純増 ${fresh.length}件を合流`);
       return {
-        outcome:
-          parsed.length === 0 ? ArrivalWaveOutcome.empty : ArrivalWaveOutcome.ok,
+        outcome: parsed.length === 0 ? ArrivalWaveOutcome.empty : ArrivalWaveOutcome.ok,
         fresh,
       };
     } catch (error) {
@@ -390,9 +369,7 @@ export class TransitRouteService implements SearchEngine {
         this.diag.log(() => 'arrival 波: 猶予切れ → departure 波のみで続行');
         return { outcome: ArrivalWaveOutcome.timeout, fresh: [] };
       }
-      this.diag.log(
-        () => `arrival 波: 失敗（${String(error)}）→ departure 波のみで続行`,
-      );
+      this.diag.log(() => `arrival 波: 失敗（${String(error)}）→ departure 波のみで続行`);
       return { outcome: ArrivalWaveOutcome.error, fresh: [] };
     }
   }
@@ -418,15 +395,11 @@ export class TransitRouteService implements SearchEngine {
       const transfers = this.exactWalkMaxAb ? exactWalkTransferCandidates(body, ends) : [];
       const stats = body['stats'];
       const capped = isRecord(stats) && stats['truncated'] === true;
-      this.diag.log(
-        () => `exactWalkMax: ${candidates.length}件を合流（打ち切り=${capped}）`,
-      );
+      this.diag.log(() => `exactWalkMax: ${candidates.length}件を合流（打ち切り=${capped}）`);
       return { candidates, transfers, capped, sources: timetableSources(body) };
     } catch (error) {
       if (error instanceof SearchCanceledException) throw error;
-      this.diag.log(
-        () => `exactWalkMax: 失敗（${String(error)}）→ 厳密走査の候補なしで続行`,
-      );
+      this.diag.log(() => `exactWalkMax: 失敗（${String(error)}）→ 厳密走査の候補なしで続行`);
       return { candidates: null, transfers: [], capped: false, sources: [] };
     }
   }
@@ -464,11 +437,7 @@ export class TransitRouteService implements SearchEngine {
     const { provenance } = session;
     const search: SearchFrame = { origin, goal, budgetMin, departureAt, metrics, session };
 
-    const { candidates, base } = await this.initialCandidates(
-      options,
-      arrivalWaveOptions,
-      search,
-    );
+    const { candidates, base } = await this.initialCandidates(options, arrivalWaveOptions, search);
 
     // 厳密走査の候補は estWinner の直前に足す。ここまで待たずに済むよう入口で並列に
     // 起こしてあり、ハイブリッドを作っている間に返っていれば待ちは 0 になる。
@@ -486,15 +455,11 @@ export class TransitRouteService implements SearchEngine {
       sources = result.sources;
       for (const c of exact) {
         provenance.exact.add(c);
-        this.diag.log(
-          () => `exact: ${this.diag.candLine(c, budgetMin, departureAt)}`,
-        );
+        this.diag.log(() => `exact: ${this.diag.candLine(c, budgetMin, departureAt)}`);
       }
       for (const c of result.transfers) {
         provenance.transfer.add(c);
-        this.diag.log(
-          () => `exact transfer: ${this.diag.candLine(c, budgetMin, departureAt)}`,
-        );
+        this.diag.log(() => `exact transfer: ${this.diag.candLine(c, budgetMin, departureAt)}`);
       }
       return exact;
     };
@@ -530,12 +495,9 @@ export class TransitRouteService implements SearchEngine {
       goal,
       departureAt,
     });
-    const estWithin =
-      arrivalMinutes(estWinner.segments, departureAt) <= budgetMin;
+    const estWithin = arrivalMinutes(estWinner.segments, departureAt) <= budgetMin;
     const preCollapse =
-      base !== null &&
-      estWithin &&
-      this.isCollapse(estWinner, options, budgetMin, departureAt);
+      base !== null && estWithin && this.isCollapse(estWinner, options, budgetMin, departureAt);
 
     // 崩壊が見込まれるなら、電車系 board-search を enrich と**並行に**起動する（#341）。
     // 前倒しできる根拠は依存関係にある: [base] は guidance の map セグメントだけから決まり、
@@ -547,9 +509,7 @@ export class TransitRouteService implements SearchEngine {
     let speculationAbandoned = false;
     let trainBoardSearchFuture: Promise<RouteCandidate[]> | null = null;
     if (base !== null && preCollapse) {
-      this.diag.log(
-        () => 'preCollapse=true → 電車系 board-search を enrich と並行に投機起動',
-      );
+      this.diag.log(() => 'preCollapse=true → 電車系 board-search を enrich と並行に投機起動');
       metrics.boardSearchSpeculated = true;
       trainBoardSearchFuture = this.buildBoardSearchCandidate(
         base,
@@ -619,8 +579,7 @@ export class TransitRouteService implements SearchEngine {
       }
       // 確定候補が board-search 由来かを同一性で引く。best-effort 縮退は実時刻を当てた
       // コピーを作るため切れる——その場合の 0 は「無駄だった」ではなく「特定不能」。
-      metrics.boardSearchWinnerRound =
-        provenance.boardSearchRound.get(selected.chosen) ?? 0;
+      metrics.boardSearchWinnerRound = provenance.boardSearchRound.get(selected.chosen) ?? 0;
       metrics.boardSearchMs = boardSw.elapsedMilliseconds;
     } else if (base !== null || busBase !== null) {
       this.diag.log(() => 'collapse=false → フォールバック起動せず');
@@ -694,13 +653,9 @@ export class TransitRouteService implements SearchEngine {
     // 打ち切り時点で進行中だったラウンドの probe は駅名復元の裏で発行され終える。
     if (speculationAbandoned) {
       metrics.recordSpeculationWaste(trainBoardSearch);
-      this.diag.log(
-        () => `投機 board-search 空振りの対価: probe ${trainBoardSearch.probes}本`,
-      );
+      this.diag.log(() => `投機 board-search 空振りの対価: probe ${trainBoardSearch.probes}本`);
     }
-    this.diag.log(
-      () => `=== FINAL: ${this.diag.candLine(named, budgetMin, departureAt)} ===`,
-    );
+    this.diag.log(() => `=== FINAL: ${this.diag.candLine(named, budgetMin, departureAt)} ===`);
 
     return this.build(named, departure, budgetMin, ctx.onProgress, {
       fromName: ctx.fromName,
@@ -725,9 +680,7 @@ export class TransitRouteService implements SearchEngine {
       (o) => new RouteCandidate({ from: o.from, to: o.to, segments: o.segments }),
     );
     for (const c of candidates) {
-      this.diag.log(
-        () => `standard: ${this.diag.candLine(c, budgetMin, departureAt)}`,
-      );
+      this.diag.log(() => `standard: ${this.diag.candLine(c, budgetMin, departureAt)}`);
     }
 
     // 到着アンカー第2波（#376）由来の候補を覚える（`arrivalWaveWon`）。上の map は options と
@@ -765,9 +718,7 @@ export class TransitRouteService implements SearchEngine {
       );
       candidates.push(...merged);
       for (const h of merged) provenance.hybrids.add(h);
-      this.diag.log(
-        () => `merged hybrids: ${merged.length}件（上限${maxHybridCandidates}）`,
-      );
+      this.diag.log(() => `merged hybrids: ${merged.length}件（上限${maxHybridCandidates}）`);
     } else {
       this.diag.log(() => 'no base route (corridor<2); all-walk only');
       await this.measureAccessWalks(origin, goal, [], session.accessWalks, metrics);
@@ -782,9 +733,7 @@ export class TransitRouteService implements SearchEngine {
       session.accessWalks,
     );
     candidates.push(allWalk);
-    this.diag.log(
-      () => `allWalk: ${this.diag.candLine(allWalk, budgetMin, departureAt)}`,
-    );
+    this.diag.log(() => `allWalk: ${this.diag.candLine(allWalk, budgetMin, departureAt)}`);
     return { candidates, base };
   }
 
@@ -957,9 +906,7 @@ export class TransitRouteService implements SearchEngine {
   ): boolean {
     const arrival = arrivalMinutes(winner.segments, departureAt);
     if (arrival > budgetMin) {
-      this.diag.log(
-        () => `collapse判定: 予算外(arr=${arrival}m>budget=${budgetMin}m)→対象外`,
-      );
+      this.diag.log(() => `collapse判定: 予算外(arr=${arrival}m>budget=${budgetMin}m)→対象外`);
       return false;
     }
     const slack = budgetMin - arrival;
@@ -1075,8 +1022,7 @@ export class TransitRouteService implements SearchEngine {
       // 実測が落ちたら直線推定へ縮退する。ただし直線は実街路に対し大きく楽観に倒れるので
       // （#137 実機で -36分・25%）、本来予算外の点が予算内に見えて境界が奥へ動き得る。
       if (measuredWalk === null) stats.probeFailed = true;
-      const walk1 =
-        measuredWalk ?? this.estimateWalk(origin, x.coord, base.from, '');
+      const walk1 = measuredWalk ?? this.estimateWalk(origin, x.coord, base.from, '');
       const boardAt = plusMinutes(departureAt, walk1.totalMin);
       const guidanceSw = startedStopwatch();
       const options = await this.fetchTransitOptionsFrom(x.coord, goal, boardAt, {
@@ -1107,18 +1053,13 @@ export class TransitRouteService implements SearchEngine {
           new RouteCandidate({
             from: base.from,
             to: o.to,
-            segments: [
-              ...(walk1Seg.minutes > 0 ? [walk1Seg] : []),
-              ...o.segments,
-            ],
+            segments: [...(walk1Seg.minutes > 0 ? [walk1Seg] : []), ...o.segments],
           }),
       );
       // 予算内に収まる便が複数あるなら**徒歩最大**を採る（目的関数）。予算内が皆無なら
       // **到着最早**を採る——この地点が予算外かの判定は最速便で決めなければ、悪い1本で
       // 探索範囲を切り捨てることになる（#343）。
-      const withinHere = cands.filter(
-        (c) => arrivalMinutes(c.segments, departureAt) <= budgetMin,
-      );
+      const withinHere = cands.filter((c) => arrivalMinutes(c.segments, departureAt) <= budgetMin);
       const earlier = (a: RouteCandidate, b: RouteCandidate): RouteCandidate => {
         const arrivalA = arrivalMinutes(a.segments, departureAt);
         const arrivalB = arrivalMinutes(b.segments, departureAt);
@@ -1195,8 +1136,7 @@ export class TransitRouteService implements SearchEngine {
     // 返すのは：(1) 到着は実街路で非単調になり得るため境界＝徒歩最大とは限らず、(2) 採用前に
     // 逆戻りフィルタ・乗り遅れ除外で1本が消えても次善へ落とせるようにするため。
     const withinEntries = [...built.entries()].filter(
-      ([, v]) =>
-        v !== null && arrivalMinutes(v.segments, departureAt) <= budgetMin,
+      ([, v]) => v !== null && arrivalMinutes(v.segments, departureAt) <= budgetMin,
     ) as [number, RouteCandidate][];
     // 境界の計上は探索の戻り値ではなく**評価済みの予算内で最遠の index**。探索は最初の
     // 予算外 probe で結果の走査を打ち切るため、同一ラウンドでそれより奥に評価済みの
@@ -1276,9 +1216,7 @@ export class TransitRouteService implements SearchEngine {
     measured: Map<string, number>,
     metrics: RouteSearchMetrics,
   ): Promise<void> {
-    const plan = planAccessWalkMatrix(origin, goal, demands, (k) =>
-      measured.has(k),
-    );
+    const plan = planAccessWalkMatrix(origin, goal, demands, (k) => measured.has(k));
     metrics.accessMatrixRequestedLegs += plan.requestedLegs;
     metrics.accessMatrixUniqueLegs += plan.uniqueLegs;
     // 移植元は2本を順に await しているが、`Promise.all` で**全要求に同時にハンドラを付ける**。
@@ -1288,9 +1226,7 @@ export class TransitRouteService implements SearchEngine {
     // エラーをゾーンへ報告するだけだが、Node はプロセスを落とし、ブラウザは
     // `unhandledrejection` を上げる。同じコードの形が処理系で違う結末になる箇所。
     const rows = await Promise.all(
-      plan.requests.map((r) =>
-        this.api.fetchWalkMatrix([...r.origins], [...r.dests]),
-      ),
+      plan.requests.map((r) => this.api.fetchWalkMatrix([...r.origins], [...r.dests])),
     );
     for (let i = 0; i < plan.requests.length; i++) {
       applyWalkMatrixRows(plan.requests[i], rows[i], measured);
@@ -1343,9 +1279,7 @@ export class TransitRouteService implements SearchEngine {
     measured: Map<string, number>,
     metrics: RouteSearchMetrics,
   ): Promise<RouteCandidate[][]> {
-    const plans = bases.map((b) =>
-      this.corridorAccessPlan(b, origin, goal, budgetMin),
-    );
+    const plans = bases.map((b) => this.corridorAccessPlan(b, origin, goal, budgetMin));
     await this.measureAccessWalks(
       origin,
       goal,
@@ -1370,9 +1304,7 @@ export class TransitRouteService implements SearchEngine {
       );
       this.diag.log(() => `built ${hybrids.length} hybrids:`);
       for (const c of hybrids) {
-        this.diag.log(
-          () => `  hybrid: ${this.diag.candLine(c, budgetMin, departureAt)}`,
-        );
+        this.diag.log(() => `  hybrid: ${this.diag.candLine(c, budgetMin, departureAt)}`);
       }
       return hybrids;
     });
@@ -1408,13 +1340,7 @@ export class TransitRouteService implements SearchEngine {
         // 選定段階で捨ててしまい回収できない。乗車時間は採用前に実時刻で上書きされる。
         const ride = dartRound((rideKm * 1000) / trainMetersPerMinute);
         if (ride < 0) continue;
-        const walk2 = this.measuredWalkSeg(
-          stops[a].coord,
-          goal,
-          stops[a].name,
-          base.to,
-          measured,
-        );
+        const walk2 = this.measuredWalkSeg(stops[a].coord, goal, stops[a].name, base.to, measured);
         result.push(
           new RouteCandidate({
             from: base.from,
@@ -1524,10 +1450,7 @@ export class TransitRouteService implements SearchEngine {
   /// コリドー（停車駅／線路点・バス停）を持つ最短の標準経路をハイブリッド・乗車駅探索の
   /// 基準にする。既定ではバス混在 option を基準にしない（#249）。[allowBus] を立てるのは
   /// last-resort 再照会で得たバス option を基準にするときだけ（#251）。
-  private baseForHybrid(
-    options: TransitOption[],
-    allowBus = false,
-  ): TransitOption | null {
+  private baseForHybrid(options: TransitOption[], allowBus = false): TransitOption | null {
     let best: TransitOption | null = null;
     let bestMin = 0;
     for (const o of options) {
@@ -1624,9 +1547,7 @@ export class TransitRouteService implements SearchEngine {
   /// には存在せず、時刻を混ぜても全部が「時刻なし」で並ぶだけになる。
   private optionKey(o: TransitOption): string {
     const parts = [
-      this.hybridKey(
-        new RouteCandidate({ from: o.from, to: o.to, segments: o.segments }),
-      ),
+      this.hybridKey(new RouteCandidate({ from: o.from, to: o.to, segments: o.segments })),
     ];
     for (const s of o.segments) {
       if (s.type === SegmentType.walk) continue;
@@ -1644,15 +1565,11 @@ export class TransitRouteService implements SearchEngine {
     perBase: RouteCandidate[][],
     within: (candidate: RouteCandidate) => boolean,
   ): RouteCandidate[] {
-    const sorted = perBase.map((list) =>
-      [...list].sort((a, b) => b.walkMinutes - a.walkMinutes),
-    );
+    const sorted = perBase.map((list) => [...list].sort((a, b) => b.walkMinutes - a.walkMinutes));
     const seen = new Set<string>();
     const out: RouteCandidate[] = [];
     for (const keepWithin of [true, false]) {
-      const phase = sorted.map((list) =>
-        list.filter((h) => within(h) === keepWithin),
-      );
+      const phase = sorted.map((list) => list.filter((h) => within(h) === keepWithin));
       for (let rank = 0; out.length < maxHybridCandidates; rank++) {
         let progressed = false;
         for (const list of phase) {
@@ -1721,9 +1638,7 @@ export class TransitRouteService implements SearchEngine {
       return [];
     }
     return comparableFrom(
-      parseGuidancePlan(body).filter((o) =>
-        o.segments.some((s) => s.type !== SegmentType.walk),
-      ),
+      parseGuidancePlan(body).filter((o) => o.segments.some((s) => s.type !== SegmentType.walk)),
       at,
     );
   }
@@ -1851,4 +1766,3 @@ function coordKey(p: GeoPoint | null): string {
 function isoOrEmpty(d: Date | null): string {
   return d === null ? '' : d.toISOString();
 }
-

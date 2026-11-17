@@ -104,7 +104,10 @@ export function LoadingScreen({ store }: LoadingScreenProps) {
           aria-valuenow={percent}
           aria-label={ja.loadingSearchingMessage}
         >
-          <span className="block h-full rounded-full bg-moss-500" style={{ width: `${percent}%` }} />
+          <span
+            className="block h-full rounded-full bg-moss-500"
+            style={{ width: `${percent}%` }}
+          />
         </div>
       </div>
 

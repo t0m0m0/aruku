@@ -1,14 +1,7 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
-import { EventEmitter } from "events";
-import type { HttpsFunction, Request } from "firebase-functions/v2/https";
-import type { Response } from "express";
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'events';
+import type { HttpsFunction, Request } from 'firebase-functions/v2/https';
+import type { Response } from 'express';
 
 // vi.mock はホイストされるため、参照する mock 関数・クラスは vi.hoisted で
 // 先に生成する。MockAgent は https.Agent はモジュール読込時（トップレベル）に
@@ -30,13 +23,13 @@ const { httpsRequestMock, verifyTokenMock, MockAgent } = vi.hoisted(() => ({
 // そのままではインスタンス型として使えない。型参照用に別名を用意する。
 type MockAgentInstance = InstanceType<typeof MockAgent>;
 
-vi.mock("https", () => ({
+vi.mock('https', () => ({
   default: { request: httpsRequestMock, Agent: MockAgent },
   request: httpsRequestMock,
   Agent: MockAgent,
 }));
 
-vi.mock("firebase-admin/app-check", () => ({
+vi.mock('firebase-admin/app-check', () => ({
   getAppCheck: () => ({ verifyToken: verifyTokenMock }),
 }));
 
@@ -48,8 +41,8 @@ import {
   MAX_RESPONSE_BYTES,
   placesProxy,
   resetRateLimit,
-} from "../src/index";
-import { resetUpstreamCache } from "../src/upstream-cache";
+} from '../src/index';
+import { resetUpstreamCache } from '../src/upstream-cache';
 
 // https.request をモックし、指定 JSON ボディ・ステータスで応答を擬似する。
 function mockUpstream(body: unknown, statusCode = 200): void {
@@ -59,26 +52,26 @@ function mockUpstream(body: unknown, statusCode = 200): void {
       res.statusCode = statusCode;
       cb(res);
       process.nextTick(() => {
-        res.emit("data", Buffer.from(JSON.stringify(body)));
-        res.emit("end");
+        res.emit('data', Buffer.from(JSON.stringify(body)));
+        res.emit('end');
       });
       return { on: vi.fn(), write: vi.fn(), end: vi.fn() };
-    }
+    },
   );
 }
 
 // 上流応答を擬似しつつ、ハンドラが req.write した送信ボディ（JSON 文字列）を
 // 捕捉する。POST 本文（locationBias など）を検証するために使う。
 function mockUpstreamCapture(body: unknown): { sent(): unknown } {
-  let written = "";
+  let written = '';
   httpsRequestMock.mockImplementation(
     (_url: string, _opts: unknown, cb: (r: EventEmitter) => void) => {
       const res = new EventEmitter() as EventEmitter & { statusCode: number };
       res.statusCode = 200;
       cb(res);
       process.nextTick(() => {
-        res.emit("data", Buffer.from(JSON.stringify(body)));
-        res.emit("end");
+        res.emit('data', Buffer.from(JSON.stringify(body)));
+        res.emit('end');
       });
       return {
         on: vi.fn(),
@@ -87,7 +80,7 @@ function mockUpstreamCapture(body: unknown): { sent(): unknown } {
         },
         end: vi.fn(),
       };
-    }
+    },
   );
   return {
     sent: () => (written ? JSON.parse(written) : undefined),
@@ -115,7 +108,7 @@ function makeMockReq(reusedSocket = false): EventEmitter & {
   req.write = () => {};
   req.end = () => {};
   req.destroy = (e?: Error) => {
-    process.nextTick(() => req.emit("error", e ?? new Error("destroyed")));
+    process.nextTick(() => req.emit('error', e ?? new Error('destroyed')));
   };
   return req;
 }
@@ -124,7 +117,7 @@ function makeMockReq(reusedSocket = false): EventEmitter & {
 function mockUpstreamTimeout(): void {
   httpsRequestMock.mockImplementation(() => {
     const req = makeMockReq();
-    process.nextTick(() => req.emit("timeout"));
+    process.nextTick(() => req.emit('timeout'));
     return req;
   });
 }
@@ -134,10 +127,7 @@ function mockUpstreamTimeout(): void {
 // 生の（UpstreamError でない）ネットワークエラーで失敗する。2回目の呼び出しが
 // 発生した場合は正常応答を返す。実際に何回 https.request が呼ばれたかは
 // httpsRequestMock.mock.calls.length で検証する。
-function mockUpstreamStaleSocketThenSuccess(
-  body: unknown,
-  firstReusedSocket: boolean
-): void {
+function mockUpstreamStaleSocketThenSuccess(body: unknown, firstReusedSocket: boolean): void {
   let callCount = 0;
   httpsRequestMock.mockImplementation(
     (_url: string, _opts: unknown, cb: (r: EventEmitter) => void) => {
@@ -145,9 +135,9 @@ function mockUpstreamStaleSocketThenSuccess(
       if (callCount === 1) {
         const req = makeMockReq(firstReusedSocket);
         process.nextTick(() => {
-          const err = new Error("socket hang up") as NodeJS.ErrnoException;
-          err.code = "ECONNRESET";
-          req.emit("error", err);
+          const err = new Error('socket hang up') as NodeJS.ErrnoException;
+          err.code = 'ECONNRESET';
+          req.emit('error', err);
         });
         return req;
       }
@@ -156,11 +146,11 @@ function mockUpstreamStaleSocketThenSuccess(
       res.statusCode = 200;
       cb(res);
       process.nextTick(() => {
-        res.emit("data", Buffer.from(JSON.stringify(body)));
-        res.emit("end");
+        res.emit('data', Buffer.from(JSON.stringify(body)));
+        res.emit('end');
       });
       return req;
-    }
+    },
   );
 }
 
@@ -173,10 +163,10 @@ function mockUpstreamBytes(bytes: number): void {
       const res = new EventEmitter();
       cb(res);
       process.nextTick(() => {
-        res.emit("data", Buffer.alloc(bytes));
+        res.emit('data', Buffer.alloc(bytes));
       });
       return req;
-    }
+    },
   );
 }
 
@@ -221,22 +211,22 @@ function makeReq(opts: {
   origin?: string;
 }) {
   return {
-    method: opts.method ?? "GET",
+    method: opts.method ?? 'GET',
     query: opts.query ?? {},
     headers: {} as Record<string, string | undefined>,
     // Express の req.header はヘッダ名を case-insensitive に引く。ハンドラ側の
     // 表記（"X-Firebase-AppCheck" / "Origin"）に依存しないよう小文字で比較する。
     header: (name: string) => {
       switch (name.toLowerCase()) {
-        case "x-firebase-appcheck":
+        case 'x-firebase-appcheck':
           return opts.token;
-        case "origin":
+        case 'origin':
           return opts.origin;
         default:
           return undefined;
       }
     },
-    ip: opts.ip ?? "127.0.0.1",
+    ip: opts.ip ?? '127.0.0.1',
   };
 }
 
@@ -246,12 +236,12 @@ function makeReq(opts: {
 async function invokeHandler(
   handler: HttpsFunction,
   req: ReturnType<typeof makeReq>,
-  res: CapturedRes
+  res: CapturedRes,
 ): Promise<void> {
   await handler(req as unknown as Request, res as unknown as Response);
 }
 
-describe("ハンドラ統合（502 分岐・透過）", () => {
+describe('ハンドラ統合（502 分岐・透過）', () => {
   const original = process.env.FUNCTIONS_EMULATOR;
 
   beforeEach(() => {
@@ -259,7 +249,7 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
     resetUpstreamCache();
     httpsRequestMock.mockReset();
     // エミュレータ扱いで App Check 検証をスキップし、上流応答の分岐に集中する。
-    process.env.FUNCTIONS_EMULATOR = "true";
+    process.env.FUNCTIONS_EMULATOR = 'true';
   });
 
   afterEach(() => {
@@ -267,128 +257,124 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
     else process.env.FUNCTIONS_EMULATOR = original;
   });
 
-  it("googleWalkProxy: error かつ routes 無しは 502 で返す", async () => {
-    mockUpstream({ error: { code: 403, status: "PERMISSION_DENIED" } });
+  it('googleWalkProxy: error かつ routes 無しは 502 で返す', async () => {
+    mockUpstream({ error: { code: 403, status: 'PERMISSION_DENIED' } });
     const res = makeRes();
     await invokeHandler(
       googleWalkProxy,
-      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }),
-      res
+      makeReq({ query: { start: '35.7,139.7', goal: '35.6,139.7' } }),
+      res,
     );
     expect(res.statusCode).toBe(502);
     expect(res.body).toEqual({
-      error: { code: 403, status: "PERMISSION_DENIED" },
+      error: { code: 403, status: 'PERMISSION_DENIED' },
     });
   });
 
-  it("googleWalkProxy: routes を含む正常応答はそのまま透過する", async () => {
+  it('googleWalkProxy: routes を含む正常応答はそのまま透過する', async () => {
     const payload = { routes: [{ distanceMeters: 100 }] };
     mockUpstream(payload);
     const res = makeRes();
     await invokeHandler(
       googleWalkProxy,
-      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }),
-      res
+      makeReq({ query: { start: '35.7,139.7', goal: '35.6,139.7' } }),
+      res,
     );
     expect(res.statusCode).toBeUndefined();
     expect(res.body).toEqual(payload);
   });
 
-  it("googleWalkProxy: 不正な座標は 400 で上流を呼ばない", async () => {
+  it('googleWalkProxy: 不正な座標は 400 で上流を呼ばない', async () => {
     const res = makeRes();
     await invokeHandler(
       googleWalkProxy,
-      makeReq({ query: { start: "not-a-coord", goal: "35.6,139.7" } }),
-      res
+      makeReq({ query: { start: 'not-a-coord', goal: '35.6,139.7' } }),
+      res,
     );
     expect(res.statusCode).toBe(400);
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
-  it("googleWalkMatrixProxy: 要素配列の正常応答はそのまま透過する", async () => {
+  it('googleWalkMatrixProxy: 要素配列の正常応答はそのまま透過する', async () => {
     const payload = [
-      { originIndex: 0, destinationIndex: 0, duration: "600s", distanceMeters: 800 },
+      { originIndex: 0, destinationIndex: 0, duration: '600s', distanceMeters: 800 },
     ];
     mockUpstream(payload);
     const res = makeRes();
     await invokeHandler(
       googleWalkMatrixProxy,
       makeReq({
-        query: { origins: "35.7,139.7", destinations: "35.6,139.7;35.65,139.72" },
+        query: { origins: '35.7,139.7', destinations: '35.6,139.7;35.65,139.72' },
       }),
-      res
+      res,
     );
     expect(res.statusCode).toBeUndefined();
     expect(res.body).toEqual(payload);
   });
 
-  it("googleWalkMatrixProxy: error かつ配列でない応答は 502 で返す", async () => {
-    mockUpstream({ error: { code: 403, status: "PERMISSION_DENIED" } });
+  it('googleWalkMatrixProxy: error かつ配列でない応答は 502 で返す', async () => {
+    mockUpstream({ error: { code: 403, status: 'PERMISSION_DENIED' } });
     const res = makeRes();
     await invokeHandler(
       googleWalkMatrixProxy,
-      makeReq({ query: { origins: "35.7,139.7", destinations: "35.6,139.7" } }),
-      res
+      makeReq({ query: { origins: '35.7,139.7', destinations: '35.6,139.7' } }),
+      res,
     );
     expect(res.statusCode).toBe(502);
     expect(res.body).toEqual({
-      error: { code: 403, status: "PERMISSION_DENIED" },
+      error: { code: 403, status: 'PERMISSION_DENIED' },
     });
   });
 
-  it("googleWalkMatrixProxy: error を含まない非配列応答も 502 で返す", async () => {
+  it('googleWalkMatrixProxy: error を含まない非配列応答も 502 で返す', async () => {
     // 想定外の応答（配列でなく error も無い）。「成功＝配列」の不変条件をプロキシ側で
     // 担保し、非配列の 200 をクライアントへ漏らさない。
     mockUpstream({ unexpected: true });
     const res = makeRes();
     await invokeHandler(
       googleWalkMatrixProxy,
-      makeReq({ query: { origins: "35.7,139.7", destinations: "35.6,139.7" } }),
-      res
+      makeReq({ query: { origins: '35.7,139.7', destinations: '35.6,139.7' } }),
+      res,
     );
     expect(res.statusCode).toBe(502);
     expect(res.body).toEqual({ unexpected: true });
   });
 
-  it("googleWalkMatrixProxy: パラメータ欠落は 400 で上流を呼ばない", async () => {
+  it('googleWalkMatrixProxy: パラメータ欠落は 400 で上流を呼ばない', async () => {
     const res = makeRes();
-    await invokeHandler(
-      googleWalkMatrixProxy,
-      makeReq({ query: { origins: "35.7,139.7" } }),
-      res
-    );
+    await invokeHandler(googleWalkMatrixProxy, makeReq({ query: { origins: '35.7,139.7' } }), res);
     expect(res.statusCode).toBe(400);
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
-  it("googleWalkMatrixProxy: 要素数上限超過は 400 で上流を呼ばない", async () => {
+  it('googleWalkMatrixProxy: 要素数上限超過は 400 で上流を呼ばない', async () => {
     // origins 6 × destinations 6 = 36 > 25（上限）。上流を呼ばず拒否する。
     const six = (base: number) =>
-      Array.from({ length: 6 }, (_, i) => `35.${base}${i},139.7`).join(";");
+      Array.from({ length: 6 }, (_, i) => `35.${base}${i},139.7`).join(';');
     const res = makeRes();
     await invokeHandler(
       googleWalkMatrixProxy,
       makeReq({ query: { origins: six(1), destinations: six(2) } }),
-      res
+      res,
     );
     expect(res.statusCode).toBe(400);
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
-  it("placesProxy autocomplete: lat/lon を locationBias（円）として上流へ送る", async () => {
+  it('placesProxy autocomplete: lat/lon を locationBias（円）として上流へ送る', async () => {
     const cap = mockUpstreamCapture({ suggestions: [] });
     const res = makeRes();
     await invokeHandler(
       placesProxy,
       makeReq({
-        query: { action: "autocomplete", input: "マクドナルド", lat: "35.66", lon: "139.7" },
+        query: { action: 'autocomplete', input: 'マクドナルド', lat: '35.66', lon: '139.7' },
       }),
-      res
+      res,
     );
     expect(cap.sent()).toMatchObject({
-      input: "マクドナルド",
-      languageCode: "ja",
-      includedRegionCodes: ["jp"],
+      input: 'マクドナルド',
+      languageCode: 'ja',
+      includedRegionCodes: ['jp'],
       locationBias: {
         circle: {
           center: { latitude: 35.66, longitude: 139.7 },
@@ -397,133 +383,122 @@ describe("ハンドラ統合（502 分岐・透過）", () => {
       },
     });
     // 応答は変換層（toLegacyAutocomplete）を通る。
-    expect(res.body).toEqual({ status: "ZERO_RESULTS", predictions: [] });
+    expect(res.body).toEqual({ status: 'ZERO_RESULTS', predictions: [] });
   });
 
-  it("placesProxy autocomplete: lat/lon を origin として送る（距離取得・#146 C案）", async () => {
+  it('placesProxy autocomplete: lat/lon を origin として送る（距離取得・#146 C案）', async () => {
     const cap = mockUpstreamCapture({ suggestions: [] });
     const res = makeRes();
     await invokeHandler(
       placesProxy,
       makeReq({
-        query: { action: "autocomplete", input: "マクドナルド", lat: "35.66", lon: "139.7" },
+        query: { action: 'autocomplete', input: 'マクドナルド', lat: '35.66', lon: '139.7' },
       }),
-      res
+      res,
     );
     expect(cap.sent()).toMatchObject({
       origin: { latitude: 35.66, longitude: 139.7 },
     });
   });
 
-  it("placesProxy autocomplete: lat/lon 欠落時は origin を付けない", async () => {
+  it('placesProxy autocomplete: lat/lon 欠落時は origin を付けない', async () => {
     const cap = mockUpstreamCapture({ suggestions: [] });
     const res = makeRes();
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "autocomplete", input: "渋谷" } }),
-      res
+      makeReq({ query: { action: 'autocomplete', input: '渋谷' } }),
+      res,
     );
-    expect(cap.sent()).not.toHaveProperty("origin");
+    expect(cap.sent()).not.toHaveProperty('origin');
   });
 
-  it("placesProxy autocomplete: radius 指定は上限 50000 にクランプする", async () => {
+  it('placesProxy autocomplete: radius 指定は上限 50000 にクランプする', async () => {
     const cap = mockUpstreamCapture({ suggestions: [] });
     const res = makeRes();
     await invokeHandler(
       placesProxy,
       makeReq({
-        query: { action: "autocomplete", input: "x", lat: "35", lon: "139", radius: "999999" },
+        query: { action: 'autocomplete', input: 'x', lat: '35', lon: '139', radius: '999999' },
       }),
-      res
+      res,
     );
-    expect((cap.sent() as { locationBias: { circle: { radius: number } } })
-      .locationBias.circle.radius).toBe(50000);
+    expect(
+      (cap.sent() as { locationBias: { circle: { radius: number } } }).locationBias.circle.radius,
+    ).toBe(50000);
   });
 
-  it("placesProxy autocomplete: lat/lon 欠落時は locationBias を付けない", async () => {
+  it('placesProxy autocomplete: lat/lon 欠落時は locationBias を付けない', async () => {
     const cap = mockUpstreamCapture({ suggestions: [] });
     const res = makeRes();
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "autocomplete", input: "渋谷" } }),
-      res
+      makeReq({ query: { action: 'autocomplete', input: '渋谷' } }),
+      res,
     );
-    expect(cap.sent()).not.toHaveProperty("locationBias");
+    expect(cap.sent()).not.toHaveProperty('locationBias');
   });
 
-  it("placesProxy autocomplete: input 欠落は 400 で上流を呼ばない", async () => {
+  it('placesProxy autocomplete: input 欠落は 400 で上流を呼ばない', async () => {
     const res = makeRes();
-    await invokeHandler(
-      placesProxy,
-      makeReq({ query: { action: "autocomplete" } }),
-      res
-    );
+    await invokeHandler(placesProxy, makeReq({ query: { action: 'autocomplete' } }), res);
     expect(res.statusCode).toBe(400);
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
-  it("placesProxy details: location を変換し result.geometry へ畳む", async () => {
+  it('placesProxy details: location を変換し result.geometry へ畳む', async () => {
     mockUpstream({ location: { latitude: 35.658, longitude: 139.701 } });
     const res = makeRes();
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "details", place_id: "id_x" } }),
-      res
+      makeReq({ query: { action: 'details', place_id: 'id_x' } }),
+      res,
     );
     expect(res.body).toEqual({
-      status: "OK",
+      status: 'OK',
       result: { geometry: { location: { lat: 35.658, lng: 139.701 } } },
     });
   });
 
-  it("placesProxy details: place_id 欠落は 400 で上流を呼ばない", async () => {
+  it('placesProxy details: place_id 欠落は 400 で上流を呼ばない', async () => {
     const res = makeRes();
-    await invokeHandler(
-      placesProxy,
-      makeReq({ query: { action: "details" } }),
-      res
-    );
+    await invokeHandler(placesProxy, makeReq({ query: { action: 'details' } }), res);
     expect(res.statusCode).toBe(400);
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
-  it("placesProxy: 未知の action は 400 で上流を呼ばない", async () => {
+  it('placesProxy: 未知の action は 400 で上流を呼ばない', async () => {
     const res = makeRes();
-    await invokeHandler(
-      placesProxy,
-      makeReq({ query: { action: "bogus" } }),
-      res
-    );
+    await invokeHandler(placesProxy, makeReq({ query: { action: 'bogus' } }), res);
     expect(res.statusCode).toBe(400);
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
-  it("レート制限超過時は 429 を返し上流を呼ばない", async () => {
+  it('レート制限超過時は 429 を返し上流を呼ばない', async () => {
     // 同一 IP で上限(30)まで消費しておき、ハンドラ到達時に 429 とする。
     // エミュレータ扱いのためインメモリ実装にディスパッチされる。
-    for (let i = 0; i < 30; i++) await checkRateLimit("9.9.9.9");
+    for (let i = 0; i < 30; i++) await checkRateLimit('9.9.9.9');
     const res = makeRes();
     await invokeHandler(
       placesProxy,
       makeReq({
-        query: { action: "autocomplete", input: "shibuya" },
-        ip: "9.9.9.9",
+        query: { action: 'autocomplete', input: 'shibuya' },
+        ip: '9.9.9.9',
       }),
-      res
+      res,
     );
     expect(res.statusCode).toBe(429);
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 });
 
-describe("ハンドラ統合（タイムアウト・信頼性ガード / issue #157）", () => {
+describe('ハンドラ統合（タイムアウト・信頼性ガード / issue #157）', () => {
   const original = process.env.FUNCTIONS_EMULATOR;
 
   beforeEach(() => {
     resetRateLimit();
     resetUpstreamCache();
     httpsRequestMock.mockReset();
-    process.env.FUNCTIONS_EMULATOR = "true";
+    process.env.FUNCTIONS_EMULATOR = 'true';
   });
 
   afterEach(() => {
@@ -531,25 +506,25 @@ describe("ハンドラ統合（タイムアウト・信頼性ガード / issue #
     else process.env.FUNCTIONS_EMULATOR = original;
   });
 
-  it("https.request にタイムアウトオプションを渡す", async () => {
+  it('https.request にタイムアウトオプションを渡す', async () => {
     mockUpstreamTimeout();
     const res = makeRes();
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
-      res
+      makeReq({ query: { action: 'autocomplete', input: 'shibuya' } }),
+      res,
     );
     const opts = httpsRequestMock.mock.calls[0][1] as { timeout?: number };
     expect(opts.timeout).toBe(10000);
   });
 
-  it("https.request に keepAlive:true の共有 Agent を渡す（issue #307）", async () => {
+  it('https.request に keepAlive:true の共有 Agent を渡す（issue #307）', async () => {
     mockUpstream({ suggestions: [] });
     const res = makeRes();
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
-      res
+      makeReq({ query: { action: 'autocomplete', input: 'shibuya' } }),
+      res,
     );
     const opts = httpsRequestMock.mock.calls[0][1] as {
       agent?: MockAgentInstance;
@@ -558,147 +533,143 @@ describe("ハンドラ統合（タイムアウト・信頼性ガード / issue #
     expect(opts.agent?.options.keepAlive).toBe(true);
   });
 
-  it("複数回の呼び出しで同一の Agent インスタンスを再利用する", async () => {
+  it('複数回の呼び出しで同一の Agent インスタンスを再利用する', async () => {
     mockUpstream({ suggestions: [] });
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
-      makeRes()
+      makeReq({ query: { action: 'autocomplete', input: 'shibuya' } }),
+      makeRes(),
     );
     mockUpstream({ suggestions: [] });
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "autocomplete", input: "shinjuku" } }),
-      makeRes()
+      makeReq({ query: { action: 'autocomplete', input: 'shinjuku' } }),
+      makeRes(),
     );
-    const firstAgent = (
-      httpsRequestMock.mock.calls[0][1] as { agent?: MockAgentInstance }
-    ).agent;
-    const secondAgent = (
-      httpsRequestMock.mock.calls[1][1] as { agent?: MockAgentInstance }
-    ).agent;
+    const firstAgent = (httpsRequestMock.mock.calls[0][1] as { agent?: MockAgentInstance }).agent;
+    const secondAgent = (httpsRequestMock.mock.calls[1][1] as { agent?: MockAgentInstance }).agent;
     expect(firstAgent).toBe(secondAgent);
   });
 
-  it("GET かつ再利用ソケットでの生ネットワークエラーは1回だけ再試行して成功させる（issue #307）", async () => {
+  it('GET かつ再利用ソケットでの生ネットワークエラーは1回だけ再試行して成功させる（issue #307）', async () => {
     mockUpstreamStaleSocketThenSuccess(
       { location: { latitude: 35.658, longitude: 139.701 } },
-      true
+      true,
     );
     const res = makeRes();
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "details", place_id: "id_x" } }),
-      res
+      makeReq({ query: { action: 'details', place_id: 'id_x' } }),
+      res,
     );
     expect(httpsRequestMock).toHaveBeenCalledTimes(2);
     expect(res.statusCode).toBeUndefined();
     expect(res.body).toEqual({
-      status: "OK",
+      status: 'OK',
       result: { geometry: { location: { lat: 35.658, lng: 139.701 } } },
     });
   });
 
-  it("新規ソケット（reusedSocket=false）での生ネットワークエラーは再試行せず 502 を返す", async () => {
+  it('新規ソケット（reusedSocket=false）での生ネットワークエラーは再試行せず 502 を返す', async () => {
     mockUpstreamStaleSocketThenSuccess(
       { location: { latitude: 35.658, longitude: 139.701 } },
-      false
+      false,
     );
     const res = makeRes();
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "details", place_id: "id_x" } }),
-      res
+      makeReq({ query: { action: 'details', place_id: 'id_x' } }),
+      res,
     );
     expect(httpsRequestMock).toHaveBeenCalledTimes(1);
     expect(res.statusCode).toBe(502);
-    expect(res.body).toEqual({ error: "upstream error" });
+    expect(res.body).toEqual({ error: 'upstream error' });
   });
 
-  it("POST（非冪等扱い）は再利用ソケットでの生ネットワークエラーでも再試行せず 502 を返す", async () => {
+  it('POST（非冪等扱い）は再利用ソケットでの生ネットワークエラーでも再試行せず 502 を返す', async () => {
     // placesProxy の autocomplete は上流へ POST で問い合わせる唯一の GET
     // エンドポイント。再試行ガードが method で正しく絞れているかを見る。
     mockUpstreamStaleSocketThenSuccess({ suggestions: [] }, true);
     const res = makeRes();
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
-      res
+      makeReq({ query: { action: 'autocomplete', input: 'shibuya' } }),
+      res,
     );
     expect(httpsRequestMock).toHaveBeenCalledTimes(1);
     expect(res.statusCode).toBe(502);
-    expect(res.body).toEqual({ error: "upstream error" });
+    expect(res.body).toEqual({ error: 'upstream error' });
   });
 
-  it("googleWalkProxy: 上流無応答（timeout）は 504 を返す", async () => {
+  it('googleWalkProxy: 上流無応答（timeout）は 504 を返す', async () => {
     mockUpstreamTimeout();
     const res = makeRes();
     await invokeHandler(
       googleWalkProxy,
-      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }),
-      res
+      makeReq({ query: { start: '35.7,139.7', goal: '35.6,139.7' } }),
+      res,
     );
     expect(res.statusCode).toBe(504);
-    expect(res.body).toEqual({ error: "upstream timeout" });
+    expect(res.body).toEqual({ error: 'upstream timeout' });
   });
 
-  it("placesProxy: レスポンスサイズ上限超過は破棄して 502 を返す", async () => {
+  it('placesProxy: レスポンスサイズ上限超過は破棄して 502 を返す', async () => {
     mockUpstreamBytes(MAX_RESPONSE_BYTES + 1);
     const res = makeRes();
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "details", place_id: "id_x" } }),
-      res
+      makeReq({ query: { action: 'details', place_id: 'id_x' } }),
+      res,
     );
     expect(res.statusCode).toBe(502);
-    expect(res.body).toEqual({ error: "upstream error" });
+    expect(res.body).toEqual({ error: 'upstream error' });
   });
 
-  it("placesProxy: 上限以内のサイズは破棄しない（正常処理）", async () => {
+  it('placesProxy: 上限以内のサイズは破棄しない（正常処理）', async () => {
     // 上限ちょうどのボディ（有効な JSON）は破棄されず、通常処理される。
     mockUpstream({ location: { latitude: 35.658, longitude: 139.701 } });
     const res = makeRes();
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "details", place_id: "id_x" } }),
-      res
+      makeReq({ query: { action: 'details', place_id: 'id_x' } }),
+      res,
     );
     expect(res.statusCode).toBeUndefined();
     expect(res.body).toEqual({
-      status: "OK",
+      status: 'OK',
       result: { geometry: { location: { lat: 35.658, lng: 139.701 } } },
     });
   });
 
-  it("googleWalkProxy: 上流 403（PERMISSION_DENIED）は 502 で返す", async () => {
-    mockUpstream({ error: { code: 403, status: "PERMISSION_DENIED" } }, 403);
+  it('googleWalkProxy: 上流 403（PERMISSION_DENIED）は 502 で返す', async () => {
+    mockUpstream({ error: { code: 403, status: 'PERMISSION_DENIED' } }, 403);
     const res = makeRes();
     await invokeHandler(
       googleWalkProxy,
-      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }),
-      res
+      makeReq({ query: { start: '35.7,139.7', goal: '35.6,139.7' } }),
+      res,
     );
     expect(res.statusCode).toBe(502);
     expect(res.body).toEqual({
-      error: { code: 403, status: "PERMISSION_DENIED" },
+      error: { code: 403, status: 'PERMISSION_DENIED' },
     });
   });
 
-  it("placesProxy: 上流が非2xxなら変換せず 502 を返す", async () => {
+  it('placesProxy: 上流が非2xxなら変換せず 502 を返す', async () => {
     // 従来は places がエラーボディを変換層へ渡していた。ステータス判定で 502 化する。
-    mockUpstream({ error: { status: "INVALID_ARGUMENT" } }, 400);
+    mockUpstream({ error: { status: 'INVALID_ARGUMENT' } }, 400);
     const res = makeRes();
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "details", place_id: "id_x" } }),
-      res
+      makeReq({ query: { action: 'details', place_id: 'id_x' } }),
+      res,
     );
     expect(res.statusCode).toBe(502);
-    expect(res.body).toEqual({ error: { status: "INVALID_ARGUMENT" } });
+    expect(res.body).toEqual({ error: { status: 'INVALID_ARGUMENT' } });
   });
 });
 
-describe("ハンドラ統合（App Check 401）", () => {
+describe('ハンドラ統合（App Check 401）', () => {
   const original = process.env.FUNCTIONS_EMULATOR;
 
   beforeEach(() => {
@@ -715,45 +686,45 @@ describe("ハンドラ統合（App Check 401）", () => {
     else process.env.FUNCTIONS_EMULATOR = original;
   });
 
-  it("トークン欠落時は 401 を返し上流を呼ばない", async () => {
+  it('トークン欠落時は 401 を返し上流を呼ばない', async () => {
     const res = makeRes();
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
-      res
+      makeReq({ query: { action: 'autocomplete', input: 'shibuya' } }),
+      res,
     );
     expect(res.statusCode).toBe(401);
-    expect(res.body).toEqual({ error: "App Check token missing" });
+    expect(res.body).toEqual({ error: 'App Check token missing' });
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
-  it("無効なトークン時は 401 を返し上流を呼ばない", async () => {
-    verifyTokenMock.mockRejectedValue(new Error("invalid"));
+  it('無効なトークン時は 401 を返し上流を呼ばない', async () => {
+    verifyTokenMock.mockRejectedValue(new Error('invalid'));
     const res = makeRes();
     await invokeHandler(
       googleWalkProxy,
       makeReq({
-        query: { start: "35.7,139.7", goal: "35.6,139.7" },
-        token: "bad",
+        query: { start: '35.7,139.7', goal: '35.6,139.7' },
+        token: 'bad',
       }),
-      res
+      res,
     );
     expect(res.statusCode).toBe(401);
-    expect(res.body).toEqual({ error: "App Check token invalid" });
+    expect(res.body).toEqual({ error: 'App Check token invalid' });
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 });
 
-describe("ハンドラ統合（リプレイ保護 / issue #366）", () => {
+describe('ハンドラ統合（リプレイ保護 / issue #366）', () => {
   const originalEmulator = process.env.FUNCTIONS_EMULATOR;
   const originalConsume = process.env.APP_CHECK_CONSUME_ENDPOINTS;
 
   const QUERIES: Record<string, Record<string, string>> = {
-    placesProxy: { action: "autocomplete", input: "shibuya" },
-    googleWalkProxy: { start: "35.7,139.7", goal: "35.6,139.7" },
+    placesProxy: { action: 'autocomplete', input: 'shibuya' },
+    googleWalkProxy: { start: '35.7,139.7', goal: '35.6,139.7' },
     googleWalkMatrixProxy: {
-      origins: "35.7,139.7",
-      destinations: "35.6,139.7",
+      origins: '35.7,139.7',
+      destinations: '35.6,139.7',
     },
   };
 
@@ -769,8 +740,7 @@ describe("ハンドラ統合（リプレイ保護 / issue #366）", () => {
   afterEach(() => {
     if (originalEmulator === undefined) delete process.env.FUNCTIONS_EMULATOR;
     else process.env.FUNCTIONS_EMULATOR = originalEmulator;
-    if (originalConsume === undefined)
-      delete process.env.APP_CHECK_CONSUME_ENDPOINTS;
+    if (originalConsume === undefined) delete process.env.APP_CHECK_CONSUME_ENDPOINTS;
     else process.env.APP_CHECK_CONSUME_ENDPOINTS = originalConsume;
   });
 
@@ -778,101 +748,90 @@ describe("ハンドラ統合（リプレイ保護 / issue #366）", () => {
   // 1検索で 21 本まで膨らみ（spec §3.8 の実測 walkCalls=21）、使い捨てトークンの
   // アテステーション・クォータを最も速く食い潰すため。
   const consuming: [string, HttpsFunction][] = [
-    ["placesProxy", placesProxy],
-    ["googleWalkMatrixProxy", googleWalkMatrixProxy],
+    ['placesProxy', placesProxy],
+    ['googleWalkMatrixProxy', googleWalkMatrixProxy],
   ];
 
-  it.each(consuming)(
-    "%s は既定でトークンを consume 付きで検証する",
-    async (name, handler) => {
-      verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: false });
-      mockUpstream({});
-      await invokeHandler(
-        handler,
-        makeReq({ query: QUERIES[name], token: "fresh" }),
-        makeRes()
-      );
-      expect(verifyTokenMock).toHaveBeenCalledWith("fresh", { consume: true });
-    }
-  );
+  it.each(consuming)('%s は既定でトークンを consume 付きで検証する', async (name, handler) => {
+    verifyTokenMock.mockResolvedValue({ appId: 'x', alreadyConsumed: false });
+    mockUpstream({});
+    await invokeHandler(handler, makeReq({ query: QUERIES[name], token: 'fresh' }), makeRes());
+    expect(verifyTokenMock).toHaveBeenCalledWith('fresh', { consume: true });
+  });
 
   it.each(consuming)(
-    "%s は消費済みトークンを 401 で拒否し上流を呼ばない",
+    '%s は消費済みトークンを 401 で拒否し上流を呼ばない',
     async (name, handler) => {
-      verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: true });
+      verifyTokenMock.mockResolvedValue({ appId: 'x', alreadyConsumed: true });
       const res = makeRes();
-      await invokeHandler(
-        handler,
-        makeReq({ query: QUERIES[name], token: "replayed" }),
-        res
-      );
+      await invokeHandler(handler, makeReq({ query: QUERIES[name], token: 'replayed' }), res);
       expect(res.statusCode).toBe(401);
-      expect(res.body).toEqual({ error: "App Check token already consumed" });
+      expect(res.body).toEqual({ error: 'App Check token already consumed' });
       expect(httpsRequestMock).not.toHaveBeenCalled();
-    }
+    },
   );
 
-  it("googleWalkProxy は既定では consume しない（クォータ保護のため対象外）", async () => {
-    verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: true });
+  it('googleWalkProxy は既定では consume しない（クォータ保護のため対象外）', async () => {
+    verifyTokenMock.mockResolvedValue({ appId: 'x', alreadyConsumed: true });
     mockUpstream({});
     const res = makeRes();
     await invokeHandler(
       googleWalkProxy,
-      makeReq({ query: QUERIES.googleWalkProxy, token: "cached" }),
-      res
+      makeReq({ query: QUERIES.googleWalkProxy, token: 'cached' }),
+      res,
     );
     // 単一引数の検証＝消費記録を残さない。alreadyConsumed が立っていても通す
     // （標準トークンの正当な再利用と区別できないため）。
-    expect(verifyTokenMock).toHaveBeenCalledWith("cached");
+    expect(verifyTokenMock).toHaveBeenCalledWith('cached');
     expect(res.statusCode).not.toBe(401);
   });
 
-  describe("APP_CHECK_CONSUME_ENDPOINTS による段階導入", () => {
-    it("列挙されたエンドポイントだけが consume する", async () => {
-      process.env.APP_CHECK_CONSUME_ENDPOINTS = "googleWalkProxy";
-      verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: false });
+  describe('APP_CHECK_CONSUME_ENDPOINTS による段階導入', () => {
+    it('列挙されたエンドポイントだけが consume する', async () => {
+      process.env.APP_CHECK_CONSUME_ENDPOINTS = 'googleWalkProxy';
+      verifyTokenMock.mockResolvedValue({ appId: 'x', alreadyConsumed: false });
       mockUpstream({});
       await invokeHandler(
         googleWalkProxy,
-        makeReq({ query: QUERIES.googleWalkProxy, token: "t" }),
-        makeRes()
+        makeReq({ query: QUERIES.googleWalkProxy, token: 't' }),
+        makeRes(),
       );
-      expect(verifyTokenMock).toHaveBeenCalledWith("t", { consume: true });
+      expect(verifyTokenMock).toHaveBeenCalledWith('t', { consume: true });
     });
 
-    it("列挙から外れたエンドポイントは consume しない", async () => {
-      process.env.APP_CHECK_CONSUME_ENDPOINTS = "googleWalkProxy";
-      verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: false });
+    it('列挙から外れたエンドポイントは consume しない', async () => {
+      process.env.APP_CHECK_CONSUME_ENDPOINTS = 'googleWalkProxy';
+      verifyTokenMock.mockResolvedValue({ appId: 'x', alreadyConsumed: false });
       mockUpstream({ suggestions: [] });
       await invokeHandler(
         placesProxy,
-        makeReq({ query: QUERIES.placesProxy, token: "t" }),
-        makeRes()
+        makeReq({ query: QUERIES.placesProxy, token: 't' }),
+        makeRes(),
       );
-      expect(verifyTokenMock).toHaveBeenCalledWith("t");
+      expect(verifyTokenMock).toHaveBeenCalledWith('t');
     });
 
-    it("空文字列は全エンドポイントの consume を止める（緊急ロールバック）", async () => {
-      process.env.APP_CHECK_CONSUME_ENDPOINTS = "";
-      verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: true });
+    it('空文字列は全エンドポイントの consume を止める（緊急ロールバック）', async () => {
+      process.env.APP_CHECK_CONSUME_ENDPOINTS = '';
+      verifyTokenMock.mockResolvedValue({ appId: 'x', alreadyConsumed: true });
       mockUpstream({});
       const res = makeRes();
       await invokeHandler(
         googleWalkMatrixProxy,
-        makeReq({ query: QUERIES.googleWalkMatrixProxy, token: "t" }),
-        res
+        makeReq({ query: QUERIES.googleWalkMatrixProxy, token: 't' }),
+        res,
       );
-      expect(verifyTokenMock).toHaveBeenCalledWith("t");
+      expect(verifyTokenMock).toHaveBeenCalledWith('t');
       expect(res.statusCode).not.toBe(401);
     });
   });
 });
 
-describe("CORS プリフライト（OPTIONS）", () => {
+describe('CORS プリフライト（OPTIONS）', () => {
   const handlers: [string, HttpsFunction][] = [
-    ["placesProxy", placesProxy],
-    ["googleWalkProxy", googleWalkProxy],
-    ["googleWalkMatrixProxy", googleWalkMatrixProxy],
+    ['placesProxy', placesProxy],
+    ['googleWalkProxy', googleWalkProxy],
+    ['googleWalkMatrixProxy', googleWalkMatrixProxy],
   ];
   const original = process.env.FUNCTIONS_EMULATOR;
 
@@ -881,7 +840,7 @@ describe("CORS プリフライト（OPTIONS）", () => {
     verifyTokenMock.mockReset();
     resetRateLimit();
     resetUpstreamCache();
-    process.env.FUNCTIONS_EMULATOR = "true";
+    process.env.FUNCTIONS_EMULATOR = 'true';
   });
 
   afterEach(() => {
@@ -890,139 +849,129 @@ describe("CORS プリフライト（OPTIONS）", () => {
   });
 
   it.each(handlers)(
-    "%s: OPTIONS は 204 と CORS ヘッダを返し上流を呼ばない",
+    '%s: OPTIONS は 204 と CORS ヘッダを返し上流を呼ばない',
     async (_name, handler) => {
       const res = makeRes();
       await invokeHandler(
         handler,
-        makeReq({ method: "OPTIONS", origin: "https://aruku.pages.dev" }),
-        res
+        makeReq({ method: 'OPTIONS', origin: 'https://aruku.pages.dev' }),
+        res,
       );
       expect(res.statusCode).toBe(204);
-      expect(res.body).toBe("");
-      expect(res.headers["Access-Control-Allow-Origin"]).toBe(
-        "https://aruku.pages.dev"
-      );
-      expect(res.headers["Access-Control-Allow-Methods"]).toBe("GET");
-      expect(res.headers["Access-Control-Allow-Headers"]).toBe(
-        "Content-Type, X-Firebase-AppCheck"
-      );
+      expect(res.body).toBe('');
+      expect(res.headers['Access-Control-Allow-Origin']).toBe('https://aruku.pages.dev');
+      expect(res.headers['Access-Control-Allow-Methods']).toBe('GET');
+      expect(res.headers['Access-Control-Allow-Headers']).toBe('Content-Type, X-Firebase-AppCheck');
       expect(httpsRequestMock).not.toHaveBeenCalled();
-    }
+    },
   );
 
   it.each(handlers)(
-    "%s: プリフライトは Max-Age を返し毎回の往復を避ける",
+    '%s: プリフライトは Max-Age を返し毎回の往復を避ける',
     async (_name, handler) => {
       const res = makeRes();
       await invokeHandler(
         handler,
-        makeReq({ method: "OPTIONS", origin: "https://aruku.pages.dev" }),
-        res
+        makeReq({ method: 'OPTIONS', origin: 'https://aruku.pages.dev' }),
+        res,
       );
-      expect(res.headers["Access-Control-Max-Age"]).toBe("3600");
-    }
+      expect(res.headers['Access-Control-Max-Age']).toBe('3600');
+    },
   );
 
-  it.each(handlers)(
-    "%s: 許可外 Origin には ACAO を付けない",
-    async (_name, handler) => {
-      const res = makeRes();
-      await invokeHandler(
-        handler,
-        makeReq({ method: "OPTIONS", origin: "https://evil.example" }),
-        res
-      );
-      expect(res.statusCode).toBe(204);
-      expect(res.headers["Access-Control-Allow-Origin"]).toBeUndefined();
-    }
-  );
+  it.each(handlers)('%s: 許可外 Origin には ACAO を付けない', async (_name, handler) => {
+    const res = makeRes();
+    await invokeHandler(
+      handler,
+      makeReq({ method: 'OPTIONS', origin: 'https://evil.example' }),
+      res,
+    );
+    expect(res.statusCode).toBe(204);
+    expect(res.headers['Access-Control-Allow-Origin']).toBeUndefined();
+  });
 
-  it.each(handlers)(
-    "%s: Origin の有無にかかわらず Vary: Origin を返す",
-    async (_name, handler) => {
-      const withOrigin = makeRes();
-      await invokeHandler(
-        handler,
-        makeReq({ method: "OPTIONS", origin: "https://aruku.pages.dev" }),
-        withOrigin
-      );
-      expect(withOrigin.headers["Vary"]).toBe("Origin");
+  it.each(handlers)('%s: Origin の有無にかかわらず Vary: Origin を返す', async (_name, handler) => {
+    const withOrigin = makeRes();
+    await invokeHandler(
+      handler,
+      makeReq({ method: 'OPTIONS', origin: 'https://aruku.pages.dev' }),
+      withOrigin,
+    );
+    expect(withOrigin.headers['Vary']).toBe('Origin');
 
-      const withoutOrigin = makeRes();
-      await invokeHandler(handler, makeReq({ method: "OPTIONS" }), withoutOrigin);
-      expect(withoutOrigin.headers["Vary"]).toBe("Origin");
-    }
-  );
+    const withoutOrigin = makeRes();
+    await invokeHandler(handler, makeReq({ method: 'OPTIONS' }), withoutOrigin);
+    expect(withoutOrigin.headers['Vary']).toBe('Origin');
+  });
 
-  it("Origin 無し（モバイル・curl）でも ACAO 無しで通常処理へ進む", async () => {
+  it('Origin 無し（モバイル・curl）でも ACAO 無しで通常処理へ進む', async () => {
     mockUpstream({ routes: [{ distanceMeters: 100 }] });
     const res = makeRes();
     await invokeHandler(
       googleWalkProxy,
       makeReq({
-        query: { start: "35.7,139.7", goal: "35.6,139.7" },
-        token: "ok",
+        query: { start: '35.7,139.7', goal: '35.6,139.7' },
+        token: 'ok',
       }),
-      res
+      res,
     );
     expect(res.statusCode).toBeUndefined();
-    expect(res.headers["Access-Control-Allow-Origin"]).toBeUndefined();
+    expect(res.headers['Access-Control-Allow-Origin']).toBeUndefined();
     expect(httpsRequestMock).toHaveBeenCalled();
   });
 
-  it("許可外 Origin でもサーバー側では拒否しない（CORS はブラウザ側の仕組み）", async () => {
+  it('許可外 Origin でもサーバー側では拒否しない（CORS はブラウザ側の仕組み）', async () => {
     mockUpstream({ routes: [{ distanceMeters: 100 }] });
     const res = makeRes();
     await invokeHandler(
       googleWalkProxy,
       makeReq({
-        query: { start: "35.7,139.7", goal: "35.6,139.7" },
-        token: "ok",
-        origin: "https://evil.example",
+        query: { start: '35.7,139.7', goal: '35.6,139.7' },
+        token: 'ok',
+        origin: 'https://evil.example',
       }),
-      res
+      res,
     );
-    expect(res.headers["Access-Control-Allow-Origin"]).toBeUndefined();
+    expect(res.headers['Access-Control-Allow-Origin']).toBeUndefined();
     expect(httpsRequestMock).toHaveBeenCalled();
   });
 });
 
-describe("Origin 許可リスト", () => {
+describe('Origin 許可リスト', () => {
   it.each([
-    "https://aruku.pages.dev",
-    "https://claude-aruku-pages-dev-url-k.aruku.pages.dev",
-    "https://abcd1234.aruku.pages.dev",
-    "http://localhost:5555",
-    "http://localhost",
-    "http://127.0.0.1:8080",
-    "https://localhost:5555",
-  ])("許可: %s", (origin) => {
+    'https://aruku.pages.dev',
+    'https://claude-aruku-pages-dev-url-k.aruku.pages.dev',
+    'https://abcd1234.aruku.pages.dev',
+    'http://localhost:5555',
+    'http://localhost',
+    'http://127.0.0.1:8080',
+    'https://localhost:5555',
+  ])('許可: %s', (origin) => {
     expect(isAllowedOrigin(origin)).toBe(true);
   });
 
   it.each([
     // pages.dev は共有ドメインで誰でもプロジェクトを作れる。前方一致・部分一致で
     // 判定すると他人のプロジェクトを通してしまうため、境界を厳密に検証する。
-    "https://evil.pages.dev",
-    "https://evil-aruku.pages.dev",
-    "https://aruku.pages.dev.evil.example",
-    "https://arukupages.dev",
-    "https://evil.example",
+    'https://evil.pages.dev',
+    'https://evil-aruku.pages.dev',
+    'https://aruku.pages.dev.evil.example',
+    'https://arukupages.dev',
+    'https://evil.example',
     // 開発用の許可は平文 http のローカルホストのみ。名前解決を攻撃者が握れる
     // ホスト名で http を許すと中間者に ACAO を渡すことになる。
-    "http://aruku.pages.dev",
-    "http://evil.example",
+    'http://aruku.pages.dev',
+    'http://evil.example',
     // ブラウザの Origin になり得ないスキームは、ループバックでも通さない。
-    "ftp://localhost",
+    'ftp://localhost',
     // Origin として正規形でない文字列は echo 対象にしない。
-    "https://aruku.pages.dev/",
-    "https://aruku.pages.dev/path",
-    "https://user:pass@aruku.pages.dev",
-    "null",
-    "",
-    "not a url",
-  ])("拒否: %s", (origin) => {
+    'https://aruku.pages.dev/',
+    'https://aruku.pages.dev/path',
+    'https://user:pass@aruku.pages.dev',
+    'null',
+    '',
+    'not a url',
+  ])('拒否: %s', (origin) => {
     expect(isAllowedOrigin(origin)).toBe(false);
   });
 });
@@ -1039,14 +988,14 @@ function mockUpstreamManual(): { finish: (body: unknown, status?: number) => voi
       emitter = res;
       cb(res);
       return { on: vi.fn(), write: vi.fn(), end: vi.fn() };
-    }
+    },
   );
   return {
     finish: (body, status = 200) => {
-      if (!emitter) throw new Error("upstream not started");
+      if (!emitter) throw new Error('upstream not started');
       emitter.statusCode = status;
-      emitter.emit("data", Buffer.from(JSON.stringify(body)));
-      emitter.emit("end");
+      emitter.emit('data', Buffer.from(JSON.stringify(body)));
+      emitter.emit('end');
     },
   };
 }
@@ -1054,14 +1003,14 @@ function mockUpstreamManual(): { finish: (body: unknown, status?: number) => voi
 // 保留中の全マイクロタスク/nextTick を流し切る（macrotask 境界まで待つ）。
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-describe("ハンドラ統合（重複排除 / issue #274）", () => {
+describe('ハンドラ統合（重複排除 / issue #274）', () => {
   const original = process.env.FUNCTIONS_EMULATOR;
 
   beforeEach(() => {
     resetRateLimit();
     resetUpstreamCache();
     httpsRequestMock.mockReset();
-    process.env.FUNCTIONS_EMULATOR = "true";
+    process.env.FUNCTIONS_EMULATOR = 'true';
   });
 
   afterEach(() => {
@@ -1069,9 +1018,9 @@ describe("ハンドラ統合（重複排除 / issue #274）", () => {
     else process.env.FUNCTIONS_EMULATOR = original;
   });
 
-  it("googleWalkProxy: 同一パラメータの並行リクエストは上流を1回に集約する（single-flight）", async () => {
+  it('googleWalkProxy: 同一パラメータの並行リクエストは上流を1回に集約する（single-flight）', async () => {
     const upstream = mockUpstreamManual();
-    const q = { start: "35.7,139.7", goal: "35.6,139.7" };
+    const q = { start: '35.7,139.7', goal: '35.6,139.7' };
     const res1 = makeRes();
     const res2 = makeRes();
 
@@ -1090,9 +1039,9 @@ describe("ハンドラ統合（重複排除 / issue #274）", () => {
     expect(res2.body).toEqual({ routes: [{ distanceMeters: 100 }] });
   });
 
-  it("googleWalkProxy: 同一パラメータの逐次リクエストは TTL 内で上流を1回に集約する", async () => {
+  it('googleWalkProxy: 同一パラメータの逐次リクエストは TTL 内で上流を1回に集約する', async () => {
     mockUpstream({ routes: [{ distanceMeters: 100 }] });
-    const q = { start: "35.7,139.7", goal: "35.6,139.7" };
+    const q = { start: '35.7,139.7', goal: '35.6,139.7' };
 
     const res1 = makeRes();
     await invokeHandler(googleWalkProxy, makeReq({ query: q }), res1);
@@ -1103,45 +1052,45 @@ describe("ハンドラ統合（重複排除 / issue #274）", () => {
     expect(res2.body).toEqual({ routes: [{ distanceMeters: 100 }] });
   });
 
-  it("googleWalkProxy: 丸め桁以下の座標差は同一キーに集約する", async () => {
+  it('googleWalkProxy: 丸め桁以下の座標差は同一キーに集約する', async () => {
     mockUpstream({ routes: [{ distanceMeters: 100 }] });
     // 6桁目のみ異なる（丸め粒度 5 桁 ≈ 1m 以下）。
     const res1 = makeRes();
     await invokeHandler(
       googleWalkProxy,
-      makeReq({ query: { start: "35.700001,139.7", goal: "35.6,139.7" } }),
-      res1
+      makeReq({ query: { start: '35.700001,139.7', goal: '35.6,139.7' } }),
+      res1,
     );
     const res2 = makeRes();
     await invokeHandler(
       googleWalkProxy,
-      makeReq({ query: { start: "35.700002,139.7", goal: "35.6,139.7" } }),
-      res2
+      makeReq({ query: { start: '35.700002,139.7', goal: '35.6,139.7' } }),
+      res2,
     );
     expect(httpsRequestMock).toHaveBeenCalledTimes(1);
   });
 
-  it("googleWalkProxy: 異なる座標は別々に上流を呼ぶ", async () => {
+  it('googleWalkProxy: 異なる座標は別々に上流を呼ぶ', async () => {
     mockUpstream({ routes: [{ distanceMeters: 100 }] });
     const res1 = makeRes();
     await invokeHandler(
       googleWalkProxy,
-      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }),
-      res1
+      makeReq({ query: { start: '35.7,139.7', goal: '35.6,139.7' } }),
+      res1,
     );
     const res2 = makeRes();
     await invokeHandler(
       googleWalkProxy,
-      makeReq({ query: { start: "35.8,139.7", goal: "35.6,139.7" } }),
-      res2
+      makeReq({ query: { start: '35.8,139.7', goal: '35.6,139.7' } }),
+      res2,
     );
     expect(httpsRequestMock).toHaveBeenCalledTimes(2);
   });
 
-  it("googleWalkProxy: 上流失敗は集約せず、次の同一リクエストで再度呼ぶ", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+  it('googleWalkProxy: 上流失敗は集約せず、次の同一リクエストで再度呼ぶ', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     mockUpstream({ error: { code: 403 } }, 403);
-    const q = { start: "35.7,139.7", goal: "35.6,139.7" };
+    const q = { start: '35.7,139.7', goal: '35.6,139.7' };
 
     const res1 = makeRes();
     await invokeHandler(googleWalkProxy, makeReq({ query: q }), res1);
@@ -1155,12 +1104,12 @@ describe("ハンドラ統合（重複排除 / issue #274）", () => {
     vi.restoreAllMocks();
   });
 
-  it("googleWalkMatrixProxy: 同一パラメータの逐次リクエストは上流を1回に集約する", async () => {
+  it('googleWalkMatrixProxy: 同一パラメータの逐次リクエストは上流を1回に集約する', async () => {
     const payload = [
-      { originIndex: 0, destinationIndex: 0, duration: "600s", distanceMeters: 800 },
+      { originIndex: 0, destinationIndex: 0, duration: '600s', distanceMeters: 800 },
     ];
     mockUpstream(payload);
-    const q = { origins: "35.7,139.7", destinations: "35.6,139.7;35.65,139.72" };
+    const q = { origins: '35.7,139.7', destinations: '35.6,139.7;35.65,139.72' };
 
     const res1 = makeRes();
     await invokeHandler(googleWalkMatrixProxy, makeReq({ query: q }), res1);
@@ -1171,9 +1120,9 @@ describe("ハンドラ統合（重複排除 / issue #274）", () => {
     expect(res2.body).toEqual(payload);
   });
 
-  it("placesProxy: 重複排除の対象外（cacheKey 未指定なので毎回上流を呼ぶ）", async () => {
+  it('placesProxy: 重複排除の対象外（cacheKey 未指定なので毎回上流を呼ぶ）', async () => {
     mockUpstream({ suggestions: [] });
-    const q = { action: "autocomplete", input: "shibuya" };
+    const q = { action: 'autocomplete', input: 'shibuya' };
 
     const res1 = makeRes();
     await invokeHandler(placesProxy, makeReq({ query: q }), res1);

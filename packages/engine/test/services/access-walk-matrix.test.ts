@@ -18,12 +18,9 @@ const nothingMeasured = (): boolean => false;
 
 /// 要求群が実際に測る有向レッグのキーを、重複も残して並べる。
 const requestedKeys = (requests: readonly WalkMatrixRequest[]): string[] =>
-  requests.flatMap((r) =>
-    r.origins.flatMap((o) => r.dests.map((d) => walkCacheKey(o, d))),
-  );
+  requests.flatMap((r) => r.origins.flatMap((o) => r.dests.map((d) => walkCacheKey(o, d))));
 
-const elementsOf = (r: WalkMatrixRequest): number =>
-  r.origins.length * r.dests.length;
+const elementsOf = (r: WalkMatrixRequest): number => r.origins.length * r.dests.length;
 
 describe('planAccessWalkMatrix: 検索単位の集約 (#485)', () => {
   it('複数の路線が共有する乗車駅・降車駅・全徒歩は1回ずつしか測らない', () => {
@@ -117,23 +114,20 @@ describe('planAccessWalkMatrix: 検索単位の集約 (#485)', () => {
     { boards: 25, calls: 2 },
     { boards: 30, calls: 2 },
     { boards: 50, calls: 3 },
-  ])(
-    '乗車側 $boards 駅＋goal は要素数上限25以下へ分割する（$calls 本）',
-    ({ boards, calls }) => {
-      const plan = planAccessWalkMatrix(
-        origin,
-        goal,
-        [{ boardStops: stops(boards), alightStops: [] }],
-        nothingMeasured,
-      );
-      expect(plan.requests).toHaveLength(calls);
-      for (const r of plan.requests) {
-        expect(elementsOf(r)).toBeLessThanOrEqual(25);
-        expect(elementsOf(r)).toBeGreaterThan(0);
-      }
-      expect(new Set(requestedKeys(plan.requests)).size).toEqual(boards + 1);
-    },
-  );
+  ])('乗車側 $boards 駅＋goal は要素数上限25以下へ分割する（$calls 本）', ({ boards, calls }) => {
+    const plan = planAccessWalkMatrix(
+      origin,
+      goal,
+      [{ boardStops: stops(boards), alightStops: [] }],
+      nothingMeasured,
+    );
+    expect(plan.requests).toHaveLength(calls);
+    for (const r of plan.requests) {
+      expect(elementsOf(r)).toBeLessThanOrEqual(25);
+      expect(elementsOf(r)).toBeGreaterThan(0);
+    }
+    expect(new Set(requestedKeys(plan.requests)).size).toEqual(boards + 1);
+  });
 
   it.each([
     { alights: 25, calls: 1 },

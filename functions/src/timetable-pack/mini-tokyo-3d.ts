@@ -4,8 +4,8 @@
 // パックを直接組まず GTFS の文字列を経るのは、駅のまとめ・運行日・便の切り出しを
 // ODPT と同じ buildTimetablePack に任せ、パックの形式も読み込みも変えずに済ませるため。
 
-import { runsSaturdayHolidaySchedule } from "./japanese-holidays";
-import type { FeedInput } from "./pack";
+import { runsSaturdayHolidaySchedule } from './japanese-holidays';
+import type { FeedInput } from './pack';
 
 export interface M3dStation {
   id: string;
@@ -49,14 +49,14 @@ export interface MiniTokyo3dFeedInput {
   fetchedAt: string;
 }
 
-const CALENDARS = ["Weekday", "SaturdayHoliday"] as const;
+const CALENDARS = ['Weekday', 'SaturdayHoliday'] as const;
 type Calendar = (typeof CALENDARS)[number];
 
 // 終電は 1 時台まで、始発は 4 時台から（2026-11 時点の対象事業者）。
 const LAST_HOUR_OF_SERVICE_DAY = 3;
 
 export function timetableFileOf(railwayId: string): string {
-  return `${railwayId.toLowerCase().replace(/-/g, "").replace(".", "-")}.json`;
+  return `${railwayId.toLowerCase().replace(/-/g, '').replace('.', '-')}.json`;
 }
 
 export function railwaysOf(
@@ -64,7 +64,7 @@ export function railwaysOf(
   operators: readonly string[],
 ): M3dRailway[] {
   const wanted = new Set(operators);
-  return railways.filter((r) => wanted.has(r.id.slice(0, r.id.indexOf("."))));
+  return railways.filter((r) => wanted.has(r.id.slice(0, r.id.indexOf('.'))));
 }
 
 export function miniTokyo3dFeed(input: MiniTokyo3dFeedInput): FeedInput {
@@ -80,13 +80,13 @@ export function miniTokyo3dFeed(input: MiniTokyo3dFeedInput): FeedInput {
     const times = serviceDayTimes(train.tt);
     if (times === null) continue;
     const railway = input.railways.find((r) => r.id === train.r);
-    routes.set(train.r, railway?.title.ja ?? "");
+    routes.set(train.r, railway?.title.ja ?? '');
     const destination = train.ds?.[0];
     trips.push([
       train.r,
       calendar,
       train.id,
-      destination === undefined ? "" : (stationsById.get(destination)?.title.ja ?? ""),
+      destination === undefined ? '' : (stationsById.get(destination)?.title.ja ?? ''),
     ]);
     train.tt.forEach((call, i) => {
       const station = stationsById.get(call.s);
@@ -98,33 +98,33 @@ export function miniTokyo3dFeed(input: MiniTokyo3dFeedInput): FeedInput {
   }
 
   const calendarDates: string[][] = input.dates.map((date) => [
-    runsSaturdayHolidaySchedule(date) ? "SaturdayHoliday" : "Weekday",
+    runsSaturdayHolidaySchedule(date) ? 'SaturdayHoliday' : 'Weekday',
     String(date),
-    "1",
+    '1',
   ]);
 
   return {
     id: `mini-tokyo-3d/${input.operator}`,
     fetchedAt: input.fetchedAt,
     files: {
-      "stops.txt": csv(
-        ["stop_id", "stop_name", "stop_lat", "stop_lon"],
+      'stops.txt': csv(
+        ['stop_id', 'stop_name', 'stop_lat', 'stop_lon'],
         [...usedStops].map(([id, s]) => [id, s.title.ja, String(s.coord[1]), String(s.coord[0])]),
       ),
-      "routes.txt": csv(["route_id", "route_long_name"], [...routes]),
-      "trips.txt": csv(["route_id", "service_id", "trip_id", "trip_headsign"], trips),
-      "stop_times.txt": csv(
-        ["trip_id", "arrival_time", "departure_time", "stop_id", "stop_sequence"],
+      'routes.txt': csv(['route_id', 'route_long_name'], [...routes]),
+      'trips.txt': csv(['route_id', 'service_id', 'trip_id', 'trip_headsign'], trips),
+      'stop_times.txt': csv(
+        ['trip_id', 'arrival_time', 'departure_time', 'stop_id', 'stop_sequence'],
         stopTimes,
       ),
-      "calendar_dates.txt": csv(["service_id", "date", "exception_type"], calendarDates),
-      "feed_info.txt": csv(["feed_version"], [[input.commit]]),
+      'calendar_dates.txt': csv(['service_id', 'date', 'exception_type'], calendarDates),
+      'feed_info.txt': csv(['feed_version'], [[input.commit]]),
     },
   };
 }
 
 function calendarOf(train: M3dTrain): Calendar | null {
-  const name = train.id.slice(train.t.length + 1).split(".")[0];
+  const name = train.id.slice(train.t.length + 1).split('.')[0];
   return (CALENDARS as readonly string[]).includes(name) ? (name as Calendar) : null;
 }
 
@@ -165,10 +165,10 @@ function clockSeconds(value: string): number | undefined {
 function gtfsTime(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  return `${h}:${String(m).padStart(2, "0")}:00`;
+  return `${h}:${String(m).padStart(2, '0')}:00`;
 }
 
 function csv(columns: readonly string[], rows: readonly (readonly string[])[]): string {
   const field = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
-  return [columns, ...rows].map((r) => r.map(field).join(",")).join("\n") + "\n";
+  return [columns, ...rows].map((r) => r.map(field).join(',')).join('\n') + '\n';
 }

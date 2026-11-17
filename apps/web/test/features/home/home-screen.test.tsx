@@ -88,9 +88,7 @@ function setup(initial: Partial<RouteCore> = {}, options: Options = {}) {
       store={store}
       deps={deps}
       now={() => at}
-      onStartSearch={
-        options.onStartSearch === undefined ? () => {} : options.onStartSearch
-      }
+      onStartSearch={options.onStartSearch === undefined ? () => {} : options.onStartSearch}
     />,
   );
   return { navigate, store, request, deps };
@@ -147,7 +145,6 @@ describe('ホームの見出し', () => {
     // 古い実装では開いた先から window.opener 経由でこちらを操作できる。
     expect(link.getAttribute('rel')).toBe('noopener noreferrer');
   });
-
 });
 
 describe('ホームの出発地', () => {
@@ -175,12 +172,7 @@ describe('ホームの出発地', () => {
 
     cleanup();
     render(
-      <HomeScreen
-        store={store}
-        deps={screenDeps()}
-        now={() => noon}
-        onStartSearch={() => {}}
-      />,
+      <HomeScreen store={store} deps={screenDeps()} now={() => noon} onStartSearch={() => {}} />,
     );
 
     expect(await screen.findByText('位置情報なし')).toBeDefined();
@@ -390,7 +382,9 @@ describe('デスクトップ幅の目的地', () => {
     setup();
 
     expect(
-      within(screen.getByRole('navigation', { name: '法的情報' })).getAllByRole('link').map((a) => a.textContent),
+      within(screen.getByRole('navigation', { name: '法的情報' }))
+        .getAllByRole('link')
+        .map((a) => a.textContent),
     ).toEqual(['利用規約', 'プライバシーポリシー']);
   });
 
@@ -469,18 +463,21 @@ describe('デスクトップ幅の出発地', () => {
 
     setup({ origin: '新宿駅', originLatLng: somewhere });
 
-    expect(
-      screen.getByRole<HTMLInputElement>('combobox', { name: '出発地を検索' }).value,
-    ).toBe('新宿駅');
+    expect(screen.getByRole<HTMLInputElement>('combobox', { name: '出発地を検索' }).value).toBe(
+      '新宿駅',
+    );
   });
 
   it('候補を選ぶと出発地になる', async () => {
     stubViewport(true);
-    const { store } = setup({}, {
-      deps: screenDeps(async () => [
-        { placeId: 'id-新宿駅', name: '新宿駅', address: '東京都新宿区', distanceMeters: null },
-      ]),
-    });
+    const { store } = setup(
+      {},
+      {
+        deps: screenDeps(async () => [
+          { placeId: 'id-新宿駅', name: '新宿駅', address: '東京都新宿区', distanceMeters: null },
+        ]),
+      },
+    );
 
     const field = screen.getByRole('combobox', { name: '出発地を検索' });
     fireEvent.focus(field);

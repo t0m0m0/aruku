@@ -1,22 +1,26 @@
-import { gzipSync } from "node:zlib";
+import { gzipSync } from 'node:zlib';
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from 'vitest';
 
 import {
   compileTimetable,
   transferNeighbors,
   type StationKey,
   type Timetable,
-} from "../src/exact-scan";
-import type { ScanDay } from "../src/exact-walk-max";
-import { PACK_GROUPS, packObjectPath, type PackGroup } from "../src/timetable-pack/feeds";
-import { createScanDaySource, type PackLoadDeps } from "../src/timetable-pack/load";
-import { PACK_FORMAT_VERSION, timetableForDate, type TimetablePack } from "../src/timetable-pack/pack";
+} from '../src/exact-scan';
+import type { ScanDay } from '../src/exact-walk-max';
+import { PACK_GROUPS, packObjectPath, type PackGroup } from '../src/timetable-pack/feeds';
+import { createScanDaySource, type PackLoadDeps } from '../src/timetable-pack/load';
+import {
+  PACK_FORMAT_VERSION,
+  timetableForDate,
+  type TimetablePack,
+} from '../src/timetable-pack/pack';
 
-const SERVICE_DATE = "20261023";
+const SERVICE_DATE = '20261023';
 
 // 駅2つ・便1本だけのパック。駅名にフィード名を入れ、どのパックの駅かを見分ける。
-const pack = (feedId: string, fetchedAt = "2026-10-22T19:23:00.000Z"): TimetablePack => ({
+const pack = (feedId: string, fetchedAt = '2026-10-22T19:23:00.000Z'): TimetablePack => ({
   format: PACK_FORMAT_VERSION,
   feeds: [{ id: feedId, fetchedAt, version: null }],
   stations: [],
@@ -77,13 +81,13 @@ const harness = (objects: Partial<Record<PackGroup, Uint8Array | Error>>): Harne
   };
 };
 
-describe("createScanDaySource", () => {
-  it("両グループのパックを1つの時刻表に合わせ、便はそれぞれのパックの駅を指したままにする", async () => {
-    const h = harness({ challenge: gz(pack("JR")), permanent: gz(pack("Toei")) });
+describe('createScanDaySource', () => {
+  it('両グループのパックを1つの時刻表に合わせ、便はそれぞれのパックの駅を指したままにする', async () => {
+    const h = harness({ challenge: gz(pack('JR')), permanent: gz(pack('Toei')) });
 
     const day = (await createScanDaySource(h.deps)(SERVICE_DATE))!;
 
-    expect(day.stops.map((s) => s.name)).toEqual(["JR-A", "JR-B", "Toei-A", "Toei-B"]);
+    expect(day.stops.map((s) => s.name)).toEqual(['JR-A', 'JR-B', 'Toei-A', 'Toei-B']);
     const routeOfStop = new Map<string, string>();
     for (let trip = 0; trip < day.compiled.tripCount; trip++) {
       const start = day.compiled.tripStart[trip];
@@ -92,18 +96,18 @@ describe("createScanDaySource", () => {
       }
     }
     expect(Object.fromEntries(routeOfStop)).toEqual({
-      "JR-A": "JR線",
-      "JR-B": "JR線",
-      "Toei-A": "Toei線",
-      "Toei-B": "Toei線",
+      'JR-A': 'JR線',
+      'JR-B': 'JR線',
+      'Toei-A': 'Toei線',
+      'Toei-B': 'Toei線',
     });
     expect(day.feeds).toEqual([
-      { id: "JR", fetchedAt: "2026-10-22T19:23:00.000Z" },
-      { id: "Toei", fetchedAt: "2026-10-22T19:23:00.000Z" },
+      { id: 'JR', fetchedAt: '2026-10-22T19:23:00.000Z' },
+      { id: 'Toei', fetchedAt: '2026-10-22T19:23:00.000Z' },
     ]);
   });
 
-  describe("乗換の近傍の表", () => {
+  describe('乗換の近傍の表', () => {
     // 同じ座標の2つの stop を同じ駅（station 0）にしたパック。両方のパックが同じ番号を使う。
     const twoPlatforms = (feedId: string): TimetablePack => {
       const base = pack(feedId);
@@ -125,67 +129,71 @@ describe("createScanDaySource", () => {
       return null;
     };
 
-    it("同じパックの同じ駅は同じ駅の乗換になる", async () => {
-      const h = harness({ permanent: gz(twoPlatforms("Toei")) });
+    it('同じパックの同じ駅は同じ駅の乗換になる', async () => {
+      const h = harness({ permanent: gz(twoPlatforms('Toei')) });
 
       const day = (await createScanDaySource(h.deps)(SERVICE_DATE))!;
 
-      expect(entry(day, "Toei-1番線", "Toei-2番線")).toEqual({ walkSec: 0, same: true });
+      expect(entry(day, 'Toei-1番線', 'Toei-2番線')).toEqual({ walkSec: 0, same: true });
     });
 
-    it("パックごとに0から振られた番号が重なっても、別のパックの駅を同じ駅にしない", async () => {
-      const h = harness({ challenge: gz(twoPlatforms("JR")), permanent: gz(twoPlatforms("Toei")) });
+    it('パックごとに0から振られた番号が重なっても、別のパックの駅を同じ駅にしない', async () => {
+      const h = harness({ challenge: gz(twoPlatforms('JR')), permanent: gz(twoPlatforms('Toei')) });
 
       const day = (await createScanDaySource(h.deps)(SERVICE_DATE))!;
 
-      expect(entry(day, "JR-1番線", "Toei-1番線")).toEqual({ walkSec: 0, same: false });
+      expect(entry(day, 'JR-1番線', 'Toei-1番線')).toEqual({ walkSec: 0, same: false });
     });
 
-    it("歩いて10分を超える駅は近傍に入れない", async () => {
-      const h = harness({ permanent: gz(pack("Toei")) });
+    it('歩いて10分を超える駅は近傍に入れない', async () => {
+      const h = harness({ permanent: gz(pack('Toei')) });
 
       const day = (await createScanDaySource(h.deps)(SERVICE_DATE))!;
 
-      expect(entry(day, "Toei-A", "Toei-B")).toBeNull();
+      expect(entry(day, 'Toei-A', 'Toei-B')).toBeNull();
     });
   });
 
-  it("片方のグループのパックが無ければ、もう片方だけで引く", async () => {
-    const h = harness({ permanent: gz(pack("Toei")) });
+  it('片方のグループのパックが無ければ、もう片方だけで引く', async () => {
+    const h = harness({ permanent: gz(pack('Toei')) });
 
     const day = (await createScanDaySource(h.deps)(SERVICE_DATE))!;
 
-    expect(day.feeds.map((f) => f.id)).toEqual(["Toei"]);
+    expect(day.feeds.map((f) => f.id)).toEqual(['Toei']);
     expect(h.logs).toContainEqual(
-      expect.objectContaining({ event: "timetable_pack_load", group: "challenge", status: "missing" }),
+      expect.objectContaining({
+        event: 'timetable_pack_load',
+        group: 'challenge',
+        status: 'missing',
+      }),
     );
   });
 
-  it("読めないパック・形式の違うパックは使わない", async () => {
+  it('読めないパック・形式の違うパックは使わない', async () => {
     const h = harness({
-      challenge: new Error("storage unavailable"),
-      permanent: gz({ ...pack("Toei"), format: PACK_FORMAT_VERSION + 1 }),
+      challenge: new Error('storage unavailable'),
+      permanent: gz({ ...pack('Toei'), format: PACK_FORMAT_VERSION + 1 }),
     });
 
     expect(await createScanDaySource(h.deps)(SERVICE_DATE)).toBeNull();
     expect(h.logs).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ group: "challenge", status: "failure", reason: "read" }),
-        expect.objectContaining({ group: "permanent", status: "failure", reason: "format" }),
+        expect.objectContaining({ group: 'challenge', status: 'failure', reason: 'read' }),
+        expect.objectContaining({ group: 'permanent', status: 'failure', reason: 'format' }),
       ]),
     );
   });
 
-  it("読み込みに掛かった時間とサイズをログに出す", async () => {
-    const h = harness({ permanent: gz(pack("Toei")) });
+  it('読み込みに掛かった時間とサイズをログに出す', async () => {
+    const h = harness({ permanent: gz(pack('Toei')) });
 
     await createScanDaySource(h.deps)(SERVICE_DATE);
 
     expect(h.logs).toContainEqual(
       expect.objectContaining({
-        event: "timetable_pack_load",
-        group: "permanent",
-        status: "success",
+        event: 'timetable_pack_load',
+        group: 'permanent',
+        status: 'success',
         bytes: expect.any(Number),
         trips: 1,
         loadMs: expect.any(Number),
@@ -193,19 +201,19 @@ describe("createScanDaySource", () => {
     );
   });
 
-  it("読み込みを Storage の読込・解凍・JSON の解析に分けて時間をログに出す", async () => {
-    const h = harness({ permanent: gz(pack("Toei")) });
+  it('読み込みを Storage の読込・解凍・JSON の解析に分けて時間をログに出す', async () => {
+    const h = harness({ permanent: gz(pack('Toei')) });
     // 工程ごとに時計を1ミリ秒ずつ進め、どの工程の時間かを取り違えていないことを見る。
     const read = h.deps.read;
     // 進めるのは permanent の読込だけ。ほかのグループの読込も並列に走り、同じ時計を進めるため。
     h.deps.read = async (path) => {
-      if (path === packObjectPath("permanent")) h.clock.now += 5;
+      if (path === packObjectPath('permanent')) h.clock.now += 5;
       return read(path);
     };
 
     await createScanDaySource(h.deps)(SERVICE_DATE);
 
-    const load = h.logs.find((e) => e.event === "timetable_pack_load" && e.group === "permanent");
+    const load = h.logs.find((e) => e.event === 'timetable_pack_load' && e.group === 'permanent');
     expect(load).toEqual(
       expect.objectContaining({
         readMs: 5,
@@ -218,13 +226,13 @@ describe("createScanDaySource", () => {
     );
   });
 
-  it("運行日の組み立てを抽出・compile・近傍に分けて時間とヒープをログに出す", async () => {
-    const h = harness({ permanent: gz(pack("Toei")) });
+  it('運行日の組み立てを抽出・compile・近傍に分けて時間とヒープをログに出す', async () => {
+    const h = harness({ permanent: gz(pack('Toei')) });
     h.deps.heapUsed = () => 64 * 1048576;
 
     await createScanDaySource(h.deps)(SERVICE_DATE);
 
-    const day = h.logs.find((e) => e.event === "timetable_day_compile")!;
+    const day = h.logs.find((e) => e.event === 'timetable_day_compile')!;
     expect(day).toEqual(
       expect.objectContaining({
         serviceDate: SERVICE_DATE,
@@ -240,57 +248,57 @@ describe("createScanDaySource", () => {
     );
   });
 
-  it("インスタンスが温まっている間は Storage を読み直さない", async () => {
-    const h = harness({ challenge: gz(pack("JR")), permanent: gz(pack("Toei")) });
+  it('インスタンスが温まっている間は Storage を読み直さない', async () => {
+    const h = harness({ challenge: gz(pack('JR')), permanent: gz(pack('Toei')) });
     const source = createScanDaySource(h.deps);
 
-    await Promise.all([source(SERVICE_DATE), source(SERVICE_DATE), source("20261024")]);
+    await Promise.all([source(SERVICE_DATE), source(SERVICE_DATE), source('20261024')]);
 
     expect(h.reads).toHaveLength(PACK_GROUPS.length);
   });
 
-  it("読み込みから6時間経つと読み直し、日次の更新を拾う", async () => {
-    const h = harness({ permanent: gz(pack("Toei", "2026-10-22T19:23:00.000Z")) });
+  it('読み込みから6時間経つと読み直し、日次の更新を拾う', async () => {
+    const h = harness({ permanent: gz(pack('Toei', '2026-10-22T19:23:00.000Z')) });
     const source = createScanDaySource(h.deps);
     await source(SERVICE_DATE);
 
-    h.objects.set(packObjectPath("permanent"), gz(pack("Toei", "2026-10-23T19:23:00.000Z")));
+    h.objects.set(packObjectPath('permanent'), gz(pack('Toei', '2026-10-23T19:23:00.000Z')));
     h.clock.now = 6 * 3600 * 1000;
     const day = (await source(SERVICE_DATE))!;
 
-    expect(day.feeds).toEqual([{ id: "Toei", fetchedAt: "2026-10-23T19:23:00.000Z" }]);
+    expect(day.feeds).toEqual([{ id: 'Toei', fetchedAt: '2026-10-23T19:23:00.000Z' }]);
   });
 
-  it("読み直しに失敗したグループは、前に読めたパックを使い続ける", async () => {
-    const h = harness({ permanent: gz(pack("Toei")) });
+  it('読み直しに失敗したグループは、前に読めたパックを使い続ける', async () => {
+    const h = harness({ permanent: gz(pack('Toei')) });
     const source = createScanDaySource(h.deps);
     await source(SERVICE_DATE);
 
-    h.objects.set(packObjectPath("permanent"), new Error("storage unavailable"));
+    h.objects.set(packObjectPath('permanent'), new Error('storage unavailable'));
     h.clock.now = 6 * 3600 * 1000;
     const day = await source(SERVICE_DATE);
 
-    expect(day?.feeds.map((f) => f.id)).toEqual(["Toei"]);
+    expect(day?.feeds.map((f) => f.id)).toEqual(['Toei']);
   });
 
-  it("消されたグループのパックは、前に読めていても検索に使わない", async () => {
-    const h = harness({ challenge: gz(pack("JR")), permanent: gz(pack("Toei")) });
+  it('消されたグループのパックは、前に読めていても検索に使わない', async () => {
+    const h = harness({ challenge: gz(pack('JR')), permanent: gz(pack('Toei')) });
     const source = createScanDaySource(h.deps);
     await source(SERVICE_DATE);
 
-    h.objects.delete(packObjectPath("challenge"));
+    h.objects.delete(packObjectPath('challenge'));
     h.clock.now = 6 * 3600 * 1000;
     const day = await source(SERVICE_DATE);
 
-    expect(day?.feeds.map((f) => f.id)).toEqual(["Toei"]);
+    expect(day?.feeds.map((f) => f.id)).toEqual(['Toei']);
   });
 
-  describe("運行日ごとの時刻表", () => {
+  describe('運行日ごとの時刻表', () => {
     // 運行日の扱いを全部含むパック: 当日だけ走る便・前日の運行日から 24:00 を越える便・
     // 走らない便・乗車できない停車・同じ駅の2つの stop。
     const richPack = (feedId: string, lngShift: number): TimetablePack => ({
       format: PACK_FORMAT_VERSION,
-      feeds: [{ id: feedId, fetchedAt: "2026-10-22T19:23:00.000Z", version: "v1" }],
+      feeds: [{ id: feedId, fetchedAt: '2026-10-22T19:23:00.000Z', version: 'v1' }],
       stations: [],
       stops: [
         { name: `${feedId}-A1`, lat: 35.0, lng: 139.7 + lngShift, feed: 0, station: 0 },
@@ -298,17 +306,13 @@ describe("createScanDaySource", () => {
         { name: `${feedId}-B`, lat: 35.003, lng: 139.7 + lngShift, feed: 0, station: 1 },
         { name: `${feedId}-C`, lat: 35.05, lng: 139.7 + lngShift, feed: 0, station: 2 },
       ],
-      services: [
-        { dates: [20261022, 20261023] },
-        { dates: [20261022] },
-        { dates: [20261101] },
-      ],
+      services: [{ dates: [20261022, 20261023] }, { dates: [20261022] }, { dates: [20261101] }],
       trips: [
         {
           feed: 0,
           service: 0,
           route: `${feedId}本線`,
-          headsign: "C",
+          headsign: 'C',
           block: null,
           stops: [0, 2, 3],
           arr: [36000, 36300, 36900],
@@ -321,7 +325,7 @@ describe("createScanDaySource", () => {
           service: 1,
           route: `${feedId}深夜線`,
           headsign: null,
-          block: "b1",
+          block: 'b1',
           stops: [1, 2, 3],
           arr: [86000, 86700, 87300],
           dep: [86000, 86700, 87300],
@@ -356,7 +360,10 @@ describe("createScanDaySource", () => {
           stations.push({ feed: s.feed + feedOffset, station: s.station });
         }
         for (const trip of day.trips) {
-          tt.trips.push({ ...trip, calls: trip.calls.map((c) => ({ ...c, stop: c.stop + offset })) });
+          tt.trips.push({
+            ...trip,
+            calls: trip.calls.map((c) => ({ ...c, stop: c.stop + offset })),
+          });
         }
         feedOffset += p.feeds.length;
       }
@@ -369,10 +376,10 @@ describe("createScanDaySource", () => {
       };
     };
 
-    it.each(["20261022", "20261023", "20261024", "20261101"])(
-      "%s の時刻表は、パックを1つずつ切り出して連結したものと同じになる",
+    it.each(['20261022', '20261023', '20261024', '20261101'])(
+      '%s の時刻表は、パックを1つずつ切り出して連結したものと同じになる',
       async (serviceDate) => {
-        const packs = [richPack("JR", 0), richPack("Toei", 0.001)];
+        const packs = [richPack('JR', 0), richPack('Toei', 0.001)];
         const h = harness({ challenge: gz(packs[0]), permanent: gz(packs[1]) });
 
         const day = await createScanDaySource(h.deps)(serviceDate);
@@ -381,116 +388,116 @@ describe("createScanDaySource", () => {
       },
     );
 
-    it("同じ運行日を同時に引いても、組み立ては1回だけ", async () => {
-      const h = harness({ challenge: gz(pack("JR")), permanent: gz(pack("Toei")) });
+    it('同じ運行日を同時に引いても、組み立ては1回だけ', async () => {
+      const h = harness({ challenge: gz(pack('JR')), permanent: gz(pack('Toei')) });
       const source = createScanDaySource(h.deps);
 
       const [a, b] = await Promise.all([source(SERVICE_DATE), source(SERVICE_DATE)]);
 
       expect(a).toBe(b);
-      expect(h.logs.filter((e) => e.event === "timetable_day_compile")).toHaveLength(1);
+      expect(h.logs.filter((e) => e.event === 'timetable_day_compile')).toHaveLength(1);
     });
 
-    describe("持つ運行日と、組み立ての間引き", () => {
+    describe('持つ運行日と、組み立ての間引き', () => {
       const jst = (local: string) => Date.parse(`${local}+09:00`);
       const MINUTE = 60 * 1000;
       const setup = (now: string) => {
-        const h = harness({ permanent: gz(pack("Toei")) });
+        const h = harness({ permanent: gz(pack('Toei')) });
         h.clock.now = jst(now);
         const compiles = () =>
-          h.logs.filter((e) => e.event === "timetable_day_compile").map((e) => e.serviceDate);
+          h.logs.filter((e) => e.event === 'timetable_day_compile').map((e) => e.serviceDate);
         return { h, source: createScanDaySource(h.deps), compiles };
       };
 
-      it("今日と明日の運行日は、ほかの日を引いても追い出さない", async () => {
-        const { h, source, compiles } = setup("2026-10-23T10:00:00");
+      it('今日と明日の運行日は、ほかの日を引いても追い出さない', async () => {
+        const { h, source, compiles } = setup('2026-10-23T10:00:00');
 
-        await source("20261023");
-        await source("20261024");
-        await source("20261101");
+        await source('20261023');
+        await source('20261024');
+        await source('20261101');
         h.clock.now += MINUTE;
-        await source("20261102");
-        await source("20261023");
-        await source("20261024");
+        await source('20261102');
+        await source('20261023');
+        await source('20261024');
 
-        expect(compiles()).toEqual(["20261023", "20261024", "20261101", "20261102"]);
+        expect(compiles()).toEqual(['20261023', '20261024', '20261101', '20261102']);
       });
 
-      it("今日と明日以外の運行日は1日分だけ持つ", async () => {
-        const { h, source, compiles } = setup("2026-10-23T10:00:00");
+      it('今日と明日以外の運行日は1日分だけ持つ', async () => {
+        const { h, source, compiles } = setup('2026-10-23T10:00:00');
 
-        const first = await source("20261101");
-        expect(await source("20261101")).toBe(first);
+        const first = await source('20261101');
+        expect(await source('20261101')).toBe(first);
         h.clock.now += MINUTE;
-        await source("20261102");
+        await source('20261102');
         h.clock.now += MINUTE;
-        await source("20261101");
+        await source('20261101');
 
-        expect(compiles()).toEqual(["20261101", "20261102", "20261101"]);
+        expect(compiles()).toEqual(['20261101', '20261102', '20261101']);
       });
 
-      it("今日と明日以外の運行日の組み立ては1分に1回までで、超えた要求には null を返す", async () => {
-        const { h, source, compiles } = setup("2026-10-23T10:00:00");
-        const held = await source("20261101");
+      it('今日と明日以外の運行日の組み立ては1分に1回までで、超えた要求には null を返す', async () => {
+        const { h, source, compiles } = setup('2026-10-23T10:00:00');
+        const held = await source('20261101');
 
         h.clock.now += MINUTE - 1;
-        expect(await source("20261102")).toBeNull();
+        expect(await source('20261102')).toBeNull();
         expect(h.logs).toContainEqual(
-          expect.objectContaining({ event: "timetable_day_throttled", serviceDate: "20261102" }),
+          expect.objectContaining({ event: 'timetable_day_throttled', serviceDate: '20261102' }),
         );
         // 間引いている間も、持っている日はそのまま返す。
-        expect(await source("20261101")).toBe(held);
+        expect(await source('20261101')).toBe(held);
 
         h.clock.now += 1;
-        expect(await source("20261102")).not.toBeNull();
-        expect(compiles()).toEqual(["20261101", "20261102"]);
+        expect(await source('20261102')).not.toBeNull();
+        expect(compiles()).toEqual(['20261101', '20261102']);
       });
 
-      it("今日と明日は、ほかの日を組み立てた直後でも間引かない", async () => {
-        const { source } = setup("2026-10-23T10:00:00");
-        await source("20261101");
+      it('今日と明日は、ほかの日を組み立てた直後でも間引かない', async () => {
+        const { source } = setup('2026-10-23T10:00:00');
+        await source('20261101');
 
-        expect(await source("20261023")).not.toBeNull();
-        expect(await source("20261024")).not.toBeNull();
+        expect(await source('20261023')).not.toBeNull();
+        expect(await source('20261024')).not.toBeNull();
       });
 
-      it("日付が変わると、新しい明日を間引かずに組み立てる", async () => {
-        const { h, source } = setup("2026-10-23T23:59:30");
-        await source("20261101");
+      it('日付が変わると、新しい明日を間引かずに組み立てる', async () => {
+        const { h, source } = setup('2026-10-23T23:59:30');
+        await source('20261101');
 
-        h.clock.now = jst("2026-10-24T00:00:30");
+        h.clock.now = jst('2026-10-24T00:00:30');
 
-        expect(await source("20261025")).not.toBeNull();
+        expect(await source('20261025')).not.toBeNull();
       });
     });
 
-    it("読み直した後は、読み直す前に組み立てた運行日も新しいパックで組み立て直す", async () => {
-      const h = harness({ permanent: gz(pack("Toei", "2026-10-22T19:23:00.000Z")) });
+    it('読み直した後は、読み直す前に組み立てた運行日も新しいパックで組み立て直す', async () => {
+      const h = harness({ permanent: gz(pack('Toei', '2026-10-22T19:23:00.000Z')) });
       const source = createScanDaySource(h.deps);
       const before = await source(SERVICE_DATE);
 
-      h.objects.set(packObjectPath("permanent"), gz(pack("Toei", "2026-10-23T19:23:00.000Z")));
+      h.objects.set(packObjectPath('permanent'), gz(pack('Toei', '2026-10-23T19:23:00.000Z')));
       h.clock.now = 6 * 3600 * 1000;
       // 読み直しの最中に届いた要求も、古い日別の時刻表を返さない。
       const [during, after] = await Promise.all([source(SERVICE_DATE), source(SERVICE_DATE)]);
 
       expect(during).not.toBe(before);
       expect(after).toBe(during);
-      expect(during?.feeds).toEqual([{ id: "Toei", fetchedAt: "2026-10-23T19:23:00.000Z" }]);
+      expect(during?.feeds).toEqual([{ id: 'Toei', fetchedAt: '2026-10-23T19:23:00.000Z' }]);
     });
   });
 
-  it("読めなかったグループは6時間を待たず、1分経てば読み直す", async () => {
-    const h = harness({ permanent: new Error("storage unavailable") });
+  it('読めなかったグループは6時間を待たず、1分経てば読み直す', async () => {
+    const h = harness({ permanent: new Error('storage unavailable') });
     const source = createScanDaySource(h.deps);
     expect(await source(SERVICE_DATE)).toBeNull();
 
-    h.objects.set(packObjectPath("permanent"), gz(pack("Toei")));
+    h.objects.set(packObjectPath('permanent'), gz(pack('Toei')));
     h.clock.now = 59 * 1000;
     expect(await source(SERVICE_DATE)).toBeNull();
     h.clock.now = 60 * 1000;
     const day = await source(SERVICE_DATE);
 
-    expect(day?.feeds.map((f) => f.id)).toEqual(["Toei"]);
+    expect(day?.feeds.map((f) => f.id)).toEqual(['Toei']);
   });
 });

@@ -75,10 +75,13 @@ export function watchRouteFreshness(
     if (route === null || routeAsOf === null) return;
 
     const remaining = routeAsOf.getTime() + routeFreshness - timers.now().getTime();
-    timer = timers.setTimeout(() => {
-      timer = null;
-      store.getState().revalidateRoute();
-    }, Math.max(remaining, 0));
+    timer = timers.setTimeout(
+      () => {
+        timer = null;
+        store.getState().revalidateRoute();
+      },
+      Math.max(remaining, 0),
+    );
   }
 
   const stopStore = store.subscribe(reschedule);

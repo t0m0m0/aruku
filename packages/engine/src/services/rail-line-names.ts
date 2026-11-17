@@ -63,7 +63,5 @@ const railLineLabels: Record<string, string> = {
 /// 無認証の第三者 API が返す文字列＝こちらが値域を決められない。
 export function railLineLabel(routeName: string | null): string | null {
   if (routeName === null) return null;
-  return Object.hasOwn(railLineLabels, routeName)
-    ? railLineLabels[routeName]
-    : routeName;
+  return Object.hasOwn(railLineLabels, routeName) ? railLineLabels[routeName] : routeName;
 }

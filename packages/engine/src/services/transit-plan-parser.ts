@@ -115,11 +115,7 @@ function parseOption(
   const rawLegs = journey['legs'];
   const legs = Array.isArray(rawLegs) ? rawLegs.filter(isJsonMap) : [];
 
-  if (
-    legs.some(
-      (l) => l['kind'] === 'transit' && segmentTypeForMode(l['mode']) === null,
-    )
-  ) {
+  if (legs.some((l) => l['kind'] === 'transit' && segmentTypeForMode(l['mode']) === null)) {
     return null;
   }
 
@@ -145,13 +141,9 @@ function parseOption(
 
   const transitLegs = legs.filter((l) => l['kind'] === 'transit');
   const firstBoardName =
-    transitLegs.length > 0
-      ? (nameOf(transitLegs[0]['from']) ?? fromName)
-      : fromName;
+    transitLegs.length > 0 ? (nameOf(transitLegs[0]['from']) ?? fromName) : fromName;
   const lastAlightName =
-    transitLegs.length > 0
-      ? (nameOf(transitLegs[transitLegs.length - 1]['to']) ?? toName)
-      : toName;
+    transitLegs.length > 0 ? (nameOf(transitLegs[transitLegs.length - 1]['to']) ?? toName) : toName;
 
   const segments: RouteSegment[] = [];
   const corridors: TransitCorridor[] = [];
@@ -189,9 +181,7 @@ function parseOption(
             polyline: coords,
           }),
         );
-        corridors.push(
-          new TransitCorridor({ legIndex: ti, geometrySource: geom, coords }),
-        );
+        corridors.push(new TransitCorridor({ legIndex: ti, geometrySource: geom, coords }));
         ti++;
         break;
       }
@@ -217,11 +207,7 @@ function parseOption(
   // egress walk: 最後の電車より後の徒歩セグメント群（journey.egressWalkSecs を所要に）。
   const egressSecs = truncToInt(asNum(journey['egressWalkSecs'])) ?? 0;
   if (egressSecs > 0) {
-    const walk = walkCoordsBetween(
-      mapSegs,
-      lastTransitIdx + 1,
-      mapSegs.length,
-    );
+    const walk = walkCoordsBetween(mapSegs, lastTransitIdx + 1, mapSegs.length);
     segments.push(walkSegOf(lastAlightName, toName, egressSecs, walk));
   }
 
@@ -235,12 +221,7 @@ function parseOption(
 }
 
 /// 徒歩区間を作る。所要は秒→分丸め、距離は polyline 折れ線長、kcal は距離換算。
-function walkSeg(
-  fromName: string,
-  toName: string,
-  secs: number,
-  coords: GeoPoint[],
-): RouteSegment {
+function walkSeg(fromName: string, toName: string, secs: number, coords: GeoPoint[]): RouteSegment {
   const km = polylineKm(coords);
   return new RouteSegment({
     type: SegmentType.walk,
@@ -271,11 +252,7 @@ function walkSegOf(
 }
 
 /// [start, end) の範囲にある徒歩セグメントの polyline 座標を連結する。
-function walkCoordsBetween(
-  mapSegs: JsonMap[],
-  start: number,
-  end: number,
-): PolylineCoords {
+function walkCoordsBetween(mapSegs: JsonMap[], start: number, end: number): PolylineCoords {
   const parts: PolylineCoords[] = [];
   for (let i = start; i < end && i < mapSegs.length; i++) {
     if (mapSegs[i]['kind'] === 'walk') parts.push(readWalkCoords(mapSegs[i]));
@@ -347,10 +324,7 @@ function readWalkCoords(seg: JsonMap): PolylineCoords {
 /// `geo:緯度,経度` で返る。
 function isStationPointId(id: unknown): boolean {
   return (
-    typeof id === 'string' &&
-    id !== 'origin' &&
-    id !== 'destination' &&
-    !id.startsWith('geo:')
+    typeof id === 'string' && id !== 'origin' && id !== 'destination' && !id.startsWith('geo:')
   );
 }
 
@@ -434,10 +408,7 @@ const romajiSuffix = /[\s　]+[A-Za-zÀ-ɏ][A-Za-zÀ-ɏ\s\-’']*$/;
 /// （`DateTime(y, mo, d).add(Duration(seconds: secs))`）。サービス日の「0 時 + 秒」は
 /// 暦上の時刻ではなく**運行の経過秒**で、DST で 1 日が 23 時間になる地域では
 /// 暦フィールドへ直すと逆に時刻がずれる。JST に DST は無く両者は一致する。
-export function transitSecsToJst(
-  date: string | null,
-  secs: number | null,
-): Date | null {
+export function transitSecsToJst(date: string | null, secs: number | null): Date | null {
   if (date === null || date.length !== 8 || secs === null) return null;
   const y = parseIntStrict(date.slice(0, 4));
   const mo = parseIntStrict(date.slice(4, 6));
