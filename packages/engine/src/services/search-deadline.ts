@@ -34,7 +34,10 @@ export class SearchDeadline {
 
   /// 残予算を使い切ったか。[SearchDeadline.none] は常に false
   /// （[remaining] が null で、0 とは一致しない）。
-  get isExpired(): boolean {
+  ///
+  /// getter にしないのは、時間で変わる値を TS がプロパティとして絞り込み、一度 false と
+  /// 判定した後の2回目の判定（await を跨いでも）を「常に false」と見なすため。
+  isExpired(): boolean {
     return this.remaining === durationZero;
   }
 }

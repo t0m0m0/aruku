@@ -17,11 +17,11 @@ describe('SearchDeadline', () => {
     });
 
     expect(deadline.remaining).toBe(seconds(90));
-    expect(deadline.isExpired).toBe(false);
+    expect(deadline.isExpired()).toBe(false);
 
     elapsed = seconds(119);
     expect(deadline.remaining).toBe(seconds(1));
-    expect(deadline.isExpired).toBe(false);
+    expect(deadline.isExpired()).toBe(false);
   });
 
   it('経過が予算ちょうどで期限切れになる', () => {
@@ -30,7 +30,7 @@ describe('SearchDeadline', () => {
     });
 
     expect(deadline.remaining).toBe(durationZero);
-    expect(deadline.isExpired).toBe(true);
+    expect(deadline.isExpired()).toBe(true);
   });
 
   it('予算超過でも残予算は負にならない', () => {
@@ -39,7 +39,7 @@ describe('SearchDeadline', () => {
     });
 
     expect(deadline.remaining).toBe(durationZero);
-    expect(deadline.isExpired).toBe(true);
+    expect(deadline.isExpired()).toBe(true);
   });
 
   it('既定の経過は実時間で進む', async () => {
@@ -50,13 +50,13 @@ describe('SearchDeadline', () => {
     await delay(20);
 
     expect(deadline.remaining!).toBeLessThan(first);
-    expect(deadline.isExpired).toBe(false);
+    expect(deadline.isExpired()).toBe(false);
   });
 
   it('無期限の締切は期限切れにならず残予算を持たない', () => {
     const deadline = SearchDeadline.none();
 
-    expect(deadline.isExpired).toBe(false);
+    expect(deadline.isExpired()).toBe(false);
     expect(deadline.remaining).toBeNull();
   });
 });
