@@ -19,6 +19,13 @@ export const EXACT_WALK_MAX_ELEMENTS = MAX_STOPS_PER_SIDE * 2;
 const MAX_CANDIDATES = 5;
 const MAX_BUDGET_MIN = 24 * 60;
 
+const DAY_MS = 24 * 3600 * 1000;
+// Web で選べる先の上限（engine の kMaxDateOffsetDays＝90日）に、その日の終わりまでと到着指定で押し出される分を
+// 足した幅。engine を import しないのは、functions が engine に依存していないため——向こうを広げたら
+// ここも広げる（狭いままだと、遠い日付の検索で厳密走査の候補が黙って足されなくなる）。
+const DEPART_AT_MAX_AHEAD_MS = 92 * DAY_MS;
+const DEPART_AT_MAX_BEHIND_MS = DAY_MS;
+
 const JST_OFFSET_MS = 9 * 3600 * 1000;
 
 export interface ExactWalkMaxRequest {
@@ -111,7 +118,10 @@ export interface ExactWalkMaxResponse {
 /** Express の req.query。同じ名前が2回あると配列になる。 */
 type Query = Record<string, unknown>;
 
-export function parseExactWalkMaxQuery(query: Query): ExactWalkMaxRequest | { error: string } {
+export function parseExactWalkMaxQuery(
+  query: Query,
+  now: Date,
+): ExactWalkMaxRequest | { error: string } {
   const param = (name: string): string | undefined => {
     const v = query[name];
     return typeof v === "string" ? v : undefined;
@@ -124,6 +134,10 @@ export function parseExactWalkMaxQuery(query: Query): ExactWalkMaxRequest | { er
   const departAt = parseInstant(param("departAt"));
   if (departAt === null) {
     return { error: "departAt is required as ISO 8601 with a UTC offset" };
+  }
+  const ahead = departAt.getTime() - now.getTime();
+  if (ahead < -DEPART_AT_MAX_BEHIND_MS || ahead > DEPART_AT_MAX_AHEAD_MS) {
+    return { error: "departAt must be within 1 day before to 92 days after now" };
   }
   const budgetMin = Number(param("budgetMin"));
   if (!Number.isInteger(budgetMin) || budgetMin < 1 || budgetMin > MAX_BUDGET_MIN) {

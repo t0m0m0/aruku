@@ -101,15 +101,17 @@ const request = (budgetMin = 180, transfers = false): ExactWalkMaxRequest => ({
 });
 
 describe("parseExactWalkMaxQuery", () => {
+  const now = new Date("2026-10-23T00:30:00Z");
   const valid = {
     origin: "35.56,139.71",
     goal: "35.71,139.77",
     departAt: "2026-10-23T10:00:00+09:00",
     budgetMin: "180",
   };
+  const parse = (query: Record<string, unknown>) => parseExactWalkMaxQuery(query, now);
 
   it("正しい入力を座標・出発時刻・予算に読む", () => {
-    expect(parseExactWalkMaxQuery(valid)).toEqual({
+    expect(parse(valid)).toEqual({
       origin: { lat: 35.56, lng: 139.71 },
       goal: { lat: 35.71, lng: 139.77 },
       departAt: new Date("2026-10-23T01:00:00Z"),
@@ -122,9 +124,26 @@ describe("parseExactWalkMaxQuery", () => {
     ["1", true],
     ["0", false],
   ])("transfers=%s は乗換つきの候補を%sとして読む", (value, expected) => {
-    expect(parseExactWalkMaxQuery({ ...valid, transfers: value })).toMatchObject({
+    expect(parse({ ...valid, transfers: value })).toMatchObject({
       transfers: expected,
     });
+  });
+
+  // Web で選べるのは今日から90日先まで（kMaxDateOffsetDays）。古いタブ・端末の時計のずれで少し過去も来る。
+  it.each([
+    ["1日前", "2026-10-22T00:30:00Z"],
+    ["92日先", "2027-01-23T00:30:00Z"],
+  ])("departAt が今から%sまでは受ける", (_name, departAt) => {
+    expect(parse({ ...valid, departAt })).toMatchObject({ departAt: new Date(departAt) });
+  });
+
+  it.each([
+    ["1日より前", "2026-10-22T00:29:59Z"],
+    ["92日より先", "2027-01-23T00:30:01Z"],
+    ["遠い過去", "2000-01-01T00:00:00Z"],
+    ["遠い未来", "2099-12-31T00:00:00Z"],
+  ])("departAt が今から見て%sなら拒否する", (_name, departAt) => {
+    expect(parse({ ...valid, departAt })).toHaveProperty("error");
   });
 
   it.each([
@@ -142,7 +161,7 @@ describe("parseExactWalkMaxQuery", () => {
     ["transfers が空", { ...valid, transfers: "" }],
     ["transfers が2回渡された", { ...valid, transfers: ["1", "1"] }],
   ])("%s入力は拒否する", (_name, query) => {
-    expect(parseExactWalkMaxQuery(query)).toHaveProperty("error");
+    expect(parse(query)).toHaveProperty("error");
   });
 });
 
