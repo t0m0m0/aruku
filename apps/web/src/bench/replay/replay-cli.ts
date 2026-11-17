@@ -21,7 +21,7 @@ import { TransitRouteService } from '@aruku/engine/services/transit-route-servic
 import { defaultTransitApiBaseUrl } from '../../config';
 import { standardTotalMin } from '../bench-cases';
 import { runBench } from '../bench-runner';
-import { benchPairs } from '../od-pairs';
+import { replayPairs } from '../od-pairs';
 import { parseReplayArgs, replayUsage, type ReplayArgs } from './replay-args';
 import {
   isInitialQuery,
@@ -78,7 +78,7 @@ export async function runReplay(args: ReplayArgs): Promise<number> {
 
   await runBench(
     {
-      pairs: benchPairs.filter((p) => args.pairs === null || args.pairs.test(p.id)),
+      pairs: replayPairs.filter((p) => args.pairs === null || args.pairs.test(p.id)),
       slots: args.slots,
       ratios: args.ratios,
       date: args.date,

@@ -11,7 +11,7 @@ import {
   standardTotalMin,
   timeValuesFor,
 } from '../../src/bench/bench-cases';
-import { benchPairs } from '../../src/bench/od-pairs';
+import { benchPairs, privateRailPairs, replayPairs } from '../../src/bench/od-pairs';
 
 const departureAt = dateTime(2026, 10, 27, 12, 0);
 
@@ -99,8 +99,15 @@ describe('OD の組', () => {
     expect(new Set(benchPairs.map((p) => p.id)).size).toEqual(benchPairs.length);
   });
 
+  // ブラウザの A/B ベンチの組は #462 の数字と比べるので変えず、再生ベンチだけが私鉄の組も回す（#513）。
+  it('再生ベンチの組は、A/B ベンチの組に時刻表パックの私鉄が主役の組を足したもので、id が重複しない', () => {
+    expect(replayPairs).toEqual([...benchPairs, ...privateRailPairs]);
+    expect(privateRailPairs.length).toBeGreaterThanOrEqual(8);
+    expect(new Set(replayPairs.map((p) => p.id)).size).toEqual(replayPairs.length);
+  });
+
   it('座標はどれも首都圏の範囲にある', () => {
-    for (const p of benchPairs) {
+    for (const p of replayPairs) {
       for (const pt of [p.origin, p.destination]) {
         expect(pt.lat, p.id).toBeGreaterThan(35.2);
         expect(pt.lat, p.id).toBeLessThan(36.1);
