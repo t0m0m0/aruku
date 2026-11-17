@@ -1,0 +1,55 @@
+// 未使用のファイル・export・依存の検査（#520）。リポジトリのルートで `npm run knip`。
+//
+// パッケージごとに走らせないのは、web と functions が engine をパッケージ名ではなく
+// ソースのパス（`@aruku/engine/*` の別名）で読むため。engine 単体では web だけが使う
+// export が未使用に見える。ルートから3パッケージを1つの依存グラフとして辿る。
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  // 同じファイル内で使っている export は取り残しではない（公開関数の引数の型など）。
+  // export を外すと検出は厳しくなるが、型の公開範囲を崩すだけで消せるコードは増えない。
+  "ignoreExportsUsedInFile": true,
+  "workspaces": {
+    ".": {
+      // .dependency-cruiser.cjs は JSDoc の型として読むだけ。本体は functions に入れてある
+      // （理由は .dependency-cruiser.cjs の冒頭）。
+      "ignoreDependencies": ["dependency-cruiser"]
+    },
+    "packages/engine": {
+      // 生成スクリプト。`node packages/engine/scripts/...` で直接走らせる。
+      "entry": ["scripts/*.mjs"]
+    },
+    "apps/web": {
+      "entry": [
+        // `node scripts/...` で直接走らせる開発用の道具（docs/ops/replay-bench.md ほか）。
+        "scripts/*.mjs",
+        // bench.html の入口。vite の設定には入れていない（本番の配信物に混ぜないため）。
+        "src/bench/main.tsx",
+        // scripts/replay.mjs が vite の SSR ビルドへ文字列のパスで渡すので、import として辿れない。
+        "src/bench/replay/replay-cli.ts"
+      ],
+      // public/ は vite が加工せずに配る。privacy.html / terms.html が <link> で読む CSS は
+      // モジュールの依存グラフに現れない。
+      "ignore": ["public/**"],
+      // tsconfig の types の "google.maps" は @types/google.maps を指す。
+      // @vis.gl/react-google-maps の依存として入り、こちらで版を持つ理由が無い。
+      "ignoreUnresolved": ["google.maps"]
+    },
+    "functions": {
+      "entry": [
+        // package.json の pack:local / pack:bench が lib/ のビルド成果物を node で走らせる。
+        // knip は lib/ から src/ へ戻れないので、元のソースを入口に数える。
+        "src/timetable-pack/cli.ts",
+        "src/timetable-pack/bench.ts",
+        // test:rules が --config で渡す。vitest の既定の設定ファイル名ではない。
+        "vitest.rules.config.ts"
+      ],
+      // dependency-rules.test.ts が依存規則を当てるための違反の見本。どこからも import されない。
+      "ignore": ["test/fixtures/dependency-rules/**"],
+      // Response などの型だけを読む。express 本体は firebase-functions が持ち込み、
+      // ハンドラの引数の型も firebase-functions が express のものをそのまま使う。
+      "ignoreDependencies": ["express"],
+      // firebase-tools は devDependency に入れていない（README「ローカル実行」）。
+      "ignoreBinaries": ["firebase"]
+    }
+  }
+}

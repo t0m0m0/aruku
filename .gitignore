@@ -76,3 +76,6 @@ secrets.properties
 .agents/skills/firebase-security-rules-auditor/
 .agents/skills/xcode-project-setup/
 # skills-lock.json is committed so `npx skills install` is reproducible.
+
+# ルートの package.json は knip（#520）だけを入れる。
+/node_modules/
