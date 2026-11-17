@@ -104,7 +104,7 @@ class RateLimitConfigError extends Error {}
 
 function getRateLimitHmacKey(): string {
   const key = process.env.RATE_LIMIT_HMAC_KEY;
-  if (key && key.length >= MIN_HMAC_KEY_LENGTH) return key;
+  if (key !== undefined && key.length >= MIN_HMAC_KEY_LENGTH) return key;
   if (process.env.FUNCTIONS_EMULATOR === 'true') return 'aruku-emulator-fallback';
   throw new RateLimitConfigError('RATE_LIMIT_HMAC_KEY unset or too short (>=32 chars required)');
 }

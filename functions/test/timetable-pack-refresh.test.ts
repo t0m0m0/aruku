@@ -228,6 +228,21 @@ describe('refreshTimetablePacks', () => {
     );
   });
 
+  it('キーが空文字のフィードも、キーが無いものとして取りに行かずに失敗にする', async () => {
+    const h = harness(undefined, { ODPT_CENTER_KEY: CENTER_KEY, ODPT_CHALLENGE_KEY: '' });
+    const results = await refreshOdpt(h.deps, FEEDS);
+    expect(h.requested.some((u) => u.includes('challenge.example'))).toBe(false);
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          group: 'challenge',
+          status: 'skipped',
+          failedFeeds: ['JR', 'Keio'],
+        }),
+      ]),
+    );
+  });
+
   it('失敗してもログ・結果にキーの値も URL も出さない', async () => {
     const h = harness((url) => {
       if (url.includes('JR')) throw new TypeError(`fetch failed: ${url}`);

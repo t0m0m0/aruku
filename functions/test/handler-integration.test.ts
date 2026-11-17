@@ -446,6 +446,17 @@ describe('ハンドラ統合（502 分岐・透過）', () => {
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
+  it('placesProxy autocomplete: 空の input は欠落と同じく 400 で上流を呼ばない', async () => {
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({ query: { action: 'autocomplete', input: '' } }),
+      res,
+    );
+    expect(res.statusCode).toBe(400);
+    expect(httpsRequestMock).not.toHaveBeenCalled();
+  });
+
   it('placesProxy autocomplete: 同じ名前を重ねた input（配列）は欠落と同じく 400 で上流を呼ばない', async () => {
     const res = makeRes();
     await invokeHandler(
@@ -493,6 +504,13 @@ describe('ハンドラ統合（502 分岐・透過）', () => {
   it('placesProxy details: place_id 欠落は 400 で上流を呼ばない', async () => {
     const res = makeRes();
     await invokeHandler(placesProxy, makeReq({ query: { action: 'details' } }), res);
+    expect(res.statusCode).toBe(400);
+    expect(httpsRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('placesProxy details: 空の place_id は欠落と同じく 400 で上流を呼ばない', async () => {
+    const res = makeRes();
+    await invokeHandler(placesProxy, makeReq({ query: { action: 'details', place_id: '' } }), res);
     expect(res.statusCode).toBe(400);
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });

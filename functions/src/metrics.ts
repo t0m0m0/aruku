@@ -39,7 +39,7 @@ export function logRequestOutcome(params: RequestOutcomeParams): void {
     // 「429 特定可能」というログ契約を型として残すため専用フィールドにする）。
     ...(httpStatus === 429 ? { rateLimited: true } : {}),
     // httpStatus=200 の failure を「HTTP は成功・意味的に失敗」と判別可能に保つ。
-    ...(semanticFailure ? { semanticFailure: true } : {}),
+    ...(semanticFailure === true ? { semanticFailure: true } : {}),
   };
   if (status === 'success') {
     logger.info('search_request', payload);

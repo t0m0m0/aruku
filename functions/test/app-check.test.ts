@@ -72,6 +72,15 @@ describe('verifyAppCheck', () => {
     expect(verifyTokenMock).not.toHaveBeenCalled();
   });
 
+  it('空のトークンは欠落と同じく 401 を返して false', async () => {
+    const res = makeRes();
+    const ok = await verifyAppCheck(makeReq('') as unknown as Request, res as unknown as Response);
+    expect(ok).toBe(false);
+    expect(res.statusCode).toBe(401);
+    expect(res.body).toEqual({ error: 'App Check token missing' });
+    expect(verifyTokenMock).not.toHaveBeenCalled();
+  });
+
   it('無効なトークンは 401 を返して false', async () => {
     verifyTokenMock.mockRejectedValue(new Error('invalid'));
     const res = makeRes();
