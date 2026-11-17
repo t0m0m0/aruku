@@ -137,7 +137,7 @@ export function createSearchState(options: SearchStateOptions): SearchState {
       /// 距離は取得時に origin を送って初めて候補へ付くため、取得時点で現在地が
       /// 未確定だった候補は後から現在地が届いても並べ替えられない（トグルが無反応に
       /// 見える）。再フェッチで埋めることは可能だが、切替のたびに課金リクエストが
-      /// 増えるため採らない。docs/spec/place-search.md §6 に既知の限界として記載。
+      /// 増えるため採らない。
       setNearby(value: boolean) {
         if (get().nearby === value) return;
         if (get().status !== 'success') {

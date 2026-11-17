@@ -2,7 +2,7 @@
 
 - **位置づけ:** React SPA へ移行する前の Flutter 版（Web / iOS / Android の3ターゲットが揃った最終状態）を、後から動く形で取り出すための手順書。epic #382 / Phase 0（#383）。
 - **凍結先:** タグ `flutter-final` / ブランチ `archive/flutter`
-- **関連:** [README.md](../../README.md)（キー・secrets の用意）, [route-optimization.md](../spec/route-optimization.md)（ルート最適化の仕様。移行後も正本）
+- **関連:** [README.md](../../README.md)（キー・secrets の用意）
 
 このファイル中のコードのパス・シンボルは、断りが無い限り**凍結先ツリー上の位置**を指す。
 `main` からは Phase 4 で Flutter 資産が消えるため、`main` に同じものがある保証は無い。
@@ -146,7 +146,7 @@ git checkout -- lib/firebase_options.dart    # 追跡ファイルへの上書き
 
 **Transit API は凍結の対象外であり、復元性の上限を決めている。** 公共交通のプロキシは
 このリポジトリに無く、クライアントが第三者サービスを直接叩く（`lib/core/config/app_config.dart`
-の `TRANSIT_API_BASE_URL`、既定値がこのホスト。[route-optimization.md](../spec/route-optimization.md)）。
+の `TRANSIT_API_BASE_URL`、既定値がこのホスト）。
 サービスが消えるか契約が変われば、**ビルドも起動も地図も地点検索も通ったまま、ルートだけが
 出なくなる**。git のタグでは防げない種類の劣化で、§1 の「固定されない」側の最上位に来る。
 

@@ -166,7 +166,7 @@ export async function runReplay(args: ReplayArgs): Promise<number> {
 }
 
 export async function main(argv: readonly string[]): Promise<number> {
-  // エンジンの時刻は JST の壁時計を表す naive な Date（docs/spec/route-optimization.md §4 #121）。
+  // エンジンの時刻は JST の壁時計を表す naive な Date（#121）。
   if (new Date(2026, 0, 1).getTimezoneOffset() !== -540) {
     console.error('TZ=Asia/Tokyo で実行してください');
     return 2;

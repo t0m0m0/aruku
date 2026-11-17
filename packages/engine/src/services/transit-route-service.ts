@@ -175,7 +175,7 @@ const corridorFingerprintSamples = 8;
 /// best-effort 縮退）と純粋関数（[selectBestRoute]/[maxWalkBoardingIndexParallel]/
 /// [frontierStations]/[arrivalMinutes]/[buildRoutePlan]）はデータ源非依存。
 ///
-/// データ源の制約が設計を決めている（docs/spec/route-optimization.md §2.2）：
+/// データ源の制約が設計を決めている：
 /// - 途中停車駅を leg が持たないため、transit polyline（コリドー座標）で代替する。
 /// - 運賃は上流が返さないため常に null（§2.2-3）。
 /// - 乗り遅れ再照会（#115）は乗車駅探索へ一本化した。
@@ -944,7 +944,7 @@ export class TransitRouteService implements SearchEngine {
     return result;
   }
 
-  /// 乗車駅探索（docs/spec/route-optimization.md §3.6 / §2.3）。
+  /// 乗車駅探索。
   /// [base] のコリドー座標を乗車駅候補（前半徒歩 t1 の昇順）とし、各点 X から
   /// `/guidance/plan(X→goal, departureAt+t1)` を引き直して「到着が予算内の最遠＝総徒歩
   /// 最大」を [maxWalkBoardingIndexParallel] で探索する。

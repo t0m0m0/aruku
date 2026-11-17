@@ -222,8 +222,8 @@ describe('乗り物の区間', () => {
     expect(screen.getByText(label)).toBeTruthy();
   });
 
-  // [RouteSegment.fare] を埋める経路は現状どこにも無く、この分岐は常に不発
-  // （docs/spec/route-optimization.md §4 #71）。別の運賃ソースを得たときに
+  // [RouteSegment.fare] を埋める経路は現状どこにも無く、この分岐は常に不発（#71）。
+  // 別の運賃ソースを得たときに
   // パーサの配線だけで点灯できるよう、器ごと運んでいる。
   it('運賃があれば添える', () => {
     render(

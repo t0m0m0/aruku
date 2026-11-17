@@ -160,7 +160,7 @@ export function forwardCandidates(
 /// 停車駅座標で疎（サンプリング上限以下）なので全点がそのまま使われる。一方 Transit API の
 /// gtfsShape は線路追従で頂点が密（数百）なため、全頂点を判定すると乗車直後などの
 /// 一過性の後方カーブ頂点1つで正当な経路を誤除外してしまう。サンプリングにより
-/// コリドーの大局的な逆戻りのみを検出する（docs/spec/route-optimization.md §2.3）。
+/// コリドーの大局的な逆戻りのみを検出する。
 function isBacktrackDetour(
   c: RouteCandidate,
   origin: GeoPoint,
@@ -262,7 +262,7 @@ export interface MaxWalkBoardingIndexParallelArgs {
   onRound?: () => void;
 }
 
-/// 乗車駅探索（docs/spec/route-optimization.md §3.6）：乗車駅候補について
+/// 乗車駅探索：乗車駅候補について
 /// 「到着が予算内の最遠 index ＝ 総徒歩最大」を二分探索で返す。
 /// 先頭すら予算外・[count] が 0 なら null。
 ///
