@@ -48,6 +48,8 @@ secrets.properties
 !.claude/bash_guard_test.py
 !.claude/typecheck_on_edit.py
 !.claude/typecheck_on_edit_test.py
+!.claude/format_on_edit.py
+!.claude/format_on_edit_test.py
 !.claude/doc_consistency.py
 !.claude/doc_consistency_test.py
 .claude/settings.local.json

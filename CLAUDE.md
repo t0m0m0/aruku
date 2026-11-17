@@ -154,6 +154,12 @@ Lint（oxlint + tsgolint）の規則はルートの `.oxlintrc.json` に置き�
 未使用のファイル・export・依存は knip が検査する。設定はルートの `knip.jsonc`、走らせるのは
 ルートで `npm ci` したうえでの `npm run knip`（3パッケージのどれを変えても走らせる）。
 
+書式は Prettier が揃える。設定はルートの `.prettierrc.json`、対象外は `.prettierignore`（Markdown・
+lock ファイル・生成物ほか、理由はそのファイル）。走らせるのはルートで `npm run format:check`
+（直すのは `npm run format`。どのファイルを変えても走らせる）。編集時フックが編集したファイルを整形する。
+全体を整形したコミットは `.git-blame-ignore-revs` に載せてあり、`git config blame.ignoreRevsFile .git-blame-ignore-revs`
+で手元の blame も飛ばせる。
+
 ---
 
 ## Security Restrictions
