@@ -162,4 +162,8 @@ describe('引き継げない区間', () => {
   it('範囲外の区間は null', () => {
     expect(buildLegMapsUrl(plan([walk()]), 1)).toBeNull();
   });
+
+  it('負の添字は末尾から数えず null', () => {
+    expect(buildLegMapsUrl(plan([walk(), ride()]), -1)).toBeNull();
+  });
 });
