@@ -30,23 +30,25 @@ export function firstAcceptedInOrder<T>(
   accept: (value: T) => boolean,
 ): Promise<{ index: number | null; values: (T | undefined)[] }> {
   return new Promise((resolve, reject) => {
-    const values = new Array<T | undefined>(promises.length).fill(undefined);
-    const settled = new Array<boolean>(promises.length).fill(false);
+    // T 自体が undefined を含み得るので、決着の有無は値と別の箱で持つ。
+    const outcomes = new Array<{ value: T } | undefined>(promises.length).fill(undefined);
+    const snapshot = (): (T | undefined)[] => outcomes.map((o) => o?.value);
     let next = 0;
     const advance = (): void => {
-      while (next < promises.length && settled[next]) {
-        if (accept(values[next] as T)) {
-          resolve({ index: next, values: [...values] });
+      while (next < promises.length) {
+        const outcome = outcomes[next];
+        if (outcome === undefined) return;
+        if (accept(outcome.value)) {
+          resolve({ index: next, values: snapshot() });
           return;
         }
         next++;
       }
-      if (next === promises.length) resolve({ index: null, values: [...values] });
+      resolve({ index: null, values: snapshot() });
     };
     promises.forEach((p, i) => {
       p.then((value) => {
-        values[i] = value;
-        settled[i] = true;
+        outcomes[i] = { value };
         advance();
       }, reject);
     });

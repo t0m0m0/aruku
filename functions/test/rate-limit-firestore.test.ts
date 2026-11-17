@@ -28,7 +28,8 @@ vi.mock('firebase-admin/firestore', () => ({
 import { checkRateLimitFirestore } from '../src/rate-limiter';
 
 // ドキュメント ID をキーにしたインメモリのストア。
-let store: Map<string, { count: number; resetAt: number }>;
+// 形の崩れた文書も置けるよう、値の型は絞らない。
+let store: Map<string, Record<string, unknown>>;
 
 function installTransaction(): void {
   runTransactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<boolean>) => {
@@ -97,6 +98,15 @@ describe('checkRateLimitFirestore', () => {
 
     nowSpy.mockReturnValue(60_001);
     expect(await checkRateLimitFirestore('5.5.5.5')).toBe(true);
+  });
+
+  it('形の崩れた文書（count が数でない）は、新しいウィンドウとして数え直す', async () => {
+    await checkRateLimitFirestore('7.7.7.7');
+    const [id] = store.keys();
+    store.set(id, { count: 'x', resetAt: Date.now() + 60_000 });
+
+    expect(await checkRateLimitFirestore('7.7.7.7')).toBe(true);
+    expect(store.get(id)).toMatchObject({ count: 1 });
   });
 
   it('IPv6 アドレスもドキュメント ID として扱える', async () => {

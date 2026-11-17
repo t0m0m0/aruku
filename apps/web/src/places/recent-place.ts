@@ -1,5 +1,6 @@
 // 移植元: flutter-final:lib/core/models/recent_place.dart
 
+import { isRecord } from '@aruku/engine/json';
 import { GeoPoint } from '@aruku/engine/models/geo-point';
 
 /// 検索履歴の1件。目的地・出発地のどちらの系統にも使う。
@@ -43,22 +44,21 @@ export function recentPlaceToJson(place: RecentPlace): Record<string, unknown> {
 /// 座標は lat/lng が**揃っている**ときだけ採る。片方だけの壊れた記録から
 /// `GeoPoint(35.6, NaN)` を作ると、経路照会まで座標付きの顔をして届く。
 export function recentPlaceFromJson(json: unknown): RecentPlace | null {
-  if (typeof json !== 'object' || json === null) return null;
-  const map = json as Record<string, unknown>;
+  if (!isRecord(json)) return null;
 
-  const name = map['name'];
+  const name = json['name'];
   if (typeof name !== 'string') return null;
 
-  const lat = map['lat'];
-  const lng = map['lng'];
-  const usedAt = map['usedAt'];
+  const lat = json['lat'];
+  const lng = json['lng'];
+  const usedAt = json['usedAt'];
   const parsedUsedAt = typeof usedAt === 'string' ? new Date(usedAt) : null;
 
   return {
     name,
-    placeId: typeof map['placeId'] === 'string' ? map['placeId'] : null,
+    placeId: typeof json['placeId'] === 'string' ? json['placeId'] : null,
     latLng: typeof lat === 'number' && typeof lng === 'number' ? new GeoPoint(lat, lng) : null,
-    address: typeof map['address'] === 'string' ? map['address'] : null,
+    address: typeof json['address'] === 'string' ? json['address'] : null,
     // パースできない日付を Invalid Date のまま通さない。JSON へ書き戻す段で
     // toISOString() が RangeError を投げ、履歴の保存ごと落ちる。
     usedAt: parsedUsedAt !== null && !Number.isNaN(parsedUsedAt.getTime()) ? parsedUsedAt : null,

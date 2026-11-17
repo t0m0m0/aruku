@@ -214,6 +214,12 @@ describe('autocomplete の応答', () => {
     );
   });
 
+  it('オブジェクトでない応答は status の無い応答として例外にする', async () => {
+    const { places } = service(() => json(null));
+
+    await expect(places.autocomplete('渋谷')).rejects.toThrow(new PlacesException('undefined'));
+  });
+
   it('HTTP が 200 でなければ例外にする', async () => {
     const { places } = service(() => json({ status: 'OK' }, 503));
 
@@ -283,6 +289,12 @@ describe('fetchLatLng', () => {
 
   it('OK でも座標が欠けていれば null にする', async () => {
     const { places } = service(() => json({ status: 'OK', result: {} }));
+
+    await expect(places.fetchLatLng('p1')).resolves.toBeNull();
+  });
+
+  it('オブジェクトでない応答は座標なしとして null にする', async () => {
+    const { places } = service(() => json(null));
 
     await expect(places.fetchLatLng('p1')).resolves.toBeNull();
   });

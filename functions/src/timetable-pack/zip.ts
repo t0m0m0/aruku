@@ -2,7 +2,8 @@ import { strFromU8, unzipSync } from 'fflate';
 
 import { GTFS_FILE_NAMES, type GtfsFileName, type GtfsFiles } from './pack';
 
-const wanted = new Set<string>(GTFS_FILE_NAMES);
+const isGtfsFileName = (name: string): name is GtfsFileName =>
+  GTFS_FILE_NAMES.some((wanted) => wanted === name);
 const baseName = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
 
 /** GTFS の zip から、パックに使うファイルだけを取り出す。 */
@@ -10,13 +11,14 @@ export function readGtfsZip(bytes: Uint8Array): GtfsFiles {
   let entries: Record<string, Uint8Array>;
   try {
     // 使わないファイル（fare_rules.txt など）は展開しない。
-    entries = unzipSync(bytes, { filter: (f) => wanted.has(baseName(f.name)) });
+    entries = unzipSync(bytes, { filter: (f) => isGtfsFileName(baseName(f.name)) });
   } catch (e) {
-    throw new Error(`GTFS の zip を展開できない: ${(e as Error).message}`);
+    throw new Error(`GTFS の zip を展開できない: ${e instanceof Error ? e.message : String(e)}`);
   }
   const files: GtfsFiles = {};
   for (const [path, data] of Object.entries(entries)) {
-    files[baseName(path) as GtfsFileName] = strFromU8(data);
+    const name = baseName(path);
+    if (isGtfsFileName(name)) files[name] = strFromU8(data);
   }
   // 欠けたファイルを空として読み進めると、路線が消えたパックで前回分を上書きしてしまう。
   const missing: string[] = REQUIRED.filter((name) => files[name] === undefined);

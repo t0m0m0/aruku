@@ -4,13 +4,14 @@
 // パックを直接組まず GTFS の文字列を経るのは、駅のまとめ・運行日・便の切り出しを
 // ODPT と同じ buildTimetablePack に任せ、パックの形式も読み込みも変えずに済ませるため。
 
+import { isRecord } from '../json';
 import { runsSaturdayHolidaySchedule } from './japanese-holidays';
 import type { FeedInput } from './pack';
 
 export interface M3dStation {
   id: string;
-  /** [経度, 緯度] */
-  coord: [number, number];
+  /** [経度, 緯度]。地図の外の駅（常磐線の大津港など、2026-11 時点で 27 駅）は持たない。 */
+  coord?: [number, number];
   title: { ja: string };
 }
 
@@ -55,6 +56,68 @@ type Calendar = (typeof CALENDARS)[number];
 // 終電は 1 時台まで、始発は 4 時台から（2026-11 時点の対象事業者）。
 const LAST_HOUR_OF_SERVICE_DAY = 3;
 
+/** stations.json を読む。形の違う要素が1つでもあれば null。 */
+export function parseM3dStations(raw: unknown): M3dStation[] | null {
+  return allOf(raw, isM3dStation);
+}
+
+/** railways.json を読む。形の違う要素が1つでもあれば null。 */
+export function parseM3dRailways(raw: unknown): M3dRailway[] | null {
+  return allOf(raw, isM3dRailway);
+}
+
+/** train-timetables/*.json を読む。形の違う要素が1つでもあれば null。 */
+export function parseM3dTrains(raw: unknown): M3dTrain[] | null {
+  return allOf(raw, isM3dTrain);
+}
+
+// 形の違う要素を読み飛ばさないのは、駅や便が欠けたまま組んだパックで前回分を上書きしないため。
+function allOf<T>(raw: unknown, is: (value: unknown) => value is T): T[] | null {
+  return Array.isArray(raw) && raw.every(is) ? raw : null;
+}
+
+const isString = (value: unknown): value is string => typeof value === 'string';
+
+function isJaTitle(value: unknown): value is { ja: string } {
+  return isRecord(value) && isString(value['ja']);
+}
+
+function isM3dStation(value: unknown): value is M3dStation {
+  if (!isRecord(value)) return false;
+  const { id, coord, title } = value;
+  return (
+    isString(id) &&
+    (coord === undefined ||
+      (Array.isArray(coord) && typeof coord[0] === 'number' && typeof coord[1] === 'number')) &&
+    isJaTitle(title)
+  );
+}
+
+function isM3dRailway(value: unknown): value is M3dRailway {
+  if (!isRecord(value)) return false;
+  const { id, title, stations } = value;
+  return isString(id) && isJaTitle(title) && Array.isArray(stations) && stations.every(isString);
+}
+
+function isM3dCall(value: unknown): value is M3dCall {
+  if (!isRecord(value)) return false;
+  const { s, a, d } = value;
+  return isString(s) && (a === undefined || isString(a)) && (d === undefined || isString(d));
+}
+
+function isM3dTrain(value: unknown): value is M3dTrain {
+  if (!isRecord(value)) return false;
+  const { id, t, r, ds, tt } = value;
+  return (
+    isString(id) &&
+    isString(t) &&
+    isString(r) &&
+    (ds === undefined || (Array.isArray(ds) && ds.every(isString))) &&
+    Array.isArray(tt) &&
+    tt.every(isM3dCall)
+  );
+}
+
 export function timetableFileOf(railwayId: string): string {
   return `${railwayId.toLowerCase().replace(/-/g, '').replace('.', '-')}.json`;
 }
@@ -69,7 +132,7 @@ export function railwaysOf(
 
 export function miniTokyo3dFeed(input: MiniTokyo3dFeedInput): FeedInput {
   const stationsById = new Map(input.stations.map((s) => [s.id, s]));
-  const usedStops = new Map<string, M3dStation>();
+  const usedStops = new Map<string, { name: string; coord: [number, number] }>();
   const routes = new Map<string, string>();
   const trips: string[][] = [];
   const stopTimes: string[][] = [];
@@ -90,8 +153,8 @@ export function miniTokyo3dFeed(input: MiniTokyo3dFeedInput): FeedInput {
     ]);
     train.tt.forEach((call, i) => {
       const station = stationsById.get(call.s);
-      if (station === undefined) return;
-      usedStops.set(call.s, station);
+      if (station?.coord === undefined) return;
+      usedStops.set(call.s, { name: station.title.ja, coord: station.coord });
       const { arr, dep } = times[i];
       stopTimes.push([train.id, gtfsTime(arr), gtfsTime(dep), call.s, String(i + 1)]);
     });
@@ -109,7 +172,7 @@ export function miniTokyo3dFeed(input: MiniTokyo3dFeedInput): FeedInput {
     files: {
       'stops.txt': csv(
         ['stop_id', 'stop_name', 'stop_lat', 'stop_lon'],
-        [...usedStops].map(([id, s]) => [id, s.title.ja, String(s.coord[1]), String(s.coord[0])]),
+        [...usedStops].map(([id, s]) => [id, s.name, String(s.coord[1]), String(s.coord[0])]),
       ),
       'routes.txt': csv(['route_id', 'route_long_name'], [...routes]),
       'trips.txt': csv(['route_id', 'service_id', 'trip_id', 'trip_headsign'], trips),
@@ -125,7 +188,7 @@ export function miniTokyo3dFeed(input: MiniTokyo3dFeedInput): FeedInput {
 
 function calendarOf(train: M3dTrain): Calendar | null {
   const name = train.id.slice(train.t.length + 1).split('.')[0];
-  return (CALENDARS as readonly string[]).includes(name) ? (name as Calendar) : null;
+  return CALENDARS.find((calendar) => calendar === name) ?? null;
 }
 
 /** 停車ごとの着・発を運行日の0時からの秒で返す。読めない時刻があれば null。 */

@@ -119,6 +119,7 @@ function toRide(raw: unknown): Ride | null {
   const boardAt = jstWallClock(raw['boardAt']);
   const alightAt = jstWallClock(raw['alightAt']);
   const stops = Array.isArray(raw['stops']) ? raw['stops'].map(point) : [];
+  const polyline = stops.filter((p) => p !== null);
   if (
     board === null ||
     alight === null ||
@@ -126,11 +127,10 @@ function toRide(raw: unknown): Ride | null {
     alightAt === null ||
     alightAt.getTime() < boardAt.getTime() ||
     stops.length < 2 ||
-    stops.some((p) => p === null)
+    polyline.length !== stops.length
   ) {
     return null;
   }
-  const polyline = stops as GeoPoint[];
   let rideKm = 0;
   for (let i = 1; i < polyline.length; i++) {
     rideKm += haversineKm(polyline[i - 1], polyline[i]);

@@ -106,6 +106,41 @@ describe('transitBoardApi: 照合が使う Transit API の駅と発車表', () =
     ]);
   });
 
+  it('名前や ID の欠けた駅・便は読み飛ばす', async () => {
+    const { client } = fakeClient((url) => ({
+      status: 200,
+      body: url.pathname.endsWith('/departures')
+        ? {
+            departures: [
+              { routeName: '中央線', departureSecs: 44640 },
+              { tripId: 't2', routeName: '中央線', departureSecs: 44700 },
+              'broken',
+            ],
+          }
+        : {
+            stations: [
+              { id: 'chuo:x', feedId: 'chuo', lat: 35.69, lon: 139.56 },
+              { id: 'chuo:Mitaka', name: '三鷹', feedId: 'chuo', lat: 35.69, lon: 139.56 },
+              null,
+            ],
+          },
+    }));
+    const api = transitBoardApi(client, 'https://transit.example');
+    expect(await api.findStations('三鷹')).toEqual([
+      { id: 'chuo:Mitaka', feedId: 'chuo', name: '三鷹', lat: 35.69, lng: 139.56 },
+    ]);
+    expect(await api.fetchDepartures('chuo:Mitaka', '20261026', '12:22')).toEqual([
+      { tripId: 't2', routeName: '中央線', headsign: '', departureSecs: 44700 },
+    ]);
+  });
+
+  it('一覧がオブジェクトでない応答は駅・便なしとして読む', async () => {
+    const { client } = fakeClient(() => ({ status: 200, body: [] }));
+    const api = transitBoardApi(client, 'https://transit.example');
+    expect(await api.findStations('三鷹')).toEqual([]);
+    expect(await api.fetchDepartures('chuo:Mitaka', '20261026', '12:22')).toEqual([]);
+  });
+
   it('発車表を公開しないフィード（ODPT 由来）の駅は null を返す', async () => {
     const { client } = fakeClient(() => ({
       status: 403,

@@ -1,7 +1,7 @@
 // 移植元: flutter-final:lib/core/services/transit_api_client.dart
 
 import { dartDouble } from '../dart-number';
-import type { JsonMap } from '../json';
+import { isRecord, type JsonMap } from '../json';
 import type { GeoPoint } from '../models/geo-point';
 import { SearchCanceledException, type CancellationToken } from './cancellation';
 import { TimeoutException, type HttpClient, type HttpResponse } from './http-client';
@@ -462,10 +462,8 @@ function decodeJson(res: HttpResponse): unknown {
 /// キャスト方針と同じ）。
 function decodeJsonMap(res: HttpResponse): JsonMap {
   const decoded = decodeJson(res);
-  if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
-    throw new TypeError('expected a JSON object');
-  }
-  return decoded as JsonMap;
+  if (!isRecord(decoded)) throw new TypeError('expected a JSON object');
+  return decoded;
 }
 
 function pad(value: number, width: number): string {

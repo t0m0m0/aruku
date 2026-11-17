@@ -2,6 +2,8 @@
 // レガシー Places API 形式へ変換する純粋関数群。
 // プロキシを変換層にすることでクライアント側の改修を不要にする。
 
+import { asRecord } from './json';
+
 export interface LegacyPrediction {
   place_id: string;
   description: string;
@@ -19,12 +21,6 @@ export interface LegacyAutocompleteResponse {
 export interface LegacyDetailsResponse {
   status: string;
   result?: { geometry: { location: { lat: number; lng: number } } };
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null
-    ? (value as Record<string, unknown>)
-    : undefined;
 }
 
 const ZERO_AUTOCOMPLETE: LegacyAutocompleteResponse = {

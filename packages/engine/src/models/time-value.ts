@@ -26,7 +26,7 @@ export class TimeValue {
   /// 0–59 (typically multiples of 5)
   readonly m: number;
 
-  /// Departure side: "current time" — auto-derived.
+  /// 出発側の「現在時刻」。時刻は自動で決まる。
   readonly isNow: boolean;
 
   /// 今日からの日数オフセット。0 = 今日, 1 = 明日, n = n日後。

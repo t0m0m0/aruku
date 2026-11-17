@@ -415,6 +415,36 @@ describe('refreshTimetablePacks（mini-tokyo-3d）', () => {
     ]);
   });
 
+  it.each([
+    ['駅の一覧が配列でない', { 'stations.json': {} }],
+    [
+      '駅の座標が数でない',
+      { 'stations.json': [{ id: 'Tokyu.Toyoko.A', coord: ['139.7', '35'], title: { ja: 'A' } }] },
+    ],
+    [
+      '路線の駅が配列でない',
+      { 'railways.json': [{ id: 'Tokyu.Toyoko', title: { ja: '東横線' } }] },
+    ],
+    [
+      '便の停車が欠けている',
+      { 'train-timetables/tokyu-toyoko.json': [{ id: 'x.Weekday', t: 'x', r: 'Tokyu.Toyoko' }] },
+    ],
+  ])('形の違う JSON（%s）も取得の失敗として扱い、パックは上書きしない', async (_, broken) => {
+    const h = harness(respondWith({ ...DATA, ...broken }));
+    const results = await refreshTimetablePacks(h.deps, [], SOURCE);
+    expect(h.uploads.has(packObjectPath('minitokyo3d'))).toBe(false);
+    expect(results).toEqual([
+      { group: 'minitokyo3d', status: 'skipped', failedFeeds: ['mini-tokyo-3d'] },
+    ]);
+    expect(h.logs).toContainEqual(
+      expect.objectContaining({
+        event: 'timetable_feed_fetch',
+        feed: 'mini-tokyo-3d',
+        reason: 'unexpected_shape',
+      }),
+    );
+  });
+
   it('便が1本も取れない事業者があれば、そのパックは上書きしない', async () => {
     const h = harness(respondWith({ ...DATA, 'train-timetables/keisei-main.json': [] }));
     const results = await refreshTimetablePacks(h.deps, [], SOURCE);

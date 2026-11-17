@@ -42,6 +42,10 @@ const flags = [
 ] as const;
 type Flag = (typeof flags)[number];
 
+function isFlag(name: string): name is Flag {
+  return flags.some((flag) => flag === name);
+}
+
 export const replayUsage =
   'usage: --store <rec.json> --out <out.jsonl> --date YYYY-MM-DD ' +
   '[--mode record|replay] [--slots 12:00,22:00] [--ratios 1.2,1.5,2] [--pairs <regex>] ' +
@@ -53,11 +57,11 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
   for (let i = 0; i < argv.length; i += 2) {
     const name = argv[i].replace(/^--/, '');
     const value = argv[i + 1];
-    if (!argv[i].startsWith('--') || !(flags as readonly string[]).includes(name)) {
+    if (!argv[i].startsWith('--') || !isFlag(name)) {
       throw new Error(`unknown argument: ${argv[i]}`);
     }
     if (value === undefined || value.startsWith('--')) throw new Error(`missing value: ${argv[i]}`);
-    raw.set(name as Flag, value);
+    raw.set(name, value);
   }
   const required = (flag: Flag): string => {
     const value = raw.get(flag);

@@ -9,6 +9,7 @@ import { initializeApp } from 'firebase-admin/app';
 import { getAppCheck } from 'firebase-admin/app-check';
 import { getStorage } from 'firebase-admin/storage';
 
+import { asRecord, isRecord } from './json';
 import { toLegacyAutocomplete, toLegacyDetails } from './places-transform';
 import { checkRateLimit, RATE_LIMIT, WALK_RATE_LIMIT } from './rate-limiter';
 import {
@@ -17,7 +18,7 @@ import {
   logRequestLatency,
   logRequestOutcome,
 } from './metrics';
-import { dedupeUpstream } from './upstream-cache';
+import { createUpstreamCache } from './upstream-cache';
 import { refreshTimetablePacks as refreshPacks } from './timetable-pack/refresh';
 import { createScanDaySource } from './timetable-pack/load';
 import {
@@ -93,6 +94,15 @@ const ROUTES_MATRIX_FIELD_MASK = 'originIndex,destinationIndex,duration,distance
 // 課金ガード。docs/spec/route-optimization.md §2.1）。#118 の設計は片側 ≤10・他方 1 の
 // 最大 10 要素のため、グリッド状の大量要求を弾きつつ正常系に十分な余裕を持たせた値にする。
 export const MATRIX_MAX_ELEMENTS = 25;
+
+/**
+ * Express の req.query の1項目を文字列として読む。同じ名前が2回あると配列に、
+ * `a[b]=` の形だとオブジェクトになるので、文字列以外は無いものとして扱う。
+ */
+function queryParam(query: Record<string, unknown>, name: string): string | undefined {
+  const value = query[name];
+  return typeof value === 'string' ? value : undefined;
+}
 
 /** "lat,lng" 形式の座標を Routes API の waypoint へ変換する。不正な値は null。 */
 function parseLatLng(value: string | undefined): { latitude: number; longitude: number } | null {
@@ -507,6 +517,18 @@ async function fetchUpstream(
   }
 }
 
+interface UpstreamResult {
+  statusCode: number;
+  data: unknown;
+}
+
+const upstreamCache = createUpstreamCache<UpstreamResult>();
+
+/** テスト用: 重複排除の in-flight と保持済みを捨てる。 */
+export function resetUpstreamCache(): void {
+  upstreamCache.reset();
+}
+
 // fetchUpstream から res への書き込みを除いたもの。1要求で上流を並列に呼ぶ exactWalkMax は、
 // 失敗した方が res に書くと他方の応答と競合するので、こちらを使って自分で応答を決める。
 // 上流の失敗は UpstreamError で投げる。
@@ -521,7 +543,7 @@ async function callUpstream(
   cacheKey?: string,
 ): Promise<{ statusCode: number; data: unknown }> {
   // 実際に上流を叩いたときだけ計測ログを出すため、requestJsonNew と計測を producer に
-  // 閉じ込める。cacheKey 指定時は dedupeUpstream が producer を single-flight の
+  // 閉じ込める。cacheKey 指定時は upstreamCache が producer を single-flight の
   // 相乗り・TTL キャッシュヒットでは呼ばないので、上流を呼んでいない要求を
   // search_request に混ぜない（#268 の SLO を汚さない）。console.error も同様に
   // 実呼び出し 1 回につき 1 度だけ出す。
@@ -565,10 +587,10 @@ async function callUpstream(
   };
 
   // TTL 保持は 2xx かつ意味的に有効な成功のみ（失敗を数十秒固定して回復を遅らせない）。
-  return cacheKey ? dedupeUpstream(cacheKey, call, isUpstreamCacheable(validate)) : call();
+  return cacheKey ? upstreamCache.dedupe(cacheKey, call, isUpstreamCacheable(validate)) : call();
 }
 
-// dedupeUpstream の TTL 保持可否。2xx かつ（validate があれば）意味的に有効な
+// upstreamCache の TTL 保持可否。2xx かつ（validate があれば）意味的に有効な
 // 成功のみ保持し、非 2xx・意味的失敗は保持しない。
 function isUpstreamCacheable(
   validate: ((data: unknown) => boolean) | undefined,
@@ -584,12 +606,12 @@ function isUpstreamCacheable(
 
 // Routes API はエラー時 {error:{...}} を返し routes を含まない。
 function isRoutesWalkSuccessBody(data: unknown): boolean {
-  const record = data as Record<string, unknown> | null;
+  const record = asRecord(data);
   return !(record && record['error'] && !record['routes']);
 }
 
 // computeRouteMatrix は成功時に要素オブジェクトの配列を返す。
-function isRoutesMatrixSuccessBody(data: unknown): boolean {
+function isRoutesMatrixSuccessBody(data: unknown): data is unknown[] {
   return Array.isArray(data);
 }
 
@@ -680,10 +702,10 @@ function handleCors(req: Request, res: Response): boolean {
  * { latitude, longitude } を返し、欠落・不正なら undefined。
  */
 function parseLatLon(
-  query: Record<string, string | undefined>,
+  query: Record<string, unknown>,
 ): { latitude: number; longitude: number } | undefined {
-  const lat = Number(query['lat']);
-  const lon = Number(query['lon']);
+  const lat = Number(queryParam(query, 'lat'));
+  const lon = Number(queryParam(query, 'lon'));
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return undefined;
   return { latitude: lat, longitude: lon };
 }
@@ -694,12 +716,12 @@ function parseLatLon(
  * radius は任意（既定 PLACES_BIAS_RADIUS_M）で 0 < r <= 50000 にクランプする。
  */
 function buildLocationBias(
-  query: Record<string, string | undefined>,
+  query: Record<string, unknown>,
 ): { circle: { center: { latitude: number; longitude: number }; radius: number } } | undefined {
   const center = parseLatLon(query);
   if (!center) return undefined;
 
-  const requested = Number(query['radius']);
+  const requested = Number(queryParam(query, 'radius'));
   const radius =
     Number.isFinite(requested) && requested > 0
       ? Math.min(requested, PLACES_BIAS_RADIUS_M)
@@ -763,12 +785,12 @@ export const placesProxy = onRequest(
       return;
     }
 
-    const action = req.query['action'] as string | undefined;
+    const action = queryParam(req.query, 'action');
 
     if (action === 'autocomplete') {
-      const input = req.query['input'] as string | undefined;
-      const language = (req.query['language'] as string | undefined) ?? 'ja';
-      const components = (req.query['components'] as string | undefined) ?? 'country:jp';
+      const input = queryParam(req.query, 'input');
+      const language = queryParam(req.query, 'language') ?? 'ja';
+      const components = queryParam(req.query, 'components') ?? 'country:jp';
       if (!input) {
         res.status(400).json({ error: 'input is required' });
         return;
@@ -785,10 +807,10 @@ export const placesProxy = onRequest(
       // 現在地（lat/lon）が渡されていれば locationBias（円）で近隣を優先する。
       // locationBias は soft bias で並び順は関連度のまま＝「近い順」にはならない（#146 実測）。
       // 距離順が要るときは下の origin が付ける distanceMeters をクライアントが再ソートに使う。
-      const locationBias = buildLocationBias(req.query as Record<string, string | undefined>);
+      const locationBias = buildLocationBias(req.query);
       // 同じ現在地を origin としても渡し、各候補に distanceMeters を付ける（#146 C案）。
       // クライアントはこの距離で候補を距離昇順へ再ソートできる（typeahead を壊さない）。
-      const origin = parseLatLon(req.query as Record<string, string | undefined>);
+      const origin = parseLatLon(req.query);
 
       const data = await fetchUpstream(
         res,
@@ -814,7 +836,7 @@ export const placesProxy = onRequest(
     }
 
     if (action === 'details') {
-      const placeId = req.query['place_id'] as string | undefined;
+      const placeId = queryParam(req.query, 'place_id');
       if (!placeId) {
         res.status(400).json({ error: 'place_id is required' });
         return;
@@ -856,8 +878,8 @@ export const googleWalkProxy = onRequest(
       return;
     }
 
-    const start = parseLatLng(req.query['start'] as string | undefined);
-    const goal = parseLatLng(req.query['goal'] as string | undefined);
+    const start = parseLatLng(queryParam(req.query, 'start'));
+    const goal = parseLatLng(queryParam(req.query, 'goal'));
 
     if (!start || !goal) {
       res.status(400).json({ error: "start and goal are required as 'lat,lng'" });
@@ -885,7 +907,7 @@ export const googleWalkProxy = onRequest(
     if (!isRoutesWalkSuccessBody(data)) {
       console.error(
         '[googleWalkProxy] Routes API error:',
-        JSON.stringify((data as Record<string, unknown>)['error']),
+        JSON.stringify(asRecord(data)?.['error']),
       );
       res.status(502).json(data);
       return;
@@ -915,8 +937,8 @@ export const googleWalkMatrixProxy = onRequest(
       return;
     }
 
-    const origins = parseLatLngList(req.query['origins'] as string | undefined);
-    const destinations = parseLatLngList(req.query['destinations'] as string | undefined);
+    const origins = parseLatLngList(queryParam(req.query, 'origins'));
+    const destinations = parseLatLngList(queryParam(req.query, 'destinations'));
 
     if (!origins || !destinations) {
       res.status(400).json({
@@ -956,7 +978,7 @@ export const googleWalkMatrixProxy = onRequest(
     // 502 で返す（「成功＝配列」の不変条件をプロキシ側でも担保し、クライアントへ
     // 非配列の 200 を漏らさない）。
     if (!isRoutesMatrixSuccessBody(data)) {
-      const record = data as Record<string, unknown> | null;
+      const record = asRecord(data);
       console.error(
         '[googleWalkMatrixProxy] Routes API non-array response:',
         JSON.stringify(record && record['error'] ? record['error'] : data),
@@ -1032,7 +1054,7 @@ function newScanDaySource() {
           .download();
         return new Uint8Array(bytes);
       } catch (e) {
-        if ((e as { code?: unknown }).code === 404) return null;
+        if (isRecord(e) && e['code'] === 404) return null;
         throw e;
       }
     },
@@ -1064,14 +1086,14 @@ const toWaypoint = ({ lat, lng }: LatLng) => ({ latitude: lat, longitude: lng })
 // ので変えない。
 const EXACT_MATRIX_FIELD_MASK = `${ROUTES_MATRIX_FIELD_MASK},status,condition`;
 
-function isExactMatrixSuccessBody(data: unknown): boolean {
-  return isRoutesMatrixSuccessBody(data) && !(data as unknown[]).some(isFailedMatrixElement);
+function isExactMatrixSuccessBody(data: unknown): data is unknown[] {
+  return isRoutesMatrixSuccessBody(data) && !data.some(isFailedMatrixElement);
 }
 
 /** status は google.rpc.Status。OK（code 0）は JSON から省かれるので、0 以外の code だけを失敗と読む。 */
 function isFailedMatrixElement(e: unknown): boolean {
-  const status = (e as { status?: { code?: unknown } } | null)?.status;
-  return typeof status?.code === 'number' && status.code !== 0;
+  const code = asRecord(asRecord(e)?.['status'])?.['code'];
+  return typeof code === 'number' && code !== 0;
 }
 
 async function measureWalks(origins: LatLng[], destinations: LatLng[]): Promise<MatrixElement[]> {
@@ -1095,7 +1117,7 @@ async function measureWalks(origins: LatLng[], destinations: LatLng[]): Promise<
   if (statusCode < 200 || statusCode >= 300 || !isExactMatrixSuccessBody(data)) {
     throw new UpstreamError(`matrix status ${statusCode}`, 'status');
   }
-  return (data as unknown[]).flatMap(toMatrixElement);
+  return data.flatMap(toMatrixElement);
 }
 
 /**
@@ -1103,7 +1125,7 @@ async function measureWalks(origins: LatLng[], destinations: LatLng[]): Promise<
  * 値が 0 のフィールドは JSON から省かれる（proto3）ので、添字と距離の欠落は 0 と読む。
  */
 export function toMatrixElement(e: unknown): MatrixElement[] {
-  const r = (e ?? {}) as Record<string, unknown>;
+  const r = asRecord(e) ?? {};
   const m = typeof r['duration'] === 'string' ? /^(\d+(?:\.\d+)?)s$/.exec(r['duration']) : null;
   if (m === null) return [];
   const int = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) ? v : 0);

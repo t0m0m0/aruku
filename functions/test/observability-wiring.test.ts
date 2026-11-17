@@ -72,8 +72,8 @@ import {
   resetRateLimit as resetRateLimitFromIndex,
   verifyAppCheck,
   withRequestLatency,
+  resetUpstreamCache,
 } from '../src/index';
-import { resetUpstreamCache } from '../src/upstream-cache';
 
 interface CapturedRes {
   statusCode?: number;

@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   miniTokyo3dFeed,
+  parseM3dRailways,
+  parseM3dStations,
+  parseM3dTrains,
   railwaysOf,
   timetableFileOf,
   type M3dRailway,
@@ -159,6 +162,26 @@ describe('miniTokyo3dFeed', () => {
     expect(pack.trips).toHaveLength(0);
   });
 
+  it('座標の無い駅（地図の外の駅）も、駅一覧に無い駅と同じく外す', () => {
+    const pack = buildTimetablePack([
+      miniTokyo3dFeed({
+        operator: 'Tokyu',
+        stations: [...STATIONS, { id: 'Tokyu.Toyoko.Far', title: { ja: '遠方' } }],
+        railways: RAILWAYS,
+        trains: [
+          train('Weekday', [
+            { s: 'Tokyu.Toyoko.Shibuya', d: '10:00' },
+            { s: 'Tokyu.Toyoko.Far', a: '10:05' },
+          ]),
+        ],
+        dates: DATES,
+        commit: 'fa7833f',
+        fetchedAt: '2026-11-17T00:00:00.000Z',
+      }),
+    ]);
+    expect(pack.trips).toHaveLength(0);
+  });
+
   it('フィードは事業者ごとに分け、版として mini-tokyo-3d のコミットを持つ', () => {
     const pack = build([train('Weekday', SIMPLE_CALLS)]);
     expect(pack.feeds).toEqual([
@@ -184,5 +207,24 @@ describe('miniTokyo3dFeed', () => {
       }),
     ]);
     expect(pack.trips[0].headsign).toBe('元町,"中華街"');
+  });
+});
+
+describe('parseM3dStations / parseM3dRailways / parseM3dTrains', () => {
+  it('形の合う一覧はそのまま返す（座標の無い駅も含む）', () => {
+    const stations = [...STATIONS, { id: 'JR-East.Joban.Otsuko', title: { ja: '大津港' } }];
+    expect(parseM3dStations(stations)).toEqual(stations);
+    expect(parseM3dRailways(RAILWAYS)).toEqual(RAILWAYS);
+    expect(parseM3dTrains([train('Weekday', SIMPLE_CALLS)])).toEqual([
+      train('Weekday', SIMPLE_CALLS),
+    ]);
+  });
+
+  it('配列でないもの、形の違う要素を1つでも含むものは null', () => {
+    expect(parseM3dStations({})).toBeNull();
+    expect(parseM3dStations([{ id: 'x', coord: ['139', '35'], title: { ja: 'x' } }])).toBeNull();
+    expect(parseM3dRailways([{ id: 'x', title: { ja: 'x' } }])).toBeNull();
+    expect(parseM3dTrains([{ id: 'x.Weekday', t: 'x', r: 'y', tt: [{ s: 1 }] }])).toBeNull();
+    expect(parseM3dTrains([{ ...train('Weekday', SIMPLE_CALLS), ds: 'x' }])).toBeNull();
   });
 });

@@ -41,8 +41,8 @@ import {
   MAX_RESPONSE_BYTES,
   placesProxy,
   resetRateLimit,
+  resetUpstreamCache,
 } from '../src/index';
-import { resetUpstreamCache } from '../src/upstream-cache';
 
 // https.request をモックし、指定 JSON ボディ・ステータスで応答を擬似する。
 function mockUpstream(body: unknown, statusCode = 200): void {
@@ -204,7 +204,8 @@ function makeRes(): CapturedRes {
 }
 
 function makeReq(opts: {
-  query?: Record<string, string>;
+  // Express の req.query は同じ名前が2回あると配列になる。
+  query?: Record<string, string | string[]>;
   token?: string;
   ip?: string;
   method?: string;
@@ -443,6 +444,36 @@ describe('ハンドラ統合（502 分岐・透過）', () => {
     await invokeHandler(placesProxy, makeReq({ query: { action: 'autocomplete' } }), res);
     expect(res.statusCode).toBe(400);
     expect(httpsRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('placesProxy autocomplete: 同じ名前を重ねた input（配列）は欠落と同じく 400 で上流を呼ばない', async () => {
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({ query: { action: 'autocomplete', input: ['渋谷', '新宿'] } }),
+      res,
+    );
+    expect(res.statusCode).toBe(400);
+    expect(httpsRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('placesProxy autocomplete: 重ねた components・lat は既定値・指定なしとして読む', async () => {
+    const cap = mockUpstreamCapture({ suggestions: [] });
+    const res = makeRes();
+    await invokeHandler(
+      placesProxy,
+      makeReq({
+        query: {
+          action: 'autocomplete',
+          input: '渋谷',
+          components: ['country:us', 'country:fr'],
+          lat: ['35.6', '35.7'],
+          lon: '139.7',
+        },
+      }),
+      res,
+    );
+    expect(cap.sent()).toEqual({ input: '渋谷', languageCode: 'ja', includedRegionCodes: ['jp'] });
   });
 
   it('placesProxy details: location を変換し result.geometry へ畳む', async () => {
