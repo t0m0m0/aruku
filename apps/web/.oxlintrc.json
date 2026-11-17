@@ -1,0 +1,27 @@
+{
+  "extends": ["../../.oxlintrc.json"],
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "import", "promise", "vitest", "react"],
+  "rules": {
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "error",
+    "react/jsx-key": "error",
+    "react/no-array-index-key": "error",
+    // 新しい JSX 変換（tsconfig の jsx: react-jsx）では React を import しない。
+    "react/react-in-jsx-scope": "off",
+    // 以下3つは React Compiler 前提の規則。このアプリは Compiler を使っておらず、最新値を
+    // ref に写す定石や、効果を起こし直すための依存（pathname など）を誤検知する。
+    // 依存の漏れそのものは react-hooks/exhaustive-deps が見る。
+    "react/refs": "off",
+    "react/memo-dependencies": "off",
+    "react/exhaustive-effect-dependencies": "off",
+    // CSS とフォントは副作用の import で読み込む。
+    "import/no-unassigned-import": ["error", { "allow": ["**/*.css", "@fontsource*/**"] }]
+  },
+  "overrides": [
+    {
+      // Playwright のフィクスチャの use() は React の use ではない。
+      "files": ["e2e/**"],
+      "rules": { "react-hooks/rules-of-hooks": "off" }
+    }
+  ]
+}

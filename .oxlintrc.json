@@ -1,0 +1,54 @@
+{
+  // 各パッケージの .oxlintrc.json がこれを extends する。警告は使わず error / off の二値にする
+  // ——警告は CI を落とさないので誰も読まず、決定論的な縛りにならない（#516）。
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "import", "promise", "vitest"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "rules": {
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/await-thenable": "error",
+    "typescript/return-await": "error",
+    "typescript/only-throw-error": "error",
+    "typescript/prefer-promise-reject-errors": "error",
+    "typescript/switch-exhaustiveness-check": "error",
+    "typescript/restrict-template-expressions": "error",
+    "typescript/no-base-to-string": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/prefer-nullish-coalescing": "error",
+    "typescript/no-deprecated": "error",
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
+    "import/no-cycle": "error",
+    "vitest/no-focused-tests": "error",
+    "vitest/no-disabled-tests": "error",
+    // Vitest の expect は第2引数に失敗時のメッセージを取る。
+    "vitest/valid-expect": ["error", { "maxArgs": 2 }],
+    "vitest/expect-expect": [
+      "error",
+      { "assertFunctionNames": ["expect", "expect*", "assertSucceeds", "assertFails"] }
+    ],
+    // 連鎖の末尾の then で値を返さないのは正当（結果を誰も受け取らない）。
+    "promise/always-return": ["error", { "ignoreLastCallback": true }],
+    // 日本語の文言・コメントの全角空白を誤検知する。
+    "no-irregular-whitespace": [
+      "error",
+      { "skipComments": true, "skipStrings": true, "skipTemplates": true }
+    ],
+
+    // 件数が多く、直してから1つずつ error に上げる（#521）。
+    "typescript/no-unsafe-type-assertion": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "vitest/require-mock-type-parameters": "off",
+    // 返り値の欠けは tsc の noImplicitReturns で見る（#517）。こちらは網羅した switch の
+    // 後ろの暗黙の undefined まで拾い、型で網羅を保証している関数を誤検知する。
+    "typescript/consistent-return": "off",
+    // その場で作った配列の sort / reverse まで拾う。破壊的な変更が共有された配列に
+    // 及ぶ場面は型でも読みでも分かり、toSorted へ機械的に書き換える益が薄い。
+    "unicorn/no-array-sort": "off",
+    "unicorn/no-array-reverse": "off",
+    // モジュール内の非公開状態を _ で示す慣習を使っている。
+    "no-underscore-dangle": "off"
+  }
+}

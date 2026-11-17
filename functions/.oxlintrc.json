@@ -1,0 +1,5 @@
+{
+  "extends": ["../.oxlintrc.json"],
+  // lib/ は tsc の出力先。
+  "ignorePatterns": ["lib/**"]
+}
