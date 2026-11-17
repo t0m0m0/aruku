@@ -24,9 +24,9 @@ export interface ExactReplayResponse {
 }
 
 export function packDirReader(dir: string): (path: string) => Promise<Uint8Array | null> {
-  return async (path) => {
+  return (path) => {
     const file = join(dir, path);
-    return existsSync(file) ? new Uint8Array(readFileSync(file)) : null;
+    return Promise.resolve(existsSync(file) ? new Uint8Array(readFileSync(file)) : null);
   };
 }
 
@@ -55,11 +55,11 @@ export function localExactWalkMax(
   };
 }
 
-async function syntheticMatrix(
+function syntheticMatrix(
   origins: { lat: number; lng: number }[],
   destinations: { lat: number; lng: number }[],
 ): Promise<MatrixElement[]> {
-  return origins.flatMap((o, originIndex) =>
+  const elements = origins.flatMap((o, originIndex) =>
     destinations.map((d, destinationIndex) => {
       const a = new GeoPoint(o.lat, o.lng);
       const b = new GeoPoint(d.lat, d.lng);
@@ -71,4 +71,5 @@ async function syntheticMatrix(
       };
     }),
   );
+  return Promise.resolve(elements);
 }
