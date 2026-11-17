@@ -167,6 +167,10 @@ function groupedRows(
   return [...groups.entries()].map(([key, rs]) => rowOf(key, summarize(rs)));
 }
 
+const headerFor = (covered: string): string =>
+  `| 区分 | 対象（${covered}） | 改善した検索 | 増分の中央値 | 改善した検索の中央値 | 最大 |\n` +
+  '| --- | --- | --- | --- | --- | --- |';
+
 const gainRow = (key: string, s: AbSummary): string =>
   `| ${key} | ${s.covered} | ${s.improved}（${pct(s.improved, s.covered)}） | ${fmt(s.gainMedian, '分')} | ${fmt(s.gainMedianImproved, '分')} | ${fmt(s.gainMax, '分')} |`;
 
@@ -178,9 +182,6 @@ export function abReport(
   verify: readonly VerifyResult[] = [],
 ): string {
   const s = summarize(records);
-  const headerFor = (covered: string): string =>
-    `| 区分 | 対象（${covered}） | 改善した検索 | 増分の中央値 | 改善した検索の中央値 | 最大 |\n` +
-    '| --- | --- | --- | --- | --- | --- |';
   const lines = [
     '## 厳密走査の A/B（同じ実行の中）',
     '',

@@ -123,7 +123,7 @@ export class AppCheckHttpClient extends BaseHttpClient {
     }
 
     const signals = signal === undefined ? [this.aborter.signal] : [this.aborter.signal, signal];
-    let rejectClosed: (error: ClientException) => void = () => undefined;
+    let rejectClosed: (error: ClientException) => void = noop;
     // executor は同期に走るので、ここを抜けた時点で rejectClosed は reject に繋がっている。
     const closed = new Promise<never>((_resolve, reject) => {
       rejectClosed = reject;
@@ -161,3 +161,5 @@ async function tokenFrom(provider: AppCheckTokenProvider): Promise<string | null
     return null;
   }
 }
+
+function noop(): void {}
