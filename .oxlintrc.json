@@ -30,6 +30,10 @@
     // 境界の値は isRecord と型述語・パース関数で絞り、型の都合は構造（型述語・flatMap・
     // 型ごとのインスタンス）で合わせる（#521）。
     "typescript/no-unsafe-type-assertion": "error",
+    // any を渡すと受け手の型が何も確かめないまま信じられ、上流の形の変化が呼び先の奥で崩れる。
+    // JSON.parse・子プロセスの出力は unknown からパース関数で、.mjs の引数は JSDoc で型を持たせる
+    // （#521）。
+    "typescript/no-unsafe-argument": "error",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "import/no-cycle": "error",
     "vitest/no-focused-tests": "error",

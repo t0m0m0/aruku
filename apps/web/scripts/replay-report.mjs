@@ -18,6 +18,7 @@ if (aPath === undefined || bPath === undefined || (labels !== null && labels.len
   process.exit(2);
 }
 
+/** @param {string} path */
 const readJsonl = (path) =>
   readFileSync(path, 'utf8')
     .split('\n')

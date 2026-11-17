@@ -494,10 +494,8 @@ describe('app_check_denied イベント配線（verifyAppCheck 経由）', () =>
 
   it('トークン欠落: reason=missing で記録する', async () => {
     await verifyAppCheck(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeCheckReq() as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeCheckRes() as any,
+      makeCheckReq() as unknown as Request,
+      makeCheckRes() as unknown as Response,
       { endpoint: 'placesProxy' },
     );
     expect(logAppCheckDeniedMock).toHaveBeenCalledWith({
@@ -509,10 +507,8 @@ describe('app_check_denied イベント配線（verifyAppCheck 経由）', () =>
   it('無効なトークン: reason=invalid で記録する', async () => {
     verifyTokenMock.mockRejectedValue(new Error('invalid'));
     await verifyAppCheck(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeCheckReq('bad') as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeCheckRes() as any,
+      makeCheckReq('bad') as unknown as Request,
+      makeCheckRes() as unknown as Response,
       { endpoint: 'placesProxy' },
     );
     expect(logAppCheckDeniedMock).toHaveBeenCalledWith({
@@ -524,10 +520,8 @@ describe('app_check_denied イベント配線（verifyAppCheck 経由）', () =>
   it('リプレイ検知: reason=replayed で記録する', async () => {
     verifyTokenMock.mockResolvedValue({ appId: 'x', alreadyConsumed: true });
     await verifyAppCheck(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeCheckReq('replayed') as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeCheckRes() as any,
+      makeCheckReq('replayed') as unknown as Request,
+      makeCheckRes() as unknown as Response,
       { consume: true, endpoint: 'googleWalkMatrixProxy' },
     );
     expect(logAppCheckDeniedMock).toHaveBeenCalledWith({
@@ -538,10 +532,8 @@ describe('app_check_denied イベント配線（verifyAppCheck 経由）', () =>
 
   it('endpoint 未指定時は unknown にフォールバックする', async () => {
     await verifyAppCheck(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeCheckReq() as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeCheckRes() as any,
+      makeCheckReq() as unknown as Request,
+      makeCheckRes() as unknown as Response,
     );
     expect(logAppCheckDeniedMock).toHaveBeenCalledWith({
       endpoint: 'unknown',
@@ -552,10 +544,8 @@ describe('app_check_denied イベント配線（verifyAppCheck 経由）', () =>
   it('検証成功時は記録しない', async () => {
     verifyTokenMock.mockResolvedValue({ appId: 'x' });
     await verifyAppCheck(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeCheckReq('good') as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeCheckRes() as any,
+      makeCheckReq('good') as unknown as Request,
+      makeCheckRes() as unknown as Response,
       { endpoint: 'placesProxy' },
     );
     expect(logAppCheckDeniedMock).not.toHaveBeenCalled();
