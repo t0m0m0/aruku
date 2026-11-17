@@ -33,17 +33,18 @@ const record = (
   ratio,
   standardMin: 30,
   budgetMin: 36,
-  metrics: opts.error ? null : { totalMs, guidanceCalls: opts.guidance ?? 10 },
-  plan: opts.error
-    ? null
-    : {
-        totalMin: 30,
-        budgetMin: 36,
-        walkMinutes: opts.walk ?? 10,
-        withinBudget: true,
-        missed: false,
-        rides: [ride(opts.line ?? '東海道線')],
-      },
+  metrics: opts.error !== undefined ? null : { totalMs, guidanceCalls: opts.guidance ?? 10 },
+  plan:
+    opts.error !== undefined
+      ? null
+      : {
+          totalMin: 30,
+          budgetMin: 36,
+          walkMinutes: opts.walk ?? 10,
+          withinBudget: true,
+          missed: false,
+          rides: [ride(opts.line ?? '東海道線')],
+        },
   error: opts.error ?? null,
   refetchLimitHits: 0,
   misses: 0,

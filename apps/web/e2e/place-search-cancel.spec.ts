@@ -19,7 +19,7 @@ async function delayAutocomplete(
   const aborted: string[] = [];
   page.on('requestfailed', (request: Request) => {
     const url = new URL(request.url());
-    if (isAutocomplete(url) && request.failure()?.errorText.includes('ABORTED')) {
+    if (isAutocomplete(url) && request.failure()?.errorText.includes('ABORTED') === true) {
       aborted.push(url.searchParams.get('input') ?? '');
     }
   });
