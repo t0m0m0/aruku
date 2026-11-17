@@ -1061,7 +1061,8 @@ export class TransitRouteService implements SearchEngine {
     // 進めるので、probe の**開始時点**の値がそのラウンド番号になる。
     const builtInRound = new Map<number, number>();
     const buildAt = async (i: number): Promise<RouteCandidate | null> => {
-      if (built.has(i)) return built.get(i)!;
+      const cached = built.get(i);
+      if (cached !== undefined) return cached;
       builtInRound.set(i, stats.rounds);
       // 発行時点で数える。完了時に数えると、締切・キャンセル・投機の打ち切りで捨てた
       // probe が本数から漏れ、上流へ実際に払った往復を過小に見積もる。
@@ -1552,29 +1553,23 @@ export class TransitRouteService implements SearchEngine {
   /// 採る）と食い違い、崩壊時 board-search の基準コリドーが #292 前と変わってしまう。
   /// タイブレークはファミリの初出位置ではなく**代表（最短）option の位置**で行う。
   basesForHybrid(options: TransitOption[]): TransitOption[] {
-    const repByFamily = new Map<string, TransitOption>();
-    const minByFamily = new Map<string, number>();
-    const repIndexByFamily = new Map<string, number>();
+    const repByFamily = new Map<string, { option: TransitOption; min: number; index: number }>();
     for (let i = 0; i < options.length; i++) {
       const o = options[i];
       if (o.corridors.every((c) => c.coords.length < 2)) continue;
       if (o.segments.some((s) => s.type === SegmentType.bus)) continue;
       const key = this.routeFamilyKey(o);
       const min = o.segments.reduce((a, s) => a + s.minutes, 0);
-      const current = minByFamily.get(key);
-      if (current === undefined || min < current) {
-        repByFamily.set(key, o);
-        minByFamily.set(key, min);
-        repIndexByFamily.set(key, i);
+      const current = repByFamily.get(key);
+      if (current === undefined || min < current.min) {
+        repByFamily.set(key, { option: o, min, index: i });
       }
     }
-    const families = [...repByFamily.keys()].sort((a, b) => {
-      const byMin = minByFamily.get(a)! - minByFamily.get(b)!;
-      return byMin !== 0
-        ? byMin
-        : repIndexByFamily.get(a)! - repIndexByFamily.get(b)!;
+    const reps = [...repByFamily.values()].sort((a, b) => {
+      const byMin = a.min - b.min;
+      return byMin !== 0 ? byMin : a.index - b.index;
     });
-    return families.slice(0, maxHybridBases).map((k) => repByFamily.get(k)!);
+    return reps.slice(0, maxHybridBases).map((r) => r.option);
   }
 
   /// option を路線ファミリへ要約するフィンガープリント（#292）。transit 区間の路線名の集合
