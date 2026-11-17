@@ -7,6 +7,9 @@ vi.mock('firebase-admin/app-check', () => ({
   getAppCheck: () => ({ verifyToken: verifyTokenMock }),
 }));
 
+import type { Request } from 'firebase-functions/v2/https';
+import type { Response } from 'express';
+
 import { shouldConsumeAppCheckToken, verifyAppCheck } from '../src/index';
 
 interface FakeRes {
@@ -51,8 +54,7 @@ describe('verifyAppCheck', () => {
   it('エミュレータでは検証をスキップして true を返す', async () => {
     process.env.FUNCTIONS_EMULATOR = 'true';
     const res = makeRes();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ok = await verifyAppCheck(makeReq() as any, res as any);
+    const ok = await verifyAppCheck(makeReq() as unknown as Request, res as unknown as Response);
     expect(ok).toBe(true);
     expect(verifyTokenMock).not.toHaveBeenCalled();
     expect(res.statusCode).toBeUndefined();
@@ -60,8 +62,10 @@ describe('verifyAppCheck', () => {
 
   it('トークン欠落時は 401 を返して false', async () => {
     const res = makeRes();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ok = await verifyAppCheck(makeReq(undefined) as any, res as any);
+    const ok = await verifyAppCheck(
+      makeReq(undefined) as unknown as Request,
+      res as unknown as Response,
+    );
     expect(ok).toBe(false);
     expect(res.statusCode).toBe(401);
     expect(res.body).toEqual({ error: 'App Check token missing' });
@@ -71,8 +75,10 @@ describe('verifyAppCheck', () => {
   it('無効なトークンは 401 を返して false', async () => {
     verifyTokenMock.mockRejectedValue(new Error('invalid'));
     const res = makeRes();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ok = await verifyAppCheck(makeReq('bad-token') as any, res as any);
+    const ok = await verifyAppCheck(
+      makeReq('bad-token') as unknown as Request,
+      res as unknown as Response,
+    );
     expect(ok).toBe(false);
     expect(res.statusCode).toBe(401);
     expect(res.body).toEqual({ error: 'App Check token invalid' });
@@ -82,8 +88,10 @@ describe('verifyAppCheck', () => {
   it('有効なトークンは true を返し、レスポンスを書かない', async () => {
     verifyTokenMock.mockResolvedValue({ appId: 'x' });
     const res = makeRes();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ok = await verifyAppCheck(makeReq('good-token') as any, res as any);
+    const ok = await verifyAppCheck(
+      makeReq('good-token') as unknown as Request,
+      res as unknown as Response,
+    );
     expect(ok).toBe(true);
     expect(res.statusCode).toBeUndefined();
     expect(verifyTokenMock).toHaveBeenCalledWith('good-token');
@@ -101,10 +109,8 @@ describe('verifyAppCheck', () => {
       verifyTokenMock.mockResolvedValue({ appId: 'x', alreadyConsumed: false });
       const res = makeRes();
       const ok = await verifyAppCheck(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        makeReq('fresh-token') as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        res as any,
+        makeReq('fresh-token') as unknown as Request,
+        res as unknown as Response,
         { endpoint: 'placesProxy' },
       );
       expect(ok).toBe(true);
@@ -118,10 +124,8 @@ describe('verifyAppCheck', () => {
       verifyTokenMock.mockResolvedValue({ appId: 'x', alreadyConsumed: true });
       const res = makeRes();
       const ok = await verifyAppCheck(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        makeReq('replayed-token') as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        res as any,
+        makeReq('replayed-token') as unknown as Request,
+        res as unknown as Response,
         { endpoint: 'googleWalkMatrixProxy' },
       );
       expect(ok).toBe(false);
@@ -135,10 +139,8 @@ describe('verifyAppCheck', () => {
       verifyTokenMock.mockResolvedValue({ appId: 'x', alreadyConsumed: true });
       const res = makeRes();
       const ok = await verifyAppCheck(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        makeReq('std-token') as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        res as any,
+        makeReq('std-token') as unknown as Request,
+        res as unknown as Response,
         { endpoint: 'googleWalkProxy' },
       );
       expect(ok).toBe(true);
@@ -149,8 +151,10 @@ describe('verifyAppCheck', () => {
     it('endpoint 未指定は consume しない（対象集合に含まれないため）', async () => {
       verifyTokenMock.mockResolvedValue({ appId: 'x', alreadyConsumed: true });
       const res = makeRes();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ok = await verifyAppCheck(makeReq('t') as any, res as any);
+      const ok = await verifyAppCheck(
+        makeReq('t') as unknown as Request,
+        res as unknown as Response,
+      );
       expect(ok).toBe(true);
       expect(verifyTokenMock).toHaveBeenCalledWith('t');
     });
