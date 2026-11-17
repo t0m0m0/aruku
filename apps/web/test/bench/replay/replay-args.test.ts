@@ -20,6 +20,29 @@ describe('parseReplayArgs', () => {
     expect(args.label).toBe('replay');
   });
 
+  it('既定では厳密走査を使わない（#504 の再生と同じ）', () => {
+    const args = parseReplayArgs(required);
+    expect(args.exactPacks).toBeNull();
+    expect(args.exactDelayMs).toBe(900);
+  });
+
+  it('手元のパックの置き場所と、厳密走査の応答の遅延を受け取る（#513）', () => {
+    const args = parseReplayArgs([
+      ...required,
+      '--exact-packs',
+      '.odpt',
+      '--exact-delay-ms',
+      '1500',
+    ]);
+    expect(args.exactPacks).toBe('.odpt');
+    expect(args.exactDelayMs).toBe(1500);
+  });
+
+  it('厳密走査の遅延は 0 以上の整数だけを受ける', () => {
+    expect(() => parseReplayArgs([...required, '--exact-delay-ms', '-1'])).toThrow();
+    expect(parseReplayArgs([...required, '--exact-delay-ms', '0']).exactDelayMs).toBe(0);
+  });
+
   it('出発日は壁時計の日付として固定する——実行日に依らず同じ照会 URL になる', () => {
     const { date } = parseReplayArgs(required);
     expect([date.getFullYear(), date.getMonth() + 1, date.getDate(), date.getHours()]).toEqual([

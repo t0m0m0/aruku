@@ -12,11 +12,11 @@ export const syntheticWalkMetersPerMinute = 80;
 export const syntheticRouteDelayMs = 600;
 export const syntheticMatrixDelayMs = 900;
 
-const syntheticMeters = (a: GeoPoint, b: GeoPoint): number =>
+export const syntheticWalkMeters = (a: GeoPoint, b: GeoPoint): number =>
   haversineKm(a, b) * 1000 * syntheticDetourRatio;
 
 export function syntheticWalkSeconds(a: GeoPoint, b: GeoPoint): number {
-  return Math.round((syntheticMeters(a, b) / syntheticWalkMetersPerMinute) * 60);
+  return Math.round((syntheticWalkMeters(a, b) / syntheticWalkMetersPerMinute) * 60);
 }
 
 /// 徒歩プロキシの URL に対する応答の本文と遅延。徒歩プロキシでなければ null。
@@ -41,7 +41,7 @@ export function syntheticWalkResponse(url: URL): { body: string; delayMs: number
       routes: [
         {
           duration: `${syntheticWalkSeconds(start, goal)}s`,
-          distanceMeters: Math.round(syntheticMeters(start, goal)),
+          distanceMeters: Math.round(syntheticWalkMeters(start, goal)),
         },
       ],
     };

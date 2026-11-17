@@ -1,7 +1,8 @@
 // 再生ハーネス（#504）の本体。scripts/replay.mjs が束ねて Node で走らせる。
 //
 // 検索の組み立てと JSONL の行はブラウザのベンチ（bench-runner.ts）をそのまま使う。
-// 違うのは HttpClient だけ——上流は録画の再生、徒歩プロキシは合成応答（synthetic-walk.ts）。
+// 違うのは HttpClient だけ——上流は録画の再生、徒歩プロキシは合成応答（synthetic-walk.ts）、
+// 厳密走査は `--exact-packs` を渡したときだけ手元のパックで答える（exact-replay.ts・#513）。
 // 手順と注意は docs/ops/replay-bench.md。
 
 import { appendFileSync } from 'node:fs';
@@ -21,7 +22,8 @@ import { TransitRouteService } from '@aruku/engine/services/transit-route-servic
 import { defaultTransitApiBaseUrl } from '../../config';
 import { standardTotalMin } from '../bench-cases';
 import { runBench } from '../bench-runner';
-import { benchPairs } from '../od-pairs';
+import { replayPairs } from '../od-pairs';
+import { localExactWalkMax } from './exact-replay';
 import { parseReplayArgs, replayUsage, type ReplayArgs } from './replay-args';
 import {
   isInitialQuery,
@@ -61,6 +63,11 @@ export async function runReplay(args: ReplayArgs): Promise<number> {
     fetchLive,
     proxyOrigin,
     refetchLimitMs: args.refetchLimitMs,
+    exactWalkMax:
+      args.exactPacks === null
+        ? undefined
+        : localExactWalkMax({ packDir: args.exactPacks, now: () => args.date }),
+    exactDelayMs: args.exactDelayMs,
     isInitial: (url) => current !== null && isInitialQuery(url, current.origin, current.goal),
     onRequest:
       args.urlLog === null
@@ -78,7 +85,7 @@ export async function runReplay(args: ReplayArgs): Promise<number> {
 
   await runBench(
     {
-      pairs: benchPairs.filter((p) => args.pairs === null || args.pairs.test(p.id)),
+      pairs: replayPairs.filter((p) => args.pairs === null || args.pairs.test(p.id)),
       slots: args.slots,
       ratios: args.ratios,
       date: args.date,
@@ -116,6 +123,7 @@ export async function runReplay(args: ReplayArgs): Promise<number> {
               proxyBaseUrl: proxyOrigin,
               cancellation,
               clock: () => args.date,
+              exactWalkMax: args.exactPacks !== null,
               deadline: new SearchDeadline(searchDeadlineBudget),
               onMetrics: (m) => {
                 metrics = m;

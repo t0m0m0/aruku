@@ -1,10 +1,12 @@
-// 厳密走査の A/B 計測（#462）に使う出発地・目的地の組。
+// 厳密走査の計測に使う出発地・目的地の組。
 //
-// 時刻表（ODPT の GTFS）を持つ JR東日本・京王・東武・相鉄・東京メトロ・都営が主役に
-// なる組を選んである。東急・小田急・京急・西武は時刻表が無いので主役にしない
-// （docs/spec/route-optimization.md §3.9）。座標は駅そのものではなく、駅から少し
-// 離れた地点にしてある——駅前ちょうどだとアクセス徒歩がほぼ0で、どこで乗るかを
-// 選ぶ余地が無い。
+// benchPairs は A/B 計測（#462）の組で、ODPT の時刻表を持つ JR東日本・京王・東武・相鉄・
+// 東京メトロ・都営が主役になる。組を選んだ当時は東急・小田急・京急・西武に時刻表が無かった。
+// #462 の数字と比べられるよう、mini-tokyo-3d の時刻表が入った後（#511）も組は変えない。
+// privateRailPairs は、その私鉄などが主役になる組で、再生ベンチ（#513）だけが回す。
+//
+// 座標は駅そのものではなく、駅から少し離れた地点にしてある——駅前ちょうどだとアクセス
+// 徒歩がほぼ0で、どこで乗るかを選ぶ余地が無い。
 
 export interface BenchPlace {
   readonly name: string;
@@ -142,3 +144,70 @@ export const benchPairs: readonly OdPair[] = [
     destination: { name: '芝公園', lat: 35.6560, lng: 139.7490 },
   },
 ];
+
+/// mini-tokyo-3d の時刻表（#511）で厳密走査に入った事業者が主役になる組。
+export const privateRailPairs: readonly OdPair[] = [
+  {
+    id: 'jiyugaoka-aoyama',
+    lines: '東急東横線',
+    origin: { name: '自由が丘（熊野神社）', lat: 35.6100, lng: 139.6720 },
+    destination: { name: '青山学院大学', lat: 35.6605, lng: 139.7105 },
+  },
+  {
+    id: 'futakotamagawa-sangenjaya',
+    lines: '東急田園都市線',
+    origin: { name: '二子玉川公園', lat: 35.6135, lng: 139.6310 },
+    destination: { name: '世田谷公園', lat: 35.6405, lng: 139.6835 },
+  },
+  {
+    id: 'machida-shinjukupark',
+    lines: '小田急小田原線',
+    origin: { name: '町田市役所', lat: 35.5465, lng: 139.4385 },
+    destination: { name: '新宿中央公園', lat: 35.6895, lng: 139.6900 },
+  },
+  {
+    id: 'kanazawabunko-sengakuji',
+    lines: '京急本線',
+    origin: { name: '金沢文庫（称名寺）', lat: 35.3375, lng: 139.6260 },
+    destination: { name: '高輪ゲートウェイ周辺', lat: 35.6355, lng: 139.7410 },
+  },
+  {
+    id: 'shibakoen-haneda',
+    lines: '東京モノレール・京急空港線',
+    origin: { name: '芝公園', lat: 35.6550, lng: 139.7500 },
+    destination: { name: '羽田空港第3ターミナル', lat: 35.5440, lng: 139.7680 },
+  },
+  {
+    id: 'tokorozawa-toshimaku',
+    lines: '西武池袋線',
+    origin: { name: '所沢航空記念公園', lat: 35.7990, lng: 139.4720 },
+    destination: { name: '豊島区役所', lat: 35.7260, lng: 139.7160 },
+  },
+  {
+    id: 'kodaira-waseda',
+    lines: '西武新宿線',
+    origin: { name: '小平霊園', lat: 35.7400, lng: 139.4950 },
+    destination: { name: '早稲田大学', lat: 35.7090, lng: 139.7195 },
+  },
+  {
+    id: 'keiseiyawata-shinobazu',
+    lines: '京成本線',
+    origin: { name: '八幡（市川市役所）', lat: 35.7215, lng: 139.9300 },
+    destination: { name: '不忍池', lat: 35.7120, lng: 139.7700 },
+  },
+  {
+    id: 'shinkamagaya-skytree',
+    lines: '北総線・京成押上線',
+    origin: { name: '新鎌ヶ谷（鎌ヶ谷市役所）', lat: 35.7765, lng: 140.0010 },
+    destination: { name: '東京スカイツリー', lat: 35.7101, lng: 139.8107 },
+  },
+  {
+    id: 'yachiyomidorigaoka-nihombashi',
+    lines: '東葉高速線・東京メトロ東西線',
+    origin: { name: '八千代緑が丘（ふるさとステーション）', lat: 35.7280, lng: 140.0600 },
+    destination: { name: '日本橋', lat: 35.6835, lng: 139.7740 },
+  },
+];
+
+/// 再生ベンチ（#504・#513）が回す組。
+export const replayPairs: readonly OdPair[] = [...benchPairs, ...privateRailPairs];
