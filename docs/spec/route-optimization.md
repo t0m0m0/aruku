@@ -81,7 +81,7 @@
 
 | 用途 | データ源 | 制約・理由 |
 |---|---|---|
-| 公共交通経路（door-to-door） | **Transit API** `/guidance/plan`（`https://api.transit.ls8h.com`・**クライアント直叩き**。認証不要・CORS 対応） | Google Routes/Directions API は**日本の公共交通ルートを返さない**ため不可。第三者の無料・無認証 API で SLA は無い（§2.2）。 |
+| 公共交通経路（door-to-door） | **Transit API** `/guidance/plan`（`https://api.transit.ls8h.com/api/v1` の下・**クライアント直叩き**。認証不要・CORS 対応） | Google Routes/Directions API は**日本の公共交通ルートを返さない**ため不可。第三者の無料・無認証 API で SLA は無い（§2.2）。 |
 | 経路コリドー（乗車地点候補の母集合） | 同 API の transit セグメント **polyline 座標**（`geometrySource` 不問） | 途中停車駅は leg に無い（§2.2-2）。polyline を順序付きコリドーとして間引きサンプリングする（§2.3）。 |
 | 発着時刻 | leg の `departureSecs` / `arrivalSecs`（サービス日 0 時起算秒・`>86400` 許容） | §4 #121。 |
 | 徒歩の所要・距離・街路ジオメトリ | **Google Routes API** `computeRoutes`(WALK) / `computeRouteMatrix`(WALK)（プロキシ経由） | Transit API の `osmWalk`/`estimatedWalk` は所要の同等性が未計測。measure-first の精度根拠として Google 実測を使う。 |
@@ -108,7 +108,7 @@
 
 ### 2.2 Transit API の確定した制約
 
-`https://api.transit.ls8h.com`（OpenAPI: `/api/openapi.json`）。公開エンドポイントは `/feeds` `/plan` `/guidance/plan` `/locations/suggest` `/places/{suggest,reverse}` `/stations/{id}` `/stations/{id}/departures` `/operators` `/map/3d-scene` `/health` のみ。
+`https://api.transit.ls8h.com`（OpenAPI: `/api/openapi.json`）。公開エンドポイントは `/api/v1` の下の `/feeds` `/plan` `/guidance/plan` `/locations/suggest` `/places/{suggest,reverse}` `/stations/{id}` `/stations/{id}/departures` `/operators` `/map/3d-scene` `/health` のみ（例: `https://api.transit.ls8h.com/api/v1/guidance/plan`）。本書では `/api/v1` を省いて書く。
 
 1. **生 GTFS のダウンロードは無い。** `/feeds` はメタデータのみで `downloadUrl` は事業者公式 PDF/サイト。静的 GTFS をバンドルする設計は成立しない。
 2. **transit leg は途中停車駅を持たない。** leg が持つのは `routeName/mode/color/headsign/tripId/from/to/departureSecs/arrivalSecs`。`/departures` は単一駅の発車のみ、`/stations/{id}.routes` は路線名だけ。途中駅の代替は §2.3 の polyline。
