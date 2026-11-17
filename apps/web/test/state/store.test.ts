@@ -73,7 +73,7 @@ describe('go', () => {
     // 静かに状態だけ進むと、画面と前提データが乖離したまま次の遷移を迎える。
     const store = createAppStore();
 
-    expect(() => store.getState().go(Screen.search)).toThrow();
+    expect(() => store.getState().go(Screen.search)).toThrow('go() before attachNavigator()');
   });
 });
 

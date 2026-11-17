@@ -352,7 +352,7 @@ describe('ベース URL の検査', () => {
 
     expect(
       () => new GooglePlacesService({ client, proxyBaseUrl: '' }),
-    ).toThrow();
+    ).toThrow('VITE_PROXY_BASE_URL');
     expect(client.calls).toEqual([]);
   });
 });

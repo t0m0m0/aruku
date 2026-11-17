@@ -194,8 +194,8 @@ describe('fetchGuidanceAt', () => {
     const to = new GeoPoint(35.3, 139.4);
     const at = dateTime(2026, 6, 27, 9, 5);
 
-    await expect(c.fetchGuidanceAt(from, to, at)).rejects.toThrow();
-    await expect(c.fetchGuidanceAt(from, to, at)).rejects.toThrow();
+    await expect(c.fetchGuidanceAt(from, to, at)).rejects.toThrow(SyntaxError);
+    await expect(c.fetchGuidanceAt(from, to, at)).rejects.toThrow('expected a JSON object');
     expect(await c.fetchGuidanceAt(from, to, at)).toEqual({ ok: true });
 
     expect(calls).toEqual(3);
@@ -221,8 +221,8 @@ describe('fetchGuidanceAt', () => {
     const second = c.fetchGuidanceAt(from, to, at);
     release();
 
-    await expect(first).rejects.toThrow();
-    await expect(second).rejects.toThrow();
+    await expect(first).rejects.toThrow(SyntaxError);
+    await expect(second).rejects.toThrow(SyntaxError);
     expect(calls).toEqual(1);
   });
 
