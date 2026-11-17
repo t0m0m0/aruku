@@ -327,7 +327,7 @@ export class TransitApiClient {
       throw new RouteException(`HTTP ${res.statusCode}`);
     }
     const decoded = decodeJson(res);
-    if (!Array.isArray(decoded)) {
+    if (!isArray(decoded)) {
       throw new RouteException('MATRIX_NOT_ARRAY');
     }
     return decoded;
@@ -455,6 +455,12 @@ function buildUri(base: string, path: string, params: Record<string, string>): U
 
 function decodeJson(res: HttpResponse): unknown {
   return JSON.parse(new TextDecoder().decode(res.bodyBytes));
+}
+
+// Array.isArray をそのまま使わないのは、unknown を any[] へ絞り、要素が型の検査を受けずに
+// 先へ流れるため。
+function isArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
 }
 
 /// Dart の `jsonDecode(...) as Map<String, dynamic>` に対応する。オブジェクト以外は

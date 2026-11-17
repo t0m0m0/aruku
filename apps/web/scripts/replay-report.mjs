@@ -18,12 +18,20 @@ if (aPath === undefined || bPath === undefined || (labels !== null && labels.len
   process.exit(2);
 }
 
+// 行の形は確かめない。読むのは自分のベンチが書いた JSONL で、集計側の型（BenchRecord 等）を
+// 実行時に検査し直す型述語を持つ益が、開発時だけの集計に見合わない。
+/**
+ * @param {string} line
+ * @returns {unknown}
+ */
+const parseLine = (line) => JSON.parse(line);
+
 /** @param {string} path */
 const readJsonl = (path) =>
   readFileSync(path, 'utf8')
     .split('\n')
     .filter((line) => line.trim() !== '')
-    .map((line) => JSON.parse(line));
+    .map(parseLine);
 
 /** @param {unknown[]} rows */
 const labelOf = (rows) => {

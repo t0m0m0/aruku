@@ -83,7 +83,7 @@ function mockUpstreamCapture(body: unknown): { sent(): unknown } {
     },
   );
   return {
-    sent: () => (written ? JSON.parse(written) : undefined),
+    sent: (): unknown => (written ? JSON.parse(written) : undefined),
   };
 }
 

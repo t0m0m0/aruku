@@ -40,6 +40,10 @@
     // any のメンバーを読むと、その先は存在も型も確かめないまま進む。JSON.parse は unknown で
     // 受けて絞り、モックには本物の引数の型を持たせる（#521）。
     "typescript/no-unsafe-member-access": "error",
+    // any を返すと、呼び手が受け取った値を型の検査なしに信じる。JSON.parse は unknown を返す
+    // 関数で受け、Array.isArray は any[] へ絞るので型述語で包む。モックには本物の型を持たせる
+    // （#521）。
+    "typescript/no-unsafe-return": "error",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "import/no-cycle": "error",
     "vitest/no-focused-tests": "error",

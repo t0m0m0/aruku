@@ -3,8 +3,11 @@ import { createHmac } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // vi.mock はホイストされるため、参照する mock 関数は vi.hoisted で先に生成する。
+// リミッタが runTransaction へ渡すコールバック。判定ごとの許否を返す。
+type TransactionBody = (tx: unknown) => Promise<boolean[]>;
+
 const { runTransactionMock, logRateLimitMock } = vi.hoisted(() => ({
-  runTransactionMock: vi.fn(),
+  runTransactionMock: vi.fn<(fn: TransactionBody) => Promise<boolean[]>>(),
   logRateLimitMock: vi.fn<(params: RateLimitParams) => void>(),
 }));
 
@@ -33,7 +36,7 @@ import { checkRateLimitFirestore } from '../src/rate-limiter';
 let store: Map<string, Record<string, unknown>>;
 
 function installTransaction(): void {
-  runTransactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<boolean>) => {
+  runTransactionMock.mockImplementation(async (fn) => {
     const tx = {
       get: async (ref: { id: string }) => ({
         data: () => store.get(ref.id),
@@ -198,7 +201,7 @@ describe('checkRateLimitFirestore', () => {
       const gate = new Promise<void>((resolve) => {
         release = resolve;
       });
-      runTransactionMock.mockImplementationOnce(async (fn: unknown) => {
+      runTransactionMock.mockImplementationOnce(async (fn) => {
         await gate;
         return run(fn);
       });
@@ -244,7 +247,7 @@ describe('checkRateLimitFirestore', () => {
 
     it('トランザクションが再試行されても二重に数えない', async () => {
       const run = runTransactionMock.getMockImplementation()!;
-      runTransactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      runTransactionMock.mockImplementation(async (fn) => {
         await fn({
           get: async (ref: { id: string }) => ({
             data: () => store.get(ref.id),
