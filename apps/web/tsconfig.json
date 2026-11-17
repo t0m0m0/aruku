@@ -12,6 +12,11 @@
     // node_modules/@types の自動取り込みは効かず、ここへ並べないと解決しない。
     "types": ["vite/client", "google.maps"],
     "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
     "noEmit": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
