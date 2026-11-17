@@ -41,8 +41,7 @@ for (const { label, now } of clocks) {
   test(`現在地から目的地を選んで経路を出す（${label}）`, async ({
     page,
     // 偽の上流を起こすためだけに要る（フィクスチャは引数に名前を書くと立ち上がる）。
-    // oxlint-disable-next-line no-unused-vars
-    upstream,
+    upstream: _upstream,
   }) => {
     await page.clock.setFixedTime(new Date(now));
     await mainFlow(page);
