@@ -109,7 +109,7 @@ const source = `// 生成物。手で直さず node packages/engine/scripts/stat
 // 正しい座標（to）は mini-tokyo-3d の data/stations.json（commit ${M3D_COMMIT}）による。
 // mini-tokyo-3d: The MIT License (MIT), Copyright (c) 2019-2026 Akihiko Kusanagi
 
-import type { StationCoordCorrection } from './station-coord-corrections';
+import type { StationCoordCorrection } from '../models/station-coord-correction';
 
 export const stationCoordTable: readonly StationCoordCorrection[] = [
 ${lines.join('\n')}
