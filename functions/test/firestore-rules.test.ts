@@ -64,6 +64,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // beforeAll がエミュレータに繋がらず失敗しても afterAll は走り、testEnv は未代入のまま。
+  // oxlint-disable-next-line typescript/no-unnecessary-condition
   await testEnv?.cleanup();
 });
 
