@@ -37,6 +37,9 @@
     // any を変数へ入れると、そこから先の読み書きが型の検査を受けずに通る。JSON.parse・上流の
     // 応答・型の無いモジュールは unknown で受けて絞る。expect.any の照合子も unknown で持つ（#521）。
     "typescript/no-unsafe-assignment": "error",
+    // any のメンバーを読むと、その先は存在も型も確かめないまま進む。JSON.parse は unknown で
+    // 受けて絞り、モックには本物の引数の型を持たせる（#521）。
+    "typescript/no-unsafe-member-access": "error",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "import/no-cycle": "error",
     "vitest/no-focused-tests": "error",
