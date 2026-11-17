@@ -1,7 +1,7 @@
 // 移植元: flutter-final:lib/features/search/places_provider.dart と
 // flutter-final:test/features/search/places_provider_test.dart
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
 import { ClientException } from '@aruku/engine/services/http-client';
@@ -20,7 +20,7 @@ function prediction(placeId: string, distanceMeters: number | null = null): Plac
 
 interface Harness {
   readonly state: SearchState;
-  readonly autocomplete: ReturnType<typeof vi.fn>;
+  readonly autocomplete: Mock<PlacesService['autocomplete']>;
 }
 
 function harness(

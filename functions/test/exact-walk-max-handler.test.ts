@@ -10,7 +10,7 @@ import { PACK_FORMAT_VERSION, type TimetablePack } from '../src/timetable-pack/p
 const { httpsRequestMock, verifyTokenMock, downloadMock, MockAgent } = vi.hoisted(() => ({
   httpsRequestMock: vi.fn(),
   verifyTokenMock: vi.fn(),
-  downloadMock: vi.fn(),
+  downloadMock: vi.fn<(path: string) => Promise<[Buffer]>>(),
   MockAgent: class MockAgent {
     constructor(readonly options: Record<string, unknown>) {}
   },

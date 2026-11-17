@@ -1,5 +1,3 @@
-import { gunzipSync } from 'node:zlib';
-
 import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 
@@ -10,6 +8,7 @@ import {
   type MiniTokyo3dSource,
   type OdptFeed,
 } from '../src/timetable-pack/feeds';
+import { decodePack } from '../src/timetable-pack/decode';
 import type { TimetablePack } from '../src/timetable-pack/pack';
 import { refreshTimetablePacks, type RefreshDeps } from '../src/timetable-pack/refresh';
 
@@ -86,7 +85,11 @@ const harness = (
   };
 };
 
-const unpack = (bytes: Uint8Array): TimetablePack => JSON.parse(gunzipSync(bytes).toString());
+const unpack = (bytes: Uint8Array): TimetablePack => {
+  const decoded = decodePack(bytes, () => 0);
+  if (decoded.status !== 'success') throw new Error('置いたパックが読めない');
+  return decoded.pack;
+};
 
 const refreshOdpt = (deps: RefreshDeps, feeds: readonly OdptFeed[]) =>
   refreshTimetablePacks(deps, feeds, null);
