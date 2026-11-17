@@ -61,6 +61,42 @@ class SummarizeTest(unittest.TestCase):
         self.assertLessEqual(len(hook.summarize(many, "src/a.ts").splitlines()), hook.MAX_LINES + 1)
 
 
+class SummarizeLintTest(unittest.TestCase):
+    OUTPUT = "\n".join([
+        "src/a.ts:3:3: Promises must be awaited. [Error/typescript(no-floating-promises)]",
+        "src/a.ts:9:7: Unused oxlint-disable directive (no problems were reported). [Error]",
+        "",
+        "2 problems",
+    ])
+
+    def test_lists_findings_and_drops_the_tally(self):
+        summary = hook.summarize_lint(self.OUTPUT)
+        self.assertIn("no-floating-promises", summary)
+        self.assertIn("Unused oxlint-disable directive", summary)
+        self.assertNotIn("2 problems", summary)
+
+    def test_is_empty_when_nothing_was_found(self):
+        self.assertEqual(hook.summarize_lint("Found 0 warnings and 0 errors.\n"), "")
+
+    def test_caps_the_number_of_lines(self):
+        many = "\n".join(f"src/a.ts:{i}:1: x [Error/eslint(eqeqeq)]" for i in range(100))
+        summary = hook.summarize_lint(many)
+        self.assertLessEqual(len(summary.splitlines()), hook.MAX_LINES + 1)
+        self.assertIn("80", summary.splitlines()[-1])
+
+
+class LintCommandTest(unittest.TestCase):
+    def test_lints_only_the_edited_file_with_type_information(self):
+        command = hook.lint_command(Path("/repo/apps/web"), "src/a.tsx")
+        self.assertEqual(command[0], "/repo/apps/web/node_modules/.bin/oxlint")
+        self.assertIn("--type-aware", command)
+        self.assertEqual(command[-1], "src/a.tsx")
+
+    def test_reports_unused_suppressions_like_the_package_script(self):
+        command = hook.lint_command(Path("/repo/functions"), "src/index.ts")
+        self.assertIn("--report-unused-disable-directives-severity=error", command)
+
+
 class HookProtocolTest(unittest.TestCase):
     def test_skips_files_it_does_not_check(self):
         result = subprocess.run(
