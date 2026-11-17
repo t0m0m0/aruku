@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GeoPoint } from '@aruku/engine/models/geo-point';
 import { RoutePlan, RouteSegment, SegmentType } from '@aruku/engine/models/route-plan';
 
-const mapProps = vi.fn();
+const mapProps = vi.fn<(props: Record<string, unknown>) => void>();
 
 /// useMap はライブラリが地図を用意し終えるまで null を返す。テストごとに「まだ来ていない」
 /// と「もう在る」を切り替えられるよう、モジュール変数越しに返す。
