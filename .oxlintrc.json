@@ -60,6 +60,10 @@
     // （.at()・Partial・メソッド化）。テストのフックで代入する let のように型で表せない
     // 防御だけ、理由を添えて抑止する（#521）。
     "typescript/no-unnecessary-condition": "error",
+    // 何も捕まえない内側の関数は、呼び手の外へ出すと名前で役目を語り、呼び手の本体が短くなる。
+    // 導入時の本番の 10 件はどれも1〜2行の補助で、外へ出すとき短い名前（int・hex・join など）を
+    // 役目の名前に替えた（#521）。
+    "unicorn/consistent-function-scoping": "error",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "import/no-cycle": "error",
     "vitest/no-focused-tests": "error",
@@ -86,8 +90,8 @@
       { "skipComments": true, "skipStrings": true, "skipTemplates": true }
     ],
 
-    // 件数が多く、直してから1つずつ error に上げる（#521）。
-    "unicorn/consistent-function-scoping": "off",
+    // #516 で件数が多く off にしたが、#521 の対象には入れていない（web・functions のテストの
+    // 型引数の無い vi.fn()、導入時に 86 件）。上げるかはまだ判断していない。
     "vitest/require-mock-type-parameters": "off",
     // 返り値の欠けは tsc の noImplicitReturns で見る（#517）。こちらは網羅した switch の
     // 後ろの暗黙の undefined まで拾い、型で網羅を保証している関数を誤検知する。
@@ -131,6 +135,14 @@
       // 落ちる。本物の型を満たす偽物を組むと、検査と関係の無いフィールドがテストを埋める。
       "files": ["**/test/**", "**/e2e/**"],
       "rules": { "typescript/no-unsafe-type-assertion": "off" }
+    },
+    {
+      // テストの内側の関数は、describe / it の中でその検査の偽物と照合だけに使う補助（導入時に
+      // 144 件）。外へ出すと、偽物の前提を書いたコメントと検査から離れてファイルの頭に積もる。
+      // 同じ中身の補助が検査ごとに繰り返す箇所（transit-route-service.test.ts の parse など）は
+      // あるが、それは共通化の話で、この規則は一度しか使わない補助も同じに拾う（#521）。
+      "files": ["**/test/**", "**/e2e/**"],
+      "rules": { "unicorn/consistent-function-scoping": "off" }
     }
   ]
 }
