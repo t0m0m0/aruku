@@ -3,7 +3,7 @@
 // 正しい座標（to）は mini-tokyo-3d の data/stations.json（commit fa7833f18a288aeca171b68892bb7f67e229e4ca）による。
 // mini-tokyo-3d: The MIT License (MIT), Copyright (c) 2019-2026 Akihiko Kusanagi
 
-import type { StationCoordCorrection } from './station-coord-corrections';
+import type { StationCoordCorrection } from '../models/station-coord-correction';
 
 export const stationCoordTable: readonly StationCoordCorrection[] = [
   { station: 'scrape-jreast-chuo-sobu-local:odpt.Station:JR-East.ChuoSobuLocal.HigashiFunabashi', name: '東船橋', from: [35.69444, 140.00139], to: [35.69963, 140.00397], offsetM: 622 },

@@ -12,7 +12,8 @@
     "pack:local": "npm run build && node lib/timetable-pack/cli.js",
     "pack:bench": "npm run build && node lib/timetable-pack/bench.js",
     "test:rules": "firebase emulators:exec --only firestore \"vitest run --config vitest.rules.config.ts\"",
-    "lint": "oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity=error"
+    "lint": "oxlint --type-aware --deny-warnings --report-unused-disable-directives-severity=error",
+    "lint:deps": "depcruise --config ../.dependency-cruiser.cjs packages/engine/src packages/engine/test packages/engine/scripts apps/web/src apps/web/test apps/web/e2e apps/web/vite apps/web/scripts functions/src functions/test"
   },
   "engines": {
     "node": "22"
@@ -26,6 +27,7 @@
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.1",
     "@types/node": "^22.10.5",
+    "dependency-cruiser": "^18.8.0",
     "firebase": "^12.15.0",
     "oxlint": "^1.94.0",
     "oxlint-tsgolint": "^7.0.2007",

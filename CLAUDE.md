@@ -147,6 +147,10 @@ Lint（oxlint + tsgolint）の規則はルートの `.oxlintrc.json` に置き�
 行だけ、理由のコメントを添えて `// oxlint-disable-next-line <rule>` で抑止する（使われない抑止は
 それ自体がエラーになる）。
 
+依存の向き（engine → web / functions の禁止、web の本番コード → `src/bench` の禁止、循環 import の
+禁止）は dependency-cruiser が検査する。規則はルートの `.dependency-cruiser.cjs`、走らせるのは
+`npm --prefix functions run lint:deps`（3パッケージのどれを変えても走らせる）。
+
 ---
 
 ## Security Restrictions
