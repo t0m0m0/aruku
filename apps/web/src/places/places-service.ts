@@ -3,6 +3,7 @@
 // Phase 2 はこれをエンジンへ運んでいない。経路エンジンは座標を受け取る側で、
 // 地点検索は入力系——`packages/engine` の範囲外だったため（#385）。
 
+import { isRecord } from '@aruku/engine/json';
 import { GeoPoint } from '@aruku/engine/models/geo-point';
 import { TimeoutException } from '@aruku/engine/services/http-client';
 
@@ -132,22 +133,20 @@ export class GooglePlacesService implements PlacesService {
     // バイト列から明示的に UTF-8 として読む。`Response.text()` を経由しないのは、
     // 層の契約（HttpResponse）が bodyBytes しか持たないため。
     const text = new TextDecoder().decode(response.bodyBytes);
-    return JSON.parse(text) as Record<string, unknown>;
+    const body: unknown = JSON.parse(text);
+    return isRecord(body) ? body : {};
   }
 }
 
 /// レガシー prediction を [PlacePrediction] へ。proxy が origin を渡したときに付く
 /// distance_meters を距離として取り込む（#146 C案）。
 function toPrediction(raw: unknown): PlacePrediction {
-  const map = (raw ?? {}) as Record<string, unknown>;
+  const map = isRecord(raw) ? raw : {};
   const description = typeof map['description'] === 'string' ? map['description'] : '';
 
   const terms = map['terms'];
   const firstTerm = Array.isArray(terms) ? terms[0] : undefined;
-  const termValue =
-    typeof firstTerm === 'object' && firstTerm !== null
-      ? (firstTerm as Record<string, unknown>)['value']
-      : undefined;
+  const termValue = isRecord(firstTerm) ? firstTerm['value'] : undefined;
   const name = typeof termValue === 'string' ? termValue : description;
 
   const distance = map['distance_meters'];
@@ -171,13 +170,11 @@ function addressFrom(description: string): string {
 }
 
 function readLocation(result: unknown): { lat: number; lng: number } | null {
-  if (typeof result !== 'object' || result === null) return null;
-  const geometry = (result as Record<string, unknown>)['geometry'];
-  if (typeof geometry !== 'object' || geometry === null) return null;
-  const location = (geometry as Record<string, unknown>)['location'];
-  if (typeof location === 'object' && location !== null) {
-    const { lat, lng } = location as Record<string, unknown>;
-    if (typeof lat === 'number' && typeof lng === 'number') return { lat, lng };
-  }
-  return null;
+  if (!isRecord(result)) return null;
+  const geometry = result['geometry'];
+  if (!isRecord(geometry)) return null;
+  const location = geometry['location'];
+  if (!isRecord(location)) return null;
+  const { lat, lng } = location;
+  return typeof lat === 'number' && typeof lng === 'number' ? { lat, lng } : null;
 }

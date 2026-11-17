@@ -39,9 +39,9 @@ export interface FreshnessTimers {
 }
 
 const browserTimers: FreshnessTimers = {
-  setTimeout: (handler, ms) => globalThis.setTimeout(handler, ms) as unknown as number,
+  setTimeout: (handler, ms) => window.setTimeout(handler, ms),
   clearTimeout: (id) => {
-    globalThis.clearTimeout(id);
+    window.clearTimeout(id);
   },
   now: () => new Date(),
 };

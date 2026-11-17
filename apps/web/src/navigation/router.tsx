@@ -69,10 +69,10 @@ export function appRoutes(
     return null;
   };
 
-  const screens: RouteObject[] = Object.entries(screenPath).map(([screen, path]) => ({
-    path,
+  const screens: RouteObject[] = Object.values(Screen).map((screen) => ({
+    path: screenPath[screen],
     loader: guard,
-    Component: componentFor(screen as Screen, store, now, deps),
+    Component: componentFor(screen, store, now, deps),
   }));
 
   // 画面をレイアウトルートの下へ置く。ネストは `<Outlet>` の入れ子であって履歴を

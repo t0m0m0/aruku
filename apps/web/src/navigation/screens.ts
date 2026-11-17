@@ -33,7 +33,7 @@ export const screenPath: Readonly<Record<Screen, string>> = {
 export const fallbackScreen: Screen = Screen.home;
 
 const screenByPath = new Map<string, Screen>(
-  Object.entries(screenPath).map(([screen, path]) => [path, screen as Screen]),
+  Object.values(Screen).map((screen) => [screenPath[screen], screen]),
 );
 
 /// location（クエリ付き可）を [Screen] に解決する。未知のパスは deep link の
