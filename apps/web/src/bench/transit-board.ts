@@ -3,6 +3,7 @@
 // エンジンの TransitApiClient に足していない。経路検索は発車表を使わず、ベンチの照合だけの
 // 往復を検索の往復本数（#309 の計上）や締切と同じクライアントに混ぜないため。
 
+import { isRecord } from '@aruku/engine/json';
 import type { HttpClient, HttpResponse } from '@aruku/engine/services/http-client';
 
 import type { BoardDeparture, BoardStation } from './ab-verify';
@@ -30,14 +31,7 @@ export function transitBoardApi(
       url.searchParams.set('limit', `${suggestLimit}`);
       const res = await client.get(url);
       if (res.statusCode !== 200) throw new Error(`HTTP ${res.statusCode}`);
-      const body = decode(res) as { stations?: SuggestedStation[] };
-      // 照合するのは時刻表パックの便＝鉄道だけ。駅前のバス停（「三鷹駅」）は同じ駅名に揃い、
-      // 発車表を引くだけ往復が増える。
-      return (body.stations ?? []).flatMap((s) =>
-        s.kind !== 'stop' && typeof s.lat === 'number' && typeof s.lon === 'number'
-          ? [{ id: s.id, feedId: s.feedId, name: s.name, lat: s.lat, lng: s.lon }]
-          : [],
-      );
+      return listIn(decode(res), 'stations').flatMap(toBoardStation);
     },
 
     async fetchDepartures(stationId, date, time) {
@@ -48,31 +42,39 @@ export function transitBoardApi(
       const res = await client.get(url);
       if (res.statusCode === 403 && errorCode(res) === notRedistributed) return null;
       if (res.statusCode !== 200) throw new Error(`HTTP ${res.statusCode}`);
-      const body = decode(res) as { departures?: Departure[] };
-      return (body.departures ?? []).map((d) => ({
-        tripId: d.tripId,
-        routeName: d.routeName,
-        headsign: d.headsign ?? '',
-        departureSecs: d.departureSecs,
-      }));
+      return listIn(decode(res), 'departures').flatMap(toBoardDeparture);
     },
   };
 }
 
-interface SuggestedStation {
-  id: string;
-  name: string;
-  feedId: string;
-  lat?: number;
-  lon?: number;
-  kind?: 'station' | 'stop';
+function listIn(body: unknown, key: string): unknown[] {
+  const list = isRecord(body) ? body[key] : undefined;
+  return Array.isArray(list) ? list : [];
 }
 
-interface Departure {
-  tripId: string;
-  routeName: string;
-  headsign?: string;
-  departureSecs: number;
+function toBoardStation(raw: unknown): BoardStation[] {
+  if (!isRecord(raw)) return [];
+  const { id, feedId, name, lat, lon, kind } = raw;
+  // 照合するのは時刻表パックの便＝鉄道だけ。駅前のバス停（「三鷹駅」）は同じ駅名に揃い、
+  // 発車表を引くだけ往復が増える。
+  return kind !== 'stop' &&
+    typeof id === 'string' &&
+    typeof feedId === 'string' &&
+    typeof name === 'string' &&
+    typeof lat === 'number' &&
+    typeof lon === 'number'
+    ? [{ id, feedId, name, lat, lng: lon }]
+    : [];
+}
+
+function toBoardDeparture(raw: unknown): BoardDeparture[] {
+  if (!isRecord(raw)) return [];
+  const { tripId, routeName, headsign, departureSecs } = raw;
+  return typeof tripId === 'string' &&
+    typeof routeName === 'string' &&
+    typeof departureSecs === 'number'
+    ? [{ tripId, routeName, headsign: typeof headsign === 'string' ? headsign : '', departureSecs }]
+    : [];
 }
 
 function decode(res: HttpResponse): unknown {
@@ -81,8 +83,10 @@ function decode(res: HttpResponse): unknown {
 
 function errorCode(res: HttpResponse): string | null {
   try {
-    const body = decode(res) as { error?: { code?: unknown } };
-    return typeof body.error?.code === 'string' ? body.error.code : null;
+    const body = decode(res);
+    const error = isRecord(body) ? body['error'] : undefined;
+    const code = isRecord(error) ? error['code'] : undefined;
+    return typeof code === 'string' ? code : null;
   } catch {
     return null;
   }

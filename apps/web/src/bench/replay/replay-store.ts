@@ -2,10 +2,29 @@
 
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 
-import type { ReplayStoreData } from './replay-client';
+import { isRecord } from '@aruku/engine/json';
+
+import type { ReplayEntry, ReplayStoreData } from './replay-client';
 
 export function loadStore(path: string): ReplayStoreData {
-  return existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as ReplayStoreData) : {};
+  if (!existsSync(path)) return {};
+  const raw: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  if (!isRecord(raw)) throw new Error(`malformed replay store: ${path}`);
+  const store: ReplayStoreData = {};
+  for (const [href, entry] of Object.entries(raw)) {
+    if (!isReplayEntry(entry)) throw new Error(`malformed replay store: ${path}`);
+    store[href] = entry;
+  }
+  return store;
+}
+
+function isReplayEntry(raw: unknown): raw is ReplayEntry {
+  return (
+    isRecord(raw) &&
+    typeof raw['status'] === 'number' &&
+    typeof raw['body'] === 'string' &&
+    typeof raw['ms'] === 'number'
+  );
 }
 
 /// 同じ照会は [mine] を採る。録画モードで取り直した応答の方が新しいため。

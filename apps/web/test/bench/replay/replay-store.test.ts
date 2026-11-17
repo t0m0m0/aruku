@@ -32,6 +32,23 @@ describe('loadStore / saveStore', () => {
     expect(loadStore(join(dir, 'missing.json'))).toEqual({});
   });
 
+  it('録画を照会ごとに読み戻す', () => {
+    const path = join(dir, 'rec.json');
+    writeFileSync(path, JSON.stringify({ a: e(1), b: { status: 599, body: 'eA==', ms: 3 } }));
+
+    expect(loadStore(path)).toEqual({ a: e(1), b: { status: 599, body: 'eA==', ms: 3 } });
+  });
+
+  it('形の崩れた録画は読み飛ばさずに投げる——欠けた照会が上流へ取りに行き、再生の差に化ける', () => {
+    const broken = join(dir, 'broken.json');
+    writeFileSync(broken, JSON.stringify({ a: e(1), b: { status: '200', body: '', ms: 1 } }));
+    const notObject = join(dir, 'array.json');
+    writeFileSync(notObject, '[]');
+
+    expect(() => loadStore(broken)).toThrow(`malformed replay store: ${broken}`);
+    expect(() => loadStore(notObject)).toThrow(`malformed replay store: ${notObject}`);
+  });
+
   it('保存の直前にディスクを読み直して合流させる', () => {
     const path = join(dir, 'rec.json');
     const mine = loadStore(path);
