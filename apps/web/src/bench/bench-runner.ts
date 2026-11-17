@@ -1,7 +1,7 @@
 // 厳密走査の A/B 計測（#462）を直列に回す。
 //
-// 並列にしないのは、Transit API が第三者の API でレート制限が非公開だから
-// （docs/spec/route-optimization.md §3.6「並列度」）。1検索の中でも十数本を叩く。
+// 並列にしないのは、Transit API が第三者の API でレート制限が非公開だから。
+// 1検索の中でも十数本を叩く。
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
 import type { RoutePlan } from '@aruku/engine/models/route-plan';

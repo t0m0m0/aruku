@@ -2,7 +2,7 @@
 
 - **位置づけ:** Cloud Functions バックエンド（`functions/src/`）の SLI/SLO とログベース指標・アラートポリシーの定義書。
 - **前提コード:** `functions/src/metrics.ts`（構造化ログのログ契約）, `functions/src/index.ts`（各プロキシの呼び出し箇所）
-- **関連:** [route-optimization.md](../spec/route-optimization.md) §2.1（エンドポイント一覧・レート制限値）, [security_hardening.md](../security_hardening.md)（保護機構そのものの設定手順）
+- **関連:** [security_hardening.md](../security_hardening.md)（保護機構そのものの設定手順）
 
 ---
 
@@ -10,7 +10,7 @@
 
 Places / Google Routes への薄いプロキシ（`placesProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`）と厳密走査のエンドポイント（`exactWalkMax`）（いずれも 2nd gen Cloud Functions・`asia-northeast1`）の可用性・レイテンシ・保護機構（App Check・レート制限）の健全性を、構造化ログから機械的に測定・アラートできる状態にする。クライアント側のクラッシュ率は、Web 版に計測手段が無いため今は対象外（§3.5）。
 
-対象外: 個々のユーザー体験としての「ルートが妥当か」（これは [route-optimization.md](../spec/route-optimization.md) の責務）。ここではインフラ・上流 API の可観測性のみを扱う。
+対象外: 個々のユーザー体験としての「ルートが妥当か」。ここではインフラ・上流 API の可観測性のみを扱う。
 
 ---
 
@@ -396,4 +396,4 @@ gcloud alpha monitoring policies create --policy-from-file=policy_latency_routes
   `timetable_pack_load` の `loadMs` と、コールドスタート直後の `exact_walk_max` の `dayMs`（パックの読み込みと
   コンパイルを含む）・`request_latency` の `totalLatencyMs` を見て、設定するかを決める（#459）。ウォームの目安は
   `totalLatencyMs` が1秒前後で、内訳は `request_latency.appCheckMs`・`exact_walk_max.matrixMs`・`scanMs`。
-  パックの読み込みと運行日の組み立ての工程別の内訳・手元での測り方は [timetable-pack-preprocess.md](../notes/timetable-pack-preprocess.md)（#487）。
+  パックの読み込みと運行日の組み立ての工程別の内訳は #487 を参照（手元では `npm --prefix functions run pack:bench` で測る）。

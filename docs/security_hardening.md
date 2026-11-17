@@ -2,7 +2,7 @@
 
 - **位置づけ:** 公開前および運用中に実施する**コードで完結しない手動・運用作業**の手順書。
 - **進捗の正本は本書ではなく issue #75 のチェックボックス。** 本書は「どう実施するか」だけを書き、「実施したか」は書かない。
-- **関連:** [route-optimization.md](spec/route-optimization.md) §2.1（プロキシの構成）, [ops/observability.md](ops/observability.md)（保護機構の監視）
+- **関連:** [ops/observability.md](ops/observability.md)（保護機構の監視）
 
 | # | 項目 | 種別 |
 |---|---|---|
@@ -160,7 +160,7 @@ Web 版ではトークンがブラウザの DevTools から読め、TTL の間�
 | `placesProxy` | 3〜5 | 使い捨て | 本数が少なくクォータ影響が小さい（#366） |
 | `googleWalkProxy` | **約21** | 標準（キャッシュ可） | 下記のとおりクォータを最も速く食う |
 
-本数は `docs/spec/route-optimization.md` §3.8 の実測（`walkCalls=21 matrixCalls=11`）による。
+本数は実測（`walkCalls=21 matrixCalls=11`）による。
 
 #### なぜ `googleWalkProxy` を対象外にするか
 

@@ -17,15 +17,15 @@ After reviewing:
 
 ## Architecture
 
-- `apps/web/` — React + Vite の SPA。**本番（`aruku.pages.dev`）が配信しているのはこれ**。範囲と移植元との対応は `apps/web/PORTING.md`
+- `apps/web/` — React + Vite の SPA。**本番（`aruku.pages.dev`）が配信しているのはこれ**
   - `src/features/` — 画面（home, search, picker, loading, result, settings, error）
   - `src/state/` — アプリの状態（zustand の store）。`src/navigation/` — ルート表とガード
   - `src/places/` `src/search/` `src/location/` — 地点検索・経路検索の配線・現在地
   - `src/map/` `src/layout/` `src/shared/` `src/theme/` `src/i18n/` — 地図・レイアウト・共有部品・デザイントークン・文言
   - `src/bench/` — 厳密走査の A/B 計測（#462）を回す開発時だけの画面。`npm run dev` 中に `/bench.html` で開く。本番のルート表にも配信物にも入らない
     - `src/bench/replay/` — Transit の応答を録画し、同じ応答・同じ遅延で再生して版どうしを比べる Node のハーネス（#504）。`node scripts/replay.mjs` で走らせる。手順は `docs/ops/replay-bench.md`
-- `packages/engine/` — 経路エンジン（**TypeScript**）。挙動の正本は `docs/spec/route-optimization.md`
-- `functions/` — Cloud Functions **TypeScript** backend. Google Places / Routes proxies (`placesProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`) + Firestore rate limiter + ODPT の GTFS と mini-tokyo-3d の時刻表から時刻表パックを作る定期関数（`refreshTimetablePacks`・`src/timetable-pack/`）+ そのパックで1回乗車の徒歩最大を厳密に求めるエンドポイント（`exactWalkMax`・`src/exact-walk-max.ts`）. **公共交通のプロキシは無い** — Transit API はクライアント直叩き（`docs/spec/route-optimization.md` §2.1）
+- `packages/engine/` — 経路エンジン（**TypeScript**）
+- `functions/` — Cloud Functions **TypeScript** backend. Google Places / Routes proxies (`placesProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`) + Firestore rate limiter + ODPT の GTFS と mini-tokyo-3d の時刻表から時刻表パックを作る定期関数（`refreshTimetablePacks`・`src/timetable-pack/`）+ そのパックで1回乗車の徒歩最大を厳密に求めるエンドポイント（`exactWalkMax`・`src/exact-walk-max.ts`）. **公共交通のプロキシは無い** — Transit API はクライアント直叩き
 - Flutter 版は #387 で撤去した。`flutter-final` タグと `archive/flutter` ブランチに残る（復元手順は `docs/archive/flutter-restore.md`）。コメントの `flutter-final:lib/...` はそのタグ内のパス
 - Run the app: `npm --prefix apps/web run dev`. Setup: see README.
 
@@ -94,7 +94,6 @@ IMPORTANT: **コードを変えたら、その挙動を説明しているコメ�
 | 関数・クラス・定数の挙動 | その doc comment と、直上の行コメント |
 | シンボルの撤去・改名 | 他ファイルのコメント・`docs/`・`README.md` に残る言及 |
 | ファイルの削除・移動 | コメント／ドキュメントに書かれたパス |
-| 仕様に書かれた挙動 | `docs/spec/route-optimization.md`（`§N` 参照も含む） |
 | セキュリティ・運用手順 | `docs/security_hardening.md`・`docs/ops/` |
 
 腐りやすいのは**断定**（「常に null」「表示ごと廃止」「〜しない」）。前提が戻ると丸ごと嘘になる。

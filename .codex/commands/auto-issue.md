@@ -1,5 +1,5 @@
 ---
-description: GitHub issueを1つ選んで実装→PR作成→Codexレビュー（とセキュリティレビュー）→指摘対応まで一気通貫。マージは手動。
+description: GitHub issueを1つ選んで実装→PR作成→Codexレビュー（とセキュリティレビュー）→指摘対応まで一気通貫。Codexレビュー完了後にマージ。
 argument-hint: "[issue番号（省略時は一覧から選ぶ）]"
 allowed-tools: Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(npx:*), Bash(python3:*), Read, Edit, Write, Grep, Glob, Task
 ---
@@ -93,7 +93,7 @@ python3 .claude/doc_consistency.py --staged
 
 ```
 git push -u origin HEAD
-gh api repos/t0m0m0/aruku/pulls -f title="<コミット形式の要約>" -f head="$(git branch --show-current)" -f base=main -F draft=true -f body="<本文>" --jq '.number, .html_url'
+gh api repos/t0m0m0/aruku/pulls -f title="<コミット形式の要約>" -f head="$(git branch --show-current)" -f base=main -f body="<本文>" --jq '.number, .html_url'
 ```
 
 PR本文には次を明記する（`.codex/docs/workflow.md`）:
@@ -119,11 +119,17 @@ git push
 
 - 対応不要と判断した指摘は、理由を添えてユーザーに報告する（黙って無視しない）。
 
-## 8. 仕上げ（マージは手動）
+## 8. マージと仕上げ
+
+- `.codex/docs/workflow.md` の「Merging」に従い、Codex のレビューが現在の head で完了し、指摘が片付き、
+  CI が緑で競合が無ければ、確認を取らずにマージする:
+
+```
+gh api -X PUT repos/t0m0m0/aruku/pulls/<番号>/merge -f merge_method=merge
+```
 
 - 最終状態を要約して報告する:
   - 対象issue / ブランチ / PR URL
   - 追加・変更したテストとその結果
   - reviewer指摘への対応内容
-- **マージはしない**。PR URLを提示し、「マージはユーザーが手動で行ってください」と伝えて終了する。
-  （自動マージしたくなったら、この章に `gh api -X PUT repos/t0m0m0/aruku/pulls/<番号>/merge -f merge_method=squash` を追加すればよい。）
+  - マージしたか（しなかったなら、何が残っているか）

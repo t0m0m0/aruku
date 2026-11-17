@@ -207,9 +207,8 @@ function RideMeta({ segment }: { segment: RouteSegment }) {
     <MetaParts
       parts={[
         <span key="stations">{`${segment.fromName} → ${segment.toName}`}</span>,
-        // [RouteSegment.fare] を埋める経路は現状どこにも無く、この分岐は常に不発
-        // （docs/spec/route-optimization.md §4 #71）。それでも器ごと消さないのは、別の
-        // 運賃ソースを得たときにパーサの配線だけで点灯できるようにするため（同 §4 #71）。
+        // [RouteSegment.fare] を埋める経路は現状どこにも無く、この分岐は常に不発（#71）。
+        // それでも器ごと消さないのは、別の運賃ソースを得たときにパーサの配線だけで点灯できるようにするため。
         segment.fare !== null ? (
           <span key="fare" className="tabular">{`¥${segment.fare}`}</span>
         ) : null,

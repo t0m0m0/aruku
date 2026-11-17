@@ -10,8 +10,8 @@ Flutter 版は #387 で撤去した。`flutter-final` タグと `archive/flutter
 
 | ディレクトリ | 中身 | 正本 |
 |---|---|---|
-| `apps/web/` | React + Vite の SPA（本番が配信しているもの） | [apps/web/PORTING.md](apps/web/PORTING.md) |
-| `packages/engine/` | 経路エンジン（TypeScript） | [ルート最適化 仕様](docs/spec/route-optimization.md)・[packages/engine/PORTING.md](packages/engine/PORTING.md) |
+| `apps/web/` | React + Vite の SPA（本番が配信しているもの） | — |
+| `packages/engine/` | 経路エンジン（TypeScript） | — |
 | `functions/` | Cloud Functions のプロキシ（Places・Routes）とレート制限 | [docs/security_hardening.md](docs/security_hardening.md) |
 
 ```bash
@@ -30,9 +30,6 @@ E2E は初回だけブラウザの取得が要る（`npm --prefix apps/web exec 
 自分でビルドしてプレビューを起こすので、`run build` とは別に走らせる。
 
 Node は 22.22.0 以上が要る（`react-router` の要求）。`packages/engine` より厳しい。
-
-決定（React Router 一本化・Zustand・workspaces を置かない理由）は
-[apps/web/PORTING.md](apps/web/PORTING.md) が正本。
 
 ## セットアップ
 
@@ -53,7 +50,7 @@ Node は 22.22.0 以上が要る（`react-router` の要求）。`packages/engin
 [docs/security_hardening.md](docs/security_hardening.md) ① が正本です。
 
 公共交通だけは Google ではなく Transit API（`https://api.transit.ls8h.com`）をブラウザから
-直接呼ぶため、キーも API 有効化も要りません（[ルート最適化 仕様](docs/spec/route-optimization.md) §2）。
+直接呼ぶため、キーも API 有効化も要りません。
 
 ### 2. `.env` の用意
 
@@ -409,7 +406,7 @@ mini-tokyo-3d は、どれか1つのファイルが取れなかった日と、�
 
 **GTFS もパックもリポジトリに入れない**（基本ライセンス第8条4(1)・チャレンジ限定データの第三者提供の禁止）。
 ブラウザにも渡さない。パックを読むのは検索のエンドポイント `exactWalkMax` だけで、返すのは徒歩最大の候補と
-フィードごとの取得日時だけです（[ルート最適化 仕様](docs/spec/route-optimization.md) §2.1）。取得日時は、
+フィードごとの取得日時だけです。取得日時は、
 ガイドラインが求める出典・問い合わせ先と一緒に結果画面の「時刻表データについて」に出します（#461）。
 
 本番の Web は `deploy-web.yml` が渡す `VITE_EXACT_WALK_MAX=1` で厳密走査を有効にしています（#477）。

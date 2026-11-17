@@ -50,7 +50,7 @@ initializeApp();
 // 悪意あるトラフィックや予期しない急増時に課金が暴発し得る。全ハンドラ共通の安全弁
 // として上限を設ける。値は各関数ごとの上限で、公開 HTTP 関数は placesProxy /
 // googleWalkProxy / googleWalkMatrixProxy / exactWalkMax の 4 つ（4 関数 × 10 = 最大 40 インスタンス）。
-// レート制限（docs/spec/route-optimization.md §2.1）の後段に位置する二重の課金ガード。
+// レート制限の後段に位置する二重の課金ガード。
 // 実測トラフィックを見て調整する前提の保守的な初期値。
 setGlobalOptions({ region: 'asia-northeast1', maxInstances: 10 });
 
@@ -91,7 +91,7 @@ const ROUTES_MATRIX_URL = 'https://routes.googleapis.com/distanceMatrix/v2:compu
 const ROUTES_MATRIX_FIELD_MASK = 'originIndex,destinationIndex,duration,distanceMeters';
 // computeRouteMatrix は要素数（origins × destinations）課金。クライアント不具合や
 // 悪用での課金暴発を防ぐため、プロキシ側でも要素数上限を強制する（レート制限と同じく
-// 課金ガード。docs/spec/route-optimization.md §2.1）。#118 の設計は片側 ≤10・他方 1 の
+// 課金ガード）。#118 の設計は片側 ≤10・他方 1 の
 // 最大 10 要素のため、グリッド状の大量要求を弾きつつ正常系に十分な余裕を持たせた値にする。
 export const MATRIX_MAX_ELEMENTS = 25;
 
@@ -245,7 +245,7 @@ export function clientIp(req: Request): string {
 // 既定に googleWalkProxy を含めないのはクォータのため。使い捨てトークンは要求ごとに
 // 新規アテステーションを強制し、その回数は事業者のクォータを直接消費する（例:
 // Play Integrity の Standard ティアは 1 日 10,000 コール）。徒歩プロキシは 1 検索で
-// 21 本まで膨らむ実測がある（docs/spec/route-optimization.md §3.8）ため、ここを
+// 21 本まで膨らむ実測があるため、ここを
 // 対象にすると数百検索/日でクォータを使い切る。枯渇するとクライアントの
 // getLimitedUseToken() が throw し、ヘッダ無し＝全要求 401 になる。防ごうとした
 // 課金リスクより大きな可用性リスクを買うことになるため入れない。徒歩プロキシの

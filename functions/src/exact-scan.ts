@@ -6,8 +6,8 @@
 //   2. 選んだ駅の徒歩を Google マトリクスで実測する
 //   3. bestRides: 実測値で走査し直し、徒歩最大の候補を返す
 //
-// bestJourneys は乗換1回（徒歩→乗車→徒歩→乗車→徒歩）まで広げた実験版（#474・
-// docs/notes/exact-scan-one-transfer.md）。exactWalkMax の応答の transferCandidates を作る。
+// bestJourneys は乗換1回（徒歩→乗車→徒歩→乗車→徒歩）まで広げた実験版（#474）。
+// exactWalkMax の応答の transferCandidates を作る。
 
 export interface LatLng {
   lat: number;

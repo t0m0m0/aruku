@@ -93,8 +93,8 @@ export class SearchScopedRouteService implements RouteService {
 
 /// Transit API 直叩き1本あたりの応答待ち上限（#300）。
 ///
-/// 上流 `/guidance/plan` は 9〜11 秒が正常・裾は 30 秒超（2026-07-17 実測。
-/// docs/spec/route-optimization.md §2.2-6・§2.4）。実測サンプルの最大 30.8 秒を収める。
+/// 上流 `/guidance/plan` は 9〜11 秒が正常・裾は 30 秒超（2026-07-17 実測）。
+/// 実測サンプルの最大 30.8 秒を収める。
 /// 延ばしても最悪待ち時間が膨らまないのは [searchDeadlineBudget] が別に天井を張るため。
 export const transitRequestTimeout: Duration = seconds(35);
 

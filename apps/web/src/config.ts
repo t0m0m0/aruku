@@ -42,8 +42,8 @@ export interface AppConfig {
   /// HTTP リファラー制限が担う。docs/security_hardening.md 参照。
   readonly mapsApiKey: string;
 
-  /// 厳密走査 `exactWalkMax` の候補を経路検索の候補プールへ足すか（#460・
-  /// docs/spec/route-optimization.md §3.9）。`VITE_EXACT_WALK_MAX=1` のときだけ真。
+  /// 厳密走査 `exactWalkMax` の候補を経路検索の候補プールへ足すか（#460）。
+  /// `VITE_EXACT_WALK_MAX=1` のときだけ真。
   ///
   /// 既定を偽にしてあるのは、時刻表パックの無い環境（エミュレータ・パック未生成の
   /// プロジェクト）で毎検索が 503 を1本余計に叩かないため。

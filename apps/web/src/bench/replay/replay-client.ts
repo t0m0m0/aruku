@@ -1,8 +1,7 @@
 // 再生ハーネス（#504）がエンジンへ注入する HttpClient。
 //
 // Transit API の応答を URL ごとに録画し、同じ応答を録画した遅延で返す。比べる版の両方へ
-// 同じ上流を見せることで、上流のばらつき（中央値 9〜11 秒・裾 30 秒超、
-// docs/spec/route-optimization.md §2.2-6）を版の差から消す。
+// 同じ上流を見せることで、上流のばらつき（中央値 9〜11 秒・裾 30 秒超）を版の差から消す。
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
 import {
@@ -163,7 +162,7 @@ class ReplayHttpClient implements HttpClient {
 }
 
 /// 出発地→目的地を電車だけで引く照会（初回の departure 波・arrival 波）か。バスを許す
-/// 照会は last-resort の再照会（docs/spec/route-optimization.md §1.1）なので含めない。
+/// 照会は last-resort の再照会なので含めない。
 export function isInitialQuery(url: URL, origin: GeoPoint, goal: GeoPoint): boolean {
   const from = geoParam(url.searchParams.get('from'));
   const to = geoParam(url.searchParams.get('to'));
