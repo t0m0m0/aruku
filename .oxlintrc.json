@@ -20,6 +20,9 @@
     "typescript/no-explicit-any": "error",
     "typescript/prefer-nullish-coalescing": "error",
     "typescript/no-deprecated": "error",
+    // ! は外れても黙って undefined を流す。型の絞り込み・早期 return・値の持ち方で存在を
+    // 保証する（#521）。
+    "typescript/no-non-null-assertion": "error",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "import/no-cycle": "error",
     "vitest/no-focused-tests": "error",
@@ -68,5 +71,14 @@
     // 導入時に全 21 件を見たが取り違えは無く、どれも同名の再利用だった（vi.hoisted の中の
     // クラス名、引数の value など）。名前を替えて避ける益が、読みにくさに見合わない。
     "no-shadow": "off"
-  }
+  },
+  "overrides": [
+    {
+      // テストの ! は「前提: ここで値がある」の表明で、外れればその場の TypeError か直後の
+      // expect でテストが落ちる。本番の ! が危ないのは外れても黙って進むことで、テストでは
+      // 黙らない。絞り込みに書き換えると前提の表明が if と throw に埋もれて読みにくくなる。
+      "files": ["**/test/**", "**/e2e/**"],
+      "rules": { "typescript/no-non-null-assertion": "off" }
+    }
+  ]
 }
