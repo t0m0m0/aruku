@@ -181,11 +181,13 @@ function arrange(
 /// 距離不明を 0 として混ぜない。基準の取れない候補が先頭を占め、「近くの店」が
 /// 近さと無関係な並びになる。
 function sortByDistance(items: PlacePrediction[]): PlacePrediction[] {
-  const withDistance: PlacePrediction[] = [];
+  const withDistance: { item: PlacePrediction; distanceMeters: number }[] = [];
   const without: PlacePrediction[] = [];
   for (const item of items) {
-    (item.distanceMeters === null ? without : withDistance).push(item);
+    const { distanceMeters } = item;
+    if (distanceMeters === null) without.push(item);
+    else withDistance.push({ item, distanceMeters });
   }
-  withDistance.sort((a, b) => a.distanceMeters! - b.distanceMeters!);
-  return [...withDistance, ...without];
+  withDistance.sort((a, b) => a.distanceMeters - b.distanceMeters);
+  return [...withDistance.map((d) => d.item), ...without];
 }

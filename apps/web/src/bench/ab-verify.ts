@@ -41,9 +41,30 @@ export interface VerifyResult {
   error: string | null;
 }
 
+/// 乗降駅の座標と発着時刻が揃った便。照合はこの6つで駅と発車表を引く。
+export type VerifiableRide = BenchRide & {
+  fromLat: number;
+  fromLng: number;
+  toLat: number;
+  toLng: number;
+  dep: string;
+  arr: string;
+};
+
+function isVerifiable(ride: BenchRide): ride is VerifiableRide {
+  return (
+    ride.fromLat !== null &&
+    ride.fromLng !== null &&
+    ride.toLat !== null &&
+    ride.toLng !== null &&
+    ride.dep !== null &&
+    ride.arr !== null
+  );
+}
+
 export interface RideToVerify {
   record: BenchRecord;
-  ride: BenchRide;
+  ride: VerifiableRide;
 }
 
 export interface BoardStation {
@@ -85,7 +106,7 @@ export function ridesToVerify(records: readonly BenchRecord[], limit: number): R
     const rides = record.plan?.rides ?? [];
     const ride = rides[0];
     if (record.metrics?.['exactWon'] !== 1 || rides.length !== 1) continue;
-    if (ride.fromLat === null || ride.toLat === null || ride.dep === null || ride.arr === null) continue;
+    if (!isVerifiable(ride)) continue;
     eligible.push({ record, ride });
   }
   const picked: RideToVerify[] = [];
@@ -145,22 +166,22 @@ export async function runVerify(
 // 日を跨ぐ便（24時以降）は扱わない。ベンチの時間帯（12:00・22:00 発）の経路は日を跨がず、
 // 24時以降の便を発車表がどの日付で返すかも確かめていない。
 async function verifyRide(
-  ride: BenchRide,
+  ride: VerifiableRide,
   deps: VerifyDeps,
 ): Promise<{ verdict: VerifyVerdict; matchedLine: string | null; seen: string[] }> {
-  const dep = parseWallClock(ride.dep!);
-  const arr = parseWallClock(ride.arr!);
+  const dep = parseWallClock(ride.dep);
+  const arr = parseWallClock(ride.arr);
   const boardingNamesakes = sameStations(
     await deps.findStations(ride.from),
     ride.from,
-    new GeoPoint(ride.fromLat!, ride.fromLng!),
+    new GeoPoint(ride.fromLat, ride.fromLng),
   );
   const seen: string[] = [];
   if (boardingNamesakes.length === 0) return { verdict: 'noBoard', matchedLine: null, seen };
   const alighting = sameStations(
     await deps.findStations(ride.to),
     ride.to,
-    new GeoPoint(ride.toLat!, ride.toLng!),
+    new GeoPoint(ride.toLat, ride.toLng),
   );
   // 便の路線名と発車表の路線名は突き合わせない。時刻表パックと Transit API で表記が揃わない
   // （東武スカイツリーライン と TS、京浜東北線・根岸線 と 京浜東北線（北行（大宮方面）））。

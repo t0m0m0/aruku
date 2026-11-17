@@ -372,9 +372,10 @@ export class TransitApiClient {
     uri: URL,
     options: { deadlineApplies?: boolean; onIssued?: () => void },
   ): Promise<HttpResponse> {
-    if (this.recorded === null) return this.issue(client, uri, options);
+    const recorded = this.recorded;
+    if (recorded === null) return this.issue(client, uri, options);
     const key = uri.href;
-    const replayed = this.replaying ? this.recorded.get(key) : undefined;
+    const replayed = this.replaying ? recorded.get(key) : undefined;
     if (replayed !== undefined) {
       this.cancellation?.throwIfCanceled();
       return replayed;
@@ -383,9 +384,9 @@ export class TransitApiClient {
     // キャンセルは結末ではない（B へ持ち込むと離脱していない B まで止まる）ので残さない。
     // 同じ要求を A が何度も投げたら、最後の結末を残す。
     outcome.then(
-      () => this.recorded!.set(key, outcome),
+      () => recorded.set(key, outcome),
       (error: unknown) => {
-        if (!(error instanceof SearchCanceledException)) this.recorded!.set(key, outcome);
+        if (!(error instanceof SearchCanceledException)) recorded.set(key, outcome);
       },
     );
     return outcome;

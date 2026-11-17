@@ -68,21 +68,23 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
   const mode = raw.get('mode') ?? 'replay';
   if (mode !== 'record' && mode !== 'replay') throw new Error(`bad --mode: ${mode}`);
   const limit = raw.get('refetch-limit-ms');
+  const slots = raw.get('slots');
+  const ratios = raw.get('ratios');
+  const pairs = raw.get('pairs');
+  const exactDelayMs = raw.get('exact-delay-ms');
   return {
     mode,
     store: required('store'),
     out: required('out'),
     date: parseDate(required('date')),
-    slots: raw.has('slots') ? raw.get('slots')!.split(',').map(parseSlot) : benchSlots,
-    ratios: raw.has('ratios') ? raw.get('ratios')!.split(',').map(parseRatio) : benchBudgetRatios,
-    pairs: raw.has('pairs') ? new RegExp(raw.get('pairs')!) : null,
+    slots: slots === undefined ? benchSlots : slots.split(',').map(parseSlot),
+    ratios: ratios === undefined ? benchBudgetRatios : ratios.split(',').map(parseRatio),
+    pairs: pairs === undefined ? null : new RegExp(pairs),
     refetchLimitMs: limit === undefined ? null : parseLimit(limit),
     urlLog: raw.get('url-log') ?? null,
     label: raw.get('label') ?? 'replay',
     exactPacks: raw.get('exact-packs') ?? null,
-    exactDelayMs: raw.has('exact-delay-ms')
-      ? parseDelay(raw.get('exact-delay-ms')!)
-      : syntheticMatrixDelayMs,
+    exactDelayMs: exactDelayMs === undefined ? syntheticMatrixDelayMs : parseDelay(exactDelayMs),
   };
 }
 

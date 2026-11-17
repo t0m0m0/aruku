@@ -11,27 +11,24 @@ import { durationZero, type Duration } from '../time';
 export class SearchDeadline {
   /// [total] を使い切るまでを予算とする。[elapsed] 未指定なら実時間で進む。
   constructor(total: Duration, options: { elapsed?: () => Duration } = {}) {
-    this.total = total;
-    this.elapsed = options.elapsed ?? realtimeElapsed();
+    this.budget = { total, elapsed: options.elapsed ?? realtimeElapsed() };
   }
 
   /// 締切を設けない null object。締切を任意にする呼び出し側が `SearchDeadline | null`
   /// を持ち回って null 分岐を撒かずに済むようにする。
   static none(): SearchDeadline {
     const deadline = new SearchDeadline(0);
-    deadline.total = null;
-    deadline.elapsed = null;
+    deadline.budget = null;
     return deadline;
   }
 
-  private total: Duration | null;
-  private elapsed: (() => Duration) | null;
+  private budget: { total: Duration; elapsed: () => Duration } | null;
 
   /// 残予算。使い切ったら 0（負にはしない）。[SearchDeadline.none] は null。
   get remaining(): Duration | null {
-    const total = this.total;
-    if (total === null) return null;
-    const left = total - this.elapsed!();
+    const budget = this.budget;
+    if (budget === null) return null;
+    const left = budget.total - budget.elapsed();
     return left < 0 ? durationZero : left;
   }
 

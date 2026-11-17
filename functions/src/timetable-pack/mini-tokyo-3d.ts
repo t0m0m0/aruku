@@ -69,7 +69,7 @@ export function railwaysOf(
 
 export function miniTokyo3dFeed(input: MiniTokyo3dFeedInput): FeedInput {
   const stationsById = new Map(input.stations.map((s) => [s.id, s]));
-  const usedStops = new Set<string>();
+  const usedStops = new Map<string, M3dStation>();
   const routes = new Map<string, string>();
   const trips: string[][] = [];
   const stopTimes: string[][] = [];
@@ -89,8 +89,9 @@ export function miniTokyo3dFeed(input: MiniTokyo3dFeedInput): FeedInput {
       destination === undefined ? "" : (stationsById.get(destination)?.title.ja ?? ""),
     ]);
     train.tt.forEach((call, i) => {
-      if (!stationsById.has(call.s)) return;
-      usedStops.add(call.s);
+      const station = stationsById.get(call.s);
+      if (station === undefined) return;
+      usedStops.set(call.s, station);
       const { arr, dep } = times[i];
       stopTimes.push([train.id, gtfsTime(arr), gtfsTime(dep), call.s, String(i + 1)]);
     });
@@ -108,10 +109,7 @@ export function miniTokyo3dFeed(input: MiniTokyo3dFeedInput): FeedInput {
     files: {
       "stops.txt": csv(
         ["stop_id", "stop_name", "stop_lat", "stop_lon"],
-        [...usedStops].map((id) => {
-          const s = stationsById.get(id)!;
-          return [id, s.title.ja, String(s.coord[1]), String(s.coord[0])];
-        }),
+        [...usedStops].map(([id, s]) => [id, s.title.ja, String(s.coord[1]), String(s.coord[0])]),
       ),
       "routes.txt": csv(["route_id", "route_long_name"], [...routes]),
       "trips.txt": csv(["route_id", "service_id", "trip_id", "trip_headsign"], trips),

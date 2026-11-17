@@ -203,9 +203,9 @@ export class CandidateMeasurer {
           rejected.add(batch[k]);
         }
       }
-      if (winnerIdx !== null) {
+      const enrichedWinner = winnerIdx === null ? null : enriched[winnerIdx];
+      if (winnerIdx !== null && enrichedWinner != null) {
         const chosen = batch[winnerIdx];
-        const enrichedWinner = enriched[winnerIdx]!;
         this.diag.log(
           () => `  → 確定: ${this.diag.candLine(enrichedWinner, budgetMin, departureAt)}`,
         );

@@ -83,17 +83,21 @@ export class LastResortBus {
   }
 
   prefetch(): void {
-    if (this.adoptedCandidates !== null || this.pending !== null) return;
-    this.pending = this.fetch();
+    if (this.adoptedCandidates !== null) return;
     // 採用しない経路で未処理例外にしないための番人。
-    ignore(this.pending);
+    ignore(this.issue());
+  }
+
+  private issue(): Promise<TransitOption[]> {
+    this.pending ??= this.fetch();
+    return this.pending;
   }
 
   async adopt(): Promise<RouteCandidate[]> {
     if (this.adoptedCandidates !== null) return this.adoptedCandidates;
-    this.prefetch();
+    const pending = this.issue();
     const waitSw = startedStopwatch();
-    this.adoptedOptions = await this.pending!;
+    this.adoptedOptions = await pending;
     this.onWaited(waitSw.elapsedMilliseconds);
     this.adoptedCandidates = this.adoptedOptions.map(
       (o) => new RouteCandidate({ from: o.from, to: o.to, segments: o.segments }),

@@ -49,7 +49,8 @@ async function runOnce(dir: string, date: string): Promise<Record<Scenario, Samp
   let skew = 0;
   const deps = {
     read: async (path: string) => {
-      const group = PACK_GROUPS.find((g) => packObjectPath(g) === path)!;
+      const group = PACK_GROUPS.find((g) => packObjectPath(g) === path);
+      if (group === undefined) throw new Error(`unknown pack path: ${path}`);
       return new Uint8Array(readFileSync(join(dir, `${group}.json.gz`)));
     },
     log: (e: Record<string, unknown>) => logs.push(e),
@@ -97,8 +98,7 @@ function verify(dir: string, dates: string[]): boolean {
     const tt: Timetable = { stops: [], trips: [] };
     const stations: StationKey[] = [];
     const feeds: { id: string; fetchedAt: string }[] = [];
-    for (const g of PACK_GROUPS) {
-      const p = packs.get(g)!;
+    for (const p of packs.values()) {
       const day = timetableForDate(p, date);
       const offset = tt.stops.length;
       const feedOffset = feeds.length;
