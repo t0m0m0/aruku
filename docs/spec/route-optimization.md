@@ -82,7 +82,7 @@
 | 用途 | データ源 | 制約・理由 |
 |---|---|---|
 | 公共交通経路（door-to-door） | **Transit API** `/guidance/plan`（`https://api.transit.ls8h.com/api/v1` の下・**クライアント直叩き**。認証不要・CORS 対応） | Google Routes/Directions API は**日本の公共交通ルートを返さない**ため不可。第三者の無料・無認証 API で SLA は無い（§2.2）。 |
-| 経路コリドー（乗車地点候補の母集合） | 同 API の transit セグメント **polyline 座標**（`geometrySource` 不問） | 途中停車駅は leg に無い（§2.2-2）。polyline を順序付きコリドーとして間引きサンプリングする（§2.3）。 |
+| 経路コリドー（乗車地点候補の母集合） | 同 API の transit セグメント **polyline 座標**（`geometrySource` 不問） | 途中停車駅は leg に無い（§2.2-2）。polyline を順序付きコリドーとして間引きサンプリングする（§2.3）。駅座標が大きくずれている駅は補正してから使う（§2.3・#515）。 |
 | 発着時刻 | leg の `departureSecs` / `arrivalSecs`（サービス日 0 時起算秒・`>86400` 許容） | §4 #121。 |
 | 徒歩の所要・距離・街路ジオメトリ | **Google Routes API** `computeRoutes`(WALK) / `computeRouteMatrix`(WALK)（プロキシ経由） | Transit API の `osmWalk`/`estimatedWalk` は所要の同等性が未計測。measure-first の精度根拠として Google 実測を使う。 |
 | 運賃 | **取得不可** | §2.2-3。表示は行わない。 |
@@ -136,6 +136,12 @@
 
 - **`gtfsShape` フィードでは途中停車駅がどこにも無い**（`map.points` は乗降・乗換駅のみ、leg にも無い）。「停車駅＝polyline 頂点」を全フィードで前提にできない。
 - **geometrySource 非依存化:** 乗車地点 X は**厳密に停車駅である必要がない**。X の座標から `plan(X→goal)` を引き直せば API が最寄り駅にスナップして実在便を返すため。候補の母集合は **transit polyline 座標を間引きサンプリング**して作る（leg ごとに `maxCorridorStops` 点へ間引いてから連結するので、乗換を含む基準経路では総点数がこれを超える）。サンプリング座標は origin からの距離（≒前半徒歩 t1）で概ね単調に並ぶため、`maxWalkBoardingIndexParallel` の単調性前提（§5）を満たす。
+- **駅座標の補正（#515）:** Transit API の JR 東日本スクレイプ系フィード（`scrape-jreast-*`）は、駅座標が実際の駅から最大数 km ずれていることがある（例: 宇都宮線の「久喜」は約1km 西南西）。エンジンは transit polyline の両端・頂点を乗降駅・停車駅の座標として扱い、そこから徒歩を実測・見積もるため、放置すると**存在しない徒歩が実測され、徒歩最大の選定まで歪む**（偽の徒歩で得点が水増しされる・予算外に見えて正しい経路が捨てられる）。そこで `parseGuidancePlan` が座標を読む時点で、補正表（`packages/engine/src/services/station-coord-table.ts`）に載った**ずれた座標そのもの**（小数5桁で一致）を正しい座標へ置き換える。電車区間の両端・コリドー・徒歩の両端はすべてこの座標から作られるので、徒歩の実測・乗車地点の母集合・引き直しの起点・表示のどれにも同じ補正が効く。
+  - **基準:** 正しい座標は mini-tokyo-3d の `data/stations.json`（MIT License）の同名の JR 東日本の駅。表は `node packages/engine/scripts/station-coord-corrections.mjs` が Transit API の `/locations/suggest` と突き合わせて作り直す。載せるのはずれが **500m 超**の駅だけ（数百 m の差はホームの位置や駅舎の大きさの差と見分けられない）。**5km 超**は同名の別の駅（福島の根岸と横浜の根岸など）とみなして載せない。
+  - **駅 id ではなく座標で引く。** 停車駅を結んだ polyline の途中の頂点は id を持たないため。上流が座標を直せばずれた座標は応答に現れなくなり、補正は何もしなくなる（上流が直っても害が無い）。
+  - **端を補正した徒歩は上流の見積りを捨てる。** 上流の徒歩線も所要（`egressWalkSecs` など）もずれた座標から引いたものなので、補正後の両端を結ぶ直線と直線見積り（`walkMetersPerMinute`）に置き換える。採用候補の徒歩はどちらにせよ両端から Google で実測し直す（§3.1）。
+  - **引き直しは補正後の座標で行う。** 上流は座標を最寄り駅へスナップするので、補正後の座標から引いても同じ駅舎の駅に乗る。
+  - 補正表に無い駅は従来どおり上流の座標と徒歩をそのまま使う。私鉄・地下鉄、mini-tokyo-3d の範囲外（首都圏以外）の駅はまだ調べていない。
 - **逆戻り判定は生の全頂点を使わない。** `gtfsShape` は乗車直後の一過性の後方カーブを含み得るため、判定は leg 端点＋均等サンプリング点で行い、コリドーの大局的な逆戻りのみを検出する（§4 逆戻りフィルタ）。
 
 ### 2.4 タイムアウトと締切の3層
@@ -459,6 +465,7 @@ Transit API 経路（`transit-route-service.ts`）固有。
 | `maxBoardingWait(segments, departureAt)` | route-plan-builder.ts | 全電車区間の乗車前待ちの最大値。 |
 | `frontierStations(stops, origin, goal, budgetMin, {maxPerSide})` | hybrid-route-selector.ts | 乗降候補駅を直線徒歩が予算内のものへ絞り、片側 maxPerSide を超えれば均等間引き（両端含む・b<a ペアを保つ）。昇順インデックスで返す。 |
 | `transitSecsToJst(date, secs)` | transit-plan-parser.ts | サービス日 `YYYYMMDD` の 0 時＋`secs` 秒を **naive JST** の `Date` で返す（`>86400` は翌日へ繰り上がる）。出発アンカーとの差（`getTime()` の引き算）が端末 TZ に依存しないための正規化（§4 #121）。8桁でない・null・解析不能は null。 |
+| `correctStationCoord(p)` | station-coord-corrections.ts | `p` が補正表（station-coord-table.ts）に載ったずれた駅座標と小数5桁で一致すれば正しい座標を、そうでなければ null を返す（§2.3・#515）。 |
 | `RouteCandidate` | hybrid-route-selector.ts | `walkMinutes`/`walkKm`/`totalKm`/`totalMin` を segments から導出。データ源非依存。 |
 
 ---

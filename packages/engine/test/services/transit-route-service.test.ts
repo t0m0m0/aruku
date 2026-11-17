@@ -8168,3 +8168,80 @@ describe('plan: 厳密走査の候補 exactWalkMax (#460)', () => {
     });
   });
 });
+
+// ---- 駅座標の補正（#515）----
+//
+// Transit API の JR 宇都宮線フィードは「久喜」を実際の駅の約1km 西南西に置く。補正しないと、
+// 久喜で降りたのに「久喜駅」まで17分歩く区間が実測され、そのまま表示・選定される。
+describe('plan: Transit API のずれた駅座標を補正する（#515）', () => {
+  const tokyo = [35.681236, 139.767125];
+  const kukiJrRaw = [36.06301, 139.66734];
+  const kukiGoal = new GeoPoint(36.0656, 139.6775);
+
+  /// 2026-11 の実応答（東京→久喜駅）の宇都宮線 option を写したもの。東京 17:29 → 久喜 18:26。
+  const tokyoToKukiJr = (): JsonMap =>
+    guidance([
+      {
+        journey: {
+          departureSecs: 62940,
+          arrivalSecs: 66360,
+          durationSecs: 3420 + 15 + 996,
+          accessWalkSecs: 15,
+          egressWalkSecs: 996,
+          legs: [
+            railLeg({
+              route: '宇都宮線（宇都宮方面）',
+              fromId: 'jr-u:Tokyo',
+              fromName: '東京',
+              toId: 'jr-u:Kuki',
+              toName: '久喜',
+              dep: 62940,
+              arr: 66360,
+            }),
+          ],
+        },
+        map: {
+          points: [],
+          segments: [
+            mapSeg('walk', 'origin', 'jr-u:Tokyo', 'osmWalk', [tokyo, tokyo]),
+            mapSeg('transit', 'jr-u:Tokyo', 'jr-u:Kuki', 'stopOrder', [
+              tokyo,
+              [35.9, 139.62],
+              kukiJrRaw,
+            ]),
+            mapSeg('walk', 'jr-u:Kuki', 'destination', 'estimatedWalk', [
+              kukiJrRaw,
+              [kukiGoal.lat, kukiGoal.lng],
+            ]),
+          ],
+        },
+      },
+    ]);
+
+  const planKuki = async (log: URL[]): Promise<RoutePlan> =>
+    service(mock({ transit: tokyoToKukiJr(), log })).plan({
+      destination: '久喜駅',
+      destinationLatLng: kukiGoal,
+      departure: new TimeValue({ h: 17, m: 20 }),
+      arrival: new TimeValue({ h: 18, m: 40 }),
+      origin: pt(`${tokyo[0]},${tokyo[1]}`),
+    });
+
+  it('東京→久喜駅: 久喜で降りたあと「久喜駅」まで17分歩く区間を出さない', async () => {
+    const plan = await planKuki([]);
+    const lastTrain = plan.segments.findLastIndex((s) => s.type === SegmentType.train);
+    expect(plan.segments[lastTrain].toName).toEqual('久喜');
+    const afterAlight = plan.segments
+      .slice(lastTrain + 1)
+      .reduce((sum, s) => sum + s.minutes, 0);
+    expect(afterAlight).toBeLessThanOrEqual(2);
+  });
+
+  it('徒歩の実測・引き直しに、ずれた座標を1度も渡さない', async () => {
+    const log: URL[] = [];
+    await planKuki(log);
+    const raw = `${kukiJrRaw[0]},${kukiJrRaw[1]}`;
+    const sent = log.flatMap((u) => [...u.searchParams.values()]);
+    expect(sent.filter((v) => v.includes(raw))).toEqual([]);
+  });
+});

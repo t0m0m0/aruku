@@ -7,7 +7,8 @@ import { RouteSegment, SegmentType } from '../models/route-plan';
 import { haversineKm } from './hybrid-route-selector';
 import { railLineLabel } from './rail-line-names';
 import { dateTime } from '../time';
-import { kcalPerKm } from './route-plan-builder';
+import { kcalPerKm, walkMetersPerMinute } from './route-plan-builder';
+import { correctStationCoord } from './station-coord-corrections';
 
 export interface TransitOptionInit {
   from: string;
@@ -133,11 +134,11 @@ function parseOption(
   // 電車を含まない＝全徒歩 option。単一の徒歩区間へ畳む。
   if (firstTransitIdx < 0) {
     const secs = truncToInt(asNum(journey['durationSecs'])) ?? 0;
-    const coords = mapSegs.flatMap((s) => coordsOf(s['polyline']));
+    const walk = joinCoords(mapSegs.map((s) => readCoords(s['polyline'])));
     return new TransitOption({
       from: fromName,
       to: toName,
-      segments: [walkSeg(fromName, toName, secs, coords)],
+      segments: [walkSegOf(fromName, toName, secs, walk)],
       corridors: [],
     });
   }
@@ -158,8 +159,8 @@ function parseOption(
   // access walk: 最初の電車より前の徒歩セグメント群（journey.accessWalkSecs を所要に）。
   const accessSecs = truncToInt(asNum(journey['accessWalkSecs'])) ?? 0;
   if (accessSecs > 0) {
-    const coords = walkCoordsBetween(mapSegs, 0, firstTransitIdx);
-    segments.push(walkSeg(fromName, firstBoardName, accessSecs, coords));
+    const walk = walkCoordsBetween(mapSegs, 0, firstTransitIdx);
+    segments.push(walkSegOf(fromName, firstBoardName, accessSecs, walk));
   }
 
   let ti = 0;
@@ -167,7 +168,7 @@ function parseOption(
     switch (leg['kind']) {
       case 'transit': {
         const seg = ti < transitMapSegs.length ? transitMapSegs[ti] : null;
-        const coords = seg !== null ? coordsOf(seg['polyline']) : [];
+        const coords = seg !== null ? readCoords(seg['polyline']).coords : [];
         const geom = (seg === null ? null : asString(seg['geometrySource'])) ?? '';
         const depSec = truncToInt(asNum(leg['departureSecs']));
         const arrSec = truncToInt(asNum(leg['arrivalSecs']));
@@ -200,12 +201,11 @@ function parseOption(
         const depSec = truncToInt(asNum(leg['departureSecs']));
         const arrSec = truncToInt(asNum(leg['arrivalSecs']));
         const secs = depSec !== null && arrSec !== null ? arrSec - depSec : 0;
-        const coords = transferWalkCoords(mapSegs, leg);
-        const seg = walkSeg(
+        const seg = walkSegOf(
           nameOf(leg['from']) ?? '',
           nameOf(leg['to']) ?? '',
           secs,
-          coords,
+          transferWalkCoords(mapSegs, leg),
         );
         // 同駅乗換など距離・所要ともに実質ゼロの徒歩レッグはノイズなので生成しない（#225）。
         if (!seg.isZeroWalk) segments.push(seg);
@@ -217,12 +217,12 @@ function parseOption(
   // egress walk: 最後の電車より後の徒歩セグメント群（journey.egressWalkSecs を所要に）。
   const egressSecs = truncToInt(asNum(journey['egressWalkSecs'])) ?? 0;
   if (egressSecs > 0) {
-    const coords = walkCoordsBetween(
+    const walk = walkCoordsBetween(
       mapSegs,
       lastTransitIdx + 1,
       mapSegs.length,
     );
-    segments.push(walkSeg(lastAlightName, toName, egressSecs, coords));
+    segments.push(walkSegOf(lastAlightName, toName, egressSecs, walk));
   }
 
   if (segments.length === 0) return null;
@@ -253,23 +253,40 @@ function walkSeg(
   });
 }
 
+/// 上流の徒歩線と所要から徒歩区間を作る。ただし駅座標を補正した徒歩（#515）は、上流の
+/// 徒歩線も所要もずれた座標から引いたものなので捨て、補正後の両端を結ぶ直線で見積もり直す。
+/// 採用候補の徒歩は、どちらにせよ後で両端から Google の実測で上書きされる。
+function walkSegOf(
+  fromName: string,
+  toName: string,
+  secs: number,
+  walk: PolylineCoords,
+): RouteSegment {
+  if (!walk.corrected || walk.coords.length < 2) {
+    return walkSeg(fromName, toName, secs, walk.coords);
+  }
+  const ends = [walk.coords[0], walk.coords[walk.coords.length - 1]];
+  const straightSecs = ((polylineKm(ends) * 1000) / walkMetersPerMinute) * 60;
+  return walkSeg(fromName, toName, straightSecs, ends);
+}
+
 /// [start, end) の範囲にある徒歩セグメントの polyline 座標を連結する。
 function walkCoordsBetween(
   mapSegs: JsonMap[],
   start: number,
   end: number,
-): GeoPoint[] {
-  const out: GeoPoint[] = [];
+): PolylineCoords {
+  const parts: PolylineCoords[] = [];
   for (let i = start; i < end && i < mapSegs.length; i++) {
-    if (mapSegs[i]['kind'] === 'walk') out.push(...coordsOf(mapSegs[i]['polyline']));
+    if (mapSegs[i]['kind'] === 'walk') parts.push(readCoords(mapSegs[i]['polyline']));
   }
-  return out;
+  return joinCoords(parts);
 }
 
 /// 乗換徒歩 [leg] に対応する map の徒歩セグメント polyline を、両端の駅 id
 /// （`fromPointId`/`toPointId` == `leg.from.id`/`leg.to.id`）で突き合わせて返す。
 /// 一致が無ければ空（端点欠落は呼び出し側で許容）。
-function transferWalkCoords(mapSegs: JsonMap[], leg: JsonMap): GeoPoint[] {
+function transferWalkCoords(mapSegs: JsonMap[], leg: JsonMap): PolylineCoords {
   const from = leg['from'];
   const to = leg['to'];
   const fromId = isJsonMap(from) ? from['id'] : undefined;
@@ -277,24 +294,46 @@ function transferWalkCoords(mapSegs: JsonMap[], leg: JsonMap): GeoPoint[] {
   for (const s of mapSegs) {
     if (s['kind'] !== 'walk') continue;
     if (s['fromPointId'] === fromId && s['toPointId'] === toId) {
-      return coordsOf(s['polyline']);
+      return readCoords(s['polyline']);
     }
   }
-  return [];
+  return { coords: [], corrected: false };
+}
+
+/// polyline の座標列と、そのうち駅座標の補正（#515）で置き換えた点があったか。
+interface PolylineCoords {
+  coords: GeoPoint[];
+  corrected: boolean;
 }
 
 /// polyline（`{lat, lon}` または point オブジェクト `{lat, lon, id, ...}` の配列）を
 /// 座標列へ変換する。lat/lon を欠く要素は無視する。
-function coordsOf(polyline: unknown): GeoPoint[] {
-  if (!Array.isArray(polyline)) return [];
-  const out: GeoPoint[] = [];
+///
+/// 補正表に載ったずれた駅座標は、ここで正しい座標へ置き換える（#515）。電車区間の両端・
+/// コリドー・徒歩の両端はすべてこの座標から作られるので、読む時点で直せば徒歩の実測・
+/// 乗車地点の母集合・引き直しの起点・表示のどれにも同じ補正が効く。
+function readCoords(polyline: unknown): PolylineCoords {
+  if (!Array.isArray(polyline)) return { coords: [], corrected: false };
+  const coords: GeoPoint[] = [];
+  let corrected = false;
   for (const p of polyline) {
     if (!isJsonMap(p)) continue;
     const lat = asNum(p['lat']);
     const lon = asNum(p['lon']) ?? asNum(p['lng']);
-    if (lat !== null && lon !== null) out.push(new GeoPoint(lat, lon));
+    if (lat === null || lon === null) continue;
+    const raw = new GeoPoint(lat, lon);
+    const fixed = correctStationCoord(raw);
+    if (fixed !== null) corrected = true;
+    coords.push(fixed ?? raw);
   }
-  return out;
+  return { coords, corrected };
+}
+
+function joinCoords(parts: PolylineCoords[]): PolylineCoords {
+  return {
+    coords: parts.flatMap((p) => p.coords),
+    corrected: parts.some((p) => p.corrected),
+  };
 }
 
 /// 座標列の折れ線長（km）。2 点未満は 0。
