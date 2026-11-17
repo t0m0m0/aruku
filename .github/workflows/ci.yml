@@ -147,6 +147,36 @@ jobs:
         run: npm run lint:deps
         working-directory: functions
 
+  # 未使用のファイル・export・依存の検査（#520）。knip はルートから3パッケージを1つの
+  # 依存グラフとして辿る（理由は knip.jsonc）。各パッケージの npm ci も要る——knip は
+  # vite / vitest / playwright の設定ファイルを読み込んで入口を知るので、それらが
+  # import するパッケージが無いとテストやセットアップが未使用に見える。
+  unused-code:
+    name: unused files / exports / deps (knip)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            packages/engine/package-lock.json
+            apps/web/package-lock.json
+            functions/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm --prefix packages/engine ci
+          npm --prefix apps/web ci
+          npm --prefix functions ci
+
+      - name: Knip
+        run: npm run knip
+
   # エージェントのフックはローカルでしか走らないので、壊れても誰も気付かない。
   # ガードが素通りになる退行をここで捕まえる。
   agent-guards:

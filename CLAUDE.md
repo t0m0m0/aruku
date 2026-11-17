@@ -151,6 +151,9 @@ Lint（oxlint + tsgolint）の規則はルートの `.oxlintrc.json` に置き�
 禁止）は dependency-cruiser が検査する。規則はルートの `.dependency-cruiser.cjs`、走らせるのは
 `npm --prefix functions run lint:deps`（3パッケージのどれを変えても走らせる）。
 
+未使用のファイル・export・依存は knip が検査する。設定はルートの `knip.jsonc`、走らせるのは
+ルートで `npm ci` したうえでの `npm run knip`（3パッケージのどれを変えても走らせる）。
+
 ---
 
 ## Security Restrictions
