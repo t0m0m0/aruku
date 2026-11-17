@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HttpsFunction, Request } from 'firebase-functions/v2/https';
 import type { Response } from 'express';
 
+import type { logRequestLatency, logRequestOutcome } from '../src/metrics';
+
 // vi.mock はホイストされるため、参照する mock 関数は vi.hoisted で先に生成する。
 // メトリクス呼び出しそのもの（引数の形）を検証したいので、metrics モジュールを
 // まるごとモックし、実際の logger 出力は metrics.test.ts 側で担保する。
@@ -23,8 +25,8 @@ const {
   httpsRequestMock: vi.fn(),
   verifyTokenMock: vi.fn(),
   runTransactionMock: vi.fn(),
-  logRequestOutcomeMock: vi.fn(),
-  logRequestLatencyMock: vi.fn(),
+  logRequestOutcomeMock: vi.fn<typeof logRequestOutcome>(),
+  logRequestLatencyMock: vi.fn<typeof logRequestLatency>(),
   logAppCheckDeniedMock: vi.fn(),
   logRateLimitMock: vi.fn(),
   MockAgent: class MockAgent {

@@ -18,6 +18,9 @@ import {
 } from '../src/timetable-pack/pack';
 
 const SERVICE_DATE = '20261023';
+// expect.any はどの型の位置にも置けるよう any を返す。any を object literal へ流さないよう、
+// 照合子として unknown で持つ。
+const aNumber: unknown = expect.any(Number);
 
 // 駅2つ・便1本だけのパック。駅名にフィード名を入れ、どのパックの駅かを見分ける。
 const pack = (feedId: string, fetchedAt = '2026-10-22T19:23:00.000Z'): TimetablePack => ({
@@ -206,9 +209,9 @@ describe('createScanDaySource', () => {
         event: 'timetable_pack_load',
         group: 'permanent',
         status: 'success',
-        bytes: expect.any(Number),
+        bytes: aNumber,
         trips: 1,
-        loadMs: expect.any(Number),
+        loadMs: aNumber,
       }),
     );
   });
@@ -229,8 +232,8 @@ describe('createScanDaySource', () => {
     expect(load).toEqual(
       expect.objectContaining({
         readMs: 5,
-        gunzipMs: expect.any(Number),
-        parseMs: expect.any(Number),
+        gunzipMs: aNumber,
+        parseMs: aNumber,
       }),
     );
     expect(load!.loadMs).toBe(
@@ -249,9 +252,9 @@ describe('createScanDaySource', () => {
       expect.objectContaining({
         serviceDate: SERVICE_DATE,
         trips: 1,
-        extractMs: expect.any(Number),
-        compileMs: expect.any(Number),
-        neighborsMs: expect.any(Number),
+        extractMs: aNumber,
+        compileMs: aNumber,
+        neighborsMs: aNumber,
         heapUsedMB: 64,
       }),
     );
