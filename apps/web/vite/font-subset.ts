@@ -114,6 +114,10 @@ function codePointOf(ch: string): number {
   return cp;
 }
 
+function codePointHex(cp: number): string {
+  return cp.toString(16).toUpperCase();
+}
+
 /// 描かれ得ない文字を落とす。
 ///
 /// 空白（U+0020 など）は残す。「余白にグリフは要らない」と落とすと、語彙段が
@@ -255,8 +259,9 @@ export function formatUnicodeRange(chars: string): string {
     const start = points[i];
     while (i + 1 < points.length && points[i + 1] === points[i] + 1) i++;
     const end = points[i];
-    const hex = (cp: number) => cp.toString(16).toUpperCase();
-    parts.push(start === end ? `U+${hex(start)}` : `U+${hex(start)}-${hex(end)}`);
+    parts.push(
+      start === end ? `U+${codePointHex(start)}` : `U+${codePointHex(start)}-${codePointHex(end)}`,
+    );
   }
   return parts.join(',');
 }

@@ -245,13 +245,15 @@ function sameStations(
 /// 駅名は事業者・データ源で「駅」の有無や括弧書きの補足、ローマ字の併記（`新宿 Shinjuku`）が
 /// 揺れるので、それを落として比べる。
 function sameStationName(a: string, b: string): boolean {
-  const norm = (x: string): string =>
-    x
-      .replace(/[（(].*?[)）]/g, '')
-      .replace(/\s+(?=[A-Za-z\u00C0-\u024F]).*$/, '')
-      .trim()
-      .replace(/駅$/, '');
-  return norm(a) !== '' && norm(a) === norm(b);
+  return normalizeStationName(a) !== '' && normalizeStationName(a) === normalizeStationName(b);
+}
+
+function normalizeStationName(name: string): string {
+  return name
+    .replace(/[（(].*?[)）]/g, '')
+    .replace(/\s+(?=[A-Za-z\u00C0-\u024F]).*$/, '')
+    .trim()
+    .replace(/駅$/, '');
 }
 
 const departureLine = (d: BoardDeparture): string => `${d.routeName} ${d.headsign}`.trim();

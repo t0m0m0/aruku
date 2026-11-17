@@ -37,10 +37,11 @@ const depsNotWired: ScreenDeps = {
 };
 
 function notWiredRecents(): RecentsRepository {
-  const fail = (): never => {
-    throw new Error('RecentsRepository が未配線（appRoutes の deps）');
-  };
-  return { load: fail, add: fail, clear: fail };
+  return { load: failNotWired, add: failNotWired, clear: failNotWired };
+}
+
+function failNotWired(): never {
+  throw new Error('RecentsRepository が未配線（appRoutes の deps）');
 }
 
 /// アプリ全体のルート表。
