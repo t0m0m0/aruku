@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // vi.mock はホイストされるため、参照する mock 関数は vi.hoisted で先に生成する。
 const { runTransactionMock, logRateLimitMock } = vi.hoisted(() => ({
   runTransactionMock: vi.fn(),
-  logRateLimitMock: vi.fn(),
+  logRateLimitMock: vi.fn<(params: RateLimitParams) => void>(),
 }));
 
 vi.mock('../src/metrics', () => ({ logRateLimit: logRateLimitMock }));
@@ -25,6 +25,7 @@ vi.mock('firebase-admin/firestore', () => ({
   },
 }));
 
+import type { RateLimitParams } from '../src/metrics';
 import { checkRateLimitFirestore } from '../src/rate-limiter';
 
 // ドキュメント ID をキーにしたインメモリのストア。

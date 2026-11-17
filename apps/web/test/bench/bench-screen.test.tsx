@@ -55,12 +55,11 @@ describe('BenchScreen', () => {
     });
     expect(screen.getByText('2 / 120')).toBeTruthy();
     const jsonl = screen.getByLabelText<HTMLTextAreaElement>('JSONL').value;
-    expect(
-      jsonl
-        .trim()
-        .split('\n')
-        .map((l) => JSON.parse(l).pair),
-    ).toEqual(['p1', 'p2']);
+    const lines = jsonl
+      .trim()
+      .split('\n')
+      .map((l): unknown => JSON.parse(l));
+    expect(lines).toMatchObject([{ pair: 'p1' }, { pair: 'p2' }]);
     await act(async () => c.finish());
   });
 
@@ -114,7 +113,8 @@ describe('BenchScreen', () => {
     });
     expect(given[0].map((r) => r.pair)).toEqual(['p1']);
     const jsonl = screen.getByLabelText<HTMLTextAreaElement>('照合 JSONL').value;
-    expect(JSON.parse(jsonl).verdict).toEqual('sameTrip');
+    const verified: unknown = JSON.parse(jsonl);
+    expect(verified).toHaveProperty('verdict', 'sameTrip');
   });
 
   it('走らせ方が投げても、理由を出して操作を戻す', async () => {
