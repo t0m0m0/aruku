@@ -70,8 +70,7 @@ describe('candLine', () => {
     const departureAt = dateTime(2026, 6, 27, 9, 0);
     const c = new RouteCandidate({ from: 'A', to: 'B', segments: [walk(40)] });
     expect(diag.candLine(c, 60, departureAt)).toEqual(
-      'walk=40m arr=40m slack=20m within=true maxWait=0m ' +
-        'missed=false [walk40m]',
+      'walk=40m arr=40m slack=20m within=true maxWait=0m missed=false [walk40m]',
     );
   });
 
@@ -79,8 +78,7 @@ describe('candLine', () => {
     const departureAt = dateTime(2026, 6, 27, 9, 0);
     const c = new RouteCandidate({ from: 'A', to: 'B', segments: [walk(80)] });
     expect(diag.candLine(c, 60, departureAt)).toEqual(
-      'walk=80m arr=80m slack=-20m within=false maxWait=0m ' +
-        'missed=false [walk80m]',
+      'walk=80m arr=80m slack=-20m within=false maxWait=0m missed=false [walk80m]',
     );
   });
 });
