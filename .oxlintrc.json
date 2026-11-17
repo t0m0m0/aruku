@@ -23,6 +23,9 @@
     // ! は外れても黙って undefined を流す。型の絞り込み・早期 return・値の持ち方で存在を
     // 保証する（#521）。
     "typescript/no-non-null-assertion": "error",
+    // await の無い async は、同期の処理を Promise の契約へ合わせるために付けがちで、読み手に
+    // 待ちがあると思わせる。契約に合わせるだけなら Promise.resolve で返す（#521）。
+    "typescript/require-await": "error",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "import/no-cycle": "error",
     "vitest/no-focused-tests": "error",
@@ -79,6 +82,14 @@
       // 黙らない。絞り込みに書き換えると前提の表明が if と throw に埋もれて読みにくくなる。
       "files": ["**/test/**", "**/e2e/**"],
       "rules": { "typescript/no-non-null-assertion": "off" }
+    },
+    {
+      // テストの await の無い async は、Promise を返す依存の偽物（async () => 値）と、効果と
+      // マイクロタスクを流し切らせる act(async () => ...) がほとんど。偽物の async は中の throw を
+      // 本物どおり reject に変え、act は async を渡すかで流し方が変わる。Promise.resolve に
+      // 書き換えると throw する偽物が同期で投げるようになり、偽物が本物から離れる。
+      "files": ["**/test/**", "**/e2e/**"],
+      "rules": { "typescript/require-await": "off" }
     }
   ]
 }

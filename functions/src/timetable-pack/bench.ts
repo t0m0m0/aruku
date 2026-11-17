@@ -50,10 +50,10 @@ async function runOnce(dir: string, date: string): Promise<Record<Scenario, Samp
   const logs: Record<string, unknown>[] = [];
   let skew = 0;
   const deps = {
-    read: async (path: string) => {
+    read: (path: string) => {
       const group = PACK_GROUPS.find((g) => packObjectPath(g) === path);
       if (group === undefined) throw new Error(`unknown pack path: ${path}`);
-      return new Uint8Array(readFileSync(join(dir, `${group}.json.gz`)));
+      return Promise.resolve(new Uint8Array(readFileSync(join(dir, `${group}.json.gz`))));
     },
     log: (e: Record<string, unknown>) => logs.push(e),
     now: () => performance.now() + skew,

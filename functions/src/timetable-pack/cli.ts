@@ -43,11 +43,12 @@ async function main(): Promise<void> {
         ODPT_CHALLENGE_KEY: process.env.ODPT_CHALLENGE_KEY,
       },
       now: () => new Date(),
-      upload: async (path, gzipped) => {
+      upload: (path, gzipped) => {
         const file = join(out, path);
         mkdirSync(dirname(file), { recursive: true });
         writeFileSync(file, gzipped);
         written.push(file);
+        return Promise.resolve();
       },
       log: (event) => console.error(JSON.stringify(event)),
     },
