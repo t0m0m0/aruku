@@ -44,6 +44,9 @@
     // 関数で受け、Array.isArray は any[] へ絞るので型述語で包む。モックには本物の型を持たせる
     // （#521）。
     "typescript/no-unsafe-return": "error",
+    // any を呼ぶと、関数であるかも引数・返り値の型も確かめないまま進む。呼ぶ値は unknown で
+    // 受けて型述語・パース関数で絞り、モックには本物の型を持たせる（#521）。
+    "typescript/no-unsafe-call": "error",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "import/no-cycle": "error",
     "vitest/no-focused-tests": "error",
