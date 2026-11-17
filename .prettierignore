@@ -1,0 +1,20 @@
+# ルートの .gitignore は Prettier が既定で読むが、パッケージごとの .gitignore は読まない。
+# そちらで無視している生成物・データをここで同じく外す。
+functions/lib/
+functions/.odpt/
+apps/web/dist/
+apps/web/dist-e2e/
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/.replay/
+
+# npm が書く生成物。手で整えても次の npm install で書き戻される。
+package-lock.json
+
+# Markdown は対象外。Prettier は表の列幅を揃えるので、1セルの変更が表全体の差分になり、
+# 「差分に書式の揺れを混ぜない」という導入の狙いと逆になる。docs の大半は表を含む日本語の文書。
+*.md
+
+# npx skills が入れる第三者の Agent Skills。手を入れると skills-lock.json の版と食い違う。
+.agents/
+skills-lock.json
