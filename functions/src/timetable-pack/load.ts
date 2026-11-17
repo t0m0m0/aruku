@@ -124,24 +124,24 @@ async function loadPacks(
   previous: ReadonlyMap<PackGroup, TimetablePack>,
 ): Promise<Loaded> {
   const packs = new Map<PackGroup, TimetablePack>();
-  let failed = false;
-  await Promise.all(
+  const statuses = await Promise.all(
     PACK_GROUPS.map(async (group) => {
       const result = await readPack(deps, group);
       if (result.status === 'success') {
         packs.set(group, result.pack);
         const { pack, ...timings } = result;
         deps.log({ event: 'timetable_pack_load', group, ...timings, trips: pack.trips.length });
-        return;
+        return result.status;
       }
       deps.log({ event: 'timetable_pack_load', group, ...result });
-      if (result.status === 'failure') failed = true;
       // 無いグループは前のパックも捨てる。チャレンジ限定データは期限（2027-03-12）で
       // オブジェクトを消す（#463）ので、温まったインスタンスに残しておくと消した後も検索に使い続ける。
       const kept = previous.get(group);
       if (result.status === 'failure' && kept !== undefined) packs.set(group, kept);
+      return result.status;
     }),
   );
+  const failed = statuses.includes('failure');
   return {
     reloadAt: deps.now() + (failed ? RETRY_AFTER_FAILURE_MS : RELOAD_AFTER_MS),
     packs,
