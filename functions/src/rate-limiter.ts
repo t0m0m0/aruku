@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 
+import { isRecord } from './json';
 import { logRateLimit, type FailOpenReason } from './metrics';
 
 // 標準上限（IP あたり 30 req/min）。
@@ -125,7 +126,7 @@ const CONFIG_ERROR_GRPC_CODES = new Set([
 
 function classifyFailOpen(e: unknown): FailOpenReason {
   if (e instanceof RateLimitConfigError) return 'config';
-  const code = (e as { code?: unknown } | null)?.code;
+  const code = isRecord(e) ? e['code'] : undefined;
   if (typeof code === 'number' && CONFIG_ERROR_GRPC_CODES.has(code)) {
     return 'config';
   }
@@ -200,6 +201,14 @@ async function drainPendingChecks(docId: string): Promise<void> {
   }
 }
 
+// 形の崩れた文書は、無いものとして新しいウィンドウで数え直す。そのまま読むと count が NaN になり、
+// 上限との比較が常に偽になって制限が効かなくなる。
+function readWindow(data: unknown): { count: number; resetAt: number } | undefined {
+  if (!isRecord(data)) return undefined;
+  const { count, resetAt } = data;
+  return typeof count === 'number' && typeof resetAt === 'number' ? { count, resetAt } : undefined;
+}
+
 async function countBatch(docId: string, limits: number[]): Promise<boolean[]> {
   const db = getFirestore();
   const ref = db.collection(COLLECTION).doc(docId);
@@ -208,7 +217,7 @@ async function countBatch(docId: string, limits: number[]): Promise<boolean[]> {
   // カウントは必ず内側で読んだ値から積む。
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
-    const data = snap.data() as { count: number; resetAt: number } | undefined;
+    const data = readWindow(snap.data());
     const windowExpired = !data || now > data.resetAt;
     const before = windowExpired ? 0 : data.count;
     let count = before;
