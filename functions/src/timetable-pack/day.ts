@@ -39,7 +39,7 @@ export function buildScanDay(
   const stops: ScanDay['stops'][number][] = [];
   const stations: StationKey[] = [];
   const feeds: ScanDay['feeds'][number][] = [];
-  const trips: { route: string; headsign: string | null }[] = new Array(tripCount);
+  const trips = new Array<{ route: string; headsign: string | null }>(tripCount);
   const tripStart = new Int32Array(tripCount);
   const tripLength = new Int32Array(tripCount);
   const callStop = new Int32Array(callCount);

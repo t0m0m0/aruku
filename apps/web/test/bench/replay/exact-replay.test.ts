@@ -75,18 +75,21 @@ describe('localExactWalkMax', () => {
     const respond = localExactWalkMax({ packDir: dir, now: () => NOW });
     const res = await respond(exactUrl(QUERY));
     expect(res.status).toBe(200);
-    const body = JSON.parse(res.body);
-    expect(body.candidates).toHaveLength(1);
-    expect(body.candidates[0]).toMatchObject({ route: 'テスト線', boardAt: expect.any(String) });
-    expect(body.feeds).toEqual([{ id: 'Test', fetchedAt: '2026-11-17T00:00:00.000Z' }]);
+    const body: unknown = JSON.parse(res.body);
+    // expect.any はどの型の位置にも置けるよう any を返す。any を object literal へ流さないよう、
+    // 照合子として unknown で持つ。
+    const aString: unknown = expect.any(String);
+    expect(body).toMatchObject({ candidates: [{ route: 'テスト線', boardAt: aString }] });
+    expect(body).toHaveProperty('feeds', [{ id: 'Test', fetchedAt: '2026-11-17T00:00:00.000Z' }]);
   });
 
   // 徒歩プロキシと同じ値にしないと、厳密走査の候補だけ徒歩の見積りがずれ、選定が偏る。
   it('徒歩は徒歩プロキシと同じ合成の値で測る', async () => {
     writePack('permanent');
     const respond = localExactWalkMax({ packDir: dir, now: () => NOW });
-    const body = JSON.parse((await respond(exactUrl(QUERY))).body);
-    expect(body.candidates[0].accessWalk.durationSec).toBe(
+    const body: unknown = JSON.parse((await respond(exactUrl(QUERY))).body);
+    expect(body).toHaveProperty(
+      ['candidates', 0, 'accessWalk', 'durationSec'],
       syntheticWalkSeconds(
         new GeoPoint(ORIGIN.lat, ORIGIN.lng),
         new GeoPoint(BOARD.lat, BOARD.lng),

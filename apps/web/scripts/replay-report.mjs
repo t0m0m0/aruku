@@ -25,11 +25,19 @@ const readJsonl = (path) =>
     .filter((line) => line.trim() !== '')
     .map((line) => JSON.parse(line));
 
+/** @param {unknown[]} rows */
+const labelOf = (rows) => {
+  const first = rows[0];
+  const label =
+    typeof first === 'object' && first !== null && 'label' in first ? first.label : null;
+  return typeof label === 'string' ? label : undefined;
+};
+
 const a = readJsonl(aPath);
 const b = readJsonl(bPath);
 process.stdout.write(
   replayReport(a, b, {
-    a: labels?.[0] ?? a[0]?.label ?? 'A',
-    b: labels?.[1] ?? b[0]?.label ?? 'B',
+    a: labels?.[0] ?? labelOf(a) ?? 'A',
+    b: labels?.[1] ?? labelOf(b) ?? 'B',
   }),
 );

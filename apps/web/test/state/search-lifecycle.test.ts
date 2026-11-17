@@ -5,7 +5,7 @@
 // 権威が URL へ移ったので、`go()` が呼ばれた時点でストアが遷移先のガードを通ることで
 // 反証する（store.test.ts と同じ流儀）。
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, type Mock } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
 import type { RoutePlan } from '@aruku/engine/models/route-plan';
@@ -33,7 +33,7 @@ const aRoute = { totalMinutes: 42 } as unknown as RoutePlan;
 interface Harness {
   store: StoreApi<AppStore>;
   navigate: ReturnType<typeof vi.fn>;
-  plan: ReturnType<typeof vi.fn>;
+  plan: Mock<RouteService['plan']>;
   seen: { path: string; redirectedTo: string | null }[];
   setNow: (at: Date) => void;
 }

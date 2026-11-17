@@ -57,5 +57,8 @@ await build({
   },
 });
 
-const { main } = await import(pathToFileURL(resolve(outDir, 'replay-cli.mjs')).href);
-process.exitCode = await main(harnessArgs);
+// 束ねたばかりの出力には型が無い。中身はビルド元の replay-cli.ts そのものなので、その型で受ける。
+/** @type {typeof import('../src/bench/replay/replay-cli.ts')} */
+// oxlint-disable-next-line typescript/no-unsafe-assignment
+const cli = await import(pathToFileURL(resolve(outDir, 'replay-cli.mjs')).href);
+process.exitCode = await cli.main(harnessArgs);

@@ -34,6 +34,9 @@
     // JSON.parse・子プロセスの出力は unknown からパース関数で、.mjs の引数は JSDoc で型を持たせる
     // （#521）。
     "typescript/no-unsafe-argument": "error",
+    // any を変数へ入れると、そこから先の読み書きが型の検査を受けずに通る。JSON.parse・上流の
+    // 応答・型の無いモジュールは unknown で受けて絞る。expect.any の照合子も unknown で持つ（#521）。
+    "typescript/no-unsafe-assignment": "error",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "import/no-cycle": "error",
     "vitest/no-focused-tests": "error",

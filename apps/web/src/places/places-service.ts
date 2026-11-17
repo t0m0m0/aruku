@@ -145,7 +145,7 @@ function toPrediction(raw: unknown): PlacePrediction {
   const description = typeof map['description'] === 'string' ? map['description'] : '';
 
   const terms = map['terms'];
-  const firstTerm = Array.isArray(terms) ? terms[0] : undefined;
+  const firstTerm: unknown = Array.isArray(terms) ? terms[0] : undefined;
   const termValue = isRecord(firstTerm) ? firstTerm['value'] : undefined;
   const name = typeof termValue === 'string' ? termValue : description;
 

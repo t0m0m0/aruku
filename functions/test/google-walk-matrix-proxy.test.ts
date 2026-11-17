@@ -40,7 +40,7 @@ describe('matrixElementCount', () => {
 
 describe('buildRoutesMatrixBody', () => {
   it('origins/destinations を waypoint.latLng で、travelMode を WALK で含める', () => {
-    const body = JSON.parse(
+    const body: unknown = JSON.parse(
       buildRoutesMatrixBody(
         [{ latitude: 35.7, longitude: 139.75 }],
         [
@@ -49,10 +49,10 @@ describe('buildRoutesMatrixBody', () => {
         ],
       ),
     );
-    expect(body.origins).toEqual([
+    expect(body).toHaveProperty('origins', [
       { waypoint: { location: { latLng: { latitude: 35.7, longitude: 139.75 } } } },
     ]);
-    expect(body.destinations).toEqual([
+    expect(body).toHaveProperty('destinations', [
       {
         waypoint: {
           location: { latLng: { latitude: 35.681, longitude: 139.767 } },
@@ -62,7 +62,7 @@ describe('buildRoutesMatrixBody', () => {
         waypoint: { location: { latLng: { latitude: 35.69, longitude: 139.7 } } },
       },
     ]);
-    expect(body.travelMode).toBe('WALK');
+    expect(body).toHaveProperty('travelMode', 'WALK');
   });
 });
 

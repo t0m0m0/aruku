@@ -6,6 +6,9 @@
 // Transit API の /locations/suggest を駅名ごとに1本ずつ（数百本）叩く。第三者の無料 API なので、
 // 並列度は低く抑えてある。上流が座標を直した駅は表から落ちるので、ときどき回して差分を見る。
 
+// tsconfig の include の外にあるので、型検査は既定の設定で読む。node:* の型は誰も引き込まない。
+/// <reference types="node" />
+
 import { writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
@@ -34,29 +37,85 @@ function haversineM(aLat, aLon, bLat, bLon) {
 
 const round5 = (x) => Math.round(x * 1e5) / 1e5;
 
-/** @param {string} url */
+/**
+ * @param {string} url
+ * @returns {Promise<unknown>}
+ */
 async function getJson(url) {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url);
-    if (res.ok) return res.json();
+    if (res.ok) {
+      /** @type {unknown} */
+      const body = await res.json();
+      return body;
+    }
     if (attempt >= 3) throw new Error(`${res.status} ${url}`);
     await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
   }
 }
 
-const m3d = await getJson(M3D_STATIONS);
+/**
+ * @param {unknown} v
+ * @returns {v is Record<string, unknown>}
+ */
+const isRecord = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * mini-tokyo-3d の stations.json から、座標を持つ JR 東日本の駅を名前と座標で取り出す。
+ * @param {unknown} body
+ * @returns {{ name: string, lat: number, lon: number }[]}
+ */
+function parseM3dStations(body) {
+  if (!Array.isArray(body)) throw new Error('stations.json is not an array');
+  /** @type {unknown[]} */
+  const stations = body;
+  /** @type {{ name: string, lat: number, lon: number }[]} */
+  const out = [];
+  for (const s of stations) {
+    if (!isRecord(s) || typeof s.id !== 'string' || !s.id.startsWith('JR-East.')) continue;
+    // 範囲外の駅は座標を持たない（路線の端だけ名前を載せている）。
+    if (!Array.isArray(s.coord)) continue;
+    /** @type {unknown[]} */
+    const coord = s.coord;
+    const [lon, lat] = coord;
+    const name = isRecord(s.title) ? s.title.ja : undefined;
+    if (typeof name !== 'string' || typeof lat !== 'number' || typeof lon !== 'number') continue;
+    out.push({ name, lat, lon });
+  }
+  return out;
+}
+
+/**
+ * Transit API の /locations/suggest の応答から駅を取り出す。
+ * @param {unknown} body
+ * @returns {{ id: string, name: string, feedId: string, lat: number, lon: number }[]}
+ */
+function parseSuggestStations(body) {
+  if (!isRecord(body) || !Array.isArray(body.stations)) return [];
+  /** @type {{ id: string, name: string, feedId: string, lat: number, lon: number }[]} */
+  const out = [];
+  /** @type {unknown[]} */
+  const stations = body.stations;
+  for (const st of stations) {
+    if (!isRecord(st) || st.kind !== 'station') continue;
+    const { id, name, feedId, lat, lon } = st;
+    if (typeof id !== 'string' || typeof name !== 'string') continue;
+    if (typeof lat !== 'number' || typeof lon !== 'number') continue;
+    out.push({ id, name, feedId: String(feedId), lat, lon });
+  }
+  return out;
+}
+
 /** @type {Map<string, { lat: number, lon: number }[]>} */
 const m3dByName = new Map();
-for (const s of m3d) {
-  // 範囲外の駅は座標を持たない（路線の端だけ名前を載せている）。
-  if (!s.id.startsWith('JR-East.') || s.coord === undefined) continue;
-  const name = s.title.ja;
-  if (typeof name !== 'string') continue;
-  if (!m3dByName.has(name)) m3dByName.set(name, []);
-  m3dByName.get(name).push({ lat: s.coord[1], lon: s.coord[0] });
+for (const { name, lat, lon } of parseM3dStations(await getJson(M3D_STATIONS))) {
+  const refs = m3dByName.get(name) ?? [];
+  refs.push({ lat, lon });
+  m3dByName.set(name, refs);
 }
 
 const names = [...m3dByName.keys()];
+/** @type {Map<string, { station: string, name: string, from: number[], to: number[], offsetM: number }>} */
 const corrections = new Map();
 const excluded = [];
 let next = 0;
@@ -66,12 +125,11 @@ async function worker() {
   while (next < names.length) {
     const name = names[next++];
     const url = `${SUGGEST}?q=${encodeURIComponent(name)}&limit=30`;
-    const body = await getJson(url);
-    for (const st of body.stations ?? []) {
-      if (st.kind !== 'station' || st.name !== name) continue;
-      if (!String(st.feedId).includes('jreast')) continue;
+    for (const st of parseSuggestStations(await getJson(url))) {
+      if (st.name !== name) continue;
+      if (!st.feedId.includes('jreast')) continue;
       let best = null;
-      for (const ref of m3dByName.get(name)) {
+      for (const ref of m3dByName.get(name) ?? []) {
         const d = haversineM(st.lat, st.lon, ref.lat, ref.lon);
         if (best === null || d < best.d) best = { d, ref };
       }
