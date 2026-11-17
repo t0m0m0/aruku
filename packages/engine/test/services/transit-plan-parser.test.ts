@@ -3,7 +3,9 @@
 import { describe, expect, it } from 'vitest';
 
 import type { JsonMap } from '../../src/json';
+import { GeoPoint } from '../../src/models/geo-point';
 import { SegmentType } from '../../src/models/route-plan';
+import { haversineKm } from '../../src/services/hybrid-route-selector';
 import {
   parseGuidancePlan,
   stripStationRomaji,
@@ -848,5 +850,286 @@ describe('parseGuidancePlan', () => {
     expect(trains).toHaveLength(1);
     expect(single(trains).fromName).toEqual('大森');
     expect(single(trains).toName).toEqual('新橋');
+  });
+});
+
+// Transit API の JR 宇都宮線フィードの駅座標は実際の駅からずれていることがある（#515）。
+// 以下の座標は 2026-11 の実応答（東京→久喜駅）から取った。
+const kukiJrRaw = [36.06301, 139.66734]; // 宇都宮線の「久喜」。実際の駅の約1km 西南西
+const kukiTobu = [36.06555, 139.67761]; // 東武の「久喜 Kuki」。実際の駅とほぼ一致
+const kukiGoal = [36.0656, 139.6775]; // 地点検索の「久喜駅」
+const shinShiraokaJrRaw = [36.00274, 139.67665]; // 宇都宮線の「新白岡」。実際の駅の約4km 南
+const tokyo = [35.681236, 139.767125];
+
+const toPoint = (p: number[]): GeoPoint => new GeoPoint(p[0], p[1]);
+const metersBetween = (a: GeoPoint, b: GeoPoint): number => haversineKm(a, b) * 1000;
+
+/// 東京 17:29 → 久喜 18:26 の宇都宮線1本。上流は降車後の徒歩をずれた座標から見積もり、
+/// 996 秒（約17分）と返す。
+const tokyoToKukiJr = (): JsonMap =>
+  guidance({
+    date: '20261118',
+    options: [
+      option({
+        journey: journey({
+          dep: 62940,
+          arr: 66360,
+          dur: 3420 + 15 + 996,
+          access: 15,
+          egress: 996,
+          legs: [
+            railLeg({
+              route: '宇都宮線（宇都宮方面）',
+              fromId: 'jr-u:Tokyo',
+              fromName: '東京',
+              toId: 'jr-u:Kuki',
+              toName: '久喜',
+              dep: 62940,
+              arr: 66360,
+            }),
+          ],
+        }),
+        segments: [
+          mapWalk({
+            fromId: 'origin',
+            toId: 'jr-u:Tokyo',
+            geom: 'osmWalk',
+            coords: [tokyo, tokyo],
+          }),
+          mapTransit({
+            fromId: 'jr-u:Tokyo',
+            toId: 'jr-u:Kuki',
+            geom: 'stopOrder',
+            coords: [tokyo, [35.9, 139.62], shinShiraokaJrRaw, kukiJrRaw],
+          }),
+          mapWalk({
+            fromId: 'jr-u:Kuki',
+            toId: 'destination',
+            geom: 'estimatedWalk',
+            coords: [kukiJrRaw, kukiGoal],
+          }),
+        ],
+      }),
+    ],
+  });
+
+describe('parseGuidancePlan: 駅座標の補正（#515）', () => {
+  it('東京→久喜駅: ずれた「久喜」で降りても、降車後に17分歩く区間を作らない', () => {
+    const segs = single(parseGuidancePlan(tokyoToKukiJr())).segments;
+    const egress = segs[segs.length - 1];
+    expect(egress.type).toEqual(SegmentType.walk);
+    expect(egress.fromName).toEqual('久喜');
+    expect(egress.minutes).toBeLessThanOrEqual(1);
+    expect(egress.km).toBeLessThan(0.1);
+  });
+
+  it('降車後の徒歩は補正した駅から目的地への直線になり、Google の実測もそこから引く', () => {
+    const segs = single(parseGuidancePlan(tokyoToKukiJr())).segments;
+    const train = segs.find((s) => s.type === SegmentType.train)!;
+    const egress = segs[segs.length - 1];
+    const alight = train.polyline[train.polyline.length - 1];
+    expect(metersBetween(alight, toPoint(kukiTobu))).toBeLessThan(50);
+    expect(egress.polyline).toHaveLength(2);
+    expect(egress.polyline[0].isAt(alight)).toBe(true);
+    expect(egress.polyline[1].isAt(toPoint(kukiGoal))).toBe(true);
+  });
+
+  it('コリドーの途中の頂点（停車駅）も補正する', () => {
+    const corridor = single(single(parseGuidancePlan(tokyoToKukiJr())).corridors);
+    expect(corridor.coords).toHaveLength(4);
+    expect(corridor.coords[2].isAt(toPoint(shinShiraokaJrRaw))).toBe(false);
+    expect(metersBetween(corridor.coords[2], toPoint(shinShiraokaJrRaw))).toBeGreaterThan(3000);
+    expect(metersBetween(corridor.coords[3], toPoint(kukiTobu))).toBeLessThan(50);
+    // 表に無い頂点（東京・線路上の点）はそのまま。
+    expect(corridor.coords[0].isAt(toPoint(tokyo))).toBe(true);
+    expect(corridor.coords[1].isAt(toPoint([35.9, 139.62]))).toBe(true);
+  });
+
+  it('乗る側: ずれた「久喜」から乗るとき、乗車前の徒歩を補正した駅までの直線で見積もり直す', () => {
+    const options = parseGuidancePlan(
+      guidance({
+        options: [
+          option({
+            journey: journey({
+              dep: 30000,
+              arr: 33420,
+              dur: 3420 + 996 + 15,
+              access: 996,
+              egress: 15,
+              legs: [
+                railLeg({
+                  route: '宇都宮線（上野方面）',
+                  fromId: 'jr-u:Kuki',
+                  fromName: '久喜',
+                  toId: 'jr-u:Tokyo',
+                  toName: '東京',
+                  dep: 30000,
+                  arr: 33420,
+                }),
+              ],
+            }),
+            segments: [
+              mapWalk({
+                fromId: 'origin',
+                toId: 'jr-u:Kuki',
+                geom: 'osmWalk',
+                coords: [kukiGoal, [36.064, 139.672], kukiJrRaw],
+              }),
+              mapTransit({
+                fromId: 'jr-u:Kuki',
+                toId: 'jr-u:Tokyo',
+                geom: 'stopOrder',
+                coords: [kukiJrRaw, tokyo],
+              }),
+              mapWalk({
+                fromId: 'jr-u:Tokyo',
+                toId: 'destination',
+                geom: 'osmWalk',
+                coords: [tokyo, tokyo],
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+    const access = single(options).segments[0];
+    expect(access.type).toEqual(SegmentType.walk);
+    expect(access.minutes).toBeLessThanOrEqual(1);
+    // ずれた座標へ向かう上流の徒歩線（途中の頂点）は捨て、直線の2点にする。
+    expect(access.polyline).toHaveLength(2);
+    expect(access.polyline[0].isAt(toPoint(kukiGoal))).toBe(true);
+    expect(metersBetween(access.polyline[1], toPoint(kukiTobu))).toBeLessThan(50);
+    expect(single(single(options).corridors).coords[0].isAt(access.polyline[1])).toBe(true);
+  });
+
+  it('乗換: ずれた JR の久喜から東武の久喜への乗換徒歩は、同じ駅舎なので生成しない', () => {
+    const options = parseGuidancePlan(
+      guidance({
+        options: [
+          option({
+            journey: journey({
+              dep: 62940,
+              arr: 67200,
+              dur: 4260,
+              legs: [
+                railLeg({
+                  route: '宇都宮線（宇都宮方面）',
+                  fromId: 'jr-u:Tokyo',
+                  fromName: '東京',
+                  toId: 'jr-u:Kuki',
+                  toName: '久喜',
+                  dep: 62940,
+                  arr: 66360,
+                }),
+                walkLeg({
+                  fromId: 'jr-u:Kuki',
+                  fromName: '久喜',
+                  toId: 'tobu:Kuki',
+                  toName: '久喜 Kuki',
+                  dep: 66360,
+                  arr: 66360 + 780,
+                }),
+                railLeg({
+                  route: 'TI',
+                  fromId: 'tobu:Kuki',
+                  fromName: '久喜 Kuki',
+                  toId: 'tobu:Washinomiya',
+                  toName: '鷲宮 Washinomiya',
+                  dep: 66900,
+                  arr: 67200,
+                }),
+              ],
+            }),
+            segments: [
+              mapTransit({
+                fromId: 'jr-u:Tokyo',
+                toId: 'jr-u:Kuki',
+                geom: 'stopOrder',
+                coords: [tokyo, kukiJrRaw],
+              }),
+              mapWalk({
+                fromId: 'jr-u:Kuki',
+                toId: 'tobu:Kuki',
+                geom: 'osmWalk',
+                coords: [kukiJrRaw, [36.064, 139.672], kukiTobu],
+              }),
+              mapTransit({
+                fromId: 'tobu:Kuki',
+                toId: 'tobu:Washinomiya',
+                geom: 'stopOrder',
+                coords: [kukiTobu, [36.1, 139.66]],
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+    const segs = single(options).segments;
+    expect(segs.map((s) => s.type)).toEqual([SegmentType.train, SegmentType.train]);
+  });
+
+  it('表に無い駅だけの option は、上流の徒歩線と所要をそのまま使う', () => {
+    const body = tokyoToKukiJr();
+    const opt = (body['options'] as JsonMap[])[0];
+    const segs = (opt['map'] as JsonMap)['segments'] as JsonMap[];
+    segs[1]['polyline'] = poly([tokyo, kukiTobu]);
+    segs[2]['polyline'] = poly([kukiTobu, [36.0657, 139.6774], kukiGoal]);
+    const parsed = single(parseGuidancePlan(body)).segments;
+    const egress = parsed[parsed.length - 1];
+    expect(egress.minutes).toEqual(17);
+    expect(egress.polyline).toHaveLength(3);
+  });
+});
+
+describe('parseGuidancePlan: 利用者が選んだ地点は駅座標の補正で動かさない（#515）', () => {
+  it('目的地がずれた駅座標と重なっていても、降車後の徒歩の終点は目的地のまま', () => {
+    const body = tokyoToKukiJr();
+    const opt = (body['options'] as JsonMap[])[0];
+    const segs = (opt['map'] as JsonMap)['segments'] as JsonMap[];
+    // 新白岡（ずれた座標）で降り、ちょうど宇都宮線の久喜のずれた座標の地点へ歩く。
+    segs[1]['polyline'] = poly([tokyo, shinShiraokaJrRaw]);
+    segs[2]['polyline'] = poly([shinShiraokaJrRaw, kukiJrRaw]);
+    const parsed = single(parseGuidancePlan(body)).segments;
+    const egress = parsed[parsed.length - 1];
+    expect(egress.polyline[egress.polyline.length - 1].isAt(toPoint(kukiJrRaw))).toBe(true);
+    // 駅の端は補正する。
+    expect(egress.polyline[0].isAt(toPoint(shinShiraokaJrRaw))).toBe(false);
+  });
+
+  it('出発地がずれた駅座標と重なっていても、乗車前の徒歩の起点は出発地のまま', () => {
+    const body = tokyoToKukiJr();
+    const opt = (body['options'] as JsonMap[])[0];
+    const segs = (opt['map'] as JsonMap)['segments'] as JsonMap[];
+    segs[0]['polyline'] = poly([shinShiraokaJrRaw, tokyo]);
+    const access = single(parseGuidancePlan(body)).segments[0];
+    expect(access.type).toEqual(SegmentType.walk);
+    expect(access.polyline[0].isAt(toPoint(shinShiraokaJrRaw))).toBe(true);
+  });
+
+  it('全徒歩の option は、端も途中の頂点も補正しない', () => {
+    const options = parseGuidancePlan(
+      guidance({
+        options: [
+          option({
+            journey: { durationSecs: 1200, legs: [] },
+            segments: [
+              mapWalk({
+                fromId: 'geo:36.06301,139.66734',
+                toId: 'geo:36.0656,139.6775',
+                geom: 'osmWalk',
+                coords: [kukiJrRaw, shinShiraokaJrRaw, kukiGoal],
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+    const walk = single(single(options).segments);
+    expect(walk.polyline.map((p) => [p.lat, p.lng])).toEqual([
+      kukiJrRaw,
+      shinShiraokaJrRaw,
+      kukiGoal,
+    ]);
+    expect(walk.minutes).toEqual(20);
   });
 });
