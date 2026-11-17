@@ -1080,3 +1080,56 @@ describe('parseGuidancePlan: 駅座標の補正（#515）', () => {
     expect(egress.polyline).toHaveLength(3);
   });
 });
+
+describe('parseGuidancePlan: 利用者が選んだ地点は駅座標の補正で動かさない（#515）', () => {
+  it('目的地がずれた駅座標と重なっていても、降車後の徒歩の終点は目的地のまま', () => {
+    const body = tokyoToKukiJr();
+    const opt = (body['options'] as JsonMap[])[0];
+    const segs = (opt['map'] as JsonMap)['segments'] as JsonMap[];
+    // 新白岡（ずれた座標）で降り、ちょうど宇都宮線の久喜のずれた座標の地点へ歩く。
+    segs[1]['polyline'] = poly([tokyo, shinShiraokaJrRaw]);
+    segs[2]['polyline'] = poly([shinShiraokaJrRaw, kukiJrRaw]);
+    const parsed = single(parseGuidancePlan(body)).segments;
+    const egress = parsed[parsed.length - 1];
+    expect(egress.polyline[egress.polyline.length - 1].isAt(toPoint(kukiJrRaw))).toBe(true);
+    // 駅の端は補正する。
+    expect(egress.polyline[0].isAt(toPoint(shinShiraokaJrRaw))).toBe(false);
+  });
+
+  it('出発地がずれた駅座標と重なっていても、乗車前の徒歩の起点は出発地のまま', () => {
+    const body = tokyoToKukiJr();
+    const opt = (body['options'] as JsonMap[])[0];
+    const segs = (opt['map'] as JsonMap)['segments'] as JsonMap[];
+    segs[0]['polyline'] = poly([shinShiraokaJrRaw, tokyo]);
+    const access = single(parseGuidancePlan(body)).segments[0];
+    expect(access.type).toEqual(SegmentType.walk);
+    expect(access.polyline[0].isAt(toPoint(shinShiraokaJrRaw))).toBe(true);
+  });
+
+  it('全徒歩の option は、端も途中の頂点も補正しない', () => {
+    const options = parseGuidancePlan(
+      guidance({
+        options: [
+          option({
+            journey: { durationSecs: 1200, legs: [] },
+            segments: [
+              mapWalk({
+                fromId: 'geo:36.06301,139.66734',
+                toId: 'geo:36.0656,139.6775',
+                geom: 'osmWalk',
+                coords: [kukiJrRaw, shinShiraokaJrRaw, kukiGoal],
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+    const walk = single(single(options).segments);
+    expect(walk.polyline.map((p) => [p.lat, p.lng])).toEqual([
+      kukiJrRaw,
+      shinShiraokaJrRaw,
+      kukiGoal,
+    ]);
+    expect(walk.minutes).toEqual(20);
+  });
+});

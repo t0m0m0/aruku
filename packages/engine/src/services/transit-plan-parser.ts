@@ -134,7 +134,7 @@ function parseOption(
   // 電車を含まない＝全徒歩 option。単一の徒歩区間へ畳む。
   if (firstTransitIdx < 0) {
     const secs = truncToInt(asNum(journey['durationSecs'])) ?? 0;
-    const walk = joinCoords(mapSegs.map((s) => readCoords(s['polyline'])));
+    const walk = joinCoords(mapSegs.map(readWalkCoords));
     return new TransitOption({
       from: fromName,
       to: toName,
@@ -278,7 +278,7 @@ function walkCoordsBetween(
 ): PolylineCoords {
   const parts: PolylineCoords[] = [];
   for (let i = start; i < end && i < mapSegs.length; i++) {
-    if (mapSegs[i]['kind'] === 'walk') parts.push(readCoords(mapSegs[i]['polyline']));
+    if (mapSegs[i]['kind'] === 'walk') parts.push(readWalkCoords(mapSegs[i]));
   }
   return joinCoords(parts);
 }
@@ -294,7 +294,7 @@ function transferWalkCoords(mapSegs: JsonMap[], leg: JsonMap): PolylineCoords {
   for (const s of mapSegs) {
     if (s['kind'] !== 'walk') continue;
     if (s['fromPointId'] === fromId && s['toPointId'] === toId) {
-      return readCoords(s['polyline']);
+      return readWalkCoords(s);
     }
   }
   return { coords: [], corrected: false };
@@ -309,24 +309,49 @@ interface PolylineCoords {
 /// polyline（`{lat, lon}` または point オブジェクト `{lat, lon, id, ...}` の配列）を
 /// 座標列へ変換する。lat/lon を欠く要素は無視する。
 ///
-/// 補正表に載ったずれた駅座標は、ここで正しい座標へ置き換える（#515）。電車区間の両端・
-/// コリドー・徒歩の両端はすべてこの座標から作られるので、読む時点で直せば徒歩の実測・
-/// 乗車地点の母集合・引き直しの起点・表示のどれにも同じ補正が効く。
-function readCoords(polyline: unknown): PolylineCoords {
+/// [isStation] が真の頂点のうち、補正表に載ったずれた駅座標は、ここで正しい座標へ置き換える
+/// （#515）。電車区間の両端・コリドー・徒歩の駅側の端はすべてこの座標から作られるので、読む
+/// 時点で直せば徒歩の実測・乗車地点の母集合・引き直しの起点・表示のどれにも同じ補正が効く。
+function readCoords(
+  polyline: unknown,
+  isStation: (index: number, count: number) => boolean = () => true,
+): PolylineCoords {
   if (!Array.isArray(polyline)) return { coords: [], corrected: false };
-  const coords: GeoPoint[] = [];
-  let corrected = false;
-  for (const p of polyline) {
-    if (!isJsonMap(p)) continue;
+  const points = polyline.filter(isJsonMap).flatMap((p) => {
     const lat = asNum(p['lat']);
     const lon = asNum(p['lon']) ?? asNum(p['lng']);
-    if (lat === null || lon === null) continue;
-    const raw = new GeoPoint(lat, lon);
-    const fixed = correctStationCoord(raw);
+    return lat === null || lon === null ? [] : [new GeoPoint(lat, lon)];
+  });
+  let corrected = false;
+  const coords = points.map((raw, i) => {
+    const fixed = isStation(i, points.length) ? correctStationCoord(raw) : null;
     if (fixed !== null) corrected = true;
-    coords.push(fixed ?? raw);
-  }
+    return fixed ?? raw;
+  });
   return { coords, corrected };
+}
+
+/// 徒歩セグメントの座標を読む。補正するのは駅側の端だけ——出発地・目的地は利用者が
+/// 選んだ地点で、たまたまずれた駅座標と重なっても駅へ動かしてはならない。途中の頂点は
+/// 街路の点で、駅ではない。
+function readWalkCoords(seg: JsonMap): PolylineCoords {
+  const fromStation = isStationPointId(seg['fromPointId']);
+  const toStation = isStationPointId(seg['toPointId']);
+  return readCoords(
+    seg['polyline'],
+    (i, n) => (i === 0 && fromStation) || (i === n - 1 && toStation),
+  );
+}
+
+/// map の点 id が駅か。出発地・目的地は `origin`/`destination`、全徒歩 option では
+/// `geo:緯度,経度` で返る。
+function isStationPointId(id: unknown): boolean {
+  return (
+    typeof id === 'string' &&
+    id !== 'origin' &&
+    id !== 'destination' &&
+    !id.startsWith('geo:')
+  );
 }
 
 function joinCoords(parts: PolylineCoords[]): PolylineCoords {
