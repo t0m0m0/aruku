@@ -7,10 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  collectVocabulary,
-  collectVocabularyFromSources,
-} from '../../vite/font-subset';
+import { collectVocabulary, collectVocabularyFromSources } from '../../vite/font-subset';
 
 describe('collectVocabularyFromSources', () => {
   it('文字列リテラルの中身を拾う', () => {
@@ -43,9 +40,7 @@ describe('collectVocabularyFromSources', () => {
 
   // コメントを正規表現で先に落とす実装は、ここで落ちる。
   it('文字列の中の // を行コメントの始まりと読まない', () => {
-    const vocab = collectVocabularyFromSources([
-      `const url = 'https://example.com/経路';`,
-    ]);
+    const vocab = collectVocabularyFromSources([`const url = 'https://example.com/経路';`]);
     expect(vocab).toContain('経');
     expect(vocab).toContain('路');
   });
@@ -70,16 +65,12 @@ describe('collectVocabularyFromSources', () => {
   });
 
   it('正規表現リテラルの中の引用符で状態を崩さない', () => {
-    const vocab = collectVocabularyFromSources([
-      `const q = /['"]/u; const label = '出口';`,
-    ]);
+    const vocab = collectVocabularyFromSources([`const q = /['"]/u; const label = '出口';`]);
     for (const ch of '出口') expect(vocab).toContain(ch);
   });
 
   it('テンプレートリテラルの補間をまたいで拾う', () => {
-    const vocab = collectVocabularyFromSources([
-      'const s = `${dest} まで · 制限 ${budget}`;',
-    ]);
+    const vocab = collectVocabularyFromSources(['const s = `${dest} まで · 制限 ${budget}`;']);
     for (const ch of 'まで制限') expect(vocab).toContain(ch);
   });
 

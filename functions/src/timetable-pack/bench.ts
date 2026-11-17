@@ -7,10 +7,10 @@
 //
 // コールドを測るために、1回ごとに新しいプロセスで走らせる（JIT もヒープも温まっていない状態にする）。
 
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { isDeepStrictEqual } from "node:util";
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 
 import {
   compileTimetable,
@@ -18,14 +18,14 @@ import {
   type CompiledTimetable,
   type StationKey,
   type Timetable,
-} from "../exact-scan";
-import { buildScanDay } from "./day";
-import { PACK_GROUPS, packObjectPath, type PackGroup } from "./feeds";
-import { createScanDaySource } from "./load";
-import { timetableForDate, type TimetablePack } from "./pack";
-import { gunzipSync } from "node:zlib";
+} from '../exact-scan';
+import { buildScanDay } from './day';
+import { PACK_GROUPS, packObjectPath, type PackGroup } from './feeds';
+import { createScanDaySource } from './load';
+import { timetableForDate, type TimetablePack } from './pack';
+import { gunzipSync } from 'node:zlib';
 
-const SCENARIOS = ["cold", "warm", "daySwitch", "reload", "concurrent"] as const;
+const SCENARIOS = ['cold', 'warm', 'daySwitch', 'reload', 'concurrent'] as const;
 type Scenario = (typeof SCENARIOS)[number];
 const CONCURRENT_REQUESTS = 8;
 const RELOAD_AFTER_MS = 6 * 3600 * 1000;
@@ -36,9 +36,11 @@ function arg(name: string): string | undefined {
 }
 
 function nextDate(yyyymmdd: string): string {
-  const d = new Date(Date.UTC(+yyyymmdd.slice(0, 4), +yyyymmdd.slice(4, 6) - 1, +yyyymmdd.slice(6)));
+  const d = new Date(
+    Date.UTC(+yyyymmdd.slice(0, 4), +yyyymmdd.slice(4, 6) - 1, +yyyymmdd.slice(6)),
+  );
   d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10).replace(/-/g, "");
+  return d.toISOString().slice(0, 10).replace(/-/g, '');
 }
 
 type Sample = Record<string, number>;
@@ -63,12 +65,13 @@ async function runOnce(dir: string, date: string): Promise<Record<Scenario, Samp
     await run();
     const sample: Sample = { endpointMs: performance.now() - t0 };
     for (const e of logs) {
-      const prefix = e.event === "timetable_pack_load" ? `${String(e.group)}.` : "day.";
+      const prefix = e.event === 'timetable_pack_load' ? `${String(e.group)}.` : 'day.';
       for (const [k, v] of Object.entries(e)) {
-        if (typeof v === "number" && k.endsWith("Ms")) sample[prefix + k] = (sample[prefix + k] ?? 0) + v;
+        if (typeof v === 'number' && k.endsWith('Ms'))
+          sample[prefix + k] = (sample[prefix + k] ?? 0) + v;
       }
     }
-    sample.dayBuilds = logs.filter((e) => e.event === "timetable_day_compile").length;
+    sample.dayBuilds = logs.filter((e) => e.event === 'timetable_day_compile').length;
     sample.heapMB = process.memoryUsage().heapUsed / 1048576;
     // maxRSS はプロセス開始からの最大なので、その条件までのピークになる。
     sample.peakRssMB = process.resourceUsage().maxRSS / 1024;
@@ -92,7 +95,7 @@ async function runOnce(dir: string, date: string): Promise<Record<Scenario, Samp
 function verify(dir: string, dates: string[]): boolean {
   const packs = new Map<PackGroup, TimetablePack>();
   for (const g of PACK_GROUPS) {
-    packs.set(g, JSON.parse(gunzipSync(readFileSync(join(dir, `${g}.json.gz`))).toString("utf8")));
+    packs.set(g, JSON.parse(gunzipSync(readFileSync(join(dir, `${g}.json.gz`))).toString('utf8')));
   }
   return dates.every((date) => {
     const tt: Timetable = { stops: [], trips: [] };
@@ -157,19 +160,26 @@ function quantile(sorted: number[], q: number): number {
 }
 
 async function main(): Promise<void> {
-  const dir = arg("--dir");
-  if (dir === undefined) throw new Error("--dir <パックのあるディレクトリ> を指定する");
-  const date = arg("--date") ?? "20261110";
-  if (process.argv.includes("--child")) {
+  const dir = arg('--dir');
+  if (dir === undefined) throw new Error('--dir <パックのあるディレクトリ> を指定する');
+  const date = arg('--date') ?? '20261110';
+  if (process.argv.includes('--child')) {
     console.log(JSON.stringify(await runOnce(dir, date)));
     return;
   }
   if (!verify(dir, [date, nextDate(date)])) process.exitCode = 1;
 
-  const runs = Number(arg("--runs") ?? 15);
+  const runs = Number(arg('--runs') ?? 15);
   const samples: Record<Scenario, Sample>[] = [];
   for (let i = 0; i < runs; i++) {
-    const out = execFileSync(process.execPath, [__filename, "--child", "--dir", dir, "--date", date]);
+    const out = execFileSync(process.execPath, [
+      __filename,
+      '--child',
+      '--dir',
+      dir,
+      '--date',
+      date,
+    ]);
     samples.push(JSON.parse(out.toString()));
   }
   for (const scenario of SCENARIOS) {

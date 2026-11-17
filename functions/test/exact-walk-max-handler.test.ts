@@ -1,11 +1,11 @@
-import { gzipSync } from "node:zlib";
-import { EventEmitter } from "events";
+import { gzipSync } from 'node:zlib';
+import { EventEmitter } from 'events';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Request } from "firebase-functions/v2/https";
-import type { Response } from "express";
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Request } from 'firebase-functions/v2/https';
+import type { Response } from 'express';
 
-import { PACK_FORMAT_VERSION, type TimetablePack } from "../src/timetable-pack/pack";
+import { PACK_FORMAT_VERSION, type TimetablePack } from '../src/timetable-pack/pack';
 
 const { httpsRequestMock, verifyTokenMock, downloadMock, MockAgent } = vi.hoisted(() => ({
   httpsRequestMock: vi.fn(),
@@ -16,17 +16,17 @@ const { httpsRequestMock, verifyTokenMock, downloadMock, MockAgent } = vi.hoiste
   },
 }));
 
-vi.mock("https", () => ({
+vi.mock('https', () => ({
   default: { request: httpsRequestMock, Agent: MockAgent },
   request: httpsRequestMock,
   Agent: MockAgent,
 }));
 
-vi.mock("firebase-admin/app-check", () => ({
+vi.mock('firebase-admin/app-check', () => ({
   getAppCheck: () => ({ verifyToken: verifyTokenMock }),
 }));
 
-vi.mock("firebase-admin/storage", () => ({
+vi.mock('firebase-admin/storage', () => ({
   getStorage: () => ({
     bucket: () => ({ file: (path: string) => ({ download: () => downloadMock(path) }) }),
   }),
@@ -37,25 +37,25 @@ import {
   resetExactWalkMaxPacks,
   resetRateLimit,
   toMatrixElement,
-} from "../src/index";
-import { resetUpstreamCache } from "../src/upstream-cache";
+} from '../src/index';
+import { resetUpstreamCache } from '../src/upstream-cache';
 
 // 駅2つ（蒲田付近→神田付近）・便1本だけのパック。2026-10-23 10:30 発・10:50 着。
 const PACK: TimetablePack = {
   format: PACK_FORMAT_VERSION,
-  feeds: [{ id: "Toei", fetchedAt: "2026-10-22T19:23:00.000Z", version: null }],
+  feeds: [{ id: 'Toei', fetchedAt: '2026-10-22T19:23:00.000Z', version: null }],
   stations: [],
   stops: [
-    { name: "A駅", lat: 35.57, lng: 139.71, feed: 0, station: 0 },
-    { name: "B駅", lat: 35.69, lng: 139.77, feed: 0, station: 1 },
+    { name: 'A駅', lat: 35.57, lng: 139.71, feed: 0, station: 0 },
+    { name: 'B駅', lat: 35.69, lng: 139.77, feed: 0, station: 1 },
   ],
   services: [{ dates: [20261023] }],
   trips: [
     {
       feed: 0,
       service: 0,
-      route: "テスト線",
-      headsign: "B駅行",
+      route: 'テスト線',
+      headsign: 'B駅行',
       block: null,
       stops: [0, 1],
       arr: [37800, 39000],
@@ -67,16 +67,16 @@ const PACK: TimetablePack = {
 };
 
 const QUERY = {
-  origin: "35.56,139.71",
-  goal: "35.70,139.77",
-  departAt: "2026-10-23T10:00:00+09:00",
-  budgetMin: "180",
+  origin: '35.56,139.71',
+  goal: '35.70,139.77',
+  departAt: '2026-10-23T10:00:00+09:00',
+  budgetMin: '180',
 };
 
 function storageHas(pack: TimetablePack | null): void {
   downloadMock.mockImplementation(async (path: string) => {
-    if (pack === null || !path.startsWith("permanent/")) {
-      throw Object.assign(new Error("No such object"), { code: 404 });
+    if (pack === null || !path.startsWith('permanent/')) {
+      throw Object.assign(new Error('No such object'), { code: 404 });
     }
     return [gzipSync(JSON.stringify(pack))];
   });
@@ -89,8 +89,8 @@ function matrixResponds(body: unknown, statusCode = 200): void {
       const res = Object.assign(new EventEmitter(), { statusCode });
       cb(res);
       process.nextTick(() => {
-        res.emit("data", Buffer.from(JSON.stringify(body)));
-        res.emit("end");
+        res.emit('data', Buffer.from(JSON.stringify(body)));
+        res.emit('end');
       });
       return { on: vi.fn(), write: vi.fn(), end: vi.fn() };
     },
@@ -134,18 +134,19 @@ async function invoke(
   opts: { token?: string } = {},
 ): Promise<CapturedRes> {
   const req = {
-    method: "GET",
+    method: 'GET',
     query,
     headers: {},
-    header: (name: string) => (name.toLowerCase() === "x-firebase-appcheck" ? opts.token : undefined),
-    ip: "127.0.0.1",
+    header: (name: string) =>
+      name.toLowerCase() === 'x-firebase-appcheck' ? opts.token : undefined,
+    ip: '127.0.0.1',
   };
   const res = makeRes();
-  await (exactWalkMax)(req as unknown as Request, res as unknown as Response);
+  await exactWalkMax(req as unknown as Request, res as unknown as Response);
   return res;
 }
 
-describe("exactWalkMax", () => {
+describe('exactWalkMax', () => {
   beforeEach(() => {
     resetRateLimit();
     resetUpstreamCache();
@@ -153,10 +154,10 @@ describe("exactWalkMax", () => {
     httpsRequestMock.mockReset();
     verifyTokenMock.mockReset();
     downloadMock.mockReset();
-    vi.stubEnv("FUNCTIONS_EMULATOR", "true");
+    vi.stubEnv('FUNCTIONS_EMULATOR', 'true');
     // departAt は今から見た範囲しか受けないので、QUERY の日（PACK の運行日）の朝に時計を合わせる。
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-10-23T00:30:00Z"));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-23T00:30:00Z'));
   });
 
   afterEach(() => {
@@ -164,8 +165,8 @@ describe("exactWalkMax", () => {
     vi.useRealTimers();
   });
 
-  it("App Check のトークンが無ければ 401 を返し、パックもマトリクスも読まない", async () => {
-    vi.stubEnv("FUNCTIONS_EMULATOR", "");
+  it('App Check のトークンが無ければ 401 を返し、パックもマトリクスも読まない', async () => {
+    vi.stubEnv('FUNCTIONS_EMULATOR', '');
     storageHas(PACK);
 
     const res = await invoke(QUERY);
@@ -175,23 +176,23 @@ describe("exactWalkMax", () => {
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
-  it("トークンを使い捨てとして検証する（リプレイ保護）", async () => {
-    vi.stubEnv("FUNCTIONS_EMULATOR", "");
+  it('トークンを使い捨てとして検証する（リプレイ保護）', async () => {
+    vi.stubEnv('FUNCTIONS_EMULATOR', '');
     verifyTokenMock.mockResolvedValue({ alreadyConsumed: true });
 
-    const res = await invoke(QUERY, { token: "t" });
+    const res = await invoke(QUERY, { token: 't' });
 
-    expect(verifyTokenMock).toHaveBeenCalledWith("t", { consume: true });
+    expect(verifyTokenMock).toHaveBeenCalledWith('t', { consume: true });
     expect(res.statusCode).toBe(401);
   });
 
   it.each([
-    ["origin が無い", { ...QUERY, origin: "" }],
-    ["departAt に時差が無い", { ...QUERY, departAt: "2026-10-23T10:00:00" }],
-    ["budgetMin が0", { ...QUERY, budgetMin: "0" }],
-    ["transfers が 0/1 でない", { ...QUERY, transfers: "yes" }],
-    ["departAt が遠い未来", { ...QUERY, departAt: "2099-12-31T10:00:00+09:00" }],
-  ])("%s入力は 400 を返し、時刻表も上流も読まない", async (_name, query) => {
+    ['origin が無い', { ...QUERY, origin: '' }],
+    ['departAt に時差が無い', { ...QUERY, departAt: '2026-10-23T10:00:00' }],
+    ['budgetMin が0', { ...QUERY, budgetMin: '0' }],
+    ['transfers が 0/1 でない', { ...QUERY, transfers: 'yes' }],
+    ['departAt が遠い未来', { ...QUERY, departAt: '2099-12-31T10:00:00+09:00' }],
+  ])('%s入力は 400 を返し、時刻表も上流も読まない', async (_name, query) => {
     storageHas(PACK);
 
     const res = await invoke(query);
@@ -201,9 +202,9 @@ describe("exactWalkMax", () => {
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
-  it("候補・フィードの取得日時・統計を返し、時刻表そのものは返さない", async () => {
+  it('候補・フィードの取得日時・統計を返し、時刻表そのものは返さない', async () => {
     storageHas(PACK);
-    matrixResponds([{ duration: "900s", distanceMeters: 1200 }]);
+    matrixResponds([{ duration: '900s', distanceMeters: 1200 }]);
 
     const res = await invoke(QUERY);
 
@@ -211,12 +212,12 @@ describe("exactWalkMax", () => {
     expect(res.body).toEqual({
       candidates: [
         {
-          board: { name: "A駅", lat: 35.57, lng: 139.71 },
-          alight: { name: "B駅", lat: 35.69, lng: 139.77 },
-          route: "テスト線",
-          headsign: "B駅行",
-          boardAt: "2026-10-23T10:30:00+09:00",
-          alightAt: "2026-10-23T10:50:00+09:00",
+          board: { name: 'A駅', lat: 35.57, lng: 139.71 },
+          alight: { name: 'B駅', lat: 35.69, lng: 139.77 },
+          route: 'テスト線',
+          headsign: 'B駅行',
+          boardAt: '2026-10-23T10:30:00+09:00',
+          alightAt: '2026-10-23T10:50:00+09:00',
           stops: [
             { lat: 35.57, lng: 139.71 },
             { lat: 35.69, lng: 139.77 },
@@ -225,22 +226,22 @@ describe("exactWalkMax", () => {
           egressWalk: { durationSec: 900, distanceMeters: 1200 },
         },
       ],
-      feeds: [{ id: "Toei", fetchedAt: "2026-10-22T19:23:00.000Z" }],
+      feeds: [{ id: 'Toei', fetchedAt: '2026-10-22T19:23:00.000Z' }],
       stats: { tripsScanned: 1, elementsMeasured: 2, truncated: false },
     });
     expect(httpsRequestMock).toHaveBeenCalledTimes(2);
   });
 
-  it("transfers=1 のときだけ乗換つきの候補 transferCandidates を返す", async () => {
+  it('transfers=1 のときだけ乗換つきの候補 transferCandidates を返す', async () => {
     storageHas(PACK);
-    matrixResponds([{ duration: "900s", distanceMeters: 1200 }]);
+    matrixResponds([{ duration: '900s', distanceMeters: 1200 }]);
 
-    const res = await invoke({ ...QUERY, transfers: "1" });
+    const res = await invoke({ ...QUERY, transfers: '1' });
 
     expect(res.body).toMatchObject({ transferCandidates: [] });
   });
 
-  it("読めるパックが無ければ 503 を返し、マトリクスを呼ばない", async () => {
+  it('読めるパックが無ければ 503 を返し、マトリクスを呼ばない', async () => {
     storageHas(null);
 
     const res = await invoke(QUERY);
@@ -249,41 +250,41 @@ describe("exactWalkMax", () => {
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
-  it("今日と明日以外の運行日を1分のうちに変えて引くと、2つ目は組み立てずに 503 を返す", async () => {
+  it('今日と明日以外の運行日を1分のうちに変えて引くと、2つ目は組み立てずに 503 を返す', async () => {
     storageHas(PACK);
     matrixResponds([]);
-    await invoke({ ...QUERY, departAt: "2026-11-01T10:00:00+09:00" });
+    await invoke({ ...QUERY, departAt: '2026-11-01T10:00:00+09:00' });
     httpsRequestMock.mockClear();
 
-    const res = await invoke({ ...QUERY, departAt: "2026-11-02T10:00:00+09:00" });
+    const res = await invoke({ ...QUERY, departAt: '2026-11-02T10:00:00+09:00' });
 
     expect(res.statusCode).toBe(503);
     expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
-  it("マトリクスが失敗したら 502 を返す", async () => {
+  it('マトリクスが失敗したら 502 を返す', async () => {
     storageHas(PACK);
-    matrixResponds({ error: { code: 403, status: "PERMISSION_DENIED" } }, 403);
+    matrixResponds({ error: { code: 403, status: 'PERMISSION_DENIED' } }, 403);
 
     const res = await invoke(QUERY);
 
     expect(res.statusCode).toBe(502);
-    expect(res.body).toEqual({ error: "upstream error" });
+    expect(res.body).toEqual({ error: 'upstream error' });
   });
 
-  it("マトリクスの要素がエラーなら、HTTP が 200 でも 502 を返す", async () => {
+  it('マトリクスの要素がエラーなら、HTTP が 200 でも 502 を返す', async () => {
     storageHas(PACK);
-    matrixResponds([{ status: { code: 8, message: "RESOURCE_EXHAUSTED" } }]);
+    matrixResponds([{ status: { code: 8, message: 'RESOURCE_EXHAUSTED' } }]);
 
     const res = await invoke(QUERY);
 
     expect(res.statusCode).toBe(502);
-    expect(res.body).toEqual({ error: "upstream error" });
+    expect(res.body).toEqual({ error: 'upstream error' });
   });
 
-  it("経路の無い要素（ROUTE_NOT_FOUND）はエラーにせず、その駅を使わない", async () => {
+  it('経路の無い要素（ROUTE_NOT_FOUND）はエラーにせず、その駅を使わない', async () => {
     storageHas(PACK);
-    matrixResponds([{ status: {}, condition: "ROUTE_NOT_FOUND" }]);
+    matrixResponds([{ status: {}, condition: 'ROUTE_NOT_FOUND' }]);
 
     const res = await invoke(QUERY);
 
@@ -291,27 +292,30 @@ describe("exactWalkMax", () => {
     expect((res.body as { candidates: unknown[] }).candidates).toEqual([]);
   });
 
-  it("要素のエラーと経路の有無を見分けるため、マトリクスに status と condition を要求する", async () => {
+  it('要素のエラーと経路の有無を見分けるため、マトリクスに status と condition を要求する', async () => {
     storageHas(PACK);
-    matrixResponds([{ duration: "900s", distanceMeters: 1200 }]);
+    matrixResponds([{ duration: '900s', distanceMeters: 1200 }]);
 
     await invoke(QUERY);
 
-    const [, opts] = httpsRequestMock.mock.calls[0] as [string, { headers: Record<string, string> }];
-    expect(opts.headers["X-Goog-FieldMask"].split(",")).toEqual(
-      expect.arrayContaining(["status", "condition"]),
+    const [, opts] = httpsRequestMock.mock.calls[0] as [
+      string,
+      { headers: Record<string, string> },
+    ];
+    expect(opts.headers['X-Goog-FieldMask'].split(',')).toEqual(
+      expect.arrayContaining(['status', 'condition']),
     );
   });
 
-  it("マトリクスが無応答なら 504 を返す", async () => {
+  it('マトリクスが無応答なら 504 を返す', async () => {
     storageHas(PACK);
     httpsRequestMock.mockImplementation(() => {
       const req = Object.assign(new EventEmitter(), {
         write: vi.fn(),
         end: vi.fn(),
-        destroy: (e?: Error) => process.nextTick(() => req.emit("error", e)),
+        destroy: (e?: Error) => process.nextTick(() => req.emit('error', e)),
       });
-      process.nextTick(() => req.emit("timeout"));
+      process.nextTick(() => req.emit('timeout'));
       return req;
     });
 
@@ -321,21 +325,26 @@ describe("exactWalkMax", () => {
   });
 });
 
-describe("toMatrixElement", () => {
-  it("所要時間・距離・添字を読む", () => {
+describe('toMatrixElement', () => {
+  it('所要時間・距離・添字を読む', () => {
     expect(
-      toMatrixElement({ originIndex: 2, destinationIndex: 3, duration: "754s", distanceMeters: 980 }),
+      toMatrixElement({
+        originIndex: 2,
+        destinationIndex: 3,
+        duration: '754s',
+        distanceMeters: 980,
+      }),
     ).toEqual([{ originIndex: 2, destinationIndex: 3, durationSec: 754, distanceMeters: 980 }]);
   });
 
-  it("省かれた添字と距離は 0 と読む（proto3 は 0 のフィールドを出さない）", () => {
-    expect(toMatrixElement({ duration: "0s" })).toEqual([
+  it('省かれた添字と距離は 0 と読む（proto3 は 0 のフィールドを出さない）', () => {
+    expect(toMatrixElement({ duration: '0s' })).toEqual([
       { originIndex: 0, destinationIndex: 0, durationSec: 0, distanceMeters: 0 },
     ]);
   });
 
-  it("経路の無い要素（duration が無い）は捨てる", () => {
-    expect(toMatrixElement({ originIndex: 1, condition: "ROUTE_NOT_FOUND" })).toEqual([]);
+  it('経路の無い要素（duration が無い）は捨てる', () => {
+    expect(toMatrixElement({ originIndex: 1, condition: 'ROUTE_NOT_FOUND' })).toEqual([]);
     expect(toMatrixElement(null)).toEqual([]);
   });
 });

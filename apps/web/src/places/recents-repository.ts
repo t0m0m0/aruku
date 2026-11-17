@@ -83,16 +83,13 @@ export function createRecentsRepository(
 
     // 1件の壊れで履歴を全部落とさない。地点として成立しないものだけ読み飛ばして、
     // 読めたものは読む。
-    return decoded
-      .map(recentPlaceFromJson)
-      .filter((place): place is RecentPlace => place !== null);
+    return decoded.map(recentPlaceFromJson).filter((place): place is RecentPlace => place !== null);
   }
 
   function add(place: RecentPlace): void {
     // 打刻は入れる側の仕事。resolvePlacePrediction は「確定した地点」を返すだけで、
     // それが履歴に入る時刻を知らない。
-    const stamped: RecentPlace =
-      place.usedAt === null ? { ...place, usedAt: now() } : place;
+    const stamped: RecentPlace = place.usedAt === null ? { ...place, usedAt: now() } : place;
 
     const added = dedupeKey(stamped);
     const kept = load().filter((e) => dedupeKey(e) !== added);

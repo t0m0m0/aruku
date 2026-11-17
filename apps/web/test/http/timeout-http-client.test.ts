@@ -6,10 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  TimeoutException,
-  type HttpResponse,
-} from '@aruku/engine/services/http-client';
+import { TimeoutException, type HttpResponse } from '@aruku/engine/services/http-client';
 import { seconds, type Duration } from '@aruku/engine/time';
 
 import {
@@ -97,9 +94,7 @@ describe('TimeoutHttpClient.send', () => {
   });
 
   it('既定のタイムアウトは 15 秒', () => {
-    expect(new TimeoutHttpClient(new FakeInnerClient()).timeout).toBe(
-      seconds(15),
-    );
+    expect(new TimeoutHttpClient(new FakeInnerClient()).timeout).toBe(seconds(15));
   });
 
   it('ヘッダ受信後のボディ送出ストールも TimeoutException で打ち切る (#156)', async () => {

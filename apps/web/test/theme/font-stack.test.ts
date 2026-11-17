@@ -14,17 +14,12 @@ import { subsetFamily } from '../../vite/font-subset';
 
 // 散文の中の family 名を規則だと読まないよう、コメントを先に落とす
 // （test/layout/breakpoint-css.test.ts と同じ理由）。
-const tokens = readFileSync('src/theme/tokens.css', 'utf8').replace(
-  /\/\*[\s\S]*?\*\//g,
-  '',
-);
+const tokens = readFileSync('src/theme/tokens.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 
 // Tailwind の @theme に `--font-sans` として置く（preflight が html の書体をここから引く）。
 const fontJp = /--font-sans:\s*([^;]+);/u.exec(tokens)?.[1] ?? '';
 
-const families = fontJp
-  .split(',')
-  .map((name) => name.trim().replace(/^['"]|['"]$/gu, ''));
+const families = fontJp.split(',').map((name) => name.trim().replace(/^['"]|['"]$/gu, ''));
 
 describe('--font-sans', () => {
   it('宣言されている', () => {

@@ -73,9 +73,7 @@ describe('色の役割', () => {
 
   // 面の濃淡で階層を作る（影に頼らない）。段階が逆転すると「上に載っている」が崩れる。
   it('surface-container は lowest から highest へ順に暗くなる', () => {
-    const lightness = surfaces
-      .slice(1)
-      .map((s) => contrast(color(s), '#000000'));
+    const lightness = surfaces.slice(1).map((s) => contrast(color(s), '#000000'));
     expect(lightness).toEqual([...lightness].sort((a, b) => b - a));
   });
 

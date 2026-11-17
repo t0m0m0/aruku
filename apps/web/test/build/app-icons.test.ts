@@ -24,8 +24,7 @@ const indexHtml = readFileSync('index.html', 'utf8');
 function linkHref(rel: string, type?: string): string | undefined {
   const links = indexHtml.match(/<link\b[^>]*>/gu) ?? [];
   const link = links.find(
-    (tag) =>
-      tag.includes(`rel="${rel}"`) && (type === undefined || tag.includes(`type="${type}"`)),
+    (tag) => tag.includes(`rel="${rel}"`) && (type === undefined || tag.includes(`type="${type}"`)),
   );
   return link === undefined ? undefined : /href="([^"]+)"/u.exec(link)?.[1];
 }
@@ -40,7 +39,12 @@ describe('manifest.json のアイコン', () => {
   it('通常とマスカブルの両方を 192px と 512px で持つ', () => {
     const declared = manifest.icons.map((icon) => `${icon.purpose ?? 'any'}@${icon.sizes}`);
     expect(declared).toEqual(
-      expect.arrayContaining(['any@192x192', 'any@512x512', 'maskable@192x192', 'maskable@512x512']),
+      expect.arrayContaining([
+        'any@192x192',
+        'any@512x512',
+        'maskable@192x192',
+        'maskable@512x512',
+      ]),
     );
   });
 });

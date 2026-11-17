@@ -17,5 +17,4 @@ const profileMode = 'profile';
 export const kDebugMode = import.meta.env.DEV;
 
 /// リリースビルドか。**profile は含まない**（上記）。
-export const kReleaseMode =
-  import.meta.env.PROD && import.meta.env.MODE !== profileMode;
+export const kReleaseMode = import.meta.env.PROD && import.meta.env.MODE !== profileMode;

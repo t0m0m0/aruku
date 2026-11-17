@@ -16,8 +16,7 @@ export const ja = {
   weekdays: ['月', '火', '水', '木', '金', '土', '日'],
 
   homeTagline: '間に合う範囲でいちばん歩くルート',
-  homeTaglineDescription:
-    '最短ルートではなく、時間いっぱい歩けるようなルートを提示します',
+  homeTaglineDescription: '最短ルートではなく、時間いっぱい歩けるようなルートを提示します',
 
   homeDepartureLabel: '出発',
   homeArrivalLabel: '到着',
@@ -80,8 +79,7 @@ export const ja = {
   searchEmptyHint: '別のキーワードで試してください',
   searchErrorGeneric: '検索できませんでした',
   searchNetworkHint: '通信状況を確認してください',
-  searchPickFailedOrigin:
-    'この出発地は位置情報を取得できませんでした。別の候補を選んでください',
+  searchPickFailedOrigin: 'この出発地は位置情報を取得できませんでした。別の候補を選んでください',
   searchPickFailedDestination:
     'この目的地は位置情報を取得できませんでした。別の候補を選んでください',
   searchResolvingPlace: '地点を確定中',
@@ -92,8 +90,7 @@ export const ja = {
   routeErrorNetworkTitle: '通信に失敗しました',
   routeErrorNetworkDescription: '通信状況を確認してもう一度お試しください',
   routeErrorTimeoutTitle: '経路サービスの応答が遅れています',
-  routeErrorTimeoutDescription:
-    '混み合っているようです。少し時間をおいてもう一度お試しください',
+  routeErrorTimeoutDescription: '混み合っているようです。少し時間をおいてもう一度お試しください',
   routeErrorNoResultsTitle: 'ルートが見つかりませんでした',
   routeErrorNoResultsDescription: '目的地や出発・到着時刻を変えてお試しください',
   routeErrorNoLocationTitle: '現在地を取得できませんでした',
@@ -110,8 +107,7 @@ export const ja = {
   resultChangeConditions: '条件を変更',
   resultBackToSearch: '検索に戻る',
   resultNoRouteMessage: 'ルートがありません',
-  resultOverBudgetHint:
-    '時間内に到達できる経路がないため、最短の経路を表示しています',
+  resultOverBudgetHint: '時間内に到達できる経路がないため、最短の経路を表示しています',
   /// ふつうの乗換ルートとの比較（#445）。ホームの説明文の「最短ルートではなく」と
   /// 言葉を揃えないのは、「最短」が最短距離や徒歩だけの最短とも読めるため。
   resultStandardLead: 'ふつうの乗換ルートより',

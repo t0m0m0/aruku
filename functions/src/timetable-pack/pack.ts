@@ -3,28 +3,28 @@
 // パックは運行日をまたいだ全便を持ち、検索のたびに timetableForDate で
 // その日の Timetable を切り出す。
 
-import type { StopCall, Timetable } from "../exact-scan";
-import { readCsv } from "./csv";
+import type { StopCall, Timetable } from '../exact-scan';
+import { readCsv } from './csv';
 
 export const PACK_FORMAT_VERSION = 1;
 
 export type GtfsFileName =
-  | "stops.txt"
-  | "routes.txt"
-  | "trips.txt"
-  | "stop_times.txt"
-  | "calendar.txt"
-  | "calendar_dates.txt"
-  | "feed_info.txt";
+  | 'stops.txt'
+  | 'routes.txt'
+  | 'trips.txt'
+  | 'stop_times.txt'
+  | 'calendar.txt'
+  | 'calendar_dates.txt'
+  | 'feed_info.txt';
 
 export const GTFS_FILE_NAMES: readonly GtfsFileName[] = [
-  "stops.txt",
-  "routes.txt",
-  "trips.txt",
-  "stop_times.txt",
-  "calendar.txt",
-  "calendar_dates.txt",
-  "feed_info.txt",
+  'stops.txt',
+  'routes.txt',
+  'trips.txt',
+  'stop_times.txt',
+  'calendar.txt',
+  'calendar_dates.txt',
+  'feed_info.txt',
 ];
 
 export type GtfsFiles = Partial<Record<GtfsFileName, string>>;
@@ -107,7 +107,7 @@ export function buildTimetablePack(feeds: readonly FeedInput[]): TimetablePack {
     pack.feeds.push({
       id: input.id,
       fetchedAt: input.fetchedAt,
-      version: feedVersion(input.files["feed_info.txt"]),
+      version: feedVersion(input.files['feed_info.txt']),
     });
     addFeed(pack, feedIndex, input.files, input.routeName ?? ((name) => name));
   });
@@ -118,7 +118,7 @@ export function buildTimetablePack(feeds: readonly FeedInput[]): TimetablePack {
 /** serviceDate（YYYYMMDD）の0時を起点にした、その日に乗れる便の時刻表。 */
 export function timetableForDate(pack: TimetablePack, serviceDate: string): DayTimetable {
   const onDate = tripsOnDate(pack, serviceDate);
-  const trips: Timetable["trips"] = onDate.map(({ packTrip, shift }) => {
+  const trips: Timetable['trips'] = onDate.map(({ packTrip, shift }) => {
     const trip = pack.trips[packTrip];
     const calls = callsOf(trip, shift).filter((_, i) => keepsCall(trip, i, shift));
     return { route: trip.route, headsign: trip.headsign, calls };
@@ -192,17 +192,17 @@ function addFeed(
   routeName: (gtfsRouteName: string) => string,
 ): void {
   const stopsById = new Map<string, { name: string; lat: number; lng: number }>();
-  readCsv(files["stops.txt"] ?? "", (get) => {
-    stopsById.set(get("stop_id"), {
-      name: get("stop_name"),
-      lat: Number(get("stop_lat")),
-      lng: Number(get("stop_lon")),
+  readCsv(files['stops.txt'] ?? '', (get) => {
+    stopsById.set(get('stop_id'), {
+      name: get('stop_name'),
+      lat: Number(get('stop_lat')),
+      lng: Number(get('stop_lon')),
     });
   });
 
   const routeNames = new Map<string, string>();
-  readCsv(files["routes.txt"] ?? "", (get) => {
-    routeNames.set(get("route_id"), routeName(get("route_long_name") || get("route_short_name")));
+  readCsv(files['routes.txt'] ?? '', (get) => {
+    routeNames.set(get('route_id'), routeName(get('route_long_name') || get('route_short_name')));
   });
 
   const serviceIndex = new Map<string, number>();
@@ -212,13 +212,13 @@ function addFeed(
   }
 
   const tripMeta = new Map<string, TripMeta>();
-  readCsv(files["trips.txt"] ?? "", (get) => {
-    const service = serviceIndex.get(get("service_id"));
+  readCsv(files['trips.txt'] ?? '', (get) => {
+    const service = serviceIndex.get(get('service_id'));
     if (service === undefined) return;
-    tripMeta.set(get("trip_id"), {
-      route: routeNames.get(get("route_id")) ?? "",
-      headsign: get("trip_headsign") || null,
-      block: get("block_id") || null,
+    tripMeta.set(get('trip_id'), {
+      route: routeNames.get(get('route_id')) ?? '',
+      headsign: get('trip_headsign') || null,
+      block: get('block_id') || null,
       service,
     });
   });
@@ -227,18 +227,25 @@ function addFeed(
     string,
     {
       meta: TripMeta;
-      calls: { seq: number; stopId: string; arr: number; dep: number; board: 0 | 1; alight: 0 | 1 }[];
+      calls: {
+        seq: number;
+        stopId: string;
+        arr: number;
+        dep: number;
+        board: 0 | 1;
+        alight: 0 | 1;
+      }[];
     }
   >();
-  readCsv(files["stop_times.txt"] ?? "", (get) => {
-    const tripId = get("trip_id");
+  readCsv(files['stop_times.txt'] ?? '', (get) => {
+    const tripId = get('trip_id');
     const meta = tripMeta.get(tripId);
     if (meta === undefined) return;
-    const board = canUse(get("pickup_type"));
-    const alight = canUse(get("drop_off_type"));
+    const board = canUse(get('pickup_type'));
+    const alight = canUse(get('drop_off_type'));
     if (!board && !alight) return;
-    const arrRaw = parseGtfsTime(get("arrival_time"));
-    const depRaw = parseGtfsTime(get("departure_time"));
+    const arrRaw = parseGtfsTime(get('arrival_time'));
+    const depRaw = parseGtfsTime(get('departure_time'));
     // 片方だけ壊れている（空欄でなく読めない）行は、もう片方で埋めずに外す。
     if (arrRaw === undefined || depRaw === undefined) return;
     const arr = arrRaw ?? depRaw;
@@ -247,8 +254,8 @@ function addFeed(
     let entry = callsByTrip.get(tripId);
     if (entry === undefined) callsByTrip.set(tripId, (entry = { meta, calls: [] }));
     entry.calls.push({
-      seq: Number(get("stop_sequence")),
-      stopId: get("stop_id"),
+      seq: Number(get('stop_sequence')),
+      stopId: get('stop_id'),
       arr,
       dep,
       board: board ? 1 : 0,
@@ -298,7 +305,7 @@ function addFeed(
 // 要予約（2・3）を乗降できる扱いにしないのは、検索の結果として電話予約が要る駅を
 // 案内できないため。鉄道のフィードでは使われていない。
 function canUse(type: string): boolean {
-  return type === "" || type === "0";
+  return type === '' || type === '0';
 }
 
 /**
@@ -307,7 +314,7 @@ function canUse(type: string): boolean {
  */
 export function parseGtfsTime(value: string): number | null | undefined {
   const v = value.trim();
-  if (v === "") return null;
+  if (v === '') return null;
   const m = /^(\d{1,3}):([0-5]\d):([0-5]\d)$/.exec(v);
   if (m === null) return undefined;
   return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
@@ -321,42 +328,42 @@ function resolveServiceDates(files: GtfsFiles): Map<string, number[]> {
     return set;
   };
   const weekdayColumns = [
-    "sunday",
-    "monday",
-    "tuesday",
-    "wednesday",
-    "thursday",
-    "friday",
-    "saturday",
+    'sunday',
+    'monday',
+    'tuesday',
+    'wednesday',
+    'thursday',
+    'friday',
+    'saturday',
   ];
-  readCsv(files["calendar.txt"] ?? "", (get) => {
-    const set = datesOf(get("service_id"));
-    const runs = weekdayColumns.map((c) => get(c) === "1");
-    const end = Number(get("end_date"));
-    for (let d = Number(get("start_date")); d > 0 && d <= end; d = shiftDate(d, 1)) {
+  readCsv(files['calendar.txt'] ?? '', (get) => {
+    const set = datesOf(get('service_id'));
+    const runs = weekdayColumns.map((c) => get(c) === '1');
+    const end = Number(get('end_date'));
+    for (let d = Number(get('start_date')); d > 0 && d <= end; d = shiftDate(d, 1)) {
       if (runs[weekdayOf(d)]) set.add(d);
     }
   });
-  readCsv(files["calendar_dates.txt"] ?? "", (get) => {
-    const set = datesOf(get("service_id"));
-    const d = Number(get("date"));
-    if (get("exception_type") === "1") set.add(d);
-    else if (get("exception_type") === "2") set.delete(d);
+  readCsv(files['calendar_dates.txt'] ?? '', (get) => {
+    const set = datesOf(get('service_id'));
+    const d = Number(get('date'));
+    if (get('exception_type') === '1') set.add(d);
+    else if (get('exception_type') === '2') set.delete(d);
   });
   return new Map([...dates].map(([id, set]) => [id, [...set].sort((a, b) => a - b)]));
 }
 
 function feedVersion(text: string | undefined): string | null {
   let version: string | null = null;
-  readCsv(text ?? "", (get) => {
-    version ??= get("feed_version") || null;
+  readCsv(text ?? '', (get) => {
+    version ??= get('feed_version') || null;
   });
   return version;
 }
 
 function toUtcDate(yyyymmdd: number): Date {
   return new Date(
-    Date.UTC(Math.floor(yyyymmdd / 10000), Math.floor(yyyymmdd / 100) % 100 - 1, yyyymmdd % 100),
+    Date.UTC(Math.floor(yyyymmdd / 10000), (Math.floor(yyyymmdd / 100) % 100) - 1, yyyymmdd % 100),
   );
 }
 

@@ -24,22 +24,16 @@ describe('有効化の可否', () => {
 
   // 見送るとプロキシは 401 を返す（＝安全側）。握り潰して素通しにはしない。
   it('本番でサイトキーが無ければ有効化しない', () => {
-    expect(
-      canActivateAppCheck({ usesDebugProvider: false, recaptchaSiteKey: '' }),
-    ).toBe(false);
+    expect(canActivateAppCheck({ usesDebugProvider: false, recaptchaSiteKey: '' })).toBe(false);
   });
 
   it('空白だけのサイトキーは無いものとして扱う', () => {
-    expect(
-      canActivateAppCheck({ usesDebugProvider: false, recaptchaSiteKey: '   ' }),
-    ).toBe(false);
+    expect(canActivateAppCheck({ usesDebugProvider: false, recaptchaSiteKey: '   ' })).toBe(false);
   });
 
   // デバッグモードでは SDK がプロバイダを一切呼ばずトークンを交換する
   // （getToken / getLimitedUseToken の両方）。サイトキーは要らない。
   it('デバッグならサイトキーが無くても有効化できる', () => {
-    expect(
-      canActivateAppCheck({ usesDebugProvider: true, recaptchaSiteKey: '' }),
-    ).toBe(true);
+    expect(canActivateAppCheck({ usesDebugProvider: true, recaptchaSiteKey: '' })).toBe(true);
   });
 });

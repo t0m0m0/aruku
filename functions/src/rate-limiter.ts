@@ -1,7 +1,7 @@
-import { createHmac } from "node:crypto";
-import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { createHmac } from 'node:crypto';
+import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 
-import { logRateLimit, type FailOpenReason } from "./metrics";
+import { logRateLimit, type FailOpenReason } from './metrics';
 
 // 標準上限（IP あたり 30 req/min）。
 export const RATE_LIMIT = 30;
@@ -35,7 +35,7 @@ const _rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 export function checkRateLimitInMemory(
   ip: string,
   limit: number = RATE_LIMIT,
-  scope?: string
+  scope?: string,
 ): boolean {
   const key = scopedKey(ip, scope);
   const now = Date.now();
@@ -50,7 +50,7 @@ export function checkRateLimitInMemory(
     return true;
   }
   if (entry.count >= limit) {
-    logRateLimit({ decision: "blocked" });
+    logRateLimit({ decision: 'blocked' });
     return false;
   }
   entry.count++;
@@ -81,7 +81,7 @@ export function rateLimitMapSize(): number {
 // 確率的に Firestore へ書き込む（横断精度を落として書き込み回数を削減）、(b) Cloud Armor /
 // API Gateway 側でのレート制限への移行。現状は精度優先でこの実装を維持している。
 // ---------------------------------------------------------------------------
-const COLLECTION = "rateLimits";
+const COLLECTION = 'rateLimits';
 
 // ドキュメント ID を導出する HMAC 鍵の最小長（文字数）。弱鍵は鍵自体の総当たりを
 // 許し、逆引きを再び現実的にするため下限を設ける。README は openssl rand -hex 32
@@ -104,10 +104,8 @@ class RateLimitConfigError extends Error {}
 function getRateLimitHmacKey(): string {
   const key = process.env.RATE_LIMIT_HMAC_KEY;
   if (key && key.length >= MIN_HMAC_KEY_LENGTH) return key;
-  if (process.env.FUNCTIONS_EMULATOR === "true") return "aruku-emulator-fallback";
-  throw new RateLimitConfigError(
-    "RATE_LIMIT_HMAC_KEY unset or too short (>=32 chars required)"
-  );
+  if (process.env.FUNCTIONS_EMULATOR === 'true') return 'aruku-emulator-fallback';
+  throw new RateLimitConfigError('RATE_LIMIT_HMAC_KEY unset or too short (>=32 chars required)');
 }
 
 // gRPC ステータスコードのうち、リトライや時間経過では解消せず人手の設定変更を
@@ -126,12 +124,12 @@ const CONFIG_ERROR_GRPC_CODES = new Set([
 ]);
 
 function classifyFailOpen(e: unknown): FailOpenReason {
-  if (e instanceof RateLimitConfigError) return "config";
+  if (e instanceof RateLimitConfigError) return 'config';
   const code = (e as { code?: unknown } | null)?.code;
-  if (typeof code === "number" && CONFIG_ERROR_GRPC_CODES.has(code)) {
-    return "config";
+  if (typeof code === 'number' && CONFIG_ERROR_GRPC_CODES.has(code)) {
+    return 'config';
   }
-  return "transient";
+  return 'transient';
 }
 
 // 生 IP を Firestore に残さないための不可逆なドキュメント ID を導出する（#263）。
@@ -153,9 +151,7 @@ function classifyFailOpen(e: unknown): FailOpenReason {
 //   論理判定が担保し、TTL の遅延には依存しない。）
 function docIdForIp(ip: string, now: number): string {
   const day = new Date(now).toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
-  return createHmac("sha256", `${getRateLimitHmacKey()}:${day}`)
-    .update(ip)
-    .digest("hex");
+  return createHmac('sha256', `${getRateLimitHmacKey()}:${day}`).update(ip).digest('hex');
 }
 
 type PendingCheck = {
@@ -193,7 +189,10 @@ async function drainPendingChecks(docId: string): Promise<void> {
     }
     _pendingChecks.set(docId, []);
     try {
-      const decisions = await countBatch(docId, batch.map((c) => c.limit));
+      const decisions = await countBatch(
+        docId,
+        batch.map((c) => c.limit),
+      );
       batch.forEach((check, i) => check.resolve(decisions[i]));
     } catch (e) {
       batch.forEach((check) => check.reject(e));
@@ -231,13 +230,13 @@ async function countBatch(docId: string, limits: number[]): Promise<boolean[]> {
 export async function checkRateLimitFirestore(
   ip: string,
   limit: number = RATE_LIMIT,
-  scope?: string
+  scope?: string,
 ): Promise<boolean> {
   try {
     const docId = docIdForIp(scopedKey(ip, scope), Date.now());
     const allowed = await admitInBatch(docId, limit);
     if (!allowed) {
-      logRateLimit({ decision: "blocked" });
+      logRateLimit({ decision: 'blocked' });
     }
     return allowed;
   } catch (e) {
@@ -249,11 +248,8 @@ export async function checkRateLimitFirestore(
     //   アラートは実運用でミュートされる。設定不備由来を同じ信号に混ぜると、
     //   保護が恒久的に無効な状態がそのノイズに埋もれる（#301 の実害）。
     const reason = classifyFailOpen(e);
-    console.error(
-      `[rateLimiter] Firestore error, failing open (reason=${reason}):`,
-      e
-    );
-    logRateLimit({ decision: "fail-open", reason });
+    console.error(`[rateLimiter] Firestore error, failing open (reason=${reason}):`, e);
+    logRateLimit({ decision: 'fail-open', reason });
     return true;
   }
 }
@@ -264,9 +260,9 @@ export async function checkRateLimitFirestore(
 export function checkRateLimit(
   ip: string,
   limit: number = RATE_LIMIT,
-  scope?: string
+  scope?: string,
 ): Promise<boolean> {
-  if (process.env.FUNCTIONS_EMULATOR === "true") {
+  if (process.env.FUNCTIONS_EMULATOR === 'true') {
     return Promise.resolve(checkRateLimitInMemory(ip, limit, scope));
   }
   return checkRateLimitFirestore(ip, limit, scope);

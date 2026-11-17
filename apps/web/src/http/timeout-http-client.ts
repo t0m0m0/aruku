@@ -52,10 +52,7 @@ export class TimeoutHttpClient extends BaseHttpClient {
     );
     return {
       statusCode: response.statusCode,
-      body:
-        response.body === null
-          ? null
-          : withIdleTimeout(response.body, this.timeout, url),
+      body: response.body === null ? null : withIdleTimeout(response.body, this.timeout, url),
     };
   }
 
@@ -64,11 +61,7 @@ export class TimeoutHttpClient extends BaseHttpClient {
   }
 }
 
-function withTimeout<T>(
-  promise: Promise<T>,
-  limit: Duration,
-  message: string,
-): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, limit: Duration, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   const expiry = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => reject(new TimeoutException(message)), limit);

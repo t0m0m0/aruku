@@ -13,11 +13,7 @@
 // パーサ・ビルダ経由で通している。
 
 import { describe, expect, it } from 'vitest';
-import {
-  dateOffsetFrom,
-  kMaxDateOffsetDays,
-  TimeValue,
-} from '../../src/models/time-value';
+import { dateOffsetFrom, kMaxDateOffsetDays, TimeValue } from '../../src/models/time-value';
 import { dateTime } from '../../src/time';
 
 describe('TimeValue', () => {
@@ -39,9 +35,7 @@ describe('TimeValue', () => {
   // Dart 側は `assert(dateOffset >= 0)` で AssertionError。TypeScript に assert は
   // 無く、リリースビルドで検査ごと消える Dart と違って常に効く——弾く条件は同じ。
   it('dateOffset が負の場合は assert で弾かれる', () => {
-    expect(() => new TimeValue({ h: 9, m: 0, dateOffset: -1 })).toThrow(
-      RangeError,
-    );
+    expect(() => new TimeValue({ h: 9, m: 0, dateOffset: -1 })).toThrow(RangeError);
   });
 
   it('copyWith で dateOffset を変更できる', () => {
@@ -115,9 +109,7 @@ describe('dateOffsetFrom', () => {
   });
 
   it('時刻が残っていても日付だけで数える', () => {
-    expect(
-      dateOffsetFrom({ picked: dateTime(2026, 5, 20, 3, 15), now }),
-    ).toBe(1);
+    expect(dateOffsetFrom({ picked: dateTime(2026, 5, 20, 3, 15), now })).toBe(1);
   });
 
   it('月をまたいでも日数で数える', () => {

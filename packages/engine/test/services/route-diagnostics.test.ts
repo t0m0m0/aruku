@@ -27,10 +27,7 @@ const walk = (minutes: number, o: { from?: string; to?: string } = {}) =>
     minutes,
   });
 
-const train = (
-  minutes: number,
-  o: { from?: string; to?: string; line?: string } = {},
-) =>
+const train = (minutes: number, o: { from?: string; to?: string; line?: string } = {}) =>
   new RouteSegment({
     type: SegmentType.train,
     fromName: o.from ?? '',
@@ -70,8 +67,7 @@ describe('candLine', () => {
     const departureAt = dateTime(2026, 6, 27, 9, 0);
     const c = new RouteCandidate({ from: 'A', to: 'B', segments: [walk(40)] });
     expect(diag.candLine(c, 60, departureAt)).toEqual(
-      'walk=40m arr=40m slack=20m within=true maxWait=0m ' +
-        'missed=false [walk40m]',
+      'walk=40m arr=40m slack=20m within=true maxWait=0m missed=false [walk40m]',
     );
   });
 
@@ -79,8 +75,7 @@ describe('candLine', () => {
     const departureAt = dateTime(2026, 6, 27, 9, 0);
     const c = new RouteCandidate({ from: 'A', to: 'B', segments: [walk(80)] });
     expect(diag.candLine(c, 60, departureAt)).toEqual(
-      'walk=80m arr=80m slack=-20m within=false maxWait=0m ' +
-        'missed=false [walk80m]',
+      'walk=80m arr=80m slack=-20m within=false maxWait=0m missed=false [walk80m]',
     );
   });
 });
@@ -589,9 +584,7 @@ describe('RouteSearchMetrics.toLogLine', () => {
         s.probeLatency.record({ walkMs: 8000, guidanceMs: 8000 });
       }),
     ]);
-    expect(m.boardSearchProbeSerialMs, 'rounds 最大の探索の対を採る').toEqual(
-      11000,
-    );
+    expect(m.boardSearchProbeSerialMs, 'rounds 最大の探索の対を採る').toEqual(11000);
     expect(m.boardSearchProbeParallelMs).toEqual(9000);
   });
 
@@ -647,10 +640,7 @@ describe('RouteSearchMetrics.toLogLine', () => {
       const line = cascade(new RouteSearchMetrics(), (m) => {
         m.arrivalWaveOutcome = o;
       }).toLogLine();
-      return Number.parseInt(
-        /arrivalWaveOutcome=(-?\d+)/.exec(line)![1],
-        10,
-      );
+      return Number.parseInt(/arrivalWaveOutcome=(-?\d+)/.exec(line)![1], 10);
     };
 
     expect(codeOf(ArrivalWaveOutcome.ok)).toEqual(0);
@@ -662,9 +652,7 @@ describe('RouteSearchMetrics.toLogLine', () => {
   it('第2波を待つ前の未確定は実際の結末と別のコードで出る (#376)', () => {
     // -1 は同ログ行の boardSearchBest / finalWalkMinutes と同じ「該当なし」の流儀。
     // 0（ok）に倒すと、器を作っただけの検索が成功として集計に混ざる。
-    expect(new RouteSearchMetrics().toLogLine()).toContain(
-      'arrivalWaveOutcome=-1',
-    );
+    expect(new RouteSearchMetrics().toLogLine()).toContain('arrivalWaveOutcome=-1');
   });
 });
 
@@ -762,11 +750,7 @@ describe('boardingStationOf', () => {
     const c = new RouteCandidate({
       from: 'A',
       to: 'B',
-      segments: [
-        walk(5),
-        train(20, { from: '蒲田', to: '品川', line: 'JK' }),
-        walk(3),
-      ],
+      segments: [walk(5), train(20, { from: '蒲田', to: '品川', line: 'JK' }), walk(3)],
     });
     expect(diag.boardingStationOf(c)).toEqual('蒲田');
   });

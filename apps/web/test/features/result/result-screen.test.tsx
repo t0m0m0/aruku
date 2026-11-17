@@ -74,7 +74,7 @@ let store: StoreApi<AppStore>;
 
 function setup(initial: Partial<RouteCore> = {}) {
   const navigate = vi.fn();
-  const routeService: RouteService = { plan: (async () => plan()) };
+  const routeService: RouteService = { plan: async () => plan() };
   store = createAppStore(
     {
       destination: '渋谷駅',
@@ -199,9 +199,9 @@ describe('並び（モバイル幅）', () => {
   it('予算超過の警告は行程より前に置く', () => {
     setup({ route: plan({ budgetMin: 60, totalMin: 75 }) });
 
-    expect(precedes(screen.getByText('制限時間を15分超過しています'), screen.getByText('現在地'))).toBe(
-      true,
-    );
+    expect(
+      precedes(screen.getByText('制限時間を15分超過しています'), screen.getByText('現在地')),
+    ).toBe(true);
   });
 });
 
@@ -333,7 +333,12 @@ describe('区間', () => {
     setup({
       route: plan({
         segments: [
-          segment({ type: SegmentType.train, fromName: '渋谷駅', toName: '新宿駅', line: '山手線' }),
+          segment({
+            type: SegmentType.train,
+            fromName: '渋谷駅',
+            toName: '新宿駅',
+            line: '山手線',
+          }),
         ],
         timelineNodes: nodes(['渋谷駅', '出発'], ['新宿駅', '到着']),
       }),
@@ -392,7 +397,7 @@ describe('日を跨いでから見た固定出発の日付', () => {
       },
       () => searchedOn,
       { request: async () => locationDenied },
-      { plan: (async () => plan()) },
+      { plan: async () => plan() },
     );
     store.getState().attachNavigator(vi.fn());
 
@@ -402,7 +407,6 @@ describe('日を跨いでから見た固定出発の日付', () => {
     expect(screen.getByText(`${full} · 09:00 出発`)).toBeTruthy();
   });
 });
-
 
 describe('地図のプレビュー', () => {
   afterEach(() => {

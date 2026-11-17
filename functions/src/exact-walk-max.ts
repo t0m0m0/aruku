@@ -11,7 +11,7 @@ import {
   type LatLng,
   type TimetableStop,
   type TransferNeighbors,
-} from "./exact-scan";
+} from './exact-scan';
 
 const MAX_STOPS_PER_SIDE = 12;
 /** 1検索で Google マトリクスに投げる要素数の上限（出発地→乗車候補 ＋ 降車候補→目的地）。 */
@@ -66,7 +66,7 @@ export interface ExactWalkMaxDeps {
   timed?: <T>(stage: ScanStage, run: () => T) => T;
 }
 
-export type ScanStage = "pick" | "rides" | "journeys";
+export type ScanStage = 'pick' | 'rides' | 'journeys';
 
 export interface Walk {
   durationSec: number;
@@ -124,28 +124,28 @@ export function parseExactWalkMaxQuery(
 ): ExactWalkMaxRequest | { error: string } {
   const param = (name: string): string | undefined => {
     const v = query[name];
-    return typeof v === "string" ? v : undefined;
+    return typeof v === 'string' ? v : undefined;
   };
-  const origin = parsePoint(param("origin"));
-  const goal = parsePoint(param("goal"));
+  const origin = parsePoint(param('origin'));
+  const goal = parsePoint(param('goal'));
   if (origin === null || goal === null) {
     return { error: "origin and goal are required as 'lat,lng'" };
   }
-  const departAt = parseInstant(param("departAt"));
+  const departAt = parseInstant(param('departAt'));
   if (departAt === null) {
-    return { error: "departAt is required as ISO 8601 with a UTC offset" };
+    return { error: 'departAt is required as ISO 8601 with a UTC offset' };
   }
   const ahead = departAt.getTime() - now.getTime();
   if (ahead < -DEPART_AT_MAX_BEHIND_MS || ahead > DEPART_AT_MAX_AHEAD_MS) {
-    return { error: "departAt must be within 1 day before to 92 days after now" };
+    return { error: 'departAt must be within 1 day before to 92 days after now' };
   }
-  const budgetMin = Number(param("budgetMin"));
+  const budgetMin = Number(param('budgetMin'));
   if (!Number.isInteger(budgetMin) || budgetMin < 1 || budgetMin > MAX_BUDGET_MIN) {
     return { error: `budgetMin must be an integer in 1..${MAX_BUDGET_MIN}` };
   }
-  const transfers = parseFlag(query["transfers"]);
+  const transfers = parseFlag(query['transfers']);
   if (transfers === null) {
-    return { error: "transfers must be 0 or 1" };
+    return { error: 'transfers must be 0 or 1' };
   }
   return { origin, goal, departAt, budgetMin, transfers };
 }
@@ -153,14 +153,14 @@ export function parseExactWalkMaxQuery(
 // 省略を偽と読むのは、乗換つきの候補を読まない本番の Web が送らないため。古い Web は
 // これを知らないので、真を既定にすると本番の計算が減らない。
 function parseFlag(value: unknown): boolean | null {
-  if (value === undefined || value === "0") return false;
-  if (value === "1") return true;
+  if (value === undefined || value === '0') return false;
+  if (value === '1') return true;
   return null;
 }
 
 function parsePoint(value: string | undefined): LatLng | null {
-  const parts = (value ?? "").split(",");
-  if (parts.length !== 2 || parts.some((p) => p.trim() === "")) return null;
+  const parts = (value ?? '').split(',');
+  if (parts.length !== 2 || parts.some((p) => p.trim() === '')) return null;
   const [lat, lng] = parts.map(Number);
   if (!(Math.abs(lat) <= 90) || !(Math.abs(lng) <= 180)) return null;
   return { lat, lng };
@@ -201,7 +201,7 @@ export async function findExactWalkMax(
 
   // 乗換つきを要求しなくても neighbors を渡すのは、乗換つきの経路の駅も実測の候補に混ぜるため。
   // 外すと実測する駅が変わり、1回乗車の候補まで変わる。
-  const picked = timed("pick", () =>
+  const picked = timed('pick', () =>
     pickStopsToMeasure(ct, q, { maxPerSide: MAX_STOPS_PER_SIDE, neighbors }),
   );
   const stats = {
@@ -241,7 +241,7 @@ export async function findExactWalkMax(
     alightAt: formatJst(midnight + leg.alightAt * 1000),
     stops: rideStops(ct, leg).map(coordOf),
   });
-  const candidates = timed("rides", () =>
+  const candidates = timed('rides', () =>
     bestRides(ct, q, measured, { k: MAX_CANDIDATES }),
   ).flatMap((ride) => {
     const accessWalk = access.get(ride.board);
@@ -251,7 +251,7 @@ export async function findExactWalkMax(
   });
   if (!req.transfers) return { candidates, feeds, stats };
 
-  const journeys = timed("journeys", () =>
+  const journeys = timed('journeys', () =>
     bestJourneys(ct, q, measured, neighbors, { k: MAX_CANDIDATES, transfersOnly: true }),
   );
   const transferCandidates = journeys.flatMap(({ legs: [first, second], transferSec }) => {
@@ -330,5 +330,5 @@ function formatJst(ms: number): string {
 }
 
 function pad2(n: number): string {
-  return String(n).padStart(2, "0");
+  return String(n).padStart(2, '0');
 }

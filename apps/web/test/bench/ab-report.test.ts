@@ -86,7 +86,9 @@ describe('summarize: 完了条件の数字', () => {
     const s = summarize([
       rec({ m: { transferCandidates: 3, walkB: 30, walkBPrime: 42, transferWon: 1 } }), // +12
       rec({ m: { transferCandidates: 2, walkB: 30, walkBPrime: 30 } }), // ±0
-      rec({ m: { coveredBase: 0, transferCandidates: 1, walkB: 30, walkBPrime: 36, transferWon: 1 } }), // +6
+      rec({
+        m: { coveredBase: 0, transferCandidates: 1, walkB: 30, walkBPrime: 36, transferWon: 1 },
+      }), // +6
       rec({ m: { transferCandidates: 0, walkB: 30, walkBPrime: 30 } }), // 分母外
       rec({ m: { transferCandidates: -1, walkB: 30, walkBPrime: 30 } }), // 分母外
     ]);
@@ -147,8 +149,18 @@ describe('summarize: 完了条件の数字', () => {
 
 describe('abReport', () => {
   const v = (verdict: VerifyResult['verdict']): VerifyResult => ({
-    pair: 'p', slot: '12:00', ratio: 1.5, line: 'x', from: 'a', to: 'b', dep: 'd', arr: 'e',
-    verdict, matchedLine: null, seen: [], error: null,
+    pair: 'p',
+    slot: '12:00',
+    ratio: 1.5,
+    line: 'x',
+    from: 'a',
+    to: 'b',
+    dep: 'd',
+    arr: 'e',
+    verdict,
+    matchedLine: null,
+    seen: [],
+    error: null,
   });
 
   it('Markdown に完了条件の3項目と照合の結果を出す', () => {
@@ -171,7 +183,7 @@ describe('abReport', () => {
     expect(md).toContain('照会失敗: 1');
   });
 
-  it("乗換つきの増分・勝った検索・enrich で落ちた割合を出す", () => {
+  it('乗換つきの増分・勝った検索・enrich で落ちた割合を出す', () => {
     const md = abReport([
       rec({
         m: { transferCandidates: 4, transferDropped: 1, walkB: 30, walkBPrime: 42, transferWon: 1 },

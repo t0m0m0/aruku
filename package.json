@@ -1,14 +1,17 @@
 {
   "name": "aruku-repo-checks",
   "private": true,
-  "description": "3パッケージを横断するリポジトリ単位の検査（knip）だけを置く。アプリの依存は各パッケージが持つ。",
+  "description": "3パッケージを横断するリポジトリ単位の検査（knip・Prettier）だけを置く。アプリの依存は各パッケージが持つ。",
   "scripts": {
-    "knip": "knip"
+    "knip": "knip",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "engines": {
     "node": "^22.12.0"
   },
   "devDependencies": {
-    "knip": "^6.45.1"
+    "knip": "^6.45.1",
+    "prettier": "^3.10.1"
   }
 }

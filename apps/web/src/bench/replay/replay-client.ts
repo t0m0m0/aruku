@@ -135,7 +135,8 @@ class ReplayHttpClient implements HttpClient {
     const { entry, delayMs } = await this.session.resolve(url);
     if (delayMs > 0) await this.wait(delayMs);
     if (this.closed) throw new ClientException('closed');
-    if (entry.status === timedOutStatus) throw new TimeoutException(`replayed timeout: ${url.href}`);
+    if (entry.status === timedOutStatus)
+      throw new TimeoutException(`replayed timeout: ${url.href}`);
     return { statusCode: entry.status, bodyBytes: Buffer.from(entry.body, 'base64') };
   }
 

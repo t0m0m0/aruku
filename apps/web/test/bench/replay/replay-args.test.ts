@@ -88,12 +88,24 @@ describe('parseReplayArgs', () => {
     ['録画ファイルが無い', ['--out', 'o', '--date', '2026-11-16'], '--store is required'],
     ['出力先が無い', ['--store', 's', '--date', '2026-11-16'], '--out is required'],
     ['出発日が無い', ['--store', 's', '--out', 'o'], '--date is required'],
-    ['出発日の形が違う', ['--store', 's', '--out', 'o', '--date', '2026/11/16'], 'bad --date: 2026/11/16'],
-    ['存在しない日付', ['--store', 's', '--out', 'o', '--date', '2026-02-30'], 'bad --date: 2026-02-30'],
+    [
+      '出発日の形が違う',
+      ['--store', 's', '--out', 'o', '--date', '2026/11/16'],
+      'bad --date: 2026/11/16',
+    ],
+    [
+      '存在しない日付',
+      ['--store', 's', '--out', 'o', '--date', '2026-02-30'],
+      'bad --date: 2026-02-30',
+    ],
     ['モードが違う', [...required, '--mode', 'live'], 'bad --mode: live'],
     ['出発時刻の形が違う', [...required, '--slots', '25:00'], 'bad --slots: 25:00'],
     ['倍率が数でない', [...required, '--ratios', '1.2,x'], 'bad --ratios: x'],
-    ['上限が正の整数でない', [...required, '--refetch-limit-ms', '-1'], 'bad --refetch-limit-ms: -1'],
+    [
+      '上限が正の整数でない',
+      [...required, '--refetch-limit-ms', '-1'],
+      'bad --refetch-limit-ms: -1',
+    ],
     ['知らない引数', [...required, '--engine', 'x'], 'unknown argument: --engine'],
     ['値の無い引数', [...required, '--label'], 'missing value: --label'],
   ])('%s なら投げる', (_, argv, message) => {

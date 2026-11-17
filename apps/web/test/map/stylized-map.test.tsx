@@ -27,10 +27,7 @@ beforeEach(() => {
     class {
       constructor(private cb: ResizeObserverCallback) {
         emitResize = (width, height) => {
-          this.cb(
-            [{ contentRect: { width, height } } as ResizeObserverEntry],
-            this,
-          );
+          this.cb([{ contentRect: { width, height } } as ResizeObserverEntry], this);
         };
       }
       observe() {}
@@ -100,9 +97,7 @@ describe('枠に合わせた配置', () => {
 
     fireResize(360, 800);
 
-    expect(svgOf(container).getAttribute('preserveAspectRatio')).not.toBe(
-      'xMidYMid slice',
-    );
+    expect(svgOf(container).getAttribute('preserveAspectRatio')).not.toBe('xMidYMid slice');
   });
 
   it('割合で置く図形は枠に対する割合のまま', () => {

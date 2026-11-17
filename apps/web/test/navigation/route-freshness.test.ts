@@ -71,7 +71,10 @@ describe('復帰での検算', () => {
 
   it('解除すると購読が残らない', () => {
     const s = source(true);
-    const stop = watchRouteFreshness(s.api, storeWith(() => {}));
+    const stop = watchRouteFreshness(
+      s.api,
+      storeWith(() => {}),
+    );
 
     stop();
 
@@ -97,7 +100,7 @@ describe('締切のタイマー', () => {
       now: () => current,
     };
     const routeService: RouteService = {
-      plan: (async () => aRoute),
+      plan: async () => aRoute,
     };
     const store = createAppStore(
       { destination: '渋谷駅', destinationLatLng: goal },

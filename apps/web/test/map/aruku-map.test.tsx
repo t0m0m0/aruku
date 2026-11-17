@@ -8,11 +8,7 @@ import { render, renderHook, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
-import {
-  RoutePlan,
-  RouteSegment,
-  SegmentType,
-} from '@aruku/engine/models/route-plan';
+import { RoutePlan, RouteSegment, SegmentType } from '@aruku/engine/models/route-plan';
 
 const mapProps = vi.fn();
 
@@ -35,8 +31,7 @@ vi.mock('@vis.gl/react-google-maps', () => ({
     AUTH_FAILURE: 'AUTH_FAILURE',
   },
   useApiLoadingStatus: () => currentStatus,
-  useMapsLibrary: (name: string) =>
-    name === 'marker' ? currentMarkerLibrary : null,
+  useMapsLibrary: (name: string) => (name === 'marker' ? currentMarkerLibrary : null),
   APIProvider: ({ children, apiKey }: { children?: unknown; apiKey: string }) => (
     <div data-testid="api-provider" data-api-key={apiKey}>
       {children as never}
@@ -105,9 +100,7 @@ describe('ArukuMap', () => {
   it('キーを APIProvider へ渡す', () => {
     render(<ArukuMap apiKey="maps-key" />);
 
-    expect(screen.getByTestId('api-provider').getAttribute('data-api-key')).toBe(
-      'maps-key',
-    );
+    expect(screen.getByTestId('api-provider').getAttribute('data-api-key')).toBe('maps-key');
   });
 
   it('実地図では作り物の地図を重ねない', () => {
@@ -254,12 +247,12 @@ describe('useFitBounds', () => {
   });
 });
 
-
 // 経路の図形を実際に地図へ載せる層。google.maps は jsdom に無いので、コンストラクタだけ
 // 差し替えて「何本、どの点で描いたか」と「消したか」を見る。
 describe('経路の描き直し', () => {
   function stubGoogleMaps() {
-    const polylines: { options: google.maps.PolylineOptions; setMap: ReturnType<typeof vi.fn> }[] = [];
+    const polylines: { options: google.maps.PolylineOptions; setMap: ReturnType<typeof vi.fn> }[] =
+      [];
     const markers: { setMap: ReturnType<typeof vi.fn> }[] = [];
 
     const Polyline = vi.fn(function (options: google.maps.PolylineOptions) {
@@ -347,7 +340,6 @@ describe('経路の描き直し', () => {
   });
 });
 
-
 // 始終点の印は google.maps.Marker（legacy）で描く。Polyline と違い、これは marker
 // ライブラリに入っている——<Map> が保証するのは core / maps までで、marker は別物。
 // 取り込みを待たずに new すると、結果画面が出た瞬間に undefined を呼んで落ちる
@@ -361,7 +353,12 @@ describe('marker ライブラリの取り込み待ち', () => {
       return self;
     });
     vi.stubGlobal('google', {
-      maps: { Polyline: vi.fn(function () { return { setMap: vi.fn() }; }), SymbolPath: { CIRCLE: 0 } },
+      maps: {
+        Polyline: vi.fn(function () {
+          return { setMap: vi.fn() };
+        }),
+        SymbolPath: { CIRCLE: 0 },
+      },
     });
     return { markers, Marker };
   }

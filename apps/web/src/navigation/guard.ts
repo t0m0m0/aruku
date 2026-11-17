@@ -1,23 +1,14 @@
 // 移植元: flutter-final:lib/core/navigation/app_router.dart の `redirect`。
 
 import { isNowRouteExpired, type RouteCore } from '../state/app-state';
-import {
-  fallbackScreen,
-  Screen,
-  screenFromLocation,
-  screenPath,
-} from './screens';
+import { fallbackScreen, Screen, screenFromLocation, screenPath } from './screens';
 
 /// この location を表示してよいか判定し、跳ね返す先を返す（表示してよければ null）。
 ///
 /// 純粋関数にするのは、移植元が `isNowRouteExpired` をそうしていたのと同じ理由——
 /// deep link・ブラウザ履歴・アプリ内遷移はすべてここを通るので、判定を一箇所に集約
 /// すると全経路で一貫する。描画も router も無しで反証できる形にしておく。
-export function resolveRedirect(
-  location: string,
-  state: RouteCore,
-  now: Date,
-): string | null {
+export function resolveRedirect(location: string, state: RouteCore, now: Date): string | null {
   const requestedPath = new URL(location, 'https://placeholder.invalid').pathname;
   const target = screenFromLocation(requestedPath);
 

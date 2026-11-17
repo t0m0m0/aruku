@@ -9,8 +9,7 @@ import { ja } from './ja';
 ///
 /// 年は出さない。選べるのは最大 90 日先までで、年が変わっても月日で取り違えない。
 export function pickerDateLabel(date: Date, dateOffset: number): string {
-  const lead =
-    dateOffset === 0 ? ja.dateToday : dateOffset === 1 ? ja.dateTomorrow : null;
+  const lead = dateOffset === 0 ? ja.dateToday : dateOffset === 1 ? ja.dateTomorrow : null;
   return lead === null ? todayDateLabel(date) : `${lead} · ${todayDateLabel(date)}`;
 }
 

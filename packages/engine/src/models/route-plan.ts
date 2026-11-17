@@ -75,11 +75,7 @@ export class RouteSegment {
   /// レッグ（#225）の判定に使う。閾値 0.05km は小数第1位への丸めで "0.0km" に
   /// なる上限。
   get isZeroWalk(): boolean {
-    return (
-      this.type === SegmentType.walk &&
-      this.minutes === 0 &&
-      (this.km ?? 0) < 0.05
-    );
+    return this.type === SegmentType.walk && this.minutes === 0 && (this.km ?? 0) < 0.05;
   }
 
   /// Dart 版と同じく null への差し戻しはできない（`?? this.x` 相当）。

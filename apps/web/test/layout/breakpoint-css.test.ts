@@ -27,9 +27,10 @@ function rules(path: string): string {
 // sm / md / lg を残すと、`md:`（768px）のような別の境界がクラス名だけで紛れ込むので、
 // それらが消えていることも見る。
 const breakpoints = cssFiles('src').flatMap((path) =>
-  [...rules(path).matchAll(/--breakpoint-([\w*-]+):\s*([^;]+);/g)].map(
-    (match) => [match[1], match[2].trim()],
-  ),
+  [...rules(path).matchAll(/--breakpoint-([\w*-]+):\s*([^;]+);/g)].map((match) => [
+    match[1],
+    match[2].trim(),
+  ]),
 );
 
 describe('Tailwind のブレークポイント', () => {
@@ -44,9 +45,10 @@ describe('Tailwind のブレークポイント', () => {
 // CSS に幅のメディアクエリを直書きすると、@theme の境界を通らずに別の数値が入り得る。
 // 今は1つも無いので空であることを見る——書くなら `desktop:` を使う。
 const widths = cssFiles('src').flatMap((path) =>
-  [...rules(path).matchAll(/@media[^{]*?\((?:min|max)-width:\s*([\d.]+)px\)/g)].map(
-    (match) => ({ path, px: Number(match[1]) }),
-  ),
+  [...rules(path).matchAll(/@media[^{]*?\((?:min|max)-width:\s*([\d.]+)px\)/g)].map((match) => ({
+    path,
+    px: Number(match[1]),
+  })),
 );
 
 describe('CSS の幅の境界', () => {

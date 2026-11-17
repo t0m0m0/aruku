@@ -67,13 +67,7 @@ export function ArukuMap({
 /// LOADED になり、Google が地図の中へ自前のエラー面（「このページでは Google マップが
 /// 正しく読み込まれませんでした」）を描く。こちらから見分ける術は無く、DOM を覗いて
 /// 当てにいく価値も無い——リファラー制限の設定は docs/security_hardening.md の側の話。
-function RealMapWhenLoaded({
-  route,
-  showRoute,
-}: {
-  route: RoutePlan | null;
-  showRoute: boolean;
-}) {
+function RealMapWhenLoaded({ route, showRoute }: { route: RoutePlan | null; showRoute: boolean }) {
   const status = useApiLoadingStatus();
 
   if (status !== APILoadingStatus.LOADED) {
@@ -113,10 +107,7 @@ function RouteOverlays({ route }: { route: RoutePlan }) {
 ///
 /// 矩形を**値で**比べる。代替案の切り替えで route は毎回作り直され、そこから計算した
 /// 矩形も新しいオブジェクトになる——参照で見ると同じ経路のままカメラが飛ぶ。
-export function useFitBounds(
-  map: google.maps.Map | null,
-  bounds: RouteBounds | null,
-) {
+export function useFitBounds(map: google.maps.Map | null, bounds: RouteBounds | null) {
   const applied = useRef<RouteBounds | null>(null);
 
   useEffect(() => {
@@ -130,9 +121,7 @@ export function useFitBounds(
 function useRoutePaths(map: google.maps.Map | null, paths: RouteOverlayPath[]) {
   useEffect(() => {
     if (map === null) return;
-    const drawn = paths.map(
-      (path) => new google.maps.Polyline(toPolylineOptions(path, map)),
-    );
+    const drawn = paths.map((path) => new google.maps.Polyline(toPolylineOptions(path, map)));
     return () => {
       for (const polyline of drawn) polyline.setMap(null);
     };

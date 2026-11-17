@@ -21,7 +21,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 // vitest はブラウザ向けの import.meta.url を配るので、new URL(...) は file: にならない。
 // この設定の `root`（= apps/web）から辿る。
-const webRoot = resolve(dirname(fileURLToPath(`file://${__filename ?? ''}`)) || process.cwd(), '..', '..');
+const webRoot = resolve(
+  dirname(fileURLToPath(`file://${__filename ?? ''}`)) || process.cwd(),
+  '..',
+  '..',
+);
 
 const debugTokenSentinel = 'DEBUG-TOKEN-SENTINEL-b3a1f0c2';
 const proxySentinel = 'https://proxy-sentinel-9f2c.example';
@@ -100,9 +104,7 @@ describe('配信物の静的ファイル', () => {
   const distFiles = (): string[] => {
     const walk = (dir: string, prefix: string): string[] =>
       readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
-        e.isDirectory()
-          ? walk(join(dir, e.name), `${prefix}${e.name}/`)
-          : [`${prefix}${e.name}`],
+        e.isDirectory() ? walk(join(dir, e.name), `${prefix}${e.name}/`) : [`${prefix}${e.name}`],
       );
     return walk(outDir, '/');
   };
@@ -173,8 +175,10 @@ describe('配信物の静的ファイル', () => {
   it('全体規則に当たる要求へ Cache-Control を連結しない', () => {
     for (const [pattern, headers] of headerBlocks()) {
       if (pattern === '/assets/*') continue;
-      expect(headers.join('\n'), `${pattern} の Cache-Control が /assets/* へ連結される`)
-        .not.toMatch(/Cache-Control/);
+      expect(
+        headers.join('\n'),
+        `${pattern} の Cache-Control が /assets/* へ連結される`,
+      ).not.toMatch(/Cache-Control/);
     }
   });
 

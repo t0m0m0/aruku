@@ -8,9 +8,7 @@ import { arukuFontSubset } from './vite/font-subset';
 
 /// エンジンのソースを直接解決する。tsconfig.json の `paths` と同じ対応を貼る
 /// （型解決とバンドル解決が割れると、tsc は通るのに実行時だけ落ちる）。
-const engineSrc = fileURLToPath(
-  new URL('../../packages/engine/src', import.meta.url),
-);
+const engineSrc = fileURLToPath(new URL('../../packages/engine/src', import.meta.url));
 
 /// shadcn/ui の部品は `@/` から import する（components.json の aliases）。tsconfig.json の
 /// `paths` と対で維持する。

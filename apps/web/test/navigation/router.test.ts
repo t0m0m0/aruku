@@ -55,9 +55,7 @@ describe('ルート表', () => {
   });
 
   it('未知の location を受ける catch-all を持つ', () => {
-    expect(screenRoutes(appRoutes(createAppStore())).map((r) => r.path)).toContain(
-      '*',
-    );
+    expect(screenRoutes(appRoutes(createAppStore())).map((r) => r.path)).toContain('*');
   });
 
   it('すべての画面が共通シェルの下にある', () => {
@@ -103,7 +101,10 @@ describe('loader に配線されたガード', () => {
   });
 
   it('ルートのパスは home へ跳ね返す', () => {
-    const response = run(appRoutes(createAppStore(), () => now), '/');
+    const response = run(
+      appRoutes(createAppStore(), () => now),
+      '/',
+    );
 
     expect(response?.headers.get('Location')).toBe(screenPath.home);
   });

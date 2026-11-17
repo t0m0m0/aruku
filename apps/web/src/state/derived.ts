@@ -11,10 +11,7 @@ import type { LocationState } from '../location/location-state';
 ///
 /// denied（位置情報なし）と unavailable（取得失敗）を分けているのは、後者だけが
 /// 再取得で解消し得るから——同じ「現在地が無い」でも促すべき操作が違う。
-export function departureLabelText(
-  origin: string | null,
-  location: LocationState,
-): string {
+export function departureLabelText(origin: string | null, location: LocationState): string {
   if (origin !== null) return origin;
   switch (location.kind) {
     case 'loading':

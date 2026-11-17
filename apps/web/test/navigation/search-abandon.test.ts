@@ -118,7 +118,10 @@ describe('止めてはいけない遷移', () => {
 describe('購読', () => {
   it('解除すると残らない', () => {
     const s = source(onLoading);
-    const stop = watchSearchAbandon(s.api, storeWith(() => {}));
+    const stop = watchSearchAbandon(
+      s.api,
+      storeWith(() => {}),
+    );
 
     stop();
 

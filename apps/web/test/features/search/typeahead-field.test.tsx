@@ -72,9 +72,7 @@ function setup(options: Options = {}) {
     close() {},
   };
 
-  render(
-    <TypeaheadField store={store} mode="destination" places={places} recents={recents} />,
-  );
+  render(<TypeaheadField store={store} mode="destination" places={places} recents={recents} />);
   return { navigate, store, recents };
 }
 
@@ -104,9 +102,7 @@ afterEach(() => {
 describe('インラインのタイプアヘッド', () => {
   it('未入力でフォーカスすると履歴が並ぶ', () => {
     setup({
-      seed: [
-        { name: '公園', placeId: 'id-公園', latLng: shibuya, address: null, usedAt: null },
-      ],
+      seed: [{ name: '公園', placeId: 'id-公園', latLng: shibuya, address: null, usedAt: null }],
     });
 
     fireEvent.focus(field());
@@ -269,9 +265,7 @@ describe('インラインのタイプアヘッド', () => {
 
     expect(store.getState().destination).toBeNull();
     expect(
-      screen.getByText(
-        'この目的地は位置情報を取得できませんでした。別の候補を選んでください',
-      ),
+      screen.getByText('この目的地は位置情報を取得できませんでした。別の候補を選んでください'),
     ).toBeTruthy();
   });
 
@@ -302,8 +296,7 @@ describe('インラインのタイプアヘッド', () => {
     const pending = new Map<string, (value: GeoPoint | null) => void>();
     setup({
       autocomplete: async (query) => [prediction(query === 'ふ' ? '古い' : '新しい')],
-      fetchLatLng: async (placeId) =>
-        new Promise((resolve) => pending.set(placeId, resolve)),
+      fetchLatLng: async (placeId) => new Promise((resolve) => pending.set(placeId, resolve)),
     });
 
     fireEvent.focus(field());
@@ -328,8 +321,7 @@ describe('インラインのタイプアヘッド', () => {
     // 結果が世代ずれで捨てられる（PR #407 の Codex レビュー）。
     const pending = new Map<string, (value: GeoPoint | null) => void>();
     const fetchLatLng = vi.fn(
-      (placeId: string) =>
-        new Promise<GeoPoint | null>((resolve) => pending.set(placeId, resolve)),
+      (placeId: string) => new Promise<GeoPoint | null>((resolve) => pending.set(placeId, resolve)),
     );
     setup({
       autocomplete: async (query) => [prediction(query === 'ふ' ? '古い' : '新しい')],

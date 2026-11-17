@@ -3,10 +3,7 @@
 // 文言と復帰導線と対で意味を持つので、エラー画面のスライスまで運んでいなかったもの
 // （PORTING.md の「まだ運んでいないもの」）。
 
-import {
-  ClientException,
-  TimeoutException,
-} from '@aruku/engine/services/http-client';
+import { ClientException, TimeoutException } from '@aruku/engine/services/http-client';
 import { RouteException } from '@aruku/engine/services/route-service';
 
 import { ja } from '../i18n/ja';

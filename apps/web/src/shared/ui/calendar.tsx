@@ -110,12 +110,7 @@ function CalendarChevron({ orientation }: ChevronProps) {
   return <ChevronIcon size={16} dir={orientation === 'left' ? 'left' : 'right'} />;
 }
 
-function CalendarDayButton({
-  className,
-  day,
-  modifiers,
-  ...props
-}: DayButtonProps) {
+function CalendarDayButton({ className, day, modifiers, ...props }: DayButtonProps) {
   const defaultClassNames = getDefaultClassNames();
 
   return (

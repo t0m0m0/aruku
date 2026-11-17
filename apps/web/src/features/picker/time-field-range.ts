@@ -8,11 +8,7 @@
 // 残したのは、ブラウザが持っていない側——「いつまで選べるか」「日をまたぐ刻み」
 // ——だけ。値域の**保証**はここではなく applyPickedTime が持つ。
 
-import {
-  PickerMode,
-  TimeValue,
-  kMaxDateOffsetDays,
-} from '@aruku/engine/models/time-value';
+import { PickerMode, TimeValue, kMaxDateOffsetDays } from '@aruku/engine/models/time-value';
 
 import { kMinBudgetMinutes } from '../../state/app-state';
 
@@ -56,15 +52,10 @@ export function clampDepartureMinutes(args: {
 /// 食い違う。「今すぐ」でも実時刻ではなく保持値で数える——欄が出しているのは
 /// 保持値であり、下限だけ実時刻へ寄せると選べる日と表示が食い違う（実時刻への
 /// 追従は確定時の rebaseDates が引き受ける）。
-export function firstSelectableOffset(
-  mode: PickerMode,
-  departure: TimeValue,
-): number {
+export function firstSelectableOffset(mode: PickerMode, departure: TimeValue): number {
   if (mode === PickerMode.depart) return 0;
   const offset = departure.isNow ? 0 : departure.dateOffset;
-  const carry = Math.floor(
-    (departure.totalMinutes + kMinBudgetMinutes) / minutesPerDay,
-  );
+  const carry = Math.floor((departure.totalMinutes + kMinBudgetMinutes) / minutesPerDay);
   return offset + carry;
 }
 
@@ -77,9 +68,5 @@ export function lastSelectableOffset(
   departure: TimeValue,
   current: TimeValue,
 ): number {
-  return Math.max(
-    kMaxDateOffsetDays,
-    firstSelectableOffset(mode, departure),
-    current.dateOffset,
-  );
+  return Math.max(kMaxDateOffsetDays, firstSelectableOffset(mode, departure), current.dateOffset);
 }

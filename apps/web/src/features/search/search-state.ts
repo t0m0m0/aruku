@@ -78,11 +78,7 @@ export function createSearchState(options: SearchStateOptions): SearchState {
         // 系統は常に Autocomplete（typeahead を壊さない・#146 C案）。現在地が
         // 分かるときは位置バイアスを掛け（#144）、proxy 側で origin も渡るため
         // 各候補に距離が付く。
-        const fetched = await options.service.autocomplete(
-          query,
-          location,
-          aborter.signal,
-        );
+        const fetched = await options.service.autocomplete(query, location, aborter.signal);
         if (gen !== generation) return;
         raw = fetched;
         set({
@@ -98,8 +94,7 @@ export function createSearchState(options: SearchStateOptions): SearchState {
         set({
           status: 'error',
           suggestions: [],
-          errorStatus:
-            error instanceof PlacesException ? error.status : null,
+          errorStatus: error instanceof PlacesException ? error.status : null,
         });
       } finally {
         if (inflight === aborter) inflight = null;

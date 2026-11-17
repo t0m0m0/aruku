@@ -48,6 +48,8 @@ secrets.properties
 !.claude/bash_guard_test.py
 !.claude/typecheck_on_edit.py
 !.claude/typecheck_on_edit_test.py
+!.claude/format_on_edit.py
+!.claude/format_on_edit_test.py
 !.claude/doc_consistency.py
 !.claude/doc_consistency_test.py
 .claude/settings.local.json
@@ -77,5 +79,5 @@ secrets.properties
 .agents/skills/xcode-project-setup/
 # skills-lock.json is committed so `npx skills install` is reproducible.
 
-# ルートの package.json は knip（#520）だけを入れる。
+# ルートの package.json は knip（#520）と Prettier（#518）だけを入れる。
 /node_modules/

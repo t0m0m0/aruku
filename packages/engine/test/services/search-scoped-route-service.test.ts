@@ -9,10 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { GeoPoint } from '../../src/models/geo-point';
 import { RoutePlan, type RouteSegment } from '../../src/models/route-plan';
 import { TimeValue } from '../../src/models/time-value';
-import {
-  CancellationToken,
-  SearchCanceledException,
-} from '../../src/services/cancellation';
+import { CancellationToken, SearchCanceledException } from '../../src/services/cancellation';
 import {
   RouteException,
   SearchScopedRouteService,
@@ -38,9 +35,7 @@ const plan = new RoutePlan({
 
 /// plan() の完了タイミングを外から握れるエンジン。close 回数を観測する。
 class FakeEngine implements SearchEngine {
-  constructor(
-    private readonly options: { gate?: Deferred<void>; error?: Error } = {},
-  ) {}
+  constructor(private readonly options: { gate?: Deferred<void>; error?: Error } = {}) {}
 
   closed = 0;
   planned = 0;
@@ -57,10 +52,7 @@ class FakeEngine implements SearchEngine {
   }
 }
 
-const run = (
-  service: RouteService,
-  cancellation?: CancellationToken,
-): Promise<RoutePlan> =>
+const run = (service: RouteService, cancellation?: CancellationToken): Promise<RoutePlan> =>
   service.plan({
     destination: 'B',
     destinationLatLng: new GeoPoint(35.0, 139.0),
@@ -72,8 +64,7 @@ const run = (
 
 /// Dart の `pumpEventQueue()` に対応する。待っている plan がゲートで止まる（＝エンジンが
 /// 組み立てられ onCancel が登録された）ところまでイベントループを進める。
-const pumpEventQueue = (): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, 0));
+const pumpEventQueue = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('SearchScopedRouteService', () => {
   it('plan ごとにエンジンを組み立てる', async () => {
@@ -145,10 +136,7 @@ describe('SearchScopedRouteService', () => {
     const engine = new FakeEngine({ error: new RouteException('TIMEOUT') });
     const service = new SearchScopedRouteService(() => engine);
 
-    const e = await expectThrowsA(
-      () => run(service, new CancellationToken()),
-      RouteException,
-    );
+    const e = await expectThrowsA(() => run(service, new CancellationToken()), RouteException);
     expect(e.status).toBe('TIMEOUT');
   });
 

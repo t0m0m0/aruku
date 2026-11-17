@@ -60,15 +60,12 @@ export function TypeaheadField({
   emptyText,
 }: TypeaheadFieldProps) {
   const locationState = useStore(store, (s) => s.locationState);
-  const selected = useStore(store, (s) =>
-    mode === 'origin' ? s.origin : s.destination,
-  );
+  const selected = useStore(store, (s) => (mode === 'origin' ? s.origin : s.destination));
   const setDestination = useStore(store, (s) => s.setDestination);
   const setOrigin = useStore(store, (s) => s.setOrigin);
 
   const locationRef = useRef<GeoPoint | null>(null);
-  locationRef.current =
-    locationState.kind === 'available' ? locationState.position : null;
+  locationRef.current = locationState.kind === 'available' ? locationState.position : null;
 
   const search = useMemo(
     () =>
@@ -211,9 +208,7 @@ export function TypeaheadField({
 
   function move(delta: number) {
     if (entries.length === 0) return;
-    setHighlighted((current) =>
-      Math.min(Math.max(current + delta, 0), entries.length - 1),
-    );
+    setHighlighted((current) => Math.min(Math.max(current + delta, 0), entries.length - 1));
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -281,9 +276,7 @@ export function TypeaheadField({
       {/* 枠の色は一覧が開いているとき「と」焦点があるとき。open だけに紐づけると、
           Escape で閉じた直後の欄は焦点を持ったまま輪郭を失う——入力側の outline は
           消してある（PR #407 の Codex レビュー）。 */}
-      <div
-        className={cn(placeFieldBox, open && 'border-moss-400')}
-      >
+      <div className={cn(placeFieldBox, open && 'border-moss-400')}>
         <SearchIcon size={17} />
         <input
           type="text"
@@ -296,8 +289,7 @@ export function TypeaheadField({
           aria-autocomplete="list"
           aria-activedescendant={showList ? `${listId}-${activeIndex}` : undefined}
           placeholder={
-            emptyText ??
-            (mode === 'origin' ? ja.homeDepartureLabel : ja.homeDestinationPlaceholder)
+            emptyText ?? (mode === 'origin' ? ja.homeDepartureLabel : ja.homeDestinationPlaceholder)
           }
           value={shown}
           ref={inputRef}
@@ -399,16 +391,12 @@ function messageFor({
   hasEntries,
 }: MessageInput): string | null {
   if (pickFailed) {
-    return mode === 'origin'
-      ? ja.searchPickFailedOrigin
-      : ja.searchPickFailedDestination;
+    return mode === 'origin' ? ja.searchPickFailedOrigin : ja.searchPickFailedDestination;
   }
   if (!open || typed === '' || hasEntries) return null;
   if (status === 'error') {
     // 生ステータスが取れないときは原因不明の汎用エラー（search-state.ts）。
-    return errorStatus === null
-      ? ja.searchErrorGeneric
-      : searchErrorWithStatus(errorStatus);
+    return errorStatus === null ? ja.searchErrorGeneric : searchErrorWithStatus(errorStatus);
   }
   if (status === 'success') return ja.searchEmptyTitle;
   return null;

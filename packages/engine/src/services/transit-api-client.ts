@@ -202,10 +202,7 @@ export class TransitApiClient {
       time: anchor.time,
       type: anchor.type,
       numItineraries: `${numItineraries}`,
-      avoidModes: (anchor.allowBus
-        ? avoidModesAllowBus
-        : avoidModesTrainOnly
-      ).join(','),
+      avoidModes: (anchor.allowBus ? avoidModesAllowBus : avoidModesTrainOnly).join(','),
     });
     const key = uri.href;
     let response = this.guidanceResponses.get(key);
@@ -238,10 +235,7 @@ export class TransitApiClient {
 
   /// [origins]×[dests] の徒歩マトリクスを Google プロキシで一括実測し、生の要素配列を返す。
   /// 取得失敗（非200・タイムアウト・非配列）は null（呼び出し側は直線推定へフォールバック）。
-  async fetchWalkMatrix(
-    origins: GeoPoint[],
-    dests: GeoPoint[],
-  ): Promise<unknown[] | null> {
+  async fetchWalkMatrix(origins: GeoPoint[], dests: GeoPoint[]): Promise<unknown[] | null> {
     const join = (ps: GeoPoint[]): string =>
       ps.map((p) => `${dartDouble(p.lat)},${dartDouble(p.lng)}`).join(';');
     try {
@@ -310,11 +304,10 @@ export class TransitApiClient {
     params: Record<string, string>,
     onIssued: () => void,
   ): Promise<JsonMap> {
-    const res = await this.getOrTimeout(
-      this.proxy,
-      buildUri(this.proxyBase, `/${path}`, params),
-      { deadlineApplies: false, onIssued },
-    );
+    const res = await this.getOrTimeout(this.proxy, buildUri(this.proxyBase, `/${path}`, params), {
+      deadlineApplies: false,
+      onIssued,
+    });
     if (res.statusCode !== 200) {
       throw new RouteException(`HTTP ${res.statusCode}`);
     }
@@ -326,11 +319,10 @@ export class TransitApiClient {
     params: Record<string, string>,
     onIssued: () => void,
   ): Promise<unknown[]> {
-    const res = await this.getOrTimeout(
-      this.proxy,
-      buildUri(this.proxyBase, `/${path}`, params),
-      { deadlineApplies: false, onIssued },
-    );
+    const res = await this.getOrTimeout(this.proxy, buildUri(this.proxyBase, `/${path}`, params), {
+      deadlineApplies: false,
+      onIssued,
+    });
     if (res.statusCode !== 200) {
       throw new RouteException(`HTTP ${res.statusCode}`);
     }
@@ -398,9 +390,7 @@ export class TransitApiClient {
     options: { deadlineApplies?: boolean; onIssued?: () => void },
   ): Promise<HttpResponse> {
     this.cancellation?.throwIfCanceled();
-    const remaining = (options.deadlineApplies ?? true)
-      ? this.deadline.remaining
-      : null;
+    const remaining = (options.deadlineApplies ?? true) ? this.deadline.remaining : null;
     if (remaining === durationZero) throw new RouteException('TIMEOUT');
     // Dart 版は既定で `http.Client()` を組み立てるが、Phase 1 は既定を置かなかった
     // （設定・トランスポートの出どころは Phase 3・#386 の配線）。RouteException に
@@ -415,9 +405,7 @@ export class TransitApiClient {
       // 上の 2 ガードに掛かった要求は往復していないので数えない。
       options.onIssued?.();
       const request = client.get(uri);
-      return await (remaining === null
-        ? request
-        : withDeadline(request, remaining));
+      return await (remaining === null ? request : withDeadline(request, remaining));
     } catch (error) {
       if (error instanceof TimeoutException) {
         throw new RouteException('TIMEOUT');
@@ -457,11 +445,7 @@ function stripTrailingSlashes(url: string): string {
   return url.replace(/\/+$/, '');
 }
 
-function buildUri(
-  base: string,
-  path: string,
-  params: Record<string, string>,
-): URL {
+function buildUri(base: string, path: string, params: Record<string, string>): URL {
   const uri = new URL(`${base}${path}`);
   for (const [key, value] of Object.entries(params)) {
     uri.searchParams.set(key, value);
@@ -517,7 +501,6 @@ function formatJstInstant(at: Date): string {
 /// 年月日時分から `Date` を作り直す代替も、その時刻が DST ギャップに落ちれば同じだけ
 /// ずれるため避け、暦フィールドの整数演算だけで完結させる。
 function formatServiceTime(departureAt: Date, budgetMin: number): string {
-  const total =
-    departureAt.getHours() * 60 + departureAt.getMinutes() + budgetMin;
+  const total = departureAt.getHours() * 60 + departureAt.getMinutes() + budgetMin;
   return `${pad(Math.trunc(total / 60), 2)}:${pad(total % 60, 2)}`;
 }

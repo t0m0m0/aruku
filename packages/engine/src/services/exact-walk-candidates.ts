@@ -34,10 +34,7 @@ export function exactWalkCandidates(body: JsonMap, ends: ExactWalkEnds): RouteCa
 /// （#474）。同じ駅の乗換は2本の電車を直結する。
 ///
 /// 応答に無ければ空。Functions と Web は別々にデプロイされるので、古い応答もある。
-export function exactWalkTransferCandidates(
-  body: JsonMap,
-  ends: ExactWalkEnds,
-): RouteCandidate[] {
+export function exactWalkTransferCandidates(body: JsonMap, ends: ExactWalkEnds): RouteCandidate[] {
   const raw = body['transferCandidates'];
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((c) => {

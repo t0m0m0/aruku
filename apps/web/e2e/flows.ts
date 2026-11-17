@@ -12,10 +12,7 @@ export type DestinationRoute = 'screen' | 'inline';
 ///
 /// 偽の上流（fixtures の `upstream`）が要る。呼ぶ側がその治具を受け取っていないと、
 /// 本物へ出て「通信に失敗」の画面で止まる。
-export async function goToResult(
-  page: Page,
-  how: DestinationRoute = 'inline',
-): Promise<void> {
+export async function goToResult(page: Page, how: DestinationRoute = 'inline'): Promise<void> {
   await page.goto('/');
   await waitForCurrentLocation(page, how);
 
@@ -36,10 +33,7 @@ export async function goToResult(
 ///
 /// 出発の出方も幅で変わる。モバイル幅はボタンの読み上げ名に、デスクトップ幅は
 /// 打てる欄の placeholder に出る（#430）。
-export async function waitForCurrentLocation(
-  page: Page,
-  how: DestinationRoute,
-): Promise<void> {
+export async function waitForCurrentLocation(page: Page, how: DestinationRoute): Promise<void> {
   if (how === 'screen') {
     await expect(page.getByRole('button', { name: '出発 現在地' })).toBeVisible();
   } else {

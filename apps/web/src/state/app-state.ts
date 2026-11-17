@@ -23,8 +23,7 @@ export const RouteErrorKind = {
   noDestination: 'noDestination',
   unknown: 'unknown',
 } as const;
-export type RouteErrorKind =
-  (typeof RouteErrorKind)[keyof typeof RouteErrorKind];
+export type RouteErrorKind = (typeof RouteErrorKind)[keyof typeof RouteErrorKind];
 
 /// isNow（今すぐ出発）経路が失効するまでの猶予。確定時刻からこれを超えて実時間が
 /// 進むと、結果の到着時刻と実際の ETA が乖離する（乗るはずだった便に乗り遅れる）。

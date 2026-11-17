@@ -27,8 +27,7 @@ function haversineM(aLat, aLon, bLat, bLon) {
   const dLat = (bLat - aLat) * rad;
   const dLon = (bLon - aLon) * rad;
   const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLon / 2) ** 2;
+    Math.sin(dLat / 2) ** 2 + Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLon / 2) ** 2;
   // src/services/hybrid-route-selector.ts の haversineKm と同じ半径。
   return 2 * 6371008.8 * Math.asin(Math.min(1, Math.sqrt(h)));
 }

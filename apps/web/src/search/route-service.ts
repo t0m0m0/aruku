@@ -32,9 +32,7 @@ export interface ProxyClientOptions extends TransitClientOptions {
 }
 
 /// Transit API 直叩き用。認証不要・CORS 対応なので App Check を通さない。
-export function createTransitClient(
-  options: TransitClientOptions = {},
-): TimeoutHttpClient {
+export function createTransitClient(options: TransitClientOptions = {}): TimeoutHttpClient {
   return new TimeoutHttpClient(new FetchHttpClient({ fetch: options.fetch }), {
     timeout: options.timeout ?? transitRequestTimeout,
   });
@@ -46,10 +44,7 @@ export function createTransitClient(
 /// （#156。app-check-http-client.test.ts の合成テスト）。
 export function createProxyClient(options: ProxyClientOptions): TimeoutHttpClient {
   return new TimeoutHttpClient(
-    new AppCheckHttpClient(
-      new FetchHttpClient({ fetch: options.fetch }),
-      options.appCheck,
-    ),
+    new AppCheckHttpClient(new FetchHttpClient({ fetch: options.fetch }), options.appCheck),
     { timeout: options.timeout ?? proxyRequestTimeout },
   );
 }
@@ -79,11 +74,7 @@ export interface RouteServiceOptions {
 /// では keep-alive が効き、捨てるのは検索をまたぐ接続再利用だけ。キャンセル時に
 /// close して in-flight を切るには、この per-search 所有が要る。
 export function createRouteService(options: RouteServiceOptions): RouteService {
-  requireUsableBase(
-    options.transitBaseUrl,
-    'VITE_TRANSIT_API_BASE_URL',
-    'createRouteService',
-  );
+  requireUsableBase(options.transitBaseUrl, 'VITE_TRANSIT_API_BASE_URL', 'createRouteService');
   requireUsableBase(options.proxyBaseUrl, 'VITE_PROXY_BASE_URL', 'createRouteService');
 
   return new SearchScopedRouteService((cancellation: CancellationToken) => {

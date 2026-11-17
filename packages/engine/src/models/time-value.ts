@@ -56,11 +56,7 @@ export class TimeValue {
   fullDateLabel(now?: Date): string {
     const base = now ?? new Date();
     const offset = this.isNow ? 0 : this.dateOffset;
-    const d = dateTime(
-      base.getFullYear(),
-      base.getMonth() + 1,
-      base.getDate() + offset,
-    );
+    const d = dateTime(base.getFullYear(), base.getMonth() + 1, base.getDate() + offset);
     return `${d.getMonth() + 1}月${d.getDate()}日 (${weekdayJp(d)})`;
   }
 
@@ -88,11 +84,7 @@ export const kMaxDateOffsetDays = 90;
 /// `dateOffset >= 0` 検査まで素通りする。[maxOffset] を渡せるのは、押し出された到着が
 /// [kMaxDateOffsetDays] を越えて存在し得るため——出した範囲で数え直さないと、表示した
 /// 日を選んだだけで別の日へ丸められる。
-export function dateOffsetFrom(args: {
-  picked: Date;
-  now: Date;
-  maxOffset?: number;
-}): number {
+export function dateOffsetFrom(args: { picked: Date; now: Date; maxOffset?: number }): number {
   const maxOffset = args.maxOffset ?? kMaxDateOffsetDays;
   const days = calendarDaysBetween({ from: args.now, to: args.picked });
   return Math.min(Math.max(days, 0), maxOffset);
@@ -104,16 +96,8 @@ export function dateOffsetFrom(args: {
 /// 返すため。[dateOffsetFrom] と分けるのは「選べる範囲」と「経過日数」が別の量だから
 /// ——上限を被せると放置された状態が範囲内に見える。
 export function calendarDaysBetween(args: { from: Date; to: Date }): number {
-  const to = Date.UTC(
-    args.to.getFullYear(),
-    args.to.getMonth(),
-    args.to.getDate(),
-  );
-  const from = Date.UTC(
-    args.from.getFullYear(),
-    args.from.getMonth(),
-    args.from.getDate(),
-  );
+  const to = Date.UTC(args.to.getFullYear(), args.to.getMonth(), args.to.getDate());
+  const from = Date.UTC(args.from.getFullYear(), args.from.getMonth(), args.from.getDate());
   return Math.trunc((to - from) / 86400000);
 }
 

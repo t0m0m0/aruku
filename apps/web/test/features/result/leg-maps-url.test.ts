@@ -80,9 +80,7 @@ describe('移動手段', () => {
 
 describe('出発地', () => {
   it('2つ目以降の区間は前の区間の終点の座標から引く', () => {
-    expect(params(buildLegMapsUrl(plan([walk(), ride()]), 1)).get('origin')).toBe(
-      '35.683,139.702',
-    );
+    expect(params(buildLegMapsUrl(plan([walk(), ride()]), 1)).get('origin')).toBe('35.683,139.702');
   });
 
   it('区間自身の polyline の先頭は使わない——畳まれた徒歩では途中の地点を指し得る', () => {
@@ -124,11 +122,20 @@ describe('目的地', () => {
   });
 
   it('自区間に座標が無ければ、次の区間の polyline の先頭ではなく区間の行き先名', () => {
-    const query = params(buildLegMapsUrl(plan([walk(), ride({ polyline: [] }), walk({
-      fromName: '渋谷駅',
-      toName: '渋谷ヒカリエ',
-      polyline: [new GeoPoint(35.6585, 139.702), new GeoPoint(35.659, 139.703)],
-    })]), 1));
+    const query = params(
+      buildLegMapsUrl(
+        plan([
+          walk(),
+          ride({ polyline: [] }),
+          walk({
+            fromName: '渋谷駅',
+            toName: '渋谷ヒカリエ',
+            polyline: [new GeoPoint(35.6585, 139.702), new GeoPoint(35.659, 139.703)],
+          }),
+        ]),
+        1,
+      ),
+    );
     expect(query.get('destination')).toBe('渋谷駅');
   });
 

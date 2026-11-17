@@ -47,9 +47,7 @@ function harness(
 ): Harness {
   let current = noon;
   const now = () => current;
-  const plan = vi.fn(async (args: PlanArgs) =>
-    options.respond ? options.respond(args) : aRoute,
-  );
+  const plan = vi.fn(async (args: PlanArgs) => (options.respond ? options.respond(args) : aRoute));
   const routeService: RouteService = { plan };
 
   const store = createAppStore(
@@ -353,9 +351,9 @@ describe('中断', () => {
     store.getState().abandonSearch();
 
     expect(store.getState().routePhase).toBeNull();
-    expect(
-      resolveRedirect(screenPath[Screen.loading], store.getState(), noon),
-    ).toBe(screenPath[Screen.home]);
+    expect(resolveRedirect(screenPath[Screen.loading], store.getState(), noon)).toBe(
+      screenPath[Screen.home],
+    );
   });
 
   // 遷移はブラウザが済ませている。ここから動かすと二重になる。

@@ -26,16 +26,7 @@ export const fakeRailLine = 'テスト線';
 
 /// 偽の駅名の素。座標から決まる添字で引く——乗車駅探索が駅を動かしても、同じ座標に
 /// 同じ名前が付く。
-const stationNames = [
-  '桜川',
-  '青葉台',
-  '緑が丘',
-  '柊町',
-  '楓橋',
-  '椿平',
-  '欅坂',
-  '楠本',
-];
+const stationNames = ['桜川', '青葉台', '緑が丘', '柊町', '楓橋', '椿平', '欅坂', '楠本'];
 
 /// 乗車から発車までの待ち。0 にしないのは、待ちを所要へ足し忘れる退行が
 /// 「待ち時間ゼロの経路」として通ってしまうため。
@@ -120,11 +111,7 @@ export async function installFakeUpstream(
   return log;
 }
 
-async function route(
-  page: Page,
-  endpoint: string,
-  respond: (url: URL) => unknown,
-): Promise<void> {
+async function route(page: Page, endpoint: string, respond: (url: URL) => unknown): Promise<void> {
   const path = new URL(endpoint).pathname;
   await page.route(
     (url) => url.pathname === path,
@@ -154,9 +141,7 @@ function placesResponse(url: URL, places: readonly FakePlace[]): unknown {
   }
 
   const input = url.searchParams.get('input') ?? '';
-  const hits = places.filter(
-    (p) => p.name.includes(input) || p.description.includes(input),
-  );
+  const hits = places.filter((p) => p.name.includes(input) || p.description.includes(input));
   if (hits.length === 0) return { status: 'ZERO_RESULTS', predictions: [] };
   return {
     status: 'OK',
@@ -228,25 +213,10 @@ function guidanceResponse(url: URL): unknown {
         map: {
           points: [],
           segments: [
-            mapSegment('walk', 'origin', stationId(board), 'osmWalk', [
-              from,
-              board,
-            ]),
+            mapSegment('walk', 'origin', stationId(board), 'osmWalk', [from, board]),
             // stopOrder は「polyline の各点が停留所」を意味する（#137）。
-            mapSegment(
-              'transit',
-              stationId(board),
-              stationId(alight),
-              'stopOrder',
-              stops,
-            ),
-            mapSegment(
-              'walk',
-              stationId(alight),
-              'destination',
-              'estimatedWalk',
-              [alight, to],
-            ),
+            mapSegment('transit', stationId(board), stationId(alight), 'stopOrder', stops),
+            mapSegment('walk', stationId(alight), 'destination', 'estimatedWalk', [alight, to]),
           ],
         },
       },

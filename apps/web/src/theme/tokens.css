@@ -112,8 +112,9 @@
 
      並びが本体で、入れ替えても豆腐にはならないぶん静かに壊れる。
      test/theme/font-stack.test.ts が順序を反証している。 */
-  --font-sans: 'Noto Sans JP Subset', 'Noto Sans JP Variable', system-ui,
-    -apple-system, 'Hiragino Sans', sans-serif;
+  --font-sans:
+    'Noto Sans JP Subset', 'Noto Sans JP Variable', system-ui, -apple-system, 'Hiragino Sans',
+    sans-serif;
 
   /* xs〜lg だけを差し替える。xl 以上は Tailwind の既定のまま残る——shadcn の部品が
      rounded-xl などを使うので、消すと角丸が黙って 0 になる。 */

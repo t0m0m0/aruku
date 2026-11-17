@@ -1,20 +1,10 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
 import type { GeoPoint } from '@aruku/engine/models/geo-point';
-import {
-  PickerMode,
-  TimeValue,
-  calendarDaysBetween,
-} from '@aruku/engine/models/time-value';
+import { PickerMode, TimeValue, calendarDaysBetween } from '@aruku/engine/models/time-value';
 import { CancellationToken } from '@aruku/engine/services/cancellation';
-import {
-  RoutePhase,
-  type RouteService,
-} from '@aruku/engine/services/route-service';
-import {
-  absoluteMinutes,
-  budgetMinutes,
-} from '@aruku/engine/services/route-plan-builder';
+import { RoutePhase, type RouteService } from '@aruku/engine/services/route-service';
+import { absoluteMinutes, budgetMinutes } from '@aruku/engine/services/route-plan-builder';
 
 import { ja } from '../i18n/ja';
 import {
@@ -25,10 +15,7 @@ import {
 } from './app-state';
 import { classifyRouteError } from './route-error';
 import { Screen, screenPath } from '../navigation/screens';
-import {
-  browserLocationService,
-  type LocationService,
-} from '../location/geolocation';
+import { browserLocationService, type LocationService } from '../location/geolocation';
 import {
   locationLoading,
   locationUnavailable,
@@ -64,12 +51,7 @@ export interface AppActions {
   /// 後ろへ押し出し、到着を変えたときは出発 + [kMinBudgetMinutes] へ寄せる。
   /// 押し出した到着は [kMaxDateOffsetDays] の外に立ち得る——選べる範囲を越えたから
   /// といって丸めると、丸めた先が出発より前になる。
-  applyPickedTime: (picked: {
-    mode: PickerMode;
-    h: number;
-    m: number;
-    dateOffset: number;
-  }) => void;
+  applyPickedTime: (picked: { mode: PickerMode; h: number; m: number; dateOffset: number }) => void;
 
   /// 基準日が [days] 日進んだぶん、出発・到着を詰め直す。
   ///
@@ -252,11 +234,7 @@ export function createAppStore(
           ? {
               ...discardedRoute,
               departure: picked,
-              arrival: arrivalAfterDeparture(
-                picked,
-                state.departure,
-                state.arrival,
-              ),
+              arrival: arrivalAfterDeparture(picked, state.departure, state.arrival),
             }
           : {
               ...discardedRoute,
@@ -322,9 +300,7 @@ export function createAppStore(
       const state = get();
       const origin =
         state.originLatLng ??
-        (state.locationState.kind === 'available'
-          ? state.locationState.position
-          : null);
+        (state.locationState.kind === 'available' ? state.locationState.position : null);
 
       try {
         const plan = await routeService.plan({
@@ -345,10 +321,7 @@ export function createAppStore(
         // 照会中に猶予を超えた（isNow で古びた）場合は、古い前提の結果を出さず
         // home へ戻して再検索を促す。ローディング中は画面遷移で無効化できないので、
         // 完了時のここが最後の砦（#264）。
-        if (
-          refreshed.departure.isNow &&
-          now().getTime() - at.getTime() >= routeFreshness
-        ) {
+        if (refreshed.departure.isNow && now().getTime() - at.getTime() >= routeFreshness) {
           const closed = now();
           get().rebaseToToday(closed);
           expireRoute(get(), closed);
@@ -489,10 +462,7 @@ function arrivalAfterDeparture(
 }
 
 /// 到着を変更したときの到着。移植元 `_clampArrivalAfterDeparture`。
-function clampArrivalAfterDeparture(
-  departure: TimeValue,
-  arrival: TimeValue,
-): TimeValue {
+function clampArrivalAfterDeparture(departure: TimeValue, arrival: TimeValue): TimeValue {
   const minAbs = absoluteMinutes(departure) + kMinBudgetMinutes;
   return absoluteMinutes(arrival) >= minAbs ? arrival : timeValueFromAbs(minAbs);
 }
@@ -521,7 +491,5 @@ function rebasedTime(t: TimeValue, days: number, now: Date): TimeValue {
 /// 名前だけ持って照会へ行く。
 function departureNameForRoute(state: AppStore): string | null {
   if (state.origin !== null) return state.origin;
-  return state.locationState.kind === 'available'
-    ? ja.searchCurrentLocationName
-    : null;
+  return state.locationState.kind === 'available' ? ja.searchCurrentLocationName : null;
 }

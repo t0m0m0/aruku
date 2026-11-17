@@ -49,10 +49,7 @@ export interface HistoryLike {
 ///
 /// `pop` は「子に居るなら真下は home」という不変条件に依る。それを保っているのは
 /// このテーブル自身と [seedInitialHistory]（直接開いた子の下に home を敷く）。
-export function navigationIntent(
-  from: Screen,
-  to: Screen,
-): 'push' | 'replace' | 'pop' {
+export function navigationIntent(from: Screen, to: Screen): 'push' | 'replace' | 'pop' {
   if (from === to) return 'replace';
   if (from === Screen.home) return 'push';
   return to === Screen.home ? 'pop' : 'replace';
@@ -93,10 +90,7 @@ export function createNavigator(router: RouterLike): Navigate {
 /// これにあたり、履歴は既に [home, 子] になっている。敷き直すとリロードのたびに home が
 /// 1つ増え、home へ戻った後に重複した home を何度も戻らないと離脱できなくなる
 /// （PR #391 レビュー。実ブラウザで history.length が 3→4 になるのを確認）。
-export function seedInitialHistory(
-  history: HistoryLike,
-  canSeed: (url: string) => boolean,
-): void {
+export function seedInitialHistory(history: HistoryLike, canSeed: (url: string) => boolean): void {
   // replaceState の前に控える。積み直す URL はクエリ・ハッシュごと元のまま——
   // pathname だけにすると deep link の状態が黙って消える。
   const url = history.currentUrl();
@@ -127,24 +121,19 @@ export function seedInitialHistory(
 export function browserHistory(): HistoryLike {
   return {
     currentPath: () => window.location.pathname,
-    currentUrl: () =>
-      `${window.location.pathname}${window.location.search}${window.location.hash}`,
+    currentUrl: () => `${window.location.pathname}${window.location.search}${window.location.hash}`,
     isRouterEntry: () => window.history.state !== null,
     // React Router は自分の履歴の深さを `idx` に持つ。0 は「このアプリで最初に開いた
     // エントリ」で、手前へ降りるとアプリの外へ出る。
     hasParentEntry: () => {
       const state: unknown = window.history.state;
-      const idx =
-        typeof state === 'object' && state !== null && 'idx' in state
-          ? state.idx
-          : null;
+      const idx = typeof state === 'object' && state !== null && 'idx' in state ? state.idx : null;
       return typeof idx === 'number' && idx > 0;
     },
     // ルーターが自分で書くのと同じ形（`{ idx }` だけ。usr / key は初期エントリでも
     // 付かない）にする。react-router の createBrowserHistory は state.idx が在れば
     // それを起点に採り、無いときだけ 0 を書き込む。
-    replaceState: (url, index) =>
-      window.history.replaceState({ idx: index }, '', url),
+    replaceState: (url, index) => window.history.replaceState({ idx: index }, '', url),
     pushState: (url, index) => window.history.pushState({ idx: index }, '', url),
     back: () => window.history.back(),
   };

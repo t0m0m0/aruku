@@ -55,7 +55,11 @@ function holidaysOf(year: number): ReadonlySet<number> {
   // 国民の休日: 前後を祝日に挟まれた平日。
   for (const day of named) {
     const between = shift(day, 1);
-    if (holidays.has(shift(day, 2)) && !holidays.has(between) && dateOf(between).getUTCDay() !== 0) {
+    if (
+      holidays.has(shift(day, 2)) &&
+      !holidays.has(between) &&
+      dateOf(between).getUTCDay() !== 0
+    ) {
       holidays.add(between);
     }
   }

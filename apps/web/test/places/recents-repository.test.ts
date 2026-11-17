@@ -50,17 +50,13 @@ describe('読み込み', () => {
   });
 
   it('壊れた JSON は空として読む', () => {
-    const repo = createRecentsRepository(
-      memoryStore({ [destinationsKey]: '{壊れている' }),
-    );
+    const repo = createRecentsRepository(memoryStore({ [destinationsKey]: '{壊れている' }));
 
     expect(repo.load()).toEqual([]);
   });
 
   it('配列でない JSON は空として読む', () => {
-    const repo = createRecentsRepository(
-      memoryStore({ [destinationsKey]: '{"name":"渋谷"}' }),
-    );
+    const repo = createRecentsRepository(memoryStore({ [destinationsKey]: '{"name":"渋谷"}' }));
 
     expect(repo.load()).toEqual([]);
   });

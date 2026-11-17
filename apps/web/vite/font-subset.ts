@@ -10,14 +10,7 @@ import { dirname, join } from 'node:path';
 
 import type { Plugin } from 'vite';
 
-type ScanState =
-  | 'code'
-  | 'line'
-  | 'block'
-  | 'single'
-  | 'double'
-  | 'template'
-  | 'regex';
+type ScanState = 'code' | 'line' | 'block' | 'single' | 'double' | 'template' | 'regex';
 
 const stringStates = new Set<ScanState>(['single', 'double', 'template']);
 
@@ -155,9 +148,7 @@ export function collectVocabularyFromSources(sources: Iterable<string>): string 
 /// 抜けるとブラウザはその文字列のために遅延段を引く（実ブラウザで確認。
 /// 「電車に乗らず、時間内で最大限歩く」のために 80 KB を取っていた）。
 function collectFromHtml(html: string): string[] {
-  const attributes = [...html.matchAll(/content\s*=\s*"([^"]*)"/gu)].map(
-    (m) => m[1],
-  );
+  const attributes = [...html.matchAll(/content\s*=\s*"([^"]*)"/gu)].map((m) => m[1]);
   const text = html.replace(/<[^>]*>/gu, ' ');
   return [...[text, ...attributes].join(' ').matchAll(/\S/gu)].map((m) => m[0]);
 }
@@ -172,10 +163,7 @@ function collectFromHtml(html: string): string[] {
 /// `extraSourceDirs` には `packages/engine/src` が入る。エンジンは alias で
 /// ソース直参照され同じバンドルへ入るので、その文字列リテラルは apps/web 自身の
 /// ものと同じだけ描かれる——`rail-line-names.ts` の路線名がそれ。
-export function collectVocabulary(
-  root: string,
-  extraSourceDirs: readonly string[] = [],
-): string {
+export function collectVocabulary(root: string, extraSourceDirs: readonly string[] = []): string {
   const sources: string[] = [];
   const dirs = [join(root, 'src'), ...extraSourceDirs];
   for (const dir of dirs) {
@@ -259,9 +247,7 @@ export function subsetPlan(faces: FontFace[], vocabulary: string): SubsetEntry[]
 /// 連続したコードポイントを `U+3042-3045` の形へ畳む。畳まないと宣言が語彙の
 /// 長さぶん伸び、CSS 自体が絞った甲斐を食う。
 export function formatUnicodeRange(chars: string): string {
-  const points = [...new Set(chars)]
-    .map(codePointOf)
-    .sort((a, b) => a - b);
+  const points = [...new Set(chars)].map(codePointOf).sort((a, b) => a - b);
   const parts: string[] = [];
   for (let i = 0; i < points.length; i++) {
     const start = points[i];
@@ -356,8 +342,7 @@ async function buildSubsets(
 export function arukuFontSubset(options: FontSubsetOptions = {}): Plugin {
   let root = process.cwd();
   let pending: Promise<SubsetOutput> | undefined;
-  const subsets = () =>
-    (pending ??= buildSubsets(root, options.extraSourceDirs ?? []));
+  const subsets = () => (pending ??= buildSubsets(root, options.extraSourceDirs ?? []));
 
   return {
     name: 'aruku:font-subset',

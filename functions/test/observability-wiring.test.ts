@@ -1,8 +1,8 @@
-import { EventEmitter } from "events";
+import { EventEmitter } from 'events';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HttpsFunction, Request } from "firebase-functions/v2/https";
-import type { Response } from "express";
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { HttpsFunction, Request } from 'firebase-functions/v2/https';
+import type { Response } from 'express';
 
 // vi.mock はホイストされるため、参照する mock 関数は vi.hoisted で先に生成する。
 // メトリクス呼び出しそのもの（引数の形）を検証したいので、metrics モジュールを
@@ -35,17 +35,17 @@ const {
   },
 }));
 
-vi.mock("https", () => ({
+vi.mock('https', () => ({
   default: { request: httpsRequestMock, Agent: MockAgent },
   request: httpsRequestMock,
   Agent: MockAgent,
 }));
 
-vi.mock("firebase-admin/app-check", () => ({
+vi.mock('firebase-admin/app-check', () => ({
   getAppCheck: () => ({ verifyToken: verifyTokenMock }),
 }));
 
-vi.mock("firebase-admin/firestore", () => ({
+vi.mock('firebase-admin/firestore', () => ({
   getFirestore: () => ({
     collection: () => ({ doc: (id: string) => ({ id }) }),
     runTransaction: runTransactionMock,
@@ -53,7 +53,7 @@ vi.mock("firebase-admin/firestore", () => ({
   Timestamp: { fromMillis: (ms: number) => ({ _millis: ms }) },
 }));
 
-vi.mock("../src/metrics", () => ({
+vi.mock('../src/metrics', () => ({
   logRequestOutcome: logRequestOutcomeMock,
   logRequestLatency: logRequestLatencyMock,
   logAppCheckDenied: logAppCheckDeniedMock,
@@ -64,7 +64,7 @@ import {
   checkRateLimitFirestore,
   checkRateLimitInMemory,
   resetRateLimit,
-} from "../src/rate-limiter";
+} from '../src/rate-limiter';
 import {
   googleWalkMatrixProxy,
   googleWalkProxy,
@@ -72,8 +72,8 @@ import {
   resetRateLimit as resetRateLimitFromIndex,
   verifyAppCheck,
   withRequestLatency,
-} from "../src/index";
-import { resetUpstreamCache } from "../src/upstream-cache";
+} from '../src/index';
+import { resetUpstreamCache } from '../src/upstream-cache';
 
 interface CapturedRes {
   statusCode?: number;
@@ -115,19 +115,18 @@ function makeReq(opts: {
   method?: string;
 }) {
   return {
-    method: opts.method ?? "GET",
+    method: opts.method ?? 'GET',
     query: opts.query ?? {},
     headers: {} as Record<string, string | undefined>,
-    header: (name: string) =>
-      name === "X-Firebase-AppCheck" ? opts.token : undefined,
-    ip: opts.ip ?? "127.0.0.1",
+    header: (name: string) => (name === 'X-Firebase-AppCheck' ? opts.token : undefined),
+    ip: opts.ip ?? '127.0.0.1',
   };
 }
 
 async function invokeHandler(
   handler: HttpsFunction,
   req: ReturnType<typeof makeReq>,
-  res: CapturedRes
+  res: CapturedRes,
 ): Promise<void> {
   await handler(req as unknown as Request, res as unknown as Response);
 }
@@ -139,11 +138,11 @@ function mockUpstream(body: unknown, statusCode = 200): void {
       res.statusCode = statusCode;
       cb(res);
       process.nextTick(() => {
-        res.emit("data", Buffer.from(JSON.stringify(body)));
-        res.emit("end");
+        res.emit('data', Buffer.from(JSON.stringify(body)));
+        res.emit('end');
       });
       return { on: vi.fn(), write: vi.fn(), end: vi.fn() };
-    }
+    },
   );
 }
 
@@ -160,7 +159,7 @@ function makeMockReq(): EventEmitter & {
   req.write = () => {};
   req.end = () => {};
   req.destroy = (e?: Error) => {
-    process.nextTick(() => req.emit("error", e ?? new Error("destroyed")));
+    process.nextTick(() => req.emit('error', e ?? new Error('destroyed')));
   };
   return req;
 }
@@ -168,12 +167,12 @@ function makeMockReq(): EventEmitter & {
 function mockUpstreamTimeout(): void {
   httpsRequestMock.mockImplementation(() => {
     const req = makeMockReq();
-    process.nextTick(() => req.emit("timeout"));
+    process.nextTick(() => req.emit('timeout'));
     return req;
   });
 }
 
-describe("search_request イベント配線（fetchUpstream 経由）", () => {
+describe('search_request イベント配線（fetchUpstream 経由）', () => {
   const original = process.env.FUNCTIONS_EMULATOR;
 
   beforeEach(() => {
@@ -181,7 +180,7 @@ describe("search_request イベント配線（fetchUpstream 経由）", () => {
     resetUpstreamCache();
     httpsRequestMock.mockReset();
     logRequestOutcomeMock.mockReset();
-    process.env.FUNCTIONS_EMULATOR = "true";
+    process.env.FUNCTIONS_EMULATOR = 'true';
   });
 
   afterEach(() => {
@@ -189,144 +188,144 @@ describe("search_request イベント配線（fetchUpstream 経由）", () => {
     else process.env.FUNCTIONS_EMULATOR = original;
   });
 
-  it("上流成功時: endpoint/upstream/status=success/httpStatus/latencyMs を記録する", async () => {
+  it('上流成功時: endpoint/upstream/status=success/httpStatus/latencyMs を記録する', async () => {
     mockUpstream({ suggestions: [] });
     const res = makeRes();
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
-      res
+      makeReq({ query: { action: 'autocomplete', input: 'shibuya' } }),
+      res,
     );
     expect(logRequestOutcomeMock).toHaveBeenCalledTimes(1);
     const call = logRequestOutcomeMock.mock.calls[0][0];
     expect(call).toMatchObject({
-      endpoint: "placesProxy.autocomplete",
-      upstream: "places",
-      status: "success",
+      endpoint: 'placesProxy.autocomplete',
+      upstream: 'places',
+      status: 'success',
       httpStatus: 200,
     });
-    expect(typeof call.latencyMs).toBe("number");
+    expect(typeof call.latencyMs).toBe('number');
   });
 
-  it("上流 429 応答: status=failure かつ httpStatus=429 を記録する（429 判別可能）", async () => {
-    mockUpstream({ error: "Too many requests" }, 429);
+  it('上流 429 応答: status=failure かつ httpStatus=429 を記録する（429 判別可能）', async () => {
+    mockUpstream({ error: 'Too many requests' }, 429);
     const res = makeRes();
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
-      res
+      makeReq({ query: { action: 'autocomplete', input: 'shibuya' } }),
+      res,
     );
     expect(logRequestOutcomeMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        endpoint: "placesProxy.autocomplete",
-        upstream: "places",
-        status: "failure",
+        endpoint: 'placesProxy.autocomplete',
+        upstream: 'places',
+        status: 'failure',
         httpStatus: 429,
-      })
+      }),
     );
   });
 
-  it("上流タイムアウト: status=failure かつ httpStatus=504 を記録する", async () => {
+  it('上流タイムアウト: status=failure かつ httpStatus=504 を記録する', async () => {
     mockUpstreamTimeout();
     const res = makeRes();
     await invokeHandler(
       googleWalkProxy,
-      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }),
-      res
+      makeReq({ query: { start: '35.7,139.7', goal: '35.6,139.7' } }),
+      res,
     );
     expect(logRequestOutcomeMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        endpoint: "googleWalkProxy",
-        upstream: "routes-walk",
-        status: "failure",
+        endpoint: 'googleWalkProxy',
+        upstream: 'routes-walk',
+        status: 'failure',
         httpStatus: 504,
-      })
+      }),
     );
   });
 
-  it("上流 403（Routes API 権限エラー）: status=failure かつ httpStatus=403 を記録する", async () => {
-    mockUpstream({ error: { code: 403, status: "PERMISSION_DENIED" } }, 403);
+  it('上流 403（Routes API 権限エラー）: status=failure かつ httpStatus=403 を記録する', async () => {
+    mockUpstream({ error: { code: 403, status: 'PERMISSION_DENIED' } }, 403);
     const res = makeRes();
     await invokeHandler(
       googleWalkProxy,
-      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }),
-      res
+      makeReq({ query: { start: '35.7,139.7', goal: '35.6,139.7' } }),
+      res,
     );
     expect(logRequestOutcomeMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        endpoint: "googleWalkProxy",
-        upstream: "routes-walk",
-        status: "failure",
+        endpoint: 'googleWalkProxy',
+        upstream: 'routes-walk',
+        status: 'failure',
         httpStatus: 403,
-      })
+      }),
     );
   });
 
   // 以下3ケースは上流が HTTP 200 でエラー形状のボディを返し、呼び出し側で 502 に
   // 変換されるパス。SLO 上も failure として1回だけ計上されることを固定する
   // （成功として記録される退行は、まさに検出したいクォータ/認証/スキーマ失敗を隠す）。
-  it("googleWalkProxy: 200+エラーボディ（error かつ routes 無し）は failure(semanticFailure) として記録する", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    mockUpstream({ error: { code: 403, status: "PERMISSION_DENIED" } });
+  it('googleWalkProxy: 200+エラーボディ（error かつ routes 無し）は failure(semanticFailure) として記録する', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockUpstream({ error: { code: 403, status: 'PERMISSION_DENIED' } });
     const res = makeRes();
     await invokeHandler(
       googleWalkProxy,
-      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }),
-      res
+      makeReq({ query: { start: '35.7,139.7', goal: '35.6,139.7' } }),
+      res,
     );
     expect(res.statusCode).toBe(502);
     expect(logRequestOutcomeMock).toHaveBeenCalledTimes(1);
     expect(logRequestOutcomeMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        endpoint: "googleWalkProxy",
-        upstream: "routes-walk",
-        status: "failure",
+        endpoint: 'googleWalkProxy',
+        upstream: 'routes-walk',
+        status: 'failure',
         httpStatus: 200,
         semanticFailure: true,
-      })
+      }),
     );
     vi.restoreAllMocks();
   });
 
-  it("googleWalkMatrixProxy: 200+非配列応答は failure(semanticFailure) として記録する", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+  it('googleWalkMatrixProxy: 200+非配列応答は failure(semanticFailure) として記録する', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     mockUpstream({ unexpected: true });
     const res = makeRes();
     await invokeHandler(
       googleWalkMatrixProxy,
-      makeReq({ query: { origins: "35.7,139.7", destinations: "35.6,139.7" } }),
-      res
+      makeReq({ query: { origins: '35.7,139.7', destinations: '35.6,139.7' } }),
+      res,
     );
     expect(res.statusCode).toBe(502);
     expect(logRequestOutcomeMock).toHaveBeenCalledTimes(1);
     expect(logRequestOutcomeMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        endpoint: "googleWalkMatrixProxy",
-        upstream: "routes-matrix",
-        status: "failure",
+        endpoint: 'googleWalkMatrixProxy',
+        upstream: 'routes-matrix',
+        status: 'failure',
         httpStatus: 200,
         semanticFailure: true,
-      })
+      }),
     );
     vi.restoreAllMocks();
   });
 
-  it("意味的にも有効な成功ボディは semanticFailure を含めず success として1回だけ記録する", async () => {
+  it('意味的にも有効な成功ボディは semanticFailure を含めず success として1回だけ記録する', async () => {
     mockUpstream({ routes: [{ distanceMeters: 100 }] });
     const res = makeRes();
     await invokeHandler(
       googleWalkProxy,
-      makeReq({ query: { start: "35.7,139.7", goal: "35.6,139.7" } }),
-      res
+      makeReq({ query: { start: '35.7,139.7', goal: '35.6,139.7' } }),
+      res,
     );
     expect(logRequestOutcomeMock).toHaveBeenCalledTimes(1);
     const call = logRequestOutcomeMock.mock.calls[0][0];
-    expect(call.status).toBe("success");
-    expect(call).not.toHaveProperty("semanticFailure");
+    expect(call.status).toBe('success');
+    expect(call).not.toHaveProperty('semanticFailure');
   });
 });
 
-describe("request_latency イベント配線（ハンドラ全体レイテンシ・#309）", () => {
+describe('request_latency イベント配線（ハンドラ全体レイテンシ・#309）', () => {
   const original = process.env.FUNCTIONS_EMULATOR;
 
   beforeEach(() => {
@@ -336,7 +335,7 @@ describe("request_latency イベント配線（ハンドラ全体レイテンシ
     verifyTokenMock.mockReset();
     logRequestLatencyMock.mockReset();
     logRequestOutcomeMock.mockReset();
-    process.env.FUNCTIONS_EMULATOR = "true";
+    process.env.FUNCTIONS_EMULATOR = 'true';
   });
 
   afterEach(() => {
@@ -344,22 +343,22 @@ describe("request_latency イベント配線（ハンドラ全体レイテンシ
     else process.env.FUNCTIONS_EMULATOR = original;
   });
 
-  it("成功時: endpoint と数値 totalLatencyMs・httpStatus を1回だけ記録する", async () => {
+  it('成功時: endpoint と数値 totalLatencyMs・httpStatus を1回だけ記録する', async () => {
     mockUpstream({ suggestions: [] });
     const res = makeRes();
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
-      res
+      makeReq({ query: { action: 'autocomplete', input: 'shibuya' } }),
+      res,
     );
     expect(logRequestLatencyMock).toHaveBeenCalledTimes(1);
     const call = logRequestLatencyMock.mock.calls[0][0];
-    expect(call.endpoint).toBe("placesProxy");
-    expect(typeof call.totalLatencyMs).toBe("number");
+    expect(call.endpoint).toBe('placesProxy');
+    expect(typeof call.totalLatencyMs).toBe('number');
     expect(call.httpStatus).toBe(200);
   });
 
-  it("上流を呼ばない早期 return（400 不正引数）でも記録する", async () => {
+  it('上流を呼ばない早期 return（400 不正引数）でも記録する', async () => {
     // 上流を一度も叩かない経路（引数不正・キャッシュヒット・拒否）でも全体レイテンシは
     // 計上する——上流を叩かない要求の可視化がこのイベントの狙い（search_request は
     // 上流呼び出し時しか出ないため、この層が抜け落ちる盲点を埋める）。
@@ -367,52 +366,48 @@ describe("request_latency イベント配線（ハンドラ全体レイテンシ
     await invokeHandler(
       placesProxy,
       makeReq({ query: {} }), // action 欠落 → 400 早期 return
-      res
+      res,
     );
     expect(res.statusCode).toBe(400);
     expect(logRequestLatencyMock).toHaveBeenCalledTimes(1);
     expect(logRequestLatencyMock.mock.calls[0][0].httpStatus).toBe(400);
   });
 
-  it("OPTIONS プリフライトは記録しない（ノイズ除外）", async () => {
+  it('OPTIONS プリフライトは記録しない（ノイズ除外）', async () => {
     const res = makeRes();
-    await invokeHandler(
-      placesProxy,
-      makeReq({ method: "OPTIONS" }),
-      res
-    );
+    await invokeHandler(placesProxy, makeReq({ method: 'OPTIONS' }), res);
     expect(res.statusCode).toBe(204);
     expect(logRequestLatencyMock).not.toHaveBeenCalled();
   });
 
-  it("ハンドラが status を書く前に throw したら 500 として記録し例外は伝播する", async () => {
+  it('ハンドラが status を書く前に throw したら 500 として記録し例外は伝播する', async () => {
     // status 未書き込みの例外は Express の既定 200 のまま finally に入る。これを 200 と
     // 記録すると失敗が成功に紛れるため、500 に寄せる（プラットフォームの 500 変換に合わせる）。
-    const wrapped = withRequestLatency("placesProxy", async () => {
-      throw new Error("boom");
+    const wrapped = withRequestLatency('placesProxy', async () => {
+      throw new Error('boom');
     });
     const res = makeRes();
     await expect(
-      wrapped(makeReq({}) as unknown as Request, res as unknown as Response)
-    ).rejects.toThrow("boom");
+      wrapped(makeReq({}) as unknown as Request, res as unknown as Response),
+    ).rejects.toThrow('boom');
     expect(logRequestLatencyMock).toHaveBeenCalledTimes(1);
     expect(logRequestLatencyMock.mock.calls[0][0].httpStatus).toBe(500);
   });
 
-  it("ハンドラが 4xx/5xx を書いてから throw したらその status を保つ", async () => {
-    const wrapped = withRequestLatency("placesProxy", async (_req, res) => {
+  it('ハンドラが 4xx/5xx を書いてから throw したらその status を保つ', async () => {
+    const wrapped = withRequestLatency('placesProxy', async (_req, res) => {
       res.status(502);
-      throw new Error("boom after 502");
+      throw new Error('boom after 502');
     });
     const res = makeRes();
     await expect(
-      wrapped(makeReq({}) as unknown as Request, res as unknown as Response)
-    ).rejects.toThrow("boom after 502");
+      wrapped(makeReq({}) as unknown as Request, res as unknown as Response),
+    ).rejects.toThrow('boom after 502');
     expect(logRequestLatencyMock.mock.calls[0][0].httpStatus).toBe(502);
   });
 });
 
-describe("appCheckMs 配線（consume の追加往復コスト・#366）", () => {
+describe('appCheckMs 配線（consume の追加往復コスト・#366）', () => {
   const original = process.env.FUNCTIONS_EMULATOR;
 
   beforeEach(() => {
@@ -430,50 +425,46 @@ describe("appCheckMs 配線（consume の追加往復コスト・#366）", () =>
     else process.env.FUNCTIONS_EMULATOR = original;
   });
 
-  it("検証成功時: request_latency に数値 appCheckMs を載せる", async () => {
-    verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: false });
+  it('検証成功時: request_latency に数値 appCheckMs を載せる', async () => {
+    verifyTokenMock.mockResolvedValue({ appId: 'x', alreadyConsumed: false });
     mockUpstream({ suggestions: [] });
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "autocomplete", input: "shibuya" }, token: "t" }),
-      makeRes()
+      makeReq({ query: { action: 'autocomplete', input: 'shibuya' }, token: 't' }),
+      makeRes(),
     );
     expect(logRequestLatencyMock).toHaveBeenCalledTimes(1);
-    expect(typeof logRequestLatencyMock.mock.calls[0][0].appCheckMs).toBe(
-      "number"
-    );
+    expect(typeof logRequestLatencyMock.mock.calls[0][0].appCheckMs).toBe('number');
   });
 
-  it("401 で拒否された要求でも appCheckMs を載せる（拒否コストも計測対象）", async () => {
-    verifyTokenMock.mockRejectedValue(new Error("invalid"));
+  it('401 で拒否された要求でも appCheckMs を載せる（拒否コストも計測対象）', async () => {
+    verifyTokenMock.mockRejectedValue(new Error('invalid'));
     const res = makeRes();
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "autocomplete", input: "shibuya" }, token: "bad" }),
-      res
+      makeReq({ query: { action: 'autocomplete', input: 'shibuya' }, token: 'bad' }),
+      res,
     );
     expect(res.statusCode).toBe(401);
-    expect(typeof logRequestLatencyMock.mock.calls[0][0].appCheckMs).toBe(
-      "number"
-    );
+    expect(typeof logRequestLatencyMock.mock.calls[0][0].appCheckMs).toBe('number');
   });
 
   // 検証しなかった要求を 0ms として計上すると分布が 0 側へ寄って「App Check は速い」
   // と誤読させる。未計測は undefined のまま渡し、ログ payload からはキーごと落とす
   // （その落とし方は metrics.test.ts 側で担保する）。
-  it("エミュレータ免除では検証しないので appCheckMs は undefined", async () => {
-    process.env.FUNCTIONS_EMULATOR = "true";
+  it('エミュレータ免除では検証しないので appCheckMs は undefined', async () => {
+    process.env.FUNCTIONS_EMULATOR = 'true';
     mockUpstream({ suggestions: [] });
     await invokeHandler(
       placesProxy,
-      makeReq({ query: { action: "autocomplete", input: "shibuya" } }),
-      makeRes()
+      makeReq({ query: { action: 'autocomplete', input: 'shibuya' } }),
+      makeRes(),
     );
     expect(logRequestLatencyMock.mock.calls[0][0].appCheckMs).toBeUndefined();
   });
 });
 
-describe("app_check_denied イベント配線（verifyAppCheck 経由）", () => {
+describe('app_check_denied イベント配線（verifyAppCheck 経由）', () => {
   beforeEach(() => {
     logAppCheckDeniedMock.mockReset();
     verifyTokenMock.mockReset();
@@ -481,13 +472,12 @@ describe("app_check_denied イベント配線（verifyAppCheck 経由）", () =>
   });
 
   afterEach(() => {
-    process.env.FUNCTIONS_EMULATOR = "true";
+    process.env.FUNCTIONS_EMULATOR = 'true';
   });
 
   function makeCheckReq(token?: string) {
     return {
-      header: (name: string) =>
-        name === "X-Firebase-AppCheck" ? token : undefined,
+      header: (name: string) => (name === 'X-Firebase-AppCheck' ? token : undefined),
     };
   }
   function makeCheckRes() {
@@ -502,77 +492,77 @@ describe("app_check_denied イベント配線（verifyAppCheck 経由）", () =>
     };
   }
 
-  it("トークン欠落: reason=missing で記録する", async () => {
+  it('トークン欠落: reason=missing で記録する', async () => {
     await verifyAppCheck(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       makeCheckReq() as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       makeCheckRes() as any,
-      { endpoint: "placesProxy" }
+      { endpoint: 'placesProxy' },
     );
     expect(logAppCheckDeniedMock).toHaveBeenCalledWith({
-      endpoint: "placesProxy",
-      reason: "missing",
+      endpoint: 'placesProxy',
+      reason: 'missing',
     });
   });
 
-  it("無効なトークン: reason=invalid で記録する", async () => {
-    verifyTokenMock.mockRejectedValue(new Error("invalid"));
+  it('無効なトークン: reason=invalid で記録する', async () => {
+    verifyTokenMock.mockRejectedValue(new Error('invalid'));
     await verifyAppCheck(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeCheckReq("bad") as any,
+      makeCheckReq('bad') as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       makeCheckRes() as any,
-      { endpoint: "placesProxy" }
+      { endpoint: 'placesProxy' },
     );
     expect(logAppCheckDeniedMock).toHaveBeenCalledWith({
-      endpoint: "placesProxy",
-      reason: "invalid",
+      endpoint: 'placesProxy',
+      reason: 'invalid',
     });
   });
 
-  it("リプレイ検知: reason=replayed で記録する", async () => {
-    verifyTokenMock.mockResolvedValue({ appId: "x", alreadyConsumed: true });
+  it('リプレイ検知: reason=replayed で記録する', async () => {
+    verifyTokenMock.mockResolvedValue({ appId: 'x', alreadyConsumed: true });
     await verifyAppCheck(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeCheckReq("replayed") as any,
+      makeCheckReq('replayed') as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       makeCheckRes() as any,
-      { consume: true, endpoint: "googleWalkMatrixProxy" }
+      { consume: true, endpoint: 'googleWalkMatrixProxy' },
     );
     expect(logAppCheckDeniedMock).toHaveBeenCalledWith({
-      endpoint: "googleWalkMatrixProxy",
-      reason: "replayed",
+      endpoint: 'googleWalkMatrixProxy',
+      reason: 'replayed',
     });
   });
 
-  it("endpoint 未指定時は unknown にフォールバックする", async () => {
+  it('endpoint 未指定時は unknown にフォールバックする', async () => {
     await verifyAppCheck(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       makeCheckReq() as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeCheckRes() as any
+      makeCheckRes() as any,
     );
     expect(logAppCheckDeniedMock).toHaveBeenCalledWith({
-      endpoint: "unknown",
-      reason: "missing",
+      endpoint: 'unknown',
+      reason: 'missing',
     });
   });
 
-  it("検証成功時は記録しない", async () => {
-    verifyTokenMock.mockResolvedValue({ appId: "x" });
+  it('検証成功時は記録しない', async () => {
+    verifyTokenMock.mockResolvedValue({ appId: 'x' });
     await verifyAppCheck(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeCheckReq("good") as any,
+      makeCheckReq('good') as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       makeCheckRes() as any,
-      { endpoint: "placesProxy" }
+      { endpoint: 'placesProxy' },
     );
     expect(logAppCheckDeniedMock).not.toHaveBeenCalled();
   });
 });
 
-describe("rate_limit イベント配線（インメモリ実装）", () => {
+describe('rate_limit イベント配線（インメモリ実装）', () => {
   beforeEach(() => {
     resetRateLimit();
     logRateLimitMock.mockReset();
@@ -583,44 +573,40 @@ describe("rate_limit イベント配線（インメモリ実装）", () => {
     resetRateLimit();
   });
 
-  it("上限到達で decision=blocked を記録する", () => {
-    for (let i = 0; i < 30; i++) checkRateLimitInMemory("1.1.1.1");
+  it('上限到達で decision=blocked を記録する', () => {
+    for (let i = 0; i < 30; i++) checkRateLimitInMemory('1.1.1.1');
     expect(logRateLimitMock).not.toHaveBeenCalled();
-    expect(checkRateLimitInMemory("1.1.1.1")).toBe(false);
-    expect(logRateLimitMock).toHaveBeenCalledWith({ decision: "blocked" });
+    expect(checkRateLimitInMemory('1.1.1.1')).toBe(false);
+    expect(logRateLimitMock).toHaveBeenCalledWith({ decision: 'blocked' });
   });
 
-  it("上限内では記録しない（allowed の高頻度ログを避ける設計）", () => {
-    checkRateLimitInMemory("2.2.2.2");
+  it('上限内では記録しない（allowed の高頻度ログを避ける設計）', () => {
+    checkRateLimitInMemory('2.2.2.2');
     expect(logRateLimitMock).not.toHaveBeenCalled();
   });
 });
 
-describe("rate_limit イベント配線（Firestore 実装・フェイルオープン含む）", () => {
+describe('rate_limit イベント配線（Firestore 実装・フェイルオープン含む）', () => {
   let store: Map<string, { count: number; resetAt: number }>;
 
   beforeEach(() => {
     store = new Map();
     runTransactionMock.mockReset();
     logRateLimitMock.mockReset();
-    runTransactionMock.mockImplementation(
-      async (fn: (tx: unknown) => Promise<boolean>) => {
-        const tx = {
-          get: async (ref: { id: string }) => ({ data: () => store.get(ref.id) }),
-          set: (
-            ref: { id: string },
-            data: { count: number; resetAt: number }
-          ) => store.set(ref.id, { count: data.count, resetAt: data.resetAt }),
-          update: (ref: { id: string }, data: { count: number }) => {
-            const cur = store.get(ref.id);
-            if (cur) store.set(ref.id, { ...cur, count: data.count });
-          },
-        };
-        return fn(tx);
-      }
-    );
-    vi.stubEnv("RATE_LIMIT_HMAC_KEY", "x".repeat(32));
-    vi.stubEnv("FUNCTIONS_EMULATOR", "");
+    runTransactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<boolean>) => {
+      const tx = {
+        get: async (ref: { id: string }) => ({ data: () => store.get(ref.id) }),
+        set: (ref: { id: string }, data: { count: number; resetAt: number }) =>
+          store.set(ref.id, { count: data.count, resetAt: data.resetAt }),
+        update: (ref: { id: string }, data: { count: number }) => {
+          const cur = store.get(ref.id);
+          if (cur) store.set(ref.id, { ...cur, count: data.count });
+        },
+      };
+      return fn(tx);
+    });
+    vi.stubEnv('RATE_LIMIT_HMAC_KEY', 'x'.repeat(32));
+    vi.stubEnv('FUNCTIONS_EMULATOR', '');
   });
 
   afterEach(() => {
@@ -628,20 +614,20 @@ describe("rate_limit イベント配線（Firestore 実装・フェイルオー�
     vi.unstubAllEnvs();
   });
 
-  it("上限到達で decision=blocked を記録する", async () => {
-    for (let i = 0; i < 30; i++) await checkRateLimitFirestore("1.1.1.1");
+  it('上限到達で decision=blocked を記録する', async () => {
+    for (let i = 0; i < 30; i++) await checkRateLimitFirestore('1.1.1.1');
     expect(logRateLimitMock).not.toHaveBeenCalled();
-    expect(await checkRateLimitFirestore("1.1.1.1")).toBe(false);
-    expect(logRateLimitMock).toHaveBeenCalledWith({ decision: "blocked" });
+    expect(await checkRateLimitFirestore('1.1.1.1')).toBe(false);
+    expect(logRateLimitMock).toHaveBeenCalledWith({ decision: 'blocked' });
   });
 
-  it("Firestore 障害時（フェイルオープン）は decision=fail-open を記録する", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    runTransactionMock.mockRejectedValueOnce(new Error("unavailable"));
-    expect(await checkRateLimitFirestore("9.9.9.9")).toBe(true);
+  it('Firestore 障害時（フェイルオープン）は decision=fail-open を記録する', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    runTransactionMock.mockRejectedValueOnce(new Error('unavailable'));
+    expect(await checkRateLimitFirestore('9.9.9.9')).toBe(true);
     expect(logRateLimitMock).toHaveBeenCalledWith({
-      decision: "fail-open",
-      reason: "transient",
+      decision: 'fail-open',
+      reason: 'transient',
     });
   });
 
@@ -649,54 +635,51 @@ describe("rate_limit イベント配線（Firestore 実装・フェイルオー�
   // 競合由来の一過性フェイルオープン（README で許容済み）と同一の信号だったため
   // 気付けなかった。設定不備由来は reason=config として切り出す。
   it.each([
-    ["PERMISSION_DENIED", 7],
-    ["NOT_FOUND", 5],
-    ["UNAUTHENTICATED", 16],
-  ])(
-    "Firestore の %s は設定不備なので reason=config を記録する",
-    async (_name, code) => {
-      vi.spyOn(console, "error").mockImplementation(() => {});
-      const err = Object.assign(new Error("Cloud Firestore API has not been used"), {
-        code,
-      });
-      runTransactionMock.mockRejectedValueOnce(err);
-      expect(await checkRateLimitFirestore("9.9.9.10")).toBe(true);
-      expect(logRateLimitMock).toHaveBeenCalledWith({
-        decision: "fail-open",
-        reason: "config",
-      });
-    }
-  );
-
-  it("HMAC 鍵の未設定は設定不備なので reason=config を記録する", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.stubEnv("RATE_LIMIT_HMAC_KEY", "");
-    expect(await checkRateLimitFirestore("9.9.9.11")).toBe(true);
+    ['PERMISSION_DENIED', 7],
+    ['NOT_FOUND', 5],
+    ['UNAUTHENTICATED', 16],
+  ])('Firestore の %s は設定不備なので reason=config を記録する', async (_name, code) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const err = Object.assign(new Error('Cloud Firestore API has not been used'), {
+      code,
+    });
+    runTransactionMock.mockRejectedValueOnce(err);
+    expect(await checkRateLimitFirestore('9.9.9.10')).toBe(true);
     expect(logRateLimitMock).toHaveBeenCalledWith({
-      decision: "fail-open",
-      reason: "config",
+      decision: 'fail-open',
+      reason: 'config',
+    });
+  });
+
+  it('HMAC 鍵の未設定は設定不備なので reason=config を記録する', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubEnv('RATE_LIMIT_HMAC_KEY', '');
+    expect(await checkRateLimitFirestore('9.9.9.11')).toBe(true);
+    expect(logRateLimitMock).toHaveBeenCalledWith({
+      decision: 'fail-open',
+      reason: 'config',
     });
   });
 
   // 競合や一時的な不通は README「制約・トレードオフ」で許容済み。config と同じ
   // 信号に混ぜると、恒久的な設定漏れがノイズに埋もれる（#301 の再発）。
   it.each([
-    ["ABORTED（競合によるリトライ枯渇）", 10],
-    ["UNAVAILABLE", 14],
-    ["DEADLINE_EXCEEDED", 4],
-  ])("Firestore の %s は reason=transient を記録する", async (_name, code) => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    const err = Object.assign(new Error("too much contention"), { code });
+    ['ABORTED（競合によるリトライ枯渇）', 10],
+    ['UNAVAILABLE', 14],
+    ['DEADLINE_EXCEEDED', 4],
+  ])('Firestore の %s は reason=transient を記録する', async (_name, code) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const err = Object.assign(new Error('too much contention'), { code });
     runTransactionMock.mockRejectedValueOnce(err);
-    expect(await checkRateLimitFirestore("9.9.9.12")).toBe(true);
+    expect(await checkRateLimitFirestore('9.9.9.12')).toBe(true);
     expect(logRateLimitMock).toHaveBeenCalledWith({
-      decision: "fail-open",
-      reason: "transient",
+      decision: 'fail-open',
+      reason: 'transient',
     });
   });
 
-  it("正常な許可では記録しない", async () => {
-    await checkRateLimitFirestore("3.3.3.3");
+  it('正常な許可では記録しない', async () => {
+    await checkRateLimitFirestore('3.3.3.3');
     expect(logRateLimitMock).not.toHaveBeenCalled();
   });
 
@@ -705,30 +688,28 @@ describe("rate_limit イベント配線（Firestore 実装・フェイルオー�
   // "blocked" イベントとして計上され、まさに高並行トラフィックの下で
   // 濫用メトリクス/アラートを水増ししてしまう（コールバックは runTransaction が
   // 解決した後、結果に基づいて一度だけ呼ぶ）。
-  it("トランザクションが再試行されても blocked ログは1回だけ記録する", async () => {
-    for (let i = 0; i < 30; i++) await checkRateLimitFirestore("6.6.6.6");
+  it('トランザクションが再試行されても blocked ログは1回だけ記録する', async () => {
+    for (let i = 0; i < 30; i++) await checkRateLimitFirestore('6.6.6.6');
     logRateLimitMock.mockReset();
 
     // runTransactionMock を差し替え、Firestore の競合再試行を模して
     // コールバックを2回呼ぶ（実際に使うのは最後の戻り値）。
     const baseImpl = runTransactionMock.getMockImplementation();
-    runTransactionMock.mockImplementation(
-      async (fn: (tx: unknown) => Promise<boolean>) => {
-        const tx = {
-          get: async (ref: { id: string }) => ({ data: () => store.get(ref.id) }),
-          set: () => {},
-          update: () => {},
-        };
-        await fn(tx); // 1回目（競合で捨てられる想定のリトライ前呼び出し）
-        return fn(tx); // 2回目（実際に採用される呼び出し）
-      }
-    );
+    runTransactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<boolean>) => {
+      const tx = {
+        get: async (ref: { id: string }) => ({ data: () => store.get(ref.id) }),
+        set: () => {},
+        update: () => {},
+      };
+      await fn(tx); // 1回目（競合で捨てられる想定のリトライ前呼び出し）
+      return fn(tx); // 2回目（実際に採用される呼び出し）
+    });
 
-    const result = await checkRateLimitFirestore("6.6.6.6");
+    const result = await checkRateLimitFirestore('6.6.6.6');
 
     expect(result).toBe(false);
     expect(logRateLimitMock).toHaveBeenCalledTimes(1);
-    expect(logRateLimitMock).toHaveBeenCalledWith({ decision: "blocked" });
+    expect(logRateLimitMock).toHaveBeenCalledWith({ decision: 'blocked' });
 
     if (baseImpl) runTransactionMock.mockImplementation(baseImpl);
   });

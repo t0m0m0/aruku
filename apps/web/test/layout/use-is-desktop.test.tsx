@@ -8,10 +8,7 @@
 import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  desktopBreakpointPx,
-  desktopMediaQuery,
-} from '../../src/layout/breakpoints';
+import { desktopBreakpointPx, desktopMediaQuery } from '../../src/layout/breakpoints';
 import { useIsDesktop } from '../../src/layout/use-is-desktop';
 import { stubViewport } from './viewport';
 

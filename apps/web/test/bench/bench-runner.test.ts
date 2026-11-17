@@ -25,11 +25,13 @@ const config = {
   now: () => new Date(2026, 9, 24, 23, 0),
 };
 
-function fakeDeps(o: {
-  calibrate?: BenchDeps['calibrate'];
-  search?: BenchDeps['search'];
-  shouldStop?: () => boolean;
-} = {}): BenchDeps & { records: BenchRecord[]; searches: PlanArgs[] } {
+function fakeDeps(
+  o: {
+    calibrate?: BenchDeps['calibrate'];
+    search?: BenchDeps['search'];
+    shouldStop?: () => boolean;
+  } = {},
+): BenchDeps & { records: BenchRecord[]; searches: PlanArgs[] } {
   const records: BenchRecord[] = [];
   const searches: PlanArgs[] = [];
   return {

@@ -40,10 +40,7 @@ describe('現在地', () => {
     const { service, request } = serviceReturning(locationDenied, locationUnavailable);
     const store = createAppStore({}, undefined, service);
 
-    await Promise.all([
-      store.getState().refreshLocation(),
-      store.getState().refreshLocation(),
-    ]);
+    await Promise.all([store.getState().refreshLocation(), store.getState().refreshLocation()]);
 
     expect(request).toHaveBeenCalledOnce();
   });

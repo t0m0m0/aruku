@@ -133,7 +133,10 @@ describe('ノードと区間の対応', () => {
     render(
       <ResultTimeline
         route={plan(
-          [ride({ line: '山手線', toName: '代々木駅' }), ride({ line: '中央線', fromName: '代々木駅' })],
+          [
+            ride({ line: '山手線', toName: '代々木駅' }),
+            ride({ line: '中央線', fromName: '代々木駅' }),
+          ],
           [
             node({ time: '09:00', place: '新宿駅', sub: '出発' }),
             node({ time: '09:05', place: '代々木駅', sub: '', cardBelow: false }),
@@ -289,12 +292,8 @@ describe('区間を Google マップで開くリンク', () => {
   it('徒歩区間は徒歩ルート、乗り物の区間は乗換案内を開く', () => {
     render(<ResultTimeline route={walkThenRide()} />);
     const [walkLink, rideLink] = screen.getAllByRole('link');
-    expect(new URL(walkLink.getAttribute('href')!).searchParams.get('travelmode')).toBe(
-      'walking',
-    );
-    expect(new URL(rideLink.getAttribute('href')!).searchParams.get('travelmode')).toBe(
-      'transit',
-    );
+    expect(new URL(walkLink.getAttribute('href')!).searchParams.get('travelmode')).toBe('walking');
+    expect(new URL(rideLink.getAttribute('href')!).searchParams.get('travelmode')).toBe('transit');
   });
 
   it('別タブで開き、開いた先からこの画面を触らせない', () => {

@@ -12,10 +12,7 @@ import { useId } from 'react';
 import { useStore } from 'zustand';
 import type { StoreApi } from 'zustand/vanilla';
 
-import {
-  SegmentType,
-  type RoutePlan,
-} from '@aruku/engine/models/route-plan';
+import { SegmentType, type RoutePlan } from '@aruku/engine/models/route-plan';
 import { TimeValue } from '@aruku/engine/models/time-value';
 import { formatClock } from '@aruku/engine/services/route-plan-builder';
 
@@ -123,7 +120,10 @@ export function ResultScreen({ store }: ResultScreenProps) {
         data-testid="result-panel"
       >
         {overBudget && (
-          <section className="rounded-medium bg-error-container p-4 text-on-error-container" role="status">
+          <section
+            className="rounded-medium bg-error-container p-4 text-on-error-container"
+            role="status"
+          >
             <p className="text-title-medium">
               {resultOverBudgetTitle(route.totalMin - route.budgetMin)}
             </p>
@@ -141,7 +141,9 @@ export function ResultScreen({ store }: ResultScreenProps) {
         )}
 
         <section>
-          <h2 className="mb-2 text-title-small text-on-surface-variant">{ja.resultSegmentsHeading}</h2>
+          <h2 className="mb-2 text-title-small text-on-surface-variant">
+            {ja.resultSegmentsHeading}
+          </h2>
           <ResultTimeline route={route} />
         </section>
 
@@ -193,22 +195,14 @@ function RouteAuxiliary({
 /// M3 のリスト項目。1行なら 56px、補足を伴えば中身なりに伸びる。左右の余白を持たない
 /// のは、ページの余白（16px）が M3 のリストの内側の余白と同じ値だから。
 function AuxiliaryItem({ children }: { children: React.ReactNode }) {
-  return (
-    <li className="flex min-h-14 flex-col justify-center py-2 text-body-large">{children}</li>
-  );
+  return <li className="flex min-h-14 flex-col justify-center py-2 text-body-large">{children}</li>;
 }
 
 /// ふつうの乗換ルートの徒歩は上流の見積りのままで、確定経路は街路実測（RoutePlan の
 /// standardTransit の注記）。これより小さい差は誤差と見分けられない。
 const minExtraWalkToShow = 5;
 
-function ExtraWalkSummary({
-  route,
-  departure,
-}: {
-  route: RoutePlan;
-  departure: TimeValue;
-}) {
+function ExtraWalkSummary({ route, departure }: { route: RoutePlan; departure: TimeValue }) {
   const standard = route.standardTransit;
   if (standard === null) return null;
   const walkMinutes = route.segments
@@ -222,10 +216,7 @@ function ExtraWalkSummary({
       <p className="text-label-medium text-on-surface-variant">{ja.resultStandardLead}</p>
       <p className="tabular">{resultExtraWalk(TimeValue.formatBudget(extra))}</p>
       <p className="text-body-medium text-on-surface-variant">
-        {resultStandardDetail(
-          formatClock(departure, standard.totalMin),
-          standard.walkMinutes,
-        )}
+        {resultStandardDetail(formatClock(departure, standard.totalMin), standard.walkMinutes)}
       </p>
     </AuxiliaryItem>
   );

@@ -60,8 +60,7 @@ const walkLeg = (a: Omit<LegArgs, 'route'>): JsonMap => ({
   arrivalSecs: a.arr,
 });
 
-const poly = (latLon: number[][]): JsonMap[] =>
-  latLon.map((p) => ({ lat: p[0], lon: p[1] }));
+const poly = (latLon: number[][]): JsonMap[] => latLon.map((p) => ({ lat: p[0], lon: p[1] }));
 
 interface MapSegArgs {
   fromId: string;
@@ -560,10 +559,7 @@ describe('parseGuidancePlan', () => {
 
     const o = single(parseGuidancePlan(body));
     // 0km・0分の乗換徒歩は挟まず、電車2本のみ（直結乗換）。
-    expect(o.segments.map((s) => s.type)).toEqual([
-      SegmentType.train,
-      SegmentType.train,
-    ]);
+    expect(o.segments.map((s) => s.type)).toEqual([SegmentType.train, SegmentType.train]);
     // コリドーは電車区間ぶん維持される。
     expect(o.corridors).toHaveLength(2);
   });
@@ -778,9 +774,7 @@ describe('parseGuidancePlan', () => {
     );
 
     expect(options).toHaveLength(1);
-    const trains = single(options).segments.filter(
-      (s) => s.type === SegmentType.train,
-    );
+    const trains = single(options).segments.filter((s) => s.type === SegmentType.train);
     expect(trains).toHaveLength(1);
     expect(single(trains).fromName).toEqual('日本橋');
     expect(single(trains).toName).toEqual('新橋');
@@ -844,9 +838,7 @@ describe('parseGuidancePlan', () => {
     );
 
     expect(options).toHaveLength(1);
-    const trains = single(options).segments.filter(
-      (s) => s.type === SegmentType.train,
-    );
+    const trains = single(options).segments.filter((s) => s.type === SegmentType.train);
     expect(trains).toHaveLength(1);
     expect(single(trains).fromName).toEqual('大森');
     expect(single(trains).toName).toEqual('新橋');

@@ -32,10 +32,7 @@ import { createAppStore, type AppStore } from '../../../src/state/store';
 const here = new GeoPoint(35.681, 139.767);
 const shibuya = new GeoPoint(35.658, 139.701);
 
-function prediction(
-  name: string,
-  overrides: Partial<PlacePrediction> = {},
-): PlacePrediction {
+function prediction(name: string, overrides: Partial<PlacePrediction> = {}): PlacePrediction {
   return {
     placeId: `id-${name}`,
     name,
@@ -183,9 +180,7 @@ describe('候補', () => {
 
     await type('渋谷');
 
-    expect(
-      screen.getByRole('button', { name: '渋谷駅 渋谷駅の住所' }),
-    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: '渋谷駅 渋谷駅の住所' })).toBeTruthy();
     expect(screen.getByText('渋谷駅の住所')).toBeTruthy();
   });
 
@@ -195,9 +190,7 @@ describe('候補', () => {
 
     await type('渋谷');
 
-    expect(
-      screen.getByRole('button', { name: '渋谷駅 渋谷駅の住所' }),
-    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: '渋谷駅 渋谷駅の住所' })).toBeTruthy();
   });
 
   it('一致した部分を目立たせる', async () => {
@@ -312,9 +305,7 @@ describe('候補の確定', () => {
     });
 
     expect(
-      screen.getByText(
-        'この目的地は位置情報を取得できませんでした。別の候補を選んでください',
-      ),
+      screen.getByText('この目的地は位置情報を取得できませんでした。別の候補を選んでください'),
     ).toBeTruthy();
     expect(store.getState().destination).toBeNull();
     expect(navigate).not.toHaveBeenCalled();
@@ -333,9 +324,7 @@ describe('候補の確定', () => {
     });
 
     expect(
-      screen.getByText(
-        'この出発地は位置情報を取得できませんでした。別の候補を選んでください',
-      ),
+      screen.getByText('この出発地は位置情報を取得できませんでした。別の候補を選んでください'),
     ).toBeTruthy();
   });
 
@@ -352,9 +341,7 @@ describe('候補の確定', () => {
     await type('新宿');
 
     expect(
-      screen.queryByText(
-        'この目的地は位置情報を取得できませんでした。別の候補を選んでください',
-      ),
+      screen.queryByText('この目的地は位置情報を取得できませんでした。別の候補を選んでください'),
     ).toBeNull();
   });
 
@@ -381,9 +368,7 @@ describe('候補の確定', () => {
   // 座標解決の最中に別の候補を押せると、2件目の結果が1件目を上書きする。
   it('確定中は次の候補を受け付けない', async () => {
     let resolve!: (value: GeoPoint | null) => void;
-    const fetchLatLng = vi.fn(
-      () => new Promise<GeoPoint | null>((r) => (resolve = r)),
-    );
+    const fetchLatLng = vi.fn(() => new Promise<GeoPoint | null>((r) => (resolve = r)));
     setup({
       autocomplete: async () => [prediction('渋谷駅'), prediction('新宿駅')],
       fetchLatLng,
@@ -483,9 +468,9 @@ describe('近くの店モード', () => {
 
     fireEvent.click(toggle);
 
-    expect(
-      screen.getByRole('switch', { name: '近くの店' }).getAttribute('aria-checked'),
-    ).toBe('true');
+    expect(screen.getByRole('switch', { name: '近くの店' }).getAttribute('aria-checked')).toBe(
+      'true',
+    );
   });
 
   it('入れると距離の近い順に並べ替える', async () => {
@@ -512,9 +497,7 @@ describe('履歴', () => {
   it('入力が空のときに出す', () => {
     setup({ seed: { destination: [saved('渋谷駅')] } });
 
-    expect(
-      screen.getByRole('heading', { name: '最近の目的地' }),
-    ).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '最近の目的地' })).toBeTruthy();
   });
 
   it('モードごとに別の系統を出す', () => {

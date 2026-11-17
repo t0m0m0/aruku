@@ -96,8 +96,7 @@ function providersFor(instance: AppCheck): AppCheckProviders {
   return {
     tokenProvider: async () => (await getToken(instance)).token,
     // リプレイ保護（#155・#366）。placesProxy はサーバが consume:true で検証する。
-    limitedUseTokenProvider: async () =>
-      (await getLimitedUseToken(instance)).token,
+    limitedUseTokenProvider: async () => (await getLimitedUseToken(instance)).token,
   };
 }
 

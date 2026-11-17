@@ -4,11 +4,7 @@ import { kDebugMode, kReleaseMode } from '../build-mode';
 import { debugPrint } from '../debug-print';
 import { SegmentType } from '../models/route-plan';
 import type { RouteCandidate } from './hybrid-route-selector';
-import {
-  arrivalMinutes,
-  firstMissedTransit,
-  maxBoardingWait,
-} from './route-plan-builder';
+import { arrivalMinutes, firstMissedTransit, maxBoardingWait } from './route-plan-builder';
 
 /// 乗車駅探索**1本**分の計上。1検索に2本立つことがある——電車系（base）とバス系
 /// （busBase）は基準コリドーが独立で、並行して走る（#304）。
@@ -120,12 +116,7 @@ export class EnrichLatencyLedger {
   /// なら捨てる——待たなかった応答は壁時計を払わせていない。置いていった候補を後のパスが
   /// 待つことになった場合もその時間は入らないが、次のパスへ混ぜて水増しするよりは
   /// 小さく出る方を採った。
-  record(args: {
-    chainMs: number;
-    walkMs: number;
-    resolveSteps: number;
-    pass?: number;
-  }): void {
+  record(args: { chainMs: number; walkMs: number; resolveSteps: number; pass?: number }): void {
     if (args.pass === undefined) this.candidates++;
     else if (args.pass !== this.passId) return;
     this.passHasCandidate = true;
@@ -227,8 +218,7 @@ export const ArrivalWaveOutcome = {
   /// 応答は返ったが option が0本。
   empty: 3,
 } as const;
-export type ArrivalWaveOutcome =
-  (typeof ArrivalWaveOutcome)[keyof typeof ArrivalWaveOutcome];
+export type ArrivalWaveOutcome = (typeof ArrivalWaveOutcome)[keyof typeof ArrivalWaveOutcome];
 
 /// 1検索分の定量指標（#309）。
 export class RouteSearchMetrics {

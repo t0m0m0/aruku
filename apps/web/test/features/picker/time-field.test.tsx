@@ -30,8 +30,7 @@ function setup(
   clock: () => Date = () => noon,
 ) {
   store = createAppStore(initial, clock);
-  const label =
-    mode === PickerMode.depart ? ja.homeDepartureLabel : ja.homeArrivalLabel;
+  const label = mode === PickerMode.depart ? ja.homeDepartureLabel : ja.homeArrivalLabel;
   render(<TimeField store={store} mode={mode} label={label} now={clock} />);
   return {
     time: screen.getByLabelText<HTMLInputElement>(ja.timeFieldTime(label)),
@@ -43,18 +42,8 @@ function setupBoth(initial: Partial<RouteCore>, clock: () => Date) {
   store = createAppStore(initial, clock);
   render(
     <>
-      <TimeField
-        store={store}
-        mode={PickerMode.depart}
-        label={ja.homeDepartureLabel}
-        now={clock}
-      />
-      <TimeField
-        store={store}
-        mode={PickerMode.arrival}
-        label={ja.homeArrivalLabel}
-        now={clock}
-      />
+      <TimeField store={store} mode={PickerMode.depart} label={ja.homeDepartureLabel} now={clock} />
+      <TimeField store={store} mode={PickerMode.arrival} label={ja.homeArrivalLabel} now={clock} />
     </>,
   );
   const field = (label: string, kind: '時刻' | '日付') =>
@@ -69,8 +58,7 @@ function setupBoth(initial: Partial<RouteCore>, clock: () => Date) {
   };
 }
 
-const at = (h: number, m: number, dateOffset = 0) =>
-  new TimeValue({ h, m, dateOffset });
+const at = (h: number, m: number, dateOffset = 0) => new TimeValue({ h, m, dateOffset });
 
 afterEach(cleanup);
 
@@ -123,10 +111,7 @@ describe('時刻の入力', () => {
   });
 
   it('到着に出発より前を入れると、出発のあとへ寄る', () => {
-    const { time } = setup(
-      { departure: at(13, 0), arrival: at(14, 0) },
-      PickerMode.arrival,
-    );
+    const { time } = setup({ departure: at(13, 0), arrival: at(14, 0) }, PickerMode.arrival);
 
     type(time, '10:00');
 
@@ -146,10 +131,7 @@ describe('↑↓ の刻み', () => {
   it('日をまたぐ刻みは日付も一緒に動かす', () => {
     // native の ↑↓ は同日内で折り返す。23:58 の5分後が「同じ日の 00:03」になると、
     // 翌日のままの到着との予算が 25 時間近くへ膨らむ。
-    const { time, date } = setup(
-      { departure: at(23, 58), arrival: at(23, 59) },
-      PickerMode.depart,
-    );
+    const { time, date } = setup({ departure: at(23, 58), arrival: at(23, 59) }, PickerMode.depart);
 
     fireEvent.keyDown(time, { key: 'ArrowUp' });
 
@@ -203,10 +185,7 @@ describe('日付の入力', () => {
   });
 
   it('到着は出発の日より前を出さない', () => {
-    const { date } = setup(
-      { departure: at(13, 0, 3), arrival: at(14, 0, 3) },
-      PickerMode.arrival,
-    );
+    const { date } = setup({ departure: at(13, 0, 3), arrival: at(14, 0, 3) }, PickerMode.arrival);
 
     expect(date.min).toBe('2026-09-14');
   });
@@ -248,12 +227,10 @@ describe('開いたまま日を跨いだとき', () => {
     // 引き上げられた出発を追って到着も動く（予算幅を保つ）。時計の値そのものは
     // 引き上げ幅で決まるので、ここで押さえるのは「出発より後にある」こと。
     expect(
-      absoluteMinutes(store.getState().arrival) -
-        absoluteMinutes(store.getState().departure),
+      absoluteMinutes(store.getState().arrival) - absoluteMinutes(store.getState().departure),
     ).toBeGreaterThan(0);
   });
 });
-
 
 // Codex レビュー（PR #399）。いずれも「開いたまま時間が経つ」経路で、単発の操作では
 // 現れない。
@@ -298,10 +275,7 @@ describe('開いたまま時間が経ったとき', () => {
     // その欄は詰め直し済みの offset を昨日基準で描き、確定すると同じ1日をもう一度
     // 適用する。
     let clock = new Date(2026, 8, 11, 23, 59, 0);
-    const fields = setupBoth(
-      { departure: at(23, 59, 0), arrival: at(0, 30, 1) },
-      () => clock,
-    );
+    const fields = setupBoth({ departure: at(23, 59, 0), arrival: at(0, 30, 1) }, () => clock);
 
     clock = new Date(2026, 8, 12, 0, 1, 0);
     type(fields.departTime, '00:05');
@@ -550,14 +524,17 @@ describe('先頭のアイコン', () => {
     vi.unstubAllGlobals();
   });
 
-  it.each([true, false])('時計のアイコンで時刻のピッカーを開く（デスクトップ幅: %s）', (desktop) => {
-    stubViewport(desktop);
-    const { time } = setupTime({ departure: at(13, 0), arrival: at(14, 0) });
+  it.each([true, false])(
+    '時計のアイコンで時刻のピッカーを開く（デスクトップ幅: %s）',
+    (desktop) => {
+      stubViewport(desktop);
+      const { time } = setupTime({ departure: at(13, 0), arrival: at(14, 0) });
 
-    fireEvent.click(screen.getByTestId('time-icon'));
+      fireEvent.click(screen.getByTestId('time-icon'));
 
-    expect(opened).toEqual([time]);
-  });
+      expect(opened).toEqual([time]);
+    },
+  );
 
   it('モバイル幅ではカレンダーのアイコンで日付のピッカーを開く', () => {
     stubViewport(false);
@@ -661,10 +638,7 @@ describe('デスクトップ幅のカレンダー', () => {
 
   it('選べる範囲の外の日は押せない', () => {
     stubViewport(true);
-    setupTime(
-      { departure: at(13, 0, 3), arrival: at(14, 0, 3) },
-      PickerMode.arrival,
-    );
+    setupTime({ departure: at(13, 0, 3), arrival: at(14, 0, 3) }, PickerMode.arrival);
 
     fireEvent.click(dateTrigger('到着'));
 
@@ -827,9 +801,8 @@ describe('デスクトップ幅のカレンダー（PR #425 のレビュー）',
     setupTime({ departure: at(13, 0), arrival: at(14, 0) });
 
     fireEvent.click(dateTrigger('出発'));
-    const labels = Array.from(
-      screen.getByRole('grid').querySelectorAll('th[scope="col"]'),
-      (th) => th.getAttribute('aria-label'),
+    const labels = Array.from(screen.getByRole('grid').querySelectorAll('th[scope="col"]'), (th) =>
+      th.getAttribute('aria-label'),
     );
 
     expect(labels).toEqual(['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日']);
@@ -852,8 +825,7 @@ describe('デスクトップ幅のカレンダー（PR #425 のレビュー）',
 /// デスクトップ幅では日付が input ではないので、時刻の欄だけを返す。
 function setupTime(initial: Partial<RouteCore>, mode: PickerMode = PickerMode.depart) {
   store = createAppStore(initial, () => noon);
-  const label =
-    mode === PickerMode.depart ? ja.homeDepartureLabel : ja.homeArrivalLabel;
+  const label = mode === PickerMode.depart ? ja.homeDepartureLabel : ja.homeArrivalLabel;
   render(<TimeField store={store} mode={mode} label={label} now={() => noon} />);
   return { time: screen.getByLabelText<HTMLInputElement>(ja.timeFieldTime(label)) };
 }

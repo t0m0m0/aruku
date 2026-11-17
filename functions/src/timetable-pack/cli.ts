@@ -9,14 +9,14 @@
 // 出力先は .gitignore 済みの場所にする。GTFS もパックもリポジトリに入れない
 // （基本ライセンス第8条4(1)・チャレンジ限定データの第三者提供の禁止）。
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { gunzipSync } from "node:zlib";
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 
-import { compileTimetable } from "../exact-scan";
-import { ODPT_FEEDS } from "./feeds";
-import { timetableForDate, type TimetablePack } from "./pack";
-import { refreshTimetablePacks } from "./refresh";
+import { compileTimetable } from '../exact-scan';
+import { ODPT_FEEDS } from './feeds';
+import { timetableForDate, type TimetablePack } from './pack';
+import { refreshTimetablePacks } from './refresh';
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -25,13 +25,13 @@ function arg(name: string): string | undefined {
 
 function todayInJapan(): string {
   const jst = new Date(Date.now() + 9 * 3600 * 1000);
-  return jst.toISOString().slice(0, 10).replace(/-/g, "");
+  return jst.toISOString().slice(0, 10).replace(/-/g, '');
 }
 
 async function main(): Promise<void> {
-  const out = arg("--out");
-  if (out === undefined) throw new Error("--out <dir> を指定する");
-  const only = arg("--feeds")?.split(",");
+  const out = arg('--out');
+  if (out === undefined) throw new Error('--out <dir> を指定する');
+  const only = arg('--feeds')?.split(',');
   const feeds = only === undefined ? ODPT_FEEDS : ODPT_FEEDS.filter((f) => only.includes(f.id));
 
   const written: string[] = [];
@@ -83,7 +83,7 @@ async function main(): Promise<void> {
       }),
     );
   }
-  if (results.some((r) => r.status === "skipped")) process.exitCode = 1;
+  if (results.some((r) => r.status === 'skipped')) process.exitCode = 1;
 }
 
 main().catch((e: Error) => {

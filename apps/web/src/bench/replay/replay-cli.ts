@@ -25,12 +25,7 @@ import { runBench } from '../bench-runner';
 import { replayPairs } from '../od-pairs';
 import { localExactWalkMax } from './exact-replay';
 import { parseReplayArgs, replayUsage, type ReplayArgs } from './replay-args';
-import {
-  isInitialQuery,
-  ReplaySession,
-  timedOutStatus,
-  type ReplayEntry,
-} from './replay-client';
+import { isInitialQuery, ReplaySession, timedOutStatus, type ReplayEntry } from './replay-client';
 import type { ReplayRecord } from './replay-report';
 import { loadStore, saveStore } from './replay-store';
 
@@ -74,7 +69,10 @@ export async function runReplay(args: ReplayArgs): Promise<number> {
       urlLog === null
         ? undefined
         : (url) => {
-            const stack = (new Error().stack ?? '').split('\n').slice(2, 14).map((l) => l.trim());
+            const stack = (new Error().stack ?? '')
+              .split('\n')
+              .slice(2, 14)
+              .map((l) => l.trim());
             appendFileSync(
               urlLog,
               `${JSON.stringify({ t: Math.round(performance.now()), url: url.href, stack })}\n`,

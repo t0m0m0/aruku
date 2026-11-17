@@ -87,7 +87,10 @@ describe('localExactWalkMax', () => {
     const respond = localExactWalkMax({ packDir: dir, now: () => NOW });
     const body = JSON.parse((await respond(exactUrl(QUERY))).body);
     expect(body.candidates[0].accessWalk.durationSec).toBe(
-      syntheticWalkSeconds(new GeoPoint(ORIGIN.lat, ORIGIN.lng), new GeoPoint(BOARD.lat, BOARD.lng)),
+      syntheticWalkSeconds(
+        new GeoPoint(ORIGIN.lat, ORIGIN.lng),
+        new GeoPoint(BOARD.lat, BOARD.lng),
+      ),
     );
   });
 

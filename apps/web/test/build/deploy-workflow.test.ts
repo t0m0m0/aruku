@@ -19,10 +19,7 @@ const webRoot = resolve(
 );
 const repoRoot = resolve(webRoot, '..', '..');
 
-const workflow = readFileSync(
-  join(repoRoot, '.github/workflows/deploy-web.yml'),
-  'utf8',
-);
+const workflow = readFileSync(join(repoRoot, '.github/workflows/deploy-web.yml'), 'utf8');
 
 /// `src/` 全体が読む `import.meta.env.VITE_*` の名前。
 const namesReadByApp = (): Set<string> => {
@@ -48,9 +45,7 @@ const namesReadByApp = (): Set<string> => {
 
 /// ワークフローが build ジョブへ渡す `VITE_*` の名前。
 const namesSetByWorkflow = (): Set<string> =>
-  new Set(
-    [...workflow.matchAll(/^\s+(VITE_[A-Z0-9_]+):/gm)].map((m) => m[1]),
-  );
+  new Set([...workflow.matchAll(/^\s+(VITE_[A-Z0-9_]+):/gm)].map((m) => m[1]));
 
 describe('deploy-web.yml とアプリの設定', () => {
   it('ワークフローが渡す名前はすべてアプリが読む', () => {
@@ -83,9 +78,7 @@ describe('deploy-web.yml とアプリの設定', () => {
   // 渡さないことをここでも見るのは、あちらが「バンドルに無い」しか見ていないため
   // ——ワークフローで渡し始めても、分岐が畳まれている限りあちらは緑のままになる。
   it('App Check のデバッグトークンは渡さない', () => {
-    expect([...namesSetByWorkflow()]).not.toContain(
-      'VITE_APP_CHECK_DEBUG_TOKEN',
-    );
+    expect([...namesSetByWorkflow()]).not.toContain('VITE_APP_CHECK_DEBUG_TOKEN');
   });
 
   // 空値検査のリストと env ブロックが割れると、渡しているのに検査されない値が出る。

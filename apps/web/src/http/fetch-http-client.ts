@@ -75,9 +75,7 @@ export class FetchHttpClient extends BaseHttpClient {
 /// ここで専用の例外型に分けると、その昇格を通らない経路で意味が二重化する。
 function asClientException(error: unknown): ClientException {
   if (error instanceof ClientException) return error;
-  return new ClientException(
-    error instanceof Error ? error.message : String(error),
-  );
+  return new ClientException(error instanceof Error ? error.message : String(error));
 }
 
 /// ボディ受信中の失敗も `ClientException` にする。

@@ -1,32 +1,32 @@
-import * as https from "https";
-import { setGlobalOptions } from "firebase-functions/v2";
-import { onRequest, Request } from "firebase-functions/v2/https";
-import { onSchedule } from "firebase-functions/v2/scheduler";
-import { defineSecret, defineString } from "firebase-functions/params";
-import { logger } from "firebase-functions";
-import { Response } from "express";
-import { initializeApp } from "firebase-admin/app";
-import { getAppCheck } from "firebase-admin/app-check";
-import { getStorage } from "firebase-admin/storage";
+import * as https from 'https';
+import { setGlobalOptions } from 'firebase-functions/v2';
+import { onRequest, Request } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { defineSecret, defineString } from 'firebase-functions/params';
+import { logger } from 'firebase-functions';
+import { Response } from 'express';
+import { initializeApp } from 'firebase-admin/app';
+import { getAppCheck } from 'firebase-admin/app-check';
+import { getStorage } from 'firebase-admin/storage';
 
-import { toLegacyAutocomplete, toLegacyDetails } from "./places-transform";
-import { checkRateLimit, RATE_LIMIT, WALK_RATE_LIMIT } from "./rate-limiter";
+import { toLegacyAutocomplete, toLegacyDetails } from './places-transform';
+import { checkRateLimit, RATE_LIMIT, WALK_RATE_LIMIT } from './rate-limiter';
 import {
   logAppCheckDenied,
   logExactWalkMax,
   logRequestLatency,
   logRequestOutcome,
-} from "./metrics";
-import { dedupeUpstream } from "./upstream-cache";
-import { refreshTimetablePacks as refreshPacks } from "./timetable-pack/refresh";
-import { createScanDaySource } from "./timetable-pack/load";
+} from './metrics';
+import { dedupeUpstream } from './upstream-cache';
+import { refreshTimetablePacks as refreshPacks } from './timetable-pack/refresh';
+import { createScanDaySource } from './timetable-pack/load';
 import {
   findExactWalkMax,
   parseExactWalkMaxQuery,
   type ScanStage,
   type MatrixElement,
-} from "./exact-walk-max";
-import type { LatLng } from "./exact-scan";
+} from './exact-walk-max';
+import type { LatLng } from './exact-scan';
 
 // レート制限ユーティリティはテスト互換のため再エクスポートする。
 export {
@@ -37,7 +37,7 @@ export {
   rateLimitMapSize,
   RATE_LIMIT,
   WALK_RATE_LIMIT,
-} from "./rate-limiter";
+} from './rate-limiter';
 
 initializeApp();
 
@@ -51,27 +51,26 @@ initializeApp();
 // googleWalkProxy / googleWalkMatrixProxy / exactWalkMax の 4 つ（4 関数 × 10 = 最大 40 インスタンス）。
 // レート制限（docs/spec/route-optimization.md §2.1）の後段に位置する二重の課金ガード。
 // 実測トラフィックを見て調整する前提の保守的な初期値。
-setGlobalOptions({ region: "asia-northeast1", maxInstances: 10 });
+setGlobalOptions({ region: 'asia-northeast1', maxInstances: 10 });
 
-const mapsKeySecret = defineSecret("GOOGLE_MAPS_API_KEY");
+const mapsKeySecret = defineSecret('GOOGLE_MAPS_API_KEY');
 // レート制限のドキュメント ID を不可逆化する HMAC 鍵（#263）。rate-limiter が
 // process.env 経由で読むため、各エンドポイントの secrets 配列へバインドして注入する。
-const rateLimitHmacKeySecret = defineSecret("RATE_LIMIT_HMAC_KEY");
+const rateLimitHmacKeySecret = defineSecret('RATE_LIMIT_HMAC_KEY');
 
 // ローカル（エミュレーター）は Keychain から export した process.env を使用。
 // 本番は Secret Manager から取得。
 function getMapsApiKey(): string {
-  if (process.env.FUNCTIONS_EMULATOR === "true") {
-    return process.env.GOOGLE_MAPS_API_KEY ?? "";
+  if (process.env.FUNCTIONS_EMULATOR === 'true') {
+    return process.env.GOOGLE_MAPS_API_KEY ?? '';
   }
   return mapsKeySecret.value();
 }
 
 // Google Places API (New)。autocomplete は候補（placeId＋テキスト）のみ返し
 // 座標は含まないため、確定時に details で location を引く2段フローにする。
-const PLACES_AUTOCOMPLETE_NEW_URL =
-  "https://places.googleapis.com/v1/places:autocomplete";
-const PLACES_DETAILS_NEW_BASE = "https://places.googleapis.com/v1/places";
+const PLACES_AUTOCOMPLETE_NEW_URL = 'https://places.googleapis.com/v1/places:autocomplete';
+const PLACES_DETAILS_NEW_BASE = 'https://places.googleapis.com/v1/places';
 // locationBias の円半径（メートル）。Places API の許容上限は 50000m。
 // 現在地を中心にこの円内を優先（soft bias）し、近隣 POI を上位へ寄せる。
 // 距離昇順は保証しない（それは origin + クライアント再ソートの担当・#146）。
@@ -79,20 +78,16 @@ const PLACES_BIAS_RADIUS_M = 50000;
 
 // Google Routes API。徒歩ルートの街路追従ジオメトリ（encodedPolyline）と
 // 距離・所要時間を返す。経路 API は徒歩の街路ジオメトリを返さないため徒歩線はここから得る。
-const ROUTES_COMPUTE_URL =
-  "https://routes.googleapis.com/directions/v2:computeRoutes";
+const ROUTES_COMPUTE_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes';
 // 課金は FieldMask で要求したフィールドに依存する。徒歩線・距離・時間のみ取得。
-const ROUTES_FIELD_MASK =
-  "routes.polyline.encodedPolyline,routes.distanceMeters,routes.duration";
+const ROUTES_FIELD_MASK = 'routes.polyline.encodedPolyline,routes.distanceMeters,routes.duration';
 
 // Google Routes API computeRouteMatrix。origins × destinations の各レッグを
 // 一括実測する（#118 の予算境界帯の実測）。polyline は返さず所要時間・距離のみ。
-const ROUTES_MATRIX_URL =
-  "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix";
+const ROUTES_MATRIX_URL = 'https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix';
 // マトリクスは要素ごとに index/所要/距離だけ取得する。index が無いと結果を
 // origin/destination へ対応付けられないため FieldMask に必須で含める。
-const ROUTES_MATRIX_FIELD_MASK =
-  "originIndex,destinationIndex,duration,distanceMeters";
+const ROUTES_MATRIX_FIELD_MASK = 'originIndex,destinationIndex,duration,distanceMeters';
 // computeRouteMatrix は要素数（origins × destinations）課金。クライアント不具合や
 // 悪用での課金暴発を防ぐため、プロキシ側でも要素数上限を強制する（レート制限と同じく
 // 課金ガード。docs/spec/route-optimization.md §2.1）。#118 の設計は片側 ≤10・他方 1 の
@@ -100,11 +95,9 @@ const ROUTES_MATRIX_FIELD_MASK =
 export const MATRIX_MAX_ELEMENTS = 25;
 
 /** "lat,lng" 形式の座標を Routes API の waypoint へ変換する。不正な値は null。 */
-function parseLatLng(
-  value: string | undefined
-): { latitude: number; longitude: number } | null {
-  if (typeof value !== "string") return null;
-  const parts = value.split(",");
+function parseLatLng(value: string | undefined): { latitude: number; longitude: number } | null {
+  if (typeof value !== 'string') return null;
+  const parts = value.split(',');
   if (parts.length !== 2) return null;
   const latitude = Number(parts[0]);
   const longitude = Number(parts[1]);
@@ -115,12 +108,12 @@ function parseLatLng(
 /** Routes API computeRoutes（徒歩）のリクエストボディを生成する。 */
 export function buildRoutesWalkBody(
   start: { latitude: number; longitude: number },
-  goal: { latitude: number; longitude: number }
+  goal: { latitude: number; longitude: number },
 ): string {
   return JSON.stringify({
     origin: { location: { latLng: start } },
     destination: { location: { latLng: goal } },
-    travelMode: "WALK",
+    travelMode: 'WALK',
   });
 }
 
@@ -130,11 +123,11 @@ export function buildRoutesWalkBody(
  * 空文字・undefined も null。
  */
 export function parseLatLngList(
-  value: string | undefined
+  value: string | undefined,
 ): { latitude: number; longitude: number }[] | null {
-  if (typeof value !== "string" || value.length === 0) return null;
+  if (typeof value !== 'string' || value.length === 0) return null;
   const out: { latitude: number; longitude: number }[] = [];
-  for (const part of value.split(";")) {
+  for (const part of value.split(';')) {
     const point = parseLatLng(part);
     if (!point) return null;
     out.push(point);
@@ -143,17 +136,14 @@ export function parseLatLngList(
 }
 
 /** computeRouteMatrix の要素数（origins × destinations）。課金単位。 */
-export function matrixElementCount(
-  originCount: number,
-  destinationCount: number
-): number {
+export function matrixElementCount(originCount: number, destinationCount: number): number {
   return originCount * destinationCount;
 }
 
 /** Routes API computeRouteMatrix（徒歩）のリクエストボディを生成する。 */
 export function buildRoutesMatrixBody(
   origins: { latitude: number; longitude: number }[],
-  destinations: { latitude: number; longitude: number }[]
+  destinations: { latitude: number; longitude: number }[],
 ): string {
   return JSON.stringify({
     origins: origins.map((latLng) => ({
@@ -162,7 +152,7 @@ export function buildRoutesMatrixBody(
     destinations: destinations.map((latLng) => ({
       waypoint: { location: { latLng } },
     })),
-    travelMode: "WALK",
+    travelMode: 'WALK',
   });
 }
 
@@ -185,7 +175,7 @@ function coordKey(p: { latitude: number; longitude: number }): string {
 /** googleWalkProxy の重複排除キー。start→goal の向きは経路が異なるため順序を保持する。 */
 function walkCacheKey(
   start: { latitude: number; longitude: number },
-  goal: { latitude: number; longitude: number }
+  goal: { latitude: number; longitude: number },
 ): string {
   return `routes-walk:${coordKey(start)};${coordKey(goal)}`;
 }
@@ -196,11 +186,9 @@ function walkCacheKey(
  */
 function matrixCacheKey(
   origins: { latitude: number; longitude: number }[],
-  destinations: { latitude: number; longitude: number }[]
+  destinations: { latitude: number; longitude: number }[],
 ): string {
-  return `routes-matrix:${origins.map(coordKey).join(";")}|${destinations
-    .map(coordKey)
-    .join(";")}`;
+  return `routes-matrix:${origins.map(coordKey).join(';')}|${destinations.map(coordKey).join(';')}`;
 }
 
 // レート制限のキーに使うクライアント IP を返す（issue #151）。
@@ -228,17 +216,18 @@ function matrixCacheKey(
 const TRUSTED_PROXY_HOPS = 1;
 
 export function clientIp(req: Request): string {
-  const fwd = req.headers["x-forwarded-for"];
-  const chain = typeof fwd === "string"
-    ? fwd.split(",")
-    : Array.isArray(fwd)
-      ? fwd.flatMap((v) => v.split(","))
-      : [];
+  const fwd = req.headers['x-forwarded-for'];
+  const chain =
+    typeof fwd === 'string'
+      ? fwd.split(',')
+      : Array.isArray(fwd)
+        ? fwd.flatMap((v) => v.split(','))
+        : [];
   const trusted = chain.map((s) => s.trim()).filter((s) => s.length > 0);
   if (trusted.length >= TRUSTED_PROXY_HOPS) {
     return trusted[trusted.length - TRUSTED_PROXY_HOPS];
   }
-  return req.ip ?? "unknown";
+  return req.ip ?? 'unknown';
 }
 
 // リプレイ保護を有効にするエンドポイント（issue #366）。
@@ -255,9 +244,9 @@ export function clientIp(req: Request): string {
 // Firebase 側も「replay protection は特に機微なエンドポイントに限って有効化する」
 // ことを推奨している（往復が増えるため）。
 const DEFAULT_APP_CHECK_CONSUME_ENDPOINTS = [
-  "placesProxy",
-  "googleWalkMatrixProxy",
-  "exactWalkMax",
+  'placesProxy',
+  'googleWalkMatrixProxy',
+  'exactWalkMax',
 ];
 
 // なぜ環境変数で上書き可能にするか:
@@ -274,7 +263,7 @@ export function shouldConsumeAppCheckToken(endpoint: string): boolean {
     configured === undefined
       ? DEFAULT_APP_CHECK_CONSUME_ENDPOINTS
       : configured
-          .split(",")
+          .split(',')
           .map((e) => e.trim())
           .filter((e) => e.length > 0);
   return endpoints.includes(endpoint);
@@ -306,20 +295,20 @@ const appCheckMsByRes = new WeakMap<object, number>();
 export async function verifyAppCheck(
   req: Request,
   res: Response,
-  opts: { endpoint?: string } = {}
+  opts: { endpoint?: string } = {},
 ): Promise<boolean> {
-  if (process.env.FUNCTIONS_EMULATOR === "true") return true;
+  if (process.env.FUNCTIONS_EMULATOR === 'true') return true;
   // endpoint 未指定（"unknown"）は既定の集合に含まれないため consume しない。
   // 呼び出し側が endpoint を書き忘れるとリプレイ保護が静かに外れる向きだが、
   // 逆向き（未知のエンドポイントで消費を強制）はクライアントが標準トークンを
   // 送っている場合に機能ごと落とすため、こちらへ倒す。
-  const endpoint = opts.endpoint ?? "unknown";
+  const endpoint = opts.endpoint ?? 'unknown';
   const consume = shouldConsumeAppCheckToken(endpoint);
-  const token = req.header("X-Firebase-AppCheck");
+  const token = req.header('X-Firebase-AppCheck');
   if (!token) {
-    console.warn("AppCheck: token missing");
-    logAppCheckDenied({ endpoint, reason: "missing" });
-    res.status(401).json({ error: "App Check token missing" });
+    console.warn('AppCheck: token missing');
+    logAppCheckDenied({ endpoint, reason: 'missing' });
+    res.status(401).json({ error: 'App Check token missing' });
     return false;
   }
   // トークン欠落は上流（App Check バックエンド）を叩かないため計測対象から外す。
@@ -331,16 +320,16 @@ export async function verifyAppCheck(
       ? await getAppCheck().verifyToken(token, { consume: true })
       : await getAppCheck().verifyToken(token);
     if (consume && result.alreadyConsumed) {
-      console.warn("AppCheck: token already consumed (replay)");
-      logAppCheckDenied({ endpoint, reason: "replayed" });
-      res.status(401).json({ error: "App Check token already consumed" });
+      console.warn('AppCheck: token already consumed (replay)');
+      logAppCheckDenied({ endpoint, reason: 'replayed' });
+      res.status(401).json({ error: 'App Check token already consumed' });
       return false;
     }
     return true;
   } catch (e) {
-    console.warn("AppCheck: token invalid", e);
-    logAppCheckDenied({ endpoint, reason: "invalid" });
-    res.status(401).json({ error: "App Check token invalid" });
+    console.warn('AppCheck: token invalid', e);
+    logAppCheckDenied({ endpoint, reason: 'invalid' });
+    res.status(401).json({ error: 'App Check token invalid' });
     return false;
   } finally {
     appCheckMsByRes.set(res, Date.now() - start);
@@ -358,19 +347,22 @@ export const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
 // requestJsonNew の失敗種別。呼び出し側で 504（timeout）と 502（その他上流障害）を
 // 区別するために用いる。
-type UpstreamErrorKind = "timeout" | "too_large" | "network" | "parse" | "status";
+type UpstreamErrorKind = 'timeout' | 'too_large' | 'network' | 'parse' | 'status';
 
 class UpstreamError extends Error {
-  constructor(message: string, readonly kind: UpstreamErrorKind) {
+  constructor(
+    message: string,
+    readonly kind: UpstreamErrorKind,
+  ) {
     super(message);
-    this.name = "UpstreamError";
+    this.name = 'UpstreamError';
   }
 }
 
 // 上流失敗時に res へ 504/502 を書いたことを示すセンチネル。呼び出し側は
 // これが返ったら（レスポンス送信済みのため）即 return する。JSON の null と
 // 衝突しないよう Symbol を使う。
-const UPSTREAM_FAILED = Symbol("upstream_failed");
+const UPSTREAM_FAILED = Symbol('upstream_failed');
 
 // 上流呼び出し用の共有 Agent（issue #307）。1検索あたり最大13本のプロキシ
 // ファンアウト（#161）のたびに新規 TCP+TLS ハンドシェイクが走るのを避け、
@@ -395,9 +387,9 @@ const upstreamAgent = new https.Agent({
 // （https は timeout オプションだけでは接続を閉じないため明示 destroy が必要）。
 function requestJsonNew(
   url: string,
-  method: "GET" | "POST",
+  method: 'GET' | 'POST',
   headers: Record<string, string>,
-  body?: string
+  body?: string,
 ): Promise<{ statusCode: number; data: unknown }> {
   return attemptRequestJsonNew(url, method, headers, body, false);
 }
@@ -418,10 +410,10 @@ function requestJsonNew(
 // タイムアウト挙動は不変）。
 function attemptRequestJsonNew(
   url: string,
-  method: "GET" | "POST",
+  method: 'GET' | 'POST',
   headers: Record<string, string>,
   body: string | undefined,
-  isRetry: boolean
+  isRetry: boolean,
 ): Promise<{ statusCode: number; data: unknown }> {
   return new Promise((resolve, reject) => {
     const req = https.request(
@@ -430,45 +422,38 @@ function attemptRequestJsonNew(
       (res) => {
         const chunks: Buffer[] = [];
         let received = 0;
-        res.on("data", (chunk: Buffer) => {
+        res.on('data', (chunk: Buffer) => {
           received += chunk.length;
           if (received > MAX_RESPONSE_BYTES) {
             // 上限超過。以降のボディを貯めず接続ごと破棄する。
-            req.destroy(new UpstreamError("response too large", "too_large"));
+            req.destroy(new UpstreamError('response too large', 'too_large'));
             return;
           }
           chunks.push(chunk);
         });
-        res.on("end", () => {
+        res.on('end', () => {
           let data: unknown;
           try {
-            data = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+            data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
           } catch {
-            reject(new UpstreamError("invalid JSON from upstream", "parse"));
+            reject(new UpstreamError('invalid JSON from upstream', 'parse'));
             return;
           }
           resolve({ statusCode: res.statusCode ?? 0, data });
         });
-      }
+      },
     );
-    req.on("timeout", () => {
-      req.destroy(new UpstreamError("upstream request timed out", "timeout"));
+    req.on('timeout', () => {
+      req.destroy(new UpstreamError('upstream request timed out', 'timeout'));
     });
-    req.on("error", (err) => {
+    req.on('error', (err) => {
       const canRetryStaleSocket =
-        !isRetry &&
-        method === "GET" &&
-        req.reusedSocket &&
-        !(err instanceof UpstreamError);
+        !isRetry && method === 'GET' && req.reusedSocket && !(err instanceof UpstreamError);
       if (canRetryStaleSocket) {
         resolve(attemptRequestJsonNew(url, method, headers, body, true));
         return;
       }
-      reject(
-        err instanceof UpstreamError
-          ? err
-          : new UpstreamError(err.message, "network")
-      );
+      reject(err instanceof UpstreamError ? err : new UpstreamError(err.message, 'network'));
     });
     if (body) req.write(body);
     req.end();
@@ -488,18 +473,25 @@ async function fetchUpstream(
   endpoint: string,
   upstream: string,
   url: string,
-  method: "GET" | "POST",
+  method: 'GET' | 'POST',
   headers: Record<string, string>,
   body?: string,
   validate?: (data: unknown) => boolean,
-  cacheKey?: string
+  cacheKey?: string,
 ): Promise<unknown> {
   try {
     // 一次判定はステータスコード。上流が 4xx/5xx を返したら成否をボディ形状から
     // 推測せず 502（Bad Gateway）へ寄せ、上流ボディをそのまま返す（呼び出し側の
     // ボディ判定は 200 でエラーボディを返す稀ケースの保険として残す）。
     const { statusCode, data } = await callUpstream(
-      endpoint, upstream, url, method, headers, body, validate, cacheKey
+      endpoint,
+      upstream,
+      url,
+      method,
+      headers,
+      body,
+      validate,
+      cacheKey,
     );
     if (statusCode < 200 || statusCode >= 300) {
       res.status(502).json(data);
@@ -507,10 +499,10 @@ async function fetchUpstream(
     }
     return data;
   } catch (e) {
-    const timedOut = e instanceof UpstreamError && e.kind === "timeout";
+    const timedOut = e instanceof UpstreamError && e.kind === 'timeout';
     res
       .status(timedOut ? 504 : 502)
-      .json({ error: timedOut ? "upstream timeout" : "upstream error" });
+      .json({ error: timedOut ? 'upstream timeout' : 'upstream error' });
     return UPSTREAM_FAILED;
   }
 }
@@ -522,11 +514,11 @@ async function callUpstream(
   endpoint: string,
   upstream: string,
   url: string,
-  method: "GET" | "POST",
+  method: 'GET' | 'POST',
   headers: Record<string, string>,
   body?: string,
   validate?: (data: unknown) => boolean,
-  cacheKey?: string
+  cacheKey?: string,
 ): Promise<{ statusCode: number; data: unknown }> {
   // 実際に上流を叩いたときだけ計測ログを出すため、requestJsonNew と計測を producer に
   // 閉じ込める。cacheKey 指定時は dedupeUpstream が producer を single-flight の
@@ -542,7 +534,7 @@ async function callUpstream(
         logRequestOutcome({
           endpoint,
           upstream,
-          status: "failure",
+          status: 'failure',
           latencyMs: Date.now() - start,
           httpStatus: statusCode,
         });
@@ -551,7 +543,7 @@ async function callUpstream(
         logRequestOutcome({
           endpoint,
           upstream,
-          status: semanticallyValid ? "success" : "failure",
+          status: semanticallyValid ? 'success' : 'failure',
           latencyMs: Date.now() - start,
           httpStatus: statusCode,
           ...(semanticallyValid ? {} : { semanticFailure: true }),
@@ -559,12 +551,12 @@ async function callUpstream(
       }
       return { statusCode, data };
     } catch (e) {
-      const timedOut = e instanceof UpstreamError && e.kind === "timeout";
-      console.error(`[${endpoint}] upstream ${timedOut ? "timeout" : "error"}:`, e);
+      const timedOut = e instanceof UpstreamError && e.kind === 'timeout';
+      console.error(`[${endpoint}] upstream ${timedOut ? 'timeout' : 'error'}:`, e);
       logRequestOutcome({
         endpoint,
         upstream,
-        status: "failure",
+        status: 'failure',
         latencyMs: Date.now() - start,
         httpStatus: timedOut ? 504 : undefined,
       });
@@ -573,20 +565,16 @@ async function callUpstream(
   };
 
   // TTL 保持は 2xx かつ意味的に有効な成功のみ（失敗を数十秒固定して回復を遅らせない）。
-  return cacheKey
-    ? dedupeUpstream(cacheKey, call, isUpstreamCacheable(validate))
-    : call();
+  return cacheKey ? dedupeUpstream(cacheKey, call, isUpstreamCacheable(validate)) : call();
 }
 
 // dedupeUpstream の TTL 保持可否。2xx かつ（validate があれば）意味的に有効な
 // 成功のみ保持し、非 2xx・意味的失敗は保持しない。
 function isUpstreamCacheable(
-  validate: ((data: unknown) => boolean) | undefined
+  validate: ((data: unknown) => boolean) | undefined,
 ): (result: { statusCode: number; data: unknown }) => boolean {
   return ({ statusCode, data }) =>
-    statusCode >= 200 &&
-    statusCode < 300 &&
-    (validate ? validate(data) : true);
+    statusCode >= 200 && statusCode < 300 && (validate ? validate(data) : true);
 }
 
 // 上流 2xx 応答のボディが「意味的な成功」かを判定する述語群。fetchUpstream の
@@ -597,7 +585,7 @@ function isUpstreamCacheable(
 // Routes API はエラー時 {error:{...}} を返し routes を含まない。
 function isRoutesWalkSuccessBody(data: unknown): boolean {
   const record = data as Record<string, unknown> | null;
-  return !(record && record["error"] && !record["routes"]);
+  return !(record && record['error'] && !record['routes']);
 }
 
 // computeRouteMatrix は成功時に要素オブジェクトの配列を返す。
@@ -630,8 +618,8 @@ function isRoutesMatrixSuccessBody(data: unknown): boolean {
 //   Functions を叩く。localhost オリジンを持てるのは開発者自身の端末で動く
 //   ページだけで、攻撃者が被害者のブラウザに localhost を名乗らせることは
 //   できないため、許可しても許可リストの目的は損なわれない。
-const CORS_ALLOWED_HOST = "aruku.pages.dev";
-const CORS_ALLOWED_DEV_HOSTS = new Set(["localhost", "127.0.0.1"]);
+const CORS_ALLOWED_HOST = 'aruku.pages.dev';
+const CORS_ALLOWED_DEV_HOSTS = new Set(['localhost', '127.0.0.1']);
 // プリフライト結果の再利用可能秒数。未設定だと X-Firebase-AppCheck 付きの GET が
 // 毎回 OPTIONS を伴い、Function 呼び出し数と体感レイテンシが倍になる。
 const CORS_PREFLIGHT_MAX_AGE_S = 3600;
@@ -657,15 +645,12 @@ export function isAllowedOrigin(origin: string): boolean {
   // ACAO はこの文字列をそのまま echo するため、Origin の正規形（scheme://host[:port]）
   // 以外は弾く。パスや userinfo を含む値をヘッダへ書き戻さないための境界。
   if (url.origin !== origin) return false;
-  if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
   // ループバックだけは平文も許す。そのオリジンを名乗れるのは開発者自身の端末で
   // 動くページに限られ、名前解決を攻撃者が握る余地が無い。
   if (CORS_ALLOWED_DEV_HOSTS.has(url.hostname)) return true;
-  if (url.protocol !== "https:") return false;
-  return (
-    url.hostname === CORS_ALLOWED_HOST ||
-    url.hostname.endsWith(`.${CORS_ALLOWED_HOST}`)
-  );
+  if (url.protocol !== 'https:') return false;
+  return url.hostname === CORS_ALLOWED_HOST || url.hostname.endsWith(`.${CORS_ALLOWED_HOST}`);
 }
 
 /**
@@ -675,18 +660,18 @@ export function isAllowedOrigin(origin: string): boolean {
 function handleCors(req: Request, res: Response): boolean {
   // 応答は Origin ごとに変わる。共有キャッシュが別オリジン向けの ACAO を
   // 使い回さないよう、許可・不許可にかかわらず必ず付ける。
-  res.set("Vary", "Origin");
-  const origin = req.header("Origin");
+  res.set('Vary', 'Origin');
+  const origin = req.header('Origin');
   if (origin && isAllowedOrigin(origin)) {
-    res.set("Access-Control-Allow-Origin", origin);
+    res.set('Access-Control-Allow-Origin', origin);
   }
 
-  if (req.method !== "OPTIONS") return false;
+  if (req.method !== 'OPTIONS') return false;
 
-  res.set("Access-Control-Allow-Methods", "GET");
-  res.set("Access-Control-Allow-Headers", "Content-Type, X-Firebase-AppCheck");
-  res.set("Access-Control-Max-Age", String(CORS_PREFLIGHT_MAX_AGE_S));
-  res.status(204).send("");
+  res.set('Access-Control-Allow-Methods', 'GET');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, X-Firebase-AppCheck');
+  res.set('Access-Control-Max-Age', String(CORS_PREFLIGHT_MAX_AGE_S));
+  res.status(204).send('');
   return true;
 }
 
@@ -695,10 +680,10 @@ function handleCors(req: Request, res: Response): boolean {
  * { latitude, longitude } を返し、欠落・不正なら undefined。
  */
 function parseLatLon(
-  query: Record<string, string | undefined>
+  query: Record<string, string | undefined>,
 ): { latitude: number; longitude: number } | undefined {
-  const lat = Number(query["lat"]);
-  const lon = Number(query["lon"]);
+  const lat = Number(query['lat']);
+  const lon = Number(query['lon']);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return undefined;
   return { latitude: lat, longitude: lon };
 }
@@ -709,15 +694,16 @@ function parseLatLon(
  * radius は任意（既定 PLACES_BIAS_RADIUS_M）で 0 < r <= 50000 にクランプする。
  */
 function buildLocationBias(
-  query: Record<string, string | undefined>
+  query: Record<string, string | undefined>,
 ): { circle: { center: { latitude: number; longitude: number }; radius: number } } | undefined {
   const center = parseLatLon(query);
   if (!center) return undefined;
 
-  const requested = Number(query["radius"]);
-  const radius = Number.isFinite(requested) && requested > 0
-    ? Math.min(requested, PLACES_BIAS_RADIUS_M)
-    : PLACES_BIAS_RADIUS_M;
+  const requested = Number(query['radius']);
+  const radius =
+    Number.isFinite(requested) && requested > 0
+      ? Math.min(requested, PLACES_BIAS_RADIUS_M)
+      : PLACES_BIAS_RADIUS_M;
 
   return { circle: { center, radius } };
 }
@@ -734,10 +720,7 @@ type RawHandler = (req: Request, res: Response) => void | Promise<void>;
 // search_request（#274・上流区間のみ）とは別イベント（#309・logRequestLatency）にして
 // 計上を汚さない。上流を一度も叩かない要求（キャッシュヒット・早期 return）でも出す。
 // テスト互換のため export する（例外時の 500 記録を直接検証する）。
-export function withRequestLatency(
-  endpoint: string,
-  handler: RawHandler
-): RawHandler {
+export function withRequestLatency(endpoint: string, handler: RawHandler): RawHandler {
   return async (req, res) => {
     const start = Date.now();
     let threw = false;
@@ -748,13 +731,12 @@ export function withRequestLatency(
       throw e;
     } finally {
       // OPTIONS プリフライトは実検索ではなくレイテンシ分布を汚すため除外する。
-      if (req.method !== "OPTIONS") {
+      if (req.method !== 'OPTIONS') {
         // ハンドラが status を書く前に throw すると Express は既定の 200 のまま finally に
         // 入り、プラットフォームが後から 500 に変換する。ここで res.statusCode をそのまま
         // 信じると失敗リクエストを 200 として記録し、status 別のレイテンシ/エラー分析から
         // 隠してしまう。未書き込み（<400）のまま throw した経路は 500 として記録する。
-        const written =
-          typeof res.statusCode === "number" ? res.statusCode : 200;
+        const written = typeof res.statusCode === 'number' ? res.statusCode : 200;
         const appCheckMs = appCheckMsByRes.get(res);
         appCheckMsByRes.delete(res);
         logRequestLatency({
@@ -769,152 +751,149 @@ export function withRequestLatency(
 }
 
 /** Places Autocomplete / Details プロキシ */
-export const placesProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKeySecret] }, withRequestLatency("placesProxy", async (req, res) => {
-  if (handleCors(req, res)) return;
+export const placesProxy = onRequest(
+  { secrets: [mapsKeySecret, rateLimitHmacKeySecret] },
+  withRequestLatency('placesProxy', async (req, res) => {
+    if (handleCors(req, res)) return;
 
-  if (!(await verifyAppCheck(req, res, { endpoint: "placesProxy" }))) return;
+    if (!(await verifyAppCheck(req, res, { endpoint: 'placesProxy' }))) return;
 
-  if (!(await checkRateLimit(clientIp(req)))) {
-    res.status(429).json({ error: "Too many requests" });
-    return;
-  }
-
-  const action = req.query["action"] as string | undefined;
-
-  if (action === "autocomplete") {
-    const input = req.query["input"] as string | undefined;
-    const language = (req.query["language"] as string | undefined) ?? "ja";
-    const components =
-      (req.query["components"] as string | undefined) ?? "country:jp";
-    if (!input) {
-      res.status(400).json({ error: "input is required" });
+    if (!(await checkRateLimit(clientIp(req)))) {
+      res.status(429).json({ error: 'Too many requests' });
       return;
     }
-    // レガシー components="country:jp|country:us" を新 API の
-    // includedRegionCodes へ変換する。
-    const regionCodes = components
-      .split("|")
-      .map((c) => c.trim())
-      .filter((c) => c.startsWith("country:"))
-      .map((c) => c.slice("country:".length).toLowerCase())
-      .filter((c) => c.length > 0);
 
-    // 現在地（lat/lon）が渡されていれば locationBias（円）で近隣を優先する。
-    // locationBias は soft bias で並び順は関連度のまま＝「近い順」にはならない（#146 実測）。
-    // 距離順が要るときは下の origin が付ける distanceMeters をクライアントが再ソートに使う。
-    const locationBias = buildLocationBias(
-      req.query as Record<string, string | undefined>
-    );
-    // 同じ現在地を origin としても渡し、各候補に distanceMeters を付ける（#146 C案）。
-    // クライアントはこの距離で候補を距離昇順へ再ソートできる（typeahead を壊さない）。
-    const origin = parseLatLon(
-      req.query as Record<string, string | undefined>
-    );
+    const action = req.query['action'] as string | undefined;
 
-    const data = await fetchUpstream(
-      res,
-      "placesProxy.autocomplete",
-      "places",
-      PLACES_AUTOCOMPLETE_NEW_URL,
-      "POST",
-      {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": getMapsApiKey(),
-      },
-      JSON.stringify({
-        input,
-        languageCode: language,
-        ...(regionCodes.length > 0
-          ? { includedRegionCodes: regionCodes }
-          : {}),
-        ...(locationBias ? { locationBias } : {}),
-        ...(origin ? { origin } : {}),
-      })
-    );
-    if (data === UPSTREAM_FAILED) return;
-    res.json(toLegacyAutocomplete(data));
-    return;
-  }
-
-  if (action === "details") {
-    const placeId = req.query["place_id"] as string | undefined;
-    if (!placeId) {
-      res.status(400).json({ error: "place_id is required" });
-      return;
-    }
-    const data = await fetchUpstream(
-      res,
-      "placesProxy.details",
-      "places",
-      `${PLACES_DETAILS_NEW_BASE}/${encodeURIComponent(placeId)}`,
-      "GET",
-      {
-        "X-Goog-Api-Key": getMapsApiKey(),
-        "X-Goog-FieldMask": "location",
+    if (action === 'autocomplete') {
+      const input = req.query['input'] as string | undefined;
+      const language = (req.query['language'] as string | undefined) ?? 'ja';
+      const components = (req.query['components'] as string | undefined) ?? 'country:jp';
+      if (!input) {
+        res.status(400).json({ error: 'input is required' });
+        return;
       }
-    );
-    if (data === UPSTREAM_FAILED) return;
-    res.json(toLegacyDetails(data));
-    return;
-  }
+      // レガシー components="country:jp|country:us" を新 API の
+      // includedRegionCodes へ変換する。
+      const regionCodes = components
+        .split('|')
+        .map((c) => c.trim())
+        .filter((c) => c.startsWith('country:'))
+        .map((c) => c.slice('country:'.length).toLowerCase())
+        .filter((c) => c.length > 0);
 
-  res.status(400).json({ error: "action must be autocomplete or details" });
-}));
+      // 現在地（lat/lon）が渡されていれば locationBias（円）で近隣を優先する。
+      // locationBias は soft bias で並び順は関連度のまま＝「近い順」にはならない（#146 実測）。
+      // 距離順が要るときは下の origin が付ける distanceMeters をクライアントが再ソートに使う。
+      const locationBias = buildLocationBias(req.query as Record<string, string | undefined>);
+      // 同じ現在地を origin としても渡し、各候補に distanceMeters を付ける（#146 C案）。
+      // クライアントはこの距離で候補を距離昇順へ再ソートできる（typeahead を壊さない）。
+      const origin = parseLatLon(req.query as Record<string, string | undefined>);
+
+      const data = await fetchUpstream(
+        res,
+        'placesProxy.autocomplete',
+        'places',
+        PLACES_AUTOCOMPLETE_NEW_URL,
+        'POST',
+        {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': getMapsApiKey(),
+        },
+        JSON.stringify({
+          input,
+          languageCode: language,
+          ...(regionCodes.length > 0 ? { includedRegionCodes: regionCodes } : {}),
+          ...(locationBias ? { locationBias } : {}),
+          ...(origin ? { origin } : {}),
+        }),
+      );
+      if (data === UPSTREAM_FAILED) return;
+      res.json(toLegacyAutocomplete(data));
+      return;
+    }
+
+    if (action === 'details') {
+      const placeId = req.query['place_id'] as string | undefined;
+      if (!placeId) {
+        res.status(400).json({ error: 'place_id is required' });
+        return;
+      }
+      const data = await fetchUpstream(
+        res,
+        'placesProxy.details',
+        'places',
+        `${PLACES_DETAILS_NEW_BASE}/${encodeURIComponent(placeId)}`,
+        'GET',
+        {
+          'X-Goog-Api-Key': getMapsApiKey(),
+          'X-Goog-FieldMask': 'location',
+        },
+      );
+      if (data === UPSTREAM_FAILED) return;
+      res.json(toLegacyDetails(data));
+      return;
+    }
+
+    res.status(400).json({ error: 'action must be autocomplete or details' });
+  }),
+);
 
 /**
  * Google Routes 徒歩プロキシ。start/goal（"lat,lng"）から computeRoutes を
  * travelMode=WALK で叩き、街路追従の encodedPolyline・距離・所要時間を返す。
  * レスポンスは無加工で返す（変換はクライアント側）。
  */
-export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHmacKeySecret] }, withRequestLatency("googleWalkProxy", async (req, res) => {
-  if (handleCors(req, res)) return;
+export const googleWalkProxy = onRequest(
+  { secrets: [mapsKeySecret, rateLimitHmacKeySecret] },
+  withRequestLatency('googleWalkProxy', async (req, res) => {
+    if (handleCors(req, res)) return;
 
-  if (!(await verifyAppCheck(req, res, { endpoint: "googleWalkProxy" }))) return;
+    if (!(await verifyAppCheck(req, res, { endpoint: 'googleWalkProxy' }))) return;
 
-  if (!(await checkRateLimit(clientIp(req), WALK_RATE_LIMIT))) {
-    res.status(429).json({ error: "Too many requests" });
-    return;
-  }
+    if (!(await checkRateLimit(clientIp(req), WALK_RATE_LIMIT))) {
+      res.status(429).json({ error: 'Too many requests' });
+      return;
+    }
 
-  const start = parseLatLng(req.query["start"] as string | undefined);
-  const goal = parseLatLng(req.query["goal"] as string | undefined);
+    const start = parseLatLng(req.query['start'] as string | undefined);
+    const goal = parseLatLng(req.query['goal'] as string | undefined);
 
-  if (!start || !goal) {
-    res
-      .status(400)
-      .json({ error: "start and goal are required as 'lat,lng'" });
-    return;
-  }
+    if (!start || !goal) {
+      res.status(400).json({ error: "start and goal are required as 'lat,lng'" });
+      return;
+    }
 
-  const data = await fetchUpstream(
-    res,
-    "googleWalkProxy",
-    "routes-walk",
-    ROUTES_COMPUTE_URL,
-    "POST",
-    {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": getMapsApiKey(),
-      "X-Goog-FieldMask": ROUTES_FIELD_MASK,
-    },
-    buildRoutesWalkBody(start, goal),
-    isRoutesWalkSuccessBody,
-    walkCacheKey(start, goal)
-  );
-  if (data === UPSTREAM_FAILED) return;
-
-  // 認証・クォータ等の失敗を「ルートなし」と区別するため 502 で返す。
-  if (!isRoutesWalkSuccessBody(data)) {
-    console.error(
-      "[googleWalkProxy] Routes API error:",
-      JSON.stringify((data as Record<string, unknown>)["error"])
+    const data = await fetchUpstream(
+      res,
+      'googleWalkProxy',
+      'routes-walk',
+      ROUTES_COMPUTE_URL,
+      'POST',
+      {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': getMapsApiKey(),
+        'X-Goog-FieldMask': ROUTES_FIELD_MASK,
+      },
+      buildRoutesWalkBody(start, goal),
+      isRoutesWalkSuccessBody,
+      walkCacheKey(start, goal),
     );
-    res.status(502).json(data);
-    return;
-  }
+    if (data === UPSTREAM_FAILED) return;
 
-  res.json(data);
-}));
+    // 認証・クォータ等の失敗を「ルートなし」と区別するため 502 で返す。
+    if (!isRoutesWalkSuccessBody(data)) {
+      console.error(
+        '[googleWalkProxy] Routes API error:',
+        JSON.stringify((data as Record<string, unknown>)['error']),
+      );
+      res.status(502).json(data);
+      return;
+    }
+
+    res.json(data);
+  }),
+);
 
 /**
  * Google Routes 徒歩マトリクスプロキシ（#118）。origins/destinations（"lat,lng" を
@@ -926,28 +905,22 @@ export const googleWalkProxy = onRequest({ secrets: [mapsKeySecret, rateLimitHma
  */
 export const googleWalkMatrixProxy = onRequest(
   { secrets: [mapsKeySecret, rateLimitHmacKeySecret] },
-  withRequestLatency("googleWalkMatrixProxy", async (req, res) => {
+  withRequestLatency('googleWalkMatrixProxy', async (req, res) => {
     if (handleCors(req, res)) return;
 
-    if (
-      !(await verifyAppCheck(req, res, { endpoint: "googleWalkMatrixProxy" }))
-    )
-      return;
+    if (!(await verifyAppCheck(req, res, { endpoint: 'googleWalkMatrixProxy' }))) return;
 
     if (!(await checkRateLimit(clientIp(req), WALK_RATE_LIMIT))) {
-      res.status(429).json({ error: "Too many requests" });
+      res.status(429).json({ error: 'Too many requests' });
       return;
     }
 
-    const origins = parseLatLngList(req.query["origins"] as string | undefined);
-    const destinations = parseLatLngList(
-      req.query["destinations"] as string | undefined
-    );
+    const origins = parseLatLngList(req.query['origins'] as string | undefined);
+    const destinations = parseLatLngList(req.query['destinations'] as string | undefined);
 
     if (!origins || !destinations) {
       res.status(400).json({
-        error:
-          "origins and destinations are required as ';'-separated 'lat,lng'",
+        error: "origins and destinations are required as ';'-separated 'lat,lng'",
       });
       return;
     }
@@ -963,18 +936,18 @@ export const googleWalkMatrixProxy = onRequest(
 
     const data = await fetchUpstream(
       res,
-      "googleWalkMatrixProxy",
-      "routes-matrix",
+      'googleWalkMatrixProxy',
+      'routes-matrix',
       ROUTES_MATRIX_URL,
-      "POST",
+      'POST',
       {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": getMapsApiKey(),
-        "X-Goog-FieldMask": ROUTES_MATRIX_FIELD_MASK,
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': getMapsApiKey(),
+        'X-Goog-FieldMask': ROUTES_MATRIX_FIELD_MASK,
       },
       buildRoutesMatrixBody(origins, destinations),
       isRoutesMatrixSuccessBody,
-      matrixCacheKey(origins, destinations)
+      matrixCacheKey(origins, destinations),
     );
     if (data === UPSTREAM_FAILED) return;
 
@@ -985,33 +958,33 @@ export const googleWalkMatrixProxy = onRequest(
     if (!isRoutesMatrixSuccessBody(data)) {
       const record = data as Record<string, unknown> | null;
       console.error(
-        "[googleWalkMatrixProxy] Routes API non-array response:",
-        JSON.stringify(record && record["error"] ? record["error"] : data)
+        '[googleWalkMatrixProxy] Routes API non-array response:',
+        JSON.stringify(record && record['error'] ? record['error'] : data),
       );
       res.status(502).json(data);
       return;
     }
 
     res.json(data);
-  })
+  }),
 );
 
 // 厳密走査（#456）が読む時刻表パックを ODPT の GTFS から作り直す（#457）。
 // 時刻表はブラウザへ渡さない（基本ライセンス第8条4(1)・チャレンジ限定データの第三者提供の禁止）
 // ので、置き場所は非公開バケット。名前はリポジトリに書かず、デプロイ時に CI が Actions の変数から渡す
 // （.github/workflows/deploy-functions.yml）。
-const odptCenterKeySecret = defineSecret("ODPT_CENTER_KEY");
-const odptChallengeKeySecret = defineSecret("ODPT_CHALLENGE_KEY");
-const timetablePackBucket = defineString("TIMETABLE_PACK_BUCKET", {
-  description: "時刻表パックを置く非公開の Cloud Storage バケット名",
+const odptCenterKeySecret = defineSecret('ODPT_CENTER_KEY');
+const odptChallengeKeySecret = defineSecret('ODPT_CHALLENGE_KEY');
+const timetablePackBucket = defineString('TIMETABLE_PACK_BUCKET', {
+  description: '時刻表パックを置く非公開の Cloud Storage バケット名',
 });
 
 export const refreshTimetablePacks = onSchedule(
   {
-    schedule: "23 4 * * *",
-    timeZone: "Asia/Tokyo",
+    schedule: '23 4 * * *',
+    timeZone: 'Asia/Tokyo',
     secrets: [odptCenterKeySecret, odptChallengeKeySecret],
-    memory: "2GiB",
+    memory: '2GiB',
     timeoutSeconds: 540,
     maxInstances: 1,
   },
@@ -1026,24 +999,24 @@ export const refreshTimetablePacks = onSchedule(
       now: () => new Date(),
       upload: (path, gzipped) =>
         bucket.file(path).save(Buffer.from(gzipped), {
-          contentType: "application/gzip",
+          contentType: 'application/gzip',
           resumable: false,
         }),
       log: (event) => {
-        if (event.status === "failure" || event.status === "skipped") {
+        if (event.status === 'failure' || event.status === 'skipped') {
           // logger.error は Error スタックを合成して Error Reporting に計上される（metrics.ts 参照）。
-          logger.write({ severity: "WARNING", message: String(event.event), ...event });
+          logger.write({ severity: 'WARNING', message: String(event.event), ...event });
         } else {
           logger.info(String(event.event), event);
         }
       },
     });
-    const skipped = results.filter((r) => r.status === "skipped").map((r) => r.group);
+    const skipped = results.filter((r) => r.status === 'skipped').map((r) => r.group);
     if (skipped.length > 0) {
       // 実行を失敗として残し、気付けるようにする。前回のパックは残っているので検索は止まらない。
-      throw new Error(`時刻表パックを更新できなかったグループ: ${skipped.join(", ")}`);
+      throw new Error(`時刻表パックを更新できなかったグループ: ${skipped.join(', ')}`);
     }
-  }
+  },
 );
 
 // 厳密走査（#456）を検索1回ぶん回し、徒歩最大の候補だけを返す（#459）。時刻表は返さない。
@@ -1053,7 +1026,10 @@ function newScanDaySource() {
   return createScanDaySource({
     read: async (path) => {
       try {
-        const [bytes] = await getStorage().bucket(timetablePackBucket.value()).file(path).download();
+        const [bytes] = await getStorage()
+          .bucket(timetablePackBucket.value())
+          .file(path)
+          .download();
         return new Uint8Array(bytes);
       } catch (e) {
         if ((e as { code?: unknown }).code === 404) return null;
@@ -1061,8 +1037,12 @@ function newScanDaySource() {
       }
     },
     log: (event) => {
-      if (event.status === "failure" || event.status === "missing" || event.status === "throttled") {
-        logger.write({ severity: "WARNING", message: String(event.event), ...event });
+      if (
+        event.status === 'failure' ||
+        event.status === 'missing' ||
+        event.status === 'throttled'
+      ) {
+        logger.write({ severity: 'WARNING', message: String(event.event), ...event });
       } else {
         logger.info(String(event.event), event);
       }
@@ -1091,29 +1071,29 @@ function isExactMatrixSuccessBody(data: unknown): boolean {
 /** status は google.rpc.Status。OK（code 0）は JSON から省かれるので、0 以外の code だけを失敗と読む。 */
 function isFailedMatrixElement(e: unknown): boolean {
   const status = (e as { status?: { code?: unknown } } | null)?.status;
-  return typeof status?.code === "number" && status.code !== 0;
+  return typeof status?.code === 'number' && status.code !== 0;
 }
 
 async function measureWalks(origins: LatLng[], destinations: LatLng[]): Promise<MatrixElement[]> {
   const o = origins.map(toWaypoint);
   const d = destinations.map(toWaypoint);
   const { statusCode, data } = await callUpstream(
-    "exactWalkMax",
-    "routes-matrix",
+    'exactWalkMax',
+    'routes-matrix',
     ROUTES_MATRIX_URL,
-    "POST",
+    'POST',
     {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": getMapsApiKey(),
-      "X-Goog-FieldMask": EXACT_MATRIX_FIELD_MASK,
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': getMapsApiKey(),
+      'X-Goog-FieldMask': EXACT_MATRIX_FIELD_MASK,
     },
     buildRoutesMatrixBody(o, d),
     isExactMatrixSuccessBody,
     // FieldMask が違うので、googleWalkMatrixProxy の応答（status を持たない）と共有しない。
-    `exact-${matrixCacheKey(o, d)}`
+    `exact-${matrixCacheKey(o, d)}`,
   );
   if (statusCode < 200 || statusCode >= 300 || !isExactMatrixSuccessBody(data)) {
-    throw new UpstreamError(`matrix status ${statusCode}`, "status");
+    throw new UpstreamError(`matrix status ${statusCode}`, 'status');
   }
   return (data as unknown[]).flatMap(toMatrixElement);
 }
@@ -1124,35 +1104,35 @@ async function measureWalks(origins: LatLng[], destinations: LatLng[]): Promise<
  */
 export function toMatrixElement(e: unknown): MatrixElement[] {
   const r = (e ?? {}) as Record<string, unknown>;
-  const m = typeof r["duration"] === "string" ? /^(\d+(?:\.\d+)?)s$/.exec(r["duration"]) : null;
+  const m = typeof r['duration'] === 'string' ? /^(\d+(?:\.\d+)?)s$/.exec(r['duration']) : null;
   if (m === null) return [];
-  const int = (v: unknown) => (typeof v === "number" && Number.isInteger(v) ? v : 0);
+  const int = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) ? v : 0);
   return [
     {
-      originIndex: int(r["originIndex"]),
-      destinationIndex: int(r["destinationIndex"]),
+      originIndex: int(r['originIndex']),
+      destinationIndex: int(r['destinationIndex']),
       durationSec: Number(m[1]),
-      distanceMeters: typeof r["distanceMeters"] === "number" ? r["distanceMeters"] : 0,
+      distanceMeters: typeof r['distanceMeters'] === 'number' ? r['distanceMeters'] : 0,
     },
   ];
 }
 
 export const exactWalkMax = onRequest(
-  { secrets: [mapsKeySecret, rateLimitHmacKeySecret], memory: "1GiB" },
-  withRequestLatency("exactWalkMax", async (req, res) => {
+  { secrets: [mapsKeySecret, rateLimitHmacKeySecret], memory: '1GiB' },
+  withRequestLatency('exactWalkMax', async (req, res) => {
     if (handleCors(req, res)) return;
 
-    if (!(await verifyAppCheck(req, res, { endpoint: "exactWalkMax" }))) return;
+    if (!(await verifyAppCheck(req, res, { endpoint: 'exactWalkMax' }))) return;
 
     // scope を分けずに徒歩・マトリクスのプロキシと同じドキュメントで数えると、同じ検索で
     // 並列に叩かれるため Firestore トランザクションが競合し、再試行が約1秒ずつ積み上がる。
-    if (!(await checkRateLimit(clientIp(req), RATE_LIMIT, "exactWalkMax"))) {
-      res.status(429).json({ error: "Too many requests" });
+    if (!(await checkRateLimit(clientIp(req), RATE_LIMIT, 'exactWalkMax'))) {
+      res.status(429).json({ error: 'Too many requests' });
       return;
     }
 
     const parsed = parseExactWalkMaxQuery(req.query, new Date());
-    if ("error" in parsed) {
+    if ('error' in parsed) {
       res.status(400).json({ error: parsed.error });
       return;
     }
@@ -1189,7 +1169,7 @@ export const exactWalkMax = onRequest(
         },
       });
       if (body === null) {
-        res.status(503).json({ error: "timetable unavailable" });
+        res.status(503).json({ error: 'timetable unavailable' });
         return;
       }
       const totalMs = Date.now() - start;
@@ -1206,10 +1186,10 @@ export const exactWalkMax = onRequest(
       });
       res.json(body);
     } catch (e) {
-      const timedOut = e instanceof UpstreamError && e.kind === "timeout";
+      const timedOut = e instanceof UpstreamError && e.kind === 'timeout';
       res
         .status(timedOut ? 504 : 502)
-        .json({ error: timedOut ? "upstream timeout" : "upstream error" });
+        .json({ error: timedOut ? 'upstream timeout' : 'upstream error' });
     }
-  })
+  }),
 );

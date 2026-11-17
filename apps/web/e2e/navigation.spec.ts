@@ -23,15 +23,11 @@ test.beforeEach(async ({ page }) => {
 });
 
 /// このタブが持つ**アプリの**履歴エントリ数。不変条件は「常に高々 [home, 子] の2つ」。
-async function appHistoryDepth(
-  page: import('@playwright/test').Page,
-): Promise<number> {
+async function appHistoryDepth(page: import('@playwright/test').Page): Promise<number> {
   return (await page.evaluate(() => window.history.length)) - blankEntry;
 }
 
-test('アプリ内で開いた子から戻ると home へ降り、履歴は [home, 子] のまま', async ({
-  page,
-}) => {
+test('アプリ内で開いた子から戻ると home へ降り、履歴は [home, 子] のまま', async ({ page }) => {
   await page.goto('/');
   await expect(page).toHaveURL('/home');
   expect(await appHistoryDepth(page)).toBe(1);

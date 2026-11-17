@@ -16,11 +16,11 @@ export function readCsv(
   let row: string[] = [];
   const get: CsvField = (column) => {
     const i = index.get(column);
-    return i === undefined ? "" : (row[i] ?? "");
+    return i === undefined ? '' : (row[i] ?? '');
   };
 
   const emit = (fields: string[]) => {
-    if (fields.length === 1 && fields[0] === "") return;
+    if (fields.length === 1 && fields[0] === '') return;
     if (columns === null) {
       columns = fields;
       index = new Map(fields.map((c, i) => [c, i]));
@@ -41,7 +41,7 @@ export function readCsv(
     let value: string;
     if (src[i] === '"') {
       let j = i + 1;
-      let buf = "";
+      let buf = '';
       for (;;) {
         const q = src.indexOf('"', j);
         if (q < 0) {
@@ -62,7 +62,7 @@ export function readCsv(
       i = j;
     } else {
       let j = i;
-      while (j < n && src[j] !== "," && src[j] !== "\n" && src[j] !== "\r") j++;
+      while (j < n && src[j] !== ',' && src[j] !== '\n' && src[j] !== '\r') j++;
       value = src.slice(i, j);
       i = j;
     }
@@ -73,13 +73,13 @@ export function readCsv(
       fields = [];
       break;
     }
-    if (src[i] === ",") {
+    if (src[i] === ',') {
       i++;
-      if (i === n) fields.push("");
+      if (i === n) fields.push('');
       continue;
     }
-    if (src[i] === "\r") i++;
-    if (src[i] === "\n") i++;
+    if (src[i] === '\r') i++;
+    if (src[i] === '\n') i++;
     emit(fields);
     fields = [];
   }

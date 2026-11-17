@@ -19,8 +19,7 @@ export class Stopwatch {
   }
 
   get elapsedMilliseconds(): number {
-    const running =
-      this.startedAt === null ? 0 : performance.now() - this.startedAt;
+    const running = this.startedAt === null ? 0 : performance.now() - this.startedAt;
     return Math.trunc(this.accumulated + running);
   }
 }

@@ -49,7 +49,8 @@ export function localExactWalkMax(
     const parsed = parseExactWalkMaxQuery(Object.fromEntries(url.searchParams), init.now());
     if ('error' in parsed) return { status: 400, body: JSON.stringify({ error: parsed.error }) };
     const body = await findExactWalkMax(parsed, { day, measure: syntheticMatrix });
-    if (body === null) return { status: 503, body: JSON.stringify({ error: 'timetable unavailable' }) };
+    if (body === null)
+      return { status: 503, body: JSON.stringify({ error: 'timetable unavailable' }) };
     return { status: 200, body: JSON.stringify(body) };
   };
 }

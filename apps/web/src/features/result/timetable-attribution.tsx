@@ -20,8 +20,13 @@ export function TimetableAttribution({ sources }: { sources: TimetableSource[] }
   const miniTokyo3d = sources.find((s) => s.feedId.startsWith(miniTokyo3dFeedPrefix));
   const usesToei = odpt.some((s) => s.feedId === toeiFeedId);
   const rows = [
-    ...odpt.map((s) => ({ label: ja.timetableFeedNames[s.feedId] ?? s.feedId, fetchedAt: s.fetchedAt })),
-    ...(miniTokyo3d === undefined ? [] : [{ label: miniTokyo3dLabel, fetchedAt: miniTokyo3d.fetchedAt }]),
+    ...odpt.map((s) => ({
+      label: ja.timetableFeedNames[s.feedId] ?? s.feedId,
+      fetchedAt: s.fetchedAt,
+    })),
+    ...(miniTokyo3d === undefined
+      ? []
+      : [{ label: miniTokyo3dLabel, fetchedAt: miniTokyo3d.fetchedAt }]),
   ];
 
   return (

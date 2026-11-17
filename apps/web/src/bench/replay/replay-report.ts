@@ -42,10 +42,7 @@ const routeOf = (r: BenchRecord): string | null =>
       ]);
 
 /// 両方の JSONL にある検索だけを、[a] の並び順で返す。
-export function compareRuns(
-  a: readonly ReplayRecord[],
-  b: readonly ReplayRecord[],
-): ComparedRow[] {
+export function compareRuns(a: readonly ReplayRecord[], b: readonly ReplayRecord[]): ComparedRow[] {
   const byKey = new Map(b.map((r) => [keyOf(r), r]));
   return a.flatMap((ra) => {
     const rb = byKey.get(keyOf(ra));
@@ -83,7 +80,8 @@ const mean = (xs: readonly number[]): number | null =>
   xs.length === 0 ? null : xs.reduce((s, x) => s + x, 0) / xs.length;
 
 const sec = (ms: number | null): string => (ms === null ? '—' : `${(ms / 1000).toFixed(1)}s`);
-const signedSec = (ms: number): string => `${ms < 0 ? '-' : '+'}${(Math.abs(ms) / 1000).toFixed(1)}s`;
+const signedSec = (ms: number): string =>
+  `${ms < 0 ? '-' : '+'}${(Math.abs(ms) / 1000).toFixed(1)}s`;
 const present = (xs: readonly (number | null)[]): number[] =>
   xs.filter((x): x is number => x !== null);
 
@@ -99,10 +97,13 @@ export function replayReport(
 ): string {
   const rows = compareRuns(a, b);
   const lines: string[] = [];
-  lines.push(`| 組 | 出発 | 倍率 | ${labels.a} | ${labels.b} | 差 | guidance ${labels.a}→${labels.b} | 経路 |`);
+  lines.push(
+    `| 組 | 出発 | 倍率 | ${labels.a} | ${labels.b} | 差 | guidance ${labels.a}→${labels.b} | 経路 |`,
+  );
   lines.push('|---|---|---|---|---|---|---|---|');
   for (const r of rows) {
-    const diff = r.totalMsA !== null && r.totalMsB !== null ? signedSec(r.totalMsB - r.totalMsA) : '—';
+    const diff =
+      r.totalMsA !== null && r.totalMsB !== null ? signedSec(r.totalMsB - r.totalMsA) : '—';
     lines.push(
       `| ${r.pair} | ${r.slot} | ${r.ratio} | ${sec(r.totalMsA)} | ${sec(r.totalMsB)} | ${diff} | ` +
         `${r.guidanceA ?? '—'}→${r.guidanceB ?? '—'} | ${r.sameRoute ? '同じ' : '違う'} |`,

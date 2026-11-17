@@ -102,10 +102,7 @@ async function mainFlow(page: Page) {
   expect(modes).toEqual(new Set(['walking', 'transit']));
 }
 
-test('上流へ渡す照会の中身が、画面で選んだ地点と一致する', async ({
-  page,
-  upstream,
-}) => {
+test('上流へ渡す照会の中身が、画面で選んだ地点と一致する', async ({ page, upstream }) => {
   await page.goto('/');
   await expect(page.getByRole('button', { name: '出発 現在地' })).toBeVisible();
 
@@ -116,14 +113,10 @@ test('上流へ渡す照会の中身が、画面で選んだ地点と一致す�
   await expect(page).toHaveURL('/home/result');
 
   // 目的地の座標は autocomplete では返らず、確定時の details で補う2段フロー。
-  expect(upstream.places.map((u) => u.searchParams.get('action'))).toContain(
-    'details',
-  );
+  expect(upstream.places.map((u) => u.searchParams.get('action'))).toContain('details');
 
   // 主照会（出発アンカー）。乗車駅探索の引き直しも同じ type なので、最初の1本を見る。
-  const departure = upstream.guidance.filter(
-    (u) => u.searchParams.get('type') === 'departure',
-  )[0];
+  const departure = upstream.guidance.filter((u) => u.searchParams.get('type') === 'departure')[0];
 
   expect(departure.searchParams.get('from')).toBe(
     `geo:${currentPosition.latitude},${currentPosition.longitude}`,
@@ -140,9 +133,7 @@ test('上流へ渡す照会の中身が、画面で選んだ地点と一致す�
 
   // 到着アンカーの第2波（#376）も出ている。並列に投げる設計なので、落ちると
   // 体感が上流1本ぶん遅くなるだけで、画面は何も言わない。
-  expect(
-    upstream.guidance.some((u) => u.searchParams.get('type') === 'arrival'),
-  ).toBe(true);
+  expect(upstream.guidance.some((u) => u.searchParams.get('type') === 'arrival')).toBe(true);
 
   // 徒歩は実測している。マトリクスと個別実測のどちらも通らない検索は、直線推定の
   // まま確定した経路——実街路では大きく楽観に倒れる（#254）。

@@ -10,12 +10,7 @@ import type { PlanArgs } from '@aruku/engine/services/route-service';
 import { dateTime } from '@aruku/engine/time';
 
 import { budgetFor, dayOffsetBetween, timeValuesFor, type BenchSlot } from './bench-cases';
-import {
-  parseMetricsLine,
-  summarizePlan,
-  wallClockDate,
-  type BenchRecord,
-} from './bench-record';
+import { parseMetricsLine, summarizePlan, wallClockDate, type BenchRecord } from './bench-record';
 import type { OdPair } from './od-pairs';
 
 export interface BenchConfig {
