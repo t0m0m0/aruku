@@ -1,4 +1,5 @@
 import { dartRound } from '../dart-number';
+import { isRecord } from '../json';
 import type { GeoPoint } from '../models/geo-point';
 
 /// 徒歩マトリクス1要求あたりの要素数（origins × destinations）の上限。サーバ側
@@ -90,9 +91,8 @@ export function applyWalkMatrixRows(
   measured: Map<string, number>,
 ): void {
   if (rows === null) return;
-  for (const e of rows) {
-    if (typeof e !== 'object' || e === null || Array.isArray(e)) continue;
-    const row = e as Record<string, unknown>;
+  for (const row of rows) {
+    if (!isRecord(row)) continue;
     // proto3 の JSON は既定値 0 のフィールドを省くので、欠落は 0 番として読む。
     const oi = indexOrZero(row['originIndex']);
     const di = indexOrZero(row['destinationIndex']);

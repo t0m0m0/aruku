@@ -1135,9 +1135,9 @@ export class TransitRouteService implements SearchEngine {
     // 探索が評価した点のうち、予算内の候補を「全部」返す。境界 best 1本だけでなく全部を
     // 返すのは：(1) 到着は実街路で非単調になり得るため境界＝徒歩最大とは限らず、(2) 採用前に
     // 逆戻りフィルタ・乗り遅れ除外で1本が消えても次善へ落とせるようにするため。
-    const withinEntries = [...built.entries()].filter(
-      ([, v]) => v !== null && arrivalMinutes(v.segments, departureAt) <= budgetMin,
-    ) as [number, RouteCandidate][];
+    const withinEntries = [...built.entries()].flatMap(([k, v]): [number, RouteCandidate][] =>
+      v !== null && arrivalMinutes(v.segments, departureAt) <= budgetMin ? [[k, v]] : [],
+    );
     // 境界の計上は探索の戻り値ではなく**評価済みの予算内で最遠の index**。探索は最初の
     // 予算外 probe で結果の走査を打ち切るため、同一ラウンドでそれより奥に評価済みの
     // 予算内点があっても戻り値には現れない（#332 レビュー）。
