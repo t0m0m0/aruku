@@ -2,7 +2,7 @@ import { gzipSync } from "node:zlib";
 import { EventEmitter } from "events";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HttpsFunction, Request } from "firebase-functions/v2/https";
+import type { Request } from "firebase-functions/v2/https";
 import type { Response } from "express";
 
 import { PACK_FORMAT_VERSION, type TimetablePack } from "../src/timetable-pack/pack";

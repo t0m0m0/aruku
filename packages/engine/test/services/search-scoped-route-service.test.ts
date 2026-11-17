@@ -39,7 +39,7 @@ const plan = new RoutePlan({
 /// plan() の完了タイミングを外から握れるエンジン。close 回数を観測する。
 class FakeEngine implements SearchEngine {
   constructor(
-    private readonly options: { gate?: Deferred<void>; error?: unknown } = {},
+    private readonly options: { gate?: Deferred<void>; error?: Error } = {},
   ) {}
 
   closed = 0;

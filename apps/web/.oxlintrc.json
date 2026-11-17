@@ -5,7 +5,9 @@
     "react-hooks/rules-of-hooks": "error",
     "react-hooks/exhaustive-deps": "error",
     "react/jsx-key": "error",
-    "react/no-array-index-key": "error",
+    // 経路の区間など、並べ替えも途中の挿入も起きない固定の並びにだけ index を key にしている。
+    // 安定した id を持たないデータに id を作らせる益が無い。
+    "react/no-array-index-key": "off",
     // 新しい JSX 変換（tsconfig の jsx: react-jsx）では React を import しない。
     "react/react-in-jsx-scope": "off",
     // 以下3つは React Compiler 前提の規則。このアプリは Compiler を使っておらず、最新値を
@@ -22,6 +24,12 @@
       // Playwright のフィクスチャの use() は React の use ではない。
       "files": ["e2e/**"],
       "rules": { "react-hooks/rules-of-hooks": "off" }
+    },
+    {
+      // テストは RoutePlan の一部を差し替えた写しを spread で作る（本体に copyWith が無い）。
+      // 文字列の spread も語彙をコードポイントで数える意図どおりの使い方。
+      "files": ["test/**"],
+      "rules": { "typescript/no-misused-spread": "off" }
     }
   ]
 }

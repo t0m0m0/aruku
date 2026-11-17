@@ -236,6 +236,8 @@ function parseRanges(declared: string): [number, number][] {
 export function subsetPlan(faces: FontFace[], vocabulary: string): SubsetEntry[] {
   const entries: SubsetEntry[] = [];
   for (const face of faces) {
+    // サブセットはコードポイント単位で切る（unicode-range がコードポイントで書かれる）。
+    // oxlint-disable-next-line typescript/no-misused-spread
     const chars = [...vocabulary]
       .filter((ch) => {
         const cp = ch.codePointAt(0)!;
@@ -377,6 +379,8 @@ export function arukuFontSubset(options: FontSubsetOptions = {}): Plugin {
         void subsets().then(({ files }) => {
           const body = name === undefined ? undefined : files.get(name);
           if (body === undefined) {
+            // Connect のミドルウェアは next() で次へ渡す約束で、Promise を返す形が無い。
+            // oxlint-disable-next-line promise/no-callback-in-promise
             next();
             return;
           }

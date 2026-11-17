@@ -9,7 +9,7 @@ export class Stopwatch {
   private startedAt: number | null = null;
 
   start(): void {
-    if (this.startedAt === null) this.startedAt = performance.now();
+    this.startedAt ??= performance.now();
   }
 
   stop(): void {

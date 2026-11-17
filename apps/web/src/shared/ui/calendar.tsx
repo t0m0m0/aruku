@@ -15,6 +15,7 @@ import {
   DayButton as DayButtonBase,
   DayPicker,
   getDefaultClassNames,
+  type ChevronProps,
   type DayButtonProps,
 } from 'react-day-picker';
 
@@ -96,15 +97,17 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        Chevron: ({ orientation }) => (
-          <ChevronIcon size={16} dir={orientation === 'left' ? 'left' : 'right'} />
-        ),
+        Chevron: CalendarChevron,
         DayButton: CalendarDayButton,
         ...components,
       }}
       {...props}
     />
   );
+}
+
+function CalendarChevron({ orientation }: ChevronProps) {
+  return <ChevronIcon size={16} dir={orientation === 'left' ? 'left' : 'right'} />;
 }
 
 function CalendarDayButton({

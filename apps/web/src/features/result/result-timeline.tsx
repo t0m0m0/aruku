@@ -201,7 +201,7 @@ function WalkMeta({ segment }: { segment: RouteSegment }) {
     <MetaParts
       parts={[
         segment.km !== null ? (
-          <span className="tabular">{`${segment.km.toFixed(1)}km`}</span>
+          <span key="km" className="tabular">{`${segment.km.toFixed(1)}km`}</span>
         ) : null,
       ]}
     />
@@ -212,12 +212,12 @@ function RideMeta({ segment }: { segment: RouteSegment }) {
   return (
     <MetaParts
       parts={[
-        <span>{`${segment.fromName} → ${segment.toName}`}</span>,
+        <span key="stations">{`${segment.fromName} → ${segment.toName}`}</span>,
         // [RouteSegment.fare] を埋める経路は現状どこにも無く、この分岐は常に不発
         // （docs/spec/route-optimization.md §4 #71）。それでも器ごと消さないのは、別の
         // 運賃ソースを得たときにパーサの配線だけで点灯できるようにするため（同 §4 #71）。
         segment.fare !== null ? (
-          <span className="tabular">{`¥${segment.fare}`}</span>
+          <span key="fare" className="tabular">{`¥${segment.fare}`}</span>
         ) : null,
       ]}
     />

@@ -223,7 +223,7 @@ export function SearchScreen({ store, mode, places, recents }: SearchScreenProps
           mode={mode}
           pickFailed={pickFailed}
           selecting={selecting}
-          onSelect={selectPrediction}
+          onSelect={(prediction) => void selectPrediction(prediction)}
         />
       ) : (
         <Recents
