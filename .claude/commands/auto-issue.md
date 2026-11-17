@@ -73,7 +73,7 @@ git checkout -b <type>/<issue番号>-<短いslug>
 2. `npm --prefix <対象パッケージ> test` で失敗を確認
 3. 実装する
 4. `npm --prefix <対象パッケージ> test` でパスを確認
-5. `npx tsc --noEmit`（対象パッケージで）でエラーがないことを確認
+5. `npx tsc --noEmit` と `npm run lint`（対象パッケージで）でエラーがないことを確認
 6. 論理単位ごとにコミット（`feat(#ISSUE): ...`）
 
 `functions/` を変更した場合は、その配下で `npm run build` と `npm test` も通す。
@@ -81,9 +81,9 @@ git checkout -b <type>/<issue番号>-<短いslug>
 ## 5. コミット前の検証（全部通す）
 
 ```
-npm --prefix apps/web run typecheck && npm --prefix apps/web test && npm --prefix apps/web run build && npm --prefix apps/web run e2e
-npm --prefix packages/engine run typecheck && npm --prefix packages/engine test
-npm --prefix functions run build && npm --prefix functions test
+npm --prefix apps/web run typecheck && npm --prefix apps/web test && npm --prefix apps/web run lint && npm --prefix apps/web run build && npm --prefix apps/web run e2e
+npm --prefix packages/engine run typecheck && npm --prefix packages/engine test && npm --prefix packages/engine run lint
+npm --prefix functions run build && npm --prefix functions test && npm --prefix functions run lint
 python3 .claude/doc_consistency.py --staged
 ```
 

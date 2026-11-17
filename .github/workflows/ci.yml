@@ -98,6 +98,32 @@ jobs:
           path: apps/web/test-results/
           retention-days: 7
 
+  # 型付きの Lint（oxlint + tsgolint、#516）。functions は他の CI ジョブを持たないが、
+  # 書き方の縛りは3パッケージで同じに効かせる。
+  lint:
+    name: lint (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [packages/engine, apps/web, functions]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ${{ matrix.package }}/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ${{ matrix.package }}
+
+      - name: Lint
+        run: npm run lint
+        working-directory: ${{ matrix.package }}
+
   # エージェントのフックはローカルでしか走らないので、壊れても誰も気付かない。
   # ガードが素通りになる退行をここで捕まえる。
   agent-guards:
