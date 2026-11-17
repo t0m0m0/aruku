@@ -395,9 +395,6 @@ export function frontierStations(
 ): FrontierStations {
   const maxPerSide = options.maxPerSide ?? 10;
 
-  const walkMin = (a: GeoPoint, b: GeoPoint): number =>
-    dartRound((haversineKm(a, b) * 1000) / walkMetersPerMinute);
-
   const pick = (sideWalk: (i: number) => number): number[] => {
     const feasible = stops.map((_, i) => i).filter((i) => sideWalk(i) <= budgetMin);
     if (feasible.length <= maxPerSide || maxPerSide < 2) {
@@ -409,9 +406,13 @@ export function frontierStations(
   };
 
   return {
-    boarding: pick((i) => walkMin(origin, stops[i])),
-    alighting: pick((i) => walkMin(stops[i], goal)),
+    boarding: pick((i) => straightWalkMinutes(origin, stops[i])),
+    alighting: pick((i) => straightWalkMinutes(stops[i], goal)),
   };
+}
+
+function straightWalkMinutes(a: GeoPoint, b: GeoPoint): number {
+  return dartRound((haversineKm(a, b) * 1000) / walkMetersPerMinute);
 }
 
 /// 2点間の大圏距離（km）。徒歩区間の距離概算に用いる。

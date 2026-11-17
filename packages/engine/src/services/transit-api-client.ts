@@ -236,12 +236,10 @@ export class TransitApiClient {
   /// [origins]×[dests] の徒歩マトリクスを Google プロキシで一括実測し、生の要素配列を返す。
   /// 取得失敗（非200・タイムアウト・非配列）は null（呼び出し側は直線推定へフォールバック）。
   async fetchWalkMatrix(origins: GeoPoint[], dests: GeoPoint[]): Promise<unknown[] | null> {
-    const join = (ps: GeoPoint[]): string =>
-      ps.map((p) => `${dartDouble(p.lat)},${dartDouble(p.lng)}`).join(';');
     try {
       return await this.fetchProxyArray(
         'googleWalkMatrixProxy',
-        { origins: join(origins), destinations: join(dests) },
+        { origins: joinPoints(origins), destinations: joinPoints(dests) },
         () => {
           this.matrixCallCount++;
           this.matrixElementCount += origins.length * dests.length;
@@ -439,6 +437,10 @@ function withDeadline<T>(promise: Promise<T>, limit: Duration): Promise<T> {
   });
   // タイマーは必ず落とす。残すとテストランナーがイベントループを掴んだまま終われない。
   return Promise.race([promise, expiry]).finally(() => clearTimeout(timer));
+}
+
+function joinPoints(ps: GeoPoint[]): string {
+  return ps.map((p) => `${dartDouble(p.lat)},${dartDouble(p.lng)}`).join(';');
 }
 
 function stripTrailingSlashes(url: string): string {

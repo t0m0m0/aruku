@@ -618,8 +618,6 @@ export class CandidateMeasurer {
     //
     // 分へ丸めた値で比べる（パーサが `(secs / 60).round()` する）。同じ丸め分に並ぶ便
     // どうしの徒歩差は定義上60秒未満で、駅間ではなく同一駅の出入口ぶんの距離しかない。
-    const walkMinutesOf = (o: TransitOption): number =>
-      o.segments.filter((s) => s.type === SegmentType.walk).reduce((a, s) => a + s.minutes, 0);
     let leastWalk: number | null = null;
     for (const o of cands) {
       const w = walkMinutesOf(o);
@@ -792,6 +790,10 @@ function bestEffort(
   return pool.reduce((a, b) =>
     arrivalMinutes(a.segments, departureAt) <= arrivalMinutes(b.segments, departureAt) ? a : b,
   );
+}
+
+function walkMinutesOf(o: TransitOption): number {
+  return o.segments.filter((s) => s.type === SegmentType.walk).reduce((a, s) => a + s.minutes, 0);
 }
 
 function renameWalk(cached: RouteCandidate, fromName: string, toName: string): RouteCandidate {
