@@ -114,6 +114,13 @@ function* scanStringLiterals(source: string): Generator<string> {
   }
 }
 
+/// コードポイント単位で切り出した1文字のコードポイント。切り出した文字は空にならない。
+function codePointOf(ch: string): number {
+  const cp = ch.codePointAt(0);
+  if (cp === undefined) throw new Error('codePointOf: empty string');
+  return cp;
+}
+
 /// 描かれ得ない文字を落とす。
 ///
 /// 空白（U+0020 など）は残す。「余白にグリフは要らない」と落とすと、語彙段が
@@ -124,7 +131,7 @@ function* scanStringLiterals(source: string): Generator<string> {
 /// 落とすのは改行・タブ・制御文字だけ。これらはソースの整形であって、
 /// テキストとして描かれる位置には出てこない。
 function hasGlyph(ch: string): boolean {
-  const cp = ch.codePointAt(0)!;
+  const cp = codePointOf(ch);
   if (cp < 0x20 || cp === 0x7f) return false;
   return !/[\t\n\r\f\v]/u.test(ch);
 }
@@ -240,7 +247,7 @@ export function subsetPlan(faces: FontFace[], vocabulary: string): SubsetEntry[]
     // oxlint-disable-next-line typescript/no-misused-spread
     const chars = [...vocabulary]
       .filter((ch) => {
-        const cp = ch.codePointAt(0)!;
+        const cp = codePointOf(ch);
         return face.ranges.some(([lo, hi]) => cp >= lo && cp <= hi);
       })
       .join('');
@@ -253,7 +260,7 @@ export function subsetPlan(faces: FontFace[], vocabulary: string): SubsetEntry[]
 /// 長さぶん伸び、CSS 自体が絞った甲斐を食う。
 export function formatUnicodeRange(chars: string): string {
   const points = [...new Set(chars)]
-    .map((ch) => ch.codePointAt(0)!)
+    .map(codePointOf)
     .sort((a, b) => a - b);
   const parts: string[] = [];
   for (let i = 0; i < points.length; i++) {

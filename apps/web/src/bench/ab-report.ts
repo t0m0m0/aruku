@@ -58,8 +58,17 @@ const num = (m: Record<string, number | string>, key: string): number => {
   return typeof v === 'number' ? v : Number.NaN;
 };
 
+type CompletedRecord = BenchRecord & {
+  metrics: NonNullable<BenchRecord['metrics']>;
+  plan: NonNullable<BenchRecord['plan']>;
+};
+
+function isCompleted(r: BenchRecord): r is CompletedRecord {
+  return r.error === null && r.metrics !== null && r.plan !== null;
+}
+
 export function summarize(records: readonly BenchRecord[]): AbSummary {
-  const ok = records.filter((r) => r.error === null && r.metrics !== null && r.plan !== null);
+  const ok = records.filter(isCompleted);
   const gains: number[] = [];
   const totalA: number[] = [];
   const totalB: number[] = [];
@@ -75,13 +84,13 @@ export function summarize(records: readonly BenchRecord[]): AbSummary {
   let transferDroppedTotal = 0;
   let transferWonViolations = 0;
   for (const r of ok) {
-    const m = r.metrics!;
+    const m = r.metrics;
     const won = num(m, 'exactWon') === 1;
     if (won) exactWon++;
     const wonByTransfer = num(m, 'transferWon') === 1;
     if (wonByTransfer) transferWon++;
     // 記録の経路は B' の確定経路。乗換つきが勝てば、B で厳密走査が勝っていても B の経路ではない。
-    const violated = !r.plan!.withinBudget || r.plan!.missed;
+    const violated = !r.plan.withinBudget || r.plan.missed;
     if (violated) {
       violations++;
       if (wonByTransfer) transferWonViolations++;

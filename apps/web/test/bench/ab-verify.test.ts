@@ -9,10 +9,11 @@ import {
   runVerify,
   type BoardDeparture,
   type BoardStation,
+  type VerifiableRide,
   type VerifyResult,
 } from '../../src/bench/ab-verify';
 
-const ride: BenchRide = {
+const ride: VerifiableRide = {
   type: 'train',
   line: 'JR山手線',
   from: '大崎',
@@ -49,6 +50,16 @@ describe('ridesToVerify: 照合する経路を選ぶ', () => {
   it('到着時刻の無い便は選ばない（降車駅で同じ便を確かめられない）', () => {
     const noArrival = { ...ride, arr: null };
     expect(ridesToVerify([rec('p1', 1, [noArrival]), rec('p2', 1)], 10).map((p) => p.record.pair)).toEqual(['p2']);
+  });
+
+  it('座標の片方が欠けた便は選ばない（駅を位置で引き当てられない）', () => {
+    const noFromLng = { ...ride, fromLng: null };
+    const noToLng = { ...ride, toLng: null };
+    expect(
+      ridesToVerify([rec('p1', 1, [noFromLng]), rec('p2', 1, [noToLng]), rec('p3', 1)], 10).map(
+        (p) => p.record.pair,
+      ),
+    ).toEqual(['p3']);
   });
 });
 

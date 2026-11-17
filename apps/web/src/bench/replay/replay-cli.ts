@@ -57,6 +57,7 @@ async function fetchLive(url: URL): Promise<ReplayEntry> {
 export async function runReplay(args: ReplayArgs): Promise<number> {
   const store = loadStore(args.store);
   let current: { origin: GeoPoint; goal: GeoPoint } | null = null;
+  const { urlLog } = args;
   const session = new ReplaySession({
     mode: args.mode,
     store,
@@ -70,12 +71,12 @@ export async function runReplay(args: ReplayArgs): Promise<number> {
     exactDelayMs: args.exactDelayMs,
     isInitial: (url) => current !== null && isInitialQuery(url, current.origin, current.goal),
     onRequest:
-      args.urlLog === null
+      urlLog === null
         ? undefined
         : (url) => {
             const stack = (new Error().stack ?? '').split('\n').slice(2, 14).map((l) => l.trim());
             appendFileSync(
-              args.urlLog!,
+              urlLog,
               `${JSON.stringify({ t: Math.round(performance.now()), url: url.href, stack })}\n`,
             );
           },
