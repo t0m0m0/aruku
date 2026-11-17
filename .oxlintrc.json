@@ -26,6 +26,10 @@
     // await の無い async は、同期の処理を Promise の契約へ合わせるために付けがちで、読み手に
     // 待ちがあると思わせる。契約に合わせるだけなら Promise.resolve で返す（#521）。
     "typescript/require-await": "error",
+    // as は外れても実行時に何も確かめず、上流 JSON・Firestore・GCS の形の変化を黙って通す。
+    // 境界の値は isRecord と型述語・パース関数で絞り、型の都合は構造（型述語・flatMap・
+    // 型ごとのインスタンス）で合わせる（#521）。
+    "typescript/no-unsafe-type-assertion": "error",
     "eqeqeq": ["error", "always", { "null": "ignore" }],
     "import/no-cycle": "error",
     "vitest/no-focused-tests": "error",
@@ -53,7 +57,6 @@
     ],
 
     // 件数が多く、直してから1つずつ error に上げる（#521）。
-    "typescript/no-unsafe-type-assertion": "off",
     "unicorn/consistent-function-scoping": "off",
     "vitest/require-mock-type-parameters": "off",
     // 返り値の欠けは tsc の noImplicitReturns で見る（#517）。こちらは網羅した switch の
@@ -90,6 +93,14 @@
       // 書き換えると throw する偽物が同期で投げるようになり、偽物が本物から離れる。
       "files": ["**/test/**", "**/e2e/**"],
       "rules": { "typescript/require-await": "off" }
+    },
+    {
+      // テストの as は、使う部分だけを持つ偽物を本物の型として渡す（Express の Request・
+      // google.maps.Map・中身を見ない RoutePlan）のと、自分で作った応答やモックの呼び出しを
+      // 既知の形として読むのがほとんど。形が外れればその場の TypeError か直後の expect で
+      // 落ちる。本物の型を満たす偽物を組むと、検査と関係の無いフィールドがテストを埋める。
+      "files": ["**/test/**", "**/e2e/**"],
+      "rules": { "typescript/no-unsafe-type-assertion": "off" }
     }
   ]
 }
