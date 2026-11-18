@@ -33,6 +33,12 @@ describe('isCommentPolicyTarget', () => {
     expect(isCommentPolicyTarget(path)).toBe(false);
   });
 
+  it('生成物は検査しない', () => {
+    expect(isCommentPolicyTarget('packages/engine/src/services/station-coord-table.ts')).toBe(
+      false,
+    );
+  });
+
   it.each([
     '.dependency-cruiser.cjs',
     'knip.jsonc',
@@ -164,6 +170,48 @@ describe('findForbiddenComments', () => {
   it('.mjs と .cjs も検査する', () => {
     expect(texts('apps/web/scripts/a.mjs', '// x\nexport {};\n')).toEqual(['// x']);
     expect(texts('apps/web/scripts/a.cjs', '// y\nmodule.exports = {};\n')).toEqual(['// y']);
+  });
+});
+
+describe('findForbiddenComments の JSDoc 型', () => {
+  it.each([
+    '/** @type {unknown[]} */',
+    '/** @param {string} path */',
+    '/** @type {Map<string, { lat: number, lon: number }[]>} */',
+    "/** @type {typeof import('../src/bench/replay/replay-cli.ts')} */",
+    ['/**', ' * @param {unknown} v', ' * @returns {v is Record<string, unknown>}', ' */'].join(
+      '\n',
+    ),
+    [
+      '/**',
+      ' * @template T',
+      ' * @param {T[]} xs',
+      ' * @param {number} [n]',
+      ' * @returns {T}',
+      ' */',
+    ].join('\n'),
+    '/** @typedef {{ a: number }} Pair */',
+  ])('.mjs の型だけの JSDoc %s は許す', (jsdoc) => {
+    const source = `${jsdoc}\nexport const f = (v) => v;\n`;
+    expect(texts('apps/web/scripts/a.mjs', source)).toEqual([]);
+    expect(texts('apps/web/scripts/a.cjs', source)).toEqual([]);
+  });
+
+  it.each([
+    ['/**', ' * 値を整える', ' * @param {string} v', ' */'].join('\n'),
+    '/** @param {string} v 整える対象 */',
+    '/** @returns {string} 整えた値 */',
+    '/** 型の説明 */',
+    '/* @type {string} */',
+    '// @type {string}',
+  ])('説明を含む・JSDoc でない %s は拒否する', (comment) => {
+    const source = `${comment}\nexport const f = (v) => v;\n`;
+    expect(texts('apps/web/scripts/a.mjs', source)).toEqual([comment]);
+  });
+
+  it('TypeScript では型だけの JSDoc も拒否する', () => {
+    const source = '/** @param {string} v */\nexport const f = (v: string) => v;\n';
+    expect(texts('apps/web/src/a.ts', source)).toEqual(['/** @param {string} v */']);
   });
 });
 

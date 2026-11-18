@@ -1,5 +1,3 @@
-// 移植元: flutter-final:test/core/services/route_diagnostics_test.dart
-
 import { describe, expect, it } from 'vitest';
 
 import { debugPrint, setDebugPrint } from '../../src/debug-print';
@@ -34,8 +32,6 @@ const train = (minutes: number, o: { from?: string; to?: string; line?: string }
     toName: o.to ?? '',
     minutes,
     line: o.line ?? null,
-    // depTime を持たせないことで maxBoardingWait/firstMissedTransit の対象外にし、
-    // 整形テストを時刻計算に依存させない（時刻付き電車の挙動は選定側テストが担保）。
     polyline: [new GeoPoint(35.0, 139.0), new GeoPoint(35.1, 139.1)],
   });
 
@@ -85,9 +81,7 @@ describe('ProbeLatencyLedger', () => {
     const l = new ProbeLatencyLedger();
     l.record({ walkMs: 1000, guidanceMs: 9000 });
     l.record({ walkMs: 3000, guidanceMs: 8000 });
-    // 直列（現状）: max(1000+9000, 3000+8000) = 11000
     expect(l.serialMs).toEqual(11000);
-    // 並列（walk を guidance と同時発行した下限）: max(max(1000,9000), max(3000,8000)) = 9000
     expect(l.parallelMs).toEqual(9000);
   });
 
@@ -101,7 +95,6 @@ describe('ProbeLatencyLedger', () => {
   });
 
   it('プローブの無いラウンドは 0 として無視される', () => {
-    // onRound はラウンド**開始時**に呼ばれるため、1本目の endRound は必ず空になる。
     const l = new ProbeLatencyLedger();
     l.endRound();
     l.record({ walkMs: 1000, guidanceMs: 9000 });
@@ -110,8 +103,6 @@ describe('ProbeLatencyLedger', () => {
   });
 
   it('末尾の endRound を呼ばなくても進行中ラウンドは含まれる', () => {
-    // 締切打ち切り（shouldContinue）は while を break で抜けるため、末尾フラッシュを
-    // 呼び出し側の義務にすると最後のラウンドが静かに落ちる。
     const l = new ProbeLatencyLedger();
     l.record({ walkMs: 500, guidanceMs: 4000 });
     expect(l.serialMs).toEqual(4500);
@@ -151,13 +142,10 @@ describe('EnrichLatencyLedger', () => {
     expect(l.criticalPathMs).toEqual(38000 + 19000);
     expect(l.passes).toEqual(2);
     expect(l.candidates).toEqual(3);
-    // 段数は「1候補が直列に積んだ guidance の最大」——パスをまたいで足さない。
     expect(l.resolveDepth).toEqual(2);
   });
 
   it('徒歩の内訳は最遅候補と対で採る（対を崩さない）', () => {
-    // 臨界パスは最遅候補の連鎖なので、内訳もその候補から採らないと「別の候補の徒歩」を
-    // 臨界パスの内訳として読むことになる。max(walkMs) で実装すると 11000 が返って落ちる。
     const l = new EnrichLatencyLedger();
     l.record({ chainMs: 30000, walkMs: 4000, resolveSteps: 1 });
     l.record({ chainMs: 12000, walkMs: 11000, resolveSteps: 1 });
@@ -183,7 +171,6 @@ describe('EnrichLatencyLedger', () => {
   });
 
   it('候補の無いパスは本数に数えない', () => {
-    // 先行実測が発火しない検索では endPass だけが先に来る。
     const l = new EnrichLatencyLedger();
     l.endPass();
     l.record({ chainMs: 5000, walkMs: 1250, resolveSteps: 0 });
@@ -200,8 +187,6 @@ describe('EnrichLatencyLedger', () => {
   });
 
   it('引き直し0段（標準乗換のみ）でも候補と時間は数える', () => {
-    // 実 depTime を持つ候補は resolveBoardingTimes が即抜けるので段数0。
-    // それでも徒歩 enrich の時間は払っているため chain は残る。
     const l = new EnrichLatencyLedger();
     l.record({ chainMs: 1500, walkMs: 375, resolveSteps: 0 });
     expect(l.resolveDepth).toEqual(0);
@@ -217,8 +202,6 @@ describe('EnrichLatencyLedger', () => {
   });
 
   it('締めたパスへ遅れて届いた実測は、臨界パスにも段数にも入れない (#497)', () => {
-    // 勝者が決まった時点でパスを抜けるので、待たなかった候補の応答は後から届く。
-    // 次のパスへ混ぜると、払っていない壁時計が臨界パスに乗る。
     const l = new EnrichLatencyLedger();
     const fast = l.begin();
     const slow = l.begin();
@@ -232,7 +215,6 @@ describe('EnrichLatencyLedger', () => {
   });
 
   it('応答を待たなかった候補は、何度置き去りにしても1件と数える (#497)', () => {
-    // 先行実測が置き去りにした候補は、確定選定のバッチでもう一度置き去りになる。
     const l = new EnrichLatencyLedger();
     const a = {};
     const b = {};
@@ -276,7 +258,6 @@ describe('BestEffortLedger', () => {
     l.recordRetry();
     l.addMs(12000);
     expect(l.entries).toEqual(2);
-    // 入る回数ぶんは直列に走るので ms と候補数は和、段数は最大。
     expect(l.candidates).toEqual(43);
     expect(l.totalMs).toEqual(42000);
     expect(l.resolveDepth).toEqual(3);
@@ -295,8 +276,6 @@ describe('BestEffortLedger', () => {
 
 describe('board-search の徒歩推移（打ち切り判断の材料）', () => {
   it('ラウンドごとの「予算内の最大徒歩」を推移として畳む', () => {
-    // 「ラウンド N で止めたら徒歩が短くなるか」を直接読むための系列。頭打ちの位置が
-    // そのまま打ち切ってよいラウンドになる。
     const m = new RouteSearchMetrics();
     m.recordBoardSearches([
       cascade(new BoardSearchStats(), (s) => {
@@ -310,7 +289,6 @@ describe('board-search の徒歩推移（打ち切り判断の材料）', () => 
   });
 
   it('推移も報告する対と同じ探索から採る', () => {
-    // 別探索の系列を混ぜると、rounds と長さが合わない実在しない推移になる。
     const m = new RouteSearchMetrics();
     m.recordBoardSearches([
       cascade(new BoardSearchStats(), (s) => {
@@ -441,8 +419,6 @@ describe('RouteSearchMetrics.toLogLine', () => {
   });
 
   it('並列に走った探索の rounds は合計でなく最大（＝クリティカルパス）', () => {
-    // base（電車）と busBase（バス）は並列に走る（#304）。合計すると「直列に積んだ
-    // 段数」という rounds の意味が壊れ、壁時計と対応しなくなる。
     const m = new RouteSearchMetrics();
     m.recordBoardSearches([
       cascade(new BoardSearchStats(), (s) => {
@@ -460,7 +436,6 @@ describe('RouteSearchMetrics.toLogLine', () => {
   });
 
   it('scanCount と best は同一探索から採り、対を崩さない', () => {
-    // 別々の探索の値を混ぜると best/scanCount 比が実在しない値になる。
     const m = new RouteSearchMetrics();
     m.recordBoardSearches([
       cascade(new BoardSearchStats(), (s) => {
@@ -480,9 +455,6 @@ describe('RouteSearchMetrics.toLogLine', () => {
   });
 
   it('truncated は報告する対と同じ探索から採る', () => {
-    // 採用した境界が正常に確定しているなら、別の（短い）探索が打ち切られたことを
-    // 理由に捨ててはいけない。truncated は「この best が信用できるか」の印なので、
-    // best と同じ探索を指していないと有効なサンプルを落とす。
     const m = new RouteSearchMetrics();
     m.recordBoardSearches([
       cascade(new BoardSearchStats(), (s) => {
@@ -521,8 +493,6 @@ describe('RouteSearchMetrics.toLogLine', () => {
   });
 
   it('probeFailed も報告する対と同じ探索から採る', () => {
-    // truncated と同じ理由。原因（締切／上流の失敗）は違うが、どちらも「この best が
-    // 信用できるか」の印なので、best と同じ探索を指していないと判断を誤らせる。
     const m = new RouteSearchMetrics();
     m.recordBoardSearches([
       cascade(new BoardSearchStats(), (s) => {
@@ -567,8 +537,6 @@ describe('RouteSearchMetrics.toLogLine', () => {
   });
 
   it('プローブ内訳も報告する対と同じ探索から採る（並列探索ぶんを足さない）', () => {
-    // 2系統は並列に走る（#304）ので和は壁時計と対応しない。serial/parallel を別々の
-    // 探索から採ると差＝削減可能量が実在しない値になるため、対で1本から採る。
     const m = new RouteSearchMetrics();
     m.recordBoardSearches([
       cascade(new BoardSearchStats(), (s) => {
@@ -589,8 +557,6 @@ describe('RouteSearchMetrics.toLogLine', () => {
   });
 
   it('board-search が起動しなければ探索系は 0・境界は -1（未探索の印）', () => {
-    // 0 は「index 0 が境界だった」と紛れるため、未探索は -1 で表す。集計側が
-    // boardSearch=0 の検索を境界分布へ混ぜないための番兵。
     const m = new RouteSearchMetrics();
     expect(m.boardSearchRounds).toEqual(0);
     expect(m.boardSearchScanCount).toEqual(0);
@@ -634,8 +600,6 @@ describe('RouteSearchMetrics.toLogLine', () => {
   });
 
   it('到着波の結末は4値のコードとして1行ログに出る (#376)', () => {
-    // 集計器（撤去した flutter-final:tool/route_metrics_agg.dart）は key=<int> しか読まないので、内訳は
-    // 文字列ではなくコードで出す。値の対応が動くと過去ログの集計が黙って狂うため固定する。
     const codeOf = (o: ArrivalWaveOutcome): number => {
       const line = cascade(new RouteSearchMetrics(), (m) => {
         m.arrivalWaveOutcome = o;
@@ -650,16 +614,12 @@ describe('RouteSearchMetrics.toLogLine', () => {
   });
 
   it('第2波を待つ前の未確定は実際の結末と別のコードで出る (#376)', () => {
-    // -1 は同ログ行の boardSearchBest / finalWalkMinutes と同じ「該当なし」の流儀。
-    // 0（ok）に倒すと、器を作っただけの検索が成功として集計に混ざる。
     expect(new RouteSearchMetrics().toLogLine()).toContain('arrivalWaveOutcome=-1');
   });
 });
 
 describe('RouteSearchMetrics: 厳密走査の A/B (#462)', () => {
   it('coveredBase は厳密走査が候補を1件以上返した検索だけ立つ', () => {
-    // 効果の分母（§3.8）。失敗の -1 と候補なしの 0 はどちらも「時刻表の路線で1回乗車が
-    // 成立しなかった」検索で、徒歩の差を語らない。
     const covered = (n: number): boolean =>
       cascade(new RouteSearchMetrics(), (m) => {
         m.exactCandidates = n;
@@ -682,8 +642,6 @@ describe('RouteSearchMetrics: 厳密走査の A/B (#462)', () => {
 
 describe('RouteSearchMetrics: 投機 board-search の空振り計上 (#341)', () => {
   it('空振りの対価は壁時計ではなく打ち上げた probe 本数で計上する', () => {
-    // 投機は enrich と並行に走るので、捨てた探索がユーザーに払わせた壁時計はほぼ 0。
-    // 実際に消えるのは上流（第三者 API・§2.1）の枠なので、対価の単位は往復本数になる。
     const m = new RouteSearchMetrics();
     m.boardSearchSpeculated = true;
     m.recordSpeculationWaste(
@@ -730,8 +688,6 @@ describe('logMetrics のゲート（#309 レビュー指摘: profile でも出�
   };
 
   it('定性ログ verbose=false でも metricsEnabled=true なら指標行を出す', () => {
-    // 実機フィールド計測は多く profile ビルド（verbose=false）。定量指標が定性ログの
-    // debug 限定フラグに縛られず出ることを固定する（縛られると profile で発火率が出ない）。
     const d = new RouteDiagnostics({ verbose: false, metricsEnabled: true });
     const lines = capture(() => d.logMetrics(new RouteSearchMetrics()));
     expect(lines).toHaveLength(1);

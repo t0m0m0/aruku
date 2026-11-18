@@ -1,4 +1,3 @@
-/// Dart の `Completer<T>` に対応する。外から解決／拒否できる Promise。
 export interface Deferred<T> {
   readonly promise: Promise<T>;
   readonly isCompleted: boolean;

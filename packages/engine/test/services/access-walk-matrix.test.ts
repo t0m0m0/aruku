@@ -16,7 +16,6 @@ const stops = (n: number, from = 0): GeoPoint[] =>
 
 const nothingMeasured = (): boolean => false;
 
-/// 要求群が実際に測る有向レッグのキーを、重複も残して並べる。
 const requestedKeys = (requests: readonly WalkMatrixRequest[]): string[] =>
   requests.flatMap((r) => r.origins.flatMap((o) => r.dests.map((d) => walkCacheKey(o, d))));
 
@@ -38,9 +37,7 @@ describe('planAccessWalkMatrix: 検索単位の集約 (#485)', () => {
     expect(new Set(keys).size).toEqual(keys.length);
     expect(keys).toContain(walkCacheKey(origin, goal));
     expect(keys.filter((k) => k === walkCacheKey(origin, goal))).toHaveLength(1);
-    // 乗車側 origin→{0,1,2,goal}・降車側 {0,1,3}→goal。
     expect(plan.uniqueLegs).toEqual(7);
-    // 路線ごとに投げていたら測った本数（乗車＋goal＋降車）。
     expect(plan.requestedLegs).toEqual(2 + 1 + 2 + (3 + 1 + 2));
   });
 
@@ -71,7 +68,6 @@ describe('planAccessWalkMatrix: 検索単位の集約 (#485)', () => {
       [{ boardStops: [a, sameAtFiveDigits, differentAtFifth], alightStops: [] }],
       nothingMeasured,
     );
-    // origin→a・origin→differentAtFifth・origin→goal。
     expect(plan.uniqueLegs).toEqual(3);
     expect(requestedKeys(plan.requests)).toHaveLength(3);
   });

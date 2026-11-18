@@ -1,5 +1,3 @@
-// 厳密走査 `exactWalkMax`（functions/src/exact-walk-max.ts・#459）の応答を候補にする（#460）。
-
 import { dartRound } from '../dart-number';
 import type { JsonMap } from '../json';
 import { GeoPoint } from '../models/geo-point';
@@ -16,11 +14,6 @@ export interface ExactWalkEnds {
   to: string;
 }
 
-/// 応答の候補を `徒歩 → 電車 → 徒歩` の [RouteCandidate] にする。電車区間は実発着時刻を
-/// 持つので、enrich で実時刻を引き直さずに乗り遅れ・予算超過を判定できる（§3.9）。
-///
-/// 形の崩れた候補は1件ずつ捨てる。厳密走査は改善であって、壊れた1件で他の候補まで
-/// 失う理由が無い。
 export function exactWalkCandidates(body: JsonMap, ends: ExactWalkEnds): RouteCandidate[] {
   const raw = body['candidates'];
   if (!Array.isArray(raw)) return [];
@@ -30,10 +23,6 @@ export function exactWalkCandidates(body: JsonMap, ends: ExactWalkEnds): RouteCa
   });
 }
 
-/// `transferCandidates` を `徒歩 → 電車 → 徒歩 → 電車 → 徒歩` の [RouteCandidate] にする
-/// （#474）。同じ駅の乗換は2本の電車を直結する。
-///
-/// 応答に無ければ空。Functions と Web は別々にデプロイされるので、古い応答もある。
 export function exactWalkTransferCandidates(body: JsonMap, ends: ExactWalkEnds): RouteCandidate[] {
   const raw = body['transferCandidates'];
   if (!Array.isArray(raw)) return [];
@@ -43,8 +32,6 @@ export function exactWalkTransferCandidates(body: JsonMap, ends: ExactWalkEnds):
   });
 }
 
-/// 応答の `feeds` を、選定に使った時刻表の取得日時にする（#461）。形の崩れたフィードは
-/// 1件ずつ捨てる（候補と同じ）。
 export function timetableSources(body: JsonMap): TimetableSource[] {
   const raw = body['feeds'];
   if (!Array.isArray(raw)) return [];
@@ -83,8 +70,6 @@ function toTransferCandidate(raw: unknown, ends: ExactWalkEnds): RouteCandidate 
   ) {
     return null;
   }
-  // 別の駅への徒歩は0分でも落とさない。enrich が測るのは segments に在る徒歩だけなので、
-  // 落とすと実測されず、firstMissedTransit が2本を直結とみなして乗れない接続を通す。
   const between = sameStation
     ? []
     : [
@@ -173,7 +158,6 @@ function withEndWalks(
   return new RouteCandidate({
     from: ends.from,
     to: ends.to,
-    // 0分の徒歩を落とすのはコリドー由来のハイブリッドと同じ（buildMeasuredHybrids）。
     segments: [
       ...(accessWalk.minutes > 0 ? [accessWalk] : []),
       ...middle,
@@ -187,7 +171,6 @@ interface Walk {
   km: number;
 }
 
-/// 端点を直線で結ぶ。街路のジオメトリは採用前の enrich で Google 実測に置き換わる。
 function walkSegment(
   a: GeoPoint,
   b: GeoPoint,
@@ -226,17 +209,12 @@ function point(raw: unknown): GeoPoint | null {
 
 const jstOffsetMs = 9 * 3600 * 1000;
 
-/// 時差つきの時刻を、実際の時刻の `Date` にする。時差の無い文字列は `Date.parse` が
-/// 端末の時刻として読むので受けない。
 function instant(raw: unknown): Date | null {
   if (typeof raw !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/.test(raw)) return null;
   const ms = Date.parse(raw);
   return Number.isFinite(ms) ? new Date(ms) : null;
 }
 
-/// 時差つきの時刻を、JST の壁時計を表す naive な `Date` にする（§4 #121。guidance の
-/// `transitSecsToJst` と同じ表現）。実際の時刻のまま持つと、naive な出発アンカーとの差が
-/// 端末の時差ぶんずれる。
 function jstWallClock(raw: unknown): Date | null {
   const at = instant(raw);
   if (at === null) return null;
@@ -251,7 +229,6 @@ function jstWallClock(raw: unknown): Date | null {
   );
 }
 
-// 分への丸めは guidance の徒歩（`(secs / 60).round()`）と揃える。
 function walk(raw: unknown): Walk | null {
   if (!isMap(raw)) return null;
   const { durationSec, distanceMeters } = raw;

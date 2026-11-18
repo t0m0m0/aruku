@@ -1,12 +1,5 @@
-// 移植元: flutter-final:lib/core/models/route_plan.dart
-
 import type { GeoPoint } from './geo-point';
 
-/// Dart の `enum SegmentType` に対応する。
-///
-/// TypeScript の `enum` ではなく文字列リテラルの定数オブジェクトにしているのは、
-/// テスト失敗時の差分に `0` ではなく `'walk'` が出るため。`SegmentType.walk` という
-/// 呼び出し側の書き方は Dart と同じままになる。
 export const SegmentType = {
   walk: 'walk',
   train: 'train',
@@ -64,21 +57,14 @@ export class RouteSegment {
   readonly stops: number | null;
   readonly polyline: GeoPoint[];
 
-  /// この区間の出発（電車は乗車）絶対時刻。時刻表データが揃う電車区間でのみ設定し、
-  /// 徒歩・時刻欠落の概算区間では null。
   readonly depTime: Date | null;
 
-  /// この区間の到着（電車は降車）絶対時刻。設定条件は [depTime] と同じ。
   readonly arrTime: Date | null;
 
-  /// 表示上 0.0km・0分に丸まる徒歩区間か。同一駅乗換などで挿入される無意味な
-  /// レッグ（#225）の判定に使う。閾値 0.05km は小数第1位への丸めで "0.0km" に
-  /// なる上限。
   get isZeroWalk(): boolean {
     return this.type === SegmentType.walk && this.minutes === 0 && (this.km ?? 0) < 0.05;
   }
 
-  /// Dart 版と同じく null への差し戻しはできない（`?? this.x` 相当）。
   copyWith(patch: RouteSegmentPatch = {}): RouteSegment {
     return new RouteSegment({
       type: this.type,
@@ -116,29 +102,15 @@ export class TimelineNode {
   readonly place: string;
   readonly sub: string;
 
-  /// このノードの直下にレッグ（区間）カードを描くか。
   readonly cardBelow: boolean;
 }
 
-/// ふつうの乗換ルート（出発時刻で引いた経路のうち到着が最も早い1本）の要約（#445）。
-/// 「それより何分多く歩けるか」を見せるための表示専用の比較対象で、選定には使わない。
-///
-/// 徒歩分は Transit API の見積りのままで、確定経路のように街路実測で置き換えていない。
-/// 測り直すと検索1回ごとに Google への照会が増えるので見送った。差を読む側は数分の
-/// 誤差を織り込む。
 export interface StandardTransitSummary {
   walkMinutes: number;
-  /// 出発からの到着までの分（[RoutePlan.totalMin] と同じ尺度）。
   totalMin: number;
 }
 
-/// 経路の選定に使った時刻表（ODPT の GTFS）の1フィード（#461）。基本ライセンスは、
-/// 静的データの取得日時を利用者が容易に見られる画面に出すことを求める。
-///
-/// [fetchedAt] は実際の時刻。発着時刻のような JST の壁時計を表す naive な `Date`
-/// （§4 #121）ではない——出発アンカーと比べることは無く、表示の側で JST に直す。
 export interface TimetableSource {
-  /// ODPT のフィード id（`functions/src/timetable-pack/feeds.ts`）。
   feedId: string;
   fetchedAt: Date;
 }
@@ -182,17 +154,11 @@ export class RoutePlan {
   readonly kcal: number;
   readonly walkKm: number;
 
-  /// 画面はもう読まない（#451 で結果画面の表示を外した）が残す。経路の性質として
-  /// 計算は安く、撤去すると型・fixture・仕様の関数表まで波及するわりに得るものが無い。
   readonly walkRatio: number;
   readonly segments: RouteSegment[];
   readonly timelineNodes: TimelineNode[];
 
-  /// ふつうの乗換ルートの要約。null は比べられる経路が無い（乗れる便が無い・全徒歩の
-  /// データ源など）。
   readonly standardTransit: StandardTransitSummary | null;
 
-  /// 選定に使った時刻表。空は使っていない（厳密走査が無効・失敗・猶予切れ）。
-  /// 厳密走査の候補が採用されなかった検索でも、比較に使ったので空にしない。
   readonly timetableSources: TimetableSource[];
 }

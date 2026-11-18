@@ -1,9 +1,3 @@
-// 移植元: flutter-final:test/core/services/search_scoped_route_service_test.dart
-//
-// SearchScopedRouteService は #384 の6ファイルに含まれず、エンジン本体を全て緑にしても
-// 一度も実行されない。plan 1回ごとにエンジンを組み立てて必ず閉じる境界（#259）そのものは
-// TransitRouteService の外側にあり、そちらのテストからは観測できない。
-
 import { describe, expect, it } from 'vitest';
 
 import { GeoPoint } from '../../src/models/geo-point';
@@ -33,7 +27,6 @@ const plan = new RoutePlan({
   timelineNodes: [],
 });
 
-/// plan() の完了タイミングを外から握れるエンジン。close 回数を観測する。
 class FakeEngine implements SearchEngine {
   constructor(private readonly options: { gate?: Deferred<void>; error?: Error } = {}) {}
 
@@ -62,8 +55,6 @@ const run = (service: RouteService, cancellation?: CancellationToken): Promise<R
     cancellation,
   });
 
-/// Dart の `pumpEventQueue()` に対応する。待っている plan がゲートで止まる（＝エンジンが
-/// 組み立てられ onCancel が登録された）ところまでイベントループを進める。
 const pumpEventQueue = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('SearchScopedRouteService', () => {
@@ -115,9 +106,6 @@ describe('SearchScopedRouteService', () => {
     await expectThrowsA(() => future, SearchCanceledException);
   });
 
-  // close で in-flight のソケットが落ちると、その get は ClientException など
-  // 任意の例外になる。呼び出し側がキャンセルを通信エラーと取り違えないよう、
-  // キャンセル済みなら SearchCanceledException に揃える。
   it('キャンセル後に湧いた通信エラーは SearchCanceledException へ揃える', async () => {
     const gate = deferred<void>();
     const engine = new FakeEngine({ gate, error: new RouteException('X') });

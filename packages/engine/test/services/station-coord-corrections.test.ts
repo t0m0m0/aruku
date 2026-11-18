@@ -9,7 +9,6 @@ describe('correctStationCoord（#515）', () => {
   it('Transit API の宇都宮線の久喜（約1km 西南西にずれた座標）を実際の駅の座標へ置き換える', () => {
     const corrected = correctStationCoord(new GeoPoint(36.06301, 139.66734));
     expect(corrected).not.toBeNull();
-    // 東武の久喜（36.06555, 139.67761）と同じ駅舎に来る。
     expect(haversineKm(corrected!, new GeoPoint(36.06555, 139.67761))).toBeLessThan(0.05);
   });
 

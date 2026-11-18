@@ -1,5 +1,3 @@
-// 移植元: flutter-final:test/core/services/transit_api_client_test.dart
-
 import { describe, expect, it } from 'vitest';
 
 import { GeoPoint } from '../../src/models/geo-point';
@@ -273,7 +271,7 @@ describe('fetchGuidanceArrivalAt (#376)', () => {
       new GeoPoint(35.1, 139.2),
       new GeoPoint(35.3, 139.4),
       dateTime(2026, 6, 27, 9, 5),
-      95, // 09:05 + 95分 = 10:40
+      95,
     );
     expect(body).toEqual({ ok: true });
     expect(captured.pathname).toEqual('/api/v1/guidance/plan');
@@ -298,14 +296,12 @@ describe('fetchGuidanceArrivalAt (#376)', () => {
       new GeoPoint(35.1, 139.2),
       new GeoPoint(35.3, 139.4),
       dateTime(2026, 8, 26, 23, 30),
-      90, // 23:30 + 90分 = 翌 01:00 = サービス時刻 25:00
+      90,
     );
     expect(captured.searchParams.get('date')).toEqual('20260826');
     expect(captured.searchParams.get('time')).toEqual('25:00');
   });
 
-  // 年境界そのものは time の組み立て（departureAt の hour/minute + budgetMin の整数和）に
-  // 一切関与しないが、境界固定として日またぎと同じ形を残す。
   it('年境界をまたぐ予算も date=出発サービス日・time=24時超で表す', async () => {
     let captured!: URL;
     const c = client(
@@ -318,7 +314,7 @@ describe('fetchGuidanceArrivalAt (#376)', () => {
       new GeoPoint(35.1, 139.2),
       new GeoPoint(35.3, 139.4),
       dateTime(2026, 12, 31, 23, 30),
-      90, // 23:30 + 90分 = 翌年 01:00 = サービス時刻 25:00
+      90,
     );
     expect(captured.searchParams.get('date')).toEqual('20261231');
     expect(captured.searchParams.get('time')).toEqual('25:00');
@@ -336,7 +332,7 @@ describe('fetchGuidanceArrivalAt (#376)', () => {
       new GeoPoint(35.1, 139.2),
       new GeoPoint(35.3, 139.4),
       dateTime(2026, 8, 26, 9, 0),
-      2430, // 09:00 + 2430分（1日16.5時間）= サービス時刻 49:30
+      2430,
     );
     expect(captured.searchParams.get('date')).toEqual('20260826');
     expect(captured.searchParams.get('time')).toEqual('49:30');
@@ -417,8 +413,6 @@ describe('fetchWalkMatrix', () => {
     expect(rows).toBeNull();
   });
 
-  // fetchGuidanceAt は TIMEOUT を再送出するのに対し fetchWalkMatrix は握り潰す、
-  // という挙動差が本クラスの要点なので明示的に固定する（回帰防止）。
   it('タイムアウトも null（直線推定へフォールバック）', async () => {
     const c = client(
       mockClient(() => {
@@ -498,8 +492,6 @@ describe('fetchExactWalkMax (#460)', () => {
   });
 
   it('JST 以外の端末でも、選んだ壁時計を JST の時刻として送る（§4 #121）', async () => {
-    // departureAt は JST の壁時計を表す naive な Date。UTC の端末で toISOString すると
-    // 09:05Z（＝18:05 JST）になり、9時間ずれた便を引く。
     const departAt = await inTimeZone('UTC', async () => {
       let captured!: URL;
       const c = client(
@@ -607,8 +599,6 @@ describe('上流 HTTP 往復本数の計測 (#309)', () => {
     expect(c.matrixCalls).toEqual(1);
   });
 
-  // マトリクスは失敗を null へ握り潰す口だが、HTTP は実際に往復しているので計上する
-  // （本数は「叩いた回数」であって「成功回数」ではない）。
   it('マトリクスが非200で null 縮退しても往復本数は数える', async () => {
     const c = client(mockClient(() => jsonResponse([], 500)));
     const rows = await c.fetchWalkMatrix([new GeoPoint(0, 0)], [new GeoPoint(1, 1)]);
@@ -645,8 +635,6 @@ describe('baseUrl 正規化', () => {
     expect(c.hasTransitApi).toBe(false);
   });
 
-  // proxyBaseUrl の末尾スラッシュ正規化は fetchProxy の URL 組み立てに効く。
-  // 実リクエストの path が二重スラッシュにならないことで確認する。
   it('proxyBaseUrl 末尾スラッシュを除去し二重スラッシュを防ぐ', async () => {
     let captured!: URL;
     const c = client(
@@ -709,8 +697,6 @@ describe('キャンセル (#259)', () => {
     expect(calls).toEqual(0);
   });
 
-  // fetchWalkMatrix は取得失敗を null（直線推定へ縮退）に握り潰す唯一の口。
-  // ここでキャンセルまで null に化けると、呼び出し側は探索を続行してしまう。
   it('fetchWalkMatrix はキャンセルを null へ握り潰さない', async () => {
     let calls = 0;
     const cancellation = new CancellationToken();
@@ -761,13 +747,10 @@ describe('キャンセル (#259)', () => {
   });
 
   it('発行後にキャンセルで閉じられた in-flight の client エラーはキャンセルへ昇格', async () => {
-    // throwIfCanceled は発行**前**ガード。発行後にユーザーが離脱すると scoped client が
-    // 閉じられ、in-flight は SearchCanceledException ではなく素の client エラーで倒れる。
-    // これを昇格させないと上位の縮退 catch（候補ドロップ）に握り潰される（#316）。
     const cancellation = new CancellationToken();
     const c = new TransitApiClient({
       transitClient: mockClient(() => {
-        cancellation.cancel(); // 発行直後の離脱＝scoped client close 相当
+        cancellation.cancel();
         throw new ClientException('Client is already closed');
       }),
       transitBaseUrl: transitBase,
@@ -803,8 +786,6 @@ describe('キャンセル (#259)', () => {
 
 describe('締切による残予算クランプ (#300)', () => {
   it('上流が残予算より遅ければ残予算で TIMEOUT になる', async () => {
-    // 1本の上限（35s）より締切の残予算の方が短い状況。
-    // クランプが無ければ 200ms 待って成功してしまう。
     const c = new TransitApiClient({
       transitClient: mockClient(async () => {
         await delay(200);
@@ -895,9 +876,6 @@ describe('締切による残予算クランプ (#300)', () => {
   });
 
   it('徒歩プロキシには締切を適用しない（実測は検証であって改善ではない）', async () => {
-    // 締切で切ってよいのは「切っても嘘をつかない」呼び出しだけ。徒歩実測は fail-open
-    // （enrichWalkGeometry が失敗時に楽観的な見積りを残す）なので、締切で切ると
-    // 予算超過・乗り遅れの経路を「予算内」と偽って確定させる（#254 を破る）。
     let calls = 0;
     const c = new TransitApiClient({
       proxyClient: mockClient(async () => {
@@ -907,7 +885,6 @@ describe('締切による残予算クランプ (#300)', () => {
       }),
       transitBaseUrl: transitBase,
       proxyBaseUrl: proxyBase,
-      // 使い切り済みの締切。transit なら即 TIMEOUT になる状況。
       deadline: new SearchDeadline(seconds(120), {
         elapsed: () => seconds(500),
       }),
@@ -929,17 +906,14 @@ describe('締切による残予算クランプ (#300)', () => {
       }),
     });
 
-    // null（＝直線推定へフォールバック）ではなく実測が返ることの反証。
     expect(
       await c.fetchWalkMatrix([new GeoPoint(35.0, 139.0)], [new GeoPoint(35.5, 139.5)]),
     ).not.toBeNull();
   });
 });
 
-/// クランプを観測するための短い残予算。上流 fake の遅延より十分短くとる。
 const remaining = 20;
 
-/// close 回数だけを数えるクライアント。mockClient の close は no-op で観測できない。
 class CountingClient implements HttpClient {
   closed = 0;
 

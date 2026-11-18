@@ -82,7 +82,7 @@ describe('exactWalkCandidates (#460)', () => {
     const [access, ride, egress] = c.segments;
     expect(access.fromName).toEqual('蒲田');
     expect(access.toName).toEqual('大崎');
-    expect(access.minutes).toEqual(42); // 2529s = 42.15分
+    expect(access.minutes).toEqual(42);
     expect(access.km).toEqual(3.4);
     expect(access.polyline).toEqual([origin, new GeoPoint(35.6197, 139.7283)]);
 
@@ -105,13 +105,11 @@ describe('exactWalkCandidates (#460)', () => {
 
     expect(egress.fromName).toEqual('神田');
     expect(egress.toName).toEqual('上野公園');
-    expect(egress.minutes).toEqual(25); // 1470s = 24.5分
+    expect(egress.minutes).toEqual(25);
     expect(egress.polyline).toEqual([new GeoPoint(35.6918, 139.7709), goal]);
   });
 
   it('JST 以外の端末でも、発着時刻を JST の壁時計を表す naive な Date にする（§4 #121）', async () => {
-    // 出発アンカー（departureAt）は naive なので、実際の時刻のまま持つと UTC の端末では
-    // 9時間ずれて、乗れない便が乗れるように見える。
     await inTimeZone('UTC', () => {
       const [c] = exactWalkCandidates({ candidates: [candidate()] }, ends);
       expect(c.segments[1].depTime).toEqual(dateTime(2026, 6, 27, 10, 42));
@@ -155,7 +153,7 @@ describe('exactWalkCandidates (#460)', () => {
           candidate({ stops: [{ lat: 35.6, lng: 139.7 }] }),
           candidate({ accessWalk: null }),
           candidate({ board: { name: '大崎' } }),
-          candidate({ alightAt: '2026-06-27T10:00:00+09:00' }), // 降車が乗車より前
+          candidate({ alightAt: '2026-06-27T10:00:00+09:00' }),
           candidate(),
         ],
       },
@@ -191,7 +189,7 @@ describe('timetableSources (#461)', () => {
         { id: 'Toei' },
         { id: 3, fetchedAt: '2026-06-27T04:23:10.000Z' },
         { id: 'Keio', fetchedAt: 'not a time' },
-        { id: 'Tobu', fetchedAt: '2026-06-27T04:23:10' }, // 時差なし
+        { id: 'Tobu', fetchedAt: '2026-06-27T04:23:10' },
         'Sotetsu',
         { id: 'MIR', fetchedAt: '2026-06-27T04:23:10.000Z' },
       ],

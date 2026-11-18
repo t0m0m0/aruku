@@ -1,8 +1,3 @@
-// 移植元: flutter-final:test/core/services/rail_line_names_test.dart
-//
-// パーサのテストは railLineLabel を「路線名が和名になる」経路でしか通らず、未知コード・
-// null の素通しは一度も実行されない。
-
 import { describe, expect, it } from 'vitest';
 
 import { railLineLabel } from '../../src/services/rail-line-names';

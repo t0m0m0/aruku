@@ -1,17 +1,3 @@
-// 移植元: flutter-final:test/core/models/time_value_test.dart
-//
-// #384 が移したのはサービス層6ファイルだけで、モデル層のテストは Dart 側に残った。
-// そのうち [TimeValue] の日付ラベル・予算整形・オフセット換算は**エンジンからは
-// 呼ばれない**（利用者は UI 層）ため、移植したサービステストを全て緑にしても一度も
-// 実行されない。#385 でモデル層を TS へ移す以上、ここだけは移植元のテストも運ぶ。
-//
-// 同じ理由で `geo_point_test.dart` / `route_plan_test.dart` は移していない。前者の
-// 「heading が違っても等価」は TypeScript で意図的に揃えていない点（PORTING.md
-// 「意図的に揃えなかった点」）で、移すと成立しない主張になる。後者は大半が
-// google_maps_flutter のオーバーレイ変換で、エンジンの対象外。モデル層として残る
-// `RouteSegment.polyline` の既定と保持、`isZeroWalk` は、移植したサービステストが
-// パーサ・ビルダ経由で通している。
-
 import { describe, expect, it } from 'vitest';
 import { dateOffsetFrom, kMaxDateOffsetDays, TimeValue } from '../../src/models/time-value';
 import { dateTime } from '../../src/time';
@@ -32,8 +18,6 @@ describe('TimeValue', () => {
     expect(tv.dateOffset).toBe(30);
   });
 
-  // Dart 側は `assert(dateOffset >= 0)` で AssertionError。TypeScript に assert は
-  // 無く、リリースビルドで検査ごと消える Dart と違って常に効く——弾く条件は同じ。
   it('dateOffset が負の場合は assert で弾かれる', () => {
     expect(() => new TimeValue({ h: 9, m: 0, dateOffset: -1 })).toThrow(RangeError);
   });
@@ -60,7 +44,7 @@ describe('TimeValue', () => {
 });
 
 describe('TimeValue.fullDateLabel', () => {
-  const now = dateTime(2026, 5, 19); // 火曜日
+  const now = dateTime(2026, 5, 19);
 
   it('当日（dateOffset=0）は「M月D日 (曜)」', () => {
     const tv = new TimeValue({ h: 8, m: 0, dateOffset: 0 });
