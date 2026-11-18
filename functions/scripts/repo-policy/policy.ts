@@ -17,6 +17,8 @@ export type PolicyViolation =
 const PACKAGE_ROOTS = ['packages/engine/', 'apps/web/', 'functions/'] as const;
 const CODE_EXTENSION = /\.(ts|tsx|mjs|cjs)$/;
 const CONFIG_FILE = /\.config\.(ts|mts|cts|mjs|cjs)$/;
+const JS_FILE = /\.(mjs|cjs)$/;
+const GENERATED_FILES = new Set(['packages/engine/src/services/station-coord-table.ts']);
 
 const ALLOWED_DIRECTIVES: readonly RegExp[] = [
   /^\/\/\s*(oxlint|eslint)-(disable|enable)(-next-line|-line)?(\s|$)/,
@@ -25,6 +27,12 @@ const ALLOWED_DIRECTIVES: readonly RegExp[] = [
   /^\/\/\/\s*<reference\s[^>]*\/>\s*$/,
   /^\/\*\s*@vite-ignore\s*\*\/$/,
   /^\/\/\s*@vitest-environment\s+\S+\s*$/,
+];
+
+const JSDOC_TYPE_TAGS: readonly RegExp[] = [
+  /^@(type|returns?|satisfies)\s+\{.+\}$/,
+  /^@(param|property|typedef)\s+\{.+\}\s+(\[[\w$.]+(=[^\]]*)?\]|[\w$.]+)$/,
+  /^@template\s+[\w$]+(\s*,\s*[\w$]+)*$/,
 ];
 
 const ALLOWED_MARKDOWN_FILES = new Set([
@@ -38,6 +46,7 @@ const ALLOWED_MARKDOWN_DIRS = ['.claude/', '.codex/', '.agents/', 'docs/ops/'] a
 
 export function isCommentPolicyTarget(path: string): boolean {
   if (!PACKAGE_ROOTS.some((root) => path.startsWith(root))) return false;
+  if (GENERATED_FILES.has(path)) return false;
   return CODE_EXTENSION.test(path) && !CONFIG_FILE.test(path);
 }
 
@@ -47,8 +56,24 @@ export function isAllowedMarkdown(path: string): boolean {
   );
 }
 
-function isAllowedDirective(text: string): boolean {
-  return ALLOWED_DIRECTIVES.some((pattern) => pattern.test(text));
+function isJsDocTypeOnly(text: string): boolean {
+  if (!text.startsWith('/**') || !text.endsWith('*/')) return false;
+  const lines = text
+    .slice(3, -2)
+    .split('\n')
+    .map((line) =>
+      line
+        .trim()
+        .replace(/^\*\s?/, '')
+        .trim(),
+    )
+    .filter((line) => line.length > 0);
+  return lines.length > 0 && lines.every((line) => JSDOC_TYPE_TAGS.some((tag) => tag.test(line)));
+}
+
+export function isAllowedComment(path: string, text: string): boolean {
+  if (ALLOWED_DIRECTIVES.some((pattern) => pattern.test(text))) return true;
+  return JS_FILE.test(path) && isJsDocTypeOnly(text);
 }
 
 function scriptKindOf(path: string): ts.ScriptKind {
@@ -116,7 +141,7 @@ export function findForbiddenComments(path: string, source: string): ForbiddenCo
     const start = token.getStart(sourceFile);
     for (const comment of commentsInTrivia(sourceFile, token.pos, start)) {
       if (comment.kind === ts.SyntaxKind.ShebangTrivia) continue;
-      if (isAllowedDirective(comment.text)) continue;
+      if (isAllowedComment(path, comment.text)) continue;
       const { line } = sourceFile.getLineAndCharacterOfPosition(comment.pos);
       forbidden.push({ line: line + 1, text: comment.text });
     }
