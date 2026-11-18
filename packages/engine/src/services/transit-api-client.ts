@@ -1,5 +1,3 @@
-// 移植元: flutter-final:lib/core/services/transit_api_client.dart
-
 import { dartDouble } from '../dart-number';
 import { isRecord, type JsonMap } from '../json';
 import type { GeoPoint } from '../models/geo-point';
@@ -9,48 +7,26 @@ import { RouteException } from './route-service';
 import { SearchDeadline } from './search-deadline';
 import { durationZero, type Duration } from '../time';
 
-/// `/guidance/plan` の既定の除外モード。バス優勢な区間では `numItineraries` の枠が
-/// バス経路で埋まり電車候補が消えるため、主照会は電車のみを要求する（#247）。
 const avoidModesTrainOnly = ['bus', 'ferry', 'air'];
 
-/// バスを許容する照会（last-resort 再照会・#250）の除外モード。`ferry`/`air` は
-/// [SegmentType] で表現できずパーサが option ごと落とすため、除外したままにする。
 const avoidModesAllowBus = ['ferry', 'air'];
 
-/// `/guidance/plan` で取得する候補数。
 const numItineraries = 5;
 
 export interface TransitApiClientInit {
   transitClient?: HttpClient;
   proxyClient?: HttpClient;
 
-  /// 未指定時の既定（Dart 版の `AppConfig`）は移していない。設定の出どころは
-  /// フロントの配線で、Phase 3（#386）で決める。
   transitBaseUrl?: string;
   proxyBaseUrl?: string;
 
-  /// 検索1回分のキャンセル境界（#259）。null なら中断不能（既定）。
   cancellation?: CancellationToken | null;
 
-  /// 検索1回分の締切（#300）。既定（[SearchDeadline.none]）は無期限。
   deadline?: SearchDeadline;
 
-  /// 要求ごとの結末（応答・失敗）を記録し、[startReplay] 以降は記録済みの要求を上流へ
-  /// 投げずに同じ結末を返す。厳密走査の A/B 計測（#462）の B が、A と同じ上流の応答の上で
-  /// 選び直すために使う。既定 false。
   recordForReplay?: boolean;
 }
 
-/// Transit API（`/guidance/plan` 直叩き）と Google Routes プロキシへの HTTP 通信を担う
-/// クライアント（#169）。[TransitRouteService] から通信の関心事を切り出し、選定ロジックを
-/// トランスポートから独立させる。
-///
-/// 経路取得は Transit API を直叩き（認証不要・CORS）、アクセス徒歩の実測は Google Routes
-/// プロキシ（App Check）を介す。1本あたりのタイムアウト（#156）は注入されたクライアント
-/// 側で適用され、無応答は `RouteException('TIMEOUT')` へ変換する。
-///
-/// [cancellation] を渡すと検索単位で中断できる（#259）。クライアントは検索1回分の
-/// 寿命で所有され、[close] で in-flight のソケットごと落とす。
 export class TransitApiClient {
   constructor(init: TransitApiClientInit = {}) {
     this.transit = init.transitClient ?? null;
@@ -65,12 +41,6 @@ export class TransitApiClient {
   private readonly recorded: Map<string, Promise<HttpResponse>> | null;
   private replaying = false;
 
-  /// 以降、記録済みの要求は上流へ投げず、記録した結末（失敗を含む）を返す。記録の無い
-  /// 要求はふつうに投げる。
-  ///
-  /// 経路ごとのキャッシュで済ませていないのは、選定には失敗を残さない口（徒歩レッグの
-  /// キャッシュ・壊れた応答で落とした候補・縮退の実時刻解決）がいくつもあり、どれか1つでも
-  /// B が引き直すと2回目だけ成功して、厳密走査と無関係な差が出るから。
   startReplay(): void {
     this.replaying = true;
   }
@@ -82,81 +52,54 @@ export class TransitApiClient {
   readonly cancellation: CancellationToken | null;
   readonly deadline: SearchDeadline;
 
-  // 上流 HTTP 往復本数の実測（#309）。「実際に GET を発行した回数」を種別ごとに数える。
-  // 締切切れ・キャンセルで発行前に落ちた要求は往復していないので数えない（[getOrTimeout]
-  // が発行直前にだけ onIssued を呼ぶ）。成功・失敗は問わない——本数は叩いた回数であって
-  // 成功回数ではない（マトリクスの null 縮退でも往復はしている）。
   private guidanceCallCount = 0;
   private walkCallCount = 0;
   private matrixCallCount = 0;
   private matrixElementCount = 0;
   private exactCallCount = 0;
 
-  // 同じ URI（同じ from/to/date/time/mode）を発行し直した本数。応答は覚えて使い回すので
-  // （[guidanceResponses]）、ここに入るのは失敗した照会の引き直しだけ。
   private guidanceDupCallCount = 0;
   private readonly guidanceKeys = new Set<string>();
 
-  // guidance の応答（応答待ちを含む）。URI → 応答。クライアントは検索1回ごとに作り捨て
-  // （#259）なので寿命＝1検索で、検索をまたいで古いダイヤを返すことは無い。
-  // 失敗（非200・本文が読めない応答を含む）は覚えない——タイムアウトした区間をその検索の
-  // 間ずっと引けなくすると、後の引き直しで救えたはずの候補まで落ちる。
   private readonly guidanceResponses = new Map<string, Promise<HttpResponse>>();
   private guidanceCacheHitCount = 0;
 
-  /// `/guidance/plan` の実 HTTP 往復本数（初回＋引き直し）。
   get guidanceCalls(): number {
     return this.guidanceCallCount;
   }
 
-  /// 上記のうち、同一 URI を発行し直した本数（失敗した照会の引き直し）。
   get guidanceDupCalls(): number {
     return this.guidanceDupCallCount;
   }
 
-  /// 発行せずに覚えた応答（応答待ちを含む）で返した guidance の本数。
   get guidanceCacheHits(): number {
     return this.guidanceCacheHitCount;
   }
 
-  /// Google 徒歩ルート（enrich）の実 HTTP 往復本数。
   get walkCalls(): number {
     return this.walkCallCount;
   }
 
-  /// Google 徒歩マトリクスの実 HTTP 往復本数。
   get matrixCalls(): number {
     return this.matrixCallCount;
   }
 
-  /// Google 徒歩マトリクスで発行した要素数（origins × destinations）の合計。
   get matrixElements(): number {
     return this.matrixElementCount;
   }
 
-  /// 厳密走査 `exactWalkMax`（#460）の実 HTTP 往復本数。
   get exactCalls(): number {
     return this.exactCallCount;
   }
 
-  /// 正規化済みの Transit API ベース URL（テスト・観測用）。
   get transitBaseUrl(): string {
     return this.transitBase;
   }
 
-  /// Transit API のベース URL が設定済みか。未設定なら呼び出し側は `NO_TRANSIT_API`
-  /// を投げる。設定知識を通信層に閉じ込め、ドメイン層が URL 文字列を覗かないための述語。
   get hasTransitApi(): boolean {
     return this.transitBase.length > 0;
   }
 
-  // ---- Transit API（直叩き） ----
-
-  /// [start]→[goal] を [at] 発で `/guidance/plan` に問い合わせ、生 JSON を返す。
-  /// 非200は `RouteException('HTTP <code>')`、無応答は `RouteException('TIMEOUT')`。
-  ///
-  /// [options.allowBus] を立てるとバスを含む経路も要求する（#250 の last-resort 再照会）。
-  /// 既定（false）はバスを除外し電車のみを要求する（#247）。
   async fetchGuidanceAt(
     start: GeoPoint,
     goal: GeoPoint,
@@ -171,10 +114,6 @@ export class TransitApiClient {
     });
   }
 
-  /// [start]→[goal] を「[departureAt] から [budgetMin] 分後」到着で `/guidance/plan` に
-  /// 問い合わせ、生 JSON を返す（到着アンカー第2波・#376）。`type` は `arrival`、`time` は
-  /// [departureAt] のサービス日基準（[formatServiceTime]）に置き換わる点以外は
-  /// [fetchGuidanceAt] と同じ組み立て。[options.allowBus] の意味も同じ。
   async fetchGuidanceArrivalAt(
     start: GeoPoint,
     goal: GeoPoint,
@@ -226,15 +165,9 @@ export class TransitApiClient {
       this.cancellation?.throwIfCanceled();
       this.guidanceCacheHitCount++;
     }
-    // 覚えた応答も呼び出しごとに読み直す。読んだ JsonMap を共有すると、呼び出し側の
-    // 書き換えが次の呼び出しへ漏れる。
     return decodeJsonMap(await response);
   }
 
-  // ---- Google Routes（プロキシ） ----
-
-  /// [origins]×[dests] の徒歩マトリクスを Google プロキシで一括実測し、生の要素配列を返す。
-  /// 取得失敗（非200・タイムアウト・非配列）は null（呼び出し側は直線推定へフォールバック）。
   async fetchWalkMatrix(origins: GeoPoint[], dests: GeoPoint[]): Promise<unknown[] | null> {
     try {
       return await this.fetchProxyArray(
@@ -246,15 +179,11 @@ export class TransitApiClient {
         },
       );
     } catch (error) {
-      // キャンセル（SearchCanceledException）は握り潰さない。ここで null へ化けると
-      // 呼び出し側が直線推定で探索を続行してしまう（#259）。
       if (error instanceof RouteException) return null;
       throw error;
     }
   }
 
-  /// [origin]→[dest] の徒歩を Google Routes(WALK, プロキシ経由)で取得した生ボディを返す。
-  /// 非200・無応答は `RouteException`（呼び出し側が routes をパース・失敗を吸収する）。
   fetchWalkRoute(origin: GeoPoint, dest: GeoPoint): Promise<JsonMap> {
     return this.fetchProxy(
       'googleWalkProxy',
@@ -266,17 +195,6 @@ export class TransitApiClient {
     );
   }
 
-  // ---- 厳密走査（Functions） ----
-
-  /// [origin]→[goal] を [departureAt] 発・予算 [budgetMin] 分で `exactWalkMax` に問い合わせ、
-  /// 生ボディを返す（#460）。非200・無応答は `RouteException`。
-  ///
-  /// [departureAt] は JST の壁時計を表す naive な `Date`（§4 #121）なので、`toISOString` で
-  /// 送ってはいけない——端末が JST でないと実際の時刻がその時差ぶんずれ、別の時間帯の便を
-  /// 引く。壁時計のフィールドに +09:00 を付けて送る。
-  ///
-  /// 乗換つきの候補 `transferCandidates` は [transfers] が真のときだけ求める（#484）。求めなければ
-  /// サーバはその走査を省き、応答に載せない。
   fetchExactWalkMax(
     origin: GeoPoint,
     goal: GeoPoint,
@@ -331,32 +249,6 @@ export class TransitApiClient {
     return decoded;
   }
 
-  /// [client] で [uri] を GET し、タイムアウト（#156）を `RouteException('TIMEOUT')` へ
-  /// 変換する。これで無応答は既存の UI エラー処理と縮退（失敗レッグは `RouteException`
-  /// を捕らえて直線推定・候補スキップ）にそのまま乗る。
-  ///
-  /// キャンセル判定を全 fetch の共通経路であるここへ置くのは、[fetchWalkMatrix] の
-  /// ような縮退の口（`RouteException` → null）の内側で投げても、
-  /// [SearchCanceledException] が `RouteException` でない以上そこで握り潰されずに
-  /// 抜けるため（#259）。
-  ///
-  /// [options.deadlineApplies] のとき [deadline] の残予算でも打ち切る（#300）。1本の上限
-  /// （35s）だけでは検索全体の最悪待ち時間が「上限 × 直列ラウンド数」に膨らむため、
-  /// 残予算でクランプして天井を締切へ落とす。期限切れなら HTTP を発行しない——残予算 0 で
-  /// 投げた照会は必ず打ち切られる＝無料・無認証の上流を無駄に叩くだけなので、送る前に落とす。
-  ///
-  /// **徒歩プロキシには締切を適用しない（`deadlineApplies: false`）。** 締切で切って
-  /// よいのは「切っても嘘をつかない」呼び出しだけ、という非対称性がある：
-  /// - Transit の引き直しは **fail-closed**。失敗すると候補が `unverified` として除外され
-  ///   確証ある候補へ縮退する（§4 #137 approach A）。締切で切っても提示内容は嘘にならない。
-  /// - 徒歩の実測は **fail-open**。[TransitRouteService] の enrich は取得失敗時に元の
-  ///   見積り（guidance / 直線）を**そのまま残す**。直線は実街路に対し大きく楽観に倒れる
-  ///   （実機で -36分・25%）ため、締切で切ると「23分」と名乗る実際46分の全徒歩を確定させ、
-  ///   予算超過・乗り遅れの経路を平然と提示する（#254 の不変条件を破る）。
-  ///
-  /// measure-first の実測は探索の**改善**ではなく確定経路の**検証**であり、締切より優先する。
-  /// 探索側（乗車駅探索・代替検証）は [TransitRouteService] が締切でラウンドごと止めるので、
-  /// 期限切れ後に走る徒歩実測は確定候補の検証だけ＝本数は候補の区間数で頭打ちになる。
   private getOrTimeout(
     client: HttpClient | null,
     uri: URL,
@@ -371,8 +263,6 @@ export class TransitApiClient {
       return replayed;
     }
     const outcome = this.issue(client, uri, options);
-    // キャンセルは結末ではない（B へ持ち込むと離脱していない B まで止まる）ので残さない。
-    // 同じ要求を A が何度も投げたら、最後の結末を残す。
     outcome.then(
       () => recorded.set(key, outcome),
       (error: unknown) => {
@@ -390,17 +280,10 @@ export class TransitApiClient {
     this.cancellation?.throwIfCanceled();
     const remaining = (options.deadlineApplies ?? true) ? this.deadline.remaining : null;
     if (remaining === durationZero) throw new RouteException('TIMEOUT');
-    // Dart 版は既定で `http.Client()` を組み立てるが、Phase 1 は既定を置かなかった
-    // （設定・トランスポートの出どころは Phase 3・#386 の配線）。RouteException に
-    // しないのは、これが経路の結末ではなく**配線漏れ**だから——RouteException は
-    // 縮退パス（候補ドロップ・直線推定）に握り潰され、注入し忘れが「徒歩が長い経路」
-    // として静かに出てしまう。
     if (client === null) {
       throw new Error('TransitApiClient: no HTTP client was injected');
     }
     try {
-      // 往復本数の計上（#309）は「発行が確定した瞬間」にだけ行う。キャンセル・締切切れで
-      // 上の 2 ガードに掛かった要求は往復していないので数えない。
       options.onIssued?.();
       const request = client.get(uri);
       return await (remaining === null ? request : withDeadline(request, remaining));
@@ -408,25 +291,17 @@ export class TransitApiClient {
       if (error instanceof TimeoutException) {
         throw new RouteException('TIMEOUT');
       }
-      // throwIfCanceled は発行**前**ガード。発行後に離脱すると scoped client が閉じられ、
-      // in-flight は SearchCanceledException ではなく素の client エラー（ClientException 等）で
-      // 倒れる。ここで昇格させないと、上位の縮退 catch（#316 の候補ドロップ・レッグ縮退）が
-      // キャンセルを握り潰し、離脱後も探索が続いて経路を返してしまう。
       this.cancellation?.throwIfCanceled();
       throw error;
     }
   }
 
-  /// 保持するクライアントを閉じ、in-flight のリクエストを中断する（#259）。
   close(): void {
     this.transit?.close();
     this.proxy?.close();
   }
 }
 
-/// Dart の `Future.timeout(d)` に対応する。[promise] を待ちつつ [limit] で
-/// [TimeoutException] にする。元の処理は**止まらない**（Dart の `timeout` も同じで、
-/// 実際の中断は `close()` が担う）。
 function withDeadline<T>(promise: Promise<T>, limit: Duration): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   const expiry = new Promise<never>((_, reject) => {
@@ -435,7 +310,6 @@ function withDeadline<T>(promise: Promise<T>, limit: Duration): Promise<T> {
       limit,
     );
   });
-  // タイマーは必ず落とす。残すとテストランナーがイベントループを掴んだまま終われない。
   return Promise.race([promise, expiry]).finally(() => clearTimeout(timer));
 }
 
@@ -459,15 +333,10 @@ function decodeJson(res: HttpResponse): unknown {
   return JSON.parse(new TextDecoder().decode(res.bodyBytes));
 }
 
-// Array.isArray をそのまま使わないのは、unknown を any[] へ絞り、要素が型の検査を受けずに
-// 先へ流れるため。
 function isArray(value: unknown): value is unknown[] {
   return Array.isArray(value);
 }
 
-/// Dart の `jsonDecode(...) as Map<String, dynamic>` に対応する。オブジェクト以外は
-/// 投げる——上流のスキーマ変更を「空の経路」へ化けさせない（transit-plan-parser の
-/// キャスト方針と同じ）。
 function decodeJsonMap(res: HttpResponse): JsonMap {
   const decoded = decodeJson(res);
   if (!isRecord(decoded)) throw new TypeError('expected a JSON object');
@@ -486,7 +355,6 @@ function formatTime(dt: Date): string {
   return `${pad(dt.getHours(), 2)}:${pad(dt.getMinutes(), 2)}`;
 }
 
-/// JST の壁時計を表す naive な [at] を、時差つきの ISO 8601（`YYYY-MM-DDTHH:mm:ss+09:00`）にする。
 function formatJstInstant(at: Date): string {
   return (
     `${pad(at.getFullYear(), 4)}-${pad(at.getMonth() + 1, 2)}-${pad(at.getDate(), 2)}` +
@@ -494,18 +362,6 @@ function formatJstInstant(at: Date): string {
   );
 }
 
-/// [departureAt] のサービス日（0時起点）を基準に、そこから [budgetMin] 分後の時刻を
-/// `H:mm` で組み立てる。日またぎで H は 24 以上になり得る（例: 25:00）。
-///
-/// [departureAt] 自身の暦日+HH:mm ではなく到着側の暦日+HH:mm を基準にしないのは、
-/// 0時前発車の便をサービス日負秒にせず表現するため（実 API 直測で確認済み・#376）。
-///
-/// 締切を表す中間の `Date`（`departureAt` にミリ秒を足したもの等）は経由しない。
-/// [budgetMin] は呼び出し元で既に TimeValue 由来の名目分として求まっており、それを
-/// 経過時間として足すと DST のある端末タイムゾーンでは spring-forward を跨ぐ計算で
-/// 壁時計が1時間ずれる（#121 と同じクラス。端末 TZ は JST とは限らない）。壁時計の
-/// 年月日時分から `Date` を作り直す代替も、その時刻が DST ギャップに落ちれば同じだけ
-/// ずれるため避け、暦フィールドの整数演算だけで完結させる。
 function formatServiceTime(departureAt: Date, budgetMin: number): string {
   const total = departureAt.getHours() * 60 + departureAt.getMinutes() + budgetMin;
   return `${pad(Math.trunc(total / 60), 2)}:${pad(total % 60, 2)}`;

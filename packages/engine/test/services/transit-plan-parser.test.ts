@@ -1,5 +1,3 @@
-// 移植元: flutter-final:test/core/services/transit_plan_parser_test.dart
-
 import { describe, expect, it } from 'vitest';
 
 import type { JsonMap } from '../../src/json';
@@ -13,12 +11,6 @@ import {
 } from '../../src/services/transit-plan-parser';
 import { dateTime } from '../../src/time';
 import { single } from '../support/iterable';
-
-// Transit API `/guidance/plan` レスポンス（実機構造に準拠）を組むヘルパ。
-// - journey.legs: 時刻と路線（access/egress walk は含まず secs で持つ）。
-// - map.segments: access/egress を含む全ジオメトリ。transit セグメントは
-//   transit leg と同数・同順で fromPointId/toPointId が leg.from.id/to.id に一致する
-//   （実機検証済み）。
 
 const station = (id: string, name: string): JsonMap => ({ id, name });
 
@@ -138,14 +130,10 @@ describe('transitSecsToJst', () => {
   });
 
   it('86400 超（0時跨ぎ便）は翌日へ繰り上がる', () => {
-    // 90000s = 25:00 → 翌日 01:00。
     expect(transitSecsToJst('20260627', 90000)).toEqual(dateTime(2026, 6, 28, 1, 0));
   });
 
   it('返り値は naive（isUtc=false）', () => {
-    // JS の `Date` に `isUtc` は無い。UTC 起点で組み立てていないことは、固定した
-    // タイムゾーン（Asia/Tokyo・vitest.config.ts）でローカルの壁時計を読めば判る
-    // ——UTC で作れば 09:06 になる。TZ を UTC で走らせるとこの反証が消える。
     const d = transitSecsToJst('20260627', 360)!;
     expect(d.getHours()).toBe(0);
     expect(d.getMinutes()).toBe(6);
@@ -219,7 +207,6 @@ describe('parseGuidancePlan', () => {
     expect(options).toHaveLength(1);
     const o = single(options);
 
-    // access walk → train → egress walk の順。
     expect(o.segments.map((s) => s.type)).toEqual([
       SegmentType.walk,
       SegmentType.train,
@@ -230,16 +217,14 @@ describe('parseGuidancePlan', () => {
     expect(train.line).toEqual('中央線快速');
     expect(train.fromName).toEqual('東京');
     expect(train.toName).toEqual('新宿');
-    expect(train.minutes).toEqual(15); // (1260-360)/60
+    expect(train.minutes).toEqual(15);
     expect(train.depTime).toEqual(dateTime(2026, 6, 27, 0, 6));
     expect(train.arrTime).toEqual(dateTime(2026, 6, 27, 0, 21));
     expect(train.polyline).toHaveLength(3);
 
-    // access/egress の所要は journey の secs を分へ。
-    expect(o.segments[0].minutes).toEqual(2); // 120s
-    expect(o.segments[o.segments.length - 1].minutes).toEqual(1); // 60s
+    expect(o.segments[0].minutes).toEqual(2);
+    expect(o.segments[o.segments.length - 1].minutes).toEqual(1);
 
-    // コリドーは transit leg ぶん。stopOrder の座標がそのまま。
     expect(o.corridors).toHaveLength(1);
     expect(single(o.corridors).geometrySource).toEqual('stopOrder');
     expect(single(o.corridors).coords).toHaveLength(3);
@@ -284,7 +269,6 @@ describe('parseGuidancePlan', () => {
     const train = single(single(parseGuidancePlan(body)).segments);
     expect(train.type).toEqual(SegmentType.train);
     expect(train.line).toEqual('小田急小田原線');
-    // 駅名はローマ字サフィックスを除いて持つ。
     expect(train.fromName).toEqual('世田谷代田');
     expect(train.toName).toEqual('下北沢');
   });
@@ -383,15 +367,13 @@ describe('parseGuidancePlan', () => {
 
     const o = single(parseGuidancePlan(body));
     expect(o.segments.map((s) => s.type)).toEqual([
-      SegmentType.walk, // access
-      SegmentType.train, // 山手線
-      SegmentType.walk, // 乗換
-      SegmentType.train, // 中央総武
-      SegmentType.walk, // egress
+      SegmentType.walk,
+      SegmentType.train,
+      SegmentType.walk,
+      SegmentType.train,
+      SegmentType.walk,
     ]);
-    // 乗換徒歩の所要は leg の arr-dep（待ちは含めない）。
-    expect(o.segments[2].minutes).toEqual(2); // (1680-1560)/60
-    // 2 本目の電車の発車時刻は待ち後の 1980s。
+    expect(o.segments[2].minutes).toEqual(2);
     expect(o.segments[3].depTime).toEqual(dateTime(2026, 6, 27, 0, 33));
     expect(o.corridors).toHaveLength(2);
     expect(o.corridors[0].legIndex).toEqual(0);
@@ -434,7 +416,6 @@ describe('parseGuidancePlan', () => {
               fromId: 'keio:Shinjuku',
               toId: 'keio:Hachioji',
               geom: 'gtfsShape',
-              // 線路追従の密な頂点（停車駅とは無関係）。
               coords: [
                 [35.69, 139.699],
                 [35.685, 139.66],
@@ -485,12 +466,11 @@ describe('parseGuidancePlan', () => {
     const o = single(parseGuidancePlan(body));
     expect(o.segments).toHaveLength(1);
     expect(single(o.segments).type).toEqual(SegmentType.walk);
-    expect(single(o.segments).minutes).toEqual(60); // 3600s
+    expect(single(o.segments).minutes).toEqual(60);
     expect(o.corridors).toHaveLength(0);
   });
 
   it('同駅乗換の0km・0分の徒歩レッグは生成しない（#225）', () => {
-    // 多摩川→多摩川の乗換：所要0秒・polyline は同一点で距離0。ノイズなので落とす。
     const body = guidance({
       options: [
         option({
@@ -558,9 +538,7 @@ describe('parseGuidancePlan', () => {
     });
 
     const o = single(parseGuidancePlan(body));
-    // 0km・0分の乗換徒歩は挟まず、電車2本のみ（直結乗換）。
     expect(o.segments.map((s) => s.type)).toEqual([SegmentType.train, SegmentType.train]);
-    // コリドーは電車区間ぶん維持される。
     expect(o.corridors).toHaveLength(2);
   });
 
@@ -570,11 +548,6 @@ describe('parseGuidancePlan', () => {
   });
 
   it('バス（mode=bus）区間は SegmentType.bus として扱い、電車の乗車駅名と混同しない（#245/#249）', () => {
-    // 実データの再現: 森０２ バスで山王三丁目(バス停)→大森駅(バス停)、徒歩で大森へ、
-    // そこから京浜東北線。以前はバス区間まで電車扱いし、乗車駅名がバス停
-    // 「山王三丁目」に化けていた（#245）。#249 でバスは SegmentType.bus という
-    // 別型になったため、option は除外されず、バス区間・電車区間それぞれ正しい
-    // 駅名で残ることを検証する。
     const busViaRail = option({
       journey: journey({
         dep: 360,
@@ -661,14 +634,11 @@ describe('parseGuidancePlan', () => {
       SegmentType.walk,
     ]);
 
-    // バス区間の乗車停留所名はバス停のまま。
     const bus = segs[0];
     expect(bus.fromName).toEqual('山王三丁目');
     expect(bus.toName).toEqual('大森駅');
-    // バス系統名は railLineLabel（電車の路線名整形）を経由せずそのまま出す。
     expect(bus.line).toEqual('森０２');
 
-    // 電車区間の乗車駅名はバス停「山王三丁目」ではなく鉄道駅「大森」。
     const train = segs[2];
     expect(train.fromName).toEqual('大森');
     expect(train.toName).toEqual('新橋');
@@ -715,9 +685,6 @@ describe('parseGuidancePlan', () => {
   });
 
   it('地下鉄（mode=subway）を含む option は電車として維持する（#245）', () => {
-    // 地下鉄・私鉄・モノレール等は mode が rail/subway 等で返る。バスと違い
-    // 電車として扱い、区間・駅名解決に残す。segmentTypeForMode の写像を
-    // 崩すリファクタから守る回帰ガード。
     const subwayLeg: JsonMap = {
       kind: 'transit',
       mode: 'subway',
@@ -781,8 +748,6 @@ describe('parseGuidancePlan', () => {
   });
 
   it('mode 欠落の transit leg は電車として維持する（後方互換）', () => {
-    // 実 API・既存フィクスチャで mode を欠く transit leg があり得る。パーサは mode 欠落を
-    // 電車扱いとするため、除外されず区間へ残ることを検証する。
     const noModeLeg: JsonMap = {
       kind: 'transit',
       routeName: '京浜東北線（北行（大宮方面））',
@@ -845,19 +810,15 @@ describe('parseGuidancePlan', () => {
   });
 });
 
-// Transit API の JR 宇都宮線フィードの駅座標は実際の駅からずれていることがある（#515）。
-// 以下の座標は 2026-11 の実応答（東京→久喜駅）から取った。
-const kukiJrRaw = [36.06301, 139.66734]; // 宇都宮線の「久喜」。実際の駅の約1km 西南西
-const kukiTobu = [36.06555, 139.67761]; // 東武の「久喜 Kuki」。実際の駅とほぼ一致
-const kukiGoal = [36.0656, 139.6775]; // 地点検索の「久喜駅」
-const shinShiraokaJrRaw = [36.00274, 139.67665]; // 宇都宮線の「新白岡」。実際の駅の約4km 南
+const kukiJrRaw = [36.06301, 139.66734];
+const kukiTobu = [36.06555, 139.67761];
+const kukiGoal = [36.0656, 139.6775];
+const shinShiraokaJrRaw = [36.00274, 139.67665];
 const tokyo = [35.681236, 139.767125];
 
 const toPoint = (p: number[]): GeoPoint => new GeoPoint(p[0], p[1]);
 const metersBetween = (a: GeoPoint, b: GeoPoint): number => haversineKm(a, b) * 1000;
 
-/// 東京 17:29 → 久喜 18:26 の宇都宮線1本。上流は降車後の徒歩をずれた座標から見積もり、
-/// 996 秒（約17分）と返す。
 const tokyoToKukiJr = (): JsonMap =>
   guidance({
     date: '20261118',
@@ -932,7 +893,6 @@ describe('parseGuidancePlan: 駅座標の補正（#515）', () => {
     expect(corridor.coords[2].isAt(toPoint(shinShiraokaJrRaw))).toBe(false);
     expect(metersBetween(corridor.coords[2], toPoint(shinShiraokaJrRaw))).toBeGreaterThan(3000);
     expect(metersBetween(corridor.coords[3], toPoint(kukiTobu))).toBeLessThan(50);
-    // 表に無い頂点（東京・線路上の点）はそのまま。
     expect(corridor.coords[0].isAt(toPoint(tokyo))).toBe(true);
     expect(corridor.coords[1].isAt(toPoint([35.9, 139.62]))).toBe(true);
   });
@@ -987,7 +947,6 @@ describe('parseGuidancePlan: 駅座標の補正（#515）', () => {
     const access = single(options).segments[0];
     expect(access.type).toEqual(SegmentType.walk);
     expect(access.minutes).toBeLessThanOrEqual(1);
-    // ずれた座標へ向かう上流の徒歩線（途中の頂点）は捨て、直線の2点にする。
     expect(access.polyline).toHaveLength(2);
     expect(access.polyline[0].isAt(toPoint(kukiGoal))).toBe(true);
     expect(metersBetween(access.polyline[1], toPoint(kukiTobu))).toBeLessThan(50);
@@ -1078,13 +1037,11 @@ describe('parseGuidancePlan: 利用者が選んだ地点は駅座標の補正で
     const body = tokyoToKukiJr();
     const opt = (body['options'] as JsonMap[])[0];
     const segs = (opt['map'] as JsonMap)['segments'] as JsonMap[];
-    // 新白岡（ずれた座標）で降り、ちょうど宇都宮線の久喜のずれた座標の地点へ歩く。
     segs[1]['polyline'] = poly([tokyo, shinShiraokaJrRaw]);
     segs[2]['polyline'] = poly([shinShiraokaJrRaw, kukiJrRaw]);
     const parsed = single(parseGuidancePlan(body)).segments;
     const egress = parsed[parsed.length - 1];
     expect(egress.polyline[egress.polyline.length - 1].isAt(toPoint(kukiJrRaw))).toBe(true);
-    // 駅の端は補正する。
     expect(egress.polyline[0].isAt(toPoint(shinShiraokaJrRaw))).toBe(false);
   });
 

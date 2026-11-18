@@ -1,25 +1,13 @@
-// Transit API が返す JR 東日本の駅座標を mini-tokyo-3d の駅座標と突き合わせ、ずれの大きい駅の
-// 補正表 src/services/station-coord-table.ts を作り直す（#515）。
-//
-//   node packages/engine/scripts/station-coord-corrections.mjs
-//
-// Transit API の /locations/suggest を駅名ごとに1本ずつ（数百本）叩く。第三者の無料 API なので、
-// 並列度は低く抑えてある。上流が座標を直した駅は表から落ちるので、ときどき回して差分を見る。
-
-// tsconfig の include の外にあるので、型検査は既定の設定で読む。node:* の型は誰も引き込まない。
 /// <reference types="node" />
 
 import { writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
-// functions/src/timetable-pack/feeds.ts の時刻表パックと同じ版に揃える。
 const M3D_COMMIT = 'fa7833f18a288aeca171b68892bb7f67e229e4ca';
 const M3D_STATIONS = `https://raw.githubusercontent.com/nagix/mini-tokyo-3d/${M3D_COMMIT}/data/stations.json`;
 const SUGGEST = 'https://api.transit.ls8h.com/api/v1/locations/suggest';
 
-// 数百 m の差はホームの位置や駅舎の大きさの差と見分けられないので、補正しない。
 const MIN_OFFSET_M = 500;
-// これより遠い同名の駅は、ずれではなく別の駅（福島の根岸と横浜の根岸など）とみなす。
 const MAX_OFFSET_M = 5000;
 const CONCURRENCY = 3;
 
@@ -31,7 +19,6 @@ function haversineM(aLat, aLon, bLat, bLon) {
   const dLon = (bLon - aLon) * rad;
   const h =
     Math.sin(dLat / 2) ** 2 + Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLon / 2) ** 2;
-  // src/services/hybrid-route-selector.ts の haversineKm と同じ半径。
   return 2 * 6371008.8 * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
@@ -61,7 +48,6 @@ async function getJson(url) {
 const isRecord = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
- * mini-tokyo-3d の stations.json から、座標を持つ JR 東日本の駅を名前と座標で取り出す。
  * @param {unknown} body
  * @returns {{ name: string, lat: number, lon: number }[]}
  */
@@ -73,7 +59,6 @@ function parseM3dStations(body) {
   const out = [];
   for (const s of stations) {
     if (!isRecord(s) || typeof s.id !== 'string' || !s.id.startsWith('JR-East.')) continue;
-    // 範囲外の駅は座標を持たない（路線の端だけ名前を載せている）。
     if (!Array.isArray(s.coord)) continue;
     /** @type {unknown[]} */
     const coord = s.coord;
@@ -86,7 +71,6 @@ function parseM3dStations(body) {
 }
 
 /**
- * Transit API の /locations/suggest の応答から駅を取り出す。
  * @param {unknown} body
  * @returns {{ id: string, name: string, feedId: string, lat: number, lon: number }[]}
  */

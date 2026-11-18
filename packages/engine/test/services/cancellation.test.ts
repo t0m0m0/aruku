@@ -1,9 +1,3 @@
-// 移植元: flutter-final:test/core/services/cancellation_test.dart
-//
-// #384 が移した6ファイルはキャンセルを TransitApiClient / TransitRouteService 越しにしか
-// 触らない。冪等な cancel・cancel 済みトークンへの onCancel・コールバックの発火順は
-// そちら経由では一度も通らないので、移植元のテストをここへ運ぶ。
-
 import { describe, expect, it } from 'vitest';
 
 import { CancellationToken, SearchCanceledException } from '../../src/services/cancellation';
