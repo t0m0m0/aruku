@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 
 import { readGtfsZip } from '../src/timetable-pack/zip';
 
-// パックを作るのに欠かせないファイル。運行日は calendar.txt か calendar_dates.txt のどちらか。
 const REQUIRED = {
   'stops.txt': 'stop_id\nA\n',
   'routes.txt': 'route_id\nR\n',

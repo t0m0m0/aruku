@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createUpstreamCache, MAX_CACHE_ENTRIES } from '../src/upstream-cache';
 
-// テスト用の遅延つき producer。呼び出し回数を数え、resolve/reject を外から制御する。
 function deferredProducer<T>(): {
   producer: () => Promise<T>;
   calls: () => number;
@@ -44,7 +43,6 @@ describe('createUpstreamCache().dedupe', () => {
     const p1 = cache.dedupe('k', d.producer, cacheable);
     const p2 = cache.dedupe('k', d.producer, cacheable);
 
-    // まだ解決していない段階で2つとも同じ in-flight を共有している。
     expect(d.calls()).toBe(1);
 
     d.resolveAll('R');
@@ -95,7 +93,6 @@ describe('createUpstreamCache().dedupe', () => {
     d.resolveAll('R1');
     expect(await p1).toBe('R1');
 
-    // 保持していないので2回目は新たに producer を呼ぶ。
     const p2 = cache.dedupe('k', d.producer, notCacheable);
     expect(d.calls()).toBe(2);
     d.resolveAll('R2');
@@ -112,7 +109,6 @@ describe('createUpstreamCache().dedupe', () => {
     await expect(p1).rejects.toThrow('boom');
     await expect(p2).rejects.toThrow('boom');
 
-    // 失敗は保持されない。次の同一キーは producer を呼び直す。
     const p3 = cache.dedupe('k', d.producer, cacheable);
     expect(d.calls()).toBe(2);
     d.resolveAll('R');
@@ -120,8 +116,6 @@ describe('createUpstreamCache().dedupe', () => {
   });
 
   it('TTL 内で上限超過の成功が続いてもキャッシュは上限を超えない（最古を退避）', async () => {
-    // すべて成功・キャッシュ対象で、TTL を進めない（期限切れ掃除が効かない状況）。
-    // 掃除だけでは QPS×TTL まで膨らむため、最古退避でハード上限が保たれることを固定する。
     const extra = 50;
     const single =
       <T>(v: T) =>
@@ -132,14 +126,12 @@ describe('createUpstreamCache().dedupe', () => {
     }
     expect(cache.size()).toBe(MAX_CACHE_ENTRIES);
 
-    // 最古（k-0）は退避済み → 再取得で producer が呼ばれる。
     const oldest = deferredProducer<string>();
     const pOld = cache.dedupe('k-0', oldest.producer, cacheable, 10000);
     expect(oldest.calls()).toBe(1);
     oldest.resolveAll('re');
     await pOld;
 
-    // 直近キーは保持されている → producer を呼ばずヒットする。
     const recent = deferredProducer<string>();
     const pRecent = cache.dedupe(
       `k-${MAX_CACHE_ENTRIES + extra - 1}`,

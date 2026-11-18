@@ -51,7 +51,6 @@ const SIMPLE_CALLS: M3dTrain['tt'] = [
   { s: 'Tokyu.Toyoko.Jiyugaoka', a: '10:10' },
 ];
 
-// 2026-11-20 は金曜（平日）、11-21 は土曜、11-23 は月曜の祝日。
 const DATES = [20261120, 20261121, 20261123];
 
 const build = (trains: M3dTrain[], dates: number[] = DATES) =>

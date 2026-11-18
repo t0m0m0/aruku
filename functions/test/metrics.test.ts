@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// vi.mock はホイストされるため、参照する mock 関数は vi.hoisted で先に生成する。
 const { infoMock, warnMock, errorMock, writeMock } = vi.hoisted(() => ({
   infoMock: vi.fn(),
   warnMock: vi.fn(),
@@ -47,10 +46,6 @@ describe('logRequestOutcome', () => {
     expect(writeMock).not.toHaveBeenCalled();
   });
 
-  // logger.error は payload だけを渡すと Error スタックを合成してメッセージに
-  // 埋め込み、Cloud Error Reporting が例外として拾ってしまう（firebase-functions
-  // logger/index.ts の entryFromArgs 実装）。指標専用の失敗イベントで実エラーを
-  // 埋もれさせないよう、severity だけ ERROR にした LogEntry を write で直接出す。
   it('失敗時は logger.write に severity=ERROR の LogEntry を渡す（Error Reporting 汚染防止）', () => {
     logRequestOutcome({
       endpoint: 'googleWalkProxy',
@@ -154,7 +149,6 @@ describe('logRequestLatency', () => {
       totalLatencyMs: 87,
       httpStatus: 200,
     });
-    // search_request の計上（#274）を汚さない: 上流区間 latencyMs は出さない。
     const payload = infoMock.mock.calls[0][1] as Record<string, unknown>;
     expect(payload.event).toBe('request_latency');
     expect(payload).not.toHaveProperty('latencyMs');

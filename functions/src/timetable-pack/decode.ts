@@ -1,5 +1,3 @@
-// Storage から読んだ時刻表パック（gzip した JSON）を TimetablePack に戻す（#487）。
-
 import { gunzipSync } from 'node:zlib';
 
 import { isRecord } from '../json';
@@ -32,8 +30,6 @@ export function decodePack(gzipped: Uint8Array, now: () => number): DecodeResult
   return { status: 'success', pack: raw, gunzipMs, parseMs };
 }
 
-// 要素の中までは確かめない。パックは refreshTimetablePacks が書いたもので、形は format の版が
-// 保証する。数十万の便を検査し直すと、要求の途中で読むときの遅延（loadMs）にそのまま乗る。
 function isTimetablePack(value: unknown): value is TimetablePack {
   return (
     isRecord(value) &&

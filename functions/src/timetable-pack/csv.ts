@@ -1,11 +1,5 @@
-// GTFS の CSV（RFC 4180）を1行ずつ読む。
-//
-// 行ごとにオブジェクトを作らないのは、JR の stop_times.txt が数十万行あり、
-// 行オブジェクトを全部持つと試作でヒープが約440MBまで膨らんだため（#457）。
-
 export type CsvField = (column: string) => string;
 
-/** 見出し行の後の各行について、列名で値を引く関数を渡して fn を呼ぶ。 */
 export function readCsv(
   text: string,
   fn: (get: CsvField, columns: readonly string[]) => void,

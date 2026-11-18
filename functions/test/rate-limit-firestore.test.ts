@@ -2,8 +2,6 @@ import { createHmac } from 'node:crypto';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// vi.mock はホイストされるため、参照する mock 関数は vi.hoisted で先に生成する。
-// リミッタが runTransaction へ渡すコールバック。判定ごとの許否を返す。
 type TransactionBody = (tx: unknown) => Promise<boolean[]>;
 
 const { runTransactionMock, logRateLimitMock } = vi.hoisted(() => ({
@@ -13,9 +11,6 @@ const { runTransactionMock, logRateLimitMock } = vi.hoisted(() => ({
 
 vi.mock('../src/metrics', () => ({ logRateLimit: logRateLimitMock }));
 
-// Firestore をインメモリストアで擬似する。runTransaction は本物の
-// トランザクション意味論（get→set/update）を再現し、リミッタの判定ロジックを
-// 実際に走らせる。Timestamp.fromMillis は素通しのスタブ。
 vi.mock('firebase-admin/firestore', () => ({
   getFirestore: () => ({
     collection: (_name: string) => ({
@@ -31,8 +26,6 @@ vi.mock('firebase-admin/firestore', () => ({
 import type { RateLimitParams } from '../src/metrics';
 import { checkRateLimitFirestore } from '../src/rate-limiter';
 
-// ドキュメント ID をキーにしたインメモリのストア。
-// 形の崩れた文書も置けるよう、値の型は絞らない。
 let store: Map<string, Record<string, unknown>>;
 
 function installTransaction(): void {
@@ -58,7 +51,6 @@ describe('checkRateLimitFirestore', () => {
     runTransactionMock.mockReset();
     logRateLimitMock.mockReset();
     installTransaction();
-    // 本番相当では十分な長さの HMAC 鍵が必須。テストは有効な鍵を注入する。
     vi.stubEnv('RATE_LIMIT_HMAC_KEY', 'x'.repeat(32));
     vi.stubEnv('FUNCTIONS_EMULATOR', '');
   });
@@ -115,7 +107,6 @@ describe('checkRateLimitFirestore', () => {
 
   it('IPv6 アドレスもドキュメント ID として扱える', async () => {
     const ipv6 = '2001:db8::1';
-    // 複数回呼んでも同一 ID へ写像され、ドキュメントは増えずカウントだけ進む。
     for (let i = 0; i < 5; i++) {
       expect(await checkRateLimitFirestore(ipv6)).toBe(true);
     }
@@ -139,10 +130,8 @@ describe('checkRateLimitFirestore', () => {
   });
 
   it('文書 ID は鍵付き HMAC-SHA256 の既知ベクトルと一致する（鍵なし SHA-256 への退行を反証）', async () => {
-    // 鍵とUTC日付を含めた既知ベクトルと突き合わせ、「鍵付き」であることを直接保証する。
-    // 鍵なし SHA-256(day+ip) や鍵の合成違いはこの一致で確実に赤くなる。
     vi.stubEnv('RATE_LIMIT_HMAC_KEY', 'k'.repeat(32));
-    vi.spyOn(Date, 'now').mockReturnValue(0); // 1970-01-01 (UTC)
+    vi.spyOn(Date, 'now').mockReturnValue(0);
     await checkRateLimitFirestore('198.51.100.9');
     const expected = createHmac('sha256', `${'k'.repeat(32)}:1970-01-01`)
       .update('198.51.100.9')
@@ -158,29 +147,26 @@ describe('checkRateLimitFirestore', () => {
   });
 
   it('日付(UTC)が変わると同一 IP でも別の文書 ID になる（日次ローテーション）', async () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(0); // 1970-01-01
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(0);
     await checkRateLimitFirestore('8.8.8.8');
-    nowSpy.mockReturnValue(86_400_000); // 1970-01-02
+    nowSpy.mockReturnValue(86_400_000);
     await checkRateLimitFirestore('8.8.8.8');
     expect(store.size).toBe(2);
   });
 
   it('UTC 日付境界では前日 resetAt が未来でも新文書でカウンタが再開する（許容トレードオフ）', async () => {
     const dayMs = 86_400_000;
-    // 1970-01-01 23:59:30 に上限まで消費（resetAt = 翌日 00:00:30）。
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(dayMs - 30_000);
     for (let i = 0; i < 30; i++) await checkRateLimitFirestore('10.0.0.1');
     expect(await checkRateLimitFirestore('10.0.0.1')).toBe(false);
-    // 1970-01-02 00:00:00。前日 resetAt(00:00:30) より前だが day が変わり新文書＝再び通過。
     nowSpy.mockReturnValue(dayMs);
     expect(await checkRateLimitFirestore('10.0.0.1')).toBe(true);
-    expect(store.size).toBe(2); // 前日文書と新文書が併存し、境界期間は許容量が最大2倍
+    expect(store.size).toBe(2);
   });
 
   it('本番相当で鍵が未設定なら、逆引き可能な文書を書かずフェイルオープンする', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.stubEnv('RATE_LIMIT_HMAC_KEY', '');
-    // フェイルオープン（通過）しつつ、生 IP 相関可能なドキュメントは一切書かない。
     expect(await checkRateLimitFirestore('7.7.7.7')).toBe(true);
     expect(store.size).toBe(0);
     expect(errSpy).toHaveBeenCalled();
@@ -194,7 +180,6 @@ describe('checkRateLimitFirestore', () => {
   });
 
   describe('同時に来た判定の合流', () => {
-    // 1本目のトランザクションを止め、その間に残りの判定を積ませる。
     function holdFirstTransaction(): () => void {
       const run = runTransactionMock.getMockImplementation()!;
       let release!: () => void;

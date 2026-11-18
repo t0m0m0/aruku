@@ -283,7 +283,6 @@ describe('ODPT_FEEDS', () => {
     ]);
   });
 
-  // 版ごとのファイルへ飛ばす入口。date を外すと 404 になる（2026-10-26 実測）。
   it('横浜市営地下鉄は、その日に有効な版を date=current で取る', () => {
     const yokohama = ODPT_FEEDS.find((f) => f.id === 'YokohamaMunicipal')!;
     const url = new URL(yokohama.url);
@@ -291,7 +290,6 @@ describe('ODPT_FEEDS', () => {
     expect(url.searchParams.get('date')).toBe('current');
   });
 
-  // GTFS の route_long_name は「【BL】【快速】あざみ野　→　湘南台」のような向き・種別つきの系統名。
   it('横浜市営地下鉄の系統名を、ブルーライン・グリーンラインへ寄せる', () => {
     const routeName = ODPT_FEEDS.find((f) => f.id === 'YokohamaMunicipal')!.routeName!;
     expect(routeName('【BL】上永谷　→　湘南台')).toBe('ブルーライン');
@@ -389,8 +387,6 @@ describe('refreshTimetablePacks（mini-tokyo-3d）', () => {
     ]);
   });
 
-  // 取得時刻 2026-10-23T19:00Z は JST で 10/24。exactWalkMax が受ける運行日（前日〜92日先と、
-  // 到着指定で押し出される分）を覆う。
   it('運行日は取得した日（JST）の前日から 93 日先までを、ダイヤの種別で振り分けて持つ', async () => {
     const h = harness(respondWith(DATA));
     await refreshTimetablePacks(h.deps, [], SOURCE);
@@ -489,7 +485,6 @@ describe('MINI_TOKYO_3D', () => {
     expect(MINI_TOKYO_3D.commit).toMatch(/^[0-9a-f]{40}$/);
   });
 
-  // ODPT と同じ事業者を両方から取ると、同じ列車が2本ずつ入る。
   it('ODPT から取っている事業者を含めない', () => {
     const odpt = [
       'JR-East',

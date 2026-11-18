@@ -8,7 +8,6 @@ import {
   type GtfsFiles,
 } from '../src/timetable-pack/pack';
 
-// 1行を「列名=値」の組で書く小さな GTFS。書かなかった列は空欄になる。
 type Row = Record<string, string | number>;
 const table = (rows: Row[], columns: string[]): string =>
   [columns.join(','), ...rows.map((r) => columns.map((c) => String(r[c] ?? '')).join(','))].join(
@@ -41,7 +40,6 @@ const CALENDAR_COLUMNS = [
 ];
 const CALENDAR_DATE_COLUMNS = ['service_id', 'date', 'exception_type'];
 
-// 2026-10-19 は月曜。
 const EVERY_DAY: Row = {
   service_id: 'ALL',
   monday: 1,
@@ -55,7 +53,6 @@ const EVERY_DAY: Row = {
   end_date: 20261031,
 };
 
-// 同じ経線上に 1km 間隔で並ぶ駅 A, B, C, D。
 const STOPS: Row[] = ['A', 'B', 'C', 'D'].map((id, i) => ({
   stop_id: id,
   stop_name: `駅${id}`,
@@ -117,7 +114,6 @@ const st = (
 
 const hms = (h: number, m: number): number => h * 3600 + m * 60;
 
-/** 2026-10-20（火）の時刻表で、便ごとに「駅名@着/発」を並べる。 */
 const callsOn = (input: FeedInput | FeedInput[], date = '20261020') => {
   const pack = buildTimetablePack(Array.isArray(input) ? input : [input]);
   const day = timetableForDate(pack, date);
@@ -291,10 +287,10 @@ describe('運行日', () => {
   const weekday: Row = { ...EVERY_DAY, service_id: 'WD', saturday: 0, sunday: 0 };
 
   it('calendar の曜日と期間で走る日を決める', () => {
-    expect(callsOn(twoTrips([weekday]), '20261020')).toHaveLength(1); // 火
-    expect(callsOn(twoTrips([weekday]), '20261024')).toHaveLength(0); // 土
-    expect(callsOn(twoTrips([weekday]), '20261102')).toHaveLength(0); // 期間外の月曜
-    expect(callsOn(twoTrips([weekday]), '20261031')).toHaveLength(0); // 期間末日の土曜
+    expect(callsOn(twoTrips([weekday]), '20261020')).toHaveLength(1);
+    expect(callsOn(twoTrips([weekday]), '20261024')).toHaveLength(0);
+    expect(callsOn(twoTrips([weekday]), '20261102')).toHaveLength(0);
+    expect(callsOn(twoTrips([weekday]), '20261031')).toHaveLength(0);
     expect(callsOn(twoTrips([{ ...weekday, end_date: 20261030 }]), '20261030')).toHaveLength(1);
   });
 
@@ -337,7 +333,6 @@ describe('24時越え', () => {
       st('B', 2, '24:05:00', '24:05:00', {}, 'LATE'),
       st('C', 3, '25:14:00', '25:14:00', {}, 'LATE'),
     ],
-    // 火曜だけ走る。
     calendar: [
       {
         ...EVERY_DAY,

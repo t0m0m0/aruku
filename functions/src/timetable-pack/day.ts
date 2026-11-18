@@ -1,11 +1,8 @@
-// 読み込んだ全グループのパックから、運行日1日ぶんの走査用の時刻表を組み立てる（#459・#487）。
-
 import { compileColumns, transferNeighbors, type StationKey } from '../exact-scan';
 import type { ScanDay } from '../exact-walk-max';
 import { PACK_GROUPS, type PackGroup } from './feeds';
 import { keepsCall, tripsOnDate, type TimetablePack } from './pack';
 
-// 乗換の近傍の半径。A/B の計測（#474）で「勝った割合」と enrich で落ちる割合を見て決めるまでの値。
 const TRANSFER_RADIUS_SEC = 10 * 60;
 
 export interface DayBuildTimings {
@@ -25,8 +22,6 @@ export function buildScanDay(
     return pack === undefined ? [] : [{ pack, onDate: tripsOnDate(pack, serviceDate) }];
   });
 
-  // 便ごと・停車ごとのオブジェクトを作らず、列の配列へ直接書く。オブジェクトを経ると1日ぶん
-  // （本番で約40万停車）を2回作り直すことになり、これが組み立ての時間の半分を占めていた（#487）。
   let tripCount = 0;
   let callCount = 0;
   for (const { pack, onDate } of parts) {
@@ -51,8 +46,6 @@ export function buildScanDay(
   let k = 0;
   for (const { pack, onDate } of parts) {
     const offset = stops.length;
-    // feed も station もパックごとに0から振られる。同じ駅の判定は feed が同じことを含むので、
-    // feed をずらせば別のパックの駅は重ならず、station までずらす必要は無い。
     const feedOffset = feeds.length;
     for (const stop of pack.stops) {
       stops.push(stop);
