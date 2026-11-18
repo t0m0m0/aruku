@@ -20,8 +20,6 @@ import {
   type ScanDay,
 } from '../src/exact-walk-max';
 
-// exact-walk-max.ts からの呼び出しだけを数える。pickStopsToMeasure がモジュール内で呼ぶ
-// bestJourneys はこの差し替えを通らない。
 vi.mock('../src/exact-scan', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/exact-scan')>();
   return { ...actual, bestJourneys: vi.fn(actual.bestJourneys) };
@@ -49,7 +47,6 @@ const timetable = (stopKms: number[], trips: StopCall[][]): Timetable => ({
 
 const FEEDS = [{ id: 'Toei', fetchedAt: '2026-10-22T19:23:00.000Z' }];
 
-// 実測は直線どおり（80 m/分）として、要素ごとに秒と距離を返すマトリクス。
 function straightMatrix(): ExactWalkMaxDeps['measure'] & { calls: [LatLng[], LatLng[]][] } {
   const calls: [LatLng[], LatLng[]][] = [];
   const fn = async (origins: LatLng[], destinations: LatLng[]): Promise<MatrixElement[]> => {
@@ -71,7 +68,6 @@ function straightMatrix(): ExactWalkMaxDeps['measure'] & { calls: [LatLng[], Lat
   return Object.assign(fn, { calls });
 }
 
-// stations を渡さなければ、stop はどれも別の駅。
 function scanDay(tt: Timetable, stations?: StationKey[]): ScanDay {
   const compiled = compileTimetable(tt);
   const keys = stations ?? tt.stops.map((_, i) => ({ feed: 0, station: i }));
@@ -91,7 +87,6 @@ function depsFor(
   return { day: async () => scanDay(tt, stations), measure };
 }
 
-// 2026-10-23 10:00 JST
 const request = (budgetMin = 180, transfers = false): ExactWalkMaxRequest => ({
   origin: pointAtKm(0),
   goal: pointAtKm(20),
@@ -129,7 +124,6 @@ describe('parseExactWalkMaxQuery', () => {
     });
   });
 
-  // Web で選べるのは今日から90日先まで（kMaxDateOffsetDays）。古いタブ・端末の時計のずれで少し過去も来る。
   it.each([
     ['1日前', '2026-10-22T00:30:00Z'],
     ['92日先', '2027-01-23T00:30:00Z'],
@@ -223,8 +217,6 @@ describe('findExactWalkMax', () => {
         ],
       ],
     );
-    // 駅0・駅4の実測を返さず、駅1（2km）で乗って駅2（10km）で降りる組を徒歩最大にする。
-    // 乗車駅より前の駅0、降車駅より後の駅3・駅4の座標は載せない
     const measure = straightMatrix();
     const deps: ExactWalkMaxDeps = {
       day: async () => scanDay(tt3),
@@ -294,7 +286,6 @@ describe('findExactWalkMax', () => {
   });
 
   describe('乗換つきの候補', () => {
-    // 駅0（2 km）→ 途中の駅1 → 駅2（10 km）、0.1 km 歩いて駅3（10.1 km）→ 駅4（17 km）
     const walkTransfer = timetable(
       [2, 6, 10, 10.1, 17],
       [
@@ -348,7 +339,6 @@ describe('findExactWalkMax', () => {
     });
 
     it('1回乗車の候補は candidates のまま、乗換つきと混ざらない', async () => {
-      // 予算 180 分なら駅2で降りて歩く1回乗車も成り立ち、徒歩はそちらのほうが長い
       const body = await findExactWalkMax(request(180, true), depsFor(walkTransfer));
 
       expect(body.candidates.map((c) => [c.board.name, c.alight.name])).toEqual([['S0', 'S2']]);
@@ -377,7 +367,6 @@ describe('findExactWalkMax', () => {
     });
 
     it('別の駅への乗換は、直線の徒歩が0でも sameStation を立てない', async () => {
-      // 駅1と駅2は同じ座標の別のフィードの駅
       const sameSpot = timetable(
         [2, 10, 10, 17],
         [

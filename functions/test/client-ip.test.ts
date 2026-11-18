@@ -13,14 +13,11 @@ function makeReq(opts: { forwardedFor?: string | string[]; ip?: string }): Reque
 
 describe('clientIp', () => {
   it('X-Forwarded-For の右端（基盤が追記した実接続元 IP）を採用する', () => {
-    // gen2 直アクセスでは基盤が実 IP を最後の要素として追記する。
     const req = makeReq({ forwardedFor: '198.51.100.2' });
     expect(clientIp(req)).toBe('198.51.100.2');
   });
 
   it('偽装された XFF 先頭値は無視し、右端の基盤追記 IP を採用する', () => {
-    // 攻撃者が先頭に任意値を prepend しても、基盤は実 IP を右端に足すため
-    // 右端はインフラ制御のまま。レート制限キーは偽装できない。
     const req = makeReq({ forwardedFor: '1.2.3.4, 70.41.3.18, 198.51.100.2' });
     expect(clientIp(req)).toBe('198.51.100.2');
   });
@@ -32,7 +29,6 @@ describe('clientIp', () => {
   });
 
   it('req.ip（trust proxy=true では偽装可能な最左端）は信頼源にしない', () => {
-    // XFF がある限り req.ip は無視され、右端が採用される。
     const req = makeReq({
       forwardedFor: '1.2.3.4, 198.51.100.2',
       ip: '1.2.3.4',

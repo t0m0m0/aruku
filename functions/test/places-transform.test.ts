@@ -78,7 +78,6 @@ describe('toLegacyAutocomplete', () => {
 
     const result = toLegacyAutocomplete(raw);
 
-    // 並びは上流のまま（関連度順）保持し、距離はフィールドとして付与するだけ。
     expect(result.predictions.map((p) => p.place_id)).toEqual(['id_far', 'id_near']);
     expect(result.predictions[0].distance_meters).toBe(1800);
     expect(result.predictions[1].distance_meters).toBe(160);

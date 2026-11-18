@@ -9,8 +9,6 @@ import {
 import { deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-// エミュレータ起動は `npm run test:rules`（firebase emulators:exec 経由）で行う。
-// FIRESTORE_EMULATOR_HOST が未設定ならエミュレータが立っていないので失敗させる。
 const EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST;
 
 const PROJECT_ID = 'demo-aruku-rules';
@@ -18,13 +16,6 @@ const OWNER = 'owner-uid';
 
 let testEnv: RulesTestEnvironment;
 
-/**
- * 旧 userSync ルールが受理していた形の同期ドキュメント。
- *
- * 拒否のテストに任意の値ではなくこれを使うのは、assertFails がスキーマ違反や
- * 評価エラーでも通ってしまうから。「受理されていた形でも拒否される」ことを
- * 見なければ、経路が閉じたことの証明にならない。
- */
 function legacySyncData(): Record<string, unknown> {
   return {
     updatedAt: '2026-07-03T00:00:00.000Z',
@@ -64,7 +55,6 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  // beforeAll がエミュレータに繋がらず失敗しても afterAll は走り、testEnv は未代入のまま。
   // oxlint-disable-next-line typescript/no-unnecessary-condition
   await testEnv?.cleanup();
 });
@@ -117,7 +107,6 @@ describe('firestore.rules はクライアントからの読み書きを全面拒
   });
 });
 
-// このテストはエミュレータ前提。ホスト未設定なら明示的に気付けるようにする。
 it('エミュレータが起動していること', () => {
   expect(
     EMULATOR_HOST,

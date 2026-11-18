@@ -1,14 +1,3 @@
-// 定期関数 refreshTimetablePacks と同じ処理を手元で回し、パックのサイズと読み込み時間を測る。
-//
-//   ODPT_CENTER_KEY="$(gcloud secrets versions access latest --secret ODPT_CENTER_KEY --project aruku-app)" \
-//   ODPT_CHALLENGE_KEY="$(gcloud secrets versions access latest --secret ODPT_CHALLENGE_KEY --project aruku-app)" \
-//     npm run pack:local -- --out .odpt [--feeds Toei,TokyoMetro]
-//
-// mini-tokyo-3d のパックも毎回作る（キー不要）。ODPT を取らずに mini-tokyo-3d だけ作るなら `--feeds none`。
-//
-// 出力先は .gitignore 済みの場所にする。GTFS もパックもリポジトリに入れない
-// （基本ライセンス第8条4(1)・チャレンジ限定データの第三者提供の禁止）。
-
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 

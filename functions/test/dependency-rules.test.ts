@@ -4,9 +4,6 @@ import { cruise, type ICruiseResult } from 'dependency-cruiser';
 import extractDepcruiseConfig from 'dependency-cruiser/config-utl/extract-depcruise-config';
 import extractTSConfig from 'dependency-cruiser/config-utl/extract-ts-config';
 
-// リポジトリの実物の規則（ルートの .dependency-cruiser.cjs）を、違反を仕込んだ小さな
-// リポジトリの写し（fixtures/dependency-rules）へ当てる。実リポジトリは違反ゼロが
-// 正しい状態なので、規則が効いていることはそこでは確かめられない。
 const repoRoot = join(__dirname, '..', '..');
 const fixtureRoot = join(__dirname, 'fixtures', 'dependency-rules');
 const fixtureTsConfig = join(fixtureRoot, 'apps', 'web', 'tsconfig.json');
@@ -79,7 +76,6 @@ describe('依存ルール（dependency-cruiser）', () => {
   });
 
   it('型だけの import を含む循環も違反になる', () => {
-    // 循環は1周につき1件だけ、どちらかの辺から報告される。
     const cycles = violations.filter((v) => v.rule === 'no-circular');
     expect(cycles).toHaveLength(1);
     expect([cycles[0]?.from, cycles[0]?.to].sort()).toEqual([

@@ -2,8 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { checkRateLimitInMemory, rateLimitMapSize, resetRateLimit } from '../src/index';
 
-// インメモリ実装（エミュレータ用フォールバック）の単体テスト。本番の Firestore
-// 実装は rate-limit-firestore.test.ts で検証する。
 const checkRateLimit = checkRateLimitInMemory;
 
 describe('checkRateLimitInMemory', () => {
@@ -33,7 +31,6 @@ describe('checkRateLimitInMemory', () => {
   it('IP ごとにカウントは独立する', () => {
     for (let i = 0; i < 30; i++) checkRateLimit('3.3.3.3');
     expect(checkRateLimit('3.3.3.3')).toBe(false);
-    // 別 IP は影響を受けない
     expect(checkRateLimit('4.4.4.4')).toBe(true);
   });
 
@@ -48,19 +45,15 @@ describe('checkRateLimitInMemory', () => {
     for (let i = 0; i < 30; i++) checkRateLimit('5.5.5.5');
     expect(checkRateLimit('5.5.5.5')).toBe(false);
 
-    // 60秒(=60_000ms)を超えて経過 → 新しいウィンドウ
     nowSpy.mockReturnValue(60_001);
     expect(checkRateLimit('5.5.5.5')).toBe(true);
   });
 
   it('マップが上限(1000)を超えると期限切れエントリを掃除する', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(0);
-    // resetAt = 60_000 の期限切れ予定エントリを 1001 件作る
     for (let i = 0; i < 1001; i++) checkRateLimit(`ip-${i}`);
     expect(rateLimitMapSize()).toBe(1001);
 
-    // 全エントリが期限切れになる時刻へ進めてから新規 IP で呼ぶと、
-    // size > 1000 の掃除が走り期限切れエントリが削除される。
     nowSpy.mockReturnValue(60_001);
     expect(checkRateLimit('fresh')).toBe(true);
     expect(rateLimitMapSize()).toBe(1);

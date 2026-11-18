@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import { refreshTimetablePacks } from '../src/index';
 
-// __endpoint は firebase-functions の非公開 API（region.test.ts と同じ前提）。
-// SDK 更新で落ちたら、まず __endpoint の形を確かめる。
 interface ScheduledEndpoint {
   region?: string[];
   scheduleTrigger?: { schedule?: string; timeZone?: string };

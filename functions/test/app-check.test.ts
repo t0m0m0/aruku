@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// vi.mock はホイストされるため、参照する mock 関数は vi.hoisted で先に生成する。
 const { verifyTokenMock } = vi.hoisted(() => ({ verifyTokenMock: vi.fn() }));
 
 vi.mock('firebase-admin/app-check', () => ({
@@ -142,8 +141,6 @@ describe('verifyAppCheck', () => {
       expect(res.body).toEqual({ error: 'App Check token already consumed' });
     });
 
-    // 対象外では alreadyConsumed を見ない。標準トークンの正当な再利用と区別できず、
-    // 見れば 2 回目以降の正常な要求を落とす。
     it('対象外エンドポイントは単一引数で検証し alreadyConsumed を無視する', async () => {
       verifyTokenMock.mockResolvedValue({ appId: 'x', alreadyConsumed: true });
       const res = makeRes();
@@ -189,7 +186,6 @@ describe('verifyAppCheck', () => {
       process.env.APP_CHECK_CONSUME_ENDPOINTS = 'googleWalkProxy , googleWalkMatrixProxy';
       expect(shouldConsumeAppCheckToken('googleWalkProxy')).toBe(true);
       expect(shouldConsumeAppCheckToken('googleWalkMatrixProxy')).toBe(true);
-      // 既定に入っていても列挙から漏れれば対象外——設定は加算ではなく置換。
       expect(shouldConsumeAppCheckToken('placesProxy')).toBe(false);
     });
 

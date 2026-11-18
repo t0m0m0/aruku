@@ -40,7 +40,6 @@ import {
   resetUpstreamCache,
 } from '../src/index';
 
-// 駅2つ（蒲田付近→神田付近）・便1本だけのパック。2026-10-23 10:30 発・10:50 着。
 const PACK: TimetablePack = {
   format: PACK_FORMAT_VERSION,
   feeds: [{ id: 'Toei', fetchedAt: '2026-10-22T19:23:00.000Z', version: null }],
@@ -82,7 +81,6 @@ function storageHas(pack: TimetablePack | null): void {
   });
 }
 
-// Routes API の computeRouteMatrix。添字が0の要素は Google と同じく originIndex/destinationIndex を省く。
 function matrixResponds(body: unknown, statusCode = 200): void {
   httpsRequestMock.mockImplementation(
     (_url: string, _opts: unknown, cb: (r: EventEmitter) => void) => {
@@ -155,7 +153,6 @@ describe('exactWalkMax', () => {
     verifyTokenMock.mockReset();
     downloadMock.mockReset();
     vi.stubEnv('FUNCTIONS_EMULATOR', 'true');
-    // departAt は今から見た範囲しか受けないので、QUERY の日（PACK の運行日）の朝に時計を合わせる。
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-23T00:30:00Z'));
   });

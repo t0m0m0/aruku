@@ -1,18 +1,7 @@
-// mini-tokyo-3d の時刻表は「平日」「土休日」の2種類だけで運行日を持たないので、
-// 日付をどちらのダイヤに振るかを祝日法の規則から決める（#511）。
-//
-// 依存を足さずに規則で書いているのは、祝日の一覧を外から取るとその取得が新しい失敗点になるため。
-// 春分・秋分は官報で前年に公示される日で、ここでは 1980〜2099 年に合う近似式で求める。
-
-/** 祝日法の祝日・振替休日・国民の休日か（YYYYMMDD）。 */
 export function isJapaneseHoliday(yyyymmdd: number): boolean {
   return holidaysOf(Math.floor(yyyymmdd / 10000)).has(yyyymmdd);
 }
 
-/**
- * 土休日ダイヤで走る日か。土日・祝日に加え、年末年始（12/30〜1/3）も土休日ダイヤにする。
- * 年末年始の扱いは事業者ごとに少しずつ違うが、大半がこの期間を土休日ダイヤにしている。
- */
 export function runsSaturdayHolidaySchedule(yyyymmdd: number): boolean {
   const weekday = dateOf(yyyymmdd).getUTCDay();
   if (weekday === 0 || weekday === 6) return true;
@@ -52,7 +41,6 @@ function holidaysOf(year: number): ReadonlySet<number> {
     ymd(11, 23),
   ];
   const holidays = new Set(named);
-  // 国民の休日: 前後を祝日に挟まれた平日。
   for (const day of named) {
     const between = shift(day, 1);
     if (
@@ -63,7 +51,6 @@ function holidaysOf(year: number): ReadonlySet<number> {
       holidays.add(between);
     }
   }
-  // 振替休日: 日曜の祝日の後で、最初の祝日でない日。
   for (const day of named) {
     if (dateOf(day).getUTCDay() !== 0) continue;
     let substitute = shift(day, 1);

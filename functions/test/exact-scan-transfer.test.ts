@@ -16,7 +16,6 @@ import {
   type TransferNeighbors,
 } from '../src/exact-scan';
 
-// 同じ経線上に km 単位で点を置く（exact-scan.test.ts と同じ）。2点の直線距離が km の差に一致する。
 const EARTH_RADIUS_KM = 6371.0088;
 const pointAtKm = (km: number): LatLng => ({
   lat: 35 + (km / EARTH_RADIUS_KM) * (180 / Math.PI),
@@ -58,11 +57,9 @@ const query = (budgetMin: number, departAt = t(10, 0)): ScanQuery => ({
   budgetMin,
 });
 
-/** 駅ごとに別のフィード・別の駅として扱う（同じ駅の乗換は自分自身の stop だけ）。 */
 const separateStations = (n: number) =>
   Array.from({ length: n }, (_, i) => ({ feed: 0, station: i }));
 
-// 1 km = 750 秒。駅を km の位置で並べたとき、乗換の徒歩は km の差 × 750 秒になる。
 const KM = 750;
 
 const legsOf = (j: Journey) => j.legs.map((l) => [l.trip, l.board, l.alight]);
@@ -113,7 +110,6 @@ describe('transferNeighbors', () => {
   });
 
   it('直線の徒歩が半径を超える駅は入れず、半径ちょうどの駅は入れる', () => {
-    // 10分 = 600秒 = 0.8 km
     const ct = compileTimetable(timetable([0, 0.8, 0.81], []));
 
     const n = transferNeighbors(ct, separateStations(3), { maxWalkSec: min(10) });
@@ -132,7 +128,6 @@ describe('transferNeighbors', () => {
 
 describe('bestJourneys', () => {
   it('乗換1回のほうが徒歩が長ければ、乗換1回の経路を返す', () => {
-    // 駅0 →(便0)→ 駅1、0.4 km 歩いて駅2 →(便1)→ 駅3
     const ct = compileTimetable(
       timetable(
         [0, 10, 10.4, 20],
@@ -161,7 +156,6 @@ describe('bestJourneys', () => {
   });
 
   it('乗換の徒歩のあとで2本目が発車済みなら、その乗換は使わない', () => {
-    // 駅1着 10:40、駅2まで 0.4 km = 5分。2本目は 10:44 発で間に合わない
     const ct = compileTimetable(
       timetable(
         [0, 10, 10.4, 20],
@@ -184,7 +178,6 @@ describe('bestJourneys', () => {
   });
 
   it('同じ駅の乗換は徒歩0とし、最小乗換時間に満たない接続は使わない', () => {
-    // 駅1着 10:40。最小乗換 180 秒なので 10:42:59 発には乗れず、10:43 発には乗れる
     const ct = compileTimetable(
       timetable(
         [0, 10, 20],
@@ -212,7 +205,6 @@ describe('bestJourneys', () => {
   });
 
   it('別の駅へ歩いて乗り換えるときは最小乗換時間を課さず、到着＋乗換の徒歩ちょうどに発車する便に乗れる', () => {
-    // 駅1着 10:40、駅2まで 0.4 km = 300 秒。10:45 ちょうどに発つ便に乗れる
     const ct = compileTimetable(
       timetable(
         [0, 10, 10.4, 20],
@@ -235,7 +227,6 @@ describe('bestJourneys', () => {
   });
 
   it('同じ駅に戻ってくる便（B → C → B）で、B から乗って C で降りて乗り換える経路を返す', () => {
-    // 便0: 駅0 → 駅1 → 駅0。戻った駅0で降りる方が徒歩は長い（30分）が、駅0から乗って駅0では降りられない
     const ct = compileTimetable(
       timetable(
         [0, 10, 20],
@@ -263,8 +254,6 @@ describe('bestJourneys', () => {
   });
 
   it('同じ駅の乗換が最小乗換時間で締切に間に合わなくても、それより遠い近傍への歩く乗換は見る', () => {
-    // 締切 10:50。駅1着 10:40 で、同じ駅の乗換は 11分待つので間に合わない。駅2へ 150 秒歩けば
-    // 10:43 発に乗れて、駅3で降りて 5分歩くと 10:50 ちょうど
     const ct = compileTimetable(
       timetable(
         [0, 10, 10.2, 20],
@@ -289,7 +278,6 @@ describe('bestJourneys', () => {
   });
 
   it('2本目に1本目と同じ便は使わない', () => {
-    // 便0 は駅1に 10:30 着・10:35 発で止まり続ける。降りて同じ便に乗り直す組は作らない
     const ct = compileTimetable(
       timetable(
         [0, 10, 20],
@@ -344,8 +332,6 @@ describe('bestJourneys', () => {
   });
 
   it('出発側の徒歩が長く、先で稼げる徒歩だけでは k 番目に届かない枝でも、合計で届くなら上位 k 本に入れる', () => {
-    // 駅0（出発側 10分）から乗ると先は 10.5分（乗換 2.5分 ＋ 目的地側 8分）。駅3（出発側 0分）から
-    // 乗ると先は 15分。合計は 20.5分 と 15分 で、先の値だけで比べると駅0の枝を切ってしまう
     const ct = compileTimetable(
       timetable(
         [0, 10, 10.2, 1, 20, 22],
@@ -377,7 +363,6 @@ describe('bestJourneys', () => {
   it('乗れない停車では2本目に乗らず、降りられない停車では1本目を降りない', () => {
     const ct = compileTimetable(
       timetable(
-        // 駅1と駅2は近傍の半径（0.8 km）より離す
         [0, 10, 12, 20],
         [
           {
@@ -400,7 +385,6 @@ describe('bestJourneys', () => {
   });
 
   it('目的地への到着が締切ちょうどの経路は使い、1秒でも過ぎる経路は使わない', () => {
-    // 締切 11:00。2本目を 10:50 に降りて 10分歩くと 11:00 ちょうど
     const build = (alightAt: number) =>
       compileTimetable(
         timetable(
@@ -429,7 +413,6 @@ describe('bestJourneys', () => {
   });
 
   it('徒歩が同じなら目的地への到着が早いほうを、それも同じなら乗換が少ないほうを先に並べる', () => {
-    // 3本とも徒歩 20分。便0 は駅3へ直通で 11:00 着、乗換は 11:00 着（便1→便2）、便3 は駅2へ直通で 10:55 着
     const ct = compileTimetable(
       timetable(
         [0, 10, 20, 20.5],
@@ -489,7 +472,6 @@ describe('bestJourneys', () => {
   });
 
   it('transfersOnly なら、1回乗車の徒歩のほうが長くても乗換つきの上位 k 本を返す', () => {
-    // 1回乗車 駅0→駅1 は徒歩 1000 秒。乗換つきは駅0→駅1、駅2→駅3 で徒歩 100 秒台
     const ct = compileTimetable(
       timetable(
         [0, 10, 10.1, 20],
@@ -539,7 +521,6 @@ describe('bestJourneys', () => {
       expect(actual).toEqual(expected);
       if (expected.some((j) => j.legs.length === 2)) withTransfer++;
     }
-    // 乱数の作りが乗換を含む答えをほとんど作らないと、この照合は乗換の側を検査しない
     expect(withTransfer).toBeGreaterThan(300);
   });
 
@@ -565,7 +546,6 @@ describe('bestJourneys', () => {
 });
 
 describe('pickStopsToMeasure（乗換つき）', () => {
-  // 出発地 0 km・目的地 20 km。徒歩は直線で 1 km = 750 秒
   const near = (budgetMin: number): ScanQuery => ({
     origin: pointAtKm(0),
     goal: pointAtKm(20),
@@ -573,7 +553,6 @@ describe('pickStopsToMeasure（乗換つき）', () => {
     budgetMin,
   });
 
-  // 駅0（2 km）→ 駅1（10 km）、歩いて駅2（10.1 km）→ 駅3（17 km）。徒歩は 2 + 0.1 + 3 = 5.1 km
   const transferKms = [2, 10, 10.1, 17];
   const transferTrips = [
     { calls: [call(0, t(10, 30)), call(1, t(10, 50))] },
@@ -584,7 +563,6 @@ describe('pickStopsToMeasure（乗換つき）', () => {
     const ct = compileTimetable(timetable(transferKms, transferTrips));
     const n = transferNeighbors(ct, separateStations(4), { maxWalkSec: min(10) });
 
-    // 締切 12:00。駅1 で降りて目的地へ歩くと 12:55 で1回乗車は成り立たない
     const picked = pickStopsToMeasure(ct, near(120), { neighbors: n });
 
     expect(picked).toMatchObject({ boards: [0], alights: [3] });
@@ -597,9 +575,6 @@ describe('pickStopsToMeasure（乗換つき）', () => {
   });
 
   it('1回乗車と乗換つきを徒歩の長い順に混ぜて、上限まで拾う', () => {
-    // 締切 13:00。駅1に 11:00 に着くと歩いて 13:05 なので、駅0→駅1 の1回乗車は成り立たない。
-    // 1回乗車 駅4（5 km）→駅5（15 km）は徒歩 10 km で乗換つきより長く、
-    // 1回乗車 駅6（1 km）→駅7（19 km）は徒歩 2 km で乗換つきより短い
     const ct = compileTimetable(
       timetable(
         [...transferKms, 5, 15, 1, 19],
@@ -633,7 +608,6 @@ function neighborsOf(n: TransferNeighbors, s: number): Neighbor[] {
   return out;
 }
 
-// 小さく速い決定的な乱数（テストの再現のため）。
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -648,7 +622,6 @@ function mulberry32(seed: number): () => number {
 function randomCase(random: () => number) {
   const int = (lo: number, hi: number) => lo + Math.floor(random() * (hi - lo + 1));
   const stopCount = int(3, 9);
-  // 乗換の近傍に入るよう、駅を 3 km の中に詰める（1 km = 750 秒）
   const stopKms = Array.from({ length: stopCount }, () => random() * 3);
   const stations = Array.from({ length: stopCount }, () => ({
     feed: int(0, 1),
@@ -673,7 +646,6 @@ function randomCase(random: () => number) {
     };
   });
   const ct = compileTimetable(timetable(stopKms, trips));
-  // 徒歩は小数の乱数にして、bestRides と並べ方の決まりが違う同点を作らない
   const pick = () => {
     const m = new Map<number, number>();
     for (let s = 0; s < stopCount; s++) if (random() < 0.6) m.set(s, random() * 1800);
@@ -683,7 +655,6 @@ function randomCase(random: () => number) {
   return { ct, q: query(int(20, 150)), walks, stations };
 }
 
-/** 全ての「乗車駅・便・降車駅（・乗換先・便・降車駅）」を作り、同じ駅の組ごとに最良の1本を残す。 */
 function bruteForce(
   ct: CompiledTimetable,
   q: ScanQuery,
@@ -770,7 +741,6 @@ function bruteForce(
   return [...best.values()].sort(compare).slice(0, opts.k);
 }
 
-// 設計メモの同点の扱い（徒歩が長い → 到着が早い → 乗換が少ない）のあとは、決定的に並べるための順。
 function compare(a: Journey, b: Journey): number {
   const d = b.walkSec - a.walkSec || a.arriveAt - b.arriveAt || a.legs.length - b.legs.length;
   if (d !== 0) return d;

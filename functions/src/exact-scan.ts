@@ -1,14 +1,3 @@
-// 1回乗車（徒歩→乗車→徒歩）で、締切までに目的地へ着ける中で徒歩が最大になる
-// 「乗車駅・便・降車駅」を、時刻表を走査して厳密に求める（#458・epic #456）。
-//
-// 呼び出し側（#459）は次の順に使う:
-//   1. pickStopsToMeasure: 直線の徒歩で全便を走査し、実測する駅を選ぶ
-//   2. 選んだ駅の徒歩を Google マトリクスで実測する
-//   3. bestRides: 実測値で走査し直し、徒歩最大の候補を返す
-//
-// bestJourneys は乗換1回（徒歩→乗車→徒歩→乗車→徒歩）まで広げた実験版（#474）。
-// exactWalkMax の応答の transferCandidates を作る。
-
 export interface LatLng {
   lat: number;
   lng: number;
@@ -18,7 +7,6 @@ export interface TimetableStop extends LatLng {
   name: string;
 }
 
-/** 便が1つの駅に止まる1回分。時刻は運行日の0時からの秒。 */
 export interface StopCall {
   stop: number;
   arr: number;
@@ -30,7 +18,6 @@ export interface StopCall {
 export interface TimetableTrip {
   route: string;
   headsign: string | null;
-  /** 停車順。通過駅は含めない。 */
   calls: StopCall[];
 }
 
@@ -52,7 +39,6 @@ export interface CompiledTimetable {
   readonly callDep: Int32Array;
   readonly callBoard: Uint8Array;
   readonly callAlight: Uint8Array;
-  /** 駅ごとの「乗車できる発車」。departureStart[s]〜departureStart[s+1] が駅 s の分で、発車時刻の昇順。 */
   readonly departureStart: Int32Array;
   readonly departureTrip: Int32Array;
   readonly departurePos: Int32Array;
@@ -62,12 +48,10 @@ export interface CompiledTimetable {
 export interface ScanQuery {
   origin: LatLng;
   goal: LatLng;
-  /** 運行日の0時からの秒。 */
   departAt: number;
   budgetMin: number;
 }
 
-/** 実測した徒歩の秒数。access は出発地→駅、egress は駅→目的地。 */
 export interface MeasuredWalks {
   access: ReadonlyMap<number, number>;
   egress: ReadonlyMap<number, number>;
@@ -84,12 +68,9 @@ export interface Ride {
   walkSec: number;
 }
 
-// packages/engine の walkMetersPerMinute と同じ値。import しないのは、デプロイされるのが
-// functions/ の中身だけで、エンジンのパッケージを参照できないため。
 export const WALK_METERS_PER_MINUTE = 80;
 const EARTH_RADIUS_M = 6371008.8;
 
-/** 停車を列ごとの配列にした時刻表。compileColumns が駅ごとの発車の索引を足す。 */
 export type TimetableColumns = Omit<
   CompiledTimetable,
   'stopCount' | 'tripCount' | 'departureStart' | 'departureTrip' | 'departurePos' | 'departureAt'
@@ -162,10 +143,6 @@ export function compileColumns(columns: TimetableColumns): CompiledTimetable {
       departureAt[i] = callDep[c];
     }
   }
-  // 駅ごとの区間は便・停車順に入っているので、発車時刻で安定に並べ替えれば同じ時刻は便・停車順に残る。
-  // 比較関数つきの sort にしないのは、駅ごとに比較関数を呼ぶ分だけ1日ぶんで数十ミリ秒遅いため（#487）。
-  // 発車時刻と区間内の位置を1つの数（時刻×2^21＋位置）にまとめ、数値の並べ替え1回で済ませる。
-  // 時刻は運行日の0時からの秒なので 2^31 未満、1駅の発車は 2^21 本未満で、積は倍精度で正確に表せる。
   for (let s = 0; s < stopCount; s++) {
     const from = departureStart[s];
     const length = departureStart[s + 1] - from;
@@ -202,17 +179,10 @@ export function compileColumns(columns: TimetableColumns): CompiledTimetable {
 export interface StopsToMeasure {
   boards: number[];
   alights: number[];
-  /** 締切までに乗れる発車があり、1パス目で走査した便の数。 */
   tripsScanned: number;
-  /** 組の上位から拾える駅が maxPerSide を超え、どちらかの側で駅を落としたか。 */
   truncated: boolean;
 }
 
-/**
- * 直線の徒歩（実際の徒歩の下限）で全便を走査し、Google マトリクスで実測する駅を選ぶ。
- * 乗車側・降車側とも最大 maxPerSide 駅。neighbors を渡すと乗換つきの経路も徒歩の順に混ぜ、
- * 乗車側を最初の乗車の駅、降車側を最後の乗車の駅から拾う。
- */
 export function pickStopsToMeasure(
   ct: CompiledTimetable,
   q: ScanQuery,
@@ -226,9 +196,6 @@ export function pickStopsToMeasure(
     egress[s] = straightWalkSec(q.goal, ct.stopLat[s], ct.stopLng[s]);
   }
 
-  // 乗車側と降車側を別々に「徒歩が長い順」で選ばないのは、同じ便で結べない駅ばかり
-  // 残って2パス目が空振りするため（駅の多い JR で顕著。試作で解けた検索が 10%→21%）。
-  // 便ごとの最良の組を徒歩の長い順に並べ、その上位から両側を拾う。
   const { pairs, tripsScanned } = bestPairPerTrip(ct, q, access, egress);
   const ranked = pairs.map((p) => ({
     trip: p.trip,
@@ -266,11 +233,6 @@ export function pickStopsToMeasure(
   };
 }
 
-/**
- * 実測した徒歩で全便を走査し、徒歩最大の候補を上位 k 本返す。並びは徒歩の長い順、
- * 同じ徒歩なら目的地への到着が早い順。同じ乗車駅・降車駅の組は1本にまとめ、
- * 目的地への到着が最も早い便を残す。
- */
 export function bestRides(
   ct: CompiledTimetable,
   q: ScanQuery,
@@ -284,8 +246,6 @@ export function bestRides(
   for (const [s, sec] of measured.access) access[s] = sec;
   for (const [s, sec] of measured.egress) egress[s] = sec;
 
-  // pickStopsToMeasure のように便ごとの最良の1組だけを残すと、同じ便の2番手の組が
-  // 上位 k 本から漏れる。全組を作っても、乗れる駅は実測した駅に限られるので数は小さい。
   const byPair = new Map<number, Ride>();
   const { trips, firstPos } = boardableTrips(ct, q, access);
   for (const trip of trips) {
@@ -325,31 +285,18 @@ export function bestRides(
   return [...byPair.values()].sort(compareRides).slice(0, k);
 }
 
-/** 駅の所属。同じフィードで同じ station の stop は、同じ駅として乗り換える。 */
 export interface StationKey {
   feed: number;
   station: number;
 }
 
-/**
- * 駅 a から乗り換えられる駅（a 自身を含む）。start[a]〜start[a+1] が駅 a の分で、徒歩の短い順。
- * 同じ駅の stop は徒歩0で先頭に入る。
- */
 export interface TransferNeighbors {
   readonly start: Int32Array;
   readonly stop: Int32Array;
   readonly walkSec: Float64Array;
-  /** 同じ駅への乗換。徒歩0の代わりに、最小乗換時間を待つ。 */
   readonly sameStation: Uint8Array;
 }
 
-/**
- * 乗換の近傍の表を作る。同じ駅（stations が同じフィード・同じ station）の stop は徒歩0、
- * それ以外は直線の徒歩が maxWalkSec 以下の stop を入れる。
- *
- * 会社をまたぐ同名駅を同じ駅にしないのは、同じ駅の乗換には徒歩区間が無く、enrich が実測できないため。
- * 歩く乗換にしておけば、伸びた徒歩で2本目に乗り遅れる経路を firstMissedTransit が落とせる。
- */
 export function transferNeighbors(
   ct: CompiledTimetable,
   stations: readonly StationKey[],
@@ -383,7 +330,6 @@ export function transferNeighbors(
     for (let j = i + 1; j < n && ct.stopLat[byLat[j]] - ct.stopLat[a] <= maxLatDeg; j++) {
       const b = byLat[j];
       if (sameKey(a) === sameKey(b)) continue;
-      // 秒に丸めないと、直線距離の浮動小数の誤差で「到着＋徒歩ちょうど」に発つ便を落とす。
       const walkSec = Math.round(
         straightWalkSec({ lat: ct.stopLat[a], lng: ct.stopLng[a] }, ct.stopLat[b], ct.stopLng[b]),
       );
@@ -411,7 +357,6 @@ export function transferNeighbors(
   return { start, stop, walkSec, sameStation };
 }
 
-/** どのフィードにも transfers.txt が無いので、同じ駅の乗換に課す最小乗換時間はここで決める（#474）。 */
 export const DEFAULT_MIN_TRANSFER_SEC = 180;
 
 export interface JourneyLeg {
@@ -422,14 +367,12 @@ export interface JourneyLeg {
   alightAt: number;
 }
 
-/** 乗換0回か1回の経路。transferSec は乗換の徒歩（同じ駅の乗換と乗換0回は 0）。 */
 export interface Journey {
   legs: JourneyLeg[];
   accessSec: number;
   transferSec: number;
   egressSec: number;
   walkSec: number;
-  /** 目的地への到着。運行日の0時からの秒。 */
   arriveAt: number;
 }
 
@@ -441,12 +384,9 @@ interface ScanScratch {
   callV0: Float64Array;
   callV1: Float64Array;
   depP0: Float64Array;
-  /** 駅ごとの、締切より後の最初の発車の添字。depP0 はそこより手前だけが有効。 */
   stopP0End: Int32Array;
 }
 
-// 検索ごとに作り直すと、時刻表の停車の数だけの配列を毎回確保することになる。
-// bestJourneys は同期で走るので、同じ時刻表の検索どうしで共有しても混ざらない。
 const scratchOf = new WeakMap<CompiledTimetable, ScanScratch>();
 
 function scratchFor(ct: CompiledTimetable): ScanScratch {
@@ -469,19 +409,8 @@ function scratchFor(ct: CompiledTimetable): ScanScratch {
   return s;
 }
 
-// 上界は「ここまでの徒歩 ＋ 先の最大」の順に、経路の徒歩は区間の順に足すので、浮動小数では
-// 同じ値が 1 ulp ずれ得る。ずれで k 番目と同じ徒歩の枝を切らないよう、余裕を持たせて比べる。
 const PRUNE_SLACK_SEC = 1e-6;
 
-/**
- * 実測した徒歩で、乗換1回までの徒歩最大の経路を上位 k 本返す。並びは徒歩の長い順、
- * 同じ徒歩なら目的地への到着が早い順、それも同じなら乗換の少ない順。乗換0回は
- * （乗車駅, 降車駅）、乗換1回は（乗車駅, 降車駅, 乗換先, 降車駅）ごとに1本にまとめる。
- *
- * 乗換の徒歩は neighbors の値（直線）を使う。neighbors が null なら乗換0回だけを返す。
- * transfersOnly なら乗換1回の経路だけで上位 k 本を作る。1回乗車の徒歩が長い検索でも、
- * 1回乗車が落ちたときの次善になる乗換つきの候補を返すため。
- */
 export function bestJourneys(
   ct: CompiledTimetable,
   q: ScanQuery,
@@ -501,7 +430,6 @@ export function bestJourneys(
   const departuresEnd = (s: number) =>
     upperBound(ct.departureAt, ct.departureStart[s], ct.departureStart[s + 1], deadline);
 
-  // 設計メモの V0: 停車 c に乗っている状態から、後ろで降りて目的地へ歩くときに稼げる徒歩の最大。
   const ensureTripV0 = (trip: number): void => {
     if (sc.tripV0[trip] === sc.stamp) return;
     sc.tripV0[trip] = sc.stamp;
@@ -513,7 +441,6 @@ export function bestJourneys(
     }
   };
 
-  // 設計メモの P0: 駅の発車列の後ろからの V0 の累積の最大。
   const ensureStopP0 = (s: number): void => {
     if (sc.stopP0[s] === sc.stamp) return;
     sc.stopP0[s] = sc.stamp;
@@ -539,7 +466,6 @@ export function bestJourneys(
     return i < sc.stopP0End[s] ? sc.depP0[i] : -Infinity;
   };
 
-  // 設計メモの V1: 停車 c に乗っている状態から、後ろで降りて、目的地へ歩くか乗り換えるかで稼げる徒歩の最大。
   const ensureTripV1 = (trip: number): void => {
     if (sc.tripV1[trip] === sc.stamp) return;
     sc.tripV1[trip] = sc.stamp;
@@ -562,7 +488,6 @@ export function bestJourneys(
     }
   };
 
-  // 上位 k 本の分枝限定。閾値は、見つけた組の徒歩のうち k 番目。
   const found = new Map<string, Journey>();
   const topWalks: number[] = [];
   const threshold = () => (topWalks.length < k ? -Infinity : topWalks[k - 1] - PRUNE_SLACK_SEC);
@@ -690,13 +615,6 @@ export function bestJourneys(
   return [...found.values()].sort(compareJourneys).slice(0, k);
 }
 
-/**
- * 降車駅が互いに違う上位2つの徒歩。乗った駅と同じ駅では降りないので、1位がその駅なら2位を使う。
- *
- * 1つだけでも上界としては正しい（大きく出るだけ）。分枝限定は経路を組み立てて乗った駅での降車を
- * 弾くので、答えは変わらない。2つ持つのは、B → C → B と回る便で2回目の B の値が上界に混ざり、
- * 枝が切れなくなるのを避けるため。
- */
 class TopTwo {
   private v1 = -Infinity;
   private s1 = -1;
@@ -756,10 +674,6 @@ interface TripPair {
   walk: number;
 }
 
-/**
- * 便ごとに、乗れる駅で乗り、降りられる別の駅で降りる組のうち徒歩最大の1組を返す。
- * access/egress は駅ごとの徒歩の秒数で、Infinity の駅は使わない。
- */
 function bestPairPerTrip(
   ct: CompiledTimetable,
   q: ScanQuery,
@@ -773,8 +687,6 @@ function bestPairPerTrip(
   for (const trip of trips) {
     const start = ct.tripStart[trip];
     const end = start + ct.tripLength[trip];
-    // 徒歩最大の乗車と、それと駅の違う乗車の中で徒歩最大のもの。同じ駅に戻ってくる便で、
-    // 降車駅が最大の乗車駅と同じでも、別の駅からの乗車を候補に残すため2つ持つ。
     let best = -1;
     let runnerUp = -1;
     let found: TripPair | null = null;
@@ -806,7 +718,6 @@ function bestPairPerTrip(
   return { pairs, tripsScanned: trips.length };
 }
 
-/** 締切までに乗れる発車がある便と、便ごとに乗れる最初の停車位置。 */
 function boardableTrips(
   ct: CompiledTimetable,
   q: ScanQuery,

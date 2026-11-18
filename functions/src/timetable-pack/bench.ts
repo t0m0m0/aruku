@@ -1,12 +1,3 @@
-// 時刻表パックの前処理（読み込み・運行日の組み立て）を、条件ごとに手元で測る（#487）。
-//
-//   npm run pack:bench -- --dir .odpt/bench [--date 20261110] [--runs 15]
-//
-// パックは pack:local（cli.ts）で作ったものを使う。Storage の読込はディスクからの読込に置き換わるので、
-// readMs は本番の値の代わりにならない。本番の readMs は timetable_pack_load のログで見る。
-//
-// コールドを測るために、1回ごとに新しいプロセスで走らせる（JIT もヒープも温まっていない状態にする）。
-
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -46,7 +37,6 @@ function nextDate(yyyymmdd: string): string {
 
 type Sample = Record<string, number>;
 
-/** 1つのプロセスで全ての条件を順に測る。 */
 async function runOnce(dir: string, date: string): Promise<Record<Scenario, Sample>> {
   const logs: Record<string, unknown>[] = [];
   let skew = 0;
@@ -74,7 +64,6 @@ async function runOnce(dir: string, date: string): Promise<Record<Scenario, Samp
     }
     sample.dayBuilds = logs.filter((e) => e.event === 'timetable_day_compile').length;
     sample.heapMB = process.memoryUsage().heapUsed / 1048576;
-    // maxRSS はプロセス開始からの最大なので、その条件までのピークになる。
     sample.peakRssMB = process.resourceUsage().maxRSS / 1024;
     return sample;
   };
@@ -92,7 +81,6 @@ async function runOnce(dir: string, date: string): Promise<Record<Scenario, Samp
   return { cold, warm, daySwitch, reload, concurrent };
 }
 
-/** パックを1つずつ切り出して素直に連結した時刻表と、buildScanDay の結果が一致するか。 */
 function verify(dir: string, dates: string[]): boolean {
   const packs = new Map<PackGroup, TimetablePack>();
   for (const g of PACK_GROUPS) {
@@ -132,10 +120,6 @@ function verify(dir: string, dates: string[]): boolean {
   });
 }
 
-/**
- * 駅ごとの発車が、乗車できる停車をちょうど1回ずつ、（発車時刻・便・停車順）の昇順で持つか。
- * 上の比較は両辺が同じ compileColumns を通るので、発車の索引はこちらで別に確かめる。
- */
 function departuresInOrder(ct: CompiledTimetable): boolean {
   let boardable = 0;
   for (let c = 0; c < ct.callBoard.length; c++) boardable += ct.callBoard[c];
@@ -158,7 +142,6 @@ function departuresInOrder(ct: CompiledTimetable): boolean {
   return true;
 }
 
-/** 子プロセスが標準出力へ書いた runOnce の結果を読み戻す。 */
 function parseRunOnce(value: unknown): Record<Scenario, Sample> {
   if (!isRecord(value)) throw new Error('child output is not an object');
   const sampleOf = (scenario: Scenario): Sample => {

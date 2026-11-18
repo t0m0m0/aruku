@@ -18,11 +18,8 @@ import {
 } from '../src/timetable-pack/pack';
 
 const SERVICE_DATE = '20261023';
-// expect.any はどの型の位置にも置けるよう any を返す。any を object literal へ流さないよう、
-// 照合子として unknown で持つ。
 const aNumber: unknown = expect.any(Number);
 
-// 駅2つ・便1本だけのパック。駅名にフィード名を入れ、どのパックの駅かを見分ける。
 const pack = (feedId: string, fetchedAt = '2026-10-22T19:23:00.000Z'): TimetablePack => ({
   format: PACK_FORMAT_VERSION,
   feeds: [{ id: feedId, fetchedAt, version: null }],
@@ -111,7 +108,6 @@ describe('createScanDaySource', () => {
   });
 
   describe('乗換の近傍の表', () => {
-    // 同じ座標の2つの stop を同じ駅（station 0）にしたパック。両方のパックが同じ番号を使う。
     const twoPlatforms = (feedId: string): TimetablePack => {
       const base = pack(feedId);
       return {
@@ -218,9 +214,7 @@ describe('createScanDaySource', () => {
 
   it('読み込みを Storage の読込・解凍・JSON の解析に分けて時間をログに出す', async () => {
     const h = harness({ permanent: gz(pack('Toei')) });
-    // 工程ごとに時計を1ミリ秒ずつ進め、どの工程の時間かを取り違えていないことを見る。
     const read = h.deps.read;
-    // 進めるのは permanent の読込だけ。ほかのグループの読込も並列に走り、同じ時計を進めるため。
     h.deps.read = async (path) => {
       if (path === packObjectPath('permanent')) h.clock.now += 5;
       return read(path);
@@ -309,8 +303,6 @@ describe('createScanDaySource', () => {
   });
 
   describe('運行日ごとの時刻表', () => {
-    // 運行日の扱いを全部含むパック: 当日だけ走る便・前日の運行日から 24:00 を越える便・
-    // 走らない便・乗車できない停車・同じ駅の2つの stop。
     const richPack = (feedId: string, lngShift: number): TimetablePack => ({
       format: PACK_FORMAT_VERSION,
       feeds: [{ id: feedId, fetchedAt: '2026-10-22T19:23:00.000Z', version: 'v1' }],
@@ -362,7 +354,6 @@ describe('createScanDaySource', () => {
       ],
     });
 
-    // パックを1つずつ切り出して素直に連結した時刻表。前処理を速くしても、これと同じ値を返す。
     const naiveDay = (packs: TimetablePack[], serviceDate: string) => {
       const tt: Timetable = { stops: [], trips: [] };
       const stations: StationKey[] = [];
@@ -460,7 +451,6 @@ describe('createScanDaySource', () => {
         expect(h.logs).toContainEqual(
           expect.objectContaining({ event: 'timetable_day_throttled', serviceDate: '20261102' }),
         );
-        // 間引いている間も、持っている日はそのまま返す。
         expect(await source('20261101')).toBe(held);
 
         h.clock.now += 1;
@@ -493,7 +483,6 @@ describe('createScanDaySource', () => {
 
       h.objects.set(packObjectPath('permanent'), gz(pack('Toei', '2026-10-23T19:23:00.000Z')));
       h.clock.now = 6 * 3600 * 1000;
-      // 読み直しの最中に届いた要求も、古い日別の時刻表を返さない。
       const [during, after] = await Promise.all([source(SERVICE_DATE), source(SERVICE_DATE)]);
 
       expect(during).not.toBe(before);

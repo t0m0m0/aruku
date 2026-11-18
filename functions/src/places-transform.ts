@@ -1,15 +1,9 @@
-// Places API (New) のレスポンスを、クライアント（apps/web）が期待する
-// レガシー Places API 形式へ変換する純粋関数群。
-// プロキシを変換層にすることでクライアント側の改修を不要にする。
-
 import { asRecord } from './json';
 
 export interface LegacyPrediction {
   place_id: string;
   description: string;
   terms: { value: string }[];
-  // Autocomplete(New) に origin を渡したときの origin からの測地線距離（m, #146 C案）。
-  // クライアントが距離昇順へ再ソートするために使う（並び自体は上流の関連度順のまま）。
   distance_meters?: number;
 }
 

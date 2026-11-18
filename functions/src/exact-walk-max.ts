@@ -1,6 +1,3 @@
-// 厳密走査（exact-scan.ts）を1回の検索として回し、exactWalkMax の応答を組み立てる（#459・epic #456）。
-// IO（パックの読み込み・Google マトリクス）は deps で受け、ここは HTTP を知らない。
-
 import {
   bestJourneys,
   bestRides,
@@ -14,15 +11,11 @@ import {
 } from './exact-scan';
 
 const MAX_STOPS_PER_SIDE = 12;
-/** 1検索で Google マトリクスに投げる要素数の上限（出発地→乗車候補 ＋ 降車候補→目的地）。 */
 export const EXACT_WALK_MAX_ELEMENTS = MAX_STOPS_PER_SIDE * 2;
 const MAX_CANDIDATES = 5;
 const MAX_BUDGET_MIN = 24 * 60;
 
 const DAY_MS = 24 * 3600 * 1000;
-// Web で選べる先の上限（engine の kMaxDateOffsetDays＝90日）に、その日の終わりまでと到着指定で押し出される分を
-// 足した幅。engine を import しないのは、functions が engine に依存していないため——向こうを広げたら
-// ここも広げる（狭いままだと、遠い日付の検索で厳密走査の候補が黙って足されなくなる）。
 const DEPART_AT_MAX_AHEAD_MS = 92 * DAY_MS;
 const DEPART_AT_MAX_BEHIND_MS = DAY_MS;
 
@@ -33,7 +26,6 @@ export interface ExactWalkMaxRequest {
   goal: LatLng;
   departAt: Date;
   budgetMin: number;
-  /** 乗換つきの候補（transferCandidates）も返すか。読むのは A/B 計測の B' だけ（#474・#484）。 */
   transfers: boolean;
 }
 
@@ -53,16 +45,12 @@ export interface ScanDay {
 
 export interface FeedFetchedAt {
   id: string;
-  /** ISO 8601。基本ライセンスで表示が要る「取得日時」。 */
   fetchedAt: string;
 }
 
 export interface ExactWalkMaxDeps {
-  /** 運行日（YYYYMMDD）の時刻表。読めるパックが1つも無ければ null。 */
   day: (serviceDate: string) => Promise<ScanDay | null>;
-  /** 徒歩の実測。経路の無い要素は返さなくてよい。 */
   measure: (origins: LatLng[], destinations: LatLng[]) => Promise<MatrixElement[]>;
-  /** 走査の工程ごとの計測（#484）。省略すればそのまま走らせる。 */
   timed?: <T>(stage: ScanStage, run: () => T) => T;
 }
 
@@ -80,7 +68,6 @@ export interface ExactWalkRide {
   headsign: string | null;
   boardAt: string;
   alightAt: string;
-  /** 乗車駅から降車駅までの停車駅の座標（両端を含む）。 */
   stops: LatLng[];
 }
 
@@ -92,30 +79,22 @@ export interface ExactWalkCandidate extends ExactWalkRide {
 export interface ExactWalkTransferCandidate {
   legs: ExactWalkRide[];
   accessWalk: Walk;
-  /** 乗換の徒歩の直線の見積り。実測しないので、実際はこれより伸びる。同じ駅の乗換は 0。 */
   transferWalk: Walk;
-  /** 徒歩0の別の駅（会社をまたぐ同じ座標の駅）と分けるために持つ。 */
   sameStation: boolean;
   egressWalk: Walk;
 }
 
 export interface ExactWalkMaxResponse {
   candidates: ExactWalkCandidate[];
-  /**
-   * 要求の transfers が真のときだけ載る。candidates と分けるのは、Functions と Web が別々に
-   * デプロイされ、古い Web が読み違えないため。
-   */
   transferCandidates?: ExactWalkTransferCandidate[];
   feeds: FeedFetchedAt[];
   stats: {
     tripsScanned: number;
     elementsMeasured: number;
-    /** 実測する駅を片側 12 駅で打ち切ったか。 */
     truncated: boolean;
   };
 }
 
-/** Express の req.query。同じ名前が2回あると配列になる。 */
 type Query = Record<string, unknown>;
 
 export function parseExactWalkMaxQuery(
@@ -150,8 +129,6 @@ export function parseExactWalkMaxQuery(
   return { origin, goal, departAt, budgetMin, transfers };
 }
 
-// 省略を偽と読むのは、乗換つきの候補を読まない本番の Web が送らないため。古い Web は
-// これを知らないので、真を既定にすると本番の計算が減らない。
 function parseFlag(value: unknown): boolean | null {
   if (value === undefined || value === '0') return false;
   if (value === '1') return true;
@@ -166,19 +143,12 @@ function parsePoint(value: string | undefined): LatLng | null {
   return { lat, lng };
 }
 
-// 時差の無い時刻は受けない。サーバ（UTC）とブラウザ（JST）で読み方が変わり、9時間ずれた運行日を引くため。
 function parseInstant(value: string | undefined): Date | null {
   if (value === undefined || !/(Z|[+-]\d{2}:\d{2})$/.test(value)) return null;
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? new Date(ms) : null;
 }
 
-/**
- * JST の日付を運行日（YYYYMMDD）とし、その0時からの秒を返す。
- *
- * 締切が翌日に掛かっても翌日の運行日の便は引かない。翌日の便が出るのは始発（4時台）以降で、
- * そこまで予算が届く検索は終電後に歩き通すものしか無いため。
- */
 export function toServiceTime(at: Date): { serviceDate: string; sec: number } {
   const jst = new Date(at.getTime() + JST_OFFSET_MS);
   const serviceDate =
@@ -187,7 +157,6 @@ export function toServiceTime(at: Date): { serviceDate: string; sec: number } {
   return { serviceDate, sec };
 }
 
-/** 厳密走査で徒歩最大の候補を返す。読めるパックが無ければ null。 */
 export async function findExactWalkMax(
   req: ExactWalkMaxRequest,
   deps: ExactWalkMaxDeps,
@@ -199,8 +168,6 @@ export async function findExactWalkMax(
   const q = { origin: req.origin, goal: req.goal, departAt: sec, budgetMin: req.budgetMin };
   const timed = deps.timed ?? ((_stage, run) => run());
 
-  // 乗換つきを要求しなくても neighbors を渡すのは、乗換つきの経路の駅も実測の候補に混ぜるため。
-  // 外すと実測する駅が変わり、1回乗車の候補まで変わる。
   const picked = timed('pick', () =>
     pickStopsToMeasure(ct, q, { maxPerSide: MAX_STOPS_PER_SIDE, neighbors }),
   );
@@ -281,14 +248,10 @@ function isSameStation(n: TransferNeighbors, from: number, to: number): boolean 
   return false;
 }
 
-// パックの駅は feed・station の添字も持つ。応答に載せるものは列挙して選ぶ。
 function stationOf({ name, lat, lng }: TimetableStop): TimetableStop {
   return { name, lat, lng };
 }
 
-// 上流の行列が返した添字は stops の範囲に収まる保証が無い。stops[i] の undefined で
-// 弾かないのは、noUncheckedIndexedAccess の無い型では添字の読みが常に在ると見なされ、
-// 判定が「起きない分岐」に見えるため。tsconfig の lib が es2017 で .at() も使えない（#517）。
 function isIndexOf(xs: readonly unknown[], i: number): boolean {
   return Number.isInteger(i) && i >= 0 && i < xs.length;
 }
@@ -307,7 +270,6 @@ function walksByStop(
   return out;
 }
 
-/** 乗車から降車までの停車駅。同じ駅に戻る便があるので、駅ではなく発着時刻で位置を決める。 */
 function rideStops(ct: CompiledTimetable, ride: JourneyLeg): number[] {
   const start = ct.tripStart[ride.trip];
   const end = start + ct.tripLength[ride.trip];

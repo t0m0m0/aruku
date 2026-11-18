@@ -29,7 +29,6 @@ import {
 } from './exact-walk-max';
 import type { LatLng } from './exact-scan';
 
-// レート制限ユーティリティはテスト互換のため再エクスポートする。
 export {
   checkRateLimit,
   checkRateLimitInMemory,
@@ -42,25 +41,11 @@ export {
 
 initializeApp();
 
-// 日本の公共交通向けアプリのため日本リージョンへ明示デプロイする。
-// 既定の us-central1 は日本から遠く往復遅延が大きい。各 onRequest 定義より前に
-// 呼ぶ必要があるため initializeApp 直後に置く。
-//
-// maxInstances（issue #160）: 既定ではインスタンスが実質無制限にスケールするため、
-// 悪意あるトラフィックや予期しない急増時に課金が暴発し得る。全ハンドラ共通の安全弁
-// として上限を設ける。値は各関数ごとの上限で、公開 HTTP 関数は placesProxy /
-// googleWalkProxy / googleWalkMatrixProxy / exactWalkMax の 4 つ（4 関数 × 10 = 最大 40 インスタンス）。
-// レート制限の後段に位置する二重の課金ガード。
-// 実測トラフィックを見て調整する前提の保守的な初期値。
 setGlobalOptions({ region: 'asia-northeast1', maxInstances: 10 });
 
 const mapsKeySecret = defineSecret('GOOGLE_MAPS_API_KEY');
-// レート制限のドキュメント ID を不可逆化する HMAC 鍵（#263）。rate-limiter が
-// process.env 経由で読むため、各エンドポイントの secrets 配列へバインドして注入する。
 const rateLimitHmacKeySecret = defineSecret('RATE_LIMIT_HMAC_KEY');
 
-// ローカル（エミュレーター）は Keychain から export した process.env を使用。
-// 本番は Secret Manager から取得。
 function getMapsApiKey(): string {
   if (process.env.FUNCTIONS_EMULATOR === 'true') {
     return process.env.GOOGLE_MAPS_API_KEY ?? '';
@@ -68,43 +53,22 @@ function getMapsApiKey(): string {
   return mapsKeySecret.value();
 }
 
-// Google Places API (New)。autocomplete は候補（placeId＋テキスト）のみ返し
-// 座標は含まないため、確定時に details で location を引く2段フローにする。
 const PLACES_AUTOCOMPLETE_NEW_URL = 'https://places.googleapis.com/v1/places:autocomplete';
 const PLACES_DETAILS_NEW_BASE = 'https://places.googleapis.com/v1/places';
-// locationBias の円半径（メートル）。Places API の許容上限は 50000m。
-// 現在地を中心にこの円内を優先（soft bias）し、近隣 POI を上位へ寄せる。
-// 距離昇順は保証しない（それは origin + クライアント再ソートの担当・#146）。
 const PLACES_BIAS_RADIUS_M = 50000;
 
-// Google Routes API。徒歩ルートの街路追従ジオメトリ（encodedPolyline）と
-// 距離・所要時間を返す。経路 API は徒歩の街路ジオメトリを返さないため徒歩線はここから得る。
 const ROUTES_COMPUTE_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes';
-// 課金は FieldMask で要求したフィールドに依存する。徒歩線・距離・時間のみ取得。
 const ROUTES_FIELD_MASK = 'routes.polyline.encodedPolyline,routes.distanceMeters,routes.duration';
 
-// Google Routes API computeRouteMatrix。origins × destinations の各レッグを
-// 一括実測する（#118 の予算境界帯の実測）。polyline は返さず所要時間・距離のみ。
 const ROUTES_MATRIX_URL = 'https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix';
-// マトリクスは要素ごとに index/所要/距離だけ取得する。index が無いと結果を
-// origin/destination へ対応付けられないため FieldMask に必須で含める。
 const ROUTES_MATRIX_FIELD_MASK = 'originIndex,destinationIndex,duration,distanceMeters';
-// computeRouteMatrix は要素数（origins × destinations）課金。クライアント不具合や
-// 悪用での課金暴発を防ぐため、プロキシ側でも要素数上限を強制する（レート制限と同じく
-// 課金ガード）。#118 の設計は片側 ≤10・他方 1 の
-// 最大 10 要素のため、グリッド状の大量要求を弾きつつ正常系に十分な余裕を持たせた値にする。
 export const MATRIX_MAX_ELEMENTS = 25;
 
-/**
- * Express の req.query の1項目を文字列として読む。同じ名前が2回あると配列に、
- * `a[b]=` の形だとオブジェクトになるので、文字列以外は無いものとして扱う。
- */
 function queryParam(query: Record<string, unknown>, name: string): string | undefined {
   const value = query[name];
   return typeof value === 'string' ? value : undefined;
 }
 
-/** "lat,lng" 形式の座標を Routes API の waypoint へ変換する。不正な値は null。 */
 function parseLatLng(value: string | undefined): { latitude: number; longitude: number } | null {
   if (typeof value !== 'string') return null;
   const parts = value.split(',');
@@ -115,7 +79,6 @@ function parseLatLng(value: string | undefined): { latitude: number; longitude: 
   return { latitude, longitude };
 }
 
-/** Routes API computeRoutes（徒歩）のリクエストボディを生成する。 */
 export function buildRoutesWalkBody(
   start: { latitude: number; longitude: number },
   goal: { latitude: number; longitude: number },
@@ -127,11 +90,6 @@ export function buildRoutesWalkBody(
   });
 }
 
-/**
- * セミコロン区切りの "lat,lng" 列を waypoint 座標配列へ変換する（#118 マトリクス用）。
- * いずれか 1 点でも不正なら全体を null（部分的に欠けた要素対応は誤対応の元のため）。
- * 空文字・undefined も null。
- */
 export function parseLatLngList(
   value: string | undefined,
 ): { latitude: number; longitude: number }[] | null {
@@ -145,12 +103,10 @@ export function parseLatLngList(
   return out.length > 0 ? out : null;
 }
 
-/** computeRouteMatrix の要素数（origins × destinations）。課金単位。 */
 export function matrixElementCount(originCount: number, destinationCount: number): number {
   return originCount * destinationCount;
 }
 
-/** Routes API computeRouteMatrix（徒歩）のリクエストボディを生成する。 */
 export function buildRoutesMatrixBody(
   origins: { latitude: number; longitude: number }[],
   destinations: { latitude: number; longitude: number }[],
@@ -166,11 +122,6 @@ export function buildRoutesMatrixBody(
   });
 }
 
-// 重複排除キーの座標丸め桁数（issue #274）。5 桁 ≈ 1.1m。キャンセル→即再検索は
-// 同一候補由来でビット一致するため丸め無しでも集約できるが、GPS ジッタ程度の
-// 差も同一キーへ寄せて集約率を上げる。1m 差の徒歩ルートは実質同一で、丸めにより
-// キャッシュヒットが返す経路の差も歩行距離 ≤1m と無視できる（精度と削減の
-// トレードオフはこの粒度で取る）。過度に粗くすると別経路を誤って束ねるため 5 桁に留める。
 const COORD_KEY_DECIMALS = 5;
 
 function roundCoordKey(n: number): number {
@@ -182,7 +133,6 @@ function coordKey(p: { latitude: number; longitude: number }): string {
   return `${roundCoordKey(p.latitude)},${roundCoordKey(p.longitude)}`;
 }
 
-/** googleWalkProxy の重複排除キー。start→goal の向きは経路が異なるため順序を保持する。 */
 function walkCacheKey(
   start: { latitude: number; longitude: number },
   goal: { latitude: number; longitude: number },
@@ -190,10 +140,6 @@ function walkCacheKey(
   return `routes-walk:${coordKey(start)};${coordKey(goal)}`;
 }
 
-/**
- * googleWalkMatrixProxy の重複排除キー。応答の originIndex/destinationIndex 対応は
- * 入力順に依存するため、origins/destinations とも順序を保持したままキー化する。
- */
 function matrixCacheKey(
   origins: { latitude: number; longitude: number }[],
   destinations: { latitude: number; longitude: number }[],
@@ -201,28 +147,6 @@ function matrixCacheKey(
   return `routes-matrix:${origins.map(coordKey).join(';')}|${destinations.map(coordKey).join(';')}`;
 }
 
-// レート制限のキーに使うクライアント IP を返す（issue #151）。
-//
-// なぜ req.ip を使わないか：
-//   gen2 (Cloud Run) の実行基盤である functions-framework は起動時に
-//   `app.enable('trust proxy')`（= trust proxy = true / 全プロキシ信頼）を
-//   呼ぶ。この設定下で Express の req.ip は X-Forwarded-For の *最左端* を返す。
-//   最左端はクライアントが自由に prepend できる値なので、req.ip をキーにすると
-//   攻撃者が毎リクエスト別の先頭値を送るだけで IP 単位のレート制限を回避できる。
-//
-// 正しい信頼境界：
-//   クライアントが送る XFF 値は必ずヘッダの左側に積まれ、Google インフラは
-//   実接続元 IP をヘッダの *右端* に追記する。攻撃者は右端より後ろに値を
-//   足せないため、「右から数えた位置」は常にインフラ制御であり偽装不可能。
-//   そこで req.ip ではなく XFF を自前パースし、右から TRUSTED_PROXY_HOPS 番目を
-//   採用する。Firebase Functions gen2 の直アクセス（外部 LB 無し）では基盤が
-//   実 IP を最後の 1 要素として追記するため右端（=1）で実クライアントに一致する。
-//
-// フェイルクローズ性：
-//   仮にホップ数が想定とずれても「右から数える」限り攻撃者制御値には決して
-//   到達せず、最悪でも定数 IP に丸まって全員が同一バケットで過剰制限されるだけ。
-//   バイパスは構造的に起きない。XFF が無い場合（ローカル/エミュレータ等）のみ、
-//   偽装される余地の無い req.ip（この分岐では実ソケット peer に等しい）へ戻す。
 const TRUSTED_PROXY_HOPS = 1;
 
 export function clientIp(req: Request): string {
@@ -240,33 +164,12 @@ export function clientIp(req: Request): string {
   return req.ip ?? 'unknown';
 }
 
-// リプレイ保護を有効にするエンドポイント（issue #366）。
-//
-// 既定に googleWalkProxy を含めないのはクォータのため。使い捨てトークンは要求ごとに
-// 新規アテステーションを強制し、その回数は事業者のクォータを直接消費する（例:
-// Play Integrity の Standard ティアは 1 日 10,000 コール）。徒歩プロキシは 1 検索で
-// 21 本まで膨らむ実測があるため、ここを
-// 対象にすると数百検索/日でクォータを使い切る。枯渇するとクライアントの
-// getLimitedUseToken() が throw し、ヘッダ無し＝全要求 401 になる。防ごうとした
-// 課金リスクより大きな可用性リスクを買うことになるため入れない。徒歩プロキシの
-// 再生対策はトークン単位のレート制限で別途扱う。
-//
-// Firebase 側も「replay protection は特に機微なエンドポイントに限って有効化する」
-// ことを推奨している（往復が増えるため）。
 const DEFAULT_APP_CHECK_CONSUME_ENDPOINTS = [
   'placesProxy',
   'googleWalkMatrixProxy',
   'exactWalkMax',
 ];
 
-// なぜ環境変数で上書き可能にするか:
-//   (1) 段階導入。クライアントとサーバは同じトークン契約の両端で、モバイルの
-//       入れ替えは原子的でない。対象を増やすときは「クライアント先行リリース →
-//       アドプション待ち → サーバで有効化」の順が要る。
-//   (2) 緊急ロールバック。アテステーション枯渇や IAM 欠落で 401 が張り付いたとき、
-//       コード変更なしに空文字列で全停止できる。
-// 空文字列は「全エンドポイントで consume しない」を意味する（未設定＝既定とは別）。
-// 設定は functions/.env もしくはデプロイ時の --set-env-vars で与える。
 export function shouldConsumeAppCheckToken(endpoint: string): boolean {
   const configured = process.env.APP_CHECK_CONSUME_ENDPOINTS;
   const endpoints =
@@ -279,39 +182,14 @@ export function shouldConsumeAppCheckToken(endpoint: string): boolean {
   return endpoints.includes(endpoint);
 }
 
-// verifyAppCheck の所要時間を withRequestLatency へ渡す受け渡し口（#366）。
-//
-// なぜ res.locals ではなく WeakMap か: 既存のテストは res を軽量なスタブ
-// （status/json/set だけを持つオブジェクトリテラル）で差し替えており、locals を
-// 前提にすると全スタブへフィールドを足して回ることになる。WeakMap なら他人の
-// オブジェクトにプロパティを生やさず、res が回収されればエントリも消える。
 const appCheckMsByRes = new WeakMap<object, number>();
 
-// Firebase App Check verification for raw HTTP functions. onRequest (unlike
-// onCall) has no built-in enforceAppCheck, so the X-Firebase-AppCheck header
-// must be verified explicitly. Without a valid token the request is rejected
-// with 401, blocking unauthenticated access to these billable proxies.
-// The emulator is exempted so local development works without App Check setup.
-//
-// リプレイ保護（issue #155・#366）:
-//   shouldConsumeAppCheckToken(endpoint) が真のエンドポイントでは verifyToken に
-//   { consume: true } を渡し、App Check バックエンドにトークンを「消費済み」として
-//   記録させる。クライアントはそのエンドポイントへ getLimitedUseToken() の新規
-//   トークンを送る前提で、2 回目以降は alreadyConsumed=true で返るためリプレイと
-//   して 401 で弾く。
-//
-//   対象外では単一引数で検証し alreadyConsumed を見ない——標準トークンの正当な
-//   再利用と区別できず、見れば正常な要求を落とすため。
 export async function verifyAppCheck(
   req: Request,
   res: Response,
   opts: { endpoint?: string } = {},
 ): Promise<boolean> {
   if (process.env.FUNCTIONS_EMULATOR === 'true') return true;
-  // endpoint 未指定（"unknown"）は既定の集合に含まれないため consume しない。
-  // 呼び出し側が endpoint を書き忘れるとリプレイ保護が静かに外れる向きだが、
-  // 逆向き（未知のエンドポイントで消費を強制）はクライアントが標準トークンを
-  // 送っている場合に機能ごと落とすため、こちらへ倒す。
   const endpoint = opts.endpoint ?? 'unknown';
   const consume = shouldConsumeAppCheckToken(endpoint);
   const token = req.header('X-Firebase-AppCheck');
@@ -321,9 +199,6 @@ export async function verifyAppCheck(
     res.status(401).json({ error: 'App Check token missing' });
     return false;
   }
-  // トークン欠落は上流（App Check バックエンド）を叩かないため計測対象から外す。
-  // 計りたいのは consume が足した往復のコストで、ローカル判定だけで終わる経路を
-  // 混ぜると分布が 0ms 側へ引っ張られる。
   const start = Date.now();
   try {
     const result = consume
@@ -346,17 +221,10 @@ export async function verifyAppCheck(
   }
 }
 
-// 上流 API 呼び出しの信頼性ガード（issue #157）。無応答の上流に対して Function
-// インスタンスを課金枠（gen2 既定 60s）まで張り付かせないよう、十分手前で打ち切る。
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
-// 受信レスポンスの累積バイト上限。想定外に巨大な応答でメモリを圧迫しないよう、
-// 超過時点で接続を破棄する。上流（Places/Routes）の正常応答は数百KB
-// 程度のため、正常系に十分な余裕を持たせた値にする。
 export const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
-// requestJsonNew の失敗種別。呼び出し側で 504（timeout）と 502（その他上流障害）を
-// 区別するために用いる。
 type UpstreamErrorKind = 'timeout' | 'too_large' | 'network' | 'parse' | 'status';
 
 class UpstreamError extends Error {
@@ -369,32 +237,14 @@ class UpstreamError extends Error {
   }
 }
 
-// 上流失敗時に res へ 504/502 を書いたことを示すセンチネル。呼び出し側は
-// これが返ったら（レスポンス送信済みのため）即 return する。JSON の null と
-// 衝突しないよう Symbol を使う。
 const UPSTREAM_FAILED = Symbol('upstream_failed');
 
-// 上流呼び出し用の共有 Agent（issue #307）。1検索あたり最大13本のプロキシ
-// ファンアウト（#161）のたびに新規 TCP+TLS ハンドシェイクが走るのを避け、
-// インスタンス内で接続を再利用する。
-//
-// Why not 「Agent を明示せず既定に任せる」: functions/package.json の
-// engines は Node 22 で、Node 19+ は https.globalAgent が既定で
-// { keepAlive: true, timeout: 5000 } を持つため、実は本 PR 以前でも
-// 暗黙の keep-alive は効いていた。しかし「ランタイムの既定値に暗黙依存」
-// したままだと、将来 Node の既定が変わった際に気づかず退行し得る。
-// keepAliveMsecs / timeout は現行 Node 既定と同値をあえて明示し、挙動を
-// 固定化することが目的で、新規の速度改善を主張するものではない。
 const upstreamAgent = new https.Agent({
   keepAlive: true,
   keepAliveMsecs: 1000,
   timeout: 5_000,
 });
 
-// Places API (New) 用。エラー時も JSON ボディ（{error:...}）を返すため
-// ステータスコードに関わらずパースして呼び出し側（変換層）へ渡す。
-// タイムアウト時は timeout イベントで接続を破棄し UpstreamError で reject する
-// （https は timeout オプションだけでは接続を閉じないため明示 destroy が必要）。
 function requestJsonNew(
   url: string,
   method: 'GET' | 'POST',
@@ -404,20 +254,6 @@ function requestJsonNew(
   return attemptRequestJsonNew(url, method, headers, body, false);
 }
 
-// stale keep-alive ソケット対策（issue #307）。Cloud Functions はリクエスト
-// 処理外で CPU がスロットリングされるため、空きソケットが相手側から先に
-// 切られ、次リクエストでの再利用時に ECONNRESET になり得る。GET かつ
-// 「Agent の空きプールから再利用したソケット」（req.reusedSocket）でのみ、
-// レスポンスヘッダ受信前の生ネットワークエラーを1回だけ再試行する。
-//
-// Why not 「無条件・全メソッドでリトライ」: 本プロキシに書き込み系の上流は
-// 無いが、POST を無条件リトライ対象にすると将来の変更で非冪等な呼び出しを
-// 誤って再送しかねないため GET 限定にしている。reusedSocket で絞るのは、
-// 新規ソケットでの失敗は stale socket ではなく本物の上流障害である可能性が
-// 高く、そこまでリトライで隠すと #268 の障害検知が鈍るため。timeout /
-// too_large / parse は既に UpstreamError 化されており、ここでは
-// instanceof チェックにより再試行対象から除外される（#268/#274 の計測・
-// タイムアウト挙動は不変）。
 function attemptRequestJsonNew(
   url: string,
   method: 'GET' | 'POST',
@@ -435,7 +271,6 @@ function attemptRequestJsonNew(
         res.on('data', (chunk: Buffer) => {
           received += chunk.length;
           if (received > MAX_RESPONSE_BYTES) {
-            // 上限超過。以降のボディを貯めず接続ごと破棄する。
             req.destroy(new UpstreamError('response too large', 'too_large'));
             return;
           }
@@ -470,14 +305,6 @@ function attemptRequestJsonNew(
   });
 }
 
-// requestJsonNew を呼び、タイムアウト/上流障害を 504/502 に変換して res へ書く。
-// 成功時はパース済みボディを返し、失敗時は res 応答済みで UPSTREAM_FAILED を返す。
-// 併せて成否・レイテンシ・上流ステータスを構造化ログへ記録する（issue #268）。
-// 上流が 2xx でも意味的に失敗（items/routes 欠落・非配列等）なケースがあるため、
-// 成功ログは validate（呼び出し側と同じボディ述語）を通した後に出す。HTTP 成功で
-// 記録してしまうと、まさに検出したいクォータ/認証/スキーマ失敗が SLO 上の成功に
-// 化ける。validate NG は httpStatus をそのまま（通常 200）に semanticFailure=true で
-// failure として記録し、502 化は従来どおり呼び出し側に任せる（1リクエスト1ログ）。
 async function fetchUpstream(
   res: Response,
   endpoint: string,
@@ -490,9 +317,6 @@ async function fetchUpstream(
   cacheKey?: string,
 ): Promise<unknown> {
   try {
-    // 一次判定はステータスコード。上流が 4xx/5xx を返したら成否をボディ形状から
-    // 推測せず 502（Bad Gateway）へ寄せ、上流ボディをそのまま返す（呼び出し側の
-    // ボディ判定は 200 でエラーボディを返す稀ケースの保険として残す）。
     const { statusCode, data } = await callUpstream(
       endpoint,
       upstream,
@@ -524,14 +348,10 @@ interface UpstreamResult {
 
 const upstreamCache = createUpstreamCache<UpstreamResult>();
 
-/** テスト用: 重複排除の in-flight と保持済みを捨てる。 */
 export function resetUpstreamCache(): void {
   upstreamCache.reset();
 }
 
-// fetchUpstream から res への書き込みを除いたもの。1要求で上流を並列に呼ぶ exactWalkMax は、
-// 失敗した方が res に書くと他方の応答と競合するので、こちらを使って自分で応答を決める。
-// 上流の失敗は UpstreamError で投げる。
 async function callUpstream(
   endpoint: string,
   upstream: string,
@@ -542,11 +362,6 @@ async function callUpstream(
   validate?: (data: unknown) => boolean,
   cacheKey?: string,
 ): Promise<{ statusCode: number; data: unknown }> {
-  // 実際に上流を叩いたときだけ計測ログを出すため、requestJsonNew と計測を producer に
-  // 閉じ込める。cacheKey 指定時は upstreamCache が producer を single-flight の
-  // 相乗り・TTL キャッシュヒットでは呼ばないので、上流を呼んでいない要求を
-  // search_request に混ぜない（#268 の SLO を汚さない）。console.error も同様に
-  // 実呼び出し 1 回につき 1 度だけ出す。
   const call = async (): Promise<{ statusCode: number; data: unknown }> => {
     const start = Date.now();
     try {
@@ -586,14 +401,11 @@ async function callUpstream(
     }
   };
 
-  // TTL 保持は 2xx かつ意味的に有効な成功のみ（失敗を数十秒固定して回復を遅らせない）。
   return cacheKey !== undefined
     ? upstreamCache.dedupe(cacheKey, call, isUpstreamCacheable(validate))
     : call();
 }
 
-// upstreamCache の TTL 保持可否。2xx かつ（validate があれば）意味的に有効な
-// 成功のみ保持し、非 2xx・意味的失敗は保持しない。
 function isUpstreamCacheable(
   validate: ((data: unknown) => boolean) | undefined,
 ): (result: { statusCode: number; data: unknown }) => boolean {
@@ -601,64 +413,19 @@ function isUpstreamCacheable(
     statusCode >= 200 && statusCode < 300 && (validate ? validate(data) : true);
 }
 
-// 上流 2xx 応答のボディが「意味的な成功」かを判定する述語群。fetchUpstream の
-// 成否ログ（validate）と呼び出し側の 502 変換の両方で同じ関数を使う。別々に
-// 書くと判定が乖離し「ログは成功・クライアントには 502」が再発し得るため、
-// 述語を1箇所に共有して構造的に防ぐ。
-
-// Routes API はエラー時 {error:{...}} を返し routes を含まない。
 function isRoutesWalkSuccessBody(data: unknown): boolean {
   const record = asRecord(data);
   return record?.['error'] == null || record['routes'] != null;
 }
 
-// computeRouteMatrix は成功時に要素オブジェクトの配列を返す。
 function isRoutesMatrixSuccessBody(data: unknown): data is unknown[] {
   return Array.isArray(data);
 }
 
-// CORS（#359 Phase 3）。
-//
-// なぜ「列挙では取りこぼす」を理由に許可リストを避けないか:
-//   #364 のコメントは配信オリジンの*列挙*を退けていた。ここで判定しているのは
-//   列挙ではなくホスト名のパターン（aruku.pages.dev とそのサブドメイン）で、
-//   デプロイごとに変わるハッシュ別名も追随できるため、その懸念は当たらない。
-//   #364 が本当に警戒していた `*.pages.dev`（Cloudflare 全ユーザーの共有
-//   サフィックス）は下の isAllowedOrigin が明示的に弾く。
-//
-// なぜ許可リストが認可の代わりにならないか:
-//   CORS はブラウザが「レスポンスを読ませるか」を決める仕組みでしかなく、
-//   リクエストが届くこと自体は止めない。curl やモバイルアプリは無視する。
-//   課金処理の門番は verifyAppCheck()（各ハンドラが上流を叩く前に呼ぶ）であって
-//   ここではない。許可リストは「他サイトがブラウザ JS からプロキシを埋め込んで
-//   課金枠を食う」経路だけを塞ぐ多層防御として置いている。
-//
-// なぜ Origin 無しを拒否しないか:
-//   curl などブラウザ外のクライアントは Origin を送らない。拒否しても得られる
-//   防御は無い（上記のとおり CORS はブラウザ限定のため）。
-//
-// なぜ本番デプロイでも localhost を許可するか:
-//   README の開発手順（npm --prefix apps/web run dev）はデプロイ済み
-//   Functions を叩く。localhost オリジンを持てるのは開発者自身の端末で動く
-//   ページだけで、攻撃者が被害者のブラウザに localhost を名乗らせることは
-//   できないため、許可しても許可リストの目的は損なわれない。
 const CORS_ALLOWED_HOST = 'aruku.pages.dev';
 const CORS_ALLOWED_DEV_HOSTS = new Set(['localhost', '127.0.0.1']);
-// プリフライト結果の再利用可能秒数。未設定だと X-Firebase-AppCheck 付きの GET が
-// 毎回 OPTIONS を伴い、Function 呼び出し数と体感レイテンシが倍になる。
 const CORS_PREFLIGHT_MAX_AGE_S = 3600;
 
-/**
- * Origin が配信元（本番・そのデプロイごとのハッシュ別名・ローカル開発）かを判定する。
- *
- * pages.dev は誰でもプロジェクトを作れる共有ドメインのため、前方一致・部分一致では
- * `evil.pages.dev` や `evil-aruku.pages.dev` を通してしまう。ホスト名を URL として
- * 解析し、完全一致かサブドメインかだけを見る。
- *
- * サブドメインを一律に許すのはハッシュ別名のためで、プレビュー配信を想定した緩和では
- * ない。プレビューが出ればここも素通りするので、プレビュー抑止の境界として数えないこと
- * （docs/security_hardening.md ⑧）。
- */
 export function isAllowedOrigin(origin: string): boolean {
   let url: URL;
   try {
@@ -666,24 +433,14 @@ export function isAllowedOrigin(origin: string): boolean {
   } catch {
     return false;
   }
-  // ACAO はこの文字列をそのまま echo するため、Origin の正規形（scheme://host[:port]）
-  // 以外は弾く。パスや userinfo を含む値をヘッダへ書き戻さないための境界。
   if (url.origin !== origin) return false;
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
-  // ループバックだけは平文も許す。そのオリジンを名乗れるのは開発者自身の端末で
-  // 動くページに限られ、名前解決を攻撃者が握る余地が無い。
   if (CORS_ALLOWED_DEV_HOSTS.has(url.hostname)) return true;
   if (url.protocol !== 'https:') return false;
   return url.hostname === CORS_ALLOWED_HOST || url.hostname.endsWith(`.${CORS_ALLOWED_HOST}`);
 }
 
-/**
- * CORS ヘッダを付け、OPTIONS プリフライトなら 204 を返して true を返す。
- * true のとき呼び出し側は即 return する（応答送信済み）。
- */
 function handleCors(req: Request, res: Response): boolean {
-  // 応答は Origin ごとに変わる。共有キャッシュが別オリジン向けの ACAO を
-  // 使い回さないよう、許可・不許可にかかわらず必ず付ける。
   res.set('Vary', 'Origin');
   const origin = req.header('Origin');
   if (origin !== undefined && isAllowedOrigin(origin)) {
@@ -699,10 +456,6 @@ function handleCors(req: Request, res: Response): boolean {
   return true;
 }
 
-/**
- * クエリの lat/lon を数値として取り出す。両方が有限値のときだけ
- * { latitude, longitude } を返し、欠落・不正なら undefined。
- */
 function parseLatLon(
   query: Record<string, unknown>,
 ): { latitude: number; longitude: number } | undefined {
@@ -712,11 +465,6 @@ function parseLatLon(
   return { latitude: lat, longitude: lon };
 }
 
-/**
- * 現在地から locationBias（円）を組み立てる。lat/lon が数値として揃っている
- * ときだけ円バイアスを返し、欠落・不正なら undefined（バイアスなし）。
- * radius は任意（既定 PLACES_BIAS_RADIUS_M）で 0 < r <= 50000 にクランプする。
- */
 function buildLocationBias(
   query: Record<string, unknown>,
 ): { circle: { center: { latitude: number; longitude: number }; radius: number } } | undefined {
@@ -734,16 +482,6 @@ function buildLocationBias(
 
 type RawHandler = (req: Request, res: Response) => void | Promise<void>;
 
-// なぜ res.on("finish") ではなくハンドラ完了時点で測るか:
-//   ハンドラ本体が解決した時点で全 return 経路（App Check 拒否・429・400・502・成功）を
-//   単一の finally で漏れなく捕捉できる。res.on("finish") はソケット flush までの真の応答
-//   時間を測れる利点があるが、Express Response の finish イベントに依存し、テストの軽量な
-//   res スタブ（EventEmitter ではない）を壊す。ハンドラ完了までで App Check 検証・
-//   レートリミッタ・キャッシュ判定・上流・直列化まで含み、目的（層ごとの盲点可視化）には十分。
-//
-// search_request（#274・上流区間のみ）とは別イベント（#309・logRequestLatency）にして
-// 計上を汚さない。上流を一度も叩かない要求（キャッシュヒット・早期 return）でも出す。
-// テスト互換のため export する（例外時の 500 記録を直接検証する）。
 export function withRequestLatency(endpoint: string, handler: RawHandler): RawHandler {
   return async (req, res) => {
     const start = Date.now();
@@ -754,12 +492,7 @@ export function withRequestLatency(endpoint: string, handler: RawHandler): RawHa
       threw = true;
       throw e;
     } finally {
-      // OPTIONS プリフライトは実検索ではなくレイテンシ分布を汚すため除外する。
       if (req.method !== 'OPTIONS') {
-        // ハンドラが status を書く前に throw すると Express は既定の 200 のまま finally に
-        // 入り、プラットフォームが後から 500 に変換する。ここで res.statusCode をそのまま
-        // 信じると失敗リクエストを 200 として記録し、status 別のレイテンシ/エラー分析から
-        // 隠してしまう。未書き込み（<400）のまま throw した経路は 500 として記録する。
         const written = typeof res.statusCode === 'number' ? res.statusCode : 200;
         const appCheckMs = appCheckMsByRes.get(res);
         appCheckMsByRes.delete(res);
@@ -774,7 +507,6 @@ export function withRequestLatency(endpoint: string, handler: RawHandler): RawHa
   };
 }
 
-/** Places Autocomplete / Details プロキシ */
 export const placesProxy = onRequest(
   { secrets: [mapsKeySecret, rateLimitHmacKeySecret] },
   withRequestLatency('placesProxy', async (req, res) => {
@@ -797,8 +529,6 @@ export const placesProxy = onRequest(
         res.status(400).json({ error: 'input is required' });
         return;
       }
-      // レガシー components="country:jp|country:us" を新 API の
-      // includedRegionCodes へ変換する。
       const regionCodes = components
         .split('|')
         .map((c) => c.trim())
@@ -806,12 +536,7 @@ export const placesProxy = onRequest(
         .map((c) => c.slice('country:'.length).toLowerCase())
         .filter((c) => c.length > 0);
 
-      // 現在地（lat/lon）が渡されていれば locationBias（円）で近隣を優先する。
-      // locationBias は soft bias で並び順は関連度のまま＝「近い順」にはならない（#146 実測）。
-      // 距離順が要るときは下の origin が付ける distanceMeters をクライアントが再ソートに使う。
       const locationBias = buildLocationBias(req.query);
-      // 同じ現在地を origin としても渡し、各候補に distanceMeters を付ける（#146 C案）。
-      // クライアントはこの距離で候補を距離昇順へ再ソートできる（typeahead を壊さない）。
       const origin = parseLatLon(req.query);
 
       const data = await fetchUpstream(
@@ -863,11 +588,6 @@ export const placesProxy = onRequest(
   }),
 );
 
-/**
- * Google Routes 徒歩プロキシ。start/goal（"lat,lng"）から computeRoutes を
- * travelMode=WALK で叩き、街路追従の encodedPolyline・距離・所要時間を返す。
- * レスポンスは無加工で返す（変換はクライアント側）。
- */
 export const googleWalkProxy = onRequest(
   { secrets: [mapsKeySecret, rateLimitHmacKeySecret] },
   withRequestLatency('googleWalkProxy', async (req, res) => {
@@ -905,7 +625,6 @@ export const googleWalkProxy = onRequest(
     );
     if (data === UPSTREAM_FAILED) return;
 
-    // 認証・クォータ等の失敗を「ルートなし」と区別するため 502 で返す。
     if (!isRoutesWalkSuccessBody(data)) {
       console.error(
         '[googleWalkProxy] Routes API error:',
@@ -919,14 +638,6 @@ export const googleWalkProxy = onRequest(
   }),
 );
 
-/**
- * Google Routes 徒歩マトリクスプロキシ（#118）。origins/destinations（"lat,lng" を
- * セミコロン区切りした列）から computeRouteMatrix を travelMode=WALK で叩き、
- * 各レッグの originIndex/destinationIndex/duration/distanceMeters を返す（polyline は
- * 返さない）。予算境界帯の候補レッグを一括実測し、帯内を実測値で比較するために使う。
- * 要素数（origins × destinations）課金のため、上限超過は上流を呼ばず 400 で拒否する。
- * レスポンスは無加工で返す（変換はクライアント側）。
- */
 export const googleWalkMatrixProxy = onRequest(
   { secrets: [mapsKeySecret, rateLimitHmacKeySecret] },
   withRequestLatency('googleWalkMatrixProxy', async (req, res) => {
@@ -949,7 +660,6 @@ export const googleWalkMatrixProxy = onRequest(
       return;
     }
 
-    // 要素数上限の強制（課金暴発・悪用の防止）。上流を呼ぶ前に弾く。
     const elements = matrixElementCount(origins.length, destinations.length);
     if (elements > MATRIX_MAX_ELEMENTS) {
       res.status(400).json({
@@ -975,10 +685,6 @@ export const googleWalkMatrixProxy = onRequest(
     );
     if (data === UPSTREAM_FAILED) return;
 
-    // 配列でなければ正常な結果ではない（エラー時は {error:{...}}、それ以外も想定外
-    // 応答）。認証・クォータ等の失敗を「結果なし」と区別し、想定外応答もまとめて
-    // 502 で返す（「成功＝配列」の不変条件をプロキシ側でも担保し、クライアントへ
-    // 非配列の 200 を漏らさない）。
     if (!isRoutesMatrixSuccessBody(data)) {
       const record = asRecord(data);
       console.error(
@@ -993,10 +699,6 @@ export const googleWalkMatrixProxy = onRequest(
   }),
 );
 
-// 厳密走査（#456）が読む時刻表パックを ODPT の GTFS から作り直す（#457）。
-// 時刻表はブラウザへ渡さない（基本ライセンス第8条4(1)・チャレンジ限定データの第三者提供の禁止）
-// ので、置き場所は非公開バケット。名前はリポジトリに書かず、デプロイ時に CI が Actions の変数から渡す
-// （.github/workflows/deploy-functions.yml）。
 const odptCenterKeySecret = defineSecret('ODPT_CENTER_KEY');
 const odptChallengeKeySecret = defineSecret('ODPT_CHALLENGE_KEY');
 const timetablePackBucket = defineString('TIMETABLE_PACK_BUCKET', {
@@ -1028,7 +730,6 @@ export const refreshTimetablePacks = onSchedule(
         }),
       log: (event) => {
         if (event.status === 'failure' || event.status === 'skipped') {
-          // logger.error は Error スタックを合成して Error Reporting に計上される（metrics.ts 参照）。
           logger.write({ severity: 'WARNING', message: String(event.event), ...event });
         } else {
           logger.info(String(event.event), event);
@@ -1037,13 +738,11 @@ export const refreshTimetablePacks = onSchedule(
     });
     const skipped = results.filter((r) => r.status === 'skipped').map((r) => r.group);
     if (skipped.length > 0) {
-      // 実行を失敗として残し、気付けるようにする。前回のパックは残っているので検索は止まらない。
       throw new Error(`時刻表パックを更新できなかったグループ: ${skipped.join(', ')}`);
     }
   },
 );
 
-// 厳密走査（#456）を検索1回ぶん回し、徒歩最大の候補だけを返す（#459）。時刻表は返さない。
 let scanDay = newScanDaySource();
 
 function newScanDaySource() {
@@ -1076,23 +775,18 @@ function newScanDaySource() {
   });
 }
 
-/** テスト用: 読み込んだパックを捨てる。 */
 export function resetExactWalkMaxPacks(): void {
   scanDay = newScanDaySource();
 }
 
 const toWaypoint = ({ lat, lng }: LatLng) => ({ latitude: lat, longitude: lng });
 
-// googleWalkMatrixProxy の FieldMask に status・condition を足したもの。HTTP 200 の中の要素ごとの
-// エラーを、経路が無い（ROUTE_NOT_FOUND）のと見分けるため。プロキシ側は応答をクライアントへ素通しする
-// ので変えない。
 const EXACT_MATRIX_FIELD_MASK = `${ROUTES_MATRIX_FIELD_MASK},status,condition`;
 
 function isExactMatrixSuccessBody(data: unknown): data is unknown[] {
   return isRoutesMatrixSuccessBody(data) && !data.some(isFailedMatrixElement);
 }
 
-/** status は google.rpc.Status。OK（code 0）は JSON から省かれるので、0 以外の code だけを失敗と読む。 */
 function isFailedMatrixElement(e: unknown): boolean {
   const code = asRecord(asRecord(e)?.['status'])?.['code'];
   return typeof code === 'number' && code !== 0;
@@ -1113,7 +807,6 @@ async function measureWalks(origins: LatLng[], destinations: LatLng[]): Promise<
     },
     buildRoutesMatrixBody(o, d),
     isExactMatrixSuccessBody,
-    // FieldMask が違うので、googleWalkMatrixProxy の応答（status を持たない）と共有しない。
     `exact-${matrixCacheKey(o, d)}`,
   );
   if (statusCode < 200 || statusCode >= 300 || !isExactMatrixSuccessBody(data)) {
@@ -1122,10 +815,6 @@ async function measureWalks(origins: LatLng[], destinations: LatLng[]): Promise<
   return data.flatMap(toMatrixElement);
 }
 
-/**
- * computeRouteMatrix の1要素。経路の無い要素（duration が無い）は捨てる。
- * 値が 0 のフィールドは JSON から省かれる（proto3）ので、添字と距離の欠落は 0 と読む。
- */
 export function toMatrixElement(e: unknown): MatrixElement[] {
   const r = asRecord(e) ?? {};
   const m = typeof r['duration'] === 'string' ? /^(\d+(?:\.\d+)?)s$/.exec(r['duration']) : null;
@@ -1151,8 +840,6 @@ export const exactWalkMax = onRequest(
 
     if (!(await verifyAppCheck(req, res, { endpoint: 'exactWalkMax' }))) return;
 
-    // scope を分けずに徒歩・マトリクスのプロキシと同じドキュメントで数えると、同じ検索で
-    // 並列に叩かれるため Firestore トランザクションが競合し、再試行が約1秒ずつ積み上がる。
     if (!(await checkRateLimit(clientIp(req), RATE_LIMIT, 'exactWalkMax'))) {
       res.status(429).json({ error: 'Too many requests' });
       return;

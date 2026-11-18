@@ -1,8 +1,3 @@
-// ODPT の GTFS（鉄道）を、厳密走査（exact-scan.ts）が読む時刻表パックに変換する（#457・epic #456）。
-//
-// パックは運行日をまたいだ全便を持ち、検索のたびに timetableForDate で
-// その日の Timetable を切り出す。
-
 import type { StopCall, Timetable } from '../exact-scan';
 import { readCsv } from './csv';
 
@@ -31,17 +26,14 @@ export type GtfsFiles = Partial<Record<GtfsFileName, string>>;
 
 export interface FeedInput {
   id: string;
-  /** ISO 8601。基本ライセンスで表示が要る「取得日時」。 */
   fetchedAt: string;
   files: GtfsFiles;
-  /** GTFS の路線名を、パックに残す路線名へ写す（feeds.ts の OdptFeed.routeName）。 */
   routeName?: (gtfsRouteName: string) => string;
 }
 
 export interface PackFeed {
   id: string;
   fetchedAt: string;
-  /** feed_info.txt の feed_version。 */
   version: string | null;
 }
 
@@ -57,17 +49,14 @@ export interface PackStop extends PackStation {
 }
 
 export interface PackService {
-  /** 走る日（YYYYMMDD）の昇順。 */
   dates: number[];
 }
 
-/** 停車列は駅・着・発・乗車可否・降車可否の列ごとの配列。時刻は運行日の0時からの秒。 */
 export interface PackTrip {
   feed: number;
   service: number;
   route: string;
   headsign: string | null;
-  /** 同じ車両の続き。今は便ごとに独立に扱い、値だけ残す。 */
   block: string | null;
   stops: number[];
   arr: number[];
@@ -87,7 +76,6 @@ export interface TimetablePack {
 
 export interface DayTimetable extends Timetable {
   stops: PackStop[];
-  /** trips と同じ並びで、元になったパックの便と、その便の運行日（YYYYMMDD）。 */
   tripSources: { packTrip: number; serviceDate: string }[];
 }
 
@@ -115,7 +103,6 @@ export function buildTimetablePack(feeds: readonly FeedInput[]): TimetablePack {
   return pack;
 }
 
-/** serviceDate（YYYYMMDD）の0時を起点にした、その日に乗れる便の時刻表。 */
 export function timetableForDate(pack: TimetablePack, serviceDate: string): DayTimetable {
   const onDate = tripsOnDate(pack, serviceDate);
   const trips: Timetable['trips'] = onDate.map(({ packTrip, shift }) => {
@@ -127,19 +114,12 @@ export function timetableForDate(pack: TimetablePack, serviceDate: string): DayT
   return { stops: pack.stops, trips, tripSources };
 }
 
-/** serviceDate の検索に掛かる便の1本。 */
 export interface TripOnDate {
   packTrip: number;
-  /** 便の運行日（YYYYMMDD）。前日の運行日の便は serviceDate の前日。 */
   serviceDate: string;
-  /** パックの時刻から引く秒。serviceDate の0時からの秒にする。 */
   shift: number;
 }
 
-/**
- * serviceDate の検索に掛かる便を、timetableForDate の trips と同じ並びで返す。停車を作らずに
- * 運行日の時刻表を組み立てる（day.ts）ためのもので、停車は keepsCall で選ぶ。
- */
 export function tripsOnDate(pack: TimetablePack, serviceDate: string): TripOnDate[] {
   const today = Number(serviceDate);
   const yesterday = shiftDate(today, -1);
@@ -163,7 +143,6 @@ export function tripsOnDate(pack: TimetablePack, serviceDate: string): TripOnDat
   return onDate;
 }
 
-/** 前日の運行日の便は、24:00 を越えた部分だけが当日の検索に掛かる。 */
 export function keepsCall(trip: PackTrip, i: number, shift: number): boolean {
   return shift === 0 || trip.dep[i] - shift >= 0;
 }
@@ -246,7 +225,6 @@ function addFeed(
     if (!board && !alight) return;
     const arrRaw = parseGtfsTime(get('arrival_time'));
     const depRaw = parseGtfsTime(get('departure_time'));
-    // 片方だけ壊れている（空欄でなく読めない）行は、もう片方で埋めずに外す。
     if (arrRaw === undefined || depRaw === undefined) return;
     const arr = arrRaw ?? depRaw;
     const dep = depRaw ?? arrRaw;
@@ -302,16 +280,10 @@ function addFeed(
   }
 }
 
-// 要予約（2・3）を乗降できる扱いにしないのは、検索の結果として電話予約が要る駅を
-// 案内できないため。鉄道のフィードでは使われていない。
 function canUse(type: string): boolean {
   return type === '' || type === '0';
 }
 
-/**
- * "H:MM:SS" を運行日の0時からの秒にする。空欄は null、読めない値は undefined。
- * 空欄を 0 と読むと「00:00 着」になり、締切に必ず間に合う降車駅に化ける（#343 と同じ種類）。
- */
 export function parseGtfsTime(value: string): number | null | undefined {
   const v = value.trim();
   if (v === '') return null;
@@ -388,10 +360,6 @@ function includesSorted(sorted: readonly number[], value: number): boolean {
   return sorted[lo] === value;
 }
 
-/**
- * 同じ名前で 500m 以内の stop を1つの駅にまとめる（表示用）。
- * JR の stop_id は路線ごとで、東京駅だけで10個ある。
- */
 function groupStations(pack: TimetablePack): void {
   const parent = pack.stops.map((_, i) => i);
   const find = (i: number): number => {

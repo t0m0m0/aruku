@@ -3,11 +3,6 @@ import { EventEmitter } from 'events';
 import type { HttpsFunction, Request } from 'firebase-functions/v2/https';
 import type { Response } from 'express';
 
-// vi.mock はホイストされるため、参照する mock 関数・クラスは vi.hoisted で
-// 先に生成する。MockAgent は https.Agent はモジュール読込時（トップレベル）に
-// `new https.Agent(...)` されるため、request 同様にコンストラクト可能な
-// スタブが必要（issue #307）。実際の keepAlive 挙動は検証対象ではなく、
-// 渡されたオプションを保持するだけでよい。
 const { httpsRequestMock, verifyTokenMock, MockAgent } = vi.hoisted(() => ({
   httpsRequestMock: vi.fn(),
   verifyTokenMock: vi.fn(),
@@ -19,8 +14,6 @@ const { httpsRequestMock, verifyTokenMock, MockAgent } = vi.hoisted(() => ({
   },
 }));
 
-// MockAgent は vi.hoisted 内のクラス式のためコンストラクタ型の値であり、
-// そのままではインスタンス型として使えない。型参照用に別名を用意する。
 type MockAgentInstance = InstanceType<typeof MockAgent>;
 
 vi.mock('https', () => ({
@@ -44,7 +37,6 @@ import {
   resetUpstreamCache,
 } from '../src/index';
 
-// https.request をモックし、指定 JSON ボディ・ステータスで応答を擬似する。
 function mockUpstream(body: unknown, statusCode = 200): void {
   httpsRequestMock.mockImplementation(
     (_url: string, _opts: unknown, cb: (r: EventEmitter) => void) => {
@@ -60,8 +52,6 @@ function mockUpstream(body: unknown, statusCode = 200): void {
   );
 }
 
-// 上流応答を擬似しつつ、ハンドラが req.write した送信ボディ（JSON 文字列）を
-// 捕捉する。POST 本文（locationBias など）を検証するために使う。
 function mockUpstreamCapture(body: unknown): { sent(): unknown } {
   let written = '';
   httpsRequestMock.mockImplementation(
@@ -87,11 +77,6 @@ function mockUpstreamCapture(body: unknown): { sent(): unknown } {
   };
 }
 
-// タイムアウト/サイズ超過検証用の擬似リクエスト。https.request の返り値を
-// EventEmitter とし、destroy(err) が error イベントを発火する挙動を再現する
-// （本番の req.destroy と同じく error 経由で reject させるため）。
-// reusedSocket は stale ソケットリトライ（issue #307）検証用。既定 false は
-// 「新規ソケット」を表し、既存のタイムアウト/サイズ超過テストの挙動を変えない。
 function makeMockReq(reusedSocket = false): EventEmitter & {
   write: (c: string) => void;
   end: () => void;
@@ -113,7 +98,6 @@ function makeMockReq(reusedSocket = false): EventEmitter & {
   return req;
 }
 
-// 上流無応答をシミュレートする。レスポンスコールバックを呼ばず、timeout を発火。
 function mockUpstreamTimeout(): void {
   httpsRequestMock.mockImplementation(() => {
     const req = makeMockReq();
@@ -122,11 +106,6 @@ function mockUpstreamTimeout(): void {
   });
 }
 
-// stale keep-alive ソケット検証用（issue #307）。1回目の呼び出しは
-// reusedSocket=<firstReusedSocket> の擬似リクエストが、レスポンスヘッダ受信前に
-// 生の（UpstreamError でない）ネットワークエラーで失敗する。2回目の呼び出しが
-// 発生した場合は正常応答を返す。実際に何回 https.request が呼ばれたかは
-// httpsRequestMock.mock.calls.length で検証する。
 function mockUpstreamStaleSocketThenSuccess(body: unknown, firstReusedSocket: boolean): void {
   let callCount = 0;
   httpsRequestMock.mockImplementation(
@@ -154,8 +133,6 @@ function mockUpstreamStaleSocketThenSuccess(body: unknown, firstReusedSocket: bo
   );
 }
 
-// 指定バイト数のボディを 1 チャンクで流す上流をシミュレートする（end は発火せず、
-// サイズ超過時のハンドラ側 destroy に委ねる）。
 function mockUpstreamBytes(bytes: number): void {
   httpsRequestMock.mockImplementation(
     (_url: string, _opts: unknown, cb: (r: EventEmitter) => void) => {
@@ -204,7 +181,6 @@ function makeRes(): CapturedRes {
 }
 
 function makeReq(opts: {
-  // Express の req.query は同じ名前が2回あると配列になる。
   query?: Record<string, string | string[]>;
   token?: string;
   ip?: string;
@@ -215,8 +191,6 @@ function makeReq(opts: {
     method: opts.method ?? 'GET',
     query: opts.query ?? {},
     headers: {} as Record<string, string | undefined>,
-    // Express の req.header はヘッダ名を case-insensitive に引く。ハンドラ側の
-    // 表記（"X-Firebase-AppCheck" / "Origin"）に依存しないよう小文字で比較する。
     header: (name: string) => {
       switch (name.toLowerCase()) {
         case 'x-firebase-appcheck':
@@ -231,9 +205,6 @@ function makeReq(opts: {
   };
 }
 
-// onRequest ハンドラ（HttpsFunction）を最小フェイクの req/res で起動する。
-// フェイクはハンドラが参照するプロパティのみを備えた意図的な部分実装のため、
-// 実型への変換はこのヘルパー内の 1 箇所に閉じ込める。
 async function invokeHandler(
   handler: HttpsFunction,
   req: ReturnType<typeof makeReq>,
@@ -249,7 +220,6 @@ describe('ハンドラ統合（502 分岐・透過）', () => {
     resetRateLimit();
     resetUpstreamCache();
     httpsRequestMock.mockReset();
-    // エミュレータ扱いで App Check 検証をスキップし、上流応答の分岐に集中する。
     process.env.FUNCTIONS_EMULATOR = 'true';
   });
 
@@ -328,8 +298,6 @@ describe('ハンドラ統合（502 分岐・透過）', () => {
   });
 
   it('googleWalkMatrixProxy: error を含まない非配列応答も 502 で返す', async () => {
-    // 想定外の応答（配列でなく error も無い）。「成功＝配列」の不変条件をプロキシ側で
-    // 担保し、非配列の 200 をクライアントへ漏らさない。
     mockUpstream({ unexpected: true });
     const res = makeRes();
     await invokeHandler(
@@ -349,7 +317,6 @@ describe('ハンドラ統合（502 分岐・透過）', () => {
   });
 
   it('googleWalkMatrixProxy: 要素数上限超過は 400 で上流を呼ばない', async () => {
-    // origins 6 × destinations 6 = 36 > 25（上限）。上流を呼ばず拒否する。
     const six = (base: number) =>
       Array.from({ length: 6 }, (_, i) => `35.${base}${i},139.7`).join(';');
     const res = makeRes();
@@ -383,7 +350,6 @@ describe('ハンドラ統合（502 分岐・透過）', () => {
         },
       },
     });
-    // 応答は変換層（toLegacyAutocomplete）を通る。
     expect(res.body).toEqual({ status: 'ZERO_RESULTS', predictions: [] });
   });
 
@@ -523,8 +489,6 @@ describe('ハンドラ統合（502 分岐・透過）', () => {
   });
 
   it('レート制限超過時は 429 を返し上流を呼ばない', async () => {
-    // 同一 IP で上限(30)まで消費しておき、ハンドラ到達時に 429 とする。
-    // エミュレータ扱いのためインメモリ実装にディスパッチされる。
     for (let i = 0; i < 30; i++) await checkRateLimit('9.9.9.9');
     const res = makeRes();
     await invokeHandler(
@@ -636,8 +600,6 @@ describe('ハンドラ統合（タイムアウト・信頼性ガード / issue #
   });
 
   it('POST（非冪等扱い）は再利用ソケットでの生ネットワークエラーでも再試行せず 502 を返す', async () => {
-    // placesProxy の autocomplete は上流へ POST で問い合わせる唯一の GET
-    // エンドポイント。再試行ガードが method で正しく絞れているかを見る。
     mockUpstreamStaleSocketThenSuccess({ suggestions: [] }, true);
     const res = makeRes();
     await invokeHandler(
@@ -675,7 +637,6 @@ describe('ハンドラ統合（タイムアウト・信頼性ガード / issue #
   });
 
   it('placesProxy: 上限以内のサイズは破棄しない（正常処理）', async () => {
-    // 上限ちょうどのボディ（有効な JSON）は破棄されず、通常処理される。
     mockUpstream({ location: { latitude: 35.658, longitude: 139.701 } });
     const res = makeRes();
     await invokeHandler(
@@ -705,7 +666,6 @@ describe('ハンドラ統合（タイムアウト・信頼性ガード / issue #
   });
 
   it('placesProxy: 上流が非2xxなら変換せず 502 を返す', async () => {
-    // 従来は places がエラーボディを変換層へ渡していた。ステータス判定で 502 化する。
     mockUpstream({ error: { status: 'INVALID_ARGUMENT' } }, 400);
     const res = makeRes();
     await invokeHandler(
@@ -726,7 +686,6 @@ describe('ハンドラ統合（App Check 401）', () => {
     resetUpstreamCache();
     httpsRequestMock.mockReset();
     verifyTokenMock.mockReset();
-    // 非エミュレータで App Check 検証を有効にする。
     delete process.env.FUNCTIONS_EMULATOR;
   });
 
@@ -793,9 +752,6 @@ describe('ハンドラ統合（リプレイ保護 / issue #366）', () => {
     else process.env.APP_CHECK_CONSUME_ENDPOINTS = originalConsume;
   });
 
-  // 既定の対象は placesProxy と googleWalkMatrixProxy。googleWalkProxy を外すのは
-  // 1検索で 21 本まで膨らみ（spec §3.8 の実測 walkCalls=21）、使い捨てトークンの
-  // アテステーション・クォータを最も速く食い潰すため。
   const consuming: [string, HttpsFunction][] = [
     ['placesProxy', placesProxy],
     ['googleWalkMatrixProxy', googleWalkMatrixProxy],
@@ -829,8 +785,6 @@ describe('ハンドラ統合（リプレイ保護 / issue #366）', () => {
       makeReq({ query: QUERIES.googleWalkProxy, token: 'cached' }),
       res,
     );
-    // 単一引数の検証＝消費記録を残さない。alreadyConsumed が立っていても通す
-    // （標準トークンの正当な再利用と区別できないため）。
     expect(verifyTokenMock).toHaveBeenCalledWith('cached');
     expect(res.statusCode).not.toBe(401);
   });
@@ -1000,20 +954,14 @@ describe('Origin 許可リスト', () => {
   });
 
   it.each([
-    // pages.dev は共有ドメインで誰でもプロジェクトを作れる。前方一致・部分一致で
-    // 判定すると他人のプロジェクトを通してしまうため、境界を厳密に検証する。
     'https://evil.pages.dev',
     'https://evil-aruku.pages.dev',
     'https://aruku.pages.dev.evil.example',
     'https://arukupages.dev',
     'https://evil.example',
-    // 開発用の許可は平文 http のローカルホストのみ。名前解決を攻撃者が握れる
-    // ホスト名で http を許すと中間者に ACAO を渡すことになる。
     'http://aruku.pages.dev',
     'http://evil.example',
-    // ブラウザの Origin になり得ないスキームは、ループバックでも通さない。
     'ftp://localhost',
-    // Origin として正規形でない文字列は echo 対象にしない。
     'https://aruku.pages.dev/',
     'https://aruku.pages.dev/path',
     'https://user:pass@aruku.pages.dev',
@@ -1025,9 +973,6 @@ describe('Origin 許可リスト', () => {
   });
 });
 
-// 上流応答を手動で解決させる擬似。cb は同期で呼び（requestJsonNew が data/end
-// リスナを張る）、finish() を呼ぶまで応答を保留する。single-flight の相乗り
-// （複数 caller が in-flight 中に到達したか）を決定的に検証するために使う。
 function mockUpstreamManual(): { finish: (body: unknown, status?: number) => void } {
   let emitter: (EventEmitter & { statusCode: number }) | null = null;
   httpsRequestMock.mockImplementation(
@@ -1049,7 +994,6 @@ function mockUpstreamManual(): { finish: (body: unknown, status?: number) => voi
   };
 }
 
-// 保留中の全マイクロタスク/nextTick を流し切る（macrotask 境界まで待つ）。
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 describe('ハンドラ統合（重複排除 / issue #274）', () => {
@@ -1076,7 +1020,6 @@ describe('ハンドラ統合（重複排除 / issue #274）', () => {
     const p1 = invokeHandler(googleWalkProxy, makeReq({ query: q }), res1);
     const p2 = invokeHandler(googleWalkProxy, makeReq({ query: q }), res2);
 
-    // 両ハンドラが in-flight に到達するまで待つ。上流はまだ解決していない。
     await flush();
     expect(httpsRequestMock).toHaveBeenCalledTimes(1);
 
@@ -1103,7 +1046,6 @@ describe('ハンドラ統合（重複排除 / issue #274）', () => {
 
   it('googleWalkProxy: 丸め桁以下の座標差は同一キーに集約する', async () => {
     mockUpstream({ routes: [{ distanceMeters: 100 }] });
-    // 6桁目のみ異なる（丸め粒度 5 桁 ≈ 1m 以下）。
     const res1 = makeRes();
     await invokeHandler(
       googleWalkProxy,

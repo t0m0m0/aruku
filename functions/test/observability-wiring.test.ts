@@ -6,12 +6,6 @@ import type { Response } from 'express';
 
 import type { logRequestLatency, logRequestOutcome } from '../src/metrics';
 
-// vi.mock はホイストされるため、参照する mock 関数は vi.hoisted で先に生成する。
-// メトリクス呼び出しそのもの（引数の形）を検証したいので、metrics モジュールを
-// まるごとモックし、実際の logger 出力は metrics.test.ts 側で担保する。
-// MockAgent は https.Agent がモジュール読込時（トップレベル）に
-// `new https.Agent(...)` されるため、request 同様にコンストラクト可能な
-// スタブが必要（issue #307）。
 const {
   httpsRequestMock,
   verifyTokenMock,
@@ -263,9 +257,6 @@ describe('search_request イベント配線（fetchUpstream 経由）', () => {
     );
   });
 
-  // 以下3ケースは上流が HTTP 200 でエラー形状のボディを返し、呼び出し側で 502 に
-  // 変換されるパス。SLO 上も failure として1回だけ計上されることを固定する
-  // （成功として記録される退行は、まさに検出したいクォータ/認証/スキーマ失敗を隠す）。
   it('googleWalkProxy: 200+エラーボディ（error かつ routes 無し）は failure(semanticFailure) として記録する', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mockUpstream({ error: { code: 403, status: 'PERMISSION_DENIED' } });
@@ -361,15 +352,8 @@ describe('request_latency イベント配線（ハンドラ全体レイテンシ
   });
 
   it('上流を呼ばない早期 return（400 不正引数）でも記録する', async () => {
-    // 上流を一度も叩かない経路（引数不正・キャッシュヒット・拒否）でも全体レイテンシは
-    // 計上する——上流を叩かない要求の可視化がこのイベントの狙い（search_request は
-    // 上流呼び出し時しか出ないため、この層が抜け落ちる盲点を埋める）。
     const res = makeRes();
-    await invokeHandler(
-      placesProxy,
-      makeReq({ query: {} }), // action 欠落 → 400 早期 return
-      res,
-    );
+    await invokeHandler(placesProxy, makeReq({ query: {} }), res);
     expect(res.statusCode).toBe(400);
     expect(logRequestLatencyMock).toHaveBeenCalledTimes(1);
     expect(logRequestLatencyMock.mock.calls[0][0].httpStatus).toBe(400);
@@ -383,8 +367,6 @@ describe('request_latency イベント配線（ハンドラ全体レイテンシ
   });
 
   it('ハンドラが status を書く前に throw したら 500 として記録し例外は伝播する', async () => {
-    // status 未書き込みの例外は Express の既定 200 のまま finally に入る。これを 200 と
-    // 記録すると失敗が成功に紛れるため、500 に寄せる（プラットフォームの 500 変換に合わせる）。
     const wrapped = withRequestLatency('placesProxy', async () => {
       throw new Error('boom');
     });
@@ -418,7 +400,6 @@ describe('appCheckMs 配線（consume の追加往復コスト・#366）', () =>
     httpsRequestMock.mockReset();
     verifyTokenMock.mockReset();
     logRequestLatencyMock.mockReset();
-    // App Check 検証を実際に走らせる（エミュレータでは検証ごとスキップされる）。
     delete process.env.FUNCTIONS_EMULATOR;
   });
 
@@ -451,9 +432,6 @@ describe('appCheckMs 配線（consume の追加往復コスト・#366）', () =>
     expect(typeof logRequestLatencyMock.mock.calls[0][0].appCheckMs).toBe('number');
   });
 
-  // 検証しなかった要求を 0ms として計上すると分布が 0 側へ寄って「App Check は速い」
-  // と誤読させる。未計測は undefined のまま渡し、ログ payload からはキーごと落とす
-  // （その落とし方は metrics.test.ts 側で担保する）。
   it('エミュレータ免除では検証しないので appCheckMs は undefined', async () => {
     process.env.FUNCTIONS_EMULATOR = 'true';
     mockUpstream({ suggestions: [] });
@@ -623,9 +601,6 @@ describe('rate_limit イベント配線（Firestore 実装・フェイルオー�
     });
   });
 
-  // #301: Firestore API 未有効化で本番のフェイルオープンが恒久化していたが、
-  // 競合由来の一過性フェイルオープン（README で許容済み）と同一の信号だったため
-  // 気付けなかった。設定不備由来は reason=config として切り出す。
   it.each([
     ['PERMISSION_DENIED', 7],
     ['NOT_FOUND', 5],
@@ -653,8 +628,6 @@ describe('rate_limit イベント配線（Firestore 実装・フェイルオー�
     });
   });
 
-  // 競合や一時的な不通は README「制約・トレードオフ」で許容済み。config と同じ
-  // 信号に混ぜると、恒久的な設定漏れがノイズに埋もれる（#301 の再発）。
   it.each([
     ['ABORTED（競合によるリトライ枯渇）', 10],
     ['UNAVAILABLE', 14],
@@ -675,17 +648,10 @@ describe('rate_limit イベント配線（Firestore 実装・フェイルオー�
     expect(logRateLimitMock).not.toHaveBeenCalled();
   });
 
-  // Firestore はドキュメント競合時にトランザクションのコールバックを再試行する。
-  // ログをコールバック内で呼ぶと、1リクエストの over-limit が複数回の
-  // "blocked" イベントとして計上され、まさに高並行トラフィックの下で
-  // 濫用メトリクス/アラートを水増ししてしまう（コールバックは runTransaction が
-  // 解決した後、結果に基づいて一度だけ呼ぶ）。
   it('トランザクションが再試行されても blocked ログは1回だけ記録する', async () => {
     for (let i = 0; i < 30; i++) await checkRateLimitFirestore('6.6.6.6');
     logRateLimitMock.mockReset();
 
-    // runTransactionMock を差し替え、Firestore の競合再試行を模して
-    // コールバックを2回呼ぶ（実際に使うのは最後の戻り値）。
     const baseImpl = runTransactionMock.getMockImplementation();
     runTransactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<boolean>) => {
       const tx = {
@@ -693,8 +659,8 @@ describe('rate_limit イベント配線（Firestore 実装・フェイルオー�
         set: () => {},
         update: () => {},
       };
-      await fn(tx); // 1回目（競合で捨てられる想定のリトライ前呼び出し）
-      return fn(tx); // 2回目（実際に採用される呼び出し）
+      await fn(tx);
+      return fn(tx);
     });
 
     const result = await checkRateLimitFirestore('6.6.6.6');
