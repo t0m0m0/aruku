@@ -2,7 +2,9 @@
 """PreToolUse/Bash hook: `git commit` の前に、コメントと許可外の Markdown の検査（#528）を走らせる。
 
 検査するのは commit される中身。通常は index（staged）を見て、`-a` / `--include` / `--only` のように
-作業ツリーを取り込む commit のときだけ作業ツリーを見る。
+作業ツリーを取り込む commit のときだけ作業ツリーを見る。同じ呼び出しの中で commit より前に
+`git add` などで index を変えるときは、フックの時点の index は commit される中身ではないので、
+作業ツリーと未追跡のファイルを見る。
 
 検査の本体は functions/scripts/repo-policy/（CI の repo-policy ジョブと同じもの）。違反があれば
 exit 2 で commit を止め、一覧を Claude に返す。
@@ -64,16 +66,36 @@ def _segments(command):
             yield segment
 
 
-def _commit_args(command):
+INDEX_CHANGING_GIT_COMMANDS = {
+    "add", "rm", "mv", "restore", "reset", "stash", "apply", "checkout", "switch",
+    "update-index", "am", "cherry-pick", "merge", "revert", "pull", "rebase",
+}
+
+
+def _git_subcommand(tokens):
+    if not tokens or tokens[0] != "git":
+        return None, []
+    i = 1
+    while i < len(tokens) and tokens[i].startswith("-"):
+        i += 2 if tokens[i] in GIT_OPTIONS_WITH_VALUE else 1
+    if i >= len(tokens):
+        return None, []
+    return tokens[i], tokens[i + 1 :]
+
+
+def _find_commit(command):
+    staged_before = False
     for tokens in _segments(command):
-        if not tokens or tokens[0] != "git":
-            continue
-        i = 1
-        while i < len(tokens) and tokens[i].startswith("-"):
-            i += 2 if tokens[i] in GIT_OPTIONS_WITH_VALUE else 1
-        if i < len(tokens) and tokens[i] == "commit":
-            return tokens[i + 1 :]
-    return None
+        subcommand, rest = _git_subcommand(tokens)
+        if subcommand == "commit":
+            return rest, staged_before
+        if subcommand in INDEX_CHANGING_GIT_COMMANDS:
+            staged_before = True
+    return None, staged_before
+
+
+def _commit_args(command):
+    return _find_commit(command)[0]
 
 
 def is_git_commit(command):
@@ -103,8 +125,21 @@ def _takes_worktree(args):
 
 def policy_command(command):
     base = ["npm", "run", "--silent", "lint:policy"]
-    args = _commit_args(command) or []
-    return base if _takes_worktree(args) else base + ["--", "--staged"]
+    args, staged_before = _find_commit(command)
+    if staged_before:
+        return base + ["--", "--include-untracked"]
+    return base if _takes_worktree(args or []) else base + ["--", "--staged"]
+
+
+def repo_root(start):
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=start, capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return Path(start)
+    return Path(result.stdout.strip()) if result.returncode == 0 else Path(start)
 
 
 def main():
@@ -116,7 +151,7 @@ def main():
     if not isinstance(command, str) or not is_git_commit(command):
         sys.exit(0)
 
-    root = Path(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or ".")
+    root = repo_root(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or ".")
     try:
         result = subprocess.run(
             policy_command(command),

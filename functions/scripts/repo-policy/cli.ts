@@ -7,8 +7,11 @@ function repoRoot(): string {
   return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
 }
 
-function trackedPaths(root: string): string[] {
-  const output = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' });
+function trackedPaths(root: string, includeUntracked = false): string[] {
+  const args = includeUntracked
+    ? ['ls-files', '-z', '--cached', '--others', '--exclude-standard']
+    : ['ls-files', '-z'];
+  const output = execFileSync('git', args, { cwd: root, encoding: 'utf8' });
   return output.split('\0').filter((path) => path.length > 0);
 }
 
@@ -32,9 +35,10 @@ const root = repoRoot();
 const violations = process.argv.includes('--staged')
   ? findPolicyViolations(trackedPaths(root), (path) => stagedContent(root, path))
   : findPolicyViolations(
-      (pathsFromArgs(process.argv) ?? trackedPaths(root)).filter((path) =>
-        existsSync(join(root, path)),
-      ),
+      (
+        pathsFromArgs(process.argv) ??
+        trackedPaths(root, process.argv.includes('--include-untracked'))
+      ).filter((path) => existsSync(join(root, path))),
       (path) => readFileSync(join(root, path), 'utf8'),
     );
 

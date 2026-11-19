@@ -68,6 +68,18 @@ class PolicyCommandTest(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(hook.policy_command(command), ["npm", "run", "--silent", "lint:policy"])
 
+    def test_checks_the_working_tree_and_new_files_when_the_same_call_stages_first(self):
+        for command in [
+            "git add -A && git commit -m x",
+            "git add -A\ngit commit -m x",
+            "git rm a.ts; git commit -m x",
+        ]:
+            with self.subTest(command=command):
+                self.assertEqual(
+                    hook.policy_command(command),
+                    ["npm", "run", "--silent", "lint:policy", "--", "--include-untracked"],
+                )
+
     def test_does_not_mistake_a_message_for_the_all_flag(self):
         self.assertEqual(
             hook.policy_command("git commit -m '-a'"),
@@ -100,6 +112,12 @@ class _Exit:
         return False
 
 
+class RepoRootTest(unittest.TestCase):
+    def test_finds_the_repository_root_from_a_package_directory(self):
+        package_dir = Path(__file__).resolve().parent.parent / "apps" / "web"
+        self.assertEqual(hook.repo_root(package_dir), Path(__file__).resolve().parent.parent)
+
+
 class HookProtocolTest(unittest.TestCase):
     def test_does_nothing_for_non_commit_commands(self):
         code, _, run = _run_main("git status")
@@ -109,7 +127,7 @@ class HookProtocolTest(unittest.TestCase):
     def test_passes_a_clean_commit(self):
         code, _, run = _run_main("git commit -m x", returncode=0)
         self.assertEqual(code, 0)
-        run.assert_called_once()
+        self.assertEqual(run.call_args.args[0][:4], ["npm", "run", "--silent", "lint:policy"])
 
     def test_blocks_a_commit_with_violations_and_shows_them(self):
         code, stderr, _ = _run_main(
