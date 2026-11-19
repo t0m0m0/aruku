@@ -1,15 +1,8 @@
-// 再生ハーネス（#504）で回した2つの版の JSONL を突き合わせ、issue に貼る Markdown にする。
-//
-// import は型だけにしてある。scripts/replay-report.mjs が Node の型除去でこのファイルを
-// そのまま読むため（ab-report.ts と同じ事情）。
-
 import type { BenchRecord } from '../bench-record';
 
 export interface ReplayRecord extends BenchRecord {
   readonly label: string;
-  /// その検索で、引き直しの上限の模擬がタイムアウトさせた照会の数。
   readonly refetchLimitHits: number;
-  /// その検索で、録画に無く上流へ取りに行った照会の数。0 でない行は上流のばらつきを含む。
   readonly misses: number;
 }
 
@@ -41,7 +34,6 @@ const routeOf = (r: BenchRecord): string | null =>
         r.plan.rides.map((x) => [x.type, x.line, x.from, x.to, x.dep, x.arr]),
       ]);
 
-/// 両方の JSONL にある検索だけを、[a] の並び順で返す。
 export function compareRuns(a: readonly ReplayRecord[], b: readonly ReplayRecord[]): ComparedRow[] {
   const byKey = new Map(b.map((r) => [keyOf(r), r]));
   return a.flatMap((ra) => {
@@ -65,8 +57,6 @@ export function compareRuns(a: readonly ReplayRecord[], b: readonly ReplayRecord
   });
 }
 
-/// ab-report.ts の同名関数を import しないのは、値の import が Node の型除去で解決できない
-/// ため（拡張子なしの相対 import）。
 export function quantile(xs: readonly number[], q: number): number | null {
   if (xs.length === 0) return null;
   const s = [...xs].sort((x, y) => x - y);

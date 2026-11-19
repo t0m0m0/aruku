@@ -1,16 +1,6 @@
-// 移植元: flutter-final:lib/l10n/app_ja.arb（gen-l10n）。
-//
-// gen-l10n 相当の仕組みは持ち込まない。ロケールは ja だけで、移植元の 299 キーも
-// すべて ja のみ定義されている。react-i18next 等を入れると、実在しない多言語要件の
-// ためにバンドルと間接参照が増え、キーの参照漏れも実行時まで落ちない。型付きの
-// 定数なら tsc が落とす。多言語化が要るようになった時点で、この 1 モジュールを
-// 差し替えればよい。
-
 export const ja = {
   appTitle: 'あるく',
 
-  /// デスクトップ幅の上部バーのロゴ。見えている「あるく」を名前の頭に含める
-  /// （見た目の文字で音声操作できるように）。
   shellHome: 'あるく ホームへ戻る',
 
   weekdays: ['月', '火', '水', '木', '金', '土', '日'],
@@ -31,28 +21,20 @@ export const ja = {
   legalTermsOfService: '利用規約',
   legalPrivacyPolicy: 'プライバシーポリシー',
 
-  /// 時刻・日付の入力欄の読み上げ名。移植元 app_ja.arb の `timeField*`（プレースホルダ
-  /// 付きメッセージ）に当たる。gen-l10n が生成していた関数をここでは直に書く。
   timeFieldTime: (label: string) => `${label}の時刻`,
   timeFieldDate: (label: string) => `${label}の日付`,
 
-  /// デスクトップ幅のステッパー。移植元 app_ja.arb の timeFieldLater / timeFieldEarlier。
   timeFieldLater: (label: string) => `${label}を5分あとにする`,
   timeFieldEarlier: (label: string) => `${label}を5分まえにする`,
-  /// 日付の ◀ ▶（#434）。移植元には無い。
   timeFieldNextDay: (label: string) => `${label}を1日あとにする`,
   timeFieldPrevDay: (label: string) => `${label}を1日まえにする`,
 
-  /// デスクトップ幅の日付欄（カレンダーを開くボタン）。読み上げ名に表示中の日付を含める
-  /// ——欄の名前だけにすると、見えている文字と読み上げが食い違う。
   timeFieldDateButton: (label: string, date: string) => `${label}の日付 ${date}`,
   dateToday: '今日',
   dateTomorrow: '明日',
 
   calendarCaption: (year: number, month: number) => `${year}年${month}月`,
-  /// 曜日の列見出しの読み上げ名。描くのは1字（`weekdays`）で、読み上げは「月曜日」。
   calendarWeekdayLabel: (weekday: string) => `${weekday}曜日`,
-  /// カレンダーの日の読み上げ名。見た目で印の付く「今日」「選択中」も読み上げる。
   calendarDayLabel: (date: string, state: { today: boolean; selected: boolean }) =>
     [state.today ? '今日' : null, date, state.selected ? '選択中' : null]
       .filter((part) => part !== null)
@@ -60,7 +42,6 @@ export const ja = {
   calendarPreviousMonth: '前の月',
   calendarNextMonth: '次の月',
 
-  /// 経路検索のライフサイクルが未移植の間の CTA。押せない状態と対で出す。
   homeSearchRouteNotReady: '経路検索は準備中',
   homeChooseDestination: '目的地を選ぶ',
 
@@ -94,8 +75,6 @@ export const ja = {
   routeErrorNoResultsTitle: 'ルートが見つかりませんでした',
   routeErrorNoResultsDescription: '目的地や出発・到着時刻を変えてお試しください',
   routeErrorNoLocationTitle: '現在地を取得できませんでした',
-  /// Web には権限を変える画面を開く手段が無いので、どこで変えるかを言う。拒否と
-  /// 一時的な測位失敗は同じ種別に寄るが、後者でも許可の確認は無害な一手になる。
   routeErrorNoLocationDescription:
     'ブラウザのサイト設定で位置情報を許可して、もう一度お試しください',
   routeErrorNoDestinationTitle: '目的地が選ばれていません',
@@ -108,8 +87,6 @@ export const ja = {
   resultBackToSearch: '検索に戻る',
   resultNoRouteMessage: 'ルートがありません',
   resultOverBudgetHint: '時間内に到達できる経路がないため、最短の経路を表示しています',
-  /// ふつうの乗換ルートとの比較（#445）。ホームの説明文の「最短ルートではなく」と
-  /// 言葉を揃えないのは、「最短」が最短距離や徒歩だけの最短とも読めるため。
   resultStandardLead: 'ふつうの乗換ルートより',
   resultSegmentsHeading: '区間',
   resultAuxiliaryHeading: 'このルートについて',
@@ -118,8 +95,6 @@ export const ja = {
   resultBusDefaultLabel: 'バス',
   resultLegOpenInMaps: 'Googleマップで開く',
 
-  /// ODPT の公共交通オープンデータ開発者ガイドライン 2.2.1・3.1 が求める表示（#461）。
-  /// 問い合わせの一文は、利用者が交通事業者へ直接問い合わせないようにするためのもの。
   timetableAttributionHeading: '時刻表データについて',
   timetableAttributionSource:
     '時刻表は、公共交通オープンデータセンターが提供するデータを利用しています。',
@@ -128,15 +103,12 @@ export const ja = {
     '時刻表やルートについて、交通事業者へは問い合わせないでください。',
   timetableAttributionContact: 'あるくへのお問い合わせ',
   timetableAttributionFetchedAt: '取得日時',
-  /// 都営のデータは CC BY 4.0。出典とライセンスの表示が要る。
   timetableAttributionToeiCredit:
     '東京都交通局の時刻表は、東京都交通局・公共交通オープンデータ協議会が提供するデータを加工して利用しています。ライセンス：',
-  /// mini-tokyo-3d は MIT。著作権表示が要る（#510）。
   timetableAttributionMiniTokyo3dLead:
     '東急・小田急・京急・西武・京成など、公共交通オープンデータセンターから取れない事業者の時刻表は、',
   timetableAttributionMiniTokyo3dCredit:
     '（Copyright (c) 2019-2025 Akihiko Kusanagi・MIT License）のデータを加工して利用しています。',
-  /// ODPT のフィード id（functions/src/timetable-pack/feeds.ts）から事業者名へ。
   timetableFeedNames: {
     'JR-East': 'JR東日本',
     Keio: '京王電鉄',
@@ -150,16 +122,12 @@ export const ja = {
     Toei: '東京都交通局',
   } as Readonly<Record<string, string>>,
 
-  /// 出発地の表示名。移植元は app_state.dart に直書きしていた（ARB に無い）。
-  /// 文言なので他と同じくここへ置く。
   departureCurrentLocationLoading: '現在地 · 取得中...',
   departureCurrentLocation: '現在地',
   departureNoLocation: '位置情報なし',
   departureCurrentLocationFailed: '現在地 · 取得失敗',
 } as const;
 
-/// 移植元の searchErrorWithStatus（プレースホルダ付き ARB）。gen-l10n を持ち込まない
-/// ので、置換は関数で表す——型が引数の有無を落とす。
 export function searchErrorWithStatus(status: string): string {
   return `検索できませんでした (${status})`;
 }
@@ -168,8 +136,6 @@ export function resultDepartureLabel(dateLabel: string, time: string): string {
   return `${dateLabel} · ${time} 出発`;
 }
 
-/// 到着の締切までの余り。制限の長さ（「1時間のうち」）で言わないのは、読む側に
-/// 出発時刻からの足し算を強いるため。締切の時刻なら行程の到着時刻と直接比べられる。
 export function resultSlack(deadline: string, slack: string): string {
   return `${deadline} まで ${slack} 余裕`;
 }
@@ -182,16 +148,11 @@ export function resultOverBudgetTitle(overMinutes: number): string {
   return `制限時間を${overMinutes}分超過しています`;
 }
 
-/// 区間所要分の構成要素。移植元 _durationParts は Text ウィジェットの並びを返し、数字と
-/// 単位で書体・字送りを変えていた（numStyle / jpStyle）。組み上がった 1 本の文字列では
-/// その差を付ける取っ掛かりが無いので、単位の境目を保ったまま返す。
 export interface DurationPart {
   readonly text: string;
   readonly unit: boolean;
 }
 
-/// 移植元 _durationParts（ARB の resultHourUnit / resultMinuteUnit）。60 分以上は
-/// n時間mm分 へ分解し、分をゼロ詰めする。
 export function resultSegmentDuration(minutes: number): DurationPart[] {
   if (minutes >= 60) {
     return [
@@ -207,8 +168,6 @@ export function resultSegmentDuration(minutes: number): DurationPart[] {
   ];
 }
 
-/// 区間リンクの読み上げ名。見た目の文言は全区間で同じなので、どの区間かを名指しする。
-/// 行き先名は空文字のまま届き得る（移植元 #322）ので、そのときは名前を省く。
 export function resultLegOpenInMapsLabel(legLabel: string, toName: string): string {
   const leg = toName === '' ? legLabel : `${toName}までの${legLabel}`;
   return `${leg}をGoogleマップで開く`;

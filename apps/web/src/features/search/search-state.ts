@@ -1,9 +1,3 @@
-// 移植元: flutter-final:lib/features/search/places_provider.dart
-//
-// 画面ごとに作って捨てる。移植元は provider（アプリ寿命）に置いていたが、検索の
-// 入力・候補・モードはこの画面の外に意味が無く、残しておくと次に開いたとき前回の
-// 候補が一瞬見える。
-
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
 import type { GeoPoint } from '@aruku/engine/models/geo-point';
@@ -11,8 +5,6 @@ import type { GeoPoint } from '@aruku/engine/models/geo-point';
 import type { PlacePrediction } from '../../places/place-prediction';
 import { PlacesException, type PlacesService } from '../../places/places-service';
 
-/// 手が止まったと見なすまでの待ち（ミリ秒）。1文字ごとに投げると課金リクエストが
-/// 打鍵数だけ出る。
 export const searchDebounce = 400;
 
 export type SearchStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -21,12 +13,8 @@ export interface SearchStateValue {
   readonly status: SearchStatus;
   readonly suggestions: PlacePrediction[];
 
-  /// PlacesException の生ステータス（例: 'REQUEST_DENIED'）。null は原因不明の
-  /// 汎用エラー。文言への変換は画面が持つ（#170）。
   readonly errorStatus: string | null;
 
-  /// 「近くの店」モード（#146）。ON のとき候補を現在地からの距離の昇順へ
-  /// 並べ替える（取得の系統は typeahead のまま・C案）。
   readonly nearby: boolean;
 }
 
@@ -34,7 +22,6 @@ export interface SearchActions {
   search(query: string): void;
   setNearby(value: boolean): void;
 
-  /// 待っている debounce と走っている要求を捨てる。画面のアンマウントで呼ぶ。
   dispose(): void;
 }
 
@@ -43,21 +30,14 @@ export type SearchState = StoreApi<SearchStateValue & SearchActions>;
 export interface SearchStateOptions {
   readonly service: PlacesService;
 
-  /// 位置バイアスと距離並べ替えの基準。位置情報が確定しているときだけ座標を返す。
   readonly currentLocation: () => GeoPoint | null;
 }
 
 export function createSearchState(options: SearchStateOptions): SearchState {
   let debounce: ReturnType<typeof setTimeout> | null = null;
 
-  // 検索ごとに増やすリクエスト世代。新しい検索が始まった後に古い結果で
-  // 表示を上書きしないよう、反映前に世代一致を確かめる。
-  //
-  // 下の中止（#488）があっても世代は外さない。中止に間に合わず完了した応答や、
-  // signal を無視するサービスでも、表示の正しさを中止に預けないため。
   let generation = 0;
 
-  // 走っている Autocomplete 要求の中止口。完了したら外す（完了済みを中止扱いしない）。
   let inflight: AbortController | null = null;
 
   function abortInflight(): void {
@@ -65,8 +45,6 @@ export function createSearchState(options: SearchStateOptions): SearchState {
     inflight = null;
   }
 
-  // 直近の取得結果（関連度順・未ソート）。距離は通常検索でも各候補に付くため、
-  // モード切替はこれを並べ替えるだけで済み、再フェッチ（課金・遅延）を避けられる。
   let raw: PlacePrediction[] = [];
 
   return createStore<SearchStateValue & SearchActions>()((set, get) => {
@@ -75,9 +53,6 @@ export function createSearchState(options: SearchStateOptions): SearchState {
       const aborter = new AbortController();
       inflight = aborter;
       try {
-        // 系統は常に Autocomplete（typeahead を壊さない・#146 C案）。現在地が
-        // 分かるときは位置バイアスを掛け（#144）、proxy 側で origin も渡るため
-        // 各候補に距離が付く。
         const fetched = await options.service.autocomplete(query, location, aborter.signal);
         if (gen !== generation) return;
         raw = fetched;
@@ -87,9 +62,6 @@ export function createSearchState(options: SearchStateOptions): SearchState {
           errorStatus: null,
         });
       } catch (error) {
-        // 中止で倒れた要求は必ず世代が進んだ後なので、ここで捨てられる。
-        // 例外の型で中止を見分けないのは、層ごとに中止の顔が違う（ClientException・
-        // DOMException）うえ、世代で足りるため。
         if (gen !== generation) return;
         set({
           status: 'error',
@@ -109,14 +81,11 @@ export function createSearchState(options: SearchStateOptions): SearchState {
 
       search(query: string) {
         if (debounce !== null) clearTimeout(debounce);
-        // 空のクエリでも世代を進める。進めないと、走っている取得が後から
-        // 「候補あり」を書き戻し、消したはずの入力に候補が残る。
         generation++;
         abortInflight();
 
         if (query === '') {
           raw = [];
-          // クエリは消してもモード（nearby）は保つ。
           set({ status: 'idle', suggestions: [], errorStatus: null });
           return;
         }
@@ -128,16 +97,6 @@ export function createSearchState(options: SearchStateOptions): SearchState {
         }, searchDebounce);
       },
 
-      /// 「近くの店」モードの切替。取得済みの候補をその場で並べ替えるだけで
-      /// 問い合わせ直さない（課金リクエストと待ちを省く）。
-      ///
-      /// まだ結果が無い／取得中はフラグだけ更新し、走っている取得の完了時に
-      /// 正しい並びで反映する。
-      ///
-      /// 距離は取得時に origin を送って初めて候補へ付くため、取得時点で現在地が
-      /// 未確定だった候補は後から現在地が届いても並べ替えられない（トグルが無反応に
-      /// 見える）。再フェッチで埋めることは可能だが、切替のたびに課金リクエストが
-      /// 増えるため採らない。
       setNearby(value: boolean) {
         if (get().nearby === value) return;
         if (get().status !== 'success') {
@@ -153,7 +112,6 @@ export function createSearchState(options: SearchStateOptions): SearchState {
       dispose() {
         if (debounce !== null) clearTimeout(debounce);
         debounce = null;
-        // 走っている取得を捨てる。中止に間に合わず解決しても、世代が合わず反映されない。
         generation++;
         abortInflight();
       },
@@ -161,8 +119,6 @@ export function createSearchState(options: SearchStateOptions): SearchState {
   });
 }
 
-/// nearby モードかつ現在地ありなら距離の昇順へ並べ替え、そうでなければ関連度順のまま。
-/// 取得時と切替時で同じ並べ替え規則を共有する。
 function arrange(
   nearby: boolean,
   location: GeoPoint | null,
@@ -171,10 +127,6 @@ function arrange(
   return nearby && location !== null ? sortByDistance(items) : items;
 }
 
-/// 距離の取れた候補を先に距離の昇順、距離不明の候補は元の関連度順のまま末尾へ回す（C案）。
-///
-/// 距離不明を 0 として混ぜない。基準の取れない候補が先頭を占め、「近くの店」が
-/// 近さと無関係な並びになる。
 function sortByDistance(items: PlacePrediction[]): PlacePrediction[] {
   const withDistance: { item: PlacePrediction; distanceMeters: number }[] = [];
   const without: PlacePrediction[] = [];

@@ -1,9 +1,3 @@
-// 移植元: flutter-final:lib/core/services/places_service.dart と
-// flutter-final:test/core/services/places_service_test.dart。
-//
-// 空の proxyBaseUrl を「候補なし」へ縮退させる移植元の分岐は運んでいない。理由は
-// places-service.ts の注記。ここではその**拒否**を反証している。
-
 import { describe, expect, it, vi } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
@@ -19,7 +13,6 @@ import { GooglePlacesService, PlacesException } from '../../src/places/places-se
 
 const base = 'https://proxy.example';
 
-/// 応答を JSON で返す偽クライアント。呼ばれた URL を記録する。
 function stubClient(
   respond: (url: URL) => HttpResponse | Promise<HttpResponse>,
 ): AbortableHttpClient & { calls: URL[]; signals: (AbortSignal | undefined)[] } {
@@ -75,7 +68,6 @@ describe('autocomplete のリクエスト', () => {
     expect(url.searchParams.get('components')).toBe('country:jp');
   });
 
-  // proxy 側が locationBias（円）と origin を組み立てる材料（#144 / #146）。
   it('現在地が分かるときだけ位置バイアスを渡す', async () => {
     const { client, places } = service(() => okPredictions([]));
 
@@ -164,7 +156,6 @@ describe('autocomplete の応答', () => {
     expect(p.address).toBe('渋谷駅');
   });
 
-  // 移植元が indexOf+1 で切っている理由。末尾カンマで範囲外にしない。
   it('カンマが末尾でも落ちず、住所は空になる', async () => {
     const { places } = service(() => okPredictions([{ place_id: 'p1', description: '渋谷駅,' }]));
 
@@ -226,8 +217,6 @@ describe('autocomplete の応答', () => {
     await expect(places.autocomplete('渋谷')).rejects.toThrow(new PlacesException('HTTP 503'));
   });
 
-  // タイムアウトは TimeoutHttpClient が投げる（#156）。UI は生ステータスを
-  // そのまま出すので、他の失敗と同じ語彙へ寄せる。
   it('タイムアウトを TIMEOUT として畳む', async () => {
     const { places } = service(() => {
       throw new TimeoutException('header timeout');
@@ -314,8 +303,6 @@ describe('fetchLatLng', () => {
   });
 });
 
-// 移植元は空ベースを「候補なし」へ縮退させていた。設定漏れが「検索しても何も出ない」
-// として静かに出るため、組み立てで落とす（route-service.ts と同じ判断）。
 describe('ベース URL の検査', () => {
   it('空のベース URL では組み立てを拒む', () => {
     expect(

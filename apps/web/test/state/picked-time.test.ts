@@ -1,8 +1,3 @@
-// 移植元: flutter-final:lib/core/state/app_state.dart の `applyPickedTime` / `rebaseDates`。
-//
-// 守りたい不変条件は「出発 < 到着」がどの入口からも壊れないこと。UI 側の min/max は
-// 案内であって保証ではない——キー入力・オートフィル・古いブラウザは範囲外を渡す。
-
 import { describe, expect, it } from 'vitest';
 
 import { TimeValue, PickerMode, kMaxDateOffsetDays } from '@aruku/engine/models/time-value';
@@ -49,8 +44,6 @@ describe('applyPickedTime（出発）', () => {
   });
 
   it('押し出された到着は選べる上限の外にも出る', () => {
-    // 上限の日の終わりから出発すると、到着は 91 日目に立つ。ここを上限で
-    // 丸めると「出発 < 到着」が壊れる（丸めるのはカレンダーが出す範囲の側）。
     const store = storeWith(at(23, 0, kMaxDateOffsetDays), at(23, 59, kMaxDateOffsetDays));
 
     store.getState().applyPickedTime({
@@ -93,7 +86,6 @@ describe('applyPickedTime（到着）', () => {
     expect(
       absoluteMinutes(store.getState().arrival) - absoluteMinutes(store.getState().departure),
     ).toBe(1);
-    // 出発は動かさない。到着を選んだのに出発が動くと、寄せた先がまた動く。
     expect(store.getState().departure.format()).toBe('10:00');
   });
 });
@@ -140,7 +132,6 @@ describe('rebaseDates', () => {
   });
 });
 
-// Codex レビュー（PR #399）。web では「戻る」で降りた result が**進む**の先に残る。
 describe('時刻を変えたときの保持中の経路', () => {
   it('捨てる。進むで戻れる result が、新しい出発の下に古い経路を出すため', () => {
     const store = createAppStore({
@@ -154,7 +145,6 @@ describe('時刻を変えたときの保持中の経路', () => {
 
     expect(store.getState().route).toBeNull();
     expect(store.getState().routeAsOf).toBeNull();
-    // ガードは route の有無で result を通す。捨てれば進むが home へ跳ね返る。
     expect(resolveRedirect(screenPath[Screen.result], store.getState(), new Date())).toBe(
       screenPath[Screen.home],
     );

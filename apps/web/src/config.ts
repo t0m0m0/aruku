@@ -1,13 +1,5 @@
-/// 移植元: flutter-final:lib/core/config/app_config.dart のうち Web で意味のあるもの。
-///
-/// 歩数・HealthKit・ローカル通知まわりの設定は移していない。Web では恒久的に
-/// 動かない機能として #386 で UI ごと作らないと決めたため。
-
-/// 経路検索（Transit API）のベース URL の既定。移植元の `transitApiBaseUrl` と同じ。
 export const defaultTransitApiBaseUrl = 'https://api.transit.ls8h.com';
 
-/// Firebase Web アプリの設定。秘匿値ではない（バンドルへ焼かれ、ブラウザから読める）。
-/// 実際の保護はリファラー制限と App Check が担う——docs/security_hardening.md。
 export interface FirebaseConfig {
   readonly apiKey: string;
   readonly appId: string;
@@ -18,49 +10,18 @@ export interface FirebaseConfig {
 }
 
 export interface AppConfig {
-  /// Cloud Functions プロキシのベース URL。
-  ///
-  /// 未設定は縮退ではなく**起動時のエラー**になる（`createRouteService`）。移植元は
-  /// `Uri.parse('/googleWalkProxy')` が相対 URI を作れたが、`new URL` は投げるため
-  /// 検索の途中で TypeError になり、縮退では吸収されない。
   readonly proxyBaseUrl: string;
 
   readonly transitApiBaseUrl: string;
 
   readonly firebase: FirebaseConfig;
 
-  /// reCAPTCHA v3 のサイトキー。空だと App Check を有効化できず、プロキシは
-  /// 401 を返す（＝安全側）。移植元の RECAPTCHA_SITE_KEY と同じ値。
   readonly recaptchaSiteKey: string;
 
-  /// Maps JavaScript API のブラウザキー。移植元の MAPS_WEB_API_KEY と同じ値。
-  ///
-  /// 空だと作り物の地図へ倒れる。移植元も USE_REAL_MAP が既定 false で同じ絵を出す
-  /// ——実地図が出ないことは設定漏れの兆候であって、画面の故障ではない。
-  ///
-  /// 秘匿値ではない（バンドルへ焼かれ、ブラウザから読める）。保護は Google Cloud 側の
-  /// HTTP リファラー制限が担う。docs/security_hardening.md 参照。
   readonly mapsApiKey: string;
 
-  /// 厳密走査 `exactWalkMax` の候補を経路検索の候補プールへ足すか（#460）。
-  /// `VITE_EXACT_WALK_MAX=1` のときだけ真。
-  ///
-  /// 既定を偽にしてあるのは、時刻表パックの無い環境（エミュレータ・パック未生成の
-  /// プロジェクト）で毎検索が 503 を1本余計に叩かないため。
   readonly exactWalkMax: boolean;
 }
-
-// App Check のデバッグトークンはここに**置かない**。
-//
-// `appConfig` は生きた export なので、`import.meta.env.VITE_APP_CHECK_DEBUG_TOKEN` を
-// プロパティに入れると、それを読む分岐が本番で消えても**値だけが残る**——Vite が
-// ビルド時に文字列リテラルへ差し替え、esbuild は生きたオブジェクトのプロパティを
-// 落とさない。実際に、実トークンを渡した本番ビルドのバンドルから平文で見つかった
-// （PR #395 の Codex レビュー P1）。デバッグトークンは Firebase 自身が secret と
-// 呼ぶもので、持てば App Check を迂回して課金 API を叩ける。
-//
-// 読むのは src/firebase/app-check.ts の `if (import.meta.env.DEV)` の**中だけ**。
-// そうすれば値ごと分岐に閉じ、本番バンドルから消える。
 
 export const appConfig: AppConfig = {
   proxyBaseUrl: import.meta.env.VITE_PROXY_BASE_URL ?? '',
@@ -68,8 +29,6 @@ export const appConfig: AppConfig = {
   firebase: {
     apiKey: import.meta.env.VITE_FIREBASE_WEB_API_KEY ?? '',
     appId: import.meta.env.VITE_FIREBASE_WEB_APP_ID ?? '',
-    // 移植元 flutter-final:lib/firebase_options.dart の web と同じく、秘匿でない4つは直に置く。
-    // 環境変数にすると設定漏れで「プロジェクトが違う」という遠い失敗になる。
     projectId: 'aruku-app',
     messagingSenderId: '174669528481',
     authDomain: 'aruku-app.firebaseapp.com',
@@ -80,17 +39,7 @@ export const appConfig: AppConfig = {
   exactWalkMax: import.meta.env.VITE_EXACT_WALK_MAX === '1',
 };
 
-/// 本文は public/terms.html・privacy.html。SPA のルートにしないのは、JS を読まずに
-/// 開けるべき文書だから（審査やクローラはバンドルを実行するとは限らない）。拡張子を
-/// 付けないのは、Cloudflare Pages が `.html` 付きの要求を拡張子なしへ 308 で
-/// 寄せるため——付けるとリンクのたびにリダイレクトを1回挟む。
-///
-/// 環境変数にしない。`appConfig` に置いているのはデプロイごとに変わる設定で、
-/// これは両者とも同じ値を指す固定のリンク先——env にすると設定漏れが「規約が
-/// 開かない」という遠い失敗になる。
 export const termsOfServiceUrl = '/terms';
 export const privacyPolicyUrl = '/privacy';
 
-/// アプリの問い合わせ先（#461）。ODPT のガイドラインは、時刻表について利用者が
-/// 交通事業者へ直接問い合わせないよう、アプリ側の窓口を示すことを求める。
 export const contactUrl = 'https://github.com/t0m0m0/aruku/issues';

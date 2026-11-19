@@ -1,7 +1,3 @@
-/// 地点検索の古い要求の中止（#488）。単体テスト（test/features/search/search-state.test.ts）が
-/// 押さえられないのは、実物の fetch が中止で本当に倒れること——signal が HTTP の層を
-/// 貫いて届き、ブラウザが要求を落とすかは、実ブラウザでしか分からない。
-
 import type { Page, Request } from '@playwright/test';
 
 import { expect, test } from './fixtures';
@@ -10,8 +6,6 @@ function isAutocomplete(url: URL): boolean {
   return url.pathname.endsWith('/placesProxy') && url.searchParams.get('action') === 'autocomplete';
 }
 
-/// autocomplete の応答を [delayFor] ミリ秒遅らせ、ブラウザが落とした要求を記録する。
-/// 遅らせた後の応答は偽の上流（fixtures）へ流す。
 async function delayAutocomplete(
   page: Page,
   delayFor: (input: string) => number,
@@ -26,7 +20,6 @@ async function delayAutocomplete(
   await page.route(isAutocomplete, async (route) => {
     const input = new URL(route.request().url()).searchParams.get('input') ?? '';
     await new Promise((resolve) => setTimeout(resolve, delayFor(input)));
-    // 待っている間にブラウザが要求を落としていれば、流す先はもう無い。
     await route.fallback().catch(() => {});
   });
   return { aborted };
@@ -48,7 +41,6 @@ test.describe('デスクトップ幅の欄', () => {
     await expect(page.getByRole('option', { name: /テスト会館/ })).toBeVisible();
     await expect.poll(() => aborted).toEqual(['テスト公']);
 
-    // 中止した要求の遅い応答が届く頃を過ぎても、最新の候補のまま。
     await page.waitForTimeout(3000);
     await expect(page.getByRole('option', { name: /テスト会館/ })).toBeVisible();
     await expect(page.getByRole('option', { name: /テスト公園/ })).toHaveCount(0);
@@ -90,8 +82,6 @@ test.describe('モバイル幅の全画面検索', () => {
 
     await expect(page).toHaveURL('/home');
     await expect.poll(() => aborted).toEqual(['テスト']);
-    // 離脱した画面の要求が後から届いても、home に何も書き戻さない（番人が
-    // コンソールの error と未処理の例外も見ている）。
     await page.waitForTimeout(3000);
     await expect(page.getByRole('button', { name: '目的地 どこへ歩く?' })).toBeVisible();
   });

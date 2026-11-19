@@ -1,15 +1,3 @@
-// 移植元: flutter-final:lib/features/search/desktop_typeahead_field.dart（#372）。
-//
-// 全画面の検索へ飛ばさず、その場で出発地・目的地を決めきる欄。デスクトップ幅の home が使う。
-//
-// 「近くの店」（#146）は置かない。移植元はフォーカスのたびに `setNearby(false)` して
-// いたが、それは全画面検索と検索状態を共有していたため——ここは自前の検索状態を持つ
-// ので、引き継ぐモードがそもそも無い。
-//
-// shadcn の Command（cmdk）には乗せない。あれは絞り込みとキー操作を自前で持ち、
-// ここが手で組んでいる IME 変換中の素通し・確定の世代管理・閉じた一覧からの
-// 確定の拒否と噛み合わない。見た目だけのために振る舞いを入れ替えることになる。
-
 import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import { useStore } from 'zustand';
 import type { StoreApi } from 'zustand/vanilla';
@@ -35,12 +23,8 @@ interface TypeaheadFieldProps {
   places: PlacesService;
   recents: RecentsRepository;
 
-  /// 欄そのものへの参照。目的地が未選択のときの CTA が焦点を移すのに使う
-  /// （home の CTA は、この幅では全画面の検索へ飛ばさない）。
   inputRef?: RefObject<HTMLInputElement | null>;
 
-  /// 何も決まっていないときに欄へ薄く出す文字。出発地の未指定は空欄ではなく
-  /// 「現在地を使う」なので、home はその状態（取得中・位置情報なし等）を渡す。
   emptyText?: string;
 }
 
@@ -81,17 +65,12 @@ export function TypeaheadField({
   const suggestions = useStore(search, (s) => s.suggestions);
   const errorStatus = useStore(search, (s) => s.errorStatus);
 
-  /// null は「確定済みの地点を映している」。打ち始めると文字列になり、確定で null へ
-  /// 戻る。移植元は入力を空にして確定名を hintText へ出していたが、placeholder は
-  /// 読み上げ名にならない——欄が何を指しているかが支援技術から消える。
   const [query, setQuery] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
   const [pickFailed, setPickFailed] = useState(false);
   const [saved, setSaved] = useState<RecentPlace[]>(() => recents.load());
 
-  // 座標解決の await を跨いで外されたら続きを走らせない（PORTING.md の
-  // 「await を跨ぐ操作には mounted 相当のガードが要る」）。
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -100,15 +79,12 @@ export function TypeaheadField({
     };
   }, []);
 
-  // 確定の世代。待っている間に打ち替えられたら、その確定はもう欄が指していない。
   const generation = useRef(0);
   const selecting = useRef(false);
 
   const typed = query ?? '';
   const listId = useId();
 
-  /// 選択位置の行。一覧は 320px で頭打ちなので、↓ を押し続けると見えない行が
-  /// 選ばれたままになる（PR #407 の Codex レビュー）。
   const activeOption = useRef<HTMLLIElement>(null);
 
   function apply(place: RecentPlace) {
@@ -119,8 +95,6 @@ export function TypeaheadField({
     setQuery(null);
     setPickFailed(false);
     setOpen(false);
-    // 並びが候補から履歴へ替わる。位置を残すと、開き直したときに存在しない行を
-    // 指したままになる（PR #407 の Codex レビュー）。
     setHighlighted(0);
     search.getState().search('');
   }
@@ -132,14 +106,9 @@ export function TypeaheadField({
 
     const resolved = await resolvePlacePrediction(places, prediction);
     if (!alive.current) return;
-    // 錠を解くのは、今の世代を持っているこの確定だけ。追い越された古い確定が
-    // 解くと、走っている新しい確定の横で重複した照会を始められてしまい、
-    // 後から来た本命の結果がその世代ずれで捨てられる（PR #407 の Codex レビュー）。
     if (gen !== generation.current) return;
     selecting.current = false;
 
-    // 座標を引けない候補は確定させない。黙って無反応にすると「押しても何も起きない
-    // 候補」になるので、理由を出して選び直させる。
     if (resolved === null) {
       setPickFailed(true);
       return;
@@ -150,7 +119,6 @@ export function TypeaheadField({
   const entries: Entry[] =
     typed === ''
       ? saved.map((place) => ({
-          // 履歴の placeId は null になり得る（座標だけ持つ「現在地」等）。
           key: place.placeId ?? place.name,
           name: place.name,
           detail: place.address ?? '',
@@ -167,10 +135,6 @@ export function TypeaheadField({
           },
         }));
 
-  /// 確定済みの地点と打ちかけの文字を落とす（移植元の searchClearInput）。
-  ///
-  /// 無いと、確定名を手で選択して消すしか戻す手が無い。読み上げから辿れる導線も
-  /// 同時に失われる（PR #407 の Codex レビュー）。
   function clear() {
     if (selected !== null) {
       if (mode === 'origin') setOrigin(null, null);
@@ -187,17 +151,11 @@ export function TypeaheadField({
   }
 
   function onChange(next: string) {
-    // 打ち替えを始めた時点で、確定済みの地点は「今その欄が指しているもの」でなくなる。
-    // 残すと表示は新しいクエリ・状態は古い座標というズレになり、CTA が有効なまま
-    // 前の目的地へ経路を引く（移植元 _clearSelection）。
     if (selected !== null) {
       if (mode === 'origin') setOrigin(null, null);
       else setDestination(null, null);
     }
     generation.current++;
-    // 確定中の錠も解く。古い確定は世代で無効化されるので、待たせる理由が無い
-    // ——持ったままだと、新しい候補を押しても無反応な数秒が残る
-    // （PR #407 の Codex レビュー）。
     selecting.current = false;
     setQuery(next);
     setHighlighted(0);
@@ -212,18 +170,12 @@ export function TypeaheadField({
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
-    // IME の変換中は1つも横取りしない。↑↓ は変換候補を選ぶ操作、Enter は変換の
-    // 確定で、どちらもこの欄の操作ではない——奪うと日本語が打てない欄になる
-    // （PR #407 の Codex レビュー）。
     if (event.nativeEvent.isComposing) return;
 
     switch (event.key) {
       case 'ArrowDown':
       case 'ArrowUp':
-        // 既定の「行頭／行末へ移動」を止める。単一行の入力では文字カーソルが飛ぶ。
         event.preventDefault();
-        // 閉じているときは開き直す合図。Escape のあと、打ち替えるまで二度と
-        // 開けない欄にしない。
         if (!open) {
           setOpen(true);
           return;
@@ -235,9 +187,6 @@ export function TypeaheadField({
         return;
       case 'Enter':
         event.preventDefault();
-        // 閉じている一覧からは確定しない。候補と選択位置は閉じても残るので、
-        // 素通しすると aria-expanded=false の欄で見えていない候補が入る
-        // （PR #407 の Codex レビュー）。
         if (!open) return;
         entries[activeIndex]?.select();
         return;
@@ -246,14 +195,9 @@ export function TypeaheadField({
     }
   }
 
-  // 並びは打鍵のたびに入れ替わり、確定した行より短くなることもある。移動時の
-  // クランプ（move）だけでは足りないので、描画のたびに丸める。
   const activeIndex = Math.min(highlighted, Math.max(entries.length - 1, 0));
-  /// 欄が映しているもの。打ちかけがあればそれ、無ければ確定済みの地点。
   const shown = query ?? selected ?? '';
   const showList = open && entries.length > 0;
-  // 選択位置が変わるたびに、その行を一覧の中へ送る。`block: 'nearest'` は
-  // 既に見えている行では何もしない——押すたびに一覧が跳ねるのを避ける。
   useEffect(() => {
     if (!showList) return;
     activeOption.current?.scrollIntoView({ block: 'nearest' });
@@ -266,23 +210,17 @@ export function TypeaheadField({
     errorStatus,
     pickFailed,
     mode,
-    // 一覧が出ているならメッセージは出さない。両方出ると、候補が並んでいるのに
-    // 「見つかりませんでした」と書かれた画面になる（実ブラウザで発覚）。
     hasEntries: entries.length > 0,
   });
 
   return (
     <div className="relative">
-      {/* 枠の色は一覧が開いているとき「と」焦点があるとき。open だけに紐づけると、
-          Escape で閉じた直後の欄は焦点を持ったまま輪郭を失う——入力側の outline は
-          消してある（PR #407 の Codex レビュー）。 */}
       <div className={cn(placeFieldBox, open && 'border-moss-400')}>
         <SearchIcon size={17} />
         <input
           type="text"
           role="combobox"
           className="min-w-0 flex-1 bg-transparent text-[15.5px] font-bold text-ink outline-none placeholder:font-semibold placeholder:text-ink-3"
-          // 中身から名前を組ませない。値が入った時点で読み上げ名が入力値へ変わる。
           aria-label={mode === 'origin' ? ja.searchOriginHint : ja.searchDestinationHint}
           aria-expanded={showList}
           aria-controls={listId}
@@ -296,8 +234,6 @@ export function TypeaheadField({
           onFocus={() => {
             setOpen(true);
           }}
-          // 確定しても焦点は欄に残る（候補の押下で blur を止めているため）。
-          // focus だけを開く合図にすると、二度目に押しても開かない。
           onClick={() => {
             setOpen(true);
           }}
@@ -314,8 +250,6 @@ export function TypeaheadField({
             type="button"
             className="grid size-6 flex-none cursor-pointer place-items-center text-ink-3"
             aria-label={ja.searchClearInput}
-            // 押した瞬間に入力から焦点が外れると、blur が先に一覧を閉じて
-            // ちらつく。焦点は clear() が戻す。
             onMouseDown={(event) => {
               event.preventDefault();
             }}
@@ -327,8 +261,6 @@ export function TypeaheadField({
       </div>
 
       {showList && (
-        // 一覧は欄の下に重ねる。条件カードを押し広げると、開くたびに下の時刻ブロックと
-        // CTA が動く。
         <ul
           className="absolute top-[calc(100%+6px)] right-0 left-0 z-2 max-h-80 overflow-y-auto rounded-[14px] border border-hairline bg-popover p-1.5 shadow-[0_18px_40px_rgb(20_30_14/0.12)]"
           id={listId}
@@ -340,12 +272,8 @@ export function TypeaheadField({
               id={`${listId}-${index}`}
               role="option"
               aria-selected={index === activeIndex}
-              // 選択位置の見た目は aria-selected から引く。読み上げと別の条件で塗ると、
-              // 片方だけ落ちても気付けない。
               className="flex cursor-pointer flex-col gap-0.5 rounded-[10px] px-3 py-2.5 aria-selected:bg-accent"
               ref={index === activeIndex ? activeOption : null}
-              // 押した時点で入力から焦点が外れると、blur が先に一覧を閉じて
-              // click が宙に浮く。既定の焦点移動だけ止める。
               onMouseDown={(event) => {
                 event.preventDefault();
               }}
@@ -379,8 +307,6 @@ interface MessageInput {
   hasEntries: boolean;
 }
 
-/// 一覧に出せる行が無いときに、代わりに出す一文。無言で閉じない——候補が出ない
-/// 理由（打ち間違い・通信・座標が引けない）が画面から復元できなくなる。
 function messageFor({
   open,
   typed,
@@ -395,7 +321,6 @@ function messageFor({
   }
   if (!open || typed === '' || hasEntries) return null;
   if (status === 'error') {
-    // 生ステータスが取れないときは原因不明の汎用エラー（search-state.ts）。
     return errorStatus === null ? ja.searchErrorGeneric : searchErrorWithStatus(errorStatus);
   }
   if (status === 'success') return ja.searchEmptyTitle;

@@ -89,8 +89,6 @@ describe('ReplaySession', () => {
       const s = session({ store: { [url.href]: entry('', 35_000, timedOutStatus) } });
 
       const res = s.client().get(url);
-      // 下で await する。拒否を先に購読しないと、タイマーや close() で拒否された瞬間に
-      // 未処理の拒否として報告される。
       // oxlint-disable-next-line vitest/valid-expect
       const assertion = expect(res).rejects.toBeInstanceOf(TimeoutException);
       await vi.advanceTimersByTimeAsync(35_000);
@@ -147,8 +145,6 @@ describe('ReplaySession', () => {
       res.catch(() => undefined).finally(() => (settled = true));
       await vi.advanceTimersByTimeAsync(19_999);
       expect(settled).toBe(false);
-      // 下で await する。拒否を先に購読しないと、タイマーや close() で拒否された瞬間に
-      // 未処理の拒否として報告される。
       // oxlint-disable-next-line vitest/valid-expect
       const assertion = expect(res).rejects.toBeInstanceOf(TimeoutException);
       await vi.advanceTimersByTimeAsync(1);
@@ -205,8 +201,6 @@ describe('ReplaySession', () => {
 
   describe('settle', () => {
     it('クライアントを閉じたあとに返った上流の応答も、待って録画に残す', async () => {
-      // 検索は猶予切れの照会（arrival 波など）を待たずに終わる。保存する前に待たないと、
-      // 次の再生でその照会だけが録画外れになり、上流のばらつきが混ざる。
       const url = guidance(origin, goal);
       let release!: (e: ReplayEntry) => void;
       const s = session({
@@ -290,8 +284,6 @@ describe('ReplaySession', () => {
       const client = s.client();
 
       const res = client.get(url);
-      // 下で await する。拒否を先に購読しないと、タイマーや close() で拒否された瞬間に
-      // 未処理の拒否として報告される。
       // oxlint-disable-next-line vitest/valid-expect
       const assertion = expect(res).rejects.toBeInstanceOf(ClientException);
       client.close();

@@ -19,9 +19,6 @@ import { createRouteService } from './search/route-service';
 import { browserLocationService } from './location/geolocation';
 import { createAppStore } from './state/store';
 
-// App Check は Firebase の初期化と対。有効化できない設定（本番でサイトキーが空）では
-// トークンの取れないプロバイダが返り、プロキシは 401 を返す——課金 API が素通しで
-// 開くよりは検索が失敗するほうがよい（src/firebase/app-check.ts）。
 const appCheck = initializeFirebaseAppCheck();
 
 export const appStore = createAppStore(
@@ -44,9 +41,6 @@ const deps: ScreenDeps = {
   },
 };
 
-// ルーターを作る前に敷く。ルーターは RouterProvider がマウントするまで履歴に
-// 繋がらないので、作った後では履歴に現れない（navigator.ts 参照）。
-// ルーター由来のエントリ（＝リロード）と、起動直後のガードを通れない画面は除く。
 seedInitialHistory(
   browserHistory(),
   (url) => resolveRedirect(url, appStore.getState(), new Date()) === null,
@@ -64,15 +58,8 @@ const routerLike: RouterLike = {
   },
 };
 
-// ストアとルーターは互いを要る（ガードはストアを読み、遷移はルーターを呼ぶ）。
-// 片方を後から差してほどく。
 appStore.getState().attachNavigator(createNavigator(routerLike));
 
-// 待ち画面を離れたら進行中の検索を止める。購読をルーターに張るのは、コンポーネントの
-// アンマウントを合図にすると StrictMode の二重マウントで本物の検索を殺すため
-// （navigation/search-abandon.ts）。
-// 開いたままの「今すぐ」経路は、ガードにも検索完了時の砦にも掛からない（どちらも
-// 画面を跨ぐときにしか走らない）。復帰のたびに検算する（移植元 onAppResumed）。
 watchRouteFreshness(documentVisibility(), appStore);
 
 watchSearchAbandon(
@@ -80,8 +67,6 @@ watchSearchAbandon(
     snapshot: () => ({
       path: router.state.location.pathname,
       action: router.state.historyAction,
-      // 遷移の途中で読むと location がまだ遷移前で、`go(loading)` の最中に
-      // 「loading から離れた」と誤読する（search-abandon.ts の注記）。
       settled: router.state.navigation.state === 'idle',
     }),
     subscribe: (listener) => router.subscribe(listener),

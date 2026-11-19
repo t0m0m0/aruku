@@ -1,6 +1,3 @@
-// 移植元: flutter-final:lib/core/state/app_state.dart の locationState / refreshLocation /
-// departureLabelText。
-
 import { describe, expect, it, vi } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
@@ -35,7 +32,6 @@ describe('現在地', () => {
     expect(store.getState().locationState.kind).toBe('available');
   });
 
-  // StrictMode は effect を二度走らせる。素通しすると権限ダイアログが 2 回出る。
   it('取得中の再要求は同じ取得に相乗りする', async () => {
     const { service, request } = serviceReturning(locationDenied, locationUnavailable);
     const store = createAppStore({}, undefined, service);
@@ -56,8 +52,6 @@ describe('現在地', () => {
     expect(store.getState().locationState.kind).toBe('unavailable');
   });
 
-  // 失敗理由は LocationState として返す設計だが、想定外の例外は権限拒否と断定
-  // できないため再試行可能な側へ寄せる（移植元の catch と同じ）。
   it('取得が例外で終わっても unavailable へ落ちる', async () => {
     const service = { request: () => Promise.reject(new Error('boom')) };
     const store = createAppStore({}, undefined, service);

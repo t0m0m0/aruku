@@ -1,11 +1,3 @@
-// 移植元: flutter-final:lib/features/search/search_screen.dart と search_widgets.dart。
-//
-// 移植元の widget test は運んでいない（#386 の方針）。ここで押さえるのは、画面が
-// 状態から何を出し、操作が状態・履歴・遷移へどう届くか。
-//
-// 読み上げ名は aria-label で明示している。jsdom は CSS を読まないので中身から
-// 名前を組ませると、横並びの語が空白なしで繋がって実ブラウザと食い違う。
-
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -61,8 +53,6 @@ interface Options {
   autocomplete?: (query: string) => Promise<PlacePrediction[]>;
   fetchLatLng?: (placeId: string) => Promise<GeoPoint | null>;
 
-  /// 描画前に積んでおく履歴。画面は読み込んだ時点の履歴を出すので、
-  /// 描いた後に足しても出てこない。
   seed?: Partial<Record<'destination' | 'origin', RecentPlace[]>>;
 }
 
@@ -109,7 +99,6 @@ function setup(options: Options = {}) {
   return { navigate, store, recents, view };
 }
 
-/// 入力して、待ち合わせと問い合わせの解決まで進める。
 async function type(text: string) {
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: text } });
   await act(async () => {
@@ -184,7 +173,6 @@ describe('候補', () => {
     expect(screen.getByText('渋谷駅の住所')).toBeTruthy();
   });
 
-  // 読み上げ名は「名称 住所」で組む。中身から組ませると jsdom が空白なしで繋ぐ。
   it('候補は名称と住所で読み上げられる', async () => {
     setup({ autocomplete: async () => [prediction('渋谷駅')] });
 
@@ -292,7 +280,6 @@ describe('候補の確定', () => {
     expect(recents.destination.load()).toEqual([]);
   });
 
-  // 座標が取れない候補を通すと、経路照会まで行って初めて失敗する。
   it('座標を引けなければ確定させず別候補を促す', async () => {
     const { navigate } = setup({
       autocomplete: async () => [prediction('渋谷駅')],
@@ -345,7 +332,6 @@ describe('候補の確定', () => {
     ).toBeNull();
   });
 
-  // 行を淡くするだけでは読み上げに何も出ない（移植元はスピナーを重ねていた）。
   it('確定中であることを読み上げへ出す', async () => {
     let resolve!: (value: GeoPoint | null) => void;
     setup({
@@ -365,7 +351,6 @@ describe('候補の確定', () => {
     });
   });
 
-  // 座標解決の最中に別の候補を押せると、2件目の結果が1件目を上書きする。
   it('確定中は次の候補を受け付けない', async () => {
     let resolve!: (value: GeoPoint | null) => void;
     const fetchLatLng = vi.fn(() => new Promise<GeoPoint | null>((r) => (resolve = r)));
@@ -387,8 +372,6 @@ describe('候補の確定', () => {
   });
 });
 
-// 移植元の `if (!mounted) return;`（search_screen.dart）に対応する。落とすと、離脱後に
-// 届いた座標が目的地を書き換え、開いていた画面から home へ飛ばす。
 describe('画面を離れた後に届いた確定', () => {
   it('目的地も履歴も書き換えず、遷移もしない', async () => {
     let resolve!: (value: GeoPoint | null) => void;
@@ -410,8 +393,6 @@ describe('画面を離れた後に届いた確定', () => {
   });
 });
 
-// home を経由せず直接開かれた場合、home の effect は走らない。取りに行かないと
-// 位置バイアスも「近くの店」も永久に出ない。
 describe('直接開かれたときの測位', () => {
   it('まだ取っていなければ取りに行く', async () => {
     const request = vi.fn(async () => locationAvailable(here));
@@ -546,14 +527,12 @@ describe('現在地を使う', () => {
     expect(screen.getByRole('button', { name: '現在地を使う' })).toBeTruthy();
   });
 
-  // 目的地に「現在地」を入れるには座標が要る。取れていないうちは出せない。
   it('目的地モードでは測位できているときだけ出す', () => {
     setup({ mode: 'destination', located: false });
 
     expect(screen.queryByRole('button', { name: '現在地を使う' })).toBeNull();
   });
 
-  // 出発地の null は「未設定」ではなく「現在地を使う」。
   it('出発地モードは出発地を現在地へ戻す', () => {
     const { navigate } = setup({ mode: 'origin', located: false });
     act(() => {

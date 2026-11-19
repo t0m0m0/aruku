@@ -1,6 +1,3 @@
-/// 画面ごとのデスクトップ幅のレイアウト。幅の出し分けは CSS なので、jsdom からは
-/// 見えない（PORTING.md「デスクトップ幅の作り分け」）。寸法そのものを実測する。
-
 import type { Locator, Page } from '@playwright/test';
 
 import { expect, test } from './fixtures';
@@ -40,11 +37,9 @@ test('デスクトップ幅の結果は左パネルと全面地図の2カラム�
   const panel = await box(page.getByTestId('result-panel'));
   const map = await box(page.getByTestId('result-map'));
 
-  // 移植元の splitPanelWidth は 380、ハンドオフは minmax(340px, 400px)。
   expect(panel.width).toBeGreaterThanOrEqual(340);
   expect(panel.width).toBeLessThanOrEqual(400);
 
-  // 地図は右の残り全部で、ビューポートの高さいっぱい。
   expect(map.x).toBeGreaterThanOrEqual(panel.x + panel.width);
   expect(Math.round(map.x + map.width)).toBe(desktop.width);
   expect(map.height).toBeGreaterThan(desktop.height * 0.8);
@@ -54,8 +49,6 @@ test('デスクトップ幅の結果はページごとではなく左パネル�
   page,
   upstream,
 }) => {
-  // 移植元が #262 で踏んだ形。一括スクロールにすると、ビューポート固定の分割
-  // ビューから下部の導線が押し出される。
   expect(upstream.unmatched).toEqual([]);
   await page.setViewportSize({ width: 1280, height: 420 });
   await goToResult(page);
@@ -74,7 +67,6 @@ test('デスクトップ幅の結果はページごとではなく左パネル�
   expect(pageScrolls).toBe(false);
 });
 
-// 行程が主役で、地図はその下・補助情報の上に挟まる（#453）。
 test('モバイル幅の結果は区間・地図・補助情報の縦積み', async ({ page, upstream }) => {
   expect(upstream.unmatched).toEqual([]);
   await page.setViewportSize(mobile);
@@ -84,9 +76,7 @@ test('モバイル幅の結果は区間・地図・補助情報の縦積み', as
   const map = await box(page.getByTestId('result-map'));
   const auxiliary = await box(page.getByRole('region', { name: 'このルートについて' }));
 
-  // 移植元 _RouteMapPreview の固定高 180px。
   expect(Math.round(map.height)).toBe(180);
-  // 左右の余白は M3 の compact 幅の 16px（#455）。
   expect(Math.round(map.width)).toBe(mobile.width - 32);
   expect(map.y).toBeGreaterThan(segments.y + segments.height);
   expect(auxiliary.y).toBeGreaterThanOrEqual(map.y + map.height);
@@ -96,8 +86,6 @@ test('デスクトップ幅の待ち画面は上部バーの下を地図で埋�
   expect(upstream.unmatched).toEqual([]);
   await page.setViewportSize(desktop);
 
-  // 上流をわざと遅らせて待ち画面に留める。fallback で偽の上流へ渡すので、
-  // 記録も応答も普段どおり。
   await page.route(
     (url) => url.pathname.includes('/guidance/plan'),
     async (route) => {
@@ -115,7 +103,6 @@ test('デスクトップ幅の待ち画面は上部バーの下を地図で埋�
   const map = await box(page.getByTestId('loading-map'));
   const bar = await box(page.getByRole('banner'));
 
-  // 上部バーの真下から、ビューポートの下端まで。
   expect(Math.round(map.y)).toBe(Math.round(bar.y + bar.height));
   expect(Math.round(map.x)).toBe(0);
   expect(Math.round(map.width)).toBe(desktop.width);
@@ -123,7 +110,6 @@ test('デスクトップ幅の待ち画面は上部バーの下を地図で埋�
 });
 
 test('デスクトップ幅の日付はカレンダーで選ぶ', async ({ page }) => {
-  // Popover の portal と、そこへのフォーカスの行き来は実ブラウザで確かめる。
   await page.clock.setFixedTime(new Date('2026-09-11T12:00:00+09:00'));
   await page.setViewportSize(desktop);
   await page.goto('/');
@@ -152,11 +138,6 @@ type CdpNode = {
   shadowRoots?: CdpNode[];
 };
 
-/// 出発の時刻欄の中にある、UA の shadow DOM の部品（[pseudo] 属性で探す）。無ければ undefined。
-///
-/// 部品は CSS の疑似要素としては読めない。`getComputedStyle(el, '::-webkit-calendar-picker-indicator')`
-/// は、Chromium がこの疑似要素を受け付けず、黙って input 本体の値（block）を返す。
-/// 実体は UA の shadow DOM にあるので、CDP で直接たどる。
 async function timeFieldPart(page: Page, pseudo: string) {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('DOM.enable');
@@ -183,7 +164,6 @@ async function timeFieldPart(page: Page, pseudo: string) {
   return node === undefined ? undefined : { cdp, node };
 }
 
-/// 出発の時刻欄にある UA の時計アイコンの display。
 async function clockIconDisplay(page: Page): Promise<string> {
   const part = await timeFieldPart(page, '-webkit-calendar-picker-indicator');
   if (part === undefined) throw new Error('時計アイコンの要素が無い');
@@ -198,8 +178,6 @@ for (const [name, viewport] of [
   ['モバイル幅', mobile],
 ] as const) {
   test(`${name}の時刻欄は UA の時計アイコンを出さない`, async ({ page }) => {
-    // テーマの当たらない黒いアイコンで、先頭の時計アイコンと二重になる。
-    // マウスで開く役目は先頭のアイコン（showPicker）が引き継いでいる。
     await page.setViewportSize(viewport);
     await page.goto('/');
 
@@ -225,8 +203,6 @@ for (const [name, viewport] of [
   ['モバイル幅', mobile],
 ] as const) {
   test(`${name}の時刻・日付欄の下線は、先頭のアイコンと ◀▶ の下へ伸ばさない`, async ({ page }) => {
-    // 行ごと下線を引くと、アイコンと ◀▶ まで線の上に乗り、上下の行の線に
-    // 日付が挟まれて見える。線は値の下だけに引く。
     await page.setViewportSize(viewport);
     await page.goto('/');
 
@@ -259,12 +235,9 @@ for (const [name, viewport] of [
 }
 
 test('時刻欄は 24 時間表記で出す（AM/PM の欄を持たない）', async ({ page }) => {
-  // 表記はページではなくブラウザの表示言語で決まる。E2E のブラウザも日本語の
-  // 利用者と同じ表示にそろえておく（playwright.config.ts の --lang）。
   await page.setViewportSize(desktop);
   await page.goto('/');
 
-  // 探し方が空振りしていないことを、同じ欄の「時」の部品で確かめる。
   expect(await timeFieldPart(page, '-webkit-datetime-edit-hour-field')).toBeDefined();
   expect(await timeFieldPart(page, '-webkit-datetime-edit-ampm-field')).toBeUndefined();
 });

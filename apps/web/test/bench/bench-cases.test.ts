@@ -84,8 +84,8 @@ describe('timeValuesFor: 出発と締切の時刻', () => {
 
 describe('走らせる日', () => {
   it('既定は翌日以降で最も近い平日', () => {
-    expect(nextWeekday(dateTime(2026, 10, 23, 15, 0))).toEqual(dateTime(2026, 10, 26)); // 金→月
-    expect(nextWeekday(dateTime(2026, 10, 26, 9, 0))).toEqual(dateTime(2026, 10, 27)); // 月→火
+    expect(nextWeekday(dateTime(2026, 10, 23, 15, 0))).toEqual(dateTime(2026, 10, 26));
+    expect(nextWeekday(dateTime(2026, 10, 26, 9, 0))).toEqual(dateTime(2026, 10, 27));
   });
 
   it('今日からの日数', () => {
@@ -99,7 +99,6 @@ describe('OD の組', () => {
     expect(new Set(benchPairs.map((p) => p.id)).size).toEqual(benchPairs.length);
   });
 
-  // ブラウザの A/B ベンチの組は #462 の数字と比べるので変えず、再生ベンチだけが私鉄の組も回す（#513）。
   it('再生ベンチの組は、A/B ベンチの組に時刻表パックの私鉄が主役の組を足したもので、id が重複しない', () => {
     expect(replayPairs).toEqual([...benchPairs, ...privateRailPairs]);
     expect(privateRailPairs.length).toBeGreaterThanOrEqual(8);

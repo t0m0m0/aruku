@@ -1,10 +1,3 @@
-// 移植元: flutter-final:lib/core/state/app_state.dart の `AppNotifier`（経路検索の中核だけ）。
-//
-// 守りたい不変条件は移植元と同じ——「画面と、その表示前提データを同一の更新で
-// 書き換える」。移植元は copyWith 1回でそれを表現していたが、権威が URL へ移った
-// ので、ここでは **navigate が呼ばれる時点でストアが遷移先の前提を満たしていること**
-// として反証する。
-
 import { describe, expect, it } from 'vitest';
 
 import { RoutePhase } from '@aruku/engine/services/route-service';
@@ -19,7 +12,6 @@ import { createAppStore } from '../../src/state/store';
 
 const someRoute = {} as RoutePlan;
 
-/// go のたびに「その瞬間のストアがガードを通るか」を記録するナビゲータ。
 function guardRecorder(store: ReturnType<typeof createAppStore>) {
   const seen: { path: string; redirectedTo: string | null }[] = [];
   store.getState().attachNavigator((path) => {
@@ -43,7 +35,6 @@ describe('go', () => {
   });
 
   it('ナビゲータが呼ばれた時点で遷移先の前提が満たされている', () => {
-    // 先に navigate してから状態を書くと、ガードが home へ跳ね返す。
     const store = createAppStore();
     const seen = guardRecorder(store);
 
@@ -68,7 +59,6 @@ describe('go', () => {
   });
 
   it('ナビゲータ未接続の go は失敗する', () => {
-    // 静かに状態だけ進むと、画面と前提データが乖離したまま次の遷移を迎える。
     const store = createAppStore();
 
     expect(() => store.getState().go(Screen.search)).toThrow('go() before attachNavigator()');
@@ -76,9 +66,6 @@ describe('go', () => {
 });
 
 describe('初期状態', () => {
-  // 移植元は AppState.initial の 00:00 リテラルを AppNotifier.build() が現在時刻と
-  // 「+ kInitialBudgetMinutes」で上書きする。リテラルだけ運ぶと予算 0 分の検索に
-  // なり、isNow の出発も深夜 0 時に固定される。
   it('出発は現在時刻の「今すぐ」になる', () => {
     const now = new Date(2026, 8, 11, 14, 23);
     const store = createAppStore({}, () => now);
@@ -139,10 +126,6 @@ describe('初期状態', () => {
   });
 });
 
-// 移植元: AppNotifier.setDestination / setOrigin。
-//
-// Dart は copyWith の sentinel で「渡さない＝保つ / null を渡す＝消す」を区別して
-// いた。TypeScript では両フィールドを毎回明示して書くだけで同じ意味になる。
 describe('地点の設定', () => {
   it('目的地を名前と座標で設定する', () => {
     const store = createAppStore();
@@ -153,8 +136,6 @@ describe('地点の設定', () => {
     expect(store.getState().destinationLatLng).toEqual(new GeoPoint(35.6, 139.7));
   });
 
-  // 経路照会は from/to とも座標必須。名前だけを上書きして前の座標が残ると、
-  // 表示は新しい目的地なのに検索は前の座標へ行く。
   it('座標を渡さない設定は前の座標を消す', () => {
     const store = createAppStore();
     store.getState().setDestination('渋谷駅', new GeoPoint(35.6, 139.7));
@@ -173,8 +154,6 @@ describe('地点の設定', () => {
     expect(store.getState().originLatLng).toEqual(new GeoPoint(35.7, 139.6));
   });
 
-  // 出発地の null は「未設定」ではなく「現在地を使う」。home の表示名
-  // （departureLabelText）がこの null を現在地の取得状況へ読み替える。
   it('出発地を null にすると現在地へ戻る', () => {
     const store = createAppStore();
     store.getState().setOrigin('自宅', new GeoPoint(35.7, 139.6));

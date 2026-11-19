@@ -1,9 +1,3 @@
-// 移植元: flutter-final:lib/core/navigation/leg_handoff.dart（buildLegHandoffUri）。
-//
-// 移植元は「いま案内中の区間」だけを開くので origin を省き、Google マップに端末の現在地を
-// 使わせていた。Web は行程を追跡せず、どの区間のリンクも同時に並ぶ——先の区間を家から
-// 開いても、その区間の始点から引かれていなければならない。
-
 import { describe, expect, it } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';

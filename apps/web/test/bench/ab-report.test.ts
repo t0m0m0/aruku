@@ -60,10 +60,10 @@ describe('median', () => {
 describe('summarize: 完了条件の数字', () => {
   it('徒歩の増分は coveredBase の検索だけを分母にする', () => {
     const s = summarize([
-      rec({ m: { walkB: 50, exactWon: 1 } }), // +20
-      rec({ m: { walkB: 30 } }), // ±0
-      rec({ m: { walkB: 40, exactWon: 1 } }), // +10
-      rec({ m: { coveredBase: 0, walkB: 30 } }), // 分母外
+      rec({ m: { walkB: 50, exactWon: 1 } }),
+      rec({ m: { walkB: 30 } }),
+      rec({ m: { walkB: 40, exactWon: 1 } }),
+      rec({ m: { coveredBase: 0, walkB: 30 } }),
     ]);
     expect(s.covered).toEqual(3);
     expect(s.improved).toEqual(2);
@@ -84,13 +84,13 @@ describe('summarize: 完了条件の数字', () => {
 
   it("乗換つきの増分（walkB' − walkB）は transferCandidates>0 の検索だけを分母にする", () => {
     const s = summarize([
-      rec({ m: { transferCandidates: 3, walkB: 30, walkBPrime: 42, transferWon: 1 } }), // +12
-      rec({ m: { transferCandidates: 2, walkB: 30, walkBPrime: 30 } }), // ±0
+      rec({ m: { transferCandidates: 3, walkB: 30, walkBPrime: 42, transferWon: 1 } }),
+      rec({ m: { transferCandidates: 2, walkB: 30, walkBPrime: 30 } }),
       rec({
         m: { coveredBase: 0, transferCandidates: 1, walkB: 30, walkBPrime: 36, transferWon: 1 },
-      }), // +6
-      rec({ m: { transferCandidates: 0, walkB: 30, walkBPrime: 30 } }), // 分母外
-      rec({ m: { transferCandidates: -1, walkB: 30, walkBPrime: 30 } }), // 分母外
+      }),
+      rec({ m: { transferCandidates: 0, walkB: 30, walkBPrime: 30 } }),
+      rec({ m: { transferCandidates: -1, walkB: 30, walkBPrime: 30 } }),
     ]);
     expect(s.transferCovered).toEqual(3);
     expect(s.transferImproved).toEqual(2);
@@ -111,7 +111,6 @@ describe('summarize: 完了条件の数字', () => {
   });
 
   it('乗換つきが勝った経路の違反は、1回乗車の厳密走査の違反と分けて数える', () => {
-    // 返す経路は B' なので、B で厳密走査が勝っていても、確定経路が乗換つきなら乗換つきの違反
     const s = summarize([
       rec({ missed: true, m: { exactWon: 1, transferWon: 1 } }),
       rec({ within: false, m: { exactWon: 1 } }),
@@ -141,8 +140,8 @@ describe('summarize: 完了条件の数字', () => {
       rec({ m: { totalMs: 8000, abMs: 0 } }),
       rec({ m: { totalMs: 12000, abMs: 2000, collapse: 1, collapseB: 1, boardSearchMs: 5000 } }),
     ]);
-    expect(s.totalMsAMedian).toEqual(10000); // 29000, 8000, 10000
-    expect(s.totalMsBEstMedian).toEqual(9000); // 9000, 8000, 10000
+    expect(s.totalMsAMedian).toEqual(10000);
+    expect(s.totalMsBEstMedian).toEqual(9000);
     expect(s.collapseResolved).toEqual(1);
   });
 });

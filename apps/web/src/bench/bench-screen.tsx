@@ -1,8 +1,3 @@
-// 厳密走査の A/B 計測（#462）を回す、開発時だけの画面（bench.html から開く）。
-//
-// 本番のルート表には載せていない。載せるとガード（navigation/guard.ts）とアプリ内遷移の
-// 不変条件の内側へ計測用の画面を持ち込むことになり、本番のバンドルにも入る。
-
 import { useEffect, useRef, useState } from 'react';
 
 import type { VerifyResult } from './ab-verify';
@@ -24,7 +19,6 @@ export interface BenchScreenProps {
   now: () => Date;
   total: number;
   run: (date: Date, hooks: BenchHooks) => Promise<void>;
-  /// 厳密走査が勝った経路の便を Transit API で照合する（src/bench/ab-verify.ts）。
   verify: (records: BenchRecord[], hooks: VerifyHooks) => Promise<void>;
 }
 
@@ -38,8 +32,6 @@ export function BenchScreen({ now, total, run, verify }: BenchScreenProps) {
   const stopRef = useRef(false);
   const mountedRef = useRef(true);
 
-  // 画面を離れた後に続きの検索が走ると、誰も受け取らない JSONL のために第三者 API を
-  // 叩き続ける。
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -48,7 +40,6 @@ export function BenchScreen({ now, total, run, verify }: BenchScreenProps) {
     };
   }, []);
 
-  /// 投げても操作を戻す。戻さないと開始・日付が押せないまま固まり、何が起きたかも出ない。
   const guarded = async (task: () => Promise<void>): Promise<void> => {
     stopRef.current = false;
     setFailure(null);
@@ -64,7 +55,6 @@ export function BenchScreen({ now, total, run, verify }: BenchScreenProps) {
 
   const start = (): Promise<void> => {
     setRecords([]);
-    // 前の回の照合を残すと、新しい JSONL と別の回の照合が組になって保存できてしまう。
     setVerified([]);
     setDone(0);
     const [y, m, d] = date.split('-').map(Number);

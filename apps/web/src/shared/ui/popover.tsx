@@ -1,13 +1,3 @@
-// shadcn/ui の Popover（new-york-v4）。
-//
-// 原本からの変更:
-// - `border-border` を明示した。原本は shadcn の base 層（全要素の枠色を --border に
-//   する規則）を前提にしており、それを持たないここでは Tailwind v4 の既定の
-//   currentColor（黒）で枠が引かれる
-//
-// 原本から外したもの:
-// - PopoverAnchor / PopoverHeader / PopoverTitle / PopoverDescription。使う画面がまだ無い
-
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import type { ComponentProps } from 'react';
 

@@ -1,5 +1,3 @@
-// 開いたままの経路を復帰のたびに検算する購読（navigation/route-freshness.ts）。
-
 import { describe, expect, it, vi } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
@@ -31,14 +29,11 @@ function source(visible: boolean) {
     listenerCount: () => listeners.length,
     set(next: boolean) {
       isVisible = next;
-      // 呼び出し中の購読解除で splice されても全員へ届くよう、写しを回す。
       for (const l of listeners.slice()) l();
     },
   };
 }
 
-/// 経路を持たない最小のストア。締切のタイマーは張られない（route が null）ので、
-/// 復帰の合図だけを見たいテストで使う。
 function storeWith(revalidateRoute: () => void) {
   return {
     getState: () => ({ revalidateRoute, route: null, routeAsOf: null }),
@@ -57,8 +52,6 @@ describe('復帰での検算', () => {
     expect(revalidateRoute).toHaveBeenCalledOnce();
   });
 
-  // 見えていない間に home へ戻しても誰も見ていない。戻ってきたときに判定するので
-  // 取りこぼさない。
   it('隠れる側では検算しない', () => {
     const revalidateRoute = vi.fn();
     const s = source(true);
@@ -82,8 +75,6 @@ describe('復帰での検算', () => {
   });
 });
 
-// 前面に置いたまま見続けているときは可視性が変わらない。復帰の合図だけでは
-// 一生検算されず、乗れない便の経路を見せ続ける（PR #398 の Codex レビュー）。
 describe('締切のタイマー', () => {
   const noon = new Date(2026, 8, 13, 12, 0, 0);
   const goal = new GeoPoint(35.658, 139.701);
@@ -141,7 +132,6 @@ describe('締切のタイマー', () => {
     expect(h.store.getState().route).toBeNull();
   });
 
-  // 固定出発は時間経過で腐らない（routeAsOf を持たない）。
   it('固定出発の経路には張らない', async () => {
     const h = harness();
     watchRouteFreshness(source(true).api, h.store, h.timers);

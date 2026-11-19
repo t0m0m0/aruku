@@ -1,13 +1,3 @@
-// 厳密走査の計測に使う出発地・目的地の組。
-//
-// benchPairs は A/B 計測（#462）の組で、ODPT の時刻表を持つ JR東日本・京王・東武・相鉄・
-// 東京メトロ・都営が主役になる。組を選んだ当時は東急・小田急・京急・西武に時刻表が無かった。
-// #462 の数字と比べられるよう、mini-tokyo-3d の時刻表が入った後（#511）も組は変えない。
-// privateRailPairs は、その私鉄などが主役になる組で、再生ベンチ（#513）だけが回す。
-//
-// 座標は駅そのものではなく、駅から少し離れた地点にしてある——駅前ちょうどだとアクセス
-// 徒歩がほぼ0で、どこで乗るかを選ぶ余地が無い。
-
 export interface BenchPlace {
   readonly name: string;
   readonly lat: number;
@@ -18,7 +8,6 @@ export interface OdPair {
   readonly id: string;
   readonly origin: BenchPlace;
   readonly destination: BenchPlace;
-  /// 主役になるはずの路線（集計の読み手向けの覚え書き。検索には使わない）。
   readonly lines?: string;
 }
 
@@ -145,7 +134,6 @@ export const benchPairs: readonly OdPair[] = [
   },
 ];
 
-/// mini-tokyo-3d の時刻表（#511）で厳密走査に入った事業者が主役になる組。
 export const privateRailPairs: readonly OdPair[] = [
   {
     id: 'jiyugaoka-aoyama',
@@ -209,5 +197,4 @@ export const privateRailPairs: readonly OdPair[] = [
   },
 ];
 
-/// 再生ベンチ（#504・#513）が回す組。
 export const replayPairs: readonly OdPair[] = [...benchPairs, ...privateRailPairs];

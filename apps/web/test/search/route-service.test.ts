@@ -1,11 +1,3 @@
-// 移植元: flutter-final:lib/core/services/route_service.dart の `routeServiceProvider`。
-//
-// Phase 2 は「あれは DI の配線であってエンジンの仕様ではない」として移していない
-// （packages/engine/src/services/route-service.ts の冒頭）。ここがその置き換え。
-// SearchScopedRouteService 自体の振る舞いはエンジン側に在る
-// （packages/engine/test/services/search-scoped-route-service.test.ts）ので、
-// ここで見るのは**この配線が決めていること**だけ。
-
 import { describe, expect, it, vi } from 'vitest';
 
 import { TimeoutException } from '@aruku/engine/services/http-client';
@@ -54,7 +46,6 @@ describe('クライアントの組み立て', () => {
   });
 
   it('Transit とプロキシで別のタイムアウトを張る (#300)', () => {
-    // 直叩きは上流の裾が長い。プロキシの無応答は本当に異常なので早く縮退させる。
     expect(createTransitClient({ fetch: okFetch() }).timeout).toBe(transitRequestTimeout);
     expect(createProxyClient({ appCheck, fetch: okFetch() }).timeout).toBe(proxyRequestTimeout);
   });
@@ -76,14 +67,6 @@ describe('クライアントの組み立て', () => {
 });
 
 describe('ベース URL の検証', () => {
-  // 空の base で組み立てると、エンジンが徒歩実測の URL を作る瞬間に
-  // `new URL('/googleWalkMatrixProxy')` が TypeError で倒れる（Dart の Uri.parse は
-  // 相対 URI を作れたので移植元では起きない）。縮退で吸収されないため、成功する
-  // はずだった検索がまるごと落ちる（PR #391 レビュー）。
-  //
-  // RouteException にしないのはエンジンの先例に倣う——配線漏れを RouteException に
-  // すると縮退パスに握り潰され、「徒歩が長い経路」として静かに出る
-  // （transit-api-client.ts の 'no HTTP client was injected'）。
   const valid = {
     transitBaseUrl: 'https://api.transit.example',
     proxyBaseUrl: 'https://proxy.example',
@@ -107,12 +90,7 @@ describe('ベース URL の検証', () => {
     );
   });
 
-  // URL.canParse は「絶対 URL か」しか見ない。エンジンは base と path を**文字列連結**
-  // してから new URL するので、連結してなお意図した経路になる形だけを通す必要がある
-  // （PR #391 レビュー）。
   it('クエリを持つベース URL を拒む', () => {
-    // 'https://proxy.example?tenant=a' + '/googleWalkProxy' は
-    // パスが '/'、クエリが 'tenant=a/googleWalkProxy' になり、プロキシに届かない。
     expect(() =>
       createRouteService({
         ...valid,
@@ -128,16 +106,12 @@ describe('ベース URL の検証', () => {
   });
 
   it('http / https 以外のスキームを拒む', () => {
-    // canParse は通すが、fetch まで行って初めて失敗する。
     expect(() => createRouteService({ ...valid, proxyBaseUrl: 'mailto:a@example.com' })).toThrow(
       /VITE_PROXY_BASE_URL/,
     );
   });
 
-  // 素の区切り文字だけが末尾に付いた値は、URL API では search も hash も空文字に
-  // なるため「クエリ無し」の検査を素通りする。連結して初めて壊れる（PR #391 レビュー）。
   it('末尾が素の ? のベース URL を拒む', () => {
-    // 連結すると search が '?/googleWalkProxy' になり、パスは '/api' のまま。
     expect(() =>
       createRouteService({
         ...valid,
@@ -156,7 +130,6 @@ describe('ベース URL の検証', () => {
   });
 
   it('末尾に空白のあるベース URL を拒む', () => {
-    // URL のパースは空白を落とすので単体では通るが、連結した URL は例外になる。
     expect(() => createRouteService({ ...valid, proxyBaseUrl: 'https://proxy.example ' })).toThrow(
       /VITE_PROXY_BASE_URL/,
     );
@@ -247,9 +220,6 @@ describe('createRouteService', () => {
   });
 
   it('検索ごとに新しいクライアントを組み立てる (#259)', async () => {
-    // 検索をまたいでクライアントを共有すると、片方のキャンセルが他方の
-    // in-flight を巻き添えで切る。所有が検索1回ぶんであることを、発行された
-    // リクエストの AbortSignal が検索ごとに別物であることで見る。
     const signals: (AbortSignal | null | undefined)[] = [];
     const service = build(async (_url, init) => {
       signals.push(init?.signal);
@@ -277,7 +247,6 @@ describe('createRouteService', () => {
 
     const cancellation = new CancellationToken();
     const pending = service.plan({ ...planArgs, cancellation });
-    // 発行が始まってから倒す。発行前ガードではなく in-flight の中断を見たい。
     await Promise.resolve();
     cancellation.cancel();
 

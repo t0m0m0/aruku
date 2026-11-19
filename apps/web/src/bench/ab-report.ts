@@ -1,20 +1,13 @@
-// 厳密走査の A/B 計測（#462）の JSONL を集計し、issue に貼る Markdown にする。
-//
-// import は型だけにしてある。scripts/ab-report.mjs が Node の型除去でこのファイルを
-// そのまま読むため——値の import を足すと、拡張子なしの解決ができずに落ちる。
-
 import type { VerifyResult } from './ab-verify';
 import type { BenchRecord } from './bench-record';
 
 export interface AbSummary {
   total: number;
   errors: number;
-  /// 時刻表の路線で1回乗車が成立した検索（`coveredBase=1`）。徒歩の増分の分母。
   covered: number;
   improved: number;
   exactWon: number;
   gainMedian: number | null;
-  /// 改善した検索だけの増分の中央値。
   gainMedianImproved: number | null;
   gainMax: number | null;
   violations: number;
@@ -25,14 +18,11 @@ export interface AbSummary {
   totalMsBEstP90: number | null;
   exactMsMedian: number | null;
   exactMsP90: number | null;
-  /// A では崩壊したが B では崩壊しない検索（board-search が要らなくなった）。
   collapseResolved: number;
-  /// 乗換つきの候補を足した検索（`transferCandidates>0`）。B' の増分の分母。
   transferCovered: number;
   transferImproved: number;
   transferWon: number;
   transferGainMedian: number | null;
-  /// 改善した検索だけの増分の中央値。
   transferGainMedianImproved: number | null;
   transferGainMax: number | null;
   transferCandidatesTotal: number;
@@ -89,7 +79,6 @@ export function summarize(records: readonly BenchRecord[]): AbSummary {
     if (won) exactWon++;
     const wonByTransfer = num(m, 'transferWon') === 1;
     if (wonByTransfer) transferWon++;
-    // 記録の経路は B' の確定経路。乗換つきが勝てば、B で厳密走査が勝っていても B の経路ではない。
     const violated = !r.plan.withinBudget || r.plan.missed;
     if (violated) {
       violations++;
@@ -108,8 +97,6 @@ export function summarize(records: readonly BenchRecord[]): AbSummary {
       const walkBPrime = num(m, 'walkBPrime');
       if (walkB >= 0 && walkBPrime >= 0) transferGains.push(walkBPrime - walkB);
     }
-    // A は必ず全工程を走るので、B の所要は同じ実行の中では測れない。崩壊が解けた検索で
-    // 浮く board-search の時間を引いて推定する（§3.8 の collapseB）。
     const a = num(m, 'totalMs') - num(m, 'abMs');
     const resolved = num(m, 'collapse') === 1 && num(m, 'collapseB') === 0;
     if (resolved) collapseResolved++;

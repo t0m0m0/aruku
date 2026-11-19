@@ -1,19 +1,5 @@
-// 移植元: flutter-final:lib/shared/widgets/aruku_map.dart の _StylizedMapPainter。
-//
-// 実地図が出せないときに敷く作り物の地図。移植元では useRealMap が既定で false
-// （--dart-define=USE_REAL_MAP=true で初めて実地図になる）なので、これは例外時の絵
-// ではなく通常の描画経路。
-
 import { useEffect, useRef, useState } from 'react';
 
-/// 枠を測れるまでの寸法。
-///
-/// 移植元は実ピクセルの Size を受け取り、図形ごとに「割合で置くもの」（公園・道路・経路）と
-/// 「絶対寸法で置くもの」（建物 26x22、ピンの半径、線の太さ）を混ぜている。ここも同じく
-/// 枠の実寸を viewBox にして 1 単位 = 1px にする——固定の viewBox を slice で埋めると、
-/// 枠の縦横比が違うぶんだけ切り落とされ、縦長の背景では横 360 単位のうち中央 108 単位しか
-/// 映らない（公園も建物も画面外、道路だけ 3.3 倍に太る）。かといって縦横比を無視して
-/// 伸ばすと、今度は建物とピンが枠なりに潰れる。測るのが両方を満たす唯一の形。
 const fallbackSize = { w: 360, h: 240 };
 
 const minorRoads = [1, 2, 3, 4, 5];
@@ -27,7 +13,6 @@ export function StylizedMap({ showRoute = true }: StylizedMapProps) {
   const frame = useRef<HTMLDivElement>(null);
   const { w, h } = useFrameSize(frame);
 
-  /// 移植元の Offset(size.width * fx, size.height * fy) に対応する。
   const x = (fx: number) => fx * w;
   const y = (fy: number) => fy * h;
 
@@ -37,7 +22,6 @@ export function StylizedMap({ showRoute = true }: StylizedMapProps) {
   const end = { x: x(0.85), y: y(0.85) };
 
   return (
-    // svg は測った実寸で描くので、枠のほうが大きさを決める。
     <div ref={frame} className="size-full">
       <svg
         className="block size-full"
@@ -96,7 +80,6 @@ export function StylizedMap({ showRoute = true }: StylizedMapProps) {
   );
 }
 
-/// 枠の実寸。ResizeObserver の無い環境（jsdom）では既定の寸法のまま描く。
 function useFrameSize(ref: React.RefObject<HTMLDivElement | null>) {
   const [size, setSize] = useState(fallbackSize);
 

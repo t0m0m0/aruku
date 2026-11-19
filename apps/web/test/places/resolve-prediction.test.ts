@@ -1,5 +1,3 @@
-// 移植元: flutter-final:lib/features/search/place_selection.dart（Dart 側に直接のテストは無かった）
-
 import { describe, expect, it, vi } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
@@ -47,8 +45,6 @@ describe('候補の確定', () => {
     expect(fetchLatLng).toHaveBeenCalledWith('p1');
   });
 
-  // 経路照会（/guidance/plan）は from/to ともに座標必須。座標が取れない候補を
-  // 確定させると、検索まで行って初めて失敗する。
   it('座標が取れない候補は確定させない', async () => {
     const resolved = await resolvePlacePrediction(
       service(async () => null),
@@ -69,7 +65,6 @@ describe('候補の確定', () => {
     expect(resolved).toBeNull();
   });
 
-  // 取りこぼすと呼び出し側の選択中フラグが立ったままリストが固まる。
   it('PlacesException 以外の例外も座標なし扱いにする', async () => {
     const resolved = await resolvePlacePrediction(
       service(async () => {

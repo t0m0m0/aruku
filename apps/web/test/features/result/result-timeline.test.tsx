@@ -1,12 +1,3 @@
-// 移植元: flutter-final:lib/features/result/result_timeline.dart。
-//
-// journey 進捗（#305 の _LegState done/current/upcoming と _LegStateBadge）は運んでいない。
-// JourneyProgress は歩数同期に依存し、#386 が Web で作らないと決めた側——移植元で言えば
-// journey==null の _LegState.none だけが残った形になる。
-//
-// ノードと区間の対応は route-plan-builder が組み立てる（「segments と timelineNodes の
-// 1:1 対応を保つ」）。ここが押さえるのは、その対応を描画側が取り違えないこと。
-
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
@@ -61,7 +52,6 @@ function plan(segments: RouteSegment[], timelineNodes: TimelineNode[]): RoutePla
   });
 }
 
-/// 徒歩 → 電車。route-plan-builder が出す最小形（出発・乗車駅・到着の 3 ノード）。
 function walkThenRide() {
   return plan(
     [walk(), ride()],
@@ -87,8 +77,6 @@ describe('ノードの並び', () => {
     expect(first.getByText('出発')).toBeTruthy();
   });
 
-  // 空の補足でも要素だけは出す、にすると縦の隙間（gap）が 1 つぶん余る。空文字は
-  // textContent に現れないので、行の有無は要素数で見るしかない。
   it('補足が空のノードでは補足の行を作らない', () => {
     render(
       <ResultTimeline
@@ -115,8 +103,6 @@ describe('ノードと区間の対応', () => {
     expect(within(steps()[1]).getByText('山手線')).toBeTruthy();
   });
 
-  // 到着ノードは「その先の区間」を持たない。ノードは常に区間より 1 つ以上多いので、
-  // 末尾で区間を使い切った状態になる。
   it('到着ノードには区間を置かない', () => {
     render(<ResultTimeline route={walkThenRide()} />);
 
@@ -126,9 +112,6 @@ describe('ノードと区間の対応', () => {
     expect(last.queryByText('山手線')).toBeNull();
   });
 
-  // 直結乗換（電車→電車で間に徒歩が無い）は「着」「発」の 2 行に割れ、着行は
-  // cardBelow:false で区間を挟まない。ここを読み落とすと着行が次の区間を
-  // 食い、以降の区間が 1 つずつ手前のノードへずれる。
   it('区間を伴わないノードは区間を消費しない', () => {
     render(
       <ResultTimeline
@@ -154,8 +137,6 @@ describe('ノードと区間の対応', () => {
 });
 
 describe('徒歩の区間', () => {
-  // 消費カロリーは経路全体の値を結果画面の補助情報に1回だけ出す。区間ごとにも
-  // 出すと同じ事実が2か所に並ぶ（#453）。
   it('徒歩と距離を出し、カロリーは出さない', () => {
     render(
       <ResultTimeline
@@ -174,8 +155,6 @@ describe('徒歩の区間', () => {
     expect(screen.queryByText(/kcal/)).toBeNull();
   });
 
-  // 徒歩レッグの km/kcal は経路生成が必ず埋めるが、型は null を許す。移植元は `!` で
-  // 落としていた——描画で落とす価値は無い。
   it('距離が欠けていても描ける', () => {
     render(
       <ResultTimeline
@@ -222,9 +201,6 @@ describe('乗り物の区間', () => {
     expect(screen.getByText(label)).toBeTruthy();
   });
 
-  // [RouteSegment.fare] を埋める経路は現状どこにも無く、この分岐は常に不発（#71）。
-  // 別の運賃ソースを得たときに
-  // パーサの配線だけで点灯できるよう、器ごと運んでいる。
   it('運賃があれば添える', () => {
     render(
       <ResultTimeline
@@ -248,10 +224,6 @@ describe('乗り物の区間', () => {
   });
 });
 
-// 数字と単位は字送りが違うため別のスパンに割れている（移植元 _durationParts）。
-// getByText は要素の直下テキストしか見ないので、割れた並びを 1 本の文字列としては
-// 拾えない——読み手に届く形は連結後なので、そちらで見る。この見方は「割った断片が
-// 隙間も入れ替わりも無く並ぶ」ことまで押さえる。
 describe('区間の所要時間', () => {
   function renderWithMinutes(minutes: number) {
     render(
@@ -272,7 +244,6 @@ describe('区間の所要時間', () => {
     expect(renderWithMinutes(12)).toContain('12分');
   });
 
-  // 移植元は 60 分以上を n時間mm分 へ分解し、分を 2 桁でゼロ詰めする。
   it('60分以上は時間と分に割る', () => {
     expect(renderWithMinutes(65)).toContain('1時間05分');
   });

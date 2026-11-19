@@ -31,17 +31,12 @@ export interface ProxyClientOptions extends TransitClientOptions {
   readonly appCheck: AppCheckProviders;
 }
 
-/// Transit API 直叩き用。認証不要・CORS 対応なので App Check を通さない。
 export function createTransitClient(options: TransitClientOptions = {}): TimeoutHttpClient {
   return new TimeoutHttpClient(new FetchHttpClient({ fetch: options.fetch }), {
     timeout: options.timeout ?? transitRequestTimeout,
   });
 }
 
-/// Cloud Functions プロキシ用。App Check 必須。
-///
-/// タイムアウトを最外側に置くのは、トークン取得のハングも上限の内側へ収めるため
-/// （#156。app-check-http-client.test.ts の合成テスト）。
 export function createProxyClient(options: ProxyClientOptions): TimeoutHttpClient {
   return new TimeoutHttpClient(
     new AppCheckHttpClient(new FetchHttpClient({ fetch: options.fetch }), options.appCheck),
@@ -54,25 +49,15 @@ export interface RouteServiceOptions {
   readonly proxyBaseUrl: string;
   readonly appCheck: AppCheckProviders;
 
-  /// 厳密走査 `exactWalkMax` の候補を足すか（#460）。既定 false。
   readonly exactWalkMax?: boolean;
 
-  /// 厳密走査の効果を同じ実行の中で A/B 比較する計測モード（#462）。開発時だけの
-  /// ベンチ画面（src/bench/）が使う。既定 false。
   readonly exactWalkMaxAb?: boolean;
 
-  /// 1検索分の定量指標の受け取り口（ベンチ画面が JSONL へ書く）。
   readonly onMetrics?: (metrics: RouteSearchMetrics) => void;
 
-  /// テストから実ネットワークを外すための差し替え口。
   readonly fetch?: Fetch;
 }
 
-/// 移植元: flutter-final:lib/core/services/route_service.dart の `routeServiceProvider`。
-///
-/// 検索1回ごとにクライアントを作って捨てる（#259）。検索内のファンアウト（最大13本）
-/// では keep-alive が効き、捨てるのは検索をまたぐ接続再利用だけ。キャンセル時に
-/// close して in-flight を切るには、この per-search 所有が要る。
 export function createRouteService(options: RouteServiceOptions): RouteService {
   requireUsableBase(options.transitBaseUrl, 'VITE_TRANSIT_API_BASE_URL', 'createRouteService');
   requireUsableBase(options.proxyBaseUrl, 'VITE_PROXY_BASE_URL', 'createRouteService');
@@ -90,8 +75,6 @@ export function createRouteService(options: RouteServiceOptions): RouteService {
       exactWalkMax: options.exactWalkMax ?? false,
       exactWalkMaxAb: options.exactWalkMaxAb ?? false,
       onMetrics: options.onMetrics,
-      // 締切は検索ごとに作る。エンジンの生成が plan() の入口なので、ここで作れば
-      // 計測開始＝検索開始になる（#300）。
       deadline: new SearchDeadline(searchDeadlineBudget),
     });
   });

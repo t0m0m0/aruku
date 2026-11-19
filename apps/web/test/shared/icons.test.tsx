@@ -1,9 +1,3 @@
-// 移植元: flutter-final:lib/shared/icons/ic.dart。
-//
-// 形は目で見るしかないので、テストが押さえるのは読み上げへの漏れだけ。アイコンを
-// 足すときに aria-hidden を忘れると、スクリーンリーダーが無名の graphic を読み上げ、
-// ボタンの読み上げ名にも混ざる。一覧で回して忘れを落とす。
-
 import { render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';

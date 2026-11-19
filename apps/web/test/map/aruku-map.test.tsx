@@ -1,9 +1,3 @@
-// 移植元: flutter-final:lib/shared/widgets/aruku_map.dart。
-//
-// 実地図そのものは jsdom に存在しない（Maps JS API は読み込まれない）。ここが押さえるのは
-// ライブラリへ渡す手前の分岐——どちらの地図を出すか、経路が差し替わったときカメラを
-// 合わせ直すか——で、それを越えた先は Maps API の責任。
-
 import { render, renderHook, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -12,14 +6,10 @@ import { RoutePlan, RouteSegment, SegmentType } from '@aruku/engine/models/route
 
 const mapProps = vi.fn<(props: Record<string, unknown>) => void>();
 
-/// useMap はライブラリが地図を用意し終えるまで null を返す。テストごとに「まだ来ていない」
-/// と「もう在る」を切り替えられるよう、モジュール変数越しに返す。
 let currentMap: google.maps.Map | null = null;
 
-/// Maps JS API の読み込み状態。既定は読み込み済み。
 let currentStatus = 'LOADED';
 
-/// useMapsLibrary が返す marker ライブラリ。読み込みが済むまで null で来る。
 let currentMarkerLibrary: unknown = null;
 
 vi.mock('@vis.gl/react-google-maps', () => ({
@@ -84,7 +74,6 @@ describe('ArukuMap', () => {
     expect(screen.queryByTestId('google-map')).toBeNull();
   });
 
-  // キーが無いのは「設定漏れ」であって、経路が無いのとは別。落ちずに作り物へ倒れる。
   it('キーが無ければ経路があっても作り物の地図のまま', () => {
     render(<ArukuMap apiKey="" route={route()} />);
 
@@ -115,7 +104,6 @@ describe('ArukuMap', () => {
     expect(mapProps.mock.calls[0][0].styles).toBeInstanceOf(Array);
   });
 
-  // 移植元は zoomControls/mapToolbar/myLocationButton を個別に落としている。
   it('地図自前のコントロールを出さない', () => {
     render(<ArukuMap apiKey="maps-key" />);
 
@@ -123,10 +111,6 @@ describe('ArukuMap', () => {
   });
 });
 
-// 移植元は supportsRealMap(isWeb, flagEnabled, mapsJsLoaded) で、Maps JS API の読み込みが
-// 済むまで作り物の地図を描き続ける。APIProvider はスクリプトを読みに行くだけで、読めるまでの
-// 間や読めなかったときに代わりの絵を出してはくれない——素通しにすると、result の 180px の
-// プレビューと loading の背景がその間まるごと空白になる。
 describe('Maps API が使えるまでの繋ぎ', () => {
   it('読み込み中は作り物の地図を出す', () => {
     currentStatus = 'LOADING';
@@ -145,7 +129,6 @@ describe('Maps API が使えるまでの繋ぎ', () => {
     expect(container.querySelector('svg')).not.toBeNull();
   });
 
-  // オフライン・CSP での遮断。
   it('読み込みに失敗したら作り物の地図のまま', () => {
     currentStatus = 'FAILED';
 
@@ -155,8 +138,6 @@ describe('Maps API が使えるまでの繋ぎ', () => {
     expect(screen.queryByTestId('google-map')).toBeNull();
   });
 
-  // ライブラリ 1.10.0 はこの状態へ遷移しない（LOADING / LOADED / FAILED の3つだけ）。
-  // 将来出るようになったときに素通ししないための一本で、いま何かを守ってはいない。
   it('認証に失敗したら作り物の地図のまま', () => {
     currentStatus = 'AUTH_FAILURE';
 
@@ -174,7 +155,6 @@ describe('Maps API が使えるまでの繋ぎ', () => {
     expect(container.querySelector('svg')).toBeNull();
   });
 
-  // 繋ぎの間も loading の背景は経路を描かない。
   it('繋ぎの作り物の地図にも showRoute を通す', () => {
     currentStatus = 'LOADING';
 
@@ -212,8 +192,6 @@ describe('useFitBounds', () => {
     expect(map.fitBounds).toHaveBeenCalledTimes(2);
   });
 
-  // 代替案の切り替えで route オブジェクトは毎回作り直されるが、同じ経路なら矩形は同じ。
-  // 値ではなく参照で見ると、ここでカメラが飛ぶ。
   it('中身が同じ矩形なら合わせ直さない', () => {
     const map = fakeMap();
     const { rerender } = renderHook(({ b }) => useFitBounds(map, b), {
@@ -233,8 +211,6 @@ describe('useFitBounds', () => {
     expect(map.fitBounds).not.toHaveBeenCalled();
   });
 
-  // 地図はライブラリが用意し終わるまで null で来る。準備前の呼び出しを捨てるだけだと
-  // 初回のフィットごと失われるので、揃った時点で合わせる。
   it('地図が後から来たらその時点で合わせる', () => {
     const map = fakeMap();
     const { rerender } = renderHook(({ m }) => useFitBounds(m, bounds), {
@@ -247,8 +223,6 @@ describe('useFitBounds', () => {
   });
 });
 
-// 経路の図形を実際に地図へ載せる層。google.maps は jsdom に無いので、コンストラクタだけ
-// 差し替えて「何本、どの点で描いたか」と「消したか」を見る。
 describe('経路の描き直し', () => {
   function stubGoogleMaps() {
     const polylines: { options: google.maps.PolylineOptions; setMap: ReturnType<typeof vi.fn> }[] =
@@ -269,7 +243,6 @@ describe('経路の描き直し', () => {
     vi.stubGlobal('google', {
       maps: { Polyline, Marker, SymbolPath: { CIRCLE: 0 } },
     });
-    // marker ライブラリは既定で「読み込み済み」にしておく。既存の検証は印が出る前提。
     currentMarkerLibrary = { Marker };
     return { polylines, markers, Marker };
   }
@@ -294,8 +267,6 @@ describe('経路の描き直し', () => {
     expect(polylines).toHaveLength(1);
   });
 
-  // 代替案の切り替えでは区間の構成が同じまま座標だけ変わることがある。区間 id だけを
-  // 見て描き直しを決めると、古い経路の線が地図に残り続ける。
   it('区間の構成が同じでも座標が変われば描き直す', () => {
     const { polylines } = stubGoogleMaps();
     const { rerender } = render(<ArukuMap apiKey="maps-key" route={route()} />);
@@ -340,10 +311,6 @@ describe('経路の描き直し', () => {
   });
 });
 
-// 始終点の印は google.maps.Marker（legacy）で描く。Polyline と違い、これは marker
-// ライブラリに入っている——<Map> が保証するのは core / maps までで、marker は別物。
-// 取り込みを待たずに new すると、結果画面が出た瞬間に undefined を呼んで落ちる
-// （PR #402 の Codex レビュー P1）。
 describe('marker ライブラリの取り込み待ち', () => {
   function stubPolylineOnly() {
     const markers: { setMap: ReturnType<typeof vi.fn> }[] = [];
@@ -393,7 +360,6 @@ describe('marker ライブラリの取り込み待ち', () => {
     expect(markers).toHaveLength(2);
   });
 
-  // グローバルの google.maps.Marker ではなく、取り込んだライブラリの側を使う。
   it('取り込んだライブラリの Marker を使う', () => {
     const { Marker } = stubPolylineOnly();
     currentMarkerLibrary = { Marker };

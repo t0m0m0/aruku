@@ -1,9 +1,3 @@
-// 移植元: flutter-final:lib/features/search/desktop_typeahead_field.dart（#372）。
-//
-// 全画面の検索へ飛ばさず、条件カードの中で目的地を決めきる欄。押さえるのは
-// 「遷移しないこと」と、キーボードだけで確定できること——移植元が InkWell を避けて
-// Shortcuts/Actions を積んだのと同じ要請が web にもある。
-
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -132,7 +126,6 @@ describe('インラインのタイプアヘッド', () => {
     });
 
     expect(store.getState().destination).toBe('二番目');
-    // インライン化の眼目。確定しても画面は動かない。
     expect(navigate).not.toHaveBeenCalled();
   });
 
@@ -162,8 +155,6 @@ describe('インラインのタイプアヘッド', () => {
   });
 
   it('IME の変換中は Enter で確定しない', async () => {
-    // 変換中の Enter は「変換を確定する」であって候補の決定ではない。横取りすると、
-    // 打っている途中の読みで目的地が決まる（PR #407 の Codex レビュー）。
     setup({ autocomplete: async () => [prediction('美術館')] });
 
     fireEvent.focus(field());
@@ -176,7 +167,6 @@ describe('インラインのタイプアヘッド', () => {
   });
 
   it('IME の変換中は ↓ で選択位置を動かさない', () => {
-    // 変換中の ↑↓ は IME の候補を選ぶ操作。preventDefault で奪うと変換できない。
     setup({
       seed: [
         { name: '公園', placeId: 'id-公園', latLng: shibuya, address: null, usedAt: null },
@@ -192,8 +182,6 @@ describe('インラインのタイプアヘッド', () => {
   });
 
   it('Escape で閉じたあとの Enter では確定しない', async () => {
-    // 閉じても候補と選択位置は残る。素通しすると、aria-expanded が false の欄で
-    // 見えていない候補が確定する（PR #407 の Codex レビュー）。
     setup({ autocomplete: async () => [prediction('美術館')] });
 
     fireEvent.focus(field());
@@ -218,8 +206,6 @@ describe('インラインのタイプアヘッド', () => {
   });
 
   it('確定したあと、もう一度押すと履歴が開く', async () => {
-    // 候補を押しても焦点は欄に残る（blur を止めているため）。focus だけを開く合図に
-    // すると、二度目に押しても focus が起きず二度と開かない（同レビュー）。
     setup({ autocomplete: async () => [prediction('美術館')] });
 
     fireEvent.focus(field());
@@ -235,8 +221,6 @@ describe('インラインのタイプアヘッド', () => {
   });
 
   it('打ち替えると確定済みの目的地が外れる', async () => {
-    // 表示は新しいクエリ・状態は古い座標、というズレを作らせない。残すと検索の
-    // CTA が有効なまま前の目的地へ経路を引く（移植元 _clearSelection）。
     setup({ autocomplete: async () => [prediction('美術館')] });
 
     fireEvent.focus(field());
@@ -270,8 +254,6 @@ describe('インラインのタイプアヘッド', () => {
   });
 
   it('候補が出ているときに「見つかりませんでした」を出さない', async () => {
-    // 一覧とメッセージは排他。同時に出ると、候補が並んでいるのに「無い」と
-    // 書かれた画面になる（実ブラウザで発覚）。
     setup({ autocomplete: async () => [prediction('美術館')] });
 
     fireEvent.focus(field());
@@ -291,8 +273,6 @@ describe('インラインのタイプアヘッド', () => {
   });
 
   it('確定を待っている間に打ち替えたら、新しい候補が確定できる', async () => {
-    // 古い確定は世代で無効化されるが、確定中の錠を持ったままだと、新しい候補を
-    // 押しても無反応な数秒が残る（PR #407 の Codex レビュー）。
     const pending = new Map<string, (value: GeoPoint | null) => void>();
     setup({
       autocomplete: async (query) => [prediction(query === 'ふ' ? '古い' : '新しい')],
@@ -317,8 +297,6 @@ describe('インラインのタイプアヘッド', () => {
   });
 
   it('追い越された確定は、走っている確定の錠を解かない', async () => {
-    // 古い確定が錠を解くと、その横で重複した照会を始められ、後から来た本命の
-    // 結果が世代ずれで捨てられる（PR #407 の Codex レビュー）。
     const pending = new Map<string, (value: GeoPoint | null) => void>();
     const fetchLatLng = vi.fn(
       (placeId: string) => new Promise<GeoPoint | null>((resolve) => pending.set(placeId, resolve)),
@@ -334,7 +312,6 @@ describe('インラインのタイプアヘッド', () => {
       fireEvent.click(screen.getByRole('option', { name: /古い/ }));
     });
 
-    // 打ち替えて新しい確定を走らせる。古いほうは世代で無効になっている。
     await type('あ');
     await act(async () => {
       fireEvent.click(screen.getByRole('option', { name: /新しい/ }));
@@ -343,7 +320,6 @@ describe('インラインのタイプアヘッド', () => {
       pending.get('id-古い')?.(shibuya);
     });
 
-    // ここで錠が空いていると、同じ候補でもう1本走ってしまう。
     await act(async () => {
       fireEvent.click(screen.getByRole('option', { name: /新しい/ }));
     });
@@ -356,8 +332,6 @@ describe('インラインのタイプアヘッド', () => {
   });
 
   it('確定したあとの選択位置は先頭へ戻る', async () => {
-    // 確定で並びが候補から履歴へ替わる。位置を残すと、開き直したときに
-    // aria-activedescendant が存在しない行を指し、Enter が何もしない（同レビュー）。
     setup({ autocomplete: async () => [prediction('一番目'), prediction('二番目')] });
 
     fireEvent.focus(field());
@@ -376,8 +350,6 @@ describe('インラインのタイプアヘッド', () => {
   });
 
   it('選択位置の行を見えるところへ送る', async () => {
-    // 一覧は 320px で頭打ち。↓ を押し続けると、見えていない行が選ばれたまま
-    // Enter することになる（同レビュー）。
     const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
     setup({ autocomplete: async () => [prediction('一番目'), prediction('二番目')] });
 
@@ -391,8 +363,6 @@ describe('インラインのタイプアヘッド', () => {
   });
 
   it('確定した目的地は消去ボタンで外せる', async () => {
-    // 移植元は selected != null のときに専用の消去ボタンを出す。無いと、確定名を
-    // 手で選択して消すしか戻す手が無い（PR #407 の Codex レビュー）。
     setup({ autocomplete: async () => [prediction('美術館')] });
 
     fireEvent.focus(field());

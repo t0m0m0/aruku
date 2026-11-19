@@ -1,9 +1,3 @@
-// 移植元の戻り挙動（search/result/error→home）を React Router で再現する層。
-//
-// 移植元は go_router のネスト構造で Navigator の pop スタックを作っていた。React Router
-// のネストは <Outlet> の入れ子であって履歴を積まないので、URL の前置きだけでは戻り先に
-// ならない（PR #391 レビュー）。push / replace の使い分けで明示的に作る。
-
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -22,7 +16,6 @@ function fakeRouter(startPath: string) {
     currentPath: () => path,
     navigate(next, options) {
       calls.push({ path: next, replace: options?.replace === true });
-      // 実際のルーターの遷移は非同期で、決着するまで現在地は変わらない。
       setTimeout(() => {
         path = next;
       }, 0);
@@ -63,16 +56,11 @@ describe('navigationIntent', () => {
   });
 
   it('子から子へは replace する（戻り先を home のままに保つ）', () => {
-    // push すると [home, search, result] になり、戻ると閉じたはずの search が出る。
     expect(navigationIntent(Screen.search, Screen.result)).toBe('replace');
     expect(navigationIntent(Screen.loading, Screen.error)).toBe('replace');
   });
 
   it('子から home へは pop する', () => {
-    // push すると [home, search, home] になり、戻ると閉じた search が出る。
-    // replace でも [home, home] になり、最初の「戻る」が home を再表示するだけで
-    // アプリを離れられない（実ブラウザで確認。PR #391 レビュー）。積んだ子を
-    // 降ろすのが移植元の pop に対応する。
     expect(navigationIntent(Screen.search, Screen.home)).toBe('pop');
   });
 
@@ -86,8 +74,6 @@ describe('createNavigator', () => {
     const { router, calls } = fakeRouter(screenPath.home);
     const navigate = createNavigator(router);
 
-    // 遷移の決着を挟むのは、実際の利用が「描画済みの画面を操作する」形だから。
-    // 決着前に続けて呼ぶと現在地が古いまま読まれる（下のテスト）。
     navigate(screenPath.search);
     await settled();
     navigate(screenPath.result);
@@ -103,10 +89,6 @@ describe('createNavigator', () => {
   });
 
   it('決着前に続けて遷移すると現在地を古いまま読む（既知の劣化）', async () => {
-    // home → loading → error が一気に起きると、2本目は現在地を home と読んで
-    // push してしまい、履歴が [home, loading, error] になる。
-    // 戻ると loading だが routePhase は消えているのでガードが home へ寄せる。
-    // 安全側に倒れるため、ここでは事実の記録に留める。
     const { router, calls } = fakeRouter(screenPath.home);
     const navigate = createNavigator(router);
 
@@ -120,7 +102,6 @@ describe('createNavigator', () => {
 
 describe('seedInitialHistory', () => {
   it('子を直接開いたときは下に home を敷く', () => {
-    // deep link では履歴にその1件しか無く、戻るとアプリの外へ出てしまう。
     const { history, calls } = fakeHistory(screenPath.search);
 
     seedInitialHistory(history, () => true);
@@ -132,10 +113,6 @@ describe('seedInitialHistory', () => {
   });
 
   it('敷いた子には深さ1を書く（後のリロードで親を見つけられる）', () => {
-    // ルーターは履歴の深さを state.idx に持ち、無ければ 0 を書き込む。深さを書かずに
-    // 敷くと、敷いた子が idx 0 のまま「手前が無い」と読まれる。子から子への遷移は
-    // replace で idx を保つので、その後 result へ移ってリロードすると、真下に home が
-    // あるのに降りられず [home, home] になる（実ブラウザで確認。PR #391 レビュー）。
     const { history, calls } = fakeHistory(screenPath.search);
 
     seedInitialHistory(history, () => true);
@@ -160,8 +137,6 @@ describe('seedInitialHistory', () => {
   });
 
   it('ルーター由来のエントリでは敷き直さない', () => {
-    // アプリ内で home→子と遷移した後にリロードすると、履歴は既に [home, 子]。
-    // ここで敷き直すと [home, home, 子] になり、リロードのたびに home が増える。
     const { history, calls } = fakeHistory(screenPath.search, {
       isRouterEntry: true,
     });
@@ -172,8 +147,6 @@ describe('seedInitialHistory', () => {
   });
 
   it('リロードで通らなくなった子からは真下の home へ降りる', () => {
-    // アプリ内で開いた result をリロードすると、経路はメモリ上にしか無いので
-    // ガードが弾く。差し替えさせると真下の home と重なって [home, home] になる。
     const { history, calls } = fakeHistory(screenPath.result, {
       isRouterEntry: true,
       hasParentEntry: true,
@@ -196,9 +169,6 @@ describe('seedInitialHistory', () => {
   });
 
   it('初回のガードを通れない画面には敷かない', () => {
-    // /home/result を直接開くと、まだ経路を持たないストアではガードが home へ
-    // 寄せる。先に [home, result] を積むと、その下に余分な home が残り、最初の
-    // 「戻る」が home を再表示するだけになる（実ブラウザで履歴が +2 になるのを確認）。
     const { history, calls } = fakeHistory(screenPath.result);
 
     seedInitialHistory(history, () => false);
@@ -207,8 +177,6 @@ describe('seedInitialHistory', () => {
   });
 
   it('クエリとハッシュを保ったまま積み直す', () => {
-    // 分類は pathname で行うが、積み直す URL は元のまま。落とすと deep link の
-    // 状態が黙って消える（screenFromLocation はクエリ付きを明示的に扱う）。
     const { history, calls } = fakeHistory('/home/search?tab=a#section');
 
     seedInitialHistory(history, () => true);

@@ -1,8 +1,3 @@
-// ルート表とガードが実際に繋がっているかの検証。
-//
-// guard.test.ts は純粋関数としての判定を見る。そちらが緑でも loader に配線され
-// ていなければ何も守らないので、ここは「ルート表を通ったときに跳ね返るか」を見る。
-
 import { createElement } from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -17,8 +12,6 @@ import { createAppStore } from '../../src/state/store';
 const now = new Date(2026, 8, 11, 12, 0, 0);
 const someRoute = {} as RoutePlan;
 
-/// 画面は共通シェル（レイアウトルート）の子として並ぶ。シェルはパスを持たず、
-/// 上部バーを描く（src/layout/app-shell.tsx）。
 function screenRoutes(routes: RouteObject[]): RouteObject[] {
   if (routes.length !== 1) throw new Error('レイアウトルートが1つでない');
   return routes[0]?.children ?? [];
@@ -59,8 +52,6 @@ describe('ルート表', () => {
   });
 
   it('すべての画面が共通シェルの下にある', () => {
-    // シェルの外に置いた画面はデスクトップ幅で上部バーを失う。パスを足すときに
-    // 配列の階層を間違えても、ガードのテストは children を辿るので緑のまま。
     const routes = appRoutes(createAppStore());
 
     expect(routes).toHaveLength(1);
@@ -85,8 +76,6 @@ describe('loader に配線されたガード', () => {
   });
 
   it('跳ね返しは履歴を積まずに差し替える', () => {
-    // 積むと、弾かれた URL が履歴に残る。home へ着いた後の最初の「戻る」が
-    // home を再表示するだけになり、アプリを離れられない。
     const routes = appRoutes(createAppStore(), () => now);
 
     const response = run(routes, screenPath.result);
@@ -111,9 +100,6 @@ describe('loader に配線されたガード', () => {
 });
 
 describe('画面の配線', () => {
-  // 配線を忘れてプレースホルダのまま残しても、ガードのテストは緑のままになる
-  // ——跳ね返さないことしか見ていないため。ルート表が実物を指していることは
-  // 別に確かめる。JSX を使わないのは、このファイルが .ts だから。
   it('error は失敗の画面を出す', () => {
     const routes = appRoutes(createAppStore(), () => now);
 

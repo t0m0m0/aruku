@@ -17,7 +17,6 @@ const record = (pair: string): BenchRecord => ({
   error: null,
 });
 
-/// 走らせ方を外から1歩ずつ進められる偽物。
 function controllableRun() {
   let hooks: BenchHooks | null = null;
   let finish: () => void = () => {};
@@ -33,7 +32,7 @@ function controllableRun() {
 const noVerify = async (): Promise<void> => {};
 
 describe('BenchScreen', () => {
-  const now = () => new Date(2026, 9, 23, 15, 0); // 金曜
+  const now = () => new Date(2026, 9, 23, 15, 0);
 
   it('既定の日付は翌日以降で最も近い平日で、開始するとその日で走らせる', async () => {
     const c = controllableRun();

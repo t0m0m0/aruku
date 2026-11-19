@@ -159,8 +159,6 @@ describe('runBench', () => {
   });
 
   it('日付を跨いで回り続けても、選んだ日のまま検索する', async () => {
-    // エンジンは出発日を検索ごとに「今日 + dateOffset」で決めるので、offset を開始時に
-    // 1回だけ決めると、0時を過ぎた後の検索が1日ずれる。
     let clock = new Date(2026, 9, 26, 23, 59);
     const deps = fakeDeps();
     const search = deps.search;

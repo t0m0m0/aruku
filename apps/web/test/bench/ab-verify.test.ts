@@ -147,8 +147,6 @@ describe('runVerify: 乗車駅の発車表で便の実在を確かめる', () =>
   }
 
   it('同じフィードの降車駅が複数あれば、どれかの発車表に同じ便が載れば同じ便とする', async () => {
-    // 事業者は乗り場・路線ごとに駅を分けて載せることがある。近い方だけを引くと、遠い方の
-    // 乗り場に載る同じ便を確かめられず departureOnly に倒れる。
     const kandaNear = station('KandaA', '神田', 35.6918, 139.7709);
     const kandaFar = station('KandaB', '神田', 35.6925, 139.7712);
     const { results } = await verify(
@@ -179,14 +177,12 @@ describe('runVerify: 乗車駅の発車表で便の実在を確かめる', () =>
       matchedLine: '山手線 東京・上野方面',
       error: null,
     });
-    // 乗車駅は発車の少し前から引き、前後の数分の便だけを seen に残す（ずれていたとき人が見比べられる）。
     expect(calls).toContain(`departures ${osaki.id} 20261027 12:38`);
     expect(calls).toContain(`departures ${kanda.id} 20261027 12:58`);
     expect(results[0].seen).toEqual(['12:39 山手線 東京・上野方面', '12:40 山手線 東京・上野方面']);
   });
 
   it('照会の座標から乗り場が遠くても、発車表に在れば在るとする（経路検索の徒歩に左右されない）', async () => {
-    // 三鷹の中央線快速は、Transit API では各停の乗り場から 372m 離れている（#462 の照合で偽陰性になった）。
     const farPlatform = station('OsakiRapid', '大崎', 35.6197 - 0.0034, 139.7283);
     const { results } = await verify(
       { 大崎: [farPlatform], 神田: [kanda] },
@@ -237,8 +233,6 @@ describe('runVerify: 乗車駅の発車表で便の実在を確かめる', () =>
   });
 
   it('降車駅を持たないフィードの便は、同じ分に発っても乗車駅の発車の一致としない', async () => {
-    // 渋谷→末広町の銀座線（東京メトロは発車表を出さない）を、同じ渋谷の JR の発車表にあった
-    // 同じ分の湘南新宿ラインで「発車だけ一致」にしていた（#462 の照合）。
     const otherFeedOsaki = station('Osaki', '大崎', 35.6197, 139.7283, 'rinkai');
     const { results } = await verify(
       { 大崎: [otherFeedOsaki, osaki], 神田: [kanda] },

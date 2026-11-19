@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 
 const publicPath = (href: string) => `public${href}`;
 
-// PNG の寸法は IHDR（先頭 8 バイトの署名の直後のチャンク）の幅・高さに入っている。
 function pngSize(path: string): string {
   const bytes = readFileSync(path);
   return `${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}`;

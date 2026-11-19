@@ -1,13 +1,3 @@
-// 移植元: flutter-final:lib/features/result/result_screen.dart と result_totals.dart。
-// タイムラインそのものは result-timeline.test.tsx が見る。ここが見るのは並び・補助情報・
-// 予算超過・見出しと、経路をタイムラインへ渡せていること。
-//
-// 運んでいないもの（いずれも対になる相手が来てから）:
-// - 区間 CTA と外部地図への handoff（result_leg_cta.dart）。行程＝歩数依存
-// - 共有（resultShareText）。外部連携で、経路検索の正しさとは独立
-//
-// 地図に何が描かれるかは test/map/ が見る。ここが見るのは画面に地図が在ることだけ。
-
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -43,8 +33,6 @@ function segment(overrides: Partial<ConstructorParameters<typeof RouteSegment>[0
   });
 }
 
-// タイムラインは区間ではなくノードを辿る（route-plan-builder が 1:1 で組む）。空の
-// timelineNodes を既定にすると、画面が経路を渡せていなくてもテストが緑のままになる。
 function nodes(...places: [string, string][]) {
   return places.map(
     ([place, sub], index) =>
@@ -88,15 +76,10 @@ function setup(initial: Partial<RouteCore> = {}) {
     routeService,
   );
   store.getState().attachNavigator(navigate);
-  // 実時刻を使わせない。fixture の日付と今日がたまたま一致している間しか通らない
-  // テストになる（fullDateLabel は基準日に dateOffset を足す）。基準は store が
-  // 持つので、ストアの時計を固定すれば足りる。
   render(<ResultScreen store={store} />);
   return { navigate };
 }
 
-// 結果画面の主役は行程。合計や予算の要約は行程と同じ事実の言い換えで、上に積むと
-// 到着時刻がモバイル幅の最初の画面から押し出される（#453）。
 describe('撤去した要約', () => {
   it('所要時間・徒歩距離・消費カロリーの3つ並びは出さない', () => {
     setup();
@@ -111,7 +94,6 @@ describe('撤去した要約', () => {
     expect(screen.queryByText(/のうち/)).toBeNull();
   });
 
-  // 徒歩距離は徒歩区間に km で出ている。割合まで並べると結果画面の情報量が勝つ（#451）。
   it('徒歩の割合は出さない', () => {
     setup({ route: plan({ walkRatio: 0.79 }) });
 
@@ -120,30 +102,23 @@ describe('撤去した要約', () => {
   });
 });
 
-// 比較・余裕・消費カロリーは、ルートを決めたあとで気になる人が読む情報。1か所に
-// まとめて行程の下へ置く（#453）。
 describe('補助情報', () => {
   function auxiliary() {
     return screen.getByRole('region', { name: 'このルートについて' });
   }
 
-  // 余裕は、この検索が「歩く時間を最大化できたか」の要約。締切の時刻で言うと、
-  // 制限の長さから引き算させずに済む。
   it('予算内なら到着の締切と余裕を出す', () => {
     setup({ route: plan({ budgetMin: 90, totalMin: 60 }) });
 
-    // 出発 12:00 の 90分後。
     expect(within(auxiliary()).getByText('13:30 まで 30分 余裕')).toBeTruthy();
   });
 
-  // 超過は警告が言う。ここで「-15分 余裕」のように言い換えると二重になる。
   it('予算を超えていれば余裕は出さない', () => {
     setup({ route: plan({ budgetMin: 60, totalMin: 75 }) });
 
     expect(within(auxiliary()).queryByText(/余裕/)).toBeNull();
   });
 
-  // M3 のリスト（1項目1事実）。読み上げでも「3項目のリスト」として辿れる。
   it('比較・余裕・消費カロリーを1項目ずつのリストにする', () => {
     setup({
       route: plan({
@@ -178,7 +153,6 @@ describe('補助情報', () => {
   });
 });
 
-// 縦の並びが情報の優先順位そのもの。DOM の順で見る——読み上げも同じ順で辿る。
 describe('並び（モバイル幅）', () => {
   function precedes(a: Element, b: Element) {
     return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
@@ -195,7 +169,6 @@ describe('並び（モバイル幅）', () => {
     expect(precedes(map, auxiliary)).toBe(true);
   });
 
-  // 間に合わないことは、ルートを読む前に知るべき判断材料。補助情報へは回さない。
   it('予算超過の警告は行程より前に置く', () => {
     setup({ route: plan({ budgetMin: 60, totalMin: 75 }) });
 
@@ -205,8 +178,6 @@ describe('並び（モバイル幅）', () => {
   });
 });
 
-// ODPT のデータを使った検索には出典・取得日時を添える義務がある（#461）。中身は
-// timetable-attribution.test.tsx が見る。
 describe('時刻表の出典', () => {
   function precedes(a: Element, b: Element) {
     return (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
@@ -230,7 +201,6 @@ describe('時刻表の出典', () => {
   });
 });
 
-// 時間内に収まらなかったことを黙って出さない。最短経路を出していることまで伝える。
 describe('予算の超過', () => {
   it('超過していれば分数を添えて知らせる', () => {
     setup({ route: plan({ budgetMin: 60, totalMin: 75 }) });
@@ -256,9 +226,7 @@ describe('予算の超過', () => {
   });
 });
 
-// 遠回りに見える結果を「ふつうに検索した経路よりこれだけ多く歩ける」として読ませる（#445）。
 describe('ふつうの乗換ルートとの比較', () => {
-  // 確定経路の徒歩は 25分 + 8分 = 33分。
   const walked = [
     segment({ minutes: 25 }),
     segment({ type: SegmentType.train, minutes: 10, km: 4 }),
@@ -272,7 +240,6 @@ describe('ふつうの乗換ルートとの比較', () => {
 
     expect(screen.getByText('ふつうの乗換ルートより')).toBeTruthy();
     expect(screen.getByText('+23分 多く歩ける')).toBeTruthy();
-    // 出発 12:00 の 41分後。
     expect(screen.getByText('ふつうの乗換：12:41 着（徒歩 10分）')).toBeTruthy();
   });
 
@@ -287,8 +254,6 @@ describe('ふつうの乗換ルートとの比較', () => {
     expect(screen.getByText('+1時間 10分 多く歩ける')).toBeTruthy();
   });
 
-  // 比べた相手の徒歩は上流の見積りのままで、確定経路は街路実測。数分の差は誤差と
-  // 見分けられない。
   it('差が5分に満たなければ出さない', () => {
     setup({
       route: plan({ segments: walked, standardTransit: { walkMinutes: 29, totalMin: 41 } }),
@@ -311,7 +276,6 @@ describe('ふつうの乗換ルートとの比較', () => {
     expect(screen.queryByText('ふつうの乗換ルートより')).toBeNull();
   });
 
-  // 超過時は最短へ縮退した経路を出している。歩けた量を誇る場面ではない。
   it('予算を超えていれば出さない', () => {
     setup({
       route: plan({
@@ -327,8 +291,6 @@ describe('ふつうの乗換ルートとの比較', () => {
 });
 
 describe('区間', () => {
-  // 描画の中身は result-timeline.test.tsx が見る。ここが見るのは、画面が保持している
-  // 経路をそのままタイムラインへ渡していること。
   it('保持している経路をタイムラインへ渡す', () => {
     setup({
       route: plan({
@@ -350,8 +312,6 @@ describe('区間', () => {
 });
 
 describe('経路が無いとき', () => {
-  // ガードが通す以上ここへは経路付きでしか来ないが、来てしまったときに
-  // 空の画面を見せない。
   it('その旨を出して検索へ戻れる', () => {
     const { navigate } = setup({ route: null });
 
@@ -363,7 +323,6 @@ describe('経路が無いとき', () => {
 });
 
 describe('見出し', () => {
-  // 結果では実際に検索した日付を常に出したい（移植元も fullDateLabel を使っている）。
   it('当日でも暦の日付を出す', () => {
     setup({ departure: new TimeValue({ h: 12, m: 0 }) });
 
@@ -380,12 +339,8 @@ describe('見出し', () => {
   });
 });
 
-// Codex レビュー（PR #399）。固定出発の経路は routeAsOf を持たない＝失効しないので、
-// 日を跨いでも開いたまま残る。
 describe('日を跨いでから見た固定出発の日付', () => {
   it('検索した日ではなく、保持している基準日から数える', () => {
-    // 11 日に「12 日 09:00 発」を検索し、12 日に result を開き直す。描画時刻から
-    // 数えると 13 日と出る——旅程は変わっていないのに。
     const searchedOn = new Date(2026, 8, 11, 22, 0, 0);
     const store = createAppStore(
       {
@@ -419,7 +374,6 @@ describe('地図のプレビュー', () => {
     expect(screen.getByTestId('result-map')).toBeDefined();
   });
 
-  // モバイル幅では行程と補助情報のあいだ＝左パネルと同じ縦の流れに入る。
   it('モバイル幅では行程と同じパネルの中に置く', () => {
     stubViewport(false);
     setup();
@@ -429,8 +383,6 @@ describe('地図のプレビュー', () => {
     );
   });
 
-  // デスクトップ幅では右カラム全面。パネルの中に置くとパネルと一緒にスクロールして
-  // しまう。地図は1枚だけ——2枚描くと地図の読み込みが倍になる。
   it('デスクトップ幅ではパネルの外に1枚だけ置く', () => {
     stubViewport(true);
     setup();

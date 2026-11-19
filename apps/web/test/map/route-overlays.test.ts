@@ -1,9 +1,3 @@
-// 移植元: flutter-final:lib/shared/extensions/route_map_overlays.dart。
-//
-// 地図そのものは jsdom で描けないが、経路から何を描くかを決めるのはここの純関数で、
-// 描画側は受け取った値を Google Maps へ渡すだけ。取り違えが起きるのはこの層なので、
-// 検証もここへ寄せている。
-
 import { describe, expect, it } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
@@ -91,7 +85,6 @@ describe('toOverlayPaths', () => {
     });
   });
 
-  // 移植元は `seg.type == SegmentType.walk` の二分岐で、bus は else 側＝電車の見た目へ倒れる。
   it('バスは電車と同じ見た目へ倒す', () => {
     const route = plan([seg(SegmentType.bus, [p(35.6, 139.7), p(35.61, 139.71)])]);
 
@@ -166,8 +159,6 @@ describe('toBounds', () => {
   });
 });
 
-// 移植元の shouldAutoFitBounds は variant と bounds の2引数だが、variant は full しか
-// 使われていない（nav/thumb は移植していない）ので、残るのは矩形の同値判定だけ。
 describe('boundsEqual', () => {
   const bounds = { south: 35.6, west: 139.68, north: 35.7, east: 139.75 };
 

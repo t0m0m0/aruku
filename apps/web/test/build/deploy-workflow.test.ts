@@ -1,11 +1,3 @@
-// `deploy-web.yml` と `src/` は同じ契約の両端にある。ワークフローが渡す名前と
-// アプリが読む名前は別々に書かれるので食い違い得るが、**食い違っても何も落ちない**
-// ——Vite は知らない env を黙って捨て、`import.meta.env.VITE_X` は undefined になり、
-// `?? ''` が空文字へ丸める。ビルドも型検査も通り、配信してから「地図が出ない」
-// 「検索が 401」という原因の遠い形で出る。移植元が dart-define でぶつかっていたのと
-// 同じ問題で、あちらは「Verify required configuration」ステップで空値だけを見ていた
-// ——名前の取り違え（`VITE_` の付け忘れ）はそこを素通りする。
-
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,7 +13,6 @@ const repoRoot = resolve(webRoot, '..', '..');
 
 const workflow = readFileSync(join(repoRoot, '.github/workflows/deploy-web.yml'), 'utf8');
 
-/// `src/` 全体が読む `import.meta.env.VITE_*` の名前。
 const namesReadByApp = (): Set<string> => {
   const found = new Set<string>();
   const walk = (dir: string): void => {
@@ -43,7 +34,6 @@ const namesReadByApp = (): Set<string> => {
   return found;
 };
 
-/// ワークフローが build ジョブへ渡す `VITE_*` の名前。
 const namesSetByWorkflow = (): Set<string> =>
   new Set([...workflow.matchAll(/^\s+(VITE_[A-Z0-9_]+):/gm)].map((m) => m[1]));
 
@@ -68,20 +58,14 @@ describe('deploy-web.yml とアプリの設定', () => {
     }
   });
 
-  // 名前だけを見ないのは、`src/config.ts` が `=== '1'` で判定するため。`true` と
-  // 書いても配信は通り、厳密走査だけが黙って切れる。
   it('本番では厳密走査を有効にする (#477)', () => {
     expect(workflow).toMatch(/^\s+VITE_EXACT_WALK_MAX: '1'$/m);
   });
 
-  // これは秘密で、本番バンドルへ焼かれてはならない（production-bundle.test.ts）。
-  // 渡さないことをここでも見るのは、あちらが「バンドルに無い」しか見ていないため
-  // ——ワークフローで渡し始めても、分岐が畳まれている限りあちらは緑のままになる。
   it('App Check のデバッグトークンは渡さない', () => {
     expect([...namesSetByWorkflow()]).not.toContain('VITE_APP_CHECK_DEBUG_TOKEN');
   });
 
-  // 空値検査のリストと env ブロックが割れると、渡しているのに検査されない値が出る。
   it('空値検査のリストは渡す名前と一致する', () => {
     const verified = new Set(
       workflow

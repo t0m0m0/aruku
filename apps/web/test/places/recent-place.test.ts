@@ -1,5 +1,3 @@
-// 移植元: flutter-final:lib/core/models/recent_place.dart と flutter-final:test/core/models/recent_place_test.dart
-
 import { describe, expect, it } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
@@ -31,8 +29,6 @@ describe('dedupeKey', () => {
     expect(dedupeKey(place({ placeId: null, name: '自宅' }))).toBe('name:自宅');
   });
 
-  // 空文字を id 扱いすると 'id:' という1つのキーに畳まれ、placeId を持たない
-  // 別々の地点が互いを追い出す。
   it('空文字の placeId は名前へ落とす', () => {
     expect(dedupeKey(place({ placeId: '', name: '自宅' }))).toBe('name:自宅');
   });
@@ -83,8 +79,6 @@ describe('壊れた JSON の読み', () => {
     expect(recentPlaceFromJson(42)).toBeNull();
   });
 
-  // 片方だけの座標から GeoPoint を作ると、NaN を抱えた点が「座標あり」の顔で
-  // 経路照会まで届く。
   it('片方だけの座標は座標なしにする', () => {
     expect(recentPlaceFromJson({ name: 'A', lat: 35.6 })?.latLng).toBeNull();
     expect(recentPlaceFromJson({ name: 'A', lng: 139.7 })?.latLng).toBeNull();
@@ -94,8 +88,6 @@ describe('壊れた JSON の読み', () => {
     expect(recentPlaceFromJson({ name: 'A', lat: '35.6', lng: '139.7' })?.latLng).toBeNull();
   });
 
-  // Dart の DateTime.parse は投げるので上位の捕捉に入るが、new Date は静かに
-  // Invalid Date を返し、書き戻す toISOString() が後から RangeError になる。
   it('パースできない日付は持たない', () => {
     const restored = recentPlaceFromJson({ name: 'A', usedAt: 'ぐちゃぐちゃ' });
 
