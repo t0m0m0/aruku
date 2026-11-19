@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { findPolicyViolations, type PolicyViolation } from './policy.ts';
 
@@ -19,10 +19,16 @@ function describe(violation: PolicyViolation): string {
   return `${violation.path}:${violation.line}: コメント ${violation.text.split('\n')[0]}`;
 }
 
+function pathsFromArgs(argv: readonly string[]): string[] | null {
+  const index = argv.indexOf('--paths');
+  return index === -1 ? null : argv.slice(index + 1);
+}
+
 const root = repoRoot();
-const violations = findPolicyViolations(trackedPaths(root), (path) =>
-  readFileSync(join(root, path), 'utf8'),
+const paths = (pathsFromArgs(process.argv) ?? trackedPaths(root)).filter((path) =>
+  existsSync(join(root, path)),
 );
+const violations = findPolicyViolations(paths, (path) => readFileSync(join(root, path), 'utf8'));
 
 if (violations.length > 0) {
   for (const violation of violations) console.error(describe(violation));
