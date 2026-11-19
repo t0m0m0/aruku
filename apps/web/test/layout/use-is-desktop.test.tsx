@@ -1,10 +1,3 @@
-// 移植元: flutter-final:lib/core/config/layout_breakpoints.dart（境界 820px）と
-// flutter-final:lib/shared/widgets/responsive_scope.dart（実測幅を1点へ流し込む注入点）。
-//
-// 移植元が provider + ResponsiveScope の2枚で作っていた注入点は、web では
-// matchMedia そのものが担う。差し替える先が1つなので、幅の両側を作るテストは
-// このスタブだけで書ける——各画面が window.innerWidth を直読みしない限りは。
-
 import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -62,9 +55,6 @@ describe('デスクトップ幅の判定', () => {
   });
 
   it('matchMedia を差し替えないテストはモバイル側で走る', () => {
-    // jsdom に matchMedia は無く、test/setup.ts が「幅を答えない」実装を敷いている。
-    // 既存の画面テストはこの経路で走るので、デスクトップ分岐を足しても
-    // モバイル側の検証が黙ってデスクトップ UI を見に行くことはない。
     render(<Probe />);
 
     expect(screen.getByText('mobile')).toBeDefined();

@@ -1,16 +1,3 @@
-// 移植元: flutter-final:lib/core/theme/aruku_map_style.dart
-//
-// Wakaba の配色に寄せた Google Maps のスタイル。移植元は JSON 文字列だが、こちらは
-// 配列のまま持つ——ライブラリが受け取るのはオブジェクトで、文字列にすると読む側で
-// JSON.parse が要り、壊れても型で止まらない。
-//
-// mapId は使わない。Maps JS API は styles と mapId を排他にしており、mapId を渡すと
-// この配色は無視されて Cloud Console 側の設定が勝つ。配色をリポジトリの外へ出すと、
-// 移植元と同じ色かどうかがコードから確かめられなくなる。
-//
-// 色は tokens.css の --color-map-* と同じ値だが、CSS 変数では書けない。スタイルは Maps API へ
-// 渡すデータで、CSS のカスケードの外に居る。
-
 export const arukuWakabaMapStyle: google.maps.MapTypeStyle[] = [
   { elementType: 'geometry', stylers: [{ color: '#efebdd' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#6e6a57' }] },

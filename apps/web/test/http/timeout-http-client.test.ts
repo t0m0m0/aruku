@@ -1,9 +1,3 @@
-// 移植元: flutter-final:test/core/services/timeout_http_client_test.dart（#156）
-//
-// 移植元の '内側の App Check トークン取得がハングしても打ち切る (#156)' だけは
-// app-check-http-client.test.ts へ置いた。合成順（TimeoutHttpClient を最外側に
-// 置く）の検証であり、App Check 側が在って初めて書けるため。
-
 import { describe, expect, it } from 'vitest';
 
 import { TimeoutException, type HttpResponse } from '@aruku/engine/services/http-client';
@@ -30,7 +24,6 @@ function bodyOf(text: string): ReadableStream<Uint8Array> {
   });
 }
 
-/// 応答までの遅延と close 呼び出しを制御できる内側クライアント。
 class FakeInnerClient extends BaseHttpClient {
   constructor(private readonly responseDelay: Duration = 0) {
     super();
@@ -48,8 +41,6 @@ class FakeInnerClient extends BaseHttpClient {
   }
 }
 
-/// ヘッダは即返すが、ボディの1 chunk 目が [bodyDelay] 後にしか流れない内側
-/// クライアント。ヘッダ受信後のボディ送出ストールを再現する。
 class StallingBodyClient extends BaseHttpClient {
   constructor(private readonly bodyDelay: Duration) {
     super();
@@ -98,8 +89,6 @@ describe('TimeoutHttpClient.send', () => {
   });
 
   it('ヘッダ受信後のボディ送出ストールも TimeoutException で打ち切る (#156)', async () => {
-    // ヘッダは即返るので send の header タイムアウトでは拾えない。get() が
-    // ボディを読み切る際に chunk 間アイドルで打ち切られること。
     const client = new TimeoutHttpClient(new StallingBodyClient(200), {
       timeout: 20,
     });

@@ -1,5 +1,3 @@
-// 移植元: flutter-final:lib/core/navigation/screen_paths.dart
-
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -34,7 +32,6 @@ describe('screenFromLocation', () => {
   });
 
   it('未知のパスは安全側の home へ解決する', () => {
-    // 削除済みのパス（/home/nav・/home/complete）やタイプミスの deep link。
     expect(screenFromLocation('/home/nav')).toBe(fallbackScreen);
     expect(screenFromLocation('/')).toBe(fallbackScreen);
   });

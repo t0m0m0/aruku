@@ -1,8 +1,3 @@
-// 移植元: flutter-final:lib/features/error/error_screen.dart
-//
-// デスクトップ幅の中央寄せは `desktop:`（CSS のメディアクエリ）なので、ここ（jsdom）からは
-// 見えない。寸法は e2e/desktop-layout.spec.ts が実測する。
-
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -33,7 +28,6 @@ function setup(kind: RouteErrorKind | null, located = false) {
     { request },
     routeService,
   );
-  // 初回取得は済んでいる（拒否されて denied で止まっている）状態から始める。
   store.setState({ locationState: locationDenied });
   store.getState().attachNavigator(navigate);
   const view = render(<ErrorScreen store={store} />);
@@ -60,8 +54,6 @@ describe('失敗の説明', () => {
     expect(screen.getByText('通信状況を確認してもう一度お試しください')).toBeTruthy();
   });
 
-  // 権限を変える場所は Web では画面から開けない。拒否された利用者が詰まないよう、
-  // どこで変えるかを現在地の失敗の補足で案内する（#427 で設定画面から移した）。
   it('現在地が取れないときは、位置情報の権限をブラウザのサイト設定で変えると案内する', () => {
     setup(RouteErrorKind.noLocation);
 
@@ -70,8 +62,6 @@ describe('失敗の説明', () => {
     ).toBeTruthy();
   });
 
-  // ガードが通す以上ここへは種別付きでしか来ないが、来てしまったときに空の画面を
-  // 見せない。
   it('種別が無くても原因不明として成立する', () => {
     setup(null);
 
@@ -80,7 +70,6 @@ describe('失敗の説明', () => {
 });
 
 describe('復帰導線', () => {
-  // 再試行で直る種別は、再試行を主導線に置く。
   it('通信の失敗は再試行が主導線', () => {
     const { plan } = setup(RouteErrorKind.network);
 
@@ -89,7 +78,6 @@ describe('復帰導線', () => {
     expect(plan).toHaveBeenCalledOnce();
   });
 
-  // 同じ条件で引き直しても同じ結果になる種別には、条件変更を先に出す。
   it('候補なしは条件変更が主導線', () => {
     const { navigate, plan } = setup(RouteErrorKind.noResults);
 
@@ -122,12 +110,6 @@ describe('復帰導線', () => {
   });
 });
 
-// 現在地が取れずに失敗したときの再試行は、取り直してから引き直す。
-//
-// 取り直さないと、権限を許可し直しても・一時的な測位失敗が解消しても、同じ null の
-// 出発地を送り続けて同じ画面に戻る——主導線が永久に無意味になる。初回取得は
-// useInitialLocation が locationState === 'loading' のときしか走らないので、
-// denied / unavailable で止まった状態は誰も動かさない（PR #398 の Codex レビュー）。
 describe('現在地が取れなかったときの再試行', () => {
   it('取り直してから引き直す', async () => {
     const { request, plan } = setup(RouteErrorKind.noLocation, true);
@@ -138,7 +120,6 @@ describe('現在地が取れなかったときの再試行', () => {
 
     expect(request).toHaveBeenCalledOnce();
     expect(plan).toHaveBeenCalledOnce();
-    // 取り直した座標が出発地として届く。
     expect(plan.mock.calls[0][0].origin).toEqual(here);
   });
 
@@ -153,7 +134,6 @@ describe('現在地が取れなかったときの再試行', () => {
     expect(plan).toHaveBeenCalledOnce();
   });
 
-  // 現在地と無関係な失敗で測位し直す理由は無い。権限ダイアログを無駄に出さない。
   it('現在地と無関係な失敗では取り直さない', async () => {
     const { request, plan } = setup(RouteErrorKind.timeout);
 
@@ -166,8 +146,6 @@ describe('現在地が取れなかったときの再試行', () => {
   });
 });
 
-// 測位の待ちを跨いで離脱したときの続きを止める。移植元の `if (!mounted) return;`
-// に相当し、検索画面で同じ穴を塞いだのと同じ型（PR #395 レビュー）。
 describe('画面を離れた後の再試行', () => {
   it('検索を始めない', async () => {
     let resolve!: (state: ReturnType<typeof locationDenied2>) => void;
@@ -193,7 +171,6 @@ describe('画面を離れた後の再試行', () => {
   });
 });
 
-/// 型合わせのためのヘルパ（LocationState を返す）。
 function locationDenied2() {
   return locationDenied;
 }

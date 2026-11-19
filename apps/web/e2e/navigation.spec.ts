@@ -1,28 +1,13 @@
-/// 履歴の積み方。PORTING.md の「戻り挙動」が **実ブラウザで確認** としか書けなかった
-/// 不変条件を、ここで反証可能にする。
-///
-/// 単体テストでは押さえられない。jsdom の履歴はスタブで、React Router がマウント前に
-/// 積んだ生の History API のエントリも、リロードで状態が消えることも再現しない
-/// ——移植中に見つかった穴（敷いた home が1つ余る・リロードのたびに増える）は、
-/// どれも実ブラウザでしか出ていない。
-
 import { expect, test } from './fixtures';
 
-/// このファイルは**モバイル幅**で走らせる。主題は履歴の積み方で、home から子へ出る
-/// 導線に目的地の行（全画面の検索へ行く）を使っている——デスクトップ幅ではその場の
-/// 入力欄になり、子へ出ない（#372）。
 test.use({ viewport: { width: 375, height: 812 } });
 
-/// Playwright の新しいページが最初から居る about:blank の1エントリ。goto はこれを
-/// 置き換えず**積む**ので、素の `history.length` はアプリのぶんより常に1多い。
-/// 前提が変わったら beforeEach が落ちる。
 const blankEntry = 1;
 
 test.beforeEach(async ({ page }) => {
   expect(await page.evaluate(() => window.history.length)).toBe(blankEntry);
 });
 
-/// このタブが持つ**アプリの**履歴エントリ数。不変条件は「常に高々 [home, 子] の2つ」。
 async function appHistoryDepth(page: import('@playwright/test').Page): Promise<number> {
   return (await page.evaluate(() => window.history.length)) - blankEntry;
 }
@@ -42,8 +27,6 @@ test('アプリ内で開いた子から戻ると home へ降り、履歴は [hom
 });
 
 test('直接開いた子からも戻ると home へ降りる', async ({ page }) => {
-  // ルーターがマウントする前に生の History API で home を敷いている。敷かないと、
-  // deep link で入った利用者の「戻る」が即サイト離脱になる。
   await page.goto('/home/search');
   await expect(page.getByRole('searchbox', { name: '目的地を検索' })).toBeVisible();
   expect(await appHistoryDepth(page)).toBe(2);
@@ -55,16 +38,12 @@ test('直接開いた子からも戻ると home へ降りる', async ({ page }) 
 test('表示前提を欠く子を直接開くと home へ寄せ、拒んだ location を履歴に残さない', async ({
   page,
 }) => {
-  // 経路を持たないストアでは result のガードが通らない。跳ね返しは replace なので
-  // /home/result は履歴に残らず、home も敷かれない（敷くと余分な home が下に残る）。
   await page.goto('/home/result');
   await expect(page).toHaveURL('/home');
   expect(await appHistoryDepth(page)).toBe(1);
 });
 
 test('撤去した設定画面の URL は home へ寄せ、履歴に残さない', async ({ page }) => {
-  // #427 で設定画面を撤去した。古いブックマークや共有リンクで入った利用者を
-  // home へ着かせる。未知の location として扱われるので home は敷かれない。
   await page.goto('/home/settings');
   await expect(page).toHaveURL('/home');
   expect(await appHistoryDepth(page)).toBe(1);
@@ -75,9 +54,6 @@ test('アプリ内で開いた子をリロードしても home が増えない',
   await page.getByRole('button', { name: '目的地 どこへ歩く?' }).click();
   await expect(page).toHaveURL('/home/search');
 
-  // 履歴は既に [home, search]。ルーター由来のエントリだと分かる印
-  // （history.state の {idx, key, usr}）を見て敷き直さない。見ないとリロードの
-  // たびに home が1つ増える。
   await page.reload();
   await expect(page).toHaveURL('/home/search');
   expect(await appHistoryDepth(page)).toBe(2);
@@ -88,7 +64,6 @@ test('アプリ内で開いた子をリロードしても home が増えない',
 
 test('リロードで前提を失った結果画面からは、真下の home へ降りる', async ({
   page,
-  // 偽の上流を起こすためだけに要る（フィクスチャは引数に名前を書くと立ち上がる）。
   upstream: _upstream,
 }) => {
   await page.goto('/');
@@ -100,9 +75,6 @@ test('リロードで前提を失った結果画面からは、真下の home �
   await expect(page).toHaveURL('/home/result');
   expect(await appHistoryDepth(page)).toBe(2);
 
-  // 経路はメモリ上のストアにしか無いので、リロードでガードを通らなくなる。
-  // ガードに跳ね返させると真下の home と重なるため、`history.back()` で降りる
-  // ——降りるだけならエントリは増えない。
   await page.reload();
   await expect(page).toHaveURL('/home');
   expect(await appHistoryDepth(page)).toBe(2);

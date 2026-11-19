@@ -1,11 +1,3 @@
-// 移植元: flutter-final:lib/features/picker/（date_time_picker_sheet.dart / desktop_time_field.dart /
-// time_field_input.dart）。widget test は運ばず、ここで押さえるのは「欄の操作が
-// 状態へどう届くか」と「欄が示す選べる範囲」。
-//
-// ホイールと月グリッドを自作せず native の `<input type="time" / "date">` に載せた
-// （デスクトップ幅の日付だけは shadcn の Calendar）ため、移植元にあった「ホイールの下限を initState で1回だけ読む」といった、
-// 自作 UI の都合に由来する検証は消えている。
-
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -62,7 +54,6 @@ const at = (h: number, m: number, dateOffset = 0) => new TimeValue({ h, m, dateO
 
 afterEach(cleanup);
 
-/// 打ち終えた欄を離れる。移植元の「焦点が外れて初めて確定する」に当たる。
 function type(input: HTMLInputElement, value: string) {
   fireEvent.change(input, { target: { value } });
   fireEvent.blur(input);
@@ -78,8 +69,6 @@ describe('時刻の入力', () => {
   });
 
   it('打ちかけの値は確定しない', () => {
-    // 時・分は1桁ずつ来る。`23:58` と打つ途中の `02:58` をそのつど確定すると、
-    // 過去時刻の切り上げが割り込んで打った値ごと差し替わる（実ブラウザで確認）。
     const { time } = setup({ departure: at(13, 0), arrival: at(14, 0) });
 
     fireEvent.change(time, { target: { value: '02:58' } });
@@ -89,8 +78,6 @@ describe('時刻の入力', () => {
   });
 
   it('空のまま離れた欄は元の値へ戻る', () => {
-    // native の time 入力は打ちかけを空文字で返す。そのまま確定すると、
-    // 消しただけの操作が 00:00 の指定になる。
     const { time } = setup({ departure: at(13, 0), arrival: at(14, 0) });
 
     type(time, '');
@@ -100,13 +87,11 @@ describe('時刻の入力', () => {
   });
 
   it('今日の過ぎた時刻は現在時刻へ寄せ、欄にもそれを出す', () => {
-    // min 属性は案内であって保証ではない。過去のまま照会へ行くと結果が意味を失う。
     const { time } = setup({ departure: at(13, 0), arrival: at(14, 0) });
 
     type(time, '09:00');
 
     expect(store.getState().departure.format()).toBe('12:00');
-    // 寄せた先を欄へ書き戻す。打った値を残すと、欄と状態が食い違ったまま検索へ行く。
     expect(time.value).toBe('12:00');
   });
 
@@ -129,8 +114,6 @@ describe('↑↓ の刻み', () => {
   });
 
   it('日をまたぐ刻みは日付も一緒に動かす', () => {
-    // native の ↑↓ は同日内で折り返す。23:58 の5分後が「同じ日の 00:03」になると、
-    // 翌日のままの到着との予算が 25 時間近くへ膨らむ。
     const { time, date } = setup({ departure: at(23, 58), arrival: at(23, 59) }, PickerMode.depart);
 
     fireEvent.keyDown(time, { key: 'ArrowUp' });
@@ -141,8 +124,6 @@ describe('↑↓ の刻み', () => {
   });
 
   it('選べる範囲の外へは動かさない', () => {
-    // 今日の 00:02 から5分戻すと昨日になる。時刻だけ折り返して日付を据え置くと、
-    // 5分前のつもりが同日 23:57＝24時間近く後ろへ飛ぶ。
     const { time } = setup(
       { departure: at(0, 2, 0), arrival: at(1, 0, 0) },
       PickerMode.depart,
@@ -166,7 +147,6 @@ describe('日付の入力', () => {
     expect(store.getState().departure.format()).toBe('13:00');
   });
 
-  // 移植元は日付欄の上に「明日」「M/D(曜)」を重ねていた。
   it.each([
     [1, '2026-09-12', '明日'],
     [5, '2026-09-16', '9/16(水)'],
@@ -181,7 +161,7 @@ describe('日付の入力', () => {
     const { date } = setup({ departure: at(13, 0), arrival: at(14, 0) });
 
     expect(date.min).toBe('2026-09-11');
-    expect(date.max).toBe('2026-12-10'); // 90 日後
+    expect(date.max).toBe('2026-12-10');
   });
 
   it('到着は出発の日より前を出さない', () => {
@@ -191,8 +171,6 @@ describe('日付の入力', () => {
   });
 
   it('押し出された到着は上限の外でもカレンダーに残る', () => {
-    // 定数で切ると、いま指している日がカレンダーから消え、開いて確定しただけで
-    // 値が動く。
     const { date } = setup(
       {
         departure: at(23, 0, kMaxDateOffsetDays),
@@ -208,8 +186,6 @@ describe('日付の入力', () => {
 
 describe('開いたまま日を跨いだとき', () => {
   it('確定の前に、出発も到着も新しい今日で数え直す', () => {
-    // dateOffset は state に基準日を持たず、常に「今日」から数えられる。跨いだ
-    // ぶんを詰めずに確定すると、触っていない側が黙って1日先を指す。
     let clock = new Date(2026, 8, 11, 23, 59, 0);
     const { time } = setup(
       { departure: at(23, 59, 0), arrival: at(0, 30, 1) },
@@ -220,25 +196,17 @@ describe('開いたまま日を跨いだとき', () => {
     clock = new Date(2026, 8, 12, 0, 1, 0);
     type(time, '00:05');
 
-    // 詰め直さないと、触っていない到着が 13 日を指したまま残る。
     expect(store.getState().departure.format()).toBe('00:05');
     expect(store.getState().departure.dateOffset).toBe(0);
     expect(store.getState().arrival.dateOffset).toBe(0);
-    // 引き上げられた出発を追って到着も動く（予算幅を保つ）。時計の値そのものは
-    // 引き上げ幅で決まるので、ここで押さえるのは「出発より後にある」こと。
     expect(
       absoluteMinutes(store.getState().arrival) - absoluteMinutes(store.getState().departure),
     ).toBeGreaterThan(0);
   });
 });
 
-// Codex レビュー（PR #399）。いずれも「開いたまま時間が経つ」経路で、単発の操作では
-// 現れない。
 describe('開いたまま時間が経ったとき', () => {
   it('同じ日でも「今すぐ」の出発は現在時刻へ追従する', () => {
-    // 09:00 に開いて正午に到着 13:00 を選ぶと、出発は 09:00 のまま予算 4 時間として
-    // 記録される。startSearch は出発だけを正午へ更新して予算を保つので、選んだ
-    // 13:00 ではなく 16:00 着を探しに行く。
     let clock = new Date(2026, 8, 11, 9, 0, 0);
     const { time } = setup(
       { departure: new TimeValue({ h: 9, m: 0, isNow: true }), arrival: at(10, 0) },
@@ -256,8 +224,6 @@ describe('開いたまま時間が経ったとき', () => {
   });
 
   it('値の変わらない blur は「今すぐ」を固定しない', () => {
-    // タブで通り抜けただけ・native のピッカーを何も選ばずに閉じただけでも blur は
-    // 来る。そこで確定すると isNow が落ち、検索は blur した時刻で凍る。
     const clock = new Date(2026, 8, 11, 9, 0, 0);
     const { time } = setup(
       { departure: new TimeValue({ h: 9, m: 0, isNow: true }), arrival: at(10, 0) },
@@ -271,16 +237,12 @@ describe('開いたまま時間が経ったとき', () => {
   });
 
   it('日を跨いだ詰め直しは、もう片方の欄にも効く', () => {
-    // 欄ごとに基準日を持つと、片方を確定したときにもう片方の基準が古いまま残る。
-    // その欄は詰め直し済みの offset を昨日基準で描き、確定すると同じ1日をもう一度
-    // 適用する。
     let clock = new Date(2026, 8, 11, 23, 59, 0);
     const fields = setupBoth({ departure: at(23, 59, 0), arrival: at(0, 30, 1) }, () => clock);
 
     clock = new Date(2026, 8, 12, 0, 1, 0);
     type(fields.departTime, '00:05');
 
-    // 到着の欄も新しい今日で描き直る（12日の 00:32。13日ではない）。
     expect(fields.arrivalDate.value).toBe('2026-09-12');
 
     type(fields.arrivalTime, '01:00');
@@ -290,9 +252,6 @@ describe('開いたまま時間が経ったとき', () => {
   });
 
   it('選び終える前に過ぎてしまった日は、今日へ丸めない', () => {
-    // 23:55 に日付を選んで閉じたのが 00:05 だと、選んだ絶対日付はもう昨日。
-    // dateOffsetFrom は負を 0 へ丸めるので、そのまま確定すると詰め直した予定を
-    // 引きずり降ろす（ここでは 13 日 12:00 着が 13 日 10:01 着へ潰れる）。
     let clock = new Date(2026, 8, 11, 23, 55, 0);
     const { date } = setup(
       { departure: at(10, 0, 2), arrival: at(12, 0, 2) },
@@ -304,19 +263,14 @@ describe('開いたまま時間が経ったとき', () => {
     clock = new Date(2026, 8, 12, 0, 5, 0);
     fireEvent.blur(date);
 
-    // 詰め直しだけが効いて、選んだ日は捨てる（13 日を指したまま）。
     expect(store.getState().arrival.format()).toBe('12:00');
     expect(store.getState().arrival.dateOffset).toBe(1);
     expect(date.value).toBe('2026-09-13');
   });
 });
 
-// Codex レビュー（PR #399）。時刻→日付と、並んでいる順に触ったときの経路。
 describe('時刻を打ってから日付を選ぶ', () => {
   it('打った時刻が、選んだ日付と一緒に確定する', () => {
-    // 正午に「明日 09:00 発」と決めたい。時刻を先に打つと、日付欄へ移る blur が
-    // それだけを確定し、今日の過去時刻として 12:00 へ切り上げてしまう——続く日付の
-    // 確定は切り上げ後の値を読むので、明日 12:00 発になる。
     const { time, date } = setup({ departure: at(13, 0), arrival: at(14, 0) });
 
     fireEvent.change(time, { target: { value: '09:00' } });
@@ -341,7 +295,6 @@ describe('時刻を打ってから日付を選ぶ', () => {
   });
 
   it('日付へ移らずに欄を出たら、今日の過去時刻として切り上げる', () => {
-    // 日付を変える気が無いなら、過去のまま照会へ渡さない従来の保証が要る。
     const { time } = setup({ departure: at(13, 0), arrival: at(14, 0) });
 
     fireEvent.change(time, { target: { value: '09:00' } });
@@ -352,8 +305,6 @@ describe('時刻を打ってから日付を選ぶ', () => {
 });
 
 describe('デスクトップ幅のステッパー', () => {
-  // マウスでも 5 分刻みで動かせるようにする。native のスピナーは分を 1 ずつ動かし、
-  // しかも同日内で折り返す——23:58 から進めると翌日にならずに 00:00 になる。
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -385,9 +336,6 @@ describe('デスクトップ幅のステッパー', () => {
   });
 
   it('ステッパーを経由して欄の外へ出ても、打った値が確定する', () => {
-    // 欄の中（時刻↔日付↔ステッパー）の移動では確定しない。ステッパー自身が
-    // blur を見ていないと、そこから Tab で出た打鍵が黙って捨てられ、検索は
-    // 古い時刻で走る（PR #407 の Codex レビュー）。
     stubViewport(true);
     const { time } = setupTime({ departure: at(13, 0), arrival: at(14, 0) });
     const later = screen.getByRole('button', { name: '出発を5分あとにする' });
@@ -414,7 +362,6 @@ describe('デスクトップ幅のステッパー', () => {
 });
 
 describe('デスクトップ幅の日送り', () => {
-  // 時刻の ◀ ▶ と同じ形で、日付も1日ずつ動かせるようにする（Google マップの日時欄）。
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -492,17 +439,12 @@ describe('デスクトップ幅の日送り', () => {
     fireEvent.blur(time, { relatedTarget: later });
     fireEvent.click(later);
 
-    // 今日の 09:00 として先に確定すると、過去時刻として 12:00 へ切り上げられる。
     expect(store.getState().departure.format()).toBe('09:00');
     expect(store.getState().departure.dateOffset).toBe(1);
   });
 });
 
 describe('先頭のアイコン', () => {
-  // UA のアイコンは隠し、先頭のアイコンを押すと OS のピッカーが開くようにした。
-  // 端末ではそもそも欄を押せば開くが、デスクトップのブラウザを狭めたときには、
-  // マウスで開く手段がこれしかない。
-  // jsdom は showPicker を持たない。生やしたときだけ「開ける」ブラウザになる。
   let opened: HTMLInputElement[];
 
   function stubShowPicker(impl: (input: HTMLInputElement) => void) {
@@ -546,9 +488,6 @@ describe('先頭のアイコン', () => {
   });
 
   it('デスクトップ幅ではカレンダーのアイコンも日付のボタンの一部', () => {
-    // 外に出すと、フォーカスを取れないアイコンへの押下で時刻欄の blur が
-    // relatedTarget なしで走り、打ちかけの時刻を日付より先に確定してしまう
-    // （PR #436 の Codex レビュー）。
     stubViewport(true);
     setupTime({ departure: at(13, 0), arrival: at(14, 0) });
 
@@ -567,7 +506,6 @@ describe('先頭のアイコン', () => {
   });
 
   it('ピッカーを開けないブラウザでも落ちない', () => {
-    // showPicker は利用者の操作の外や、対応していない欄では例外を投げる。
     stubViewport(false);
     stubShowPicker(() => {
       throw new DOMException('not allowed', 'NotAllowedError');
@@ -586,7 +524,6 @@ describe('先頭のアイコン', () => {
   });
 });
 
-/// デスクトップ幅の日付欄（カレンダーを開くボタン）。
 function dateTrigger(label: string): HTMLButtonElement {
   return screen.getByRole<HTMLButtonElement>('button', {
     name: new RegExp(`^${ja.timeFieldDate(label)} `),
@@ -598,8 +535,6 @@ function dayButton(name: string): HTMLButtonElement {
 }
 
 describe('デスクトップ幅のカレンダー', () => {
-  // native の日付欄は UA が描くので、テーマが当たらず年まで出る。デスクトップ幅では
-  // 自前のボタンとカレンダーに替える。モバイル幅は端末のホイールを残す。
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -642,14 +577,11 @@ describe('デスクトップ幅のカレンダー', () => {
 
     fireEvent.click(dateTrigger('到着'));
 
-    // 到着は出発の日（14日）より前を出さない。
     expect(dayButton('9月13日 (日)').disabled).toBe(true);
     expect(dayButton('9月14日 (月)、選択中').disabled).toBe(false);
   });
 
   it('打った時刻が、カレンダーで選んだ日と一緒に確定する', () => {
-    // 時刻を打ってからカレンダーへ移る間に確定すると、今日の過去時刻として
-    // 12:00 へ切り上げられ、明日 12:00 発になる（PR #399 と同じ経路）。
     stubViewport(true);
     const { time } = setupTime({ departure: at(13, 0), arrival: at(14, 0) });
     const trigger = dateTrigger('出発');
@@ -658,7 +590,6 @@ describe('デスクトップ幅のカレンダー', () => {
     fireEvent.blur(time, { relatedTarget: trigger });
     fireEvent.click(trigger);
     const day = dayButton('9月12日 (土)');
-    // カレンダーは portal で欄の外へ描かれる。そこへ移っただけで確定しない。
     fireEvent.blur(trigger, { relatedTarget: day });
     expect(store.getState().departure.format()).toBe('13:00');
 
@@ -691,8 +622,6 @@ describe('デスクトップ幅のカレンダー（PR #425 のレビュー）',
   });
 
   it('開いたまま日を跨いでから開くと、新しい今日で数え直す', () => {
-    // 基準日は確定まで古いまま残る。そのまま描くと昨日を「今日」として選ばせ、
-    // 選んだ日は確定で「過ぎた日」として捨てられる。
     stubViewport(true);
     let clock = new Date(2026, 8, 11, 23, 50, 0);
     store = createAppStore({ departure: at(23, 55), arrival: at(23, 59) }, () => clock);
@@ -713,8 +642,6 @@ describe('デスクトップ幅のカレンダー（PR #425 のレビュー）',
   });
 
   it('打ちかけの時刻は、日を跨いでから開いても捨てない', () => {
-    // 詰め直しで状態の時刻が動くと、欄は外からの変更として下書きを捨てる。
-    // そのまま日を選ぶと、打った時刻ではなく詰め直した時刻で確定する。
     stubViewport(true);
     let clock = new Date(2026, 8, 11, 23, 50, 0);
     store = createAppStore({ departure: at(23, 55), arrival: at(23, 59) }, () => clock);
@@ -740,7 +667,6 @@ describe('デスクトップ幅のカレンダー（PR #425 のレビュー）',
   });
 
   it('今日と選んでいる日は、読み上げでも分かる', () => {
-    // 見た目では今日と選択中の日に印がある。読み上げ名が日付だけだと区別できない。
     stubViewport(true);
     setupTime({ departure: at(13, 0, 2), arrival: at(14, 0, 2) });
 
@@ -751,8 +677,6 @@ describe('デスクトップ幅のカレンダー（PR #425 のレビュー）',
   });
 
   it('カレンダーを開いたまま幅がモバイルへ変わったら、打った時刻を確定して閉じる', () => {
-    // カレンダーは幅の切り替えで欄ごと外れ、blur が来ない。時刻を打ってから
-    // 開いていると、その時刻が確定されないまま検索へ行ける。
     const viewport = stubViewport(true);
     const { time } = setupTime({ departure: at(13, 0), arrival: at(14, 0) });
     const trigger = dateTrigger('出発');
@@ -765,14 +689,11 @@ describe('デスクトップ幅のカレンダー（PR #425 のレビュー）',
 
     expect(store.getState().departure.format()).toBe('15:30');
 
-    // 戻しても、開きっぱなしの状態からカレンダーが出てこない。
     viewport.cross(true);
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('時刻を打っている途中で幅が変わっても、打ちかけを確定しない', () => {
-    // 欄に焦点がある間は blur が後で来る。先に確定すると、打ちかけの空文字で
-    // 欄が元の値へ戻される。
     const viewport = stubViewport(true);
     const { time } = setupTime({ departure: at(13, 0), arrival: at(14, 0) });
 
@@ -794,9 +715,6 @@ describe('デスクトップ幅のカレンダー（PR #425 のレビュー）',
   });
 
   it('曜日の見出しに英語の読み上げ名を残さない', () => {
-    // react-day-picker は見出しの行を aria-hidden にしているので、いまは読み上げに
-    // 出ない。それでも既定の英語の aria-label を残すと、見出しを露出させた版で
-    // 英語だけが読まれる。
     stubViewport(true);
     setupTime({ departure: at(13, 0), arrival: at(14, 0) });
 
@@ -809,8 +727,6 @@ describe('デスクトップ幅のカレンダー（PR #425 のレビュー）',
   });
 
   it('日付を入れかけたまま幅がデスクトップへ変わっても、入れた日を確定する', () => {
-    // native の日付欄は確定を blur に任せている。幅の切り替えで欄ごと外れると
-    // blur が来ず、打った日付が黙って捨てられる。
     const viewport = stubViewport(false);
     const { date } = setup({ departure: at(13, 0), arrival: at(14, 0) });
 
@@ -822,7 +738,6 @@ describe('デスクトップ幅のカレンダー（PR #425 のレビュー）',
   });
 });
 
-/// デスクトップ幅では日付が input ではないので、時刻の欄だけを返す。
 function setupTime(initial: Partial<RouteCore>, mode: PickerMode = PickerMode.depart) {
   store = createAppStore(initial, () => noon);
   const label = mode === PickerMode.depart ? ja.homeDepartureLabel : ja.homeArrivalLabel;

@@ -1,10 +1,3 @@
-// shadcn/ui の Button（new-york）。移植元は flutter-final:lib/shared/widgets/aruku_button.dart。
-//
-// 原本から外したもの:
-// - `[&_svg:not([class*='size-'])]:size-4`。アイコンは width 属性で寸法を持っており
-//   （shared/icons.tsx）、クラスで 16px へ揃えると CTA のアイコンが黙って縮む
-// - `dark:` の分岐。ダークテーマをまだ持たない
-
 import { cva, type VariantProps } from 'class-variance-authority';
 import { Slot } from 'radix-ui';
 import type { ComponentProps } from 'react';
@@ -38,7 +31,6 @@ function Button({
   variant,
   size,
   asChild = false,
-  // 原本は type を付けない。form の中に置くと既定の submit で送信してしまう。
   type = 'button',
   ...props
 }: ComponentProps<'button'> &

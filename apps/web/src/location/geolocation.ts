@@ -1,14 +1,3 @@
-// 移植元: flutter-final:lib/core/services/location_service.dart。
-//
-// geolocator を経由しないので、あちらが Web で抱えていた不具合は移植対象ではない。
-// timeLimit がマイクロ秒として渡され 10 秒指定が約 2.8 時間になる問題（#359）も、
-// checkPermission が 'prompt' を denied へ写す問題も、W3C の API を直接呼べば無い。
-//
-// 取得全体を包むタイムアウト（timeoutWholeRequest）も運んでいない。あれは上の
-// 「素通りする timeLimit」を補うためのもので、W3C の timeout は権限ダイアログの
-// 待ち時間を含まないと規定されている——包むと、ユーザーが考えている間に「取得
-// できず」へ落ちる副作用だけが残る。
-
 import { GeoPoint } from '@aruku/engine/models/geo-point';
 
 import {
@@ -22,16 +11,10 @@ export interface LocationService {
   request(): Promise<LocationState>;
 }
 
-/// 現在地の単発取得を打ち切るまでの上限（ミリ秒）。
 export const locationRequestTimeoutMs = 10_000;
 
-/// W3C GeolocationPositionError.PERMISSION_DENIED。定数はエラー側のインスタンスに
-/// しか生えておらず、コールバックが呼ばれない経路では参照できない。
 const permissionDenied = 1;
 
-// lib.dom は navigator も geolocation も常に在るとするが、Node（テスト）には navigator が
-// 無く、非セキュアコンテキストでは geolocation を生やさないブラウザがある。型どおりに
-// 読むと undefined の判定が「起きない分岐」に見えるので、在るとは限らない形で受ける。
 function ambientGeolocation(
   navigator: { readonly geolocation?: Geolocation } | undefined,
 ): Geolocation | undefined {
@@ -44,9 +27,6 @@ export function browserLocationService(
 ): LocationService {
   return {
     request() {
-      // 非セキュアコンテキストなど、この環境に API 自体が無い。再取得しても
-      // 解消しないので、再試行を促す unavailable ではなく denied に寄せる
-      // （移植元が PermissionDefinitionsNotFoundException をそう扱うのと同じ）。
       if (geolocation === undefined) return Promise.resolve(locationDenied);
 
       return new Promise<LocationState>((resolve) => {
@@ -59,13 +39,7 @@ export function browserLocationService(
                 ),
               ),
             (error) =>
-              // 拒否以外（測位失敗・打ち切り・未知のコード）は権限拒否に丸めず、
-              // 再試行可能な unavailable として区別する。
               resolve(error.code === permissionDenied ? locationDenied : locationUnavailable),
-            // 移植元は LocationSettings() の既定 LocationAccuracy.best で呼んで
-            // おり、geolocator_web はそれを enableHighAccuracy: true へ写す。
-            // W3C の既定は false なので、渡さないと粗い推定を掴む——この座標は
-            // 経路の出発地になるため、別の通りや駅から歩き始めることになる。
             { timeout: timeoutMs, enableHighAccuracy: true },
           );
         } catch {

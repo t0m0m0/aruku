@@ -1,8 +1,3 @@
-// shadcn/ui の Button。移植元 flutter-final:lib/shared/widgets/aruku_button.dart の
-// 読み上げ（Semantics(button:) と MergeSemantics）は、HTML では <button> を使うこと
-// 自体が満たす。テストはその「ネイティブ要素を使っている」ことを反証する——
-// div + onClick へ退行しても見た目は変わらない。
-
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -69,8 +64,6 @@ describe('Button', () => {
   });
 
   it('アイコンの寸法を上書きしない', () => {
-    // shadcn の原本は中の svg を size-4（16px）へ揃える。CTA のアイコンは
-    // width 属性で 20px を指定しており、クラスで上書きされると黙って縮む。
     render(<Button>x</Button>);
 
     expect(screen.getByRole('button').className).not.toMatch(/\[&_svg[^\]]*\]:size-/);

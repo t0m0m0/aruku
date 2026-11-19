@@ -1,17 +1,3 @@
-// 移植元: flutter-final:test/core/services/app_check_http_client_test.dart（#155・#366）
-//
-// 加えて timeout_http_client_test.dart の
-// '内側の App Check トークン取得がハングしても打ち切る (#156)' をここへ置いている
-// （合成順の検証で、この層が在って初めて書ける）。
-//
-// 移植元との差: tokenProvider / limitedUseTokenProvider は省略可能ではなく必須に
-// した。Dart は FirebaseAppCheck.instance から静的に取れたが、Firebase JS SDK の
-// getToken は initializeAppCheck が返すインスタンスを要る。既定値を持てないので、
-// Firebase の取得は合成のルート（src/search/ の配線）へ出した。
-// これに伴い 'トークンが null …' / '… 空文字列 …' の2本は、移植元が
-// limitedUseTokenProvider を注入しつつ実際には既定の標準プロバイダの例外を見ていた
-// のを、標準プロバイダへ直接 null / '' を注入する形に改めている。
-
 import { describe, expect, it } from 'vitest';
 
 import { ClientException, TimeoutException } from '@aruku/engine/services/http-client';
@@ -27,7 +13,6 @@ import { TimeoutHttpClient } from '../../src/http/timeout-http-client';
 
 const headerName = 'X-Firebase-AppCheck';
 
-/// send されたヘッダと close 呼び出しを記録する内側クライアント。
 class FakeInnerClient extends BaseHttpClient {
   lastHeaders: HttpHeaders | null = null;
   lastSignal: AbortSignal | undefined = undefined;
@@ -56,8 +41,6 @@ class FakeInnerClient extends BaseHttpClient {
   }
 }
 
-// 既定は consume 対象外のパス。ヘッダ付与そのものを見るテストが
-// tokenProvider（標準トークン側）の注入を確実に通るようにする。
 const url = (path = 'googleWalkProxy'): URL => new URL(`https://proxy.example.com/${path}`);
 
 describe('AppCheckHttpClient.send', () => {
@@ -133,9 +116,6 @@ describe('limited-use トークン（リプレイ保護, issue #155・#366）', 
       limitedUseTokenProvider: async () => 'limited_use_token',
     });
 
-  // サーバが consume:true で検証するエンドポイントとここは厳密一致させる。
-  // 送りすぎ（対象外へ使い捨て）はアテステーション・クォータを無駄に焼き、
-  // 送り足りない（対象へ標準）は 2 回目以降 401 で機能を壊す。
   for (const path of ['placesProxy', 'googleWalkMatrixProxy', 'exactWalkMax']) {
     it(`${path} へは limited-use プロバイダのトークンを付与する`, async () => {
       const inner = new FakeInnerClient();
@@ -144,8 +124,6 @@ describe('limited-use トークン（リプレイ保護, issue #155・#366）', 
     });
   }
 
-  // 1検索で 21 本まで膨らむ（spec §3.8）。ここを使い捨てにするとクォータが先に尽き、
-  // getLimitedUseToken の失敗＝ヘッダ落ち＝全要求 401 を招く。
   it('googleWalkProxy へは標準プロバイダのトークンを付与する', async () => {
     const inner = new FakeInnerClient();
     await build(inner).send(url('googleWalkProxy'), {});
@@ -160,10 +138,6 @@ describe('limited-use トークン（リプレイ保護, issue #155・#366）', 
 });
 
 describe('使い捨てトークン取得の失敗時は標準トークンへ縮退する（#366）', () => {
-  // アテステーション・クォータが枯渇すると getLimitedUseToken() は throw する。
-  // ここで諦めてヘッダ無しにすると、サーバ側で consume を切っても「トークン欠落」で
-  // 401 のままになり、緊急ロールバックが効かない。標準トークンへ落とせば
-  // APP_CHECK_CONSUME_ENDPOINTS="" と組み合わせて完全復旧できる。
   it('limited-use が例外を投げたら標準トークンを付与する', async () => {
     const inner = new FakeInnerClient();
     const client = new AppCheckHttpClient(inner, {
@@ -209,7 +183,6 @@ describe('使い捨てトークン取得の失敗時は標準トークンへ縮�
     expect(response.statusCode).toBe(200);
   });
 
-  // 縮退は使い捨てが要る経路だけ。非対象で標準が失敗しても縮退先は無い。
   it('非対象エンドポイントで標準が失敗しても limited-use は呼ばない', async () => {
     let limitedUseCalls = 0;
     const inner = new FakeInnerClient();
@@ -231,9 +204,6 @@ describe('使い捨てトークン取得の失敗時は標準トークンへ縮�
 });
 
 describe('AppCheckHttpClient.close によるトークン待ちの打ち切り (#259)', () => {
-  // キャンセル時に scoped client が閉じられても、トークン取得中の send は待ち続け、
-  // 上位のタイムアウト（15秒）まで残る。離脱後に走り続けない契約に合わせる
-  // （PR #391 レビュー）。
   const hangingProviders = {
     tokenProvider: () => new Promise<string>(() => {}),
     limitedUseTokenProvider: () => new Promise<string>(() => {}),
@@ -345,13 +315,8 @@ const hangs = (): Promise<string> => new Promise((resolve) => setTimeout(() => r
 
 describe('TimeoutHttpClient との合成', () => {
   it('内側の App Check トークン取得がハングしても打ち切る (#156)', async () => {
-    // 合成順を TimeoutHttpClient(AppCheckHttpClient(...)) と最外側にすることで、
-    // トークン取得の待ちも header タイムアウトの内側に収まる。
     const client = new TimeoutHttpClient(
       new AppCheckHttpClient(new FakeInnerClient(), {
-        // どちらのプロバイダを経由しても打ち切られること。片方だけ遅くすると、
-        // エンドポイントの分類（consume 対象か）を変える退行でこのテストが
-        // 巻き添えで赤くなり、何を守っているのかが読めなくなる。
         tokenProvider: hangs,
         limitedUseTokenProvider: hangs,
       }),

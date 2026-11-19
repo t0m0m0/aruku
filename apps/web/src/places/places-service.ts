@@ -1,8 +1,3 @@
-// 移植元: flutter-final:lib/core/services/places_service.dart
-//
-// Phase 2 はこれをエンジンへ運んでいない。経路エンジンは座標を受け取る側で、
-// 地点検索は入力系——`packages/engine` の範囲外だったため（#385）。
-
 import { isRecord } from '@aruku/engine/json';
 import { GeoPoint } from '@aruku/engine/models/geo-point';
 import { TimeoutException } from '@aruku/engine/services/http-client';
@@ -11,8 +6,6 @@ import { requireUsableBase } from '../http/base-url';
 import type { AbortableHttpClient } from '../http/http';
 import type { PlacePrediction } from './place-prediction';
 
-/// 地点検索の失敗。[status] は上流の生ステータス（例: 'REQUEST_DENIED'）で、
-/// 文言への変換は画面が持つ（#170）。
 export class PlacesException extends Error {
   constructor(readonly status: string) {
     super(`PlacesException(${status})`);
@@ -21,24 +14,14 @@ export class PlacesException extends Error {
 }
 
 export interface PlacesService {
-  /// 地点検索（typeahead）。[bias] が渡されたときは現在地周辺を優先する位置バイアスを
-  /// 掛ける。現在地が分かるときは proxy が origin も渡すため、各候補に現在地からの
-  /// 距離（[PlacePrediction.distanceMeters]）が付く（#146）。
-  ///
-  /// [signal] を倒すとこの要求1本だけを中止し、例外で倒れる（#488）。中止に対応しない
-  /// 実装は無視してよい——呼び出し側（search-state.ts）は中止に頼らず世代で古い結果を
-  /// 捨てる。送信済みの要求の上流処理・課金までは取り消せない。
   autocomplete(
     query: string,
     bias?: GeoPoint | null,
     signal?: AbortSignal,
   ): Promise<PlacePrediction[]>;
 
-  /// 候補（placeId）から座標を引く。Google autocomplete は座標を返さないため、
-  /// 確定時にこの details 呼び出しで補う2段フロー。
   fetchLatLng(placeId: string): Promise<GeoPoint | null>;
 
-  /// サービス全体の終了。要求単位の中止には使わない（autocomplete の [signal] を使う）。
   close(): void;
 }
 
@@ -47,20 +30,10 @@ export interface GooglePlacesServiceOptions {
   readonly proxyBaseUrl: string;
 }
 
-/// Cloud Functions の placesProxy 経由で Google Places API (New) を叩く。
-///
-/// API キーはサーバ側に隠蔽し、App Check トークン付きで呼び出す（[client] の合成は
-/// `search/places.ts`）。
-///
-/// 移植元は空の proxyBaseUrl を「候補なし」「座標なし」へ縮退させていたが、それは
-/// 運んでいない。設定漏れが「検索しても何も出ない」という**正常な見た目**で出てしまい、
-/// 誰も気付けない。`createRouteService` が同じ理由でベース URL を組み立て時に拒んでいる。
 export class GooglePlacesService implements PlacesService {
   constructor(options: GooglePlacesServiceOptions) {
     requireUsableBase(options.proxyBaseUrl, 'VITE_PROXY_BASE_URL', 'GooglePlacesService');
     this.client = options.client;
-    // 末尾スラッシュは検査を通る（リライト運用の `https://example.com/api/` がある）ので、
-    // 連結前にここで畳む。
     this.proxyBaseUrl = options.proxyBaseUrl.replace(/\/+$/, '');
   }
 
@@ -77,7 +50,6 @@ export class GooglePlacesService implements PlacesService {
       input: query,
       language: 'ja',
       components: 'country:jp',
-      // 現在地が分かるときだけ位置バイアスを渡す。proxy 側で locationBias へ。
       ...(bias !== null ? { lat: `${bias.lat}`, lon: `${bias.lng}` } : {}),
     });
 
@@ -114,14 +86,11 @@ export class GooglePlacesService implements PlacesService {
     return url;
   }
 
-  /// 200 を確かめて JSON として読む。autocomplete / details で同じ規則。
   private async getJson(url: URL, signal?: AbortSignal): Promise<Record<string, unknown>> {
     let response;
     try {
       response = await this.client.get(url, signal === undefined ? {} : { signal });
     } catch (error) {
-      // タイムアウトは TimeoutHttpClient が投げる（#156）。他の失敗と同じ語彙へ
-      // 寄せて、画面が生ステータスを出す経路に乗せる。
       if (error instanceof TimeoutException) {
         throw new PlacesException('TIMEOUT');
       }
@@ -130,16 +99,12 @@ export class GooglePlacesService implements PlacesService {
     if (response.statusCode !== 200) {
       throw new PlacesException(`HTTP ${response.statusCode}`);
     }
-    // バイト列から明示的に UTF-8 として読む。`Response.text()` を経由しないのは、
-    // 層の契約（HttpResponse）が bodyBytes しか持たないため。
     const text = new TextDecoder().decode(response.bodyBytes);
     const body: unknown = JSON.parse(text);
     return isRecord(body) ? body : {};
   }
 }
 
-/// レガシー prediction を [PlacePrediction] へ。proxy が origin を渡したときに付く
-/// distance_meters を距離として取り込む（#146 C案）。
 function toPrediction(raw: unknown): PlacePrediction {
   const map = isRecord(raw) ? raw : {};
   const description = typeof map['description'] === 'string' ? map['description'] : '';
@@ -155,15 +120,10 @@ function toPrediction(raw: unknown): PlacePrediction {
     placeId: typeof map['place_id'] === 'string' ? map['place_id'] : '',
     name,
     address: addressFrom(description),
-    // Dart の `.toInt()` と同じくゼロ方向へ切り捨てる。
     distanceMeters: typeof distance === 'number' ? Math.trunc(distance) : null,
   };
 }
 
-/// 先頭の "名称, 住所…" から住所部を取り出す。
-///
-/// カンマ直後の空白の有無に依存せず、カンマが末尾でも範囲外にならないよう
-/// indexOf+1 で切って左空白を落とす（移植元と同じ）。
 function addressFrom(description: string): string {
   const comma = description.indexOf(',');
   return comma >= 0 ? description.slice(comma + 1).trimStart() : description;

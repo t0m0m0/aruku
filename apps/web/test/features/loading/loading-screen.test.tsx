@@ -1,5 +1,3 @@
-// 移植元: flutter-final:lib/features/loading/loading_screen.dart
-
 import { StrictMode } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -57,7 +55,6 @@ describe('見出し', () => {
   it('目的地と予算を出す', () => {
     setup();
 
-    // 予算の書式はエンジンが持つ（「1時間 30分」）。ここで組み直さない。
     expect(screen.getByText('渋谷駅 まで · 制限 1時間 30分')).toBeTruthy();
   });
 
@@ -75,8 +72,6 @@ describe('見出し', () => {
 });
 
 describe('進捗', () => {
-  // 段階ごとに下限を持たせ、到達が見た目に必ず出るようにする。時間ランプだけだと
-  // 段階が進んでも何も変わらない。
   it('段階が進むほど下限が上がる', () => {
     expect(progressFloor(RoutePhase.routing)).toBe(0);
     expect(progressFloor(RoutePhase.walkability)).toBeGreaterThan(
@@ -87,7 +82,6 @@ describe('進捗', () => {
     );
   });
 
-  // 満タンは「完了」を意味してしまう。完了で起きるのは画面遷移であって塗り切りではない。
   it('どの段階でも満タンにはしない', () => {
     for (const phase of Object.values(RoutePhase)) {
       expect(progressFloor(phase)).toBeLessThan(1);
@@ -117,9 +111,6 @@ describe('中断', () => {
     expect(store.getState().routePhase).toBeNull();
   });
 
-  // 離脱での中断はこの画面が持たない（navigation/search-abandon.test.ts）。
-  // アンマウントを合図にすると StrictMode の二重マウントで本物の検索を殺すため。
-  // 合図をアンマウントへ戻すと、ここが赤くなる。
   it('StrictMode の二重マウントでは止めない', async () => {
     let resolve!: (plan: RoutePlan) => void;
     const navigate = vi.fn();
@@ -155,8 +146,6 @@ describe('中断', () => {
     expect(store.getState().route).toBe(aRoute);
   });
 
-  // 成功で result へ移るときも loading はアンマウントされる。そこで止めにいくと、
-  // 次の検索まで巻き添えにしかねない。
   it('結果が出て離れるときは止めない', async () => {
     const { view } = setup();
 
@@ -169,7 +158,6 @@ describe('中断', () => {
   });
 });
 
-// 移植元の「地図を敷いた背景」。装飾であって進捗の一部ではない。
 describe('地図の背景', () => {
   it('地図を敷く', () => {
     setup();
@@ -177,8 +165,6 @@ describe('地図の背景', () => {
     expect(screen.getByTestId('loading-map')).toBeDefined();
   });
 
-  // 移植元は ArukuMap(showRoute: false)。ここで経路を描くと、まだ出ていない検索結果が
-  // 背景に描かれていることになる。
   it('まだ出ていない経路を背景に描かない', () => {
     setup();
 
@@ -191,9 +177,6 @@ describe('地図の背景', () => {
     expect(screen.getByTestId('loading-map').getAttribute('aria-hidden')).toBe('true');
   });
 
-  // 実キーがあるとここは本物の地図になる。aria-hidden が外すのは読み上げの木だけで、
-  // canvas と Google が差し込む帰属表示のリンクは依然フォーカスを受け、ジェスチャーは
-  // 入力を飲む。装飾の背景にタブで入れてしまう（PR #402 の Codex レビュー）。
   it('装飾なので操作もできない', () => {
     setup();
 

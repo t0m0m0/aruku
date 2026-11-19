@@ -1,6 +1,3 @@
-// 移植元: flutter-final:lib/features/search/places_provider.dart と
-// flutter-final:test/features/search/places_provider_test.dart
-
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
@@ -50,7 +47,6 @@ function harness(
   return { state, autocomplete };
 }
 
-/// debounce を跨いで、走り出した fetch の解決まで進める。
 async function settle(): Promise<void> {
   await vi.advanceTimersByTimeAsync(searchDebounce);
 }
@@ -82,7 +78,6 @@ describe('入力の待ち合わせ', () => {
     expect(autocomplete).toHaveBeenCalledWith('渋谷', null, expect.anything());
   });
 
-  // 1文字ごとに投げると課金リクエストが打鍵数だけ出る。
   it('連打しても最後の1回だけ問い合わせる', async () => {
     const { state, autocomplete } = harness();
 
@@ -148,7 +143,6 @@ describe('位置バイアス', () => {
 });
 
 describe('世代のガード', () => {
-  // 遅れて返った古い検索の結果で、新しい検索の表示を上書きしてはいけない。
   it('追い越された結果は反映しない', async () => {
     const pending = new Map<string, (value: PlacePrediction[]) => void>();
     const { state } = harness({
@@ -186,8 +180,6 @@ describe('世代のガード', () => {
     expect(state.getState().status).toBe('loading');
   });
 
-  // 空のクエリも世代を進める。進めないと、走っている fetch が後から
-  // 「候補あり」を書き戻して、消したはずの入力に候補が残る。
   it('入力を消した後に届いた結果も反映しない', async () => {
     let resolve!: (value: PlacePrediction[]) => void;
     const { state } = harness({
@@ -207,7 +199,6 @@ describe('世代のガード', () => {
 });
 
 describe('古い要求の中止 (#488)', () => {
-  /// 中止に従う偽サービス。走っている要求を query ごとに持ち、中止で ClientException。
   function abortable() {
     const requests = new Map<
       string,
@@ -237,7 +228,6 @@ describe('古い要求の中止 (#488)', () => {
   });
 
   it('中止した要求が遅れて成功しても、新しい入力の状態を上書きしない', async () => {
-    // 中止に間に合わず完了した応答の再現。中止に従わない実装と同じ形になる。
     const pending = new Map<string, (value: PlacePrediction[]) => void>();
     const signals = new Map<string, AbortSignal>();
     const { state } = harness({
@@ -365,7 +355,6 @@ describe('近くの店モード', () => {
     expect(state.getState().suggestions.map((p) => p.placeId)).toEqual(['near', 'far']);
   });
 
-  // 距離が取れない候補を 0 扱いにすると、無関係な候補が先頭へ来る。
   it('距離の取れない候補は関連度順のまま末尾へ回す', async () => {
     const { state } = harness({
       location: here,
@@ -414,7 +403,6 @@ describe('近くの店モード', () => {
     expect(state.getState().suggestions.map((p) => p.placeId)).toEqual(['far', 'near']);
   });
 
-  // 切替のたびに問い合わせると、課金リクエストと 400ms 待ちが積み上がる。
   it('切替では問い合わせ直さず、取得済みを並べ替える', async () => {
     const { state, autocomplete } = harness({
       location: here,
@@ -456,7 +444,6 @@ describe('近くの店モード', () => {
 
     await settle();
 
-    // 走っていた取得が、切り替わった後のモードで反映される。
     expect(state.getState().suggestions.map((p) => p.placeId)).toEqual(['near', 'far']);
   });
 
@@ -530,8 +517,6 @@ describe('後片付け', () => {
     expect(autocomplete).not.toHaveBeenCalled();
   });
 
-  // debounce を過ぎて走り出した後の dispose。タイマーを落とすだけでは間に合わず、
-  // 解決した結果が閉じた画面の状態へ書き戻る（React の「アンマウント後の更新」）。
   it('すでに走っている問い合わせの結果も反映しない', async () => {
     let resolve!: (value: PlacePrediction[]) => void;
     const { state } = harness({

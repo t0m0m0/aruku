@@ -1,8 +1,3 @@
-// 再生ハーネス（#504）がエンジンへ注入する HttpClient。
-//
-// Transit API の応答を URL ごとに録画し、同じ応答を録画した遅延で返す。比べる版の両方へ
-// 同じ上流を見せることで、上流のばらつき（中央値 9〜11 秒・裾 30 秒超）を版の差から消す。
-
 import { GeoPoint } from '@aruku/engine/models/geo-point';
 import {
   ClientException,
@@ -15,52 +10,33 @@ import { syntheticWalkResponse } from './synthetic-walk';
 
 export interface ReplayEntry {
   readonly status: number;
-  /// 応答本文の base64。
   readonly body: string;
-  /// 発行から本文を受け取るまでの実時間。
   readonly ms: number;
 }
 
-/// 照会 URL（`href`）→ 録画。
 export type ReplayStoreData = Partial<Record<string, ReplayEntry>>;
 
-/// 上流が返さなかった照会（タイムアウト・通信失敗）の印。HTTP のステータスとは重ならない。
 export const timedOutStatus = 599;
 
 export interface ReplaySessionInit {
-  /// `record` は録画の有無に関わらず上流へ取りに行き、録画を置き換える。
   readonly mode: 'record' | 'replay';
   readonly store: ReplayStoreData;
   readonly fetchLive: (url: URL) => Promise<ReplayEntry>;
-  /// 徒歩プロキシの origin。ここ宛ての照会には合成応答を返す（synthetic-walk.ts）。
   readonly proxyOrigin: string;
-  /// 引き直しの1本の上限の模擬（#503）。録画の遅延がこれを超える照会を、この時刻に
-  /// タイムアウトさせる。エンジンの `transitRequestTimeout` は通らない——上限を変えた版の
-  /// エンジンを作らずに見込みを測るため。
   readonly refetchLimitMs?: number | null;
-  /// 上限を掛けない照会（初回の2波）。
   readonly isInitial?: (url: URL) => boolean;
-  /// 発行した Transit の照会の通知（呼び出し元の記録など）。
   readonly onRequest?: (url: URL) => void;
-  /// 徒歩プロキシの origin 宛ての `exactWalkMax` に答える関数（#513・exact-replay.ts）。
-  /// 省略すると、合成できない経路として 404 を返す。
   readonly exactWalkMax?: (url: URL) => Promise<{ status: number; body: string }>;
-  /// [exactWalkMax] の応答を返すまでの遅延。
   readonly exactDelayMs?: number;
 }
 
-/// 1回の実行で共有する録画と計数。クライアントは検索ごとに作って閉じる（エンジンが検索の
-/// 寿命でクライアントを所有するため・#259）。
 export class ReplaySession {
   constructor(private readonly init: ReplaySessionInit) {
     this.store = init.store;
   }
 
   readonly store: ReplayStoreData;
-  /// 再生モードで録画に無く、上流へ取りに行った照会の数。0 でない再生は、上流の
-  /// ばらつきを含むので版の差として読めない。
   misses = 0;
-  /// 引き直しの上限の模擬でタイムアウトさせた照会の数。
   limitHits = 0;
 
   private readonly inflight = new Map<string, Promise<ReplayEntry>>();
@@ -69,15 +45,12 @@ export class ReplaySession {
     return new ReplayHttpClient(this);
   }
 
-  /// 上流へ取りに行っている照会がすべて録画に入るまで待つ。検索はクライアントを閉じても
-  /// 上流の fetch を止めない（猶予切れで捨てた照会など）ので、保存の前に呼ぶ。
   async settle(): Promise<void> {
     while (this.inflight.size > 0) {
       await Promise.allSettled(this.inflight.values());
     }
   }
 
-  /// 照会1本の応答と、それを返すまでに待つ時間。
   async resolve(url: URL): Promise<{ entry: ReplayEntry; delayMs: number }> {
     if (url.origin === new URL(this.init.proxyOrigin).origin) {
       if (this.init.exactWalkMax !== undefined && url.pathname.endsWith('/exactWalkMax')) {
@@ -104,7 +77,6 @@ export class ReplaySession {
       return { entry: recorded, delayMs: recorded.ms };
     }
     if (this.init.mode === 'replay') this.misses++;
-    // 上流の実時間はもう払ったので、録画の遅延を重ねて待たない。
     return { entry: await this.fetchOnce(url), delayMs: 0 };
   }
 
@@ -139,8 +111,6 @@ class ReplayHttpClient implements HttpClient {
     return { statusCode: entry.status, bodyBytes: Buffer.from(entry.body, 'base64') };
   }
 
-  // get の中で this.closed を直に見ないのは、TS が await を跨いでも一度 false と絞った
-  // フィールドを false のまま扱い、待ちの間に close された判定を「起きない」と見なすため。
   private throwIfClosed(): void {
     if (this.closed) throw new ClientException('closed');
   }
@@ -167,8 +137,6 @@ class ReplayHttpClient implements HttpClient {
   }
 }
 
-/// 出発地→目的地を電車だけで引く照会（初回の departure 波・arrival 波）か。バスを許す
-/// 照会は last-resort の再照会なので含めない。
 export function isInitialQuery(url: URL, origin: GeoPoint, goal: GeoPoint): boolean {
   const from = geoParam(url.searchParams.get('from'));
   const to = geoParam(url.searchParams.get('to'));

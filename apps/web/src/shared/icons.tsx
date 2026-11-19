@@ -1,15 +1,3 @@
-// 移植元: flutter-final:lib/shared/icons/ic.dart。
-//
-// ただし Dart 側は Canvas 命令で描いており、そこから起こし直してはいない。原本は
-// design_handoff_aruku_mvp/design-reference/icons.jsx の SVG で、Dart 版がそれを
-// Canvas へ移したもの——戻り先はハンドオフのほう。
-//
-// 色は currentColor に寄せ、引数から落とした。移植元は Flutter に「継承される文字色」
-// が無いため色を必ず渡していたが、CSS では親の color が降りてくる。
-//
-// すべて aria-hidden。意味はラベル側が持つ（アイコンだけのボタンは呼び出し側が
-// aria-label を付ける）。
-
 interface IconProps {
   size?: number;
 }
@@ -102,7 +90,6 @@ export function ClockIcon({ size = 18 }: IconProps) {
   );
 }
 
-/// ハンドオフに無い形。ClockIcon と線幅・角を揃えて起こした。
 export function CalendarIcon({ size = 18 }: IconProps) {
   return (
     <svg {...svgProps(size)}>
@@ -149,7 +136,6 @@ export function RoutesIcon({ size = 18 }: IconProps) {
   );
 }
 
-/// 目的地マーカー。塗りつぶすと内側の丸は地の色で抜く（移植元と同じ）。
 export function PinIcon({ size = 20, filled = false }: IconProps & { filled?: boolean }) {
   return (
     <svg {...svgProps(size)}>

@@ -1,10 +1,3 @@
-// 同梱する日本語フォントを「この app が実際に描く文字」ぶんへ絞る。
-//
-// 移植元は GoogleFonts.notoSansJp のランタイム取得で、#382 がやめると決めたもの。
-// 素直な代わりは @fontsource-variable/noto-sans-jp をそのまま読み込むことだが、
-// あの 124 分割は日本語の「文章」向けで、散らばった UI 文言には噛み合わない
-// （実測: 描画される 431 文字のために 839 KB を引く）。絞ると 179 KB になる。
-
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
@@ -14,32 +7,10 @@ type ScanState = 'code' | 'line' | 'block' | 'single' | 'double' | 'template' | 
 
 const stringStates = new Set<ScanState>(['single', 'double', 'template']);
 
-/// `/` を正規表現の始まりと読んでよい直前の文字。
-///
-/// 「除算になる文字」を挙げて残りを正規表現とする書き方は採れない。`.tsx` では
-/// 閉じタグ `</span>` の `/` が `<` の直後に、自己終了タグ `/>` の `/` が `}` や
-/// `"` の直後に来る——どれも「除算になる文字」には入らないので正規表現と読まれ、
-/// 次の `/` まで走査が飛んで、その間の文字列リテラルが丸ごと語彙から落ちる
-/// （PR #403 の Codex 指摘。`result-timeline.tsx` の「→」が実際に落ちていた）。
-///
-/// 許可する側を挙げると、判断がつかない文字は「正規表現ではない」へ倒れる。
-/// 外した場合の損害が非対称なのでこちらを選ぶ——正規表現を見逃しても、その中に
-/// 引用符があるときだけ状態がずれる（現在のソースには無い）のに対し、正規表現と
-/// 誤読すると任意の長さのソースを黙って飲み込む。
 const regexCanFollow = /[(,;=:!&|?[{]/u;
 
-/// 文字列リテラルの中身だけを取り出す。
-///
-/// コメントを正規表現で落としてから文字列を拾う素直な実装は採れない。`//` は
-/// URL の中に普通に出てくる（`'https://api.transit.ls8h.com'`）ので、行コメントを
-/// 素朴に落とすと文字列が途中で切れる。逆に文字列を先に拾うと、コメント内の
-/// 引用符で状態がずれる。どちらか一方では足りず、同じ走査で両方を追う必要がある。
-///
-/// 取りこぼしは豆腐として画面に出るが、出るのはその文言を描く経路に入ったとき
-/// だけなので、見落としやすい方向に倒れる。だから曖昧なものは拾う側へ寄せる。
 function* scanStringLiterals(source: string): Generator<string> {
   let state: ScanState = 'code';
-  // テンプレートリテラルの `${}` は中がコードに戻る。入れ子になるため積む。
   const templateStack: number[] = [];
   let braceDepth = 0;
   let lastSignificant = '';
@@ -50,7 +21,6 @@ function* scanStringLiterals(source: string): Generator<string> {
 
     if (stringStates.has(state) || state === 'regex') {
       if (ch === '\\') {
-        // エスケープは次の1文字ごと飛ばす。`'\''` で状態が抜けないようにする。
         i++;
         continue;
       }
@@ -82,7 +52,6 @@ function* scanStringLiterals(source: string): Generator<string> {
       continue;
     }
 
-    // ここから state === 'code'
     if (ch === '/' && next === '/') {
       state = 'line';
       i++;
@@ -107,7 +76,6 @@ function* scanStringLiterals(source: string): Generator<string> {
   }
 }
 
-/// コードポイント単位で切り出した1文字のコードポイント。切り出した文字は空にならない。
 function codePointOf(ch: string): number {
   const cp = ch.codePointAt(0);
   if (cp === undefined) throw new Error('codePointOf: empty string');
@@ -118,23 +86,12 @@ function codePointHex(cp: number): string {
   return cp.toString(16).toUpperCase();
 }
 
-/// 描かれ得ない文字を落とす。
-///
-/// 空白（U+0020 など）は残す。「余白にグリフは要らない」と落とすと、語彙段が
-/// その文字を覆わなくなり、ブラウザは空白を描くためのフォントを **次の family へ
-/// 探しに行く**——遅延段の latin と 117 を引いて、空白1文字のために 92 KB を
-/// 落とした（実ブラウザの network で確認）。描画は成立するので目視では見えない。
-///
-/// 落とすのは改行・タブ・制御文字だけ。これらはソースの整形であって、
-/// テキストとして描かれる位置には出てこない。
 function hasGlyph(ch: string): boolean {
   const cp = codePointOf(ch);
   if (cp < 0x20 || cp === 0x7f) return false;
   return !/[\t\n\r\f\v]/u.test(ch);
 }
 
-/// ソース片の集まりから語彙を作る。並びは決定的（コードポイント順）で、
-/// 同じ入力からは同じフォントが出る。
 export function collectVocabularyFromSources(sources: Iterable<string>): string {
   const chars = new Set<string>();
   for (const source of sources) {
@@ -145,28 +102,12 @@ export function collectVocabularyFromSources(sources: Iterable<string>): string 
   return [...chars].sort().join('');
 }
 
-/// index.html から描かれうる文字を拾う。
-///
-/// タグを丸ごと落とすだけでは足りない。この app で index.html にある日本語は
-/// `<meta name="description">` の content 属性の中**だけ**にあり、属性値ごと消える。
-/// 抜けるとブラウザはその文字列のために遅延段を引く（実ブラウザで確認。
-/// 「電車に乗らず、時間内で最大限歩く」のために 80 KB を取っていた）。
 function collectFromHtml(html: string): string[] {
   const attributes = [...html.matchAll(/content\s*=\s*"([^"]*)"/gu)].map((m) => m[1]);
   const text = html.replace(/<[^>]*>/gu, ' ');
   return [...[text, ...attributes].join(' ').matchAll(/\S/gu)].map((m) => m[0]);
 }
 
-/// `root` 配下のソースと `extraSourceDirs` から語彙を集める。
-///
-/// i18n のモジュールだけを見る実装にはしない。描画される日本語はテンプレート
-/// リテラルの形で他へも散っている——`src/i18n/format.ts` の「月」「日」、
-/// `src/features/loading/loading-screen.tsx` の「まで · 制限」がそれで、
-/// 見落とすとその画面だけが豆腐になる。
-///
-/// `extraSourceDirs` には `packages/engine/src` が入る。エンジンは alias で
-/// ソース直参照され同じバンドルへ入るので、その文字列リテラルは apps/web 自身の
-/// ものと同じだけ描かれる——`rail-line-names.ts` の路線名がそれ。
 export function collectVocabulary(root: string, extraSourceDirs: readonly string[] = []): string {
   const sources: string[] = [];
   const dirs = [join(root, 'src'), ...extraSourceDirs];
@@ -176,7 +117,6 @@ export function collectVocabulary(root: string, extraSourceDirs: readonly string
   const html = readFileSync(join(root, 'index.html'), 'utf8');
   return collectVocabularyFromSources([
     ...sources,
-    // HTML を走査器へ直接渡せないので、拾った文字を文字列リテラルの形で与える。
     `'${collectFromHtml(html).join('').replaceAll('\\', '').replaceAll("'", '')}'`,
   ]);
 }
@@ -190,7 +130,6 @@ function* sourceFiles(dir: string): Generator<string> {
 }
 
 export interface FontFace {
-  /// Fontsource の woff2 のファイル名。`files/` 配下の名前だけを持つ。
   file: string;
   ranges: [number, number][];
 }
@@ -204,8 +143,6 @@ const faceBlock = /@font-face\s*\{([^}]*)\}/gu;
 const srcFile = /url\([^)]*?([\w-]+\.woff2)\)/u;
 const rangeDecl = /unicode-range:\s*([^;]+);/u;
 
-/// Fontsource の index.css を読んで、各 @font-face のファイル名と unicode-range を
-/// 宣言順のまま返す。順序は捨てない——後勝ちの判定がこの順に乗っている。
 export function parseFontFaces(css: string): FontFace[] {
   const faces: FontFace[] = [];
   for (const [, body] of css.matchAll(faceBlock)) {
@@ -228,16 +165,9 @@ function parseRanges(declared: string): [number, number][] {
   });
 }
 
-/// どの woff2 をどの文字ぶんへ絞るかを決める。
-///
-/// 文字ごとに1つの face へ割り振る形にはしない。unicode-range が重なったとき当たる
-/// face を決めるのは CSS の後勝ちであって、こちらの割り振りではない——自前で決めると
-/// 本家が当てる face とずれ、当たった側にグリフが無い状態を作り得る。積を取れば、
-/// 当たる face がどれであれ必ずその文字を持っている。
 export function subsetPlan(faces: FontFace[], vocabulary: string): SubsetEntry[] {
   const entries: SubsetEntry[] = [];
   for (const face of faces) {
-    // サブセットはコードポイント単位で切る（unicode-range がコードポイントで書かれる）。
     // oxlint-disable-next-line typescript/no-misused-spread
     const chars = [...vocabulary]
       .filter((ch) => {
@@ -250,8 +180,6 @@ export function subsetPlan(faces: FontFace[], vocabulary: string): SubsetEntry[]
   return entries;
 }
 
-/// 連続したコードポイントを `U+3042-3045` の形へ畳む。畳まないと宣言が語彙の
-/// 長さぶん伸び、CSS 自体が絞った甲斐を食う。
 export function formatUnicodeRange(chars: string): string {
   const points = [...new Set(chars)].map(codePointOf).sort((a, b) => a - b);
   const parts: string[] = [];
@@ -272,10 +200,6 @@ export interface EmittedFace {
   chars: string;
 }
 
-/// 絞ったフォントを指す @font-face を組む。
-///
-/// unicode-range は語彙ちょうどにする。省くと語彙外の文字にもこの family が当たり、
-/// 遅延段（Fontsource の 124 分割）へ落ちずに豆腐で止まる。
 export function buildFontFaceCss(faces: EmittedFace[]): string {
   return faces
     .map(
@@ -291,15 +215,11 @@ export function buildFontFaceCss(faces: EmittedFace[]): string {
     .join('\n');
 }
 
-/// 語彙フォントを配る仮想モジュール。main.tsx がこれを取り込む。
 export const fontsModuleId = 'virtual:aruku-fonts.css';
 const resolvedFontsModuleId = `\0${fontsModuleId}`;
 
-/// 絞ったフォントの family 名。tokens.css の `--font-sans` が先頭に置く名前と対。
 export const subsetFamily = 'Noto Sans JP Subset';
 
-/// 配信パス。ビルドでも dev でも同じ URL にする。dev だけ別経路にすると、
-/// 本番で初めて 404 が出る類の食い違いが残る。
 const fontDir = 'assets/fonts';
 
 interface SubsetOutput {
@@ -308,8 +228,6 @@ interface SubsetOutput {
 }
 
 export interface FontSubsetOptions {
-  /// `root/src` の外にある、同じバンドルへ入るソース。エンジンのソース直参照が
-  /// これにあたる（vite.config.ts の alias と同じ場所を指す）。
   extraSourceDirs?: readonly string[];
 }
 
@@ -341,11 +259,6 @@ async function buildSubsets(
   return { css: buildFontFaceCss(faces), files };
 }
 
-/// 日本語フォントを語彙ぶんへ絞って配る Vite プラグイン。
-///
-/// prebuild の npm script にはしない。CI は `npm run build` ではなく `npx vite build` を
-/// 直に叩くので（.github/workflows/ci.yml）、script に置くと CI では黙って飛び、
-/// フォントの無い dist が「成功」として出てしまう。ビルドの内側に置けば外せない。
 export function arukuFontSubset(options: FontSubsetOptions = {}): Plugin {
   let root = process.cwd();
   let pending: Promise<SubsetOutput> | undefined;
@@ -367,7 +280,6 @@ export function arukuFontSubset(options: FontSubsetOptions = {}): Plugin {
       return (await subsets()).css;
     },
 
-    // dev には emitFile が無い。同じ URL を自前で返す。
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const name = req.url?.split('?')[0]?.replace(`/${fontDir}/`, '');
@@ -378,7 +290,6 @@ export function arukuFontSubset(options: FontSubsetOptions = {}): Plugin {
         void subsets().then(({ files }) => {
           const body = name === undefined ? undefined : files.get(name);
           if (body === undefined) {
-            // Connect のミドルウェアは next() で次へ渡す約束で、Promise を返す形が無い。
             // oxlint-disable-next-line promise/no-callback-in-promise
             next();
             return;
@@ -390,8 +301,6 @@ export function arukuFontSubset(options: FontSubsetOptions = {}): Plugin {
     },
 
     async buildEnd() {
-      // 取り込み側が1つでもあれば load が走っているが、走っていなくても
-      // ここで作っておく。emitFile は generateBundle より前に済ませる。
       await subsets();
     },
 

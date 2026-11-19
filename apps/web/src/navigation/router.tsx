@@ -13,13 +13,8 @@ import type { AppStore } from '../state/store';
 import { resolveRedirect } from './guard';
 import { Screen, screenPath } from './screens';
 
-/// 現在時刻の供給元。テストで失効（#264）を制御できるよう注入可能にする。
 export type Now = () => Date;
 
-/// 依存を渡さずに組んだルート表の既定。描画した時点で落ちる。
-///
-/// 黙って動く既定（何も返さない PlacesService 等）を置くと、配線漏れが
-/// 「候補が出ない検索画面」として残る——上流の不調と区別がつかない。
 const depsNotWired: ScreenDeps = {
   places: {
     autocomplete: () => {
@@ -44,27 +39,13 @@ function failNotWired(): never {
   throw new Error('RecentsRepository が未配線（appRoutes の deps）');
 }
 
-/// アプリ全体のルート表。
-///
-/// 移植元（flutter-final:lib/core/navigation/app_router.dart）と違い、現在地の権威は URL だけが
-/// 持つ。state → router / router → state の双方向同期とエコー遮断は要らなくなった。
-/// 残す不変条件は「画面と表示前提データが揃っていること」で、それは各ルートの
-/// loader が [resolveRedirect] で見る。
-///
-/// '/' と '*' も同じ loader を通す。[resolveRedirect] が未知 location を home へ
-/// 解決するので、跳ね返し先の分岐を2箇所に分けない。
 export function appRoutes(
   store: StoreApi<AppStore>,
   now: Now = () => new Date(),
   deps: ScreenDeps = depsNotWired,
 ): RouteObject[] {
-  // `redirect` ではなく `replace` を投げる。`redirect` は跳ね返し先を**積む**ので、
-  // 弾かれた URL が履歴に残り、home へ着いた後の最初の「戻る」が home を再表示する
-  // だけになる（実ブラウザで確認。PR #391 レビュー）。ガードが拒んだ location は
-  // 履歴に残してはいけない。
   const guard = ({ request }: { request: Request }): null => {
     const to = resolveRedirect(request.url, store.getState(), now());
-    // react-router のローダーは Response を投げて遷移させる約束になっている。
     // oxlint-disable-next-line typescript/only-throw-error
     if (to !== null) throw replace(to);
     return null;
@@ -76,9 +57,6 @@ export function appRoutes(
     Component: componentFor(screen, store, now, deps),
   }));
 
-  // 画面をレイアウトルートの下へ置く。ネストは `<Outlet>` の入れ子であって履歴を
-  // 積まない（戻り先を作るのは navigator.ts）ので、包んでも戻り挙動には触れない。
-  // guard は子に残す——親へ移すと、跳ね返し先の判定が画面ごとの表示前提から離れる。
   return [
     {
       Component: () => <AppShell store={store} />,
@@ -93,9 +71,6 @@ function componentFor(
   now: Now,
   deps: ScreenDeps,
 ): () => React.JSX.Element {
-  // default 節は置かない。置くと画面が増えたときに黙ってそこへ落ちる。網羅して
-  // いなければ tsc が TS2366（返り値に undefined を含まない）で落とす——#386 の
-  // 間ずっと出ていたプレースホルダは、まさにその default 節だった。
   switch (screen) {
     case Screen.home:
       return () => (
@@ -108,7 +83,6 @@ function componentFor(
           }}
         />
       );
-    // 検索は目的地／出発地で同じ画面。違うのはモードと、書き込む先・履歴の系統だけ。
     case Screen.search:
     case Screen.searchOrigin:
       return () => (

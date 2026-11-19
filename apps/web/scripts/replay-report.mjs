@@ -1,10 +1,3 @@
-// 再生ハーネス（#504）で回した2つの版の JSONL を突き合わせ、Markdown を標準出力へ出す。
-//
-//   node scripts/replay-report.mjs main.jsonl head.jsonl [--labels main,head]
-//
-// 集計の本体は src/bench/replay/replay-report.ts で、Node の型除去でそのまま読む
-// （ab-report.mjs と同じ）。
-
 import { readFileSync } from 'node:fs';
 
 import { replayReport } from '../src/bench/replay/replay-report.ts';
@@ -19,8 +12,6 @@ if (aPath === undefined || bPath === undefined || (labels !== null && labels.len
   process.exit(2);
 }
 
-// 行の形は確かめない。読むのは自分のベンチが書いた JSONL で、集計側の型（BenchRecord 等）を
-// 実行時に検査し直す型述語を持つ益が、開発時だけの集計に見合わない。
 /**
  * @param {string} line
  * @returns {unknown}

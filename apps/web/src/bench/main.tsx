@@ -1,9 +1,3 @@
-// 厳密走査の A/B 計測（#462）の入口。`npm run dev` の間だけ /bench.html で開ける。
-//
-// `vite build` の入力は index.html だけなので、この入口は本番の配信物に入らない
-// （test/build/production-bundle.test.ts が確かめる）。App Check は本番と同じく
-// src/firebase/app-check.ts を通す——開発時はデバッグトークンで交換される。
-
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -45,8 +39,6 @@ const transit = new TransitApiClient({
   transitBaseUrl: appConfig.transitApiBaseUrl,
 });
 
-/// 検索と検索の間の待ち。1検索で十数本を叩くので、直列でも間を置かないと上流
-/// （Transit API・プロキシのレート制限 docs/ops/exact-ab-bench.md）に連続で当たり続ける。
 const pauseBetweenSearchesMs = 3000;
 
 const total = benchPairs.length * benchSlots.length * benchBudgetRatios.length;
@@ -82,7 +74,6 @@ const run = (date: Date, hooks: BenchHooks): Promise<void> =>
     },
   );
 
-/// 照合する経路の上限。issue の「数本」に合わせ、Transit API への往復も抑える。
 const verifyLimit = 10;
 
 const board = transitBoardApi(createTransitClient(), appConfig.transitApiBaseUrl);

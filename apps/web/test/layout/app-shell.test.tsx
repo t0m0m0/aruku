@@ -1,11 +1,3 @@
-// 移植元: flutter-final:lib/shared/widgets/desktop_shell.dart。
-//
-// 移植元はシェルを Navigator の**外**に置いた。go_router のネスト構造が戻り先
-// （search/result/error→home）を表していて、ShellRoute で包むとその構造に
-// 手を入れることになるからだった。React Router ではネストは `<Outlet>` の入れ子で
-// あって履歴を積まない——戻り先を作っているのは navigator.ts の push/replace/pop の
-// 使い分けなので、レイアウトルートで包んでも戻り挙動には触れない。
-
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -19,8 +11,6 @@ import { createNavigator } from '../../src/navigation/navigator';
 import { Screen, screenPath } from '../../src/navigation/screens';
 import { createAppStore, type AppStore } from '../../src/state/store';
 
-/// シェルをレイアウトルートに置いた最小のルート表で描く。画面の中身は
-/// 差し替えている——ここで見るのはシェルと、シェルが起こす遷移だけ。
 function renderShell(entries: string[], store: StoreApi<AppStore> = createAppStore()) {
   const router = createMemoryRouter(
     [
@@ -55,7 +45,6 @@ afterEach(() => {
 });
 
 describe('AppShell', () => {
-  // タブは #432 で撤去した。押せるのはロゴ（と名前）の home への導線だけ。
   it.each([
     ['モバイル幅', false],
     ['デスクトップ幅', true],
@@ -96,13 +85,6 @@ describe('AppShell', () => {
   });
 
   it('画面が移ったら本文のスクロール位置を先頭へ戻す', async () => {
-    // 本文の器は遷移で作り直されない（替わるのは <Outlet> の中身だけ）。この器が
-    // スクローラなので、前の画面の scrollTop を次の画面が引き継ぐ。ブラウザの
-    // 復元は document のスクロールしか見ない（PR #407 の Codex レビュー）。
-    //
-    // 今は本文の器でスクロールする画面が home しか無く、短い画面へ移ると
-    // scrollTop は自然に 0 へ丸まる——実ブラウザでは再現できないので、ここでは
-    // 機構そのものを見る。
     stubViewport(true);
     const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
     const { store } = renderShell([screenPath[Screen.home], screenPath[Screen.search]]);
@@ -111,8 +93,6 @@ describe('AppShell', () => {
     store.getState().go(Screen.home);
 
     expect(await screen.findByText('ホーム本文')).toBeDefined();
-    // 描画の確定と useEffect の実行は別の tick。findByText が前者を捉えた時点では
-    // まだ走っていないことがある（CI で再現）。
     await waitFor(() => {
       expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
     });

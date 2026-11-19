@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-// appConfig はモジュールの評価時に import.meta.env を読むので、値ごとに読み直す。
 async function loadConfig() {
   vi.resetModules();
   return (await import('../src/config')).appConfig;

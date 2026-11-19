@@ -1,10 +1,3 @@
-// 移植元: flutter-final:lib/core/state/app_state.dart の `startSearch` / `cancelSearch` /
-// `_expireRoute` と、flutter-final:test/core/state/ の対応するテスト群。
-//
-// 守りたい不変条件は移植元と同じ——画面と表示前提データが揃っていること。ただし
-// 権威が URL へ移ったので、`go()` が呼ばれた時点でストアが遷移先のガードを通ることで
-// 反証する（store.test.ts と同じ流儀）。
-
 import { describe, expect, it, vi, type Mock } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
@@ -69,7 +62,6 @@ function harness(
   return { store, navigate, plan, seen, setNow: (at) => (current = at) };
 }
 
-/// 目的地が決まった状態。検索の入口はここから。
 const withDestination = { destination: '渋谷駅', destinationLatLng: goal };
 
 describe('検索の開始', () => {
@@ -156,7 +148,6 @@ describe('検索へ渡すもの', () => {
     expect(plan.mock.calls[0][0].originName).toBeNull();
   });
 
-  // isNow の出発は起動時刻のまま腐る。照会の直前に現在時刻へ更新する（#264）。
   it('「今すぐ」出発は照会直前の現在時刻へ更新する', async () => {
     const { store, plan, setNow } = harness({
       initial: {
@@ -172,7 +163,6 @@ describe('検索へ渡すもの', () => {
     const args = plan.mock.calls[0][0];
     expect(args.departure.h).toBe(9);
     expect(args.departure.m).toBe(45);
-    // 予算90分を保って到着も追従する。
     expect(args.arrival.h).toBe(11);
     expect(args.arrival.m).toBe(15);
   });
@@ -205,7 +195,6 @@ describe('成功', () => {
     expect(store.getState().routeErrorKind).toBeNull();
   });
 
-  // routeAsOf は「now 基準で確定した経路」にだけ付く。固定出発は時間で腐らない。
   it('「今すぐ」経路だけ失効の基準時刻を持つ', async () => {
     const nowStore = harness({
       initial: {
@@ -269,8 +258,6 @@ describe('失敗', () => {
     expect(store.getState().routeErrorKind).toBe(RouteErrorKind.network);
   });
 
-  // 失敗時に出発を確定すると、旧経路を残したままヘッダー（出発）だけ新時刻へ動き、
-  // 旧経路のタイムラインと前提時刻がズレる。
   it('出発・到着も旧経路も触らない', async () => {
     const { store, setNow } = harness({
       initial: {
@@ -306,7 +293,6 @@ describe('中断', () => {
     expect(store.getState().routePhase).toBeNull();
   });
 
-  // 中断後に古い応答が届いて home から result へ引き戻すのを防ぐ（#221）。
   it('中断後に届いた結果を反映しない', async () => {
     let resolve!: (plan: RoutePlan) => void;
     const { store, seen } = harness({
@@ -338,8 +324,6 @@ describe('中断', () => {
     expect(store.getState().routeErrorKind).toBeNull();
   });
 
-  // 表示前提（routePhase）を残すと、戻る→進むで待ち画面の loader が通してしまう。
-  // 誰も完了させない待ち画面に入れてしまう（PR #398 の Codex レビュー）。
   it('離脱で捨てたら待ち画面の表示前提も落とす', async () => {
     const { store } = harness({
       initial: withDestination,
@@ -356,7 +340,6 @@ describe('中断', () => {
     );
   });
 
-  // 遷移はブラウザが済ませている。ここから動かすと二重になる。
   it('離脱で捨てても遷移はしない', async () => {
     const { store, seen } = harness({
       initial: withDestination,
@@ -370,7 +353,6 @@ describe('中断', () => {
     expect(seen).toHaveLength(before);
   });
 
-  // 世代だけでは進行中の HTTP が完了まで走り切る。通信そのものを切る（#259）。
   it('進行中の通信を切る', () => {
     const { store, plan } = harness({ initial: withDestination });
     void store.getState().startSearch();
@@ -408,8 +390,6 @@ describe('中断', () => {
   });
 });
 
-// 配線漏れは検索の失敗ではなく組み立ての誤り。分類の対象にすると「ルートを取得でき
-// ませんでした」という**もっともらしい画面**になり、上流の不調と区別がつかなくなる。
 describe('RouteService が未配線', () => {
   it('エラー画面へ落とさず、その場で倒れる', async () => {
     const store = createAppStore({ ...withDestination }, () => noon, {
@@ -424,8 +404,6 @@ describe('RouteService が未配線', () => {
   });
 });
 
-// 移植元 onAppResumed（app_state.dart）。結果を開いたまま放置・タブを背面にして
-// 猶予を超えると、古い前提の経路を見せ続けることになる。
 describe('開いたままの経路の失効', () => {
   it('猶予を超えた「今すぐ」経路を捨てて home へ戻す', async () => {
     const { store, seen, setNow } = harness({
@@ -483,8 +461,6 @@ describe('開いたままの経路の失効', () => {
   });
 });
 
-// 照会中にバックグラウンド滞在などで猶予を超えると、古い前提の結果になる（#264）。
-// 完了時のここが最後の砦——ローディング中は画面遷移で無効化できない。
 describe('照会中の失効', () => {
   it('「今すぐ」経路が猶予を超えたら結果を捨てて home へ戻す', async () => {
     const { store, seen, setNow } = harness({
@@ -537,13 +513,8 @@ describe('照会中の失効', () => {
   });
 });
 
-// Codex レビュー（PR #399）。開いたまま日を跨ぐと、保持している dateOffset が指す日が
-// 黙って1日ずれる——照会側（TransitRouteService.departureDateTime）はそれを自分の
-// 時計の「今日」から数え直すため。
 describe('開いたまま日を跨いだ検索', () => {
   it('照会へ渡す前に、保持値を今日基準へ詰め直す', () => {
-    // 11日に「明日 10:00 発」（offset 1 = 12日）と決めて放置し、12日に検索する。
-    // 詰め直さないと offset 1 のまま渡り、照会側は 13 日として解決する。
     const { store, plan, setNow } = harness({
       initial: {
         ...withDestination,
@@ -563,7 +534,6 @@ describe('開いたまま日を跨いだ検索', () => {
   });
 
   it('検索したあとの基準日は、その検索の時計に揃う', async () => {
-    // 揃えないと、home へ戻った欄が今日の予定を「昨日」基準で描く。
     const at = new Date(2026, 8, 12, 9, 0, 0);
     const { store, setNow } = harness({
       initial: {

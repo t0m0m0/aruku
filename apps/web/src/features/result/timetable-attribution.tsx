@@ -6,14 +6,10 @@ import { ja } from '../../i18n/ja';
 
 const toeiFeedId = 'Toei';
 const ccBy40Url = 'https://creativecommons.org/licenses/by/4.0/deed.ja';
-/// functions/src/timetable-pack/mini-tokyo-3d.ts のフィード id の接頭辞。
 const miniTokyo3dFeedPrefix = 'mini-tokyo-3d/';
 const miniTokyo3dLabel = 'mini-tokyo-3d';
 const miniTokyo3dUrl = 'https://github.com/nagix/mini-tokyo-3d';
 
-/// 経路の選定に使った時刻表（ODPT と mini-tokyo-3d）の出典・取得日時・問い合わせ先（#461・#510）。
-///
-/// 閉じた状態で置く。結果画面の主役は行程で（#453）、出典は気になった人が開けば足りる。
 export function TimetableAttribution({ sources }: { sources: TimetableSource[] }) {
   if (sources.length === 0) return null;
   const odpt = sources.filter((s) => !s.feedId.startsWith(miniTokyo3dFeedPrefix));
@@ -72,7 +68,6 @@ export function TimetableAttribution({ sources }: { sources: TimetableSource[] }
 
 function ExternalLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
-    // rel は target=_blank の暗黙の noopener に任せない（home-screen.tsx の LegalLink と同じ）。
     <a
       className="text-primary underline underline-offset-2"
       href={href}

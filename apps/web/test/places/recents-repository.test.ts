@@ -1,10 +1,3 @@
-// 移植元: flutter-final:lib/core/services/recents_repository.dart と
-// flutter-final:test/core/services/recents_repository_test.dart
-//
-// 書き込みの直列化（_writeLock）は移植していない。localStorage が同期なので
-// load→変更→save の間に別の操作が割り込む余地が無い。その反証が
-// 「連続して add しても取りこぼさない」。
-
 import { describe, expect, it, vi } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
@@ -61,7 +54,6 @@ describe('読み込み', () => {
     expect(repo.load()).toEqual([]);
   });
 
-  // 1件の壊れで履歴を全部落とさない。読めたものは読む。
   it('地点として成立しない要素だけ読み飛ばす', () => {
     const repo = createRecentsRepository(
       memoryStore({
@@ -131,8 +123,6 @@ describe('追加', () => {
     expect(repo.load()[0].usedAt).toEqual(stamped);
   });
 
-  // localStorage は同期なので、Dart 版の _writeLock が防いでいた
-  // 「load→save の間に別の add が割り込んで互いを上書きする」が起き得ない。
   it('連続して add しても取りこぼさない', () => {
     const repo = createRecentsRepository(memoryStore());
 
@@ -180,9 +170,6 @@ describe('系統の独立', () => {
   });
 });
 
-// Safari のプライベートモード、サイトデータを止めた設定、容量超過。どれも
-// localStorage のアクセス**自体**が投げる。履歴は利便のための機能なので、
-// 読めない・書けないことで検索そのものを落としてはいけない。
 describe('localStorage が使えない環境', () => {
   it('読めなければ空として扱う', () => {
     const repo = createRecentsRepository({

@@ -1,6 +1,3 @@
-// ODPT の公共交通オープンデータ開発者ガイドライン（2.2.1・3.1）が求める表示（#461）。
-// 結果画面のどこに置くかは result-screen.test.tsx が見る。
-
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
@@ -39,7 +36,6 @@ describe('TimetableAttribution', () => {
     expect(rowOf('東京都交通局')).toContain('2026年6月27日 4:23');
   });
 
-  // 取得は ODPT 側の時刻で、利用者の端末の時差で変わらない。
   it('端末が JST でなくても JST で出す', () => {
     const previous = process.env.TZ;
     process.env.TZ = 'America/Los_Angeles';
@@ -105,7 +101,6 @@ describe('TimetableAttribution', () => {
       expect(screen.queryByText(/Akihiko Kusanagi/)).toBeNull();
     });
 
-    // 事業者ごとに分けても、取得元と取得日時は1つ。数十行並べても読む人の役に立たない。
     it('取得日時は事業者ごとでなく mini-tokyo-3d の1行にまとめる', () => {
       render(<TimetableAttribution sources={[jrEast, tokyu, keisei]} />);
       expect(screen.getAllByRole('listitem')).toHaveLength(2);
@@ -120,7 +115,6 @@ describe('TimetableAttribution', () => {
     });
   });
 
-  // 結果画面の主役は行程（#453）。出典は気になった人が開く。
   it('閉じた状態で置き、見出しから開ける', () => {
     render(<TimetableAttribution sources={[jrEast]} />);
     const details = screen.getByText('時刻表データについて').closest('details');

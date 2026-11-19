@@ -1,15 +1,3 @@
-// shadcn/ui の Calendar（new-york-v4）。react-day-picker の上に載っている。
-//
-// 原本から外したもの:
-// - lucide-react のアイコン。依存を増やさず shared/icons の ChevronIcon で描く
-// - 範囲選択・週番号・年月ドロップダウンの装飾。使う画面が単一日の選択だけ
-// - buttonVariants の size="icon"。こちらの Button はその寸法を持たない
-// - `dark:` と `rtl:` の分岐。ダークテーマも右横書きもまだ持たない
-//
-// 表記を react-day-picker のロケール（date-fns/locale の ja）で出さないのは、同梱
-// フォントの語彙が src の文字列リテラルからしか作られないため
-// （vite/font-subset.ts）。node_modules から来た「月」「火」は語彙に入らず豆腐になる。
-
 import type { ComponentProps } from 'react';
 import {
   DayButton as DayButtonBase,

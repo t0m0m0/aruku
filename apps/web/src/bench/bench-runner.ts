@@ -1,8 +1,3 @@
-// 厳密走査の A/B 計測（#462）を直列に回す。
-//
-// 並列にしないのは、Transit API が第三者の API でレート制限が非公開だから。
-// 1検索の中でも十数本を叩く。
-
 import { GeoPoint } from '@aruku/engine/models/geo-point';
 import type { RoutePlan } from '@aruku/engine/models/route-plan';
 import type { RouteSearchMetrics } from '@aruku/engine/services/route-diagnostics';
@@ -17,22 +12,16 @@ export interface BenchConfig {
   readonly pairs: readonly OdPair[];
   readonly slots: readonly BenchSlot[];
   readonly ratios: readonly number[];
-  /// 走らせる日（壁時計の日付だけを使う）。
   readonly date: Date;
-  /// 今の時刻。エンジンは出発日を検索ごとに「今日 + `dateOffset`」で決めるので、
-  /// offset も検索ごとにこれから出す——開始時に1回だけ決めると、0時を跨いだ後の
-  /// 検索が1日ずれる。
   readonly now: () => Date;
 }
 
 export interface BenchDeps {
-  /// ふつうの乗換ルートの所要（分）。基準にできる経路が無ければ null。
   calibrate: (pair: OdPair, departureAt: Date) => Promise<number | null>;
   search: (args: PlanArgs) => Promise<{ plan: RoutePlan; metrics: RouteSearchMetrics | null }>;
   write: (record: BenchRecord) => void;
   shouldStop: () => boolean;
   onProgress?(done: number, total: number): void;
-  /// 検索と検索の間の待ち。
   pause?(): Promise<void>;
 }
 
@@ -87,8 +76,6 @@ export async function runBench(config: BenchConfig, deps: BenchDeps): Promise<vo
           error: null,
         };
         try {
-          // 今日より前の日は TimeValue が投げる（dateOffset < 0）。try の外で組むと、
-          // 計測全体が理由を残さずに落ちる。
           const { departure, arrival } = timeValuesFor(
             dayOffsetBetween(config.now(), config.date),
             slot,

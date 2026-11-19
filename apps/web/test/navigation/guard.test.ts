@@ -1,5 +1,3 @@
-// 移植元: flutter-final:lib/core/navigation/app_router.dart の `redirect`。
-
 import { describe, expect, it } from 'vitest';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
@@ -12,7 +10,6 @@ import { RouteErrorKind, routeFreshness, type RouteCore } from '../../src/state/
 
 const now = new Date(2026, 8, 11, 12, 0, 0);
 
-// 経路の中身はガードの関心事ではない（null かどうかだけを見る）。
 const someRoute = {} as RoutePlan;
 
 function core(overrides: Partial<RouteCore> = {}): RouteCore {
@@ -37,8 +34,6 @@ describe('未知の location', () => {
     expect(resolveRedirect('/home/nav', core(), now)).toBe('/home');
   });
 
-  // 撤去前のブックマークや共有リンク。跳ね返し先を home 以外へ変えると、
-  // 古い URL で入った利用者が着く先も一緒に変わる。
   it('撤去した設定画面のパスは home へ跳ね返す', () => {
     expect(resolveRedirect('/home/settings', core(), now)).toBe('/home');
   });
@@ -87,11 +82,6 @@ describe('表示前提データが揃っていれば素通しする', () => {
 });
 
 describe('undefined の前提データ', () => {
-  // RouteCore のフィールドは `X | null` だが、go() / createAppStore() が受ける
-  // Partial<RouteCore> には `{ route: undefined }` を渡せてしまう（型では防げない
-  // ——防ぐには exactOptionalPropertyTypes が要るが、それは packages/engine の
-  // ソースにも掛かる。PR #391 レビュー）。undefined を「在る」と読むと、データを
-  // 持たない result / loading / error が描画される。
   it('undefined の route では result を表示しない', () => {
     const state = { ...core(), route: undefined } as unknown as RouteCore;
 
@@ -114,7 +104,6 @@ describe('undefined の前提データ', () => {
   });
 
   it('undefined の routeAsOf でも失効判定が落ちない', () => {
-    // `=== null` だと undefined を素通しし、getTime() で TypeError になる。
     const state = {
       ...core(),
       route: someRoute,
@@ -134,7 +123,6 @@ describe('isNow 経路の失効 (#264)', () => {
   });
 
   it('猶予を使い切ったら result を表示しない', () => {
-    // 境界は「以上」。移植元 isNowRouteExpired の `>=` と揃える。
     expect(resolveRedirect('/home/result', withRoute(routeFreshness), now)).toBe('/home');
   });
 

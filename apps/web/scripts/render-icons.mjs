@@ -1,9 +1,3 @@
-// ファビコンと PWA アイコンを ArukuLogo（src/shared/logo.tsx）から書き出す。
-// 絵柄を変えたら logo.tsx を直してから `node scripts/render-icons.mjs` を走らせる。
-//
-// ラスタライズに Playwright の Chromium を借りるのは、sharp や resvg を足さずに
-// 済むから（e2e のために既に devDependency に在る）。
-
 import { readFileSync, writeFileSync } from 'node:fs';
 
 import { chromium } from '@playwright/test';
@@ -15,9 +9,6 @@ const logo = readFileSync('src/shared/logo.tsx', 'utf8');
 const leaf = /<path d="([^"]+)"/u.exec(logo)?.[1];
 if (leaf === undefined) throw new Error('logo.tsx から葉のパスを読めない');
 
-// ArukuLogo と同じ比率: 角丸は一辺の 1/3、葉は一辺の 65% の枠に中央寄せ。
-// maskable と apple-touch は OS が自前で切り抜くので角を丸めず四隅まで塗る。
-// 葉の外接は枠の中心から一辺の 27% 程度に収まり、maskable の安全域（半径 40%）の内側。
 /** @param {{ rounded: boolean }} options */
 function iconSvg({ rounded }) {
   const radius = rounded ? (100 / 3).toFixed(2) : 0;

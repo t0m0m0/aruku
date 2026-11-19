@@ -1,10 +1,3 @@
-// 再生ハーネス（#504）の本体。scripts/replay.mjs が束ねて Node で走らせる。
-//
-// 検索の組み立てと JSONL の行はブラウザのベンチ（bench-runner.ts）をそのまま使う。
-// 違うのは HttpClient だけ——上流は録画の再生、徒歩プロキシは合成応答（synthetic-walk.ts）、
-// 厳密走査は `--exact-packs` を渡したときだけ手元のパックで答える（exact-replay.ts・#513）。
-// 手順と注意は docs/ops/replay-bench.md。
-
 import { appendFileSync } from 'node:fs';
 
 import { GeoPoint } from '@aruku/engine/models/geo-point';
@@ -31,8 +24,6 @@ import { loadStore, saveStore } from './replay-store';
 
 const proxyOrigin = 'https://proxy.invalid';
 
-/// 録画モードで検索の間に置く待ち。ブラウザのベンチ（main.tsx）と同じ理由で、
-/// 第三者 API に連続で当たり続けない。
 const recordPauseMs = 3000;
 
 async function fetchLive(url: URL): Promise<ReplayEntry> {
@@ -88,8 +79,6 @@ export async function runReplay(args: ReplayArgs): Promise<number> {
       slots: args.slots,
       ratios: args.ratios,
       date: args.date,
-      // エンジンの「今日」を出発日に固定する。実行日のままだと、録画と別の日に回したとき
-      // dateOffset が負になって検索を組めない。
       now: () => args.date,
     },
     {
@@ -166,7 +155,6 @@ export async function runReplay(args: ReplayArgs): Promise<number> {
 }
 
 export async function main(argv: readonly string[]): Promise<number> {
-  // エンジンの時刻は JST の壁時計を表す naive な Date（#121）。
   if (new Date(2026, 0, 1).getTimezoneOffset() !== -540) {
     console.error('TZ=Asia/Tokyo で実行してください');
     return 2;

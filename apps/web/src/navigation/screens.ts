@@ -1,9 +1,3 @@
-// 移植元: flutter-final:lib/core/navigation/screen_paths.dart
-
-/// 画面の識別子。ルート表の語彙であって**状態ではない**——現在どの画面かの権威は
-/// URL（React Router）が持つ。移植元は `AppState.screen` にミラーを置き、go_router
-/// との双方向同期とエコー遮断を三重に敷いていたが、#386 で権威を URL 一本にした
-/// ためミラーごと不要になった。
 export const Screen = {
   home: 'home',
   search: 'search',
@@ -14,12 +8,6 @@ export const Screen = {
 } as const;
 export type Screen = (typeof Screen)[keyof typeof Screen];
 
-/// パスの前置きは戻り先の**意図**を表す（search/result/error→home）。
-///
-/// ただし React Router ではこれだけでは戻り先にならない。ネストは `<Outlet>` の入れ子で
-/// あって履歴を積まないためで、実際に [home, 子] を保つのは navigator.ts の push /
-/// replace の使い分け。移植元は go_router のネスト構造が pop スタックを兼ねていた
-/// （PR #391 レビュー）。
 export const screenPath: Readonly<Record<Screen, string>> = {
   [Screen.home]: '/home',
   [Screen.search]: '/home/search',
@@ -29,15 +17,12 @@ export const screenPath: Readonly<Record<Screen, string>> = {
   [Screen.error]: '/home/error',
 };
 
-/// 未知の location / 表示前提データを欠く deep link の安全な戻り先。
 export const fallbackScreen: Screen = Screen.home;
 
 const screenByPath = new Map<string, Screen>(
   Object.values(Screen).map((screen) => [screenPath[screen], screen]),
 );
 
-/// location（クエリ付き可）を [Screen] に解決する。未知のパスは deep link の
-/// 打ち間違い等なので安全側の home へフォールバックする。
 export function screenFromLocation(location: string): Screen {
   const path = new URL(location, 'https://placeholder.invalid').pathname;
   return screenByPath.get(path) ?? fallbackScreen;

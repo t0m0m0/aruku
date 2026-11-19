@@ -1,5 +1,3 @@
-// 再生ハーネス（#504）のコマンドライン引数。
-
 import { dateTime } from '@aruku/engine/time';
 
 import { benchBudgetRatios, benchSlots, type BenchSlot } from '../bench-cases';
@@ -9,20 +7,14 @@ export interface ReplayArgs {
   readonly mode: 'record' | 'replay';
   readonly store: string;
   readonly out: string;
-  /// 出発日（壁時計の 0 時）。照会 URL に日付が入るので、録画と同じ日を渡さないと当たらない。
   readonly date: Date;
   readonly slots: readonly BenchSlot[];
   readonly ratios: readonly number[];
-  /// `OdPair.id` を絞る正規表現。null は全組。
   readonly pairs: RegExp | null;
   readonly refetchLimitMs: number | null;
   readonly urlLog: string | null;
-  /// JSONL の各行に載せる版の名前。
   readonly label: string;
-  /// 厳密走査に答える時刻表パックの置き場所（`pack:local` の出力）。null は厳密走査を使わない（#513）。
   readonly exactPacks: string | null;
-  /// 厳密走査の応答を返すまでの遅延。既定は徒歩マトリクスの合成遅延と同じ——本番の exactWalkMax の
-  /// 中で支配的なのは Google マトリクス1回の往復で、走査そのものは数 ms で終わる（#459）。
   readonly exactDelayMs: number;
 }
 

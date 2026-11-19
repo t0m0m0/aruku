@@ -1,5 +1,3 @@
-// 厳密走査の A/B 計測（#462）の1検索ぶんを JSONL の1行にする。
-
 import type { RoutePlan } from '@aruku/engine/models/route-plan';
 import { SegmentType } from '@aruku/engine/models/route-plan';
 import { firstMissedTransit } from '@aruku/engine/services/route-plan-builder';
@@ -13,8 +11,6 @@ export interface BenchRide {
   fromLng: number | null;
   toLat: number | null;
   toLng: number | null;
-  /// JST の壁時計（`YYYY-MM-DDTHH:mm`）。照合（ab-verify.ts）がこの時刻で Transit API を
-  /// 引き直す。
   dep: string | null;
   arr: string | null;
 }
@@ -40,8 +36,6 @@ export interface BenchRecord {
   error: string | null;
 }
 
-/// `RouteSearchMetrics.toLogLine()` を値の表へ戻す。指標を JSONL 側で別に列挙すると、
-/// 1行ログにフィールドが増えるたびに書き足し忘れる。
 export function parseMetricsLine(line: string): Record<string, number | string> {
   const out: Record<string, number | string> = {};
   for (const pair of line.trim().split(/\s+/)) {

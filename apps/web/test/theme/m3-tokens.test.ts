@@ -1,12 +1,6 @@
-// Material 3 の決まり事（色の役割・文字の段階・角丸の段階）をトークンとして持つこと。
-// 値そのものは material-color-utilities の算出結果で、ここでは固定しない——固定するのは
-// 「役割が揃っている」「対になる前景が読める」「段階の数値」の3点。
-
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-// 散文の中の `--color-…` を宣言だと読まないよう、コメントを先に落とす
-// （test/theme/font-stack.test.ts と同じ理由）。
 const tokens = readFileSync('src/theme/tokens.css', 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 
 function declared(name: string): string | undefined {
@@ -21,7 +15,6 @@ function color(role: string): string {
   return value;
 }
 
-/// WCAG 2.x の相対輝度によるコントラスト比。
 function contrast(a: string, b: string): number {
   const luminance = (hex: string) => {
     const [r, g, b] = [1, 3, 5].map((i) => {
@@ -44,7 +37,6 @@ describe('色の役割', () => {
     'surface-container-highest',
   ];
 
-  // 前景と背景の組。M3 の on-X は X の上に載せる前提の色で、本文の 4.5:1 を満たす。
   const pairs: [string, string][] = [
     ['on-primary', 'primary'],
     ['on-primary-container', 'primary-container'],
@@ -56,7 +48,6 @@ describe('色の役割', () => {
     ...surfaces.flatMap((s): [string, string][] => [
       ['on-surface', s],
       ['on-surface-variant', s],
-      // 面の上に直接置く文字色としての primary と ride（テキストボタン・区間の所要）。
       ['primary', s],
       ['ride', s],
     ]),
@@ -71,14 +62,11 @@ describe('色の役割', () => {
     expect(() => color('outline-variant')).not.toThrow();
   });
 
-  // 面の濃淡で階層を作る（影に頼らない）。段階が逆転すると「上に載っている」が崩れる。
   it('surface-container は lowest から highest へ順に暗くなる', () => {
     const lightness = surfaces.slice(1).map((s) => contrast(color(s), '#000000'));
     expect(lightness).toEqual([...lightness].sort((a, b) => b - a));
   });
 
-  // shadcn の部品（Button など）が bg-primary で引く色。M3 の primary と別の値を持つと、
-  // 同じ「主要な操作」が部品と画面で2色になる。
   it('shadcn の --primary は M3 の primary を指す', () => {
     expect(declared('primary')).toBe('var(--color-primary)');
     expect(declared('primary-foreground')).toBe('var(--color-on-primary)');

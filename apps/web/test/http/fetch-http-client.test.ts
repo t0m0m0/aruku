@@ -1,10 +1,3 @@
-// 移植元: flutter-final:lib/core/services/route_service.dart の `http.Client()`（package:http）が
-// 担っていた面のうち、エンジンの `HttpClient` 契約が要求する範囲。
-//
-// 1:1 の移植ではない。Dart 側は package:http の実装をそのまま使っており、独自の
-// テストを持たない。ここで検証するのは「fetch をエンジンの契約へ嵌めたときに
-// 保たれていなければならないこと」で、とりわけ close() の意味論（#259）。
-
 import { describe, expect, it, vi } from 'vitest';
 
 import { ClientException } from '@aruku/engine/services/http-client';
@@ -110,7 +103,6 @@ describe('FetchHttpClient.close', () => {
       fetch: (_url, init) =>
         new Promise((_resolve, reject) => {
           init?.signal?.addEventListener('abort', () =>
-            // fetch は中断で AbortError を投げる。ここはその再現。
             reject(new DOMException('aborted', 'AbortError')),
           );
         }),
@@ -119,8 +111,6 @@ describe('FetchHttpClient.close', () => {
     const pending = client.get(new URL('https://example.test/a'));
     client.close();
 
-    // キャンセルは SearchScopedRouteService が CancellationToken 側で表現する。
-    // クライアントは素の通信エラーを返す契約（transit-api-client.ts:315）。
     await expect(pending).rejects.toThrow(ClientException);
   });
 
@@ -146,7 +136,6 @@ describe('FetchHttpClient.close', () => {
 });
 
 describe('要求単位の中止 (#488)', () => {
-  /// 中止されるまで応答しない fetch。渡された signal を記録する。
   function hangingFetch(): { fetch: Fetch; signals: AbortSignal[] } {
     const signals: AbortSignal[] = [];
     const fetch: Fetch = (_url, init) =>
@@ -239,7 +228,6 @@ describe('要求単位の中止 (#488)', () => {
     });
     client.close();
 
-    // 読み終えた要求は client の中止から切り離されている（リスナを残さない）。
     expect(signals[0]?.aborted).toBe(false);
   });
 });
