@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { findPolicyViolations, type PolicyViolation } from './policy.ts';
 
@@ -7,8 +7,11 @@ function repoRoot(): string {
   return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
 }
 
-function trackedPaths(root: string): string[] {
-  const output = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' });
+function trackedPaths(root: string, includeUntracked = false): string[] {
+  const args = includeUntracked
+    ? ['ls-files', '-z', '--cached', '--others', '--exclude-standard']
+    : ['ls-files', '-z'];
+  const output = execFileSync('git', args, { cwd: root, encoding: 'utf8' });
   return output.split('\0').filter((path) => path.length > 0);
 }
 
@@ -19,10 +22,25 @@ function describe(violation: PolicyViolation): string {
   return `${violation.path}:${violation.line}: コメント ${violation.text.split('\n')[0]}`;
 }
 
+function pathsFromArgs(argv: readonly string[]): string[] | null {
+  const index = argv.indexOf('--paths');
+  return index === -1 ? null : argv.slice(index + 1);
+}
+
+function stagedContent(root: string, path: string): string {
+  return execFileSync('git', ['show', `:${path}`], { cwd: root, encoding: 'utf8' });
+}
+
 const root = repoRoot();
-const violations = findPolicyViolations(trackedPaths(root), (path) =>
-  readFileSync(join(root, path), 'utf8'),
-);
+const violations = process.argv.includes('--staged')
+  ? findPolicyViolations(trackedPaths(root), (path) => stagedContent(root, path))
+  : findPolicyViolations(
+      (
+        pathsFromArgs(process.argv) ??
+        trackedPaths(root, process.argv.includes('--include-untracked'))
+      ).filter((path) => existsSync(join(root, path))),
+      (path) => readFileSync(join(root, path), 'utf8'),
+    );
 
 if (violations.length > 0) {
   for (const violation of violations) console.error(describe(violation));

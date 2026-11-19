@@ -211,6 +211,7 @@ jobs:
           python3 .claude/bash_guard_test.py
           python3 .claude/typecheck_on_edit_test.py
           python3 .claude/format_on_edit_test.py
+          python3 .claude/repo_policy_test.py
 
       # Codex 向けの写し（AGENTS.md・.codex/docs）は手で同期していて、節ごと抜け落ちていた
       # （#495）。読み込み先のディレクトリ名だけが違うのが正しい状態。
@@ -219,30 +220,25 @@ jobs:
           diff <(sed 's#^@\.claude/#@.codex/#' CLAUDE.md) AGENTS.md
           diff -r .claude/docs .codex/docs
 
-  doc-consistency:
-    name: doc / comment consistency
+  # コメントと許可外の Markdown の禁止（#528）。真実の置き場所をコード・テスト・コミットログに
+  # 絞り、腐る説明を書かせない。検査は functions/scripts/repo-policy/ に置き、TypeScript の
+  # 構文木でコメントを拾う。commit 前のフック（.claude/repo_policy.py）と編集時のフックも同じものを呼ぶ。
+  repo-policy:
+    name: no comments / no extra markdown (repo-policy)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          # doc-consistency の差分駆動の検査が base との共通祖先を要る（#357）。
-          fetch-depth: 0
 
-      - name: Doc/comment consistency
-        run: |
-          python3 .claude/doc_consistency_test.py
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            python3 .claude/doc_consistency.py --ci --base "origin/${{ github.base_ref }}"
-          else
-            # push でも差分駆動の検査（消えたシンボル・削除ファイル）を効かせる。
-            # base を渡さないとその2つが無効になり、main への直 push が素通りする。
-            # 初回 push / force push では before が空コミットを指すため素の検査へ落とす。
-            BASE="${{ github.event.before }}"
-            # 旧 tip と新 tip を直接比べる（--two-dot）。三点だと force push で
-            # 巻き戻された削除が共通祖先の側に隠れて見えない。
-            if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-              python3 .claude/doc_consistency.py --ci --base "$BASE" --two-dot
-            else
-              python3 .claude/doc_consistency.py --ci
-            fi
-          fi
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: functions
+
+      - name: Repo policy
+        run: npm run lint:policy
+        working-directory: functions

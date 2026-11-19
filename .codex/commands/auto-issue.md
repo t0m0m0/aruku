@@ -84,7 +84,7 @@ git checkout -b <type>/<issue番号>-<短いslug>
 npm --prefix apps/web run typecheck && npm --prefix apps/web test && npm --prefix apps/web run lint && npm --prefix apps/web run build && npm --prefix apps/web run e2e
 npm --prefix packages/engine run typecheck && npm --prefix packages/engine test && npm --prefix packages/engine run lint
 npm --prefix functions run build && npm --prefix functions test && npm --prefix functions run lint
-python3 .claude/doc_consistency.py --staged
+npm --prefix functions run lint:policy
 ```
 
 いずれか失敗したら**コミットしない**。修正して再実行する。

@@ -6,7 +6,7 @@ rules_version = '2';
 // レートリミッタの動作には影響しない。
 //
 // かつて本人に開けていた userSync/{uid} の例外は、同期を撤去したあとも「配布済みの
-// クライアントを壊さないため」に残していたが、配布された版が無いため閉じた（#387）。 doc-consistency:keep
+// クライアントを壊さないため」に残していたが、配布された版が無いため閉じた（#387）。
 // 同期を作り直すときの手順は docs/security_hardening.md ⑥。
 service cloud.firestore {
   match /databases/{database}/documents {

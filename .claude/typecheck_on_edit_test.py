@@ -97,6 +97,25 @@ class LintCommandTest(unittest.TestCase):
         self.assertIn("--report-unused-disable-directives-severity=error", command)
 
 
+class PolicyTargetTest(unittest.TestCase):
+    def test_checks_code_in_packages_and_markdown_anywhere(self):
+        self.assertEqual(hook.policy_target(ROOT / "apps/web/src/main.tsx", ROOT), "apps/web/src/main.tsx")
+        self.assertEqual(hook.policy_target(ROOT / "apps/web/scripts/replay.mjs", ROOT), "apps/web/scripts/replay.mjs")
+        self.assertEqual(hook.policy_target(ROOT / "docs/new.md", ROOT), "docs/new.md")
+        self.assertEqual(hook.policy_target(ROOT / "README.md", ROOT), "README.md")
+
+    def test_ignores_other_files_and_files_outside_the_repo(self):
+        self.assertIsNone(hook.policy_target(ROOT / ".claude/guard.py", ROOT))
+        self.assertIsNone(hook.policy_target(ROOT / "apps/web/node_modules/x/index.ts", ROOT))
+        self.assertIsNone(hook.policy_target(Path("/elsewhere/a.ts"), ROOT))
+
+    def test_runs_the_same_check_as_ci_on_the_edited_file_only(self):
+        self.assertEqual(
+            hook.policy_command("docs/new.md"),
+            ["npm", "run", "--silent", "lint:policy", "--", "--paths", "docs/new.md"],
+        )
+
+
 class HookProtocolTest(unittest.TestCase):
     def test_skips_files_it_does_not_check(self):
         result = subprocess.run(
