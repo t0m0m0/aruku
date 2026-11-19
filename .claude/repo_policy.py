@@ -72,26 +72,47 @@ INDEX_CHANGING_GIT_COMMANDS = {
 }
 
 
-def _git_subcommand(tokens):
+ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _git_invocation(tokens):
+    """(サブコマンド, その後ろの引数, -C で移る先の一覧) を返す。git でなければ (None, [], [])。"""
+    start = 0
+    while start < len(tokens) and ASSIGNMENT_RE.match(tokens[start]):
+        start += 1
+    tokens = tokens[start:]
     if not tokens or tokens[0] != "git":
-        return None, []
+        return None, [], []
+    directories = []
     i = 1
     while i < len(tokens) and tokens[i].startswith("-"):
+        if tokens[i] == "-C" and i + 1 < len(tokens):
+            directories.append(tokens[i + 1])
         i += 2 if tokens[i] in GIT_OPTIONS_WITH_VALUE else 1
     if i >= len(tokens):
-        return None, []
-    return tokens[i], tokens[i + 1 :]
+        return None, [], directories
+    return tokens[i], tokens[i + 1 :], directories
 
 
-def _find_commit(command):
+def _find_commit(command, cwd="."):
     staged_before = False
+    directory = Path(cwd)
     for tokens in _segments(command):
-        subcommand, rest = _git_subcommand(tokens)
+        if len(tokens) >= 2 and tokens[0] == "cd":
+            directory = directory / tokens[1]
+            continue
+        subcommand, rest, git_directories = _git_invocation(tokens)
         if subcommand == "commit":
-            return rest, staged_before
+            for git_directory in git_directories:
+                directory = directory / git_directory
+            return rest, staged_before, directory
         if subcommand in INDEX_CHANGING_GIT_COMMANDS:
             staged_before = True
-    return None, staged_before
+    return None, staged_before, directory
+
+
+def commit_directory(command, cwd):
+    return _find_commit(command, cwd)[2]
 
 
 def _commit_args(command):
@@ -125,7 +146,7 @@ def _takes_worktree(args):
 
 def policy_command(command):
     base = ["npm", "run", "--silent", "lint:policy"]
-    args, staged_before = _find_commit(command)
+    args, staged_before, _ = _find_commit(command)
     if staged_before:
         return base + ["--", "--include-untracked"]
     return base if _takes_worktree(args or []) else base + ["--", "--staged"]
@@ -151,7 +172,8 @@ def main():
     if not isinstance(command, str) or not is_git_commit(command):
         sys.exit(0)
 
-    root = repo_root(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or ".")
+    start = payload.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or "."
+    root = repo_root(commit_directory(command, start))
     try:
         result = subprocess.run(
             policy_command(command),

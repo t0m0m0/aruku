@@ -33,6 +33,8 @@ class IsGitCommitTest(unittest.TestCase):
             "git --no-pager commit -m x",
             "git add -A\ngit commit -m x",
             "cd /repo\n  git commit -q -F - <<'EOF'\nmsg\nEOF",
+            'GIT_AUTHOR_DATE="2026-11-19T10:00:00Z" git commit -m x',
+            "A=1 B=2 git commit --amend --no-edit",
         ]:
             with self.subTest(command=command):
                 self.assertTrue(hook.is_git_commit(command))
@@ -110,6 +112,16 @@ class _Exit:
             self.code = exc.code
             return True
         return False
+
+
+class CommitDirectoryTest(unittest.TestCase):
+    def test_follows_git_dash_c_and_preceding_cd(self):
+        self.assertEqual(hook.commit_directory("git -C /other commit -m x", "/repo"), Path("/other"))
+        self.assertEqual(hook.commit_directory("cd sub && git commit -m x", "/repo"), Path("/repo/sub"))
+        self.assertEqual(hook.commit_directory("cd /a; git -C b commit -m x", "/repo"), Path("/a/b"))
+
+    def test_stays_in_the_given_directory_otherwise(self):
+        self.assertEqual(hook.commit_directory("git commit -m x", "/repo"), Path("/repo"))
 
 
 class RepoRootTest(unittest.TestCase):
