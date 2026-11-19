@@ -24,11 +24,19 @@ function pathsFromArgs(argv: readonly string[]): string[] | null {
   return index === -1 ? null : argv.slice(index + 1);
 }
 
+function stagedContent(root: string, path: string): string {
+  return execFileSync('git', ['show', `:${path}`], { cwd: root, encoding: 'utf8' });
+}
+
 const root = repoRoot();
-const paths = (pathsFromArgs(process.argv) ?? trackedPaths(root)).filter((path) =>
-  existsSync(join(root, path)),
-);
-const violations = findPolicyViolations(paths, (path) => readFileSync(join(root, path), 'utf8'));
+const violations = process.argv.includes('--staged')
+  ? findPolicyViolations(trackedPaths(root), (path) => stagedContent(root, path))
+  : findPolicyViolations(
+      (pathsFromArgs(process.argv) ?? trackedPaths(root)).filter((path) =>
+        existsSync(join(root, path)),
+      ),
+      (path) => readFileSync(join(root, path), 'utf8'),
+    );
 
 if (violations.length > 0) {
   for (const violation of violations) console.error(describe(violation));

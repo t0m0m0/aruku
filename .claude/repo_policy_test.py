@@ -31,6 +31,8 @@ class IsGitCommitTest(unittest.TestCase):
             "git -C /repo commit -m x",
             "git -c user.name=a commit -m x",
             "git --no-pager commit -m x",
+            "git add -A\ngit commit -m x",
+            "cd /repo\n  git commit -q -F - <<'EOF'\nmsg\nEOF",
         ]:
             with self.subTest(command=command):
                 self.assertTrue(hook.is_git_commit(command))
@@ -46,6 +48,31 @@ class IsGitCommitTest(unittest.TestCase):
         ]:
             with self.subTest(command=command):
                 self.assertFalse(hook.is_git_commit(command))
+
+
+class PolicyCommandTest(unittest.TestCase):
+    def test_checks_the_index_for_an_ordinary_commit(self):
+        self.assertEqual(
+            hook.policy_command("git commit -m x"),
+            ["npm", "run", "--silent", "lint:policy", "--", "--staged"],
+        )
+
+    def test_checks_the_working_tree_when_the_commit_takes_it(self):
+        for command in [
+            "git commit -a -m x",
+            "git commit -am x",
+            "git commit --all -m x",
+            "git commit -m x src/a.ts",
+            "git commit -m x -- src/a.ts",
+        ]:
+            with self.subTest(command=command):
+                self.assertEqual(hook.policy_command(command), ["npm", "run", "--silent", "lint:policy"])
+
+    def test_does_not_mistake_a_message_for_the_all_flag(self):
+        self.assertEqual(
+            hook.policy_command("git commit -m '-a'"),
+            ["npm", "run", "--silent", "lint:policy", "--", "--staged"],
+        )
 
 
 def _run_main(command, returncode=0, output=""):
