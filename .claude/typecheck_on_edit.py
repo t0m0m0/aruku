@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """PostToolUse hook: 編集した TypeScript ファイルのパッケージを型検査し、そのファイルを
-oxlint にかけて、エラーを返す。
+oxlint にかけて、エラーを返す。編集したコード・Markdown にはコメントと許可外の Markdown の
+検査（#528、CI の repo-policy と同じもの）もかける。
 
 exit 2 の stderr は Claude に渡る（PostToolUse では編集を取り消さず、知らせるだけ）。
 """
@@ -17,6 +18,7 @@ EXTENSIONS = (".ts", ".tsx")
 # functions/lib は tsc の出力先。そこを検査対象にすると出力を検査し続けることになる。
 IGNORED_DIRS = ("node_modules", "lib", "dist")
 MAX_LINES = 20
+POLICY_EXTENSIONS = (".ts", ".tsx", ".mjs", ".cjs", ".md")
 
 
 def package_for(file_path, root):
@@ -85,6 +87,33 @@ def lint_command(package_dir, edited_relative):
     ]
 
 
+def policy_target(file_path, root):
+    try:
+        relative = Path(file_path).resolve().relative_to(Path(root).resolve())
+    except ValueError:
+        return None
+    if relative.suffix not in POLICY_EXTENSIONS or "node_modules" in relative.parts:
+        return None
+    return relative.as_posix()
+
+
+def policy_command(relative):
+    return ["npm", "run", "--silent", "lint:policy", "--", "--paths", relative]
+
+
+def run_policy(root, relative):
+    try:
+        result = subprocess.run(
+            policy_command(relative),
+            cwd=Path(root) / "functions", capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if result.returncode == 0:
+        return ""
+    return result.stderr.strip()
+
+
 def run_typecheck(package_dir, edited_relative):
     tsc = package_dir / "node_modules" / ".bin" / "tsc"
     if not tsc.exists():
@@ -127,13 +156,22 @@ def main():
     file_path = payload.get("tool_input", {}).get("file_path")
     if not isinstance(file_path, str):
         sys.exit(0)
+    reports = []
+    target = policy_target(file_path, root)
+    if target is not None:
+        violations = run_policy(root, target)
+        if violations:
+            reports.append(f"[POLICY] {target} にコメントか許可外の Markdown がある（#528）:\n{violations}")
+
     package = package_for(file_path, root)
     if package is None:
+        if reports:
+            sys.stderr.write("\n".join(reports) + "\n")
+            sys.exit(2)
         sys.exit(0)
 
     package_dir = Path(root) / package
     edited_relative = Path(file_path).resolve().relative_to(package_dir.resolve()).as_posix()
-    reports = []
     type_errors = run_typecheck(package_dir, edited_relative)
     if type_errors:
         reports.append(f"[TYPECHECK] {package} で型エラー:\n{type_errors}")

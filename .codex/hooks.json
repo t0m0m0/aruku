@@ -21,8 +21,8 @@
           },
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)/.claude/doc_consistency.py\"",
-            "timeout": 30
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.claude/repo_policy.py\"",
+            "timeout": 60
           }
         ]
       }
