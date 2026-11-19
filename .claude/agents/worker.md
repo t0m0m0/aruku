@@ -30,5 +30,5 @@ CLAUDE.md の「Session Startup」のコマンドを実行し、作業ブラン�
 ## 終了時の必須確認
 
 - 失敗しているテストを残していないこと
-- 変更した挙動を説明するコメント・ドキュメントを同じコミットで直したこと（CLAUDE.md「Keeping Docs in Sync」）
+- コメントや許可外の Markdown を足していないこと、Why をコミットメッセージに書いたこと（CLAUDE.md「Where to Write What」）
 - 何を変えたか・何を検証したか・残った懸念を呼び出し元に報告する

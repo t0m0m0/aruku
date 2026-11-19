@@ -19,7 +19,7 @@ PRのdiffをフラットな目で見て、品質上の問題をコメントす�
 - `await` を跨いだ画面操作（離脱後に続きが走らないか）
 - 画面と表示前提データを同じ `go()` の `update` で更新しているか（CLAUDE.md「Navigation」）
 - テストカバレッジの妥当性。テスト名が仕様として読めるか（`.claude/docs/testing.md`）
-- コメントの置き場所（CLAUDE.md「Where to Write What」）。How を書いたコメント、挙動と食い違うコメント
+- 説明の置き場所（CLAUDE.md「Where to Write What」）。コメントや Markdown を足していないか、Why がコミットメッセージにあるか
 - コンポーネントの責務分離（1コンポーネントが大きすぎないか）
 - 状態の置き場所（store とコンポーネントの状態の設計）
 - エラーハンドリングの漏れ

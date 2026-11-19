@@ -57,58 +57,37 @@ NEVER:
 
 ## Where to Write What
 
-情報は「どこに書けば寿命が合うか」で置き場所を決める。
+真実の置き場所は **コード・テスト・コミットログ** の3つだけにする（#528）。コメントとドキュメントは
+コードが変わっても追従されずに腐り、古い記述は判断を誤らせるので、書かない。
 
 | 場所 | 書くこと | 具体例 |
 | --- | --- | --- |
-| コード | **How** — どう実現しているか | 命名・構造・型でHowを語る。コメントで説明しない |
+| コード | **How** — どう実現しているか | 命名・構造・型で語る |
 | テストコード | **What** — 何を満たすべきか | テスト名が仕様書になるように書く |
-| コミットログ | **Why** — なぜこの変更が必要か | 背景・課題・意思決定。issue番号と紐づける |
-| コードコメント | **Why not** — なぜ他の方法を採らなかったか | 制約・罠・見送った代替案 |
+| コミットログ | **Why / Why not** — なぜこの変更か、なぜ他の方法を採らなかったか | 背景・制約・罠・見送った代替案。issue番号と紐づける |
 
 IMPORTANT:
 
-- コメントに How を書かない（コードの重複であり、腐る）
-- コメントに Why を書かない（コミットログの仕事）
-- 「なぜこう書いていないのか」がコードから復元できないときだけコメントを足す
+- **コードコメントを書かない**（`packages/engine`・`apps/web`・`functions` の `.ts` `.tsx` `.mjs` `.cjs`）
+- **Markdown を足さない**。置いてよいのは `README.md`・`CLAUDE.md`・`AGENTS.md`・`.claude/`・`.codex/`・
+  `.agents/` の指示ファイル・`docs/ops/`・`docs/security_hardening.md`・`docs/archive/flutter-restore.md` だけ
+- 「なぜこう書いていないのか」を残したくなったら、コミットメッセージに書く。コードから読めない罠は、
+  それを踏むテストを書いて名前で語る
+- 残した文書（`README.md`・`docs/ops/`・`docs/security_hardening.md`）が説明する挙動・手順を変えたら、
+  同じコミットで直す。分けた時点で「後で」になり、実際には直らない（#357）
+- 消したコメント・文書は `pre-comment-purge` タグから `git show pre-comment-purge:<path>` で引ける
 
-例:
+例外（ツールが読むので消すと挙動が変わるもの）:
 
-```ts
-// 素直には depTime でソートしたいが、untimed 便は depTime が null で
-// 末尾に沈むため arrTime を採用している。#121 参照。
-candidates.sort((a, b) => a.arrTime.getTime() - b.arrTime.getTime());
-```
+- `// oxlint-disable-next-line <rule>`・`eslint-disable*`・`// @ts-expect-error`・`/// <reference ... />`・
+  `/* @vite-ignore */`・`// @vitest-environment <env>`・shebang
+- `.mjs` / `.cjs` の型だけの JSDoc（`@type`・`@param`・`@returns`・`@typedef`・`@property`・`@template`・`@satisfies`。説明文は書かない）
+- 設定ファイル（`*.config.*`・JSON・yml など）と、生成物 `packages/engine/src/services/station-coord-table.ts`（ライセンス表記を持つ）
 
----
-
-## Keeping Docs in Sync
-
-IMPORTANT: **コードを変えたら、その挙動を説明しているコメント・ドキュメントを同じコミットで直す。**
-別コミットにしない——分けた時点で「後で」になり、実際には直らない（#357 で3件が腐っていた）。
-
-同じコミットで見直す対象:
-
-| 変えたもの | 見直す先 |
-| --- | --- |
-| 関数・クラス・定数の挙動 | その doc comment と、直上の行コメント |
-| シンボルの撤去・改名 | 他ファイルのコメント・`docs/`・`README.md` に残る言及 |
-| ファイルの削除・移動 | コメント／ドキュメントに書かれたパス |
-| セキュリティ・運用手順 | `docs/security_hardening.md`・`docs/ops/` |
-
-腐りやすいのは**断定**（「常に null」「表示ごと廃止」「〜しない」）。前提が戻ると丸ごと嘘になる。
-
-**意図的に残す場合は、なぜ残すのかをコメントに書く。** 到達しないコード・使われないフィールドを
-残す判断自体は正当（例: `RouteSegment.fare`）。書いていないと次に読む人が腐りと区別できない。
-
-この規約は `.claude/doc_consistency.py` が commit 前に機械的に検査し（消えたシンボルへの参照・
-存在しないパス・存在しない `§N`）、CI でも同じ検査が走る。機械で判定できない意味的な食い違いは
-commit 前のエージェントフックが見る。**検査に引っかかったら、既定は記述を直すこと。**
-
-例外は「撤去の経緯そのものを書いている記述」だけ——`` `navitimeProxy` は #330 で撤去した ``の
-ような行は、消えたシンボル名が出てくるのが正しい。その行に `doc-consistency:keep` を書くと
-検査から外れる。**腐りを黙らせるために使わない。** 消えた名前が説明の主題ではなく、まだ在るかの
-ように書かれているなら、それは直す対象。
+検査は `functions/scripts/repo-policy/`（`npm --prefix functions run lint:policy`）。CI の `repo-policy` ジョブ、
+commit 前のフック（`.claude/repo_policy.py`）、編集時のフック（`.claude/typecheck_on_edit.py`）が同じものを走らせる。
+**検査に引っかかったら、コメントや Markdown を消すこと。** 許可リストを広げるのは、ツールが読むものを
+足すときだけ。
 
 ---
 
@@ -116,7 +95,7 @@ commit 前のエージェントフックが見る。**検査に引っかかっ�
 
 Before every commit, run:
 
-- `python3 .claude/doc_consistency.py --staged`（index を検査する。commit フックも同じ検査を走らせる）
+- `npm --prefix functions run lint:policy`（コメントと許可外の Markdown の検査。commit フックも同じ検査を走らせる）
 
 When `packages/engine/` changes, also run in `packages/engine/`:
 
@@ -143,8 +122,8 @@ When `apps/web/` changes, also run in `apps/web/`:
 
 Lint（oxlint + tsgolint）の規則はルートの `.oxlintrc.json` に置き、各パッケージが extends する。
 規則は error / off の二値で、警告は使わない。違反は既定で直す。規則が正しいのに書き方を崩せない
-行だけ、理由のコメントを添えて `// oxlint-disable-next-line <rule>` で抑止する（使われない抑止は
-それ自体がエラーになる）。
+行だけ、`// oxlint-disable-next-line <rule>` で抑止し、抑止した理由はコミットメッセージに書く（使われない
+抑止はそれ自体がエラーになる）。
 
 依存の向き（engine → web / functions の禁止、web の本番コード → `src/bench` の禁止、循環 import の
 禁止）は dependency-cruiser が検査する。規則はルートの `.dependency-cruiser.cjs`、走らせるのは
