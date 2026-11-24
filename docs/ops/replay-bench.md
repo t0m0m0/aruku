@@ -154,7 +154,11 @@ node scripts/replay-report.mjs .replay/base.jsonl .replay/ride.jsonl
 `--ride-verify 1`（`--ride-packs` と一緒に渡す）で、パックで確定した区間についても Transit で確定し直し、
 発着が一致したか（`metrics.packVerifiedLegs`）・食い違ったか（`metrics.packMismatchLegs`）・Transit で
 確定できなかったか（`metrics.packUnverifiedLegs`）を数える。経路にはパックの答えを使うので、検索の結果は
-`--ride-verify` なしと同じ。食い違いの中身（路線・駅・発着）は、エンジンの診断ログ（`rideDepartures 検証:`）に出る。
+`--ride-verify` なしと同じ。食い違いの中身（行き先・路線・パックと Transit の駅と発着）は、stderr に
+`ride-mismatch {...}` の 1 行ずつで出る。
+
+- 比べるのは、Transit が同じ路線の列車を返した区間だけ。同じ路線の列車が無ければ、別の路線と比べず
+  「確定できず」に数える
 
 - 突き合わせのために Transit を引き直すので、用途別の「乗車時刻の確定」の本数と `totalMs` は増える。
   本数と所要は `--ride-verify` なしで測る

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { JsonMap } from '../../src/json';
 import { GeoPoint } from '../../src/models/geo-point';
 import { RouteSegment, SegmentType } from '../../src/models/route-plan';
-import { CandidateMeasurer } from '../../src/services/candidate-measurer';
+import { CandidateMeasurer, type PackMismatch } from '../../src/services/candidate-measurer';
 import { ClientException, type HttpResponse } from '../../src/services/http-client';
 import { RouteCandidate } from '../../src/services/hybrid-route-selector';
 import { RouteDiagnostics } from '../../src/services/route-diagnostics';
@@ -113,6 +113,7 @@ interface Harness {
 function harness(o: {
   rideDepartures: boolean;
   verify?: boolean;
+  onPackMismatch?: (m: PackMismatch) => void;
   pack?: (url: URL) => HttpResponse | Promise<HttpResponse>;
   guidance?: () => JsonMap;
 }): Harness {
@@ -136,6 +137,7 @@ function harness(o: {
   const measurer = new CandidateMeasurer(api, new RouteDiagnostics({ verbose: false }), {
     rideDepartures: o.rideDepartures,
     verifyRideDepartures: o.verify ?? false,
+    onPackMismatch: o.onPackMismatch,
   });
   return { measurer, api, rideUrls };
 }
@@ -351,10 +353,12 @@ describe('resolveBoardingTimes: パックの答えを Transit と突き合わせ
     expect(rides(out).map((s) => [hm(s.depTime), s.fromName])).toEqual([['9:10', '甲線乗']]);
   });
 
-  it('発着が違えば食い違いとして数え、経路はパックの答えのまま', async () => {
+  it('発着が違えば食い違いとして数え、中身を渡し、経路はパックの答えのまま', async () => {
+    const mismatches: PackMismatch[] = [];
     const h = harness({
       rideDepartures: true,
       verify: true,
+      onPackMismatch: (m) => mismatches.push(m),
       pack: byLine({ 甲線: packRide('甲線', [9, 8], [9, 18]) }),
       guidance: () => guidanceDirect('甲線', at(9, 10), at(9, 21)),
     });
@@ -363,6 +367,23 @@ describe('resolveBoardingTimes: パックの答えを Transit と突き合わせ
 
     expect(h.measurer.packMismatchLegs).toEqual(1);
     expect(rides(out).map((s) => hm(s.depTime))).toEqual(['9:08']);
+    expect(
+      mismatches.map((m) => [m.line, hm(m.pack.dep), hm(m.transit.dep), m.transit.from]),
+    ).toEqual([['甲線', '9:08', '9:10', 'G乗']]);
+  });
+
+  it('Transit に同じ路線の列車が無ければ、別の路線と比べず確定できずとして数える', async () => {
+    const h = harness({
+      rideDepartures: true,
+      verify: true,
+      pack: byLine({ 甲線: packRide('甲線', [9, 10], [9, 21]) }),
+      guidance: () => guidanceDirect('乙線', at(9, 10), at(9, 21)),
+    });
+
+    await h.measurer.resolveBoardingTimes(oneRide(), departureAt);
+
+    expect(h.measurer.packUnverifiedLegs).toEqual(1);
+    expect([h.measurer.packVerifiedLegs, h.measurer.packMismatchLegs]).toEqual([0, 0]);
   });
 
   it('Transit で確定できなかった区間は、一致とも食い違いとも数えない', async () => {

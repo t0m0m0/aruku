@@ -24,6 +24,7 @@ import {
   isComparableOption,
   maxMeasureShortlist,
   type Selection,
+  type PackMismatch,
 } from './candidate-measurer';
 import { SearchCanceledException, type CancellationToken } from './cancellation';
 import {
@@ -106,6 +107,8 @@ export interface TransitRouteServiceInit {
   rideDepartures?: boolean;
 
   verifyRideDepartures?: boolean;
+
+  onPackMismatch?: (mismatch: PackMismatch) => void;
 }
 
 export const defaultArrivalWaveGrace: Duration = seconds(5);
@@ -154,6 +157,7 @@ export class TransitRouteService implements SearchEngine {
     this.measurer = new CandidateMeasurer(this.api, this.diag, {
       rideDepartures: init.rideDepartures ?? false,
       verifyRideDepartures: init.verifyRideDepartures ?? false,
+      onPackMismatch: init.onPackMismatch,
     });
   }
 

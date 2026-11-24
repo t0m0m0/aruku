@@ -121,6 +121,15 @@ export async function runReplay(args: ReplayArgs): Promise<number> {
               exactWalkMax: args.exactPacks !== null,
               rideDepartures: args.ridePacks !== null,
               verifyRideDepartures: args.rideVerify,
+              onPackMismatch: (m) =>
+                console.error(
+                  `ride-mismatch ${JSON.stringify({
+                    pair: planArgs.destination,
+                    line: m.line,
+                    pack: [m.pack.from, m.pack.to, m.pack.dep, m.pack.arr],
+                    transit: [m.transit.from, m.transit.to, m.transit.dep, m.transit.arr],
+                  })}`,
+                ),
               deadline: new SearchDeadline(searchDeadlineBudget),
               onMetrics: (m) => {
                 metrics = m;

@@ -29,9 +29,16 @@ export interface Selection {
 
 export const maxMeasureShortlist = 13;
 
+export interface PackMismatch {
+  readonly line: string;
+  readonly pack: PackRide;
+  readonly transit: { from: string; to: string; dep: Date; arr: Date };
+}
+
 export interface CandidateMeasurerOptions {
   rideDepartures?: boolean;
   verifyRideDepartures?: boolean;
+  onPackMismatch?: (mismatch: PackMismatch) => void;
 }
 
 export class CandidateMeasurer {
@@ -42,7 +49,10 @@ export class CandidateMeasurer {
   ) {
     this.rideDepartures = options.rideDepartures ?? false;
     this.verifyRideDepartures = options.verifyRideDepartures ?? false;
+    this.onPackMismatch = options.onPackMismatch ?? null;
   }
+
+  private readonly onPackMismatch: ((mismatch: PackMismatch) => void) | null;
 
   private readonly verifyRideDepartures: boolean;
   private packVerifiedLegCount = 0;
@@ -502,7 +512,7 @@ export class CandidateMeasurer {
       seg.polyline[0],
       seg.polyline[seg.polyline.length - 1],
       boardAt,
-      { purpose: 'boarding', type: seg.type, line: seg.line },
+      { purpose: 'boarding', type: seg.type, line: seg.line, requireSameLine: true },
     );
     const dep = ep?.dep ?? null;
     const arr = ep?.arr ?? null;
@@ -515,11 +525,11 @@ export class CandidateMeasurer {
       return;
     }
     this.packMismatchLegCount++;
-    this.diag.log(
-      () =>
-        `rideDepartures 検証: 食い違い ${seg.line ?? ''} パック ${picked.from}>${picked.to} ` +
-        `${clock(picked.dep)}-${clock(picked.arr)} / Transit ${ep.from}>${ep.to} ${clock(dep)}-${clock(arr)}`,
-    );
+    this.onPackMismatch?.({
+      line: seg.line ?? '',
+      pack: picked,
+      transit: { from: ep.from, to: ep.to, dep, arr },
+    });
   }
 
   private async packRide(seg: RouteSegment, boardAt: Date): Promise<PackRide | null> {
@@ -566,6 +576,7 @@ export class CandidateMeasurer {
       needFrom?: boolean;
       needTo?: boolean;
       requireTimetable?: boolean;
+      requireSameLine?: boolean;
     },
   ): Promise<{
     from: string;
@@ -596,6 +607,7 @@ export class CandidateMeasurer {
     );
     const comparable = requireTimetable ? comparableFrom(direct, at) : direct;
     const sameLine = comparable.filter((o) => firstOfType(o, type).line === line);
+    if (options.requireSameLine === true && sameLine.length === 0) return null;
     const cands =
       line === null || line.length === 0 || sameLine.length === 0 ? comparable : sameLine;
     let leastWalk: number | null = null;
@@ -764,8 +776,4 @@ function parseEncodedPolyline(polyline: unknown): GeoPoint[] {
   const encoded = isRecord(polyline) ? polyline['encodedPolyline'] : null;
   if (typeof encoded !== 'string' || encoded.length === 0) return [];
   return decodePolyline(encoded).map(([lat, lng]) => new GeoPoint(lat, lng));
-}
-
-function clock(d: Date): string {
-  return d.toTimeString().slice(0, 5);
 }
