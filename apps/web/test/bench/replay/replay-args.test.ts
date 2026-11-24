@@ -38,6 +38,19 @@ describe('parseReplayArgs', () => {
     expect(args.exactDelayMs).toBe(1500);
   });
 
+  it('既定では乗車時刻の確定に時刻表パックを使わず、使うときはパックの置き場所と遅延を受け取る（#549）', () => {
+    const base = parseReplayArgs(required);
+    expect(base.ridePacks).toBeNull();
+    expect(base.rideDelayMs).toBe(600);
+
+    const args = parseReplayArgs([...required, '--ride-packs', '.odpt', '--ride-delay-ms', '300']);
+    expect(args.ridePacks).toBe('.odpt');
+    expect(args.rideDelayMs).toBe(300);
+    expect(() => parseReplayArgs([...required, '--ride-delay-ms', 'x'])).toThrow(
+      'bad --ride-delay-ms: x',
+    );
+  });
+
   it('厳密走査の遅延は 0 以上の整数だけを受ける', () => {
     expect(() => parseReplayArgs([...required, '--exact-delay-ms', '-1'])).toThrow(
       'bad --exact-delay-ms: -1',

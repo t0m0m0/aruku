@@ -1,7 +1,7 @@
 import { dartRound } from '../dart-number';
 import { intOr, isRecord, type JsonMap } from '../json';
 import { GeoPoint } from '../models/geo-point';
-import { RouteSegment, SegmentType } from '../models/route-plan';
+import { RouteSegment, SegmentType, type TimetableSource } from '../models/route-plan';
 import { decodePolyline } from '../polyline';
 import { firstAcceptedInOrder } from '../promises';
 import { startedStopwatch } from '../stopwatch';
@@ -17,6 +17,7 @@ import {
   kcalPerKm,
 } from './route-plan-builder';
 import { RouteException } from './route-service';
+import { parsePackRide, type PackRide } from './pack-departures';
 import type { LastResortBus, SearchSession, WalkLegCache } from './search-session';
 import type { TransitApiClient } from './transit-api-client';
 import { parseGuidancePlan, type TransitOption } from './transit-plan-parser';
@@ -28,11 +29,23 @@ export interface Selection {
 
 export const maxMeasureShortlist = 13;
 
+export interface CandidateMeasurerOptions {
+  rideDepartures?: boolean;
+}
+
 export class CandidateMeasurer {
   constructor(
     private readonly api: TransitApiClient,
     private readonly diag: RouteDiagnostics,
-  ) {}
+    options: CandidateMeasurerOptions = {},
+  ) {
+    this.rideDepartures = options.rideDepartures ?? false;
+  }
+
+  private readonly rideDepartures: boolean;
+  private packUnavailable = false;
+  private packBoardingLegCount = 0;
+  private readonly packSources = new Map<string, TimetableSource>();
 
   async selectAndEnrich(
     candidates: RouteCandidate[],
@@ -418,6 +431,18 @@ export class CandidateMeasurer {
       if (seg.polyline.length < 2) continue;
       const cumBefore = arrivalMinutes(segs.slice(0, i), departureAt);
       const boardAt = plusMinutes(departureAt, cumBefore);
+      const picked = await this.packRide(seg, boardAt);
+      if (picked !== null) {
+        segs[i] = seg.copyWith({
+          fromName: seg.fromName.length === 0 ? picked.from : undefined,
+          toName: seg.toName.length === 0 ? picked.to : undefined,
+          depTime: picked.dep,
+          arrTime: picked.arr,
+          minutes: Math.trunc((picked.arr.getTime() - picked.dep.getTime()) / 60000),
+        });
+        changed = true;
+        continue;
+      }
       onRedraw?.();
       const ep = await this.fetchTransitEndpoints(
         seg.polyline[0],
@@ -442,6 +467,47 @@ export class CandidateMeasurer {
     }
     if (!changed) return cand;
     return new RouteCandidate({ from: cand.from, to: cand.to, segments: segs });
+  }
+
+  get packBoardingLegs(): number {
+    return this.packBoardingLegCount;
+  }
+
+  get packTimetableSources(): TimetableSource[] {
+    return [...this.packSources.values()];
+  }
+
+  private async packRide(seg: RouteSegment, boardAt: Date): Promise<PackRide | null> {
+    if (!this.rideDepartures || this.packUnavailable) return null;
+    if (seg.type !== SegmentType.train || seg.line === null || seg.line.trim() === '') return null;
+    let answer;
+    try {
+      const body = await this.api.fetchRideDeparture(
+        boardAt,
+        seg.polyline[0],
+        seg.polyline[seg.polyline.length - 1],
+        { boardName: seg.fromName, alightName: seg.toName, line: seg.line },
+      );
+      answer = parsePackRide(body);
+    } catch (error) {
+      if (error instanceof SearchCanceledException) throw error;
+      answer = null;
+    }
+    if (answer === null) {
+      this.packUnavailable = true;
+      this.diag.log(() => 'rideDepartures: 失敗 → この検索の残りは Transit で乗車時刻を確定');
+      return null;
+    }
+    const { ride } = answer;
+    if (ride === null || ride.dep.getTime() < boardAt.getTime()) return null;
+    for (const source of answer.sources) {
+      const seen = this.packSources.get(source.feedId);
+      if (seen === undefined || seen.fetchedAt.getTime() < source.fetchedAt.getTime()) {
+        this.packSources.set(source.feedId, source);
+      }
+    }
+    this.packBoardingLegCount++;
+    return ride;
   }
 
   async fetchTransitEndpoints(

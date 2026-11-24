@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { HttpsFunction } from 'firebase-functions/v2/https';
 
-import { exactWalkMax, googleWalkMatrixProxy, googleWalkProxy, placesProxy } from '../src/index';
+import {
+  exactWalkMax,
+  googleWalkMatrixProxy,
+  googleWalkProxy,
+  placesProxy,
+  rideDepartures,
+} from '../src/index';
 
 function endpoint(fn: HttpsFunction): { region?: string[]; maxInstances?: number } | undefined {
   return (
@@ -16,6 +22,7 @@ const ALL_PROXIES = [
   ['googleWalkMatrixProxy', googleWalkMatrixProxy],
   ['placesProxy', placesProxy],
   ['exactWalkMax', exactWalkMax],
+  ['rideDepartures', rideDepartures],
 ] as const;
 
 const EXPECTED_MAX_INSTANCES = 10;

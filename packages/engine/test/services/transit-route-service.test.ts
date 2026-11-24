@@ -4199,6 +4199,89 @@ describe('plan: 時刻なしハイブリッドの実発車時刻検証（approac
     expect(captured!.enrichCriticalMs).toBeGreaterThan(0);
   });
 
+  it('rideDepartures を有効にしても、エンドポイントが無ければ Transit で同じ経路を確定する (#549)', async () => {
+    const run = async (rideDepartures: boolean) => {
+      let captured: RouteSearchMetrics | null = null;
+      const client = nightMock();
+      const plan = await new TransitRouteService({
+        transitClient: client,
+        proxyClient: client,
+        transitBaseUrl: transitBase,
+        proxyBaseUrl: proxyBase,
+        clock: () => dateTime(2026, 6, 27, 2, 0),
+        onMetrics: (m) => (captured = m),
+        rideDepartures,
+      }).plan({
+        destination: '終着駅',
+        destinationLatLng: goal6,
+        departure: new TimeValue({ h: 2, m: 0 }),
+        arrival: new TimeValue({ h: 7, m: 0 }),
+        origin: origin6,
+        originName: '出発',
+      });
+      return { plan, metrics: captured! };
+    };
+
+    const off = await run(false);
+    const on = await run(true);
+
+    expect(on.metrics.rideDepartureCalls).toBeGreaterThan(0);
+    expect(on.metrics.packBoardingLegs).toEqual(0);
+    expect(off.metrics.rideDepartureCalls).toEqual(0);
+    expect(on.metrics.guidanceBoarding).toEqual(off.metrics.guidanceBoarding);
+    expect(on.plan.segments.map((x) => [x.type, x.line, x.depTime, x.arrTime])).toEqual(
+      off.plan.segments.map((x) => [x.type, x.line, x.depTime, x.arrTime]),
+    );
+  });
+
+  it('rideDepartures で乗車時刻を確定した経路は、そのフィードの取得日時を出典に載せる (#549)', async () => {
+    const night = nightMock();
+    const client: HttpClient = {
+      get: (url) => {
+        if (url.pathname !== '/rideDepartures') return night.get(url);
+        const at = new Date(url.searchParams.get('at') ?? '');
+        const arr = new Date(at.getTime() + 30 * 60000);
+        const iso = (d: Date) =>
+          `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` +
+          `T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:00+09:00`;
+        return Promise.resolve(
+          json({
+            ride: {
+              route: url.searchParams.get('line'),
+              headsign: null,
+              from: '乗',
+              to: '降',
+              boardAt: iso(at),
+              alightAt: iso(arr),
+            },
+            feeds: [{ id: 'mini-tokyo-3d/Test', fetchedAt: '2026-06-26T00:00:00.000Z' }],
+          }),
+        );
+      },
+      close: () => night.close(),
+    };
+    let captured: RouteSearchMetrics | null = null;
+    const plan = await new TransitRouteService({
+      transitClient: client,
+      proxyClient: client,
+      transitBaseUrl: transitBase,
+      proxyBaseUrl: proxyBase,
+      clock: () => dateTime(2026, 6, 27, 2, 0),
+      onMetrics: (m) => (captured = m),
+      rideDepartures: true,
+    }).plan({
+      destination: '終着駅',
+      destinationLatLng: goal6,
+      departure: new TimeValue({ h: 2, m: 0 }),
+      arrival: new TimeValue({ h: 7, m: 0 }),
+      origin: origin6,
+      originName: '出発',
+    });
+
+    expect(captured!.packBoardingLegs, '前提: パックで乗車時刻を確定した').toBeGreaterThan(0);
+    expect(plan.timetableSources.map((x) => x.feedId)).toContain('mini-tokyo-3d/Test');
+  });
+
   it('予算外で best-effort へ落ちても始発前の幻バス便を提示しない', async () => {
     const plan = await nightService(nightMock()).plan({
       destination: '終着駅',

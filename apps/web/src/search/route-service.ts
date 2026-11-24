@@ -53,6 +53,8 @@ export interface RouteServiceOptions {
 
   readonly exactWalkMaxAb?: boolean;
 
+  readonly rideDepartures?: boolean;
+
   readonly onMetrics?: (metrics: RouteSearchMetrics) => void;
 
   readonly fetch?: Fetch;
@@ -74,6 +76,7 @@ export function createRouteService(options: RouteServiceOptions): RouteService {
       cancellation,
       exactWalkMax: options.exactWalkMax ?? false,
       exactWalkMaxAb: options.exactWalkMaxAb ?? false,
+      rideDepartures: options.rideDepartures ?? false,
       onMetrics: options.onMetrics,
       deadline: new SearchDeadline(searchDeadlineBudget),
     });

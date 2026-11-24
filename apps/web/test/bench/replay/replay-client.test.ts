@@ -277,6 +277,35 @@ describe('ReplaySession', () => {
     });
   });
 
+  describe('乗車時刻の確定（#549）', () => {
+    it('rideDepartures の照会は渡した関数に答えさせ、指定の遅延のあとで返す', async () => {
+      const fetchLive = vi.fn();
+      const rideDepartures = vi.fn(async () => ({ status: 200, body: '{"ride":null}' }));
+      const s = session({ fetchLive, rideDepartures, rideDelayMs: 600 });
+      const url = new URL(`${proxy}/rideDepartures?line=1`);
+
+      let settled = false;
+      const res = s
+        .client()
+        .get(url)
+        .finally(() => (settled = true));
+      await vi.advanceTimersByTimeAsync(599);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+
+      const got = await res;
+      expect(text(got.bodyBytes)).toBe('{"ride":null}');
+      expect(rideDepartures).toHaveBeenCalledWith(url);
+      expect(fetchLive).not.toHaveBeenCalled();
+    });
+
+    it('関数を渡していなければ、本番に無いのと同じく 404 を返す', async () => {
+      const s = session();
+      const res = await s.client().get(new URL(`${proxy}/rideDepartures`));
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
   describe('close', () => {
     it('待っている照会を ClientException で中断する', async () => {
       const url = guidance(origin, goal);

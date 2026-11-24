@@ -293,8 +293,18 @@ export class RouteSearchMetrics {
 
   exactCalls = 0;
 
+  rideDepartureCalls = 0;
+
+  packBoardingLegs = 0;
+
   get httpRoundTrips(): number {
-    return this.guidanceCalls + this.walkCalls + this.matrixCalls + this.exactCalls;
+    return (
+      this.guidanceCalls +
+      this.walkCalls +
+      this.matrixCalls +
+      this.exactCalls +
+      this.rideDepartureCalls
+    );
   }
 
   recordSpeculationWaste(stats: BoardSearchStats): void {
@@ -357,6 +367,7 @@ export class RouteSearchMetrics {
       `guidanceInitial=${this.guidanceInitial} guidanceArrival=${this.guidanceArrival} ` +
       `guidanceBoarding=${this.guidanceBoarding} guidanceNames=${this.guidanceNames} ` +
       `guidanceBoardSearch=${this.guidanceBoardSearch} guidanceBus=${this.guidanceBus} ` +
+      `rideDepartureCalls=${this.rideDepartureCalls} packBoardingLegs=${this.packBoardingLegs} ` +
       `arrivalWaveOutcome=${this.arrivalWaveOutcome ?? -1} ` +
       `arrivalWaveOptions=${this.arrivalWaveOptions} ` +
       `arrivalWaveBaseUsed=${flag(this.arrivalWaveBaseUsed)} ` +

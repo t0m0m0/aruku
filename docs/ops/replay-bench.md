@@ -15,6 +15,7 @@ Transit API（`/guidance/plan`）の応答を URL ごとに録画し、同じ応
 | Transit API | 録画の再生。録画に無い照会だけ実 API へ取りに行き（`misses`）、録画に足す |
 | 徒歩プロキシ（`googleWalkProxy`・`googleWalkMatrixProxy`） | **合成応答。** 直線距離×1.25 を分速 80m で歩いた所要を、固定の遅延（単発 600ms・マトリクス 900ms）で返す（`synthetic-walk.ts`）。本物は App Check が要り、ブラウザの外から叩けないため。**徒歩の実測が効く結果（enrich で落ちる候補・徒歩分）は実際と違い得る** |
 | 厳密走査（`exactWalkMax`） | 既定では使わない（404 を返す）。`--exact-packs <dir>` を渡すと、エンジンの厳密走査を有効にし、手元の時刻表パックで `findExactWalkMax` をこのプロセスで回して答える（`exact-replay.ts`・#513）。徒歩は徒歩プロキシと同じ合成の値で、応答は `--exact-delay-ms`（既定 900ms＝マトリクスの合成遅延）のあとで返す。下の「厳密走査の効果を測る」 |
+| 乗車時刻の確定（`rideDepartures`） | 既定では使わない（404 を返す）。`--ride-packs <dir>` を渡すと、エンジンの `rideDepartures` を有効にし、手元の時刻表パックで `findRideDepartures` をこのプロセスで回して答える（`exact-replay.ts`・#549）。応答は `--ride-delay-ms`（既定 600ms＝単発の徒歩の合成遅延）のあとで返す。下の「乗車時刻の確定をパックで引く効果を測る」 |
 | 1本の上限 | 録画時は `transitRequestTimeout`（35 秒）で打ち切る。再生時の `--refetch-limit-ms` は**ハーネス側の模擬**で、エンジンの定数は通らない。初回の2波（出発地→目的地・電車のみ）には掛けない |
 | 出発日 | `--date` で固定する。照会 URL に日付が入るので、録画と同じ日を渡さないと全部外れる。エンジンの「今日」もこの日にする |
 
@@ -123,6 +124,30 @@ Transit API（`/guidance/plan`）の応答を URL ごとに録画し、同じ応
   ログ・`docs/ops/observability.md`）とずれていれば、そちらに合わせる
 - 徒歩は合成なので、厳密走査の候補が enrich（Google の街路の実測）で落ちる分は出ない。効果は
   本番より大きめに出得る
+
+## 乗車時刻の確定をパックで引く効果を測る（#549）
+
+同じ録画を、`--ride-packs` なしとありで再生して比べる。厳密走査と同じパックを渡してよい。
+
+```sh
+cd apps/web
+node scripts/replay.mjs -- --store .replay/rec.json --out .replay/base.jsonl \
+  --date 2026-11-26 --slots 12:00 --ratios 1.5 --label base \
+  --exact-packs ../../functions/.odpt/all
+node scripts/replay.mjs -- --store .replay/rec.json --out .replay/ride.jsonl \
+  --date 2026-11-26 --slots 12:00 --ratios 1.5 --label ride \
+  --exact-packs ../../functions/.odpt/all --ride-packs ../../functions/.odpt/all
+node scripts/replay-report.mjs .replay/base.jsonl .replay/ride.jsonl
+```
+
+- 見るのは用途別の「乗車時刻の確定」の本数と `totalMs`、経路が同じか。各行の `metrics.packBoardingLegs` が
+  パックで確定した区間の数、`metrics.rideDepartureCalls` がエンドポイントを呼んだ回数
+- 乗車区間ごとに 1 回呼ぶ（`metrics.rideDepartureCalls`）。応答の遅延は `--ride-delay-ms` で置く。本番の
+  `request_latency`（`endpoint="rideDepartures"`）とずれていれば、そちらに合わせる
+- パックで確定すると Transit とは別の便を採ることがあり、その先の照会が録画に無いので `misses` が立つ。
+  厳密走査と同じく、`misses 0` になるまで出力を消して再生し直す
+- 手元のパックが mini-tokyo-3d だけなら、JR・東京メトロ・都営などの区間は Transit に戻ったままで、
+  効果は本番より小さく出る
 
 ## 引き直しの上限を模擬する（#503）
 

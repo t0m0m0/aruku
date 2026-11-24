@@ -215,7 +215,7 @@ function instant(raw: unknown): Date | null {
   return Number.isFinite(ms) ? new Date(ms) : null;
 }
 
-function jstWallClock(raw: unknown): Date | null {
+export function jstWallClock(raw: unknown): Date | null {
   const at = instant(raw);
   if (at === null) return null;
   const jst = new Date(at.getTime() + jstOffsetMs);
