@@ -417,7 +417,8 @@ mini-tokyo-3d は、どれか1つのファイルが取れなかった日と、�
 取得日時は、ガイドラインが求める出典・問い合わせ先と一緒に結果画面の「時刻表データについて」に出します（#461）。
 `rideDepartures` で乗車時刻を確定した経路も、そのフィードの取得日時を載せます。
 
-本番の Web は `deploy-web.yml` が渡す `VITE_EXACT_WALK_MAX=1` で厳密走査を有効にしています（#477）。
+本番の Web は `deploy-web.yml` が渡す `VITE_EXACT_WALK_MAX=1` で厳密走査を、`VITE_RIDE_DEPARTURES=1` で
+乗車時刻の確定に時刻表パックを使うこと（`rideDepartures`）を有効にしています（#477・#551）。
 切り戻しの手順は `docs/ops/exact-scan-rollback.md`。
 
 ### 初回の用意
