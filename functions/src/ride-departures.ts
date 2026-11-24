@@ -90,7 +90,7 @@ export async function findRideDeparture(
   const ct = day.compiled;
   const untilSec = sec + RIDE_LOOKAHEAD_MIN * 60;
   const onLine = (trip: number) => isSameLine(ct.trips[trip].route, req.line);
-  const boards = boardStops(day, req.board, req.boardName, sec, untilSec, onLine);
+  const boards = boardStops(day, req.board, req.boardName, onLine);
   const alightName = normalizeStationName(req.alightName);
   const rides: { trip: number; board: number; dep: number; calls: number[] }[] = [];
   const alightMeters = new Map<number, number>();
@@ -149,8 +149,6 @@ function boardStops(
   day: RideDeparturesDay,
   p: LatLng,
   name: string,
-  sec: number,
-  untilSec: number,
   onLine: (trip: number) => boolean,
 ): number[] {
   const ct = day.compiled;
@@ -165,8 +163,7 @@ function boardStops(
   if (wanted !== '') return near.map((n) => n.stop);
   const served = near.filter(({ stop }) => {
     for (let i = ct.departureStart[stop]; i < ct.departureStart[stop + 1]; i++) {
-      if (ct.departureAt[i] > untilSec) break;
-      if (ct.departureAt[i] >= sec && onLine(ct.departureTrip[i])) return true;
+      if (onLine(ct.departureTrip[i])) return true;
     }
     return false;
   });
