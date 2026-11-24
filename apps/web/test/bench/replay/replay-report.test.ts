@@ -164,6 +164,37 @@ describe('replayReport', () => {
     expect(md).toContain('| 初回照会 | — | 2 |');
   });
 
+  it('エラーで計測値を持たない検索は、用途別の合計から外す (#546)', () => {
+    const counted = {
+      guidance: 2,
+      byPurpose: {
+        guidanceInitial: 1,
+        guidanceArrival: 1,
+        guidanceBoarding: 0,
+        guidanceNames: 0,
+        guidanceBoardSearch: 0,
+        guidanceBus: 0,
+      },
+    };
+    const md = replayReport(
+      [record('p', 1.2, 1, counted), record('q', 1.2, 1, { error: 'TIMEOUT' })],
+      [record('p', 1.2, 1, counted), record('q', 1.2, 1, { error: 'TIMEOUT' })],
+      { a: 'none', b: 'm3d' },
+    );
+
+    expect(md).toContain('| 初回照会 | 1 | 1 |');
+  });
+
+  it('全部の検索がエラーの版は、用途別の欄を 0 ではなく — にする (#546)', () => {
+    const md = replayReport(
+      [record('p', 1.2, 1, { error: 'TIMEOUT' })],
+      [record('p', 1.2, 1, { error: 'TIMEOUT' })],
+      { a: 'none', b: 'm3d' },
+    );
+
+    expect(md).toContain('| 初回照会 | — | — |');
+  });
+
   it('経路が違う検索は、両方の徒歩分と乗車区間を書き出す', () => {
     const md = replayReport(
       [record('q', 2, 1, { walk: 26 })],
