@@ -102,6 +102,8 @@ export interface TransitRouteServiceInit {
   exactWalkMaxGrace?: Duration | null;
 
   exactWalkMaxAb?: boolean;
+
+  rideDepartures?: boolean;
 }
 
 export const defaultArrivalWaveGrace: Duration = seconds(5);
@@ -147,7 +149,9 @@ export class TransitRouteService implements SearchEngine {
     this.deadline = init.deadline ?? SearchDeadline.none();
     this.clock = init.clock ?? ((): Date => new Date());
     this.onMetrics = init.onMetrics ?? null;
-    this.measurer = new CandidateMeasurer(this.api, this.diag);
+    this.measurer = new CandidateMeasurer(this.api, this.diag, {
+      rideDepartures: init.rideDepartures ?? false,
+    });
   }
 
   private readonly api: TransitApiClient;
@@ -254,6 +258,8 @@ export class TransitRouteService implements SearchEngine {
     metrics.matrixCalls = this.api.matrixCalls;
     metrics.matrixElements = this.api.matrixElements;
     metrics.exactCalls = this.api.exactCalls;
+    metrics.rideDepartureCalls = this.api.rideDepartureCalls;
+    metrics.packBoardingLegs = this.measurer.packBoardingLegs;
     if (exactWave !== null) metrics.exactMs = exactSw.elapsedMilliseconds;
     this.diag.logMetrics(metrics);
     this.onMetrics?.(metrics);

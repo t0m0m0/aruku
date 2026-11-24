@@ -27,3 +27,21 @@ describe('VITE_EXACT_WALK_MAX (#460)', () => {
     }
   });
 });
+
+describe('VITE_RIDE_DEPARTURES (#549)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('1 なら乗車時刻の確定に時刻表パックを使う', async () => {
+    vi.stubEnv('VITE_RIDE_DEPARTURES', '1');
+    expect((await loadConfig()).rideDepartures).toBe(true);
+  });
+
+  it('未設定と 1 以外の値は無効', async () => {
+    for (const value of [undefined, '', '0', 'true']) {
+      vi.stubEnv('VITE_RIDE_DEPARTURES', value);
+      expect((await loadConfig()).rideDepartures, JSON.stringify(value)).toBe(false);
+    }
+  });
+});

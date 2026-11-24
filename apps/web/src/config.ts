@@ -21,6 +21,8 @@ export interface AppConfig {
   readonly mapsApiKey: string;
 
   readonly exactWalkMax: boolean;
+
+  readonly rideDepartures: boolean;
 }
 
 export const appConfig: AppConfig = {
@@ -37,6 +39,7 @@ export const appConfig: AppConfig = {
   recaptchaSiteKey: import.meta.env.VITE_RECAPTCHA_SITE_KEY ?? '',
   mapsApiKey: import.meta.env.VITE_MAPS_WEB_API_KEY ?? '',
   exactWalkMax: import.meta.env.VITE_EXACT_WALK_MAX === '1',
+  rideDepartures: import.meta.env.VITE_RIDE_DEPARTURES === '1',
 };
 
 export const termsOfServiceUrl = '/terms';

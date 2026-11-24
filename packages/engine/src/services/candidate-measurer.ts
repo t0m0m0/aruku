@@ -17,6 +17,7 @@ import {
   kcalPerKm,
 } from './route-plan-builder';
 import { RouteException } from './route-service';
+import { parsePackLegs, pickPackDeparture, type PackLeg } from './pack-departures';
 import type { LastResortBus, SearchSession, WalkLegCache } from './search-session';
 import type { TransitApiClient } from './transit-api-client';
 import { parseGuidancePlan, type TransitOption } from './transit-plan-parser';
@@ -28,11 +29,24 @@ export interface Selection {
 
 export const maxMeasureShortlist = 13;
 
+const packWindowSlackMin = 90;
+const packMaxLegs = 8;
+const packMaxUntilMin = 24 * 60;
+
+export interface CandidateMeasurerOptions {
+  rideDepartures?: boolean;
+}
+
 export class CandidateMeasurer {
   constructor(
     private readonly api: TransitApiClient,
     private readonly diag: RouteDiagnostics,
-  ) {}
+    options: CandidateMeasurerOptions = {},
+  ) {
+    this.rideDepartures = options.rideDepartures ?? false;
+  }
+
+  private readonly rideDepartures: boolean;
 
   async selectAndEnrich(
     candidates: RouteCandidate[],
@@ -410,6 +424,7 @@ export class CandidateMeasurer {
     onRedraw?: () => void,
   ): Promise<RouteCandidate> {
     const segs = [...cand.segments];
+    const pack = await this.packDepartures(segs, departureAt);
     let changed = false;
     for (let i = 0; i < segs.length; i++) {
       const seg = segs[i];
@@ -418,6 +433,20 @@ export class CandidateMeasurer {
       if (seg.polyline.length < 2) continue;
       const cumBefore = arrivalMinutes(segs.slice(0, i), departureAt);
       const boardAt = plusMinutes(departureAt, cumBefore);
+      const leg = pack?.get(i);
+      const picked = leg === undefined ? null : pickPackDeparture(leg, boardAt, seg.line);
+      if (picked !== null) {
+        segs[i] = seg.copyWith({
+          fromName: seg.fromName.length === 0 ? picked.from : undefined,
+          toName: seg.toName.length === 0 ? picked.to : undefined,
+          depTime: picked.dep,
+          arrTime: picked.arr,
+          minutes: Math.trunc((picked.arr.getTime() - picked.dep.getTime()) / 60000),
+        });
+        this.packBoardingLegCount++;
+        changed = true;
+        continue;
+      }
       onRedraw?.();
       const ep = await this.fetchTransitEndpoints(
         seg.polyline[0],
@@ -442,6 +471,48 @@ export class CandidateMeasurer {
     }
     if (!changed) return cand;
     return new RouteCandidate({ from: cand.from, to: cand.to, segments: segs });
+  }
+
+  private packBoardingLegCount = 0;
+
+  get packBoardingLegs(): number {
+    return this.packBoardingLegCount;
+  }
+
+  private async packDepartures(
+    segs: readonly RouteSegment[],
+    departureAt: Date,
+  ): Promise<Map<number, PackLeg> | null> {
+    if (!this.rideDepartures) return null;
+    const targets: number[] = [];
+    for (let i = 0; i < segs.length && targets.length < packMaxLegs; i++) {
+      const seg = segs[i];
+      if (seg.type !== SegmentType.train || seg.depTime !== null || seg.polyline.length < 2) {
+        continue;
+      }
+      targets.push(i);
+    }
+    if (targets.length === 0) return null;
+    const untilMin = Math.min(
+      packMaxUntilMin,
+      arrivalMinutes([...segs], departureAt) + packWindowSlackMin,
+    );
+    const legs = targets.map((i) => ({
+      board: segs[i].polyline[0],
+      alight: segs[i].polyline[segs[i].polyline.length - 1],
+      fromMin: Math.min(untilMin, arrivalMinutes(segs.slice(0, i), departureAt)),
+    }));
+    let body: JsonMap;
+    try {
+      body = await this.api.fetchRideDepartures(departureAt, untilMin, legs);
+    } catch (error) {
+      if (!(error instanceof RouteException)) throw error;
+      this.diag.log(() => `rideDepartures: 失敗（${error.status}）→ Transit で乗車時刻を確定`);
+      return null;
+    }
+    const parsed = parsePackLegs(body, legs.length);
+    if (parsed === null) return null;
+    return new Map(targets.map((t, k) => [t, parsed[k]]));
   }
 
   async fetchTransitEndpoints(

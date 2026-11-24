@@ -17,4 +17,5 @@ interface ImportMetaEnv {
   readonly VITE_APP_CHECK_DEBUG_TOKEN?: string;
 
   readonly VITE_EXACT_WALK_MAX?: string;
+  readonly VITE_RIDE_DEPARTURES?: string;
 }

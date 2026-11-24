@@ -30,6 +30,7 @@ export const appStore = createAppStore(
     proxyBaseUrl: appConfig.proxyBaseUrl,
     appCheck,
     exactWalkMax: appConfig.exactWalkMax,
+    rideDepartures: appConfig.rideDepartures,
   }),
 );
 

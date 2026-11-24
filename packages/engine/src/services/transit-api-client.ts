@@ -63,6 +63,7 @@ export class TransitApiClient {
   private matrixCallCount = 0;
   private matrixElementCount = 0;
   private exactCallCount = 0;
+  private rideDepartureCallCount = 0;
 
   private guidanceDupCallCount = 0;
   private readonly guidanceKeys = new Set<string>();
@@ -108,6 +109,10 @@ export class TransitApiClient {
 
   get exactCalls(): number {
     return this.exactCallCount;
+  }
+
+  get rideDepartureCalls(): number {
+    return this.rideDepartureCallCount;
   }
 
   get transitBaseUrl(): string {
@@ -239,6 +244,28 @@ export class TransitApiClient {
         ...(transfers ? { transfers: '1' } : {}),
       },
       () => this.exactCallCount++,
+    );
+  }
+
+  fetchRideDepartures(
+    departureAt: Date,
+    untilMin: number,
+    legs: readonly { board: GeoPoint; alight: GeoPoint; fromMin: number }[],
+  ): Promise<JsonMap> {
+    return this.fetchProxy(
+      'rideDepartures',
+      {
+        departAt: formatJstInstant(departureAt),
+        untilMin: `${untilMin}`,
+        legs: legs
+          .map(
+            ({ board, alight, fromMin }) =>
+              `${dartDouble(board.lat)},${dartDouble(board.lng)},` +
+              `${dartDouble(alight.lat)},${dartDouble(alight.lng)},${fromMin}`,
+          )
+          .join(';'),
+      },
+      () => this.rideDepartureCallCount++,
     );
   }
 
