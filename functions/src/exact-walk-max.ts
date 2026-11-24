@@ -114,8 +114,7 @@ export function parseExactWalkMaxQuery(
   if (departAt === null) {
     return { error: 'departAt is required as ISO 8601 with a UTC offset' };
   }
-  const ahead = departAt.getTime() - now.getTime();
-  if (ahead < -DEPART_AT_MAX_BEHIND_MS || ahead > DEPART_AT_MAX_AHEAD_MS) {
+  if (!isDepartAtInRange(departAt, now)) {
     return { error: 'departAt must be within 1 day before to 92 days after now' };
   }
   const budgetMin = Number(param('budgetMin'));
@@ -129,13 +128,18 @@ export function parseExactWalkMaxQuery(
   return { origin, goal, departAt, budgetMin, transfers };
 }
 
+export function isDepartAtInRange(departAt: Date, now: Date): boolean {
+  const ahead = departAt.getTime() - now.getTime();
+  return ahead >= -DEPART_AT_MAX_BEHIND_MS && ahead <= DEPART_AT_MAX_AHEAD_MS;
+}
+
 function parseFlag(value: unknown): boolean | null {
   if (value === undefined || value === '0') return false;
   if (value === '1') return true;
   return null;
 }
 
-function parsePoint(value: string | undefined): LatLng | null {
+export function parsePoint(value: string | undefined): LatLng | null {
   const parts = (value ?? '').split(',');
   if (parts.length !== 2 || parts.some((p) => p.trim() === '')) return null;
   const [lat, lng] = parts.map(Number);
@@ -143,7 +147,7 @@ function parsePoint(value: string | undefined): LatLng | null {
   return { lat, lng };
 }
 
-function parseInstant(value: string | undefined): Date | null {
+export function parseInstant(value: string | undefined): Date | null {
   if (value === undefined || !/(Z|[+-]\d{2}:\d{2})$/.test(value)) return null;
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? new Date(ms) : null;
@@ -283,14 +287,14 @@ function rideStops(ct: CompiledTimetable, ride: JourneyLeg): number[] {
   return out;
 }
 
-function serviceMidnightMs(serviceDate: string): number {
+export function serviceMidnightMs(serviceDate: string): number {
   const y = Number(serviceDate.slice(0, 4));
   const m = Number(serviceDate.slice(4, 6));
   const d = Number(serviceDate.slice(6, 8));
   return Date.UTC(y, m - 1, d) - JST_OFFSET_MS;
 }
 
-function formatJst(ms: number): string {
+export function formatJst(ms: number): string {
   const jst = new Date(ms + JST_OFFSET_MS);
   return (
     `${jst.getUTCFullYear()}-${pad2(jst.getUTCMonth() + 1)}-${pad2(jst.getUTCDate())}` +
