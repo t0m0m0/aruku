@@ -1,7 +1,7 @@
 import { dateTime } from '@aruku/engine/time';
 
 import { benchBudgetRatios, benchSlots, type BenchSlot } from '../bench-cases';
-import { syntheticMatrixDelayMs } from './synthetic-walk';
+import { syntheticMatrixDelayMs, syntheticRouteDelayMs } from './synthetic-walk';
 
 export interface ReplayArgs {
   readonly mode: 'record' | 'replay';
@@ -16,6 +16,8 @@ export interface ReplayArgs {
   readonly label: string;
   readonly exactPacks: string | null;
   readonly exactDelayMs: number;
+  readonly ridePacks: string | null;
+  readonly rideDelayMs: number;
 }
 
 const flags = [
@@ -31,6 +33,8 @@ const flags = [
   'label',
   'exact-packs',
   'exact-delay-ms',
+  'ride-packs',
+  'ride-delay-ms',
 ] as const;
 type Flag = (typeof flags)[number];
 
@@ -42,7 +46,7 @@ export const replayUsage =
   'usage: --store <rec.json> --out <out.jsonl> --date YYYY-MM-DD ' +
   '[--mode record|replay] [--slots 12:00,22:00] [--ratios 1.2,1.5,2] [--pairs <regex>] ' +
   '[--refetch-limit-ms <ms>] [--url-log <path>] [--label <name>] ' +
-  '[--exact-packs <dir>] [--exact-delay-ms <ms>]';
+  '[--exact-packs <dir>] [--exact-delay-ms <ms>] [--ride-packs <dir>] [--ride-delay-ms <ms>]';
 
 export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
   const raw = new Map<Flag, string>();
@@ -68,6 +72,7 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
   const ratios = raw.get('ratios');
   const pairs = raw.get('pairs');
   const exactDelayMs = raw.get('exact-delay-ms');
+  const rideDelayMs = raw.get('ride-delay-ms');
   return {
     mode,
     store: required('store'),
@@ -80,7 +85,11 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
     urlLog: raw.get('url-log') ?? null,
     label: raw.get('label') ?? 'replay',
     exactPacks: raw.get('exact-packs') ?? null,
-    exactDelayMs: exactDelayMs === undefined ? syntheticMatrixDelayMs : parseDelay(exactDelayMs),
+    exactDelayMs:
+      exactDelayMs === undefined ? syntheticMatrixDelayMs : parseDelay(exactDelayMs, 'exact'),
+    ridePacks: raw.get('ride-packs') ?? null,
+    rideDelayMs:
+      rideDelayMs === undefined ? syntheticRouteDelayMs : parseDelay(rideDelayMs, 'ride'),
   };
 }
 
@@ -115,7 +124,7 @@ function parseLimit(s: string): number {
   return n;
 }
 
-function parseDelay(s: string): number {
-  if (!/^\d+$/.test(s)) throw new Error(`bad --exact-delay-ms: ${s}`);
+function parseDelay(s: string, flag: 'exact' | 'ride'): number {
+  if (!/^\d+$/.test(s)) throw new Error(`bad --${flag}-delay-ms: ${s}`);
   return Number(s);
 }

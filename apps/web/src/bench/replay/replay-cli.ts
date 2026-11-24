@@ -16,7 +16,7 @@ import { defaultTransitApiBaseUrl } from '../../config';
 import { standardTotalMin } from '../bench-cases';
 import { runBench } from '../bench-runner';
 import { replayPairs } from '../od-pairs';
-import { localExactWalkMax } from './exact-replay';
+import { localExactWalkMax, localRideDepartures } from './exact-replay';
 import { parseReplayArgs, replayUsage, type ReplayArgs } from './replay-args';
 import { isInitialQuery, ReplaySession, timedOutStatus, type ReplayEntry } from './replay-client';
 import type { ReplayRecord } from './replay-report';
@@ -55,6 +55,11 @@ export async function runReplay(args: ReplayArgs): Promise<number> {
         ? undefined
         : localExactWalkMax({ packDir: args.exactPacks, now: () => args.date }),
     exactDelayMs: args.exactDelayMs,
+    rideDepartures:
+      args.ridePacks === null
+        ? undefined
+        : localRideDepartures({ packDir: args.ridePacks, now: () => args.date }),
+    rideDelayMs: args.rideDelayMs,
     isInitial: (url) => current !== null && isInitialQuery(url, current.origin, current.goal),
     onRequest:
       urlLog === null
@@ -114,6 +119,7 @@ export async function runReplay(args: ReplayArgs): Promise<number> {
               cancellation,
               clock: () => args.date,
               exactWalkMax: args.exactPacks !== null,
+              rideDepartures: args.ridePacks !== null,
               deadline: new SearchDeadline(searchDeadlineBudget),
               onMetrics: (m) => {
                 metrics = m;

@@ -9,7 +9,11 @@ import { GeoPoint } from '@aruku/engine/models/geo-point';
 
 import { packObjectPath } from '../../../../../functions/src/timetable-pack/feeds';
 import { buildTimetablePack } from '../../../../../functions/src/timetable-pack/pack';
-import { localExactWalkMax, packDirReader } from '../../../src/bench/replay/exact-replay';
+import {
+  localExactWalkMax,
+  localRideDepartures,
+  packDirReader,
+} from '../../../src/bench/replay/exact-replay';
 import { syntheticWalkSeconds } from '../../../src/bench/replay/synthetic-walk';
 
 const BOARD = { lat: 35.6, lng: 139.7 };
@@ -102,5 +106,47 @@ describe('localExactWalkMax', () => {
     writePack('permanent');
     const respond = localExactWalkMax({ packDir: dir, now: () => NOW });
     expect((await respond(exactUrl({ ...QUERY, budgetMin: 'x' }))).status).toBe(400);
+  });
+});
+
+describe('localRideDepartures (#549)', () => {
+  const rideUrl = (params: Record<string, string>): URL => {
+    const url = new URL('https://proxy.invalid/rideDepartures');
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    return url;
+  };
+  const RIDE_QUERY = {
+    departAt: '2026-11-20T09:50:00+09:00',
+    untilMin: '60',
+    legs: `${BOARD.lat},${BOARD.lng},${ALIGHT.lat},${ALIGHT.lng},0`,
+  };
+
+  it('手元のパックで発着を引き、本番の rideDepartures と同じ形の応答を返す', async () => {
+    writePack('permanent');
+    const respond = localRideDepartures({ packDir: dir, now: () => NOW });
+    const res = await respond(rideUrl(RIDE_QUERY));
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      legs: [
+        {
+          departures: [
+            {
+              route: 'テスト線',
+              from: '乗る駅',
+              to: '降りる駅',
+              boardAt: '2026-11-20T10:00:00+09:00',
+              alightAt: '2026-11-20T10:10:00+09:00',
+            },
+          ],
+          truncated: false,
+        },
+      ],
+    });
+  });
+
+  it('読めるパックが無ければ 503、読めない照会には 400 を返す', async () => {
+    const respond = localRideDepartures({ packDir: dir, now: () => NOW });
+    expect((await respond(rideUrl(RIDE_QUERY))).status).toBe(503);
+    expect((await respond(rideUrl({ ...RIDE_QUERY, legs: '' }))).status).toBe(400);
   });
 });

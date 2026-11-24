@@ -28,6 +28,8 @@ export interface ReplaySessionInit {
   readonly onRequest?: (url: URL) => void;
   readonly exactWalkMax?: (url: URL) => Promise<{ status: number; body: string }>;
   readonly exactDelayMs?: number;
+  readonly rideDepartures?: (url: URL) => Promise<{ status: number; body: string }>;
+  readonly rideDelayMs?: number;
 }
 
 export class ReplaySession {
@@ -56,6 +58,12 @@ export class ReplaySession {
       if (this.init.exactWalkMax !== undefined && url.pathname.endsWith('/exactWalkMax')) {
         const res = await this.init.exactWalkMax(url);
         const delayMs = this.init.exactDelayMs ?? 0;
+        const body = Buffer.from(res.body).toString('base64');
+        return { entry: { status: res.status, body, ms: delayMs }, delayMs };
+      }
+      if (this.init.rideDepartures !== undefined && url.pathname.endsWith('/rideDepartures')) {
+        const res = await this.init.rideDepartures(url);
+        const delayMs = this.init.rideDelayMs ?? 0;
         const body = Buffer.from(res.body).toString('base64');
         return { entry: { status: res.status, body, ms: delayMs }, delayMs };
       }
