@@ -155,18 +155,58 @@ describe('findRideDeparture', () => {
     expect(res?.ride).toBeNull();
   });
 
-  it('駅名が分からないときは、近くの停車場所だけを乗降駅とみなす', async () => {
+  it('駅名が分からないときは、その路線の停車場所のうち最も近い駅を乗降駅とみなす（1km まで）', async () => {
     const near = await findRideDeparture(
-      req({ boardName: '', alightName: '', board: pointAtKm(0.3) }),
+      req({ boardName: '', alightName: '', board: pointAtKm(0.45), alight: pointAtKm(10.45) }),
       deps(line3()),
     );
     const far = await findRideDeparture(
-      req({ boardName: '', alightName: '', board: pointAtKm(0.8) }),
+      req({ boardName: '', alightName: '', board: pointAtKm(-1.2) }),
       deps(line3()),
     );
 
-    expect(near?.ride).not.toBeNull();
+    expect([near?.ride?.from, near?.ride?.to]).toEqual(['一の駅', '三の駅']);
     expect(far?.ride).toBeNull();
+  });
+
+  it('駅名が分からないとき、より近くても別の路線の駅は乗降駅にしない', async () => {
+    const day = dayOf(
+      [
+        { name: '甲の駅', km: 0 },
+        { name: '乙の駅', km: 0.1 },
+        { name: '甲の終点', km: 5 },
+        { name: '乙の終点', km: 5.1 },
+      ],
+      [
+        { route: '甲線', calls: [call(0, t(12, 30)), call(2, t(12, 40))] },
+        { route: '乙線', calls: [call(1, t(12, 5)), call(3, t(12, 15))] },
+      ],
+    );
+
+    const res = await findRideDeparture(
+      req({ boardName: '', alightName: '', board: pointAtKm(0.1), alight: pointAtKm(5.1) }),
+      deps(day),
+    );
+
+    expect([res?.ride?.from, res?.ride?.boardAt]).toEqual(['甲の駅', '2026-11-26T12:30:00+09:00']);
+  });
+
+  it('駅名が分からないとき、降車駅は列車の停車駅のうち座標に最も近い駅にする', async () => {
+    const day = dayOf(
+      [
+        { name: 'A', km: 0 },
+        { name: 'B', km: 4.4 },
+        { name: 'C', km: 5.2 },
+      ],
+      [{ route: '甲線', calls: [call(0, t(12, 10)), call(1, t(12, 18)), call(2, t(12, 20))] }],
+    );
+
+    const res = await findRideDeparture(
+      req({ boardName: '', alightName: '', board: pointAtKm(0), alight: pointAtKm(5) }),
+      deps(day),
+    );
+
+    expect(res?.ride?.to).toEqual('C');
   });
 
   it('路線名は事業者名の前置きだけを許して突き合わせ、別の路線の列車は採らない', async () => {

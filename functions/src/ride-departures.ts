@@ -10,8 +10,7 @@ import {
 } from './exact-walk-max';
 
 export const RIDE_LOOKAHEAD_MIN = 120;
-const NAMED_STOP_RADIUS_M = 1000;
-const UNNAMED_STOP_RADIUS_M = 300;
+const STOP_RADIUS_M = 1000;
 const MAX_TEXT_LENGTH = 64;
 const EARTH_RADIUS_M = 6371008.8;
 
@@ -90,8 +89,15 @@ export async function findRideDeparture(
   const feeds = day.feeds.map(({ id, fetchedAt }) => ({ id, fetchedAt }));
   const ct = day.compiled;
   const untilSec = sec + RIDE_LOOKAHEAD_MIN * 60;
-  const boards = stopsFor(day, req.board, req.boardName);
-  const alights = new Set(stopsFor(day, req.alight, req.alightName));
+  const onLine = (trip: number) => isSameLine(ct.trips[trip].route, req.line);
+  const boards = boardStops(day, req.board, req.boardName, sec, untilSec, onLine);
+  const alightName = normalizeStationName(req.alightName);
+  const alightOk = (stop: number): number | null => {
+    const meters = metersBetween(req.alight, ct.stopLat[stop], ct.stopLng[stop]);
+    if (meters > STOP_RADIUS_M) return null;
+    if (alightName !== '' && normalizeStationName(day.stops[stop].name) !== alightName) return null;
+    return meters;
+  };
 
   let best: { trip: number; board: number; alight: number; dep: number; arr: number } | null = null;
   for (const board of boards) {
@@ -100,16 +106,23 @@ export async function findRideDeparture(
       if (dep < sec) continue;
       if (dep > untilSec) break;
       const trip = ct.departureTrip[i];
-      if (!isSameLine(ct.trips[trip].route, req.line)) continue;
+      if (!onLine(trip)) continue;
       const start = ct.tripStart[trip];
       const end = start + ct.tripLength[trip];
+      let alight: { stop: number; arr: number; meters: number } | null = null;
       for (let c = start + ct.departurePos[i] + 1; c < end; c++) {
-        if (ct.callAlight[c] !== 1 || !alights.has(ct.callStop[c])) continue;
-        const arr = ct.callArr[c];
-        if (best === null || arr < best.arr || (arr === best.arr && dep < best.dep)) {
-          best = { trip, board, alight: ct.callStop[c], dep, arr };
+        if (ct.callAlight[c] !== 1) continue;
+        const meters = alightOk(ct.callStop[c]);
+        if (meters === null) continue;
+        if (alight === null || meters < alight.meters) {
+          alight = { stop: ct.callStop[c], arr: ct.callArr[c], meters };
         }
-        break;
+        if (alightName !== '') break;
+      }
+      if (alight === null) continue;
+      const arr = alight.arr;
+      if (best === null || arr < best.arr || (arr === best.arr && dep < best.dep)) {
+        best = { trip, board, alight: alight.stop, dep, arr };
       }
     }
   }
@@ -129,17 +142,37 @@ export async function findRideDeparture(
   };
 }
 
-function stopsFor(day: RideDeparturesDay, p: LatLng, name: string): number[] {
+function boardStops(
+  day: RideDeparturesDay,
+  p: LatLng,
+  name: string,
+  sec: number,
+  untilSec: number,
+  onLine: (trip: number) => boolean,
+): number[] {
   const ct = day.compiled;
   const wanted = normalizeStationName(name);
-  const radius = wanted === '' ? UNNAMED_STOP_RADIUS_M : NAMED_STOP_RADIUS_M;
-  const out: number[] = [];
+  const near: { stop: number; meters: number }[] = [];
   for (let s = 0; s < ct.stopCount; s++) {
-    if (metersBetween(p, ct.stopLat[s], ct.stopLng[s]) > radius) continue;
+    const meters = metersBetween(p, ct.stopLat[s], ct.stopLng[s]);
+    if (meters > STOP_RADIUS_M) continue;
     if (wanted !== '' && normalizeStationName(day.stops[s].name) !== wanted) continue;
-    out.push(s);
+    near.push({ stop: s, meters });
   }
-  return out;
+  if (wanted !== '') return near.map((n) => n.stop);
+  const served = near.filter(({ stop }) => {
+    for (let i = ct.departureStart[stop]; i < ct.departureStart[stop + 1]; i++) {
+      if (ct.departureAt[i] > untilSec) break;
+      if (ct.departureAt[i] >= sec && onLine(ct.departureTrip[i])) return true;
+    }
+    return false;
+  });
+  if (served.length === 0) return [];
+  served.sort((a, b) => a.meters - b.meters);
+  const nearestName = normalizeStationName(day.stops[served[0].stop].name);
+  return served
+    .filter(({ stop }) => normalizeStationName(day.stops[stop].name) === nearestName)
+    .map(({ stop }) => stop);
 }
 
 function normalizeStationName(name: string): string {
