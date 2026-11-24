@@ -13,6 +13,12 @@ const avoidModesAllowBus = ['ferry', 'air'];
 
 const numItineraries = 5;
 
+const guidancePurposes = ['initial', 'arrival', 'boarding', 'names', 'boardSearch', 'bus'] as const;
+
+type GuidancePurpose = (typeof guidancePurposes)[number];
+
+type GuidanceCallsByPurpose = Readonly<Record<GuidancePurpose, number>>;
+
 export interface TransitApiClientInit {
   transitClient?: HttpClient;
   proxyClient?: HttpClient;
@@ -63,6 +69,18 @@ export class TransitApiClient {
 
   private readonly guidanceResponses = new Map<string, Promise<HttpResponse>>();
   private guidanceCacheHitCount = 0;
+  private readonly guidanceCallCountByPurpose: Record<GuidancePurpose, number> = {
+    initial: 0,
+    arrival: 0,
+    boarding: 0,
+    names: 0,
+    boardSearch: 0,
+    bus: 0,
+  };
+
+  get guidanceCallsByPurpose(): GuidanceCallsByPurpose {
+    return { ...this.guidanceCallCountByPurpose };
+  }
 
   get guidanceCalls(): number {
     return this.guidanceCallCount;
@@ -104,13 +122,14 @@ export class TransitApiClient {
     start: GeoPoint,
     goal: GeoPoint,
     at: Date,
-    options: { allowBus?: boolean } = {},
+    options: { allowBus?: boolean; purpose?: Exclude<GuidancePurpose, 'arrival'> } = {},
   ): Promise<JsonMap> {
     return this.fetchGuidance(start, goal, {
       date: formatDate(at),
       time: formatTime(at),
       type: 'departure',
       allowBus: options.allowBus ?? false,
+      purpose: options.purpose ?? 'initial',
     });
   }
 
@@ -126,13 +145,20 @@ export class TransitApiClient {
       time: formatServiceTime(departureAt, budgetMin),
       type: 'arrival',
       allowBus: options.allowBus ?? false,
+      purpose: 'arrival',
     });
   }
 
   private async fetchGuidance(
     start: GeoPoint,
     goal: GeoPoint,
-    anchor: { date: string; time: string; type: string; allowBus: boolean },
+    anchor: {
+      date: string;
+      time: string;
+      type: string;
+      allowBus: boolean;
+      purpose: GuidancePurpose;
+    },
   ): Promise<JsonMap> {
     const uri = buildUri(this.transitBase, '/api/v1/guidance/plan', {
       from: `geo:${dartDouble(start.lat)},${dartDouble(start.lng)}`,
@@ -149,6 +175,7 @@ export class TransitApiClient {
       response = this.getOrTimeout(this.transit, uri, {
         onIssued: () => {
           this.guidanceCallCount++;
+          this.guidanceCallCountByPurpose[anchor.purpose]++;
           if (this.guidanceKeys.has(key)) this.guidanceDupCallCount++;
           this.guidanceKeys.add(key);
         },

@@ -241,6 +241,13 @@ export class TransitRouteService implements SearchEngine {
     metrics.guidanceCalls = this.api.guidanceCalls;
     metrics.guidanceDupCalls = this.api.guidanceDupCalls;
     metrics.guidanceCacheHits = this.api.guidanceCacheHits;
+    const byPurpose = this.api.guidanceCallsByPurpose;
+    metrics.guidanceInitial = byPurpose.initial;
+    metrics.guidanceArrival = byPurpose.arrival;
+    metrics.guidanceBoarding = byPurpose.boarding;
+    metrics.guidanceNames = byPurpose.names;
+    metrics.guidanceBoardSearch = byPurpose.boardSearch;
+    metrics.guidanceBus = byPurpose.bus;
     metrics.walkCalls = this.api.walkCalls;
     metrics.matrixCalls = this.api.matrixCalls;
     metrics.matrixElements = this.api.matrixElements;
@@ -712,6 +719,7 @@ export class TransitRouteService implements SearchEngine {
     try {
       body = await this.api.fetchGuidanceAt(origin, goal, departureAt, {
         allowBus: true,
+        purpose: 'bus',
       });
     } catch (error) {
       if (!(error instanceof RouteException)) throw error;
@@ -1302,6 +1310,7 @@ export class TransitRouteService implements SearchEngine {
     try {
       body = await this.api.fetchGuidanceAt(x, goal, at, {
         allowBus: options.allowBus ?? false,
+        purpose: 'boardSearch',
       });
     } catch (error) {
       if (!(error instanceof RouteException)) throw error;

@@ -383,6 +383,75 @@ describe('fetchGuidanceArrivalAt (#376)', () => {
   });
 });
 
+describe('guidance の用途別本数 (#546)', () => {
+  const from = new GeoPoint(35.1, 139.2);
+  const to = new GeoPoint(35.3, 139.4);
+  const at = dateTime(2026, 6, 27, 9, 5);
+
+  it('出発時刻の照会は用途の指定がなければ初回照会、到着時刻の照会は到着時刻照会として数える', async () => {
+    const c = client(mockClient(() => jsonResponse({ ok: true })));
+    await c.fetchGuidanceAt(from, to, at);
+    await c.fetchGuidanceArrivalAt(from, to, at, 95);
+
+    expect(c.guidanceCallsByPurpose).toEqual({
+      initial: 1,
+      arrival: 1,
+      boarding: 0,
+      names: 0,
+      boardSearch: 0,
+      bus: 0,
+    });
+  });
+
+  it('指定した用途ごとに数え、合計は guidanceCalls と一致する', async () => {
+    const c = client(mockClient(() => jsonResponse({ ok: true })));
+    await c.fetchGuidanceAt(from, to, at, { purpose: 'boarding' });
+    await c.fetchGuidanceAt(from, to, dateTime(2026, 6, 27, 9, 6), { purpose: 'boarding' });
+    await c.fetchGuidanceAt(from, new GeoPoint(35.5, 139.5), at, { purpose: 'names' });
+    await c.fetchGuidanceAt(new GeoPoint(35.2, 139.3), to, at, { purpose: 'boardSearch' });
+    await c.fetchGuidanceAt(from, to, at, { purpose: 'bus', allowBus: true });
+
+    const by = c.guidanceCallsByPurpose;
+    expect(by).toEqual({
+      initial: 0,
+      arrival: 0,
+      boarding: 2,
+      names: 1,
+      boardSearch: 1,
+      bus: 1,
+    });
+    expect(Object.values(by).reduce((a, b) => a + b, 0)).toEqual(c.guidanceCalls);
+  });
+
+  it('キャッシュで済んだ呼び出しは、どの用途でも数えない', async () => {
+    const c = client(mockClient(() => jsonResponse({ ok: true })));
+    await c.fetchGuidanceAt(from, to, at, { purpose: 'boarding' });
+    await c.fetchGuidanceAt(from, to, at, { purpose: 'names' });
+
+    expect(c.guidanceCallsByPurpose.boarding).toEqual(1);
+    expect(c.guidanceCallsByPurpose.names).toEqual(0);
+    expect(c.guidanceCacheHits).toEqual(1);
+  });
+
+  it('失敗して発行し直した呼び出しは、発行した本数だけ数える', async () => {
+    let calls = 0;
+    const c = client(
+      mockClient(() => {
+        calls++;
+        return calls === 1 ? jsonResponse({}, 503) : jsonResponse({ ok: true });
+      }),
+    );
+    await expectThrowsA(
+      () => c.fetchGuidanceAt(from, to, at, { purpose: 'names' }),
+      RouteException,
+    );
+    await c.fetchGuidanceAt(from, to, at, { purpose: 'names' });
+
+    expect(c.guidanceCallsByPurpose.names).toEqual(2);
+    expect(c.guidanceCalls).toEqual(2);
+  });
+});
+
 describe('fetchWalkMatrix', () => {
   it('googleWalkMatrixProxy から配列を返す', async () => {
     const c = client(

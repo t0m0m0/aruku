@@ -597,6 +597,37 @@ describe('plan: 標準乗換', () => {
     expect(m.guidanceCalls).toBeGreaterThanOrEqual(1);
     expect(m.httpRoundTrips).toBeGreaterThanOrEqual(1);
   });
+
+  it('guidance の本数を用途別に記録し、合計は guidanceCalls と一致する (#546)', async () => {
+    let captured: RouteSearchMetrics | null = null;
+    const svc = service(
+      mock({
+        transit: guidance([singleTrainOption({ dep: 33300, arr: 35100 })]),
+      }),
+      { onMetrics: (m) => (captured = m) },
+    );
+    await svc.plan({
+      destination: '新宿駅',
+      destinationLatLng: goal,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 9, m: 50 }),
+      origin,
+      originName: '東京駅',
+    });
+    const m = captured!;
+    expect(m.guidanceInitial).toEqual(1);
+    expect(m.guidanceArrival).toEqual(1);
+    expect(m.guidanceBoardSearch).toEqual(0);
+    expect(m.guidanceBus).toEqual(0);
+    expect(
+      m.guidanceInitial +
+        m.guidanceArrival +
+        m.guidanceBoarding +
+        m.guidanceNames +
+        m.guidanceBoardSearch +
+        m.guidanceBus,
+    ).toEqual(m.guidanceCalls);
+  });
 });
 
 describe('plan: ふつうの乗換ルート (#445)', () => {
@@ -1069,6 +1100,15 @@ describe('plan: 崩壊判定の測定基準（#137 指摘2）', () => {
     expect(m.matrixCalls).toBeGreaterThan(0);
     expect(m.guidanceCalls).toBeGreaterThan(1);
     expect(m.httpRoundTrips).toEqual(m.guidanceCalls + m.walkCalls + m.matrixCalls);
+    expect(m.guidanceBoardSearch, 'board-search の照会を用途別に数える (#546)').toBeGreaterThan(0);
+    expect(
+      m.guidanceInitial +
+        m.guidanceArrival +
+        m.guidanceBoarding +
+        m.guidanceNames +
+        m.guidanceBoardSearch +
+        m.guidanceBus,
+    ).toEqual(m.guidanceCalls);
   });
 
   it('崩壊後の再選定で払った enrich も enrichMs が覆う (#309)', async () => {

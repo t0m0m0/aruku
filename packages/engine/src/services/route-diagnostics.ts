@@ -233,6 +233,18 @@ export class RouteSearchMetrics {
 
   guidanceCacheHits = 0;
 
+  guidanceInitial = 0;
+
+  guidanceArrival = 0;
+
+  guidanceBoarding = 0;
+
+  guidanceNames = 0;
+
+  guidanceBoardSearch = 0;
+
+  guidanceBus = 0;
+
   arrivalWaveOutcome: ArrivalWaveOutcome | null = null;
 
   arrivalWaveOptions = 0;
@@ -342,6 +354,9 @@ export class RouteSearchMetrics {
       `exactCalls=${this.exactCalls} ` +
       `guidanceDupCalls=${this.guidanceDupCalls} ` +
       `guidanceCacheHits=${this.guidanceCacheHits} ` +
+      `guidanceInitial=${this.guidanceInitial} guidanceArrival=${this.guidanceArrival} ` +
+      `guidanceBoarding=${this.guidanceBoarding} guidanceNames=${this.guidanceNames} ` +
+      `guidanceBoardSearch=${this.guidanceBoardSearch} guidanceBus=${this.guidanceBus} ` +
       `arrivalWaveOutcome=${this.arrivalWaveOutcome ?? -1} ` +
       `arrivalWaveOptions=${this.arrivalWaveOptions} ` +
       `arrivalWaveBaseUsed=${flag(this.arrivalWaveBaseUsed)} ` +
