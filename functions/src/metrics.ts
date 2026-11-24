@@ -102,3 +102,17 @@ export interface ExactWalkMaxParams {
 export function logExactWalkMax(params: ExactWalkMaxParams): void {
   logger.info('exact_walk_max', { event: 'exact_walk_max', ...params });
 }
+
+export type RideDepartureOutcome =
+  'ride' | 'no_board_station' | 'no_alight_station' | 'no_train' | 'beyond_lookahead';
+
+export interface RideDepartureLogParams {
+  outcome: RideDepartureOutcome;
+  line: string;
+  boardNamed: boolean;
+  alightNamed: boolean;
+}
+
+export function logRideDeparture(params: RideDepartureLogParams): void {
+  logger.info('ride_departure', { event: 'ride_departure', ...params });
+}

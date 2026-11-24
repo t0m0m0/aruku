@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { compileTimetable, type LatLng, type StopCall, type Timetable } from '../src/exact-scan';
 import {
   findRideDeparture,
+  resolveRideDeparture,
   parseRideDepartureQuery,
   RIDE_LOOKAHEAD_MIN,
   type RideDepartureRequest,
@@ -344,5 +345,65 @@ describe('parseRideDepartureQuery', () => {
     ['駅名が長すぎる', { boardName: 'x'.repeat(65) }],
   ])('%s なら error を返す', (_name, patch) => {
     expect(parseRideDepartureQuery({ ...base, ...patch }, now)).toHaveProperty('error');
+  });
+});
+
+describe('resolveRideDeparture: 外れた理由 (#553)', () => {
+  const two = (calls: StopCall[][]) =>
+    dayOf(
+      [
+        { name: 'A', km: 0 },
+        { name: 'B', km: 5 },
+      ],
+      calls.map((c) => ({ route: '甲線', calls: c })),
+    );
+  const ab = (o: Partial<RideDepartureRequest> = {}) =>
+    req({ alight: pointAtKm(5), boardName: 'A', alightName: 'B', ...o });
+
+  it('乗る列車が見つかれば ride', async () => {
+    const res = await resolveRideDeparture(
+      ab(),
+      deps(two([[call(0, t(12, 10)), call(1, t(12, 20))]])),
+    );
+
+    expect(res?.outcome).toEqual('ride');
+    expect(res?.response.ride?.from).toEqual('A');
+  });
+
+  it('乗車駅に当たる停車場所が無ければ no_board_station', async () => {
+    const res = await resolveRideDeparture(
+      ab({ boardName: '別の駅' }),
+      deps(two([[call(0, t(12, 10)), call(1, t(12, 20))]])),
+    );
+
+    expect(res?.outcome).toEqual('no_board_station');
+  });
+
+  it('乗車駅から出る列車が降車駅に止まらなければ no_alight_station', async () => {
+    const res = await resolveRideDeparture(
+      ab({ alightName: '別の駅' }),
+      deps(two([[call(0, t(12, 10)), call(1, t(12, 20))]])),
+    );
+
+    expect(res?.outcome).toEqual('no_alight_station');
+  });
+
+  it('時刻以降に乗れる列車が無ければ no_train', async () => {
+    const res = await resolveRideDeparture(
+      ab(),
+      deps(two([[call(0, t(11, 50)), call(1, t(12, 0))]])),
+    );
+
+    expect(res?.outcome).toEqual('no_train');
+  });
+
+  it(`着が時刻から ${RIDE_LOOKAHEAD_MIN} 分を越える列車しか無ければ beyond_lookahead`, async () => {
+    const res = await resolveRideDeparture(
+      ab(),
+      deps(two([[call(0, t(13, 50)), call(1, t(14, 10))]])),
+    );
+
+    expect(res?.outcome).toEqual('beyond_lookahead');
+    expect(res?.response.ride).toBeNull();
   });
 });

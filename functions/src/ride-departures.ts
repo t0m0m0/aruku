@@ -1,4 +1,5 @@
 import type { CompiledTimetable, LatLng, TimetableStop } from './exact-scan';
+import type { RideDepartureOutcome } from './metrics';
 import {
   formatJst,
   isDepartAtInRange,
@@ -83,17 +84,27 @@ export async function findRideDeparture(
   req: RideDepartureRequest,
   deps: RideDeparturesDeps,
 ): Promise<RideDepartureResponse | null> {
+  return (await resolveRideDeparture(req, deps))?.response ?? null;
+}
+
+export async function resolveRideDeparture(
+  req: RideDepartureRequest,
+  deps: RideDeparturesDeps,
+): Promise<{ response: RideDepartureResponse; outcome: RideDepartureOutcome } | null> {
   const { serviceDate, sec } = toServiceTime(req.at);
   const day = await deps.day(serviceDate);
   if (day === null) return null;
   const feeds = day.feeds.map(({ id, fetchedAt }) => ({ id, fetchedAt }));
+  const miss = (outcome: RideDepartureOutcome) => ({ response: { ride: null, feeds }, outcome });
   const ct = day.compiled;
   const untilSec = sec + RIDE_LOOKAHEAD_MIN * 60;
   const onLine = (trip: number) => isSameLine(ct.trips[trip].route, req.line);
   const boards = boardStops(day, req.board, req.boardName, onLine);
+  if (boards.length === 0) return miss('no_board_station');
   const alightName = normalizeStationName(req.alightName);
   const rides: { trip: number; board: number; dep: number; calls: number[] }[] = [];
   const alightMeters = new Map<number, number>();
+  let departures = 0;
   for (const board of boards) {
     for (let i = ct.departureStart[board]; i < ct.departureStart[board + 1]; i++) {
       const dep = ct.departureAt[i];
@@ -101,6 +112,7 @@ export async function findRideDeparture(
       if (dep > untilSec) break;
       const trip = ct.departureTrip[i];
       if (!onLine(trip)) continue;
+      departures++;
       const start = ct.tripStart[trip];
       const end = start + ct.tripLength[trip];
       const calls: number[] = [];
@@ -129,10 +141,13 @@ export async function findRideDeparture(
       best = { trip, board, alight: ct.callStop[c], dep, arr };
     }
   }
-  if (best === null || best.arr > untilSec) return { ride: null, feeds };
+  if (departures === 0) return miss('no_train');
+  if (alights.size === 0) return miss('no_alight_station');
+  if (best === null) return miss('no_train');
+  if (best.arr > untilSec) return miss('beyond_lookahead');
 
   const midnight = serviceMidnightMs(serviceDate);
-  return {
+  const response: RideDepartureResponse = {
     ride: {
       route: ct.trips[best.trip].route,
       headsign: ct.trips[best.trip].headsign,
@@ -143,6 +158,7 @@ export async function findRideDeparture(
     },
     feeds,
   };
+  return { response, outcome: 'ride' };
 }
 
 function boardStops(

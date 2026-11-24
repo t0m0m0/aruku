@@ -17,6 +17,7 @@ import {
   logExactWalkMax,
   logRequestLatency,
   logRequestOutcome,
+  logRideDeparture,
 } from './metrics';
 import { createUpstreamCache } from './upstream-cache';
 import { refreshTimetablePacks as refreshPacks } from './timetable-pack/refresh';
@@ -27,7 +28,7 @@ import {
   type ScanStage,
   type MatrixElement,
 } from './exact-walk-max';
-import { findRideDeparture, parseRideDepartureQuery } from './ride-departures';
+import { parseRideDepartureQuery, resolveRideDeparture } from './ride-departures';
 import type { LatLng } from './exact-scan';
 
 export {
@@ -928,11 +929,19 @@ export const rideDepartures = onRequest(
       return;
     }
 
-    const body = await findRideDeparture(parsed, { day: (serviceDate) => scanDay(serviceDate) });
-    if (body === null) {
+    const result = await resolveRideDeparture(parsed, {
+      day: (serviceDate) => scanDay(serviceDate),
+    });
+    if (result === null) {
       res.status(503).json({ error: 'timetable unavailable' });
       return;
     }
-    res.json(body);
+    logRideDeparture({
+      outcome: result.outcome,
+      line: parsed.line,
+      boardNamed: parsed.boardName.trim() !== '',
+      alightNamed: parsed.alightName.trim() !== '',
+    });
+    res.json(result.response);
   }),
 );

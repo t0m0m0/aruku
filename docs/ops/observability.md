@@ -23,6 +23,7 @@ Places / Google Routes への薄いプロキシ（`placesProxy`, `googleWalkProx
 | `search_request` | `callUpstream`（全プロキシと `exactWalkMax` のマトリクス共通） | `endpoint`（例: `placesProxy.autocomplete`, `googleWalkProxy`, `exactWalkMax`）, `upstream`（`places`\|`routes-walk`\|`routes-matrix`）, `status`（`success`\|`failure`）, `latencyMs`, `httpStatus`（任意・タイムアウトは504）, `rateLimited`（上流429のときのみ`true`）, `semanticFailure`（上流が2xxでもボディがエラー形状＝クライアントへ502変換される失敗のときのみ`true`。このとき`status="failure"`・`httpStatus`は上流値のまま、通常200） | success→info, failure→error |
 | `app_check_denied` | `verifyAppCheck` | `endpoint`, `reason`（`missing`\|`invalid`\|`replayed`） | warn |
 | `exact_walk_max` | `exactWalkMax`（成功応答のみ） | `dayMs`（運行日の時刻表を用意するまで。コールドスタートではパックの読み込みを含む）, `matrixMs`（並列2本の遅い方）, `scanMs`（走査と応答の組み立て）, `pickMs`・`ridesMs`・`journeysMs`（`scanMs` のうち、実測する駅の選定・1回乗車の走査・乗換つきの走査。乗換つきは要求されたときだけ走るので、されなければ `journeysMs=0`・#484）, `transfers`（乗換つきの候補を要求されたか。A/B 計測だけが要求する）, `candidates`, `tripsScanned`, `elementsMeasured`, `truncated` | info |
+| `ride_departure` | `rideDepartures`（入力が読めてパックがあった要求のみ・#553） | `outcome`（`ride`＝乗る列車を返した \| `no_board_station`＝乗車駅に当たる停車場所が無い \| `no_alight_station`＝乗車駅から出る列車が降車駅に止まらない \| `no_train`＝時刻以降に乗れる列車が無い \| `beyond_lookahead`＝着が時刻から 120 分を越える）, `line`（路線名）, `boardNamed`・`alightNamed`（駅名が渡されたか）。座標・時刻・駅名の値は出さない | info |
 | `timetable_pack_load` | `exactWalkMax` のパック読み込み（`functions/src/timetable-pack/load.ts`。インスタンスごとに起動時と6時間ごと。読めなかったグループがあれば1分後） | `group`（`challenge`\|`permanent`\|`minitokyo3d`）, `status`（`success`\|`missing`\|`failure`）, `loadMs`（下の工程の和）, `readMs`（Storage の読込。ほかのグループの解凍・解析が終わるまで再開できないので、その待ちを含み得る）, `gunzipMs`・`parseMs`（解凍と JSON の解析。読めたときだけ）, `bytes`・`trips`（success のみ）, `reason`（failure のみ。`read`\|`format`） | success→info, それ以外→warn |
 | `timetable_day_compile` | 同上（運行日ごと。`functions/src/timetable-pack/day.ts`） | `serviceDate`, `trips`, `totalMs`（下の工程の和）, `extractMs`（運行日に掛かる便の選び出しと、グループごとのパックの停車を列の配列へ書く時間）, `compileMs`（駅ごとの発車の索引。`compileColumns`）, `neighborsMs`（乗換の近傍）, `heapUsedMB`（組み立て直後のヒープ） | info |
 | `timetable_day_throttled` | 同上（`functions/src/timetable-pack/load.ts`。今日と明日以外の運行日の組み立てを、インスタンスごとに1分1回へ間引いたとき。要求は 503 になる・#506） | `serviceDate`, `status`（`throttled`） | warn |
@@ -67,6 +68,19 @@ success_rate(upstream) = count(status="success")
 **2本を統合してはならない。** `transient` は設計上許容され恒常的に出るので、両者が同一の信号だと「1件でも P1」は必ずノイズとして黙らされる。そのとき `config`（＝人が設定するまで保護が永続的に無効）も一緒に黙る。**`transient` を黙らせても `config` が鳴り続ける**ことがこの分割の存在意義で、統合はその性質だけを失わせる。
 
 参考: `decision="blocked"` の件数も同じログから取得できる（正当なレート制限動作。急増は乱用 or クライアント側リトライ暴走の兆候として監視対象にはするが、SLO 対象ではない）。
+
+### 3.4.1 乗車時刻の確定でパックが当たる割合（#553）
+
+`rideDepartures` が乗る列車を返した割合。外れた区間は、エンジンが Transit で確定し直す
+（照会が 1 本増える）。外れる理由と路線で、路線名の照合や駅の当て方の直す先が分かる。
+
+```bash
+gcloud logging read 'jsonPayload.event="ride_departure"' --project aruku-app --freshness=1d \
+  --format='value(jsonPayload.outcome,jsonPayload.line)' --limit 5000 | sort | uniq -c | sort -rn
+```
+
+パックで決めた列車が Transit と同じかどうかは、ここでは分からない。それは再生ベンチの
+`--ride-verify` で見る（`docs/ops/replay-bench.md`）。
 
 ### 3.5 クライアントのクラッシュ率（未計測）
 

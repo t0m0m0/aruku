@@ -16,6 +16,7 @@ import {
   logRateLimit,
   logRequestLatency,
   logRequestOutcome,
+  logRideDeparture,
 } from '../src/metrics';
 
 describe('logRequestOutcome', () => {
@@ -268,6 +269,29 @@ describe('logRateLimit', () => {
     expect(infoMock).toHaveBeenCalledWith('rate_limit', {
       event: 'rate_limit',
       decision: 'allowed',
+    });
+  });
+});
+
+describe('logRideDeparture (#553)', () => {
+  beforeEach(() => {
+    infoMock.mockReset();
+  });
+
+  it('event=ride_departure で、結果・路線名・駅名の有無だけを info ログに出す', () => {
+    logRideDeparture({
+      outcome: 'no_train',
+      line: '東急東横線',
+      boardNamed: true,
+      alightNamed: false,
+    });
+
+    expect(infoMock).toHaveBeenCalledWith('ride_departure', {
+      event: 'ride_departure',
+      outcome: 'no_train',
+      line: '東急東横線',
+      boardNamed: true,
+      alightNamed: false,
     });
   });
 });
