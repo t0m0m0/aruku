@@ -8,7 +8,7 @@
 
 ## 1. 目的と対象範囲
 
-Places / Google Routes への薄いプロキシ（`placesProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`）と厳密走査のエンドポイント（`exactWalkMax`）（いずれも 2nd gen Cloud Functions・`asia-northeast1`）の可用性・レイテンシ・保護機構（App Check・レート制限）の健全性を、構造化ログから機械的に測定・アラートできる状態にする。クライアント側のクラッシュ率は、Web 版に計測手段が無いため今は対象外（§3.5）。
+Places / Google Routes への薄いプロキシ（`placesProxy`, `googleWalkProxy`, `googleWalkMatrixProxy`）と時刻表パックを引くエンドポイント（`exactWalkMax`・`rideDepartures`）（いずれも 2nd gen Cloud Functions・`asia-northeast1`）の可用性・レイテンシ・保護機構（App Check・レート制限）の健全性を、構造化ログから機械的に測定・アラートできる状態にする。クライアント側のクラッシュ率は、Web 版に計測手段が無いため今は対象外（§3.5）。
 
 対象外: 個々のユーザー体験としての「ルートが妥当か」。ここではインフラ・上流 API の可観測性のみを扱う。
 

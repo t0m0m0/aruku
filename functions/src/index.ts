@@ -27,6 +27,7 @@ import {
   type ScanStage,
   type MatrixElement,
 } from './exact-walk-max';
+import { findRideDepartures, parseRideDeparturesQuery } from './ride-departures';
 import type { LatLng } from './exact-scan';
 
 export {
@@ -905,5 +906,32 @@ export const exactWalkMax = onRequest(
         .status(timedOut ? 504 : 502)
         .json({ error: timedOut ? 'upstream timeout' : 'upstream error' });
     }
+  }),
+);
+
+export const rideDepartures = onRequest(
+  { memory: '1GiB' },
+  withRequestLatency('rideDepartures', async (req, res) => {
+    if (handleCors(req, res)) return;
+
+    if (!(await verifyAppCheck(req, res, { endpoint: 'rideDepartures' }))) return;
+
+    if (!(await checkRateLimit(clientIp(req), WALK_RATE_LIMIT, 'rideDepartures'))) {
+      res.status(429).json({ error: 'Too many requests' });
+      return;
+    }
+
+    const parsed = parseRideDeparturesQuery(req.query, new Date());
+    if ('error' in parsed) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+
+    const body = await findRideDepartures(parsed, { day: (serviceDate) => scanDay(serviceDate) });
+    if (body === null) {
+      res.status(503).json({ error: 'timetable unavailable' });
+      return;
+    }
+    res.json(body);
   }),
 );
