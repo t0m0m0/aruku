@@ -156,7 +156,13 @@ export class TransitRouteService implements SearchEngine {
     this.onMetrics = init.onMetrics ?? null;
     this.measurer = new CandidateMeasurer(this.api, this.diag, {
       rideDepartures: init.rideDepartures ?? false,
-      verifyRideDepartures: init.verifyRideDepartures ?? false,
+      verifyApi:
+        init.verifyRideDepartures === true
+          ? new TransitApiClient({
+              transitClient: init.transitClient,
+              transitBaseUrl: init.transitBaseUrl,
+            })
+          : null,
       onPackMismatch: init.onPackMismatch,
     });
   }
@@ -251,6 +257,7 @@ export class TransitRouteService implements SearchEngine {
     });
 
     metrics.totalMs = totalSw.elapsedMilliseconds;
+    await this.measurer.settleVerifications();
     metrics.guidanceCalls = this.api.guidanceCalls;
     metrics.guidanceDupCalls = this.api.guidanceDupCalls;
     metrics.guidanceCacheHits = this.api.guidanceCacheHits;

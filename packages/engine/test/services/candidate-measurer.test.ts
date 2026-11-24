@@ -113,6 +113,7 @@ interface Harness {
 function harness(o: {
   rideDepartures: boolean;
   verify?: boolean;
+  verifyGate?: Promise<void>;
   onPackMismatch?: (m: PackMismatch) => void;
   pack?: (url: URL) => HttpResponse | Promise<HttpResponse>;
   guidance?: () => JsonMap;
@@ -134,9 +135,20 @@ function harness(o: {
     transitBaseUrl: 'https://transit.example',
     proxyBaseUrl: 'https://proxy.example',
   });
+  const verifyClient = mockClient(async (url) => {
+    await (o.verifyGate ?? Promise.resolve());
+    return jsonResponse(
+      o.guidance?.() ?? { options: [] },
+      url.pathname.includes('guidance') ? 200 : 404,
+    );
+  });
+  const verifyApi = new TransitApiClient({
+    transitClient: verifyClient,
+    transitBaseUrl: 'https://transit.example',
+  });
   const measurer = new CandidateMeasurer(api, new RouteDiagnostics({ verbose: false }), {
     rideDepartures: o.rideDepartures,
-    verifyRideDepartures: o.verify ?? false,
+    verifyApi: o.verify === true ? verifyApi : null,
     onPackMismatch: o.onPackMismatch,
   });
   return { measurer, api, rideUrls };
@@ -347,6 +359,7 @@ describe('resolveBoardingTimes: パックの答えを Transit と突き合わせ
     });
 
     const out = await h.measurer.resolveBoardingTimes(oneRide(), departureAt);
+    await h.measurer.settleVerifications();
 
     expect(h.measurer.packVerifiedLegs).toEqual(1);
     expect(h.measurer.packMismatchLegs).toEqual(0);
@@ -364,6 +377,7 @@ describe('resolveBoardingTimes: パックの答えを Transit と突き合わせ
     });
 
     const out = await h.measurer.resolveBoardingTimes(oneRide(), departureAt);
+    await h.measurer.settleVerifications();
 
     expect(h.measurer.packMismatchLegs).toEqual(1);
     expect(rides(out).map((s) => hm(s.depTime))).toEqual(['9:08']);
@@ -381,6 +395,7 @@ describe('resolveBoardingTimes: パックの答えを Transit と突き合わせ
     });
 
     await h.measurer.resolveBoardingTimes(oneRide(), departureAt);
+    await h.measurer.settleVerifications();
 
     expect(h.measurer.packUnverifiedLegs).toEqual(1);
     expect([h.measurer.packVerifiedLegs, h.measurer.packMismatchLegs]).toEqual([0, 0]);
@@ -394,9 +409,50 @@ describe('resolveBoardingTimes: パックの答えを Transit と突き合わせ
     });
 
     await h.measurer.resolveBoardingTimes(oneRide(), departureAt);
+    await h.measurer.settleVerifications();
 
     expect(h.measurer.packUnverifiedLegs).toEqual(1);
     expect([h.measurer.packVerifiedLegs, h.measurer.packMismatchLegs]).toEqual([0, 0]);
+  });
+
+  it('Transit の便がその時刻に乗れないものだけなら、比べず確定できずとして数える', async () => {
+    const h = harness({
+      rideDepartures: true,
+      verify: true,
+      pack: byLine({ 甲線: packRide('甲線', [9, 10], [9, 21]) }),
+      guidance: () => guidanceDirect('甲線', at(9, 0), at(9, 11)),
+    });
+
+    await h.measurer.resolveBoardingTimes(oneRide(), departureAt);
+    await h.measurer.settleVerifications();
+
+    expect(h.measurer.packUnverifiedLegs).toEqual(1);
+    expect(h.measurer.packMismatchLegs).toEqual(0);
+  });
+
+  it('突き合わせの応答を待たずに区間をつなぎ、検索の照会と締め切りを使わない', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const h = harness({
+      rideDepartures: true,
+      verify: true,
+      verifyGate: gate,
+      pack: byLine({
+        甲線: packRide('甲線', [9, 6], [9, 12]),
+        乙線: packRide('乙線', [9, 16], [9, 24]),
+      }),
+      guidance: () => guidanceDirect('甲線', at(9, 6), at(9, 12)),
+    });
+
+    const out = await h.measurer.resolveBoardingTimes(twoRides(), departureAt);
+
+    expect(rides(out).map((s) => hm(s.depTime))).toEqual(['9:06', '9:16']);
+    expect(h.api.guidanceCalls).toEqual(0);
+    release();
+    await h.measurer.settleVerifications();
+    expect(
+      h.measurer.packVerifiedLegs + h.measurer.packMismatchLegs + h.measurer.packUnverifiedLegs,
+    ).toEqual(2);
   });
 
   it('無効のときは、パックで確定した区間を Transit に聞き直さない', async () => {

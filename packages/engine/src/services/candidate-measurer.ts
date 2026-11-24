@@ -29,6 +29,23 @@ export interface Selection {
 
 export const maxMeasureShortlist = 13;
 
+interface EndpointOptions {
+  purpose: 'boarding' | 'names';
+  type?: SegmentType;
+  line?: string | null;
+  needFrom?: boolean;
+  needTo?: boolean;
+  requireTimetable?: boolean;
+  strict?: boolean;
+}
+
+interface TransitEndpoints {
+  from: string;
+  to: string;
+  dep: Date | null;
+  arr: Date | null;
+}
+
 export interface PackMismatch {
   readonly line: string;
   readonly pack: PackRide;
@@ -37,7 +54,7 @@ export interface PackMismatch {
 
 export interface CandidateMeasurerOptions {
   rideDepartures?: boolean;
-  verifyRideDepartures?: boolean;
+  verifyApi?: TransitApiClient | null;
   onPackMismatch?: (mismatch: PackMismatch) => void;
 }
 
@@ -48,13 +65,18 @@ export class CandidateMeasurer {
     options: CandidateMeasurerOptions = {},
   ) {
     this.rideDepartures = options.rideDepartures ?? false;
-    this.verifyRideDepartures = options.verifyRideDepartures ?? false;
+    this.verifyApi = options.verifyApi ?? null;
     this.onPackMismatch = options.onPackMismatch ?? null;
   }
 
   private readonly onPackMismatch: ((mismatch: PackMismatch) => void) | null;
 
-  private readonly verifyRideDepartures: boolean;
+  private readonly verifyApi: TransitApiClient | null;
+  private readonly pendingVerifications: Promise<void>[] = [];
+
+  async settleVerifications(): Promise<void> {
+    await Promise.all(this.pendingVerifications);
+  }
   private packVerifiedLegCount = 0;
   private packMismatchLegCount = 0;
   private packUnverifiedLegCount = 0;
@@ -462,7 +484,7 @@ export class CandidateMeasurer {
       const boardAt = plusMinutes(departureAt, cumBefore);
       const picked = await this.packRide(seg, boardAt);
       if (picked !== null) {
-        if (this.verifyRideDepartures) await this.verifyPackRide(seg, boardAt, picked);
+        this.startVerification(seg, boardAt, picked);
         segs[i] = seg.copyWith({
           fromName: seg.fromName.length === 0 ? picked.from : undefined,
           toName: seg.toName.length === 0 ? picked.to : undefined,
@@ -507,12 +529,28 @@ export class CandidateMeasurer {
     return [...this.packSources.values()];
   }
 
-  private async verifyPackRide(seg: RouteSegment, boardAt: Date, picked: PackRide): Promise<void> {
-    const ep = await this.fetchTransitEndpoints(
+  private startVerification(seg: RouteSegment, boardAt: Date, picked: PackRide): void {
+    const api = this.verifyApi;
+    if (api === null) return;
+    this.pendingVerifications.push(
+      this.verifyPackRide(api, seg, boardAt, picked).catch(() => {
+        this.packUnverifiedLegCount++;
+      }),
+    );
+  }
+
+  private async verifyPackRide(
+    api: TransitApiClient,
+    seg: RouteSegment,
+    boardAt: Date,
+    picked: PackRide,
+  ): Promise<void> {
+    const ep = await this.endpointsFrom(
+      api,
       seg.polyline[0],
       seg.polyline[seg.polyline.length - 1],
       boardAt,
-      { purpose: 'boarding', type: seg.type, line: seg.line, requireSameLine: true },
+      { purpose: 'boarding', type: seg.type, line: seg.line, strict: true },
     );
     const dep = ep?.dep ?? null;
     const arr = ep?.arr ?? null;
@@ -569,21 +607,18 @@ export class CandidateMeasurer {
     board: GeoPoint,
     alight: GeoPoint,
     at: Date,
-    options: {
-      purpose: 'boarding' | 'names';
-      type?: SegmentType;
-      line?: string | null;
-      needFrom?: boolean;
-      needTo?: boolean;
-      requireTimetable?: boolean;
-      requireSameLine?: boolean;
-    },
-  ): Promise<{
-    from: string;
-    to: string;
-    dep: Date | null;
-    arr: Date | null;
-  } | null> {
+    options: EndpointOptions,
+  ): Promise<TransitEndpoints | null> {
+    return this.endpointsFrom(this.api, board, alight, at, options);
+  }
+
+  private async endpointsFrom(
+    api: TransitApiClient,
+    board: GeoPoint,
+    alight: GeoPoint,
+    at: Date,
+    options: EndpointOptions,
+  ): Promise<TransitEndpoints | null> {
     const type = options.type ?? SegmentType.train;
     const line = options.line ?? null;
     const needFrom = options.needFrom ?? false;
@@ -592,7 +627,7 @@ export class CandidateMeasurer {
 
     let body: JsonMap;
     try {
-      body = await this.api.fetchGuidanceAt(board, alight, at, {
+      body = await api.fetchGuidanceAt(board, alight, at, {
         allowBus: type === SegmentType.bus,
         purpose: options.purpose,
       });
@@ -605,9 +640,14 @@ export class CandidateMeasurer {
         o.segments.filter((s) => s.type === type).length === 1 &&
         o.segments.every((s) => s.type === type || s.type === SegmentType.walk),
     );
-    const comparable = requireTimetable ? comparableFrom(direct, at) : direct;
+    const comparable =
+      options.strict === true
+        ? direct.filter((o) => isComparableOption(o, at))
+        : requireTimetable
+          ? comparableFrom(direct, at)
+          : direct;
     const sameLine = comparable.filter((o) => firstOfType(o, type).line === line);
-    if (options.requireSameLine === true && sameLine.length === 0) return null;
+    if (options.strict === true && sameLine.length === 0) return null;
     const cands =
       line === null || line.length === 0 || sameLine.length === 0 ? comparable : sameLine;
     let leastWalk: number | null = null;
