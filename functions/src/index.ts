@@ -27,7 +27,7 @@ import {
   type ScanStage,
   type MatrixElement,
 } from './exact-walk-max';
-import { findRideDepartures, parseRideDeparturesQuery } from './ride-departures';
+import { findRideDeparture, parseRideDepartureQuery } from './ride-departures';
 import type { LatLng } from './exact-scan';
 
 export {
@@ -169,6 +169,7 @@ const DEFAULT_APP_CHECK_CONSUME_ENDPOINTS = [
   'placesProxy',
   'googleWalkMatrixProxy',
   'exactWalkMax',
+  'rideDepartures',
 ];
 
 export function shouldConsumeAppCheckToken(endpoint: string): boolean {
@@ -910,7 +911,7 @@ export const exactWalkMax = onRequest(
 );
 
 export const rideDepartures = onRequest(
-  { memory: '1GiB' },
+  { secrets: [rateLimitHmacKeySecret], memory: '1GiB' },
   withRequestLatency('rideDepartures', async (req, res) => {
     if (handleCors(req, res)) return;
 
@@ -921,13 +922,13 @@ export const rideDepartures = onRequest(
       return;
     }
 
-    const parsed = parseRideDeparturesQuery(req.query, new Date());
+    const parsed = parseRideDepartureQuery(req.query, new Date());
     if ('error' in parsed) {
       res.status(400).json({ error: parsed.error });
       return;
     }
 
-    const body = await findRideDepartures(parsed, { day: (serviceDate) => scanDay(serviceDate) });
+    const body = await findRideDeparture(parsed, { day: (serviceDate) => scanDay(serviceDate) });
     if (body === null) {
       res.status(503).json({ error: 'timetable unavailable' });
       return;

@@ -9,22 +9,19 @@ import {
   type FeedFetchedAt,
 } from './exact-walk-max';
 
-export const RIDE_DEPARTURES_MAX_LEGS = 8;
-export const RIDE_DEPARTURES_MAX_PER_LEG = 40;
-const MAX_UNTIL_MIN = 24 * 60;
-const STOP_MATCH_RADIUS_M = 300;
+export const RIDE_LOOKAHEAD_MIN = 120;
+const NAMED_STOP_RADIUS_M = 1000;
+const UNNAMED_STOP_RADIUS_M = 300;
+const MAX_TEXT_LENGTH = 64;
 const EARTH_RADIUS_M = 6371008.8;
 
-export interface RideLeg {
+export interface RideDepartureRequest {
+  at: Date;
   board: LatLng;
   alight: LatLng;
-  fromMin: number;
-}
-
-export interface RideDeparturesRequest {
-  departAt: Date;
-  untilMin: number;
-  legs: RideLeg[];
+  boardName: string;
+  alightName: string;
+  line: string;
 }
 
 export interface RideDeparturesDay {
@@ -46,133 +43,117 @@ export interface RideDeparture {
   alightAt: string;
 }
 
-export interface RideLegDepartures {
-  departures: RideDeparture[];
-  truncated: boolean;
-}
-
-export interface RideDeparturesResponse {
-  legs: RideLegDepartures[];
+export interface RideDepartureResponse {
+  ride: RideDeparture | null;
   feeds: FeedFetchedAt[];
 }
 
 type Query = Record<string, unknown>;
 
-export function parseRideDeparturesQuery(
+export function parseRideDepartureQuery(
   query: Query,
   now: Date,
-): RideDeparturesRequest | { error: string } {
+): RideDepartureRequest | { error: string } {
   const param = (name: string): string | undefined => {
     const v = query[name];
     return typeof v === 'string' ? v : undefined;
   };
-  const departAt = parseInstant(param('departAt'));
-  if (departAt === null) {
-    return { error: 'departAt is required as ISO 8601 with a UTC offset' };
+  const at = parseInstant(param('at'));
+  if (at === null) return { error: 'at is required as ISO 8601 with a UTC offset' };
+  if (!isDepartAtInRange(at, now)) {
+    return { error: 'at must be within 1 day before to 92 days after now' };
   }
-  if (!isDepartAtInRange(departAt, now)) {
-    return { error: 'departAt must be within 1 day before to 92 days after now' };
+  const board = parsePoint(param('board'));
+  const alight = parsePoint(param('alight'));
+  if (board === null || alight === null) {
+    return { error: "board and alight are required as 'lat,lng'" };
   }
-  const untilMin = Number(param('untilMin'));
-  if (!Number.isInteger(untilMin) || untilMin < 1 || untilMin > MAX_UNTIL_MIN) {
-    return { error: `untilMin must be an integer in 1..${MAX_UNTIL_MIN}` };
+  const line = param('line') ?? '';
+  const boardName = param('boardName') ?? '';
+  const alightName = param('alightName') ?? '';
+  if (line.trim() === '' || line.length > MAX_TEXT_LENGTH) {
+    return { error: `line is required and must be at most ${MAX_TEXT_LENGTH} characters` };
   }
-  const raw = param('legs') ?? '';
-  const parts = raw === '' ? [] : raw.split(';');
-  if (parts.length === 0 || parts.length > RIDE_DEPARTURES_MAX_LEGS) {
-    return { error: `legs must have 1..${RIDE_DEPARTURES_MAX_LEGS} entries` };
+  if (boardName.length > MAX_TEXT_LENGTH || alightName.length > MAX_TEXT_LENGTH) {
+    return { error: `station names must be at most ${MAX_TEXT_LENGTH} characters` };
   }
-  const legs: RideLeg[] = [];
-  for (const part of parts) {
-    const leg = parseLeg(part, untilMin);
-    if (leg === null) {
-      return { error: "each leg must be 'boardLat,boardLng,alightLat,alightLng,fromMin'" };
-    }
-    legs.push(leg);
-  }
-  return { departAt, untilMin, legs };
+  return { at, board, alight, boardName, alightName, line };
 }
 
-function parseLeg(part: string, untilMin: number): RideLeg | null {
-  const values = part.split(',');
-  if (values.length !== 5) return null;
-  const board = parsePoint(`${values[0]},${values[1]}`);
-  const alight = parsePoint(`${values[2]},${values[3]}`);
-  const fromMin = Number(values[4]);
-  if (board === null || alight === null) return null;
-  if (values[4].trim() === '' || !Number.isInteger(fromMin)) return null;
-  if (fromMin < 0 || fromMin > untilMin) return null;
-  return { board, alight, fromMin };
-}
-
-export async function findRideDepartures(
-  req: RideDeparturesRequest,
+export async function findRideDeparture(
+  req: RideDepartureRequest,
   deps: RideDeparturesDeps,
-): Promise<RideDeparturesResponse | null> {
-  const { serviceDate, sec } = toServiceTime(req.departAt);
+): Promise<RideDepartureResponse | null> {
+  const { serviceDate, sec } = toServiceTime(req.at);
   const day = await deps.day(serviceDate);
   if (day === null) return null;
-  const midnight = serviceMidnightMs(serviceDate);
-  const untilSec = sec + req.untilMin * 60;
-  const legs = req.legs.map((leg) =>
-    legDepartures(day, leg, sec + leg.fromMin * 60, untilSec, midnight),
-  );
-  return { legs, feeds: day.feeds.map(({ id, fetchedAt }) => ({ id, fetchedAt })) };
-}
-
-function legDepartures(
-  day: RideDeparturesDay,
-  leg: RideLeg,
-  fromSec: number,
-  untilSec: number,
-  midnight: number,
-): RideLegDepartures {
+  const feeds = day.feeds.map(({ id, fetchedAt }) => ({ id, fetchedAt }));
   const ct = day.compiled;
-  const boards = stopsNear(ct, leg.board);
-  const alights = new Set(stopsNear(ct, leg.alight));
-  const found: {
-    boardAt: number;
-    alightAt: number;
-    trip: number;
-    board: number;
-    alight: number;
-  }[] = [];
+  const untilSec = sec + RIDE_LOOKAHEAD_MIN * 60;
+  const boards = stopsFor(day, req.board, req.boardName);
+  const alights = new Set(stopsFor(day, req.alight, req.alightName));
+
+  let best: { trip: number; board: number; alight: number; dep: number; arr: number } | null = null;
   for (const board of boards) {
     for (let i = ct.departureStart[board]; i < ct.departureStart[board + 1]; i++) {
-      const boardAt = ct.departureAt[i];
-      if (boardAt < fromSec) continue;
-      if (boardAt > untilSec) break;
+      const dep = ct.departureAt[i];
+      if (dep < sec) continue;
+      if (dep > untilSec) break;
       const trip = ct.departureTrip[i];
+      if (!isSameLine(ct.trips[trip].route, req.line)) continue;
       const start = ct.tripStart[trip];
       const end = start + ct.tripLength[trip];
       for (let c = start + ct.departurePos[i] + 1; c < end; c++) {
-        if (ct.callAlight[c] === 1 && alights.has(ct.callStop[c])) {
-          found.push({ boardAt, alightAt: ct.callArr[c], trip, board, alight: ct.callStop[c] });
-          break;
+        if (ct.callAlight[c] !== 1 || !alights.has(ct.callStop[c])) continue;
+        const arr = ct.callArr[c];
+        if (best === null || arr < best.arr || (arr === best.arr && dep < best.dep)) {
+          best = { trip, board, alight: ct.callStop[c], dep, arr };
         }
+        break;
       }
     }
   }
-  found.sort((a, b) => a.boardAt - b.boardAt || a.alightAt - b.alightAt || a.trip - b.trip);
+  if (best === null || best.arr > untilSec) return { ride: null, feeds };
+
+  const midnight = serviceMidnightMs(serviceDate);
   return {
-    departures: found.slice(0, RIDE_DEPARTURES_MAX_PER_LEG).map((f) => ({
-      route: ct.trips[f.trip].route,
-      headsign: ct.trips[f.trip].headsign,
-      from: day.stops[f.board].name,
-      to: day.stops[f.alight].name,
-      boardAt: formatJst(midnight + f.boardAt * 1000),
-      alightAt: formatJst(midnight + f.alightAt * 1000),
-    })),
-    truncated: found.length > RIDE_DEPARTURES_MAX_PER_LEG,
+    ride: {
+      route: ct.trips[best.trip].route,
+      headsign: ct.trips[best.trip].headsign,
+      from: day.stops[best.board].name,
+      to: day.stops[best.alight].name,
+      boardAt: formatJst(midnight + best.dep * 1000),
+      alightAt: formatJst(midnight + best.arr * 1000),
+    },
+    feeds,
   };
 }
 
-function stopsNear(ct: CompiledTimetable, p: LatLng): number[] {
+function stopsFor(day: RideDeparturesDay, p: LatLng, name: string): number[] {
+  const ct = day.compiled;
+  const wanted = normalizeStationName(name);
+  const radius = wanted === '' ? UNNAMED_STOP_RADIUS_M : NAMED_STOP_RADIUS_M;
   const out: number[] = [];
   for (let s = 0; s < ct.stopCount; s++) {
-    if (metersBetween(p, ct.stopLat[s], ct.stopLng[s]) <= STOP_MATCH_RADIUS_M) out.push(s);
+    if (metersBetween(p, ct.stopLat[s], ct.stopLng[s]) > radius) continue;
+    if (wanted !== '' && normalizeStationName(day.stops[s].name) !== wanted) continue;
+    out.push(s);
   }
   return out;
+}
+
+function normalizeStationName(name: string): string {
+  return name
+    .replace(/[（(][^）)]*[）)]/g, '')
+    .replace(/\s/g, '')
+    .replace(/駅$/, '');
+}
+
+function isSameLine(route: string, line: string): boolean {
+  const a = route.replace(/\s/g, '');
+  const b = line.replace(/\s/g, '');
+  if (a === '' || b === '') return false;
+  return a === b || b.endsWith(a) || a.endsWith(b);
 }
 
 function metersBetween(p: LatLng, lat: number, lng: number): number {

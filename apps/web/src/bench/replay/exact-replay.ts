@@ -9,8 +9,8 @@ import {
   type MatrixElement,
 } from '../../../../../functions/src/exact-walk-max';
 import {
-  findRideDepartures,
-  parseRideDeparturesQuery,
+  findRideDeparture,
+  parseRideDepartureQuery,
 } from '../../../../../functions/src/ride-departures';
 import { createScanDaySource } from '../../../../../functions/src/timetable-pack/load';
 import { syntheticWalkMeters, syntheticWalkSeconds } from './synthetic-walk';
@@ -59,9 +59,9 @@ export function localRideDepartures(
     now: () => Date.now(),
   });
   return async (url) => {
-    const parsed = parseRideDeparturesQuery(Object.fromEntries(url.searchParams), init.now());
+    const parsed = parseRideDepartureQuery(Object.fromEntries(url.searchParams), init.now());
     if ('error' in parsed) return { status: 400, body: JSON.stringify({ error: parsed.error }) };
-    const body = await findRideDepartures(parsed, { day });
+    const body = await findRideDeparture(parsed, { day });
     if (body === null)
       return { status: 503, body: JSON.stringify({ error: 'timetable unavailable' }) };
     return { status: 200, body: JSON.stringify(body) };

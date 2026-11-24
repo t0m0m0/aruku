@@ -16,7 +16,12 @@ export interface AppCheckHttpClientOptions {
 
 const headerName = 'X-Firebase-AppCheck';
 
-const replayProtectedFunctions = new Set(['placesProxy', 'googleWalkMatrixProxy', 'exactWalkMax']);
+const replayProtectedFunctions = new Set([
+  'placesProxy',
+  'googleWalkMatrixProxy',
+  'exactWalkMax',
+  'rideDepartures',
+]);
 
 export class AppCheckHttpClient extends BaseHttpClient {
   constructor(

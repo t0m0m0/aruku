@@ -116,7 +116,7 @@ describe('limited-use トークン（リプレイ保護, issue #155・#366）', 
       limitedUseTokenProvider: async () => 'limited_use_token',
     });
 
-  for (const path of ['placesProxy', 'googleWalkMatrixProxy', 'exactWalkMax']) {
+  for (const path of ['placesProxy', 'googleWalkMatrixProxy', 'exactWalkMax', 'rideDepartures']) {
     it(`${path} へは limited-use プロバイダのトークンを付与する`, async () => {
       const inner = new FakeInnerClient();
       await build(inner).send(url(path), {});

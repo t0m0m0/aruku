@@ -280,9 +280,9 @@ describe('ReplaySession', () => {
   describe('乗車時刻の確定（#549）', () => {
     it('rideDepartures の照会は渡した関数に答えさせ、指定の遅延のあとで返す', async () => {
       const fetchLive = vi.fn();
-      const rideDepartures = vi.fn(async () => ({ status: 200, body: '{"legs":[]}' }));
+      const rideDepartures = vi.fn(async () => ({ status: 200, body: '{"ride":null}' }));
       const s = session({ fetchLive, rideDepartures, rideDelayMs: 600 });
-      const url = new URL(`${proxy}/rideDepartures?legs=1`);
+      const url = new URL(`${proxy}/rideDepartures?line=1`);
 
       let settled = false;
       const res = s
@@ -294,7 +294,7 @@ describe('ReplaySession', () => {
       await vi.advanceTimersByTimeAsync(1);
 
       const got = await res;
-      expect(text(got.bodyBytes)).toBe('{"legs":[]}');
+      expect(text(got.bodyBytes)).toBe('{"ride":null}');
       expect(rideDepartures).toHaveBeenCalledWith(url);
       expect(fetchLive).not.toHaveBeenCalled();
     });

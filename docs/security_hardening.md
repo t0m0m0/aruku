@@ -159,7 +159,7 @@ Web 版ではトークンがブラウザの DevTools から読め、TTL の間�
 | `exactWalkMax` | 1 | 使い捨て | 1回でマトリクス24要素まで実測する（#459） |
 | `placesProxy` | 3〜5 | 使い捨て | 本数が少なくクォータ影響が小さい（#366） |
 | `googleWalkProxy` | **約21** | 標準（キャッシュ可） | 下記のとおりクォータを最も速く食う |
-| `rideDepartures` | 候補ごとに1（数本） | 標準 | 上流を呼ばず時刻表パックだけで答える。課金もクォータも無い（#549） |
+| `rideDepartures` | 乗車区間ごとに1（実測で平均約6） | 使い捨て | 時刻表パックから列車の発着を返す。1回の応答は乗る1本だけだが、連続して引けば時刻表を集められるので、トークンの使い回しを許さない（#549） |
 
 本数は実測（`walkCalls=21 matrixCalls=11`）による。
 
@@ -198,7 +198,7 @@ Firebase 自身も「replay protection は往復が増えるため、**特に機
 
 | 値 | 意味 |
 | --- | --- |
-| 未設定 | 既定（`placesProxy,googleWalkMatrixProxy,exactWalkMax`） |
+| 未設定 | 既定（`placesProxy,googleWalkMatrixProxy,exactWalkMax,rideDepartures`） |
 | `googleWalkProxy` | 列挙したものだけが対象。既定は効かない |
 | 空文字列 | 全エンドポイントで consume しない（緊急停止） |
 

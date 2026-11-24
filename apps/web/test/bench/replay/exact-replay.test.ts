@@ -116,9 +116,12 @@ describe('localRideDepartures (#549)', () => {
     return url;
   };
   const RIDE_QUERY = {
-    departAt: '2026-11-20T09:50:00+09:00',
-    untilMin: '60',
-    legs: `${BOARD.lat},${BOARD.lng},${ALIGHT.lat},${ALIGHT.lng},0`,
+    at: '2026-11-20T09:50:00+09:00',
+    board: `${BOARD.lat},${BOARD.lng}`,
+    alight: `${ALIGHT.lat},${ALIGHT.lng}`,
+    boardName: '乗る駅',
+    alightName: '降りる駅',
+    line: 'テスト線',
   };
 
   it('手元のパックで発着を引き、本番の rideDepartures と同じ形の応答を返す', async () => {
@@ -127,26 +130,19 @@ describe('localRideDepartures (#549)', () => {
     const res = await respond(rideUrl(RIDE_QUERY));
     expect(res.status).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({
-      legs: [
-        {
-          departures: [
-            {
-              route: 'テスト線',
-              from: '乗る駅',
-              to: '降りる駅',
-              boardAt: '2026-11-20T10:00:00+09:00',
-              alightAt: '2026-11-20T10:10:00+09:00',
-            },
-          ],
-          truncated: false,
-        },
-      ],
+      ride: {
+        route: 'テスト線',
+        from: '乗る駅',
+        to: '降りる駅',
+        boardAt: '2026-11-20T10:00:00+09:00',
+        alightAt: '2026-11-20T10:10:00+09:00',
+      },
     });
   });
 
   it('読めるパックが無ければ 503、読めない照会には 400 を返す', async () => {
     const respond = localRideDepartures({ packDir: dir, now: () => NOW });
     expect((await respond(rideUrl(RIDE_QUERY))).status).toBe(503);
-    expect((await respond(rideUrl({ ...RIDE_QUERY, legs: '' }))).status).toBe(400);
+    expect((await respond(rideUrl({ ...RIDE_QUERY, line: '' }))).status).toBe(400);
   });
 });

@@ -64,9 +64,12 @@ const PACK: TimetablePack = {
 };
 
 const QUERY = {
-  departAt: '2026-10-23T10:00:00+09:00',
-  untilMin: '90',
-  legs: '35.57,139.71,35.69,139.77,0',
+  at: '2026-10-23T10:00:00+09:00',
+  board: '35.57,139.71',
+  alight: '35.69,139.77',
+  boardName: 'A駅',
+  alightName: 'B駅',
+  line: 'テスト線',
 };
 
 function storageHas(pack: TimetablePack | null): void {
@@ -155,20 +158,33 @@ describe('rideDepartures', () => {
     expect(downloadMock).not.toHaveBeenCalled();
   });
 
-  it('トークンは使い捨てにしない（候補ごとに呼ぶため）', async () => {
+  it('トークンを使い捨てとして検証する（時刻表を連続して引き出させない）', async () => {
     vi.stubEnv('FUNCTIONS_EMULATOR', '');
-    verifyTokenMock.mockResolvedValue({});
+    verifyTokenMock.mockResolvedValue({ alreadyConsumed: true });
     storageHas(PACK);
 
-    await invoke(QUERY, { token: 't' });
+    const res = await invoke(QUERY, { token: 't' });
 
-    expect(verifyTokenMock).toHaveBeenCalledWith('t');
+    expect(verifyTokenMock).toHaveBeenCalledWith('t', { consume: true });
+    expect(res.statusCode).toBe(401);
+    expect(downloadMock).not.toHaveBeenCalled();
+  });
+
+  it('レート制限の鍵を Secret Manager から受け取る（無いと本番で制限が効かない）', () => {
+    const endpoint = (
+      rideDepartures as unknown as {
+        __endpoint?: { secretEnvironmentVariables?: { key: string }[] };
+      }
+    ).__endpoint;
+    expect(endpoint?.secretEnvironmentVariables?.map((v) => v.key)).toContain(
+      'RATE_LIMIT_HMAC_KEY',
+    );
   });
 
   it.each([
-    ['legs が無い', { ...QUERY, legs: '' }],
-    ['departAt に時差が無い', { ...QUERY, departAt: '2026-10-23T10:00:00' }],
-    ['untilMin が0', { ...QUERY, untilMin: '0' }],
+    ['board が無い', { ...QUERY, board: '' }],
+    ['at に時差が無い', { ...QUERY, at: '2026-10-23T10:00:00' }],
+    ['line が無い', { ...QUERY, line: '' }],
   ])('%s入力は 400 を返し、パックを読まない', async (_name, query) => {
     storageHas(PACK);
 
@@ -178,28 +194,21 @@ describe('rideDepartures', () => {
     expect(downloadMock).not.toHaveBeenCalled();
   });
 
-  it('区間ごとの発着とフィードの取得日時を返し、上流は呼ばない', async () => {
+  it('乗る 1 本とフィードの取得日時だけを返し、時刻表そのものも上流も返さない', async () => {
     storageHas(PACK);
 
     const res = await invoke(QUERY);
 
     expect(res.statusCode).toBeUndefined();
     expect(res.body).toEqual({
-      legs: [
-        {
-          departures: [
-            {
-              route: 'テスト線',
-              headsign: 'B駅行',
-              from: 'A駅',
-              to: 'B駅',
-              boardAt: '2026-10-23T10:30:00+09:00',
-              alightAt: '2026-10-23T10:50:00+09:00',
-            },
-          ],
-          truncated: false,
-        },
-      ],
+      ride: {
+        route: 'テスト線',
+        headsign: 'B駅行',
+        from: 'A駅',
+        to: 'B駅',
+        boardAt: '2026-10-23T10:30:00+09:00',
+        alightAt: '2026-10-23T10:50:00+09:00',
+      },
       feeds: [{ id: 'Toei', fetchedAt: '2026-10-22T19:23:00.000Z' }],
     });
     expect(httpsRequestMock).not.toHaveBeenCalled();
