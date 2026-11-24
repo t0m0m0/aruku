@@ -120,6 +120,7 @@ export async function runReplay(args: ReplayArgs): Promise<number> {
               clock: () => args.date,
               exactWalkMax: args.exactPacks !== null,
               rideDepartures: args.ridePacks !== null,
+              verifyRideDepartures: args.rideVerify,
               deadline: new SearchDeadline(searchDeadlineBudget),
               onMetrics: (m) => {
                 metrics = m;

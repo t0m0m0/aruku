@@ -104,6 +104,8 @@ export interface TransitRouteServiceInit {
   exactWalkMaxAb?: boolean;
 
   rideDepartures?: boolean;
+
+  verifyRideDepartures?: boolean;
 }
 
 export const defaultArrivalWaveGrace: Duration = seconds(5);
@@ -151,6 +153,7 @@ export class TransitRouteService implements SearchEngine {
     this.onMetrics = init.onMetrics ?? null;
     this.measurer = new CandidateMeasurer(this.api, this.diag, {
       rideDepartures: init.rideDepartures ?? false,
+      verifyRideDepartures: init.verifyRideDepartures ?? false,
     });
   }
 
@@ -260,6 +263,9 @@ export class TransitRouteService implements SearchEngine {
     metrics.exactCalls = this.api.exactCalls;
     metrics.rideDepartureCalls = this.api.rideDepartureCalls;
     metrics.packBoardingLegs = this.measurer.packBoardingLegs;
+    metrics.packVerifiedLegs = this.measurer.packVerifiedLegs;
+    metrics.packMismatchLegs = this.measurer.packMismatchLegs;
+    metrics.packUnverifiedLegs = this.measurer.packUnverifiedLegs;
     if (exactWave !== null) metrics.exactMs = exactSw.elapsedMilliseconds;
     this.diag.logMetrics(metrics);
     this.onMetrics?.(metrics);

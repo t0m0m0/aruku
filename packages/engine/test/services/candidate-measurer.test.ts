@@ -112,6 +112,7 @@ interface Harness {
 
 function harness(o: {
   rideDepartures: boolean;
+  verify?: boolean;
   pack?: (url: URL) => HttpResponse | Promise<HttpResponse>;
   guidance?: () => JsonMap;
 }): Harness {
@@ -134,6 +135,7 @@ function harness(o: {
   });
   const measurer = new CandidateMeasurer(api, new RouteDiagnostics({ verbose: false }), {
     rideDepartures: o.rideDepartures,
+    verifyRideDepartures: o.verify ?? false,
   });
   return { measurer, api, rideUrls };
 }
@@ -327,5 +329,63 @@ describe('resolveBoardingTimes: 時刻表パックで乗車時刻を確定する
 
     expect(h.api.rideDepartureCalls).toEqual(0);
     expect(h.api.guidanceCallsByPurpose.boarding).toEqual(2);
+  });
+});
+
+describe('resolveBoardingTimes: パックの答えを Transit と突き合わせる（開発時だけ・#553）', () => {
+  const oneRide = () => candidate([walk(5), ride('甲線', A, B, 10)]);
+  const at = (hh: number, mm: number) => hh * 3600 + mm * 60;
+
+  it('パックと Transit が同じ発着なら一致として数え、経路はパックの答えのまま', async () => {
+    const h = harness({
+      rideDepartures: true,
+      verify: true,
+      pack: byLine({ 甲線: packRide('甲線', [9, 10], [9, 21]) }),
+      guidance: () => guidanceDirect('甲線', at(9, 10), at(9, 21)),
+    });
+
+    const out = await h.measurer.resolveBoardingTimes(oneRide(), departureAt);
+
+    expect(h.measurer.packVerifiedLegs).toEqual(1);
+    expect(h.measurer.packMismatchLegs).toEqual(0);
+    expect(rides(out).map((s) => [hm(s.depTime), s.fromName])).toEqual([['9:10', '甲線乗']]);
+  });
+
+  it('発着が違えば食い違いとして数え、経路はパックの答えのまま', async () => {
+    const h = harness({
+      rideDepartures: true,
+      verify: true,
+      pack: byLine({ 甲線: packRide('甲線', [9, 8], [9, 18]) }),
+      guidance: () => guidanceDirect('甲線', at(9, 10), at(9, 21)),
+    });
+
+    const out = await h.measurer.resolveBoardingTimes(oneRide(), departureAt);
+
+    expect(h.measurer.packMismatchLegs).toEqual(1);
+    expect(rides(out).map((s) => hm(s.depTime))).toEqual(['9:08']);
+  });
+
+  it('Transit で確定できなかった区間は、一致とも食い違いとも数えない', async () => {
+    const h = harness({
+      rideDepartures: true,
+      verify: true,
+      pack: byLine({ 甲線: packRide('甲線', [9, 8], [9, 18]) }),
+    });
+
+    await h.measurer.resolveBoardingTimes(oneRide(), departureAt);
+
+    expect(h.measurer.packUnverifiedLegs).toEqual(1);
+    expect([h.measurer.packVerifiedLegs, h.measurer.packMismatchLegs]).toEqual([0, 0]);
+  });
+
+  it('無効のときは、パックで確定した区間を Transit に聞き直さない', async () => {
+    const h = harness({
+      rideDepartures: true,
+      pack: byLine({ 甲線: packRide('甲線', [9, 8], [9, 18]) }),
+    });
+
+    await h.measurer.resolveBoardingTimes(oneRide(), departureAt);
+
+    expect(h.api.guidanceCalls).toEqual(0);
   });
 });

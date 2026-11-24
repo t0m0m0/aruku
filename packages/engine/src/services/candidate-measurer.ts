@@ -31,6 +31,7 @@ export const maxMeasureShortlist = 13;
 
 export interface CandidateMeasurerOptions {
   rideDepartures?: boolean;
+  verifyRideDepartures?: boolean;
 }
 
 export class CandidateMeasurer {
@@ -40,6 +41,24 @@ export class CandidateMeasurer {
     options: CandidateMeasurerOptions = {},
   ) {
     this.rideDepartures = options.rideDepartures ?? false;
+    this.verifyRideDepartures = options.verifyRideDepartures ?? false;
+  }
+
+  private readonly verifyRideDepartures: boolean;
+  private packVerifiedLegCount = 0;
+  private packMismatchLegCount = 0;
+  private packUnverifiedLegCount = 0;
+
+  get packVerifiedLegs(): number {
+    return this.packVerifiedLegCount;
+  }
+
+  get packMismatchLegs(): number {
+    return this.packMismatchLegCount;
+  }
+
+  get packUnverifiedLegs(): number {
+    return this.packUnverifiedLegCount;
   }
 
   private readonly rideDepartures: boolean;
@@ -433,6 +452,7 @@ export class CandidateMeasurer {
       const boardAt = plusMinutes(departureAt, cumBefore);
       const picked = await this.packRide(seg, boardAt);
       if (picked !== null) {
+        if (this.verifyRideDepartures) await this.verifyPackRide(seg, boardAt, picked);
         segs[i] = seg.copyWith({
           fromName: seg.fromName.length === 0 ? picked.from : undefined,
           toName: seg.toName.length === 0 ? picked.to : undefined,
@@ -475,6 +495,31 @@ export class CandidateMeasurer {
 
   get packTimetableSources(): TimetableSource[] {
     return [...this.packSources.values()];
+  }
+
+  private async verifyPackRide(seg: RouteSegment, boardAt: Date, picked: PackRide): Promise<void> {
+    const ep = await this.fetchTransitEndpoints(
+      seg.polyline[0],
+      seg.polyline[seg.polyline.length - 1],
+      boardAt,
+      { purpose: 'boarding', type: seg.type, line: seg.line },
+    );
+    const dep = ep?.dep ?? null;
+    const arr = ep?.arr ?? null;
+    if (ep === null || dep === null || arr === null) {
+      this.packUnverifiedLegCount++;
+      return;
+    }
+    if (dep.getTime() === picked.dep.getTime() && arr.getTime() === picked.arr.getTime()) {
+      this.packVerifiedLegCount++;
+      return;
+    }
+    this.packMismatchLegCount++;
+    this.diag.log(
+      () =>
+        `rideDepartures 検証: 食い違い ${seg.line ?? ''} パック ${picked.from}>${picked.to} ` +
+        `${clock(picked.dep)}-${clock(picked.arr)} / Transit ${ep.from}>${ep.to} ${clock(dep)}-${clock(arr)}`,
+    );
   }
 
   private async packRide(seg: RouteSegment, boardAt: Date): Promise<PackRide | null> {
@@ -719,4 +764,8 @@ function parseEncodedPolyline(polyline: unknown): GeoPoint[] {
   const encoded = isRecord(polyline) ? polyline['encodedPolyline'] : null;
   if (typeof encoded !== 'string' || encoded.length === 0) return [];
   return decodePolyline(encoded).map(([lat, lng]) => new GeoPoint(lat, lng));
+}
+
+function clock(d: Date): string {
+  return d.toTimeString().slice(0, 5);
 }
