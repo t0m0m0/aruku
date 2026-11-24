@@ -124,12 +124,12 @@ describe('replayReport', () => {
     });
     const md = replayReport(
       [
-        record('p', 1.2, 1, { byPurpose: purposes(3, 0) }),
-        record('q', 1.2, 1, { byPurpose: purposes(2, 4) }),
+        record('p', 1.2, 1, { guidance: 6, byPurpose: purposes(3, 0) }),
+        record('q', 1.2, 1, { guidance: 9, byPurpose: purposes(2, 4) }),
       ],
       [
-        record('p', 1.2, 1, { byPurpose: purposes(0, 0) }),
-        record('q', 1.2, 1, { byPurpose: purposes(0, 4) }),
+        record('p', 1.2, 1, { guidance: 3, byPurpose: purposes(0, 0) }),
+        record('q', 1.2, 1, { guidance: 7, byPurpose: purposes(0, 4) }),
       ],
       { a: 'main', b: 'head' },
     );
@@ -143,25 +143,25 @@ describe('replayReport', () => {
     expect(md).toContain('| バスの最終手段 | 0 | 0 |');
   });
 
-  it('用途別の本数を持たない記録は、その版の欄を — にする (#546)', () => {
+  it('用途別の本数を持たない記録が 1 件でもあれば、その版の欄を — にする (#546)', () => {
+    const counted = {
+      guidance: 2,
+      byPurpose: {
+        guidanceInitial: 1,
+        guidanceArrival: 1,
+        guidanceBoarding: 0,
+        guidanceNames: 0,
+        guidanceBoardSearch: 0,
+        guidanceBus: 0,
+      },
+    };
     const md = replayReport(
-      [record('p', 1.2, 1)],
-      [
-        record('p', 1.2, 1, {
-          byPurpose: {
-            guidanceInitial: 1,
-            guidanceArrival: 1,
-            guidanceBoarding: 0,
-            guidanceNames: 0,
-            guidanceBoardSearch: 0,
-            guidanceBus: 0,
-          },
-        }),
-      ],
+      [record('p', 1.2, 1), record('q', 1.2, 1, counted)],
+      [record('p', 1.2, 1, counted), record('q', 1.2, 1, counted)],
       { a: 'old', b: 'new' },
     );
 
-    expect(md).toContain('| 初回照会 | — | 1 |');
+    expect(md).toContain('| 初回照会 | — | 2 |');
   });
 
   it('経路が違う検索は、両方の徒歩分と乗車区間を書き出す', () => {

@@ -41,6 +41,7 @@ describe('fetchGuidanceAt', () => {
       new GeoPoint(35.1, 139.2),
       new GeoPoint(35.3, 139.4),
       dateTime(2026, 6, 27, 9, 5),
+      { purpose: 'initial' },
     );
     expect(body).toEqual({ ok: true });
     expect(captured.pathname).toEqual('/api/v1/guidance/plan');
@@ -65,7 +66,7 @@ describe('fetchGuidanceAt', () => {
       new GeoPoint(35.1, 139.2),
       new GeoPoint(35.3, 139.4),
       dateTime(2026, 6, 27, 9, 5),
-      { allowBus: true },
+      { purpose: 'initial', allowBus: true },
     );
     expect(captured.searchParams.get('avoidModes')).toEqual('ferry,air');
   });
@@ -82,9 +83,9 @@ describe('fetchGuidanceAt', () => {
     const to = new GeoPoint(35.3, 139.4);
     const at = dateTime(2026, 6, 27, 9, 5);
 
-    expect(await c.fetchGuidanceAt(from, to, at)).toEqual({ ok: true });
-    expect(await c.fetchGuidanceAt(from, to, at)).toEqual({ ok: true });
-    expect(await c.fetchGuidanceAt(from, to, at)).toEqual({ ok: true });
+    expect(await c.fetchGuidanceAt(from, to, at, { purpose: 'initial' })).toEqual({ ok: true });
+    expect(await c.fetchGuidanceAt(from, to, at, { purpose: 'initial' })).toEqual({ ok: true });
+    expect(await c.fetchGuidanceAt(from, to, at, { purpose: 'initial' })).toEqual({ ok: true });
 
     expect(calls).toEqual(1);
     expect(c.guidanceCalls).toEqual(1);
@@ -107,8 +108,8 @@ describe('fetchGuidanceAt', () => {
     const to = new GeoPoint(35.3, 139.4);
     const at = dateTime(2026, 6, 27, 9, 5);
 
-    const first = c.fetchGuidanceAt(from, to, at);
-    const second = c.fetchGuidanceAt(from, to, at);
+    const first = c.fetchGuidanceAt(from, to, at, { purpose: 'initial' });
+    const second = c.fetchGuidanceAt(from, to, at, { purpose: 'initial' });
     release();
 
     expect(await Promise.all([first, second])).toEqual([{ ok: true }, { ok: true }]);
@@ -122,10 +123,10 @@ describe('fetchGuidanceAt', () => {
     const to = new GeoPoint(35.3, 139.4);
     const at = dateTime(2026, 6, 27, 9, 5);
 
-    const first = await c.fetchGuidanceAt(from, to, at);
+    const first = await c.fetchGuidanceAt(from, to, at, { purpose: 'initial' });
     first['plans'] = [];
 
-    expect(await c.fetchGuidanceAt(from, to, at)).toEqual({ plans: [1] });
+    expect(await c.fetchGuidanceAt(from, to, at, { purpose: 'initial' })).toEqual({ plans: [1] });
   });
 
   it('条件が違う問い合わせ（目的地・時刻・バス可否・出発/到着の別）は別々に発行する', async () => {
@@ -140,10 +141,10 @@ describe('fetchGuidanceAt', () => {
     const to = new GeoPoint(35.3, 139.4);
     const at = dateTime(2026, 6, 27, 9, 5);
 
-    await c.fetchGuidanceAt(from, to, at);
-    await c.fetchGuidanceAt(from, new GeoPoint(35.9, 139.9), at);
-    await c.fetchGuidanceAt(from, to, dateTime(2026, 6, 27, 9, 6));
-    await c.fetchGuidanceAt(from, to, at, { allowBus: true });
+    await c.fetchGuidanceAt(from, to, at, { purpose: 'initial' });
+    await c.fetchGuidanceAt(from, new GeoPoint(35.9, 139.9), at, { purpose: 'initial' });
+    await c.fetchGuidanceAt(from, to, dateTime(2026, 6, 27, 9, 6), { purpose: 'initial' });
+    await c.fetchGuidanceAt(from, to, at, { purpose: 'initial', allowBus: true });
     await c.fetchGuidanceArrivalAt(from, to, at, 0);
 
     expect(calls).toEqual(5);
@@ -163,9 +164,15 @@ describe('fetchGuidanceAt', () => {
     const to = new GeoPoint(35.3, 139.4);
     const at = dateTime(2026, 6, 27, 9, 5);
 
-    await expectThrowsA(() => c.fetchGuidanceAt(from, to, at), RouteException);
-    await expectThrowsA(() => c.fetchGuidanceAt(from, to, at), RouteException);
-    expect(await c.fetchGuidanceAt(from, to, at)).toEqual({ ok: true });
+    await expectThrowsA(
+      () => c.fetchGuidanceAt(from, to, at, { purpose: 'initial' }),
+      RouteException,
+    );
+    await expectThrowsA(
+      () => c.fetchGuidanceAt(from, to, at, { purpose: 'initial' }),
+      RouteException,
+    );
+    expect(await c.fetchGuidanceAt(from, to, at, { purpose: 'initial' })).toEqual({ ok: true });
 
     expect(calls).toEqual(3);
     expect(c.guidanceCacheHits).toEqual(0);
@@ -186,9 +193,13 @@ describe('fetchGuidanceAt', () => {
     const to = new GeoPoint(35.3, 139.4);
     const at = dateTime(2026, 6, 27, 9, 5);
 
-    await expect(c.fetchGuidanceAt(from, to, at)).rejects.toThrow(SyntaxError);
-    await expect(c.fetchGuidanceAt(from, to, at)).rejects.toThrow('expected a JSON object');
-    expect(await c.fetchGuidanceAt(from, to, at)).toEqual({ ok: true });
+    await expect(c.fetchGuidanceAt(from, to, at, { purpose: 'initial' })).rejects.toThrow(
+      SyntaxError,
+    );
+    await expect(c.fetchGuidanceAt(from, to, at, { purpose: 'initial' })).rejects.toThrow(
+      'expected a JSON object',
+    );
+    expect(await c.fetchGuidanceAt(from, to, at, { purpose: 'initial' })).toEqual({ ok: true });
 
     expect(calls).toEqual(3);
     expect(c.guidanceCacheHits).toEqual(0);
@@ -209,8 +220,8 @@ describe('fetchGuidanceAt', () => {
     const to = new GeoPoint(35.3, 139.4);
     const at = dateTime(2026, 6, 27, 9, 5);
 
-    const first = c.fetchGuidanceAt(from, to, at);
-    const second = c.fetchGuidanceAt(from, to, at);
+    const first = c.fetchGuidanceAt(from, to, at, { purpose: 'initial' });
+    const second = c.fetchGuidanceAt(from, to, at, { purpose: 'initial' });
     release();
 
     await expect(first).rejects.toThrow(SyntaxError);
@@ -229,16 +240,22 @@ describe('fetchGuidanceAt', () => {
     const to = new GeoPoint(35.3, 139.4);
     const at = dateTime(2026, 6, 27, 9, 5);
 
-    await c.fetchGuidanceAt(from, to, at);
+    await c.fetchGuidanceAt(from, to, at, { purpose: 'initial' });
     token.cancel();
 
-    await expectThrowsA(() => c.fetchGuidanceAt(from, to, at), SearchCanceledException);
+    await expectThrowsA(
+      () => c.fetchGuidanceAt(from, to, at, { purpose: 'initial' }),
+      SearchCanceledException,
+    );
   });
 
   it('非200は RouteException(HTTP <code>)', async () => {
     const c = client(mockClient(() => jsonResponse({}, 503)));
     const e = await expectThrowsA(
-      () => c.fetchGuidanceAt(new GeoPoint(0, 0), new GeoPoint(1, 1), dateTime(2026, 1, 1)),
+      () =>
+        c.fetchGuidanceAt(new GeoPoint(0, 0), new GeoPoint(1, 1), dateTime(2026, 1, 1), {
+          purpose: 'initial',
+        }),
       RouteException,
     );
     expect(e.status).toEqual('HTTP 503');
@@ -251,7 +268,10 @@ describe('fetchGuidanceAt', () => {
       }),
     );
     const e = await expectThrowsA(
-      () => c.fetchGuidanceAt(new GeoPoint(0, 0), new GeoPoint(1, 1), dateTime(2026, 1, 1)),
+      () =>
+        c.fetchGuidanceAt(new GeoPoint(0, 0), new GeoPoint(1, 1), dateTime(2026, 1, 1), {
+          purpose: 'initial',
+        }),
       RouteException,
     );
     expect(e.status).toEqual('TIMEOUT');
@@ -388,9 +408,9 @@ describe('guidance の用途別本数 (#546)', () => {
   const to = new GeoPoint(35.3, 139.4);
   const at = dateTime(2026, 6, 27, 9, 5);
 
-  it('出発時刻の照会は用途の指定がなければ初回照会、到着時刻の照会は到着時刻照会として数える', async () => {
+  it('出発時刻の照会は渡した用途で、到着時刻の照会は到着時刻照会として数える', async () => {
     const c = client(mockClient(() => jsonResponse({ ok: true })));
-    await c.fetchGuidanceAt(from, to, at);
+    await c.fetchGuidanceAt(from, to, at, { purpose: 'initial' });
     await c.fetchGuidanceArrivalAt(from, to, at, 95);
 
     expect(c.guidanceCallsByPurpose).toEqual({
@@ -654,11 +674,13 @@ describe('上流 HTTP 往復本数の計測 (#309)', () => {
       new GeoPoint(35.0, 139.0),
       new GeoPoint(35.5, 139.5),
       dateTime(2026, 6, 27, 9, 0),
+      { purpose: 'initial' },
     );
     await c.fetchGuidanceAt(
       new GeoPoint(35.0, 139.0),
       new GeoPoint(35.6, 139.6),
       dateTime(2026, 6, 27, 9, 5),
+      { purpose: 'initial' },
     );
     await c.fetchWalkRoute(new GeoPoint(35.0, 139.0), new GeoPoint(35.5, 139.5));
     await c.fetchWalkMatrix([new GeoPoint(35.0, 139.0)], [new GeoPoint(35.1, 139.1)]);
@@ -739,6 +761,7 @@ describe('キャンセル (#259)', () => {
           new GeoPoint(35.0, 139.0),
           new GeoPoint(35.5, 139.5),
           dateTime(2026, 6, 27, 9, 5),
+          { purpose: 'initial' },
         ),
       SearchCanceledException,
     );
@@ -805,6 +828,7 @@ describe('キャンセル (#259)', () => {
         new GeoPoint(35.0, 139.0),
         new GeoPoint(35.5, 139.5),
         dateTime(2026, 6, 27, 9, 5),
+        { purpose: 'initial' },
       );
 
     await fetch();
@@ -833,6 +857,7 @@ describe('キャンセル (#259)', () => {
           new GeoPoint(35.0, 139.0),
           new GeoPoint(35.5, 139.5),
           dateTime(2026, 6, 27, 9, 5),
+          { purpose: 'initial' },
         ),
       SearchCanceledException,
     );
@@ -873,6 +898,7 @@ describe('締切による残予算クランプ (#300)', () => {
           new GeoPoint(35.0, 139.0),
           new GeoPoint(35.5, 139.5),
           dateTime(2026, 6, 27, 9, 5),
+          { purpose: 'initial' },
         ),
       RouteException,
     );
@@ -894,6 +920,7 @@ describe('締切による残予算クランプ (#300)', () => {
         new GeoPoint(35.0, 139.0),
         new GeoPoint(35.5, 139.5),
         dateTime(2026, 6, 27, 9, 5),
+        { purpose: 'initial' },
       ),
     ).toEqual({ ok: true });
   });
@@ -918,6 +945,7 @@ describe('締切による残予算クランプ (#300)', () => {
           new GeoPoint(35.0, 139.0),
           new GeoPoint(35.5, 139.5),
           dateTime(2026, 6, 27, 9, 5),
+          { purpose: 'initial' },
         ),
       RouteException,
     );
@@ -940,6 +968,7 @@ describe('締切による残予算クランプ (#300)', () => {
         new GeoPoint(35.0, 139.0),
         new GeoPoint(35.5, 139.5),
         dateTime(2026, 6, 27, 9, 5),
+        { purpose: 'initial' },
       ),
     ).toEqual({ ok: true });
   });

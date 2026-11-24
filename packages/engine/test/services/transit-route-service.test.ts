@@ -5685,8 +5685,9 @@ describe('plan: 独立IOの並列化 (#304)', () => {
       return json(body);
     });
 
+    let captured: RouteSearchMetrics | null = null;
     const plan = await withTimeout(
-      service(client).plan({
+      service(client, { onMetrics: (m) => (captured = m) }).plan({
         destination: '目的地',
         destinationLatLng: g,
         departure: new TimeValue({ h: 9, m: 0 }),
@@ -5706,6 +5707,7 @@ describe('plan: 独立IOの並列化 (#304)', () => {
     expect(trains[0].toName).toEqual('駅二');
     expect(trains[1].fromName).toEqual('駅二');
     expect(trains[1].toName).toEqual('駅三');
+    expect(captured!.guidanceNames, '駅名の補完の照会を用途別に数える (#546)').toEqual(2);
   });
 });
 

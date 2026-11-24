@@ -122,14 +122,14 @@ export class TransitApiClient {
     start: GeoPoint,
     goal: GeoPoint,
     at: Date,
-    options: { allowBus?: boolean; purpose?: Exclude<GuidancePurpose, 'arrival'> } = {},
+    options: { allowBus?: boolean; purpose: Exclude<GuidancePurpose, 'arrival'> },
   ): Promise<JsonMap> {
     return this.fetchGuidance(start, goal, {
       date: formatDate(at),
       time: formatTime(at),
       type: 'departure',
       allowBus: options.allowBus ?? false,
-      purpose: options.purpose ?? 'initial',
+      purpose: options.purpose,
     });
   }
 

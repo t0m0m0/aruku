@@ -202,7 +202,9 @@ export class TransitRouteService implements SearchEngine {
     }
 
     const guidanceSw = startedStopwatch();
-    const body = await this.api.fetchGuidanceAt(origin, destinationLatLng, departureAt);
+    const body = await this.api.fetchGuidanceAt(origin, destinationLatLng, departureAt, {
+      purpose: 'initial',
+    });
     metrics.guidanceMs = guidanceSw.elapsedMilliseconds;
     const options = parseGuidancePlan(body);
     if (options.length === 0) throw new RouteException('ZERO_RESULTS');

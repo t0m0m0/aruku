@@ -85,8 +85,8 @@ const guidancePurposeRows: readonly (readonly [string, string])[] = [
 ];
 
 const totalOf = (records: readonly BenchRecord[], key: string): string => {
-  const xs = present(records.map((r) => metric(r, key)));
-  return xs.length === 0 ? '—' : `${xs.reduce((s, x) => s + x, 0)}`;
+  const xs = records.map((r) => metric(r, key));
+  return xs.some((x) => x === null) ? '—' : `${present(xs).reduce((s, x) => s + x, 0)}`;
 };
 
 const describeRoute = (r: BenchRecord): string =>
