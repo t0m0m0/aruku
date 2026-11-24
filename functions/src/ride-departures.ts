@@ -92,14 +92,8 @@ export async function findRideDeparture(
   const onLine = (trip: number) => isSameLine(ct.trips[trip].route, req.line);
   const boards = boardStops(day, req.board, req.boardName, sec, untilSec, onLine);
   const alightName = normalizeStationName(req.alightName);
-  const alightOk = (stop: number): number | null => {
-    const meters = metersBetween(req.alight, ct.stopLat[stop], ct.stopLng[stop]);
-    if (meters > STOP_RADIUS_M) return null;
-    if (alightName !== '' && normalizeStationName(day.stops[stop].name) !== alightName) return null;
-    return meters;
-  };
-
-  let best: { trip: number; board: number; alight: number; dep: number; arr: number } | null = null;
+  const rides: { trip: number; board: number; dep: number; calls: number[] }[] = [];
+  const alightMeters = new Map<number, number>();
   for (const board of boards) {
     for (let i = ct.departureStart[board]; i < ct.departureStart[board + 1]; i++) {
       const dep = ct.departureAt[i];
@@ -109,21 +103,30 @@ export async function findRideDeparture(
       if (!onLine(trip)) continue;
       const start = ct.tripStart[trip];
       const end = start + ct.tripLength[trip];
-      let alight: { stop: number; arr: number; meters: number } | null = null;
+      const calls: number[] = [];
       for (let c = start + ct.departurePos[i] + 1; c < end; c++) {
         if (ct.callAlight[c] !== 1) continue;
-        const meters = alightOk(ct.callStop[c]);
-        if (meters === null) continue;
-        if (alight === null || meters < alight.meters) {
-          alight = { stop: ct.callStop[c], arr: ct.callArr[c], meters };
+        const stop = ct.callStop[c];
+        const meters = metersBetween(req.alight, ct.stopLat[stop], ct.stopLng[stop]);
+        if (meters > STOP_RADIUS_M) continue;
+        if (alightName !== '' && normalizeStationName(day.stops[stop].name) !== alightName) {
+          continue;
         }
-        if (alightName !== '') break;
+        calls.push(c);
+        alightMeters.set(stop, meters);
       }
-      if (alight === null) continue;
-      const arr = alight.arr;
-      if (best === null || arr < best.arr || (arr === best.arr && dep < best.dep)) {
-        best = { trip, board, alight: alight.stop, dep, arr };
-      }
+      if (calls.length > 0) rides.push({ trip, board, dep, calls });
+    }
+  }
+  const alights = alightStation(day, alightMeters);
+
+  let best: { trip: number; board: number; alight: number; dep: number; arr: number } | null = null;
+  for (const { trip, board, dep, calls } of rides) {
+    const c = calls.find((x) => alights.has(ct.callStop[x]));
+    if (c === undefined) continue;
+    const arr = ct.callArr[c];
+    if (best === null || arr < best.arr || (arr === best.arr && dep < best.dep)) {
+      best = { trip, board, alight: ct.callStop[c], dep, arr };
     }
   }
   if (best === null || best.arr > untilSec) return { ride: null, feeds };
@@ -173,6 +176,18 @@ function boardStops(
   return served
     .filter(({ stop }) => normalizeStationName(day.stops[stop].name) === nearestName)
     .map(({ stop }) => stop);
+}
+
+function alightStation(day: RideDeparturesDay, meters: ReadonlyMap<number, number>): Set<number> {
+  let nearest: number | null = null;
+  for (const [stop, m] of meters) {
+    if (nearest === null || m < (meters.get(nearest) ?? Infinity)) nearest = stop;
+  }
+  if (nearest === null) return new Set();
+  const name = normalizeStationName(day.stops[nearest].name);
+  return new Set(
+    [...meters.keys()].filter((stop) => normalizeStationName(day.stops[stop].name) === name),
+  );
 }
 
 function normalizeStationName(name: string): string {

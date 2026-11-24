@@ -209,6 +209,27 @@ describe('findRideDeparture', () => {
     expect(res?.ride?.to).toEqual('C');
   });
 
+  it('駅名が分からないとき、降車駅を列車ごとに選ばず、座標に最も近い 1 駅に止まる列車だけを比べる', async () => {
+    const day = dayOf(
+      [
+        { name: 'A', km: 0 },
+        { name: 'B', km: 5 },
+        { name: 'C', km: 5.6 },
+      ],
+      [
+        { route: '甲線', calls: [call(0, t(12, 10)), call(1, t(12, 30))] },
+        { route: '甲線', calls: [call(0, t(12, 5)), call(2, t(12, 20))] },
+      ],
+    );
+
+    const res = await findRideDeparture(
+      req({ boardName: '', alightName: '', board: pointAtKm(0), alight: pointAtKm(5) }),
+      deps(day),
+    );
+
+    expect([res?.ride?.to, res?.ride?.alightAt]).toEqual(['B', '2026-11-26T12:30:00+09:00']);
+  });
+
   it('路線名は事業者名の前置きだけを許して突き合わせ、別の路線の列車は採らない', async () => {
     const day = line3('東横線');
 
