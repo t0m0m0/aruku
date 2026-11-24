@@ -500,7 +500,7 @@ export class CandidateMeasurer {
     const legs = targets.map((i) => ({
       board: segs[i].polyline[0],
       alight: segs[i].polyline[segs[i].polyline.length - 1],
-      fromMin: Math.min(untilMin, arrivalMinutes(segs.slice(0, i), departureAt)),
+      fromMin: Math.min(untilMin, earliestBoardingMinutes(segs.slice(0, i), departureAt)),
     }));
     let body: JsonMap;
     try {
@@ -724,4 +724,13 @@ function parseEncodedPolyline(polyline: unknown): GeoPoint[] {
   const encoded = isRecord(polyline) ? polyline['encodedPolyline'] : null;
   if (typeof encoded !== 'string' || encoded.length === 0) return [];
   return decodePolyline(encoded).map(([lat, lng]) => new GeoPoint(lat, lng));
+}
+
+function earliestBoardingMinutes(before: readonly RouteSegment[], departureAt: Date): number {
+  return arrivalMinutes(
+    before.map((seg) =>
+      seg.type !== SegmentType.walk && seg.depTime === null ? seg.copyWith({ minutes: 0 }) : seg,
+    ),
+    departureAt,
+  );
 }

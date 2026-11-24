@@ -95,6 +95,24 @@ const guidanceDirect = (line: string, depSecs: number, arrSecs: number): JsonMap
   ],
 });
 
+const withinWindow = (url: URL, legs: unknown[]): unknown[] => {
+  const departAt = new Date(url.searchParams.get('departAt') ?? '').getTime();
+  const fromMins = (url.searchParams.get('legs') ?? '')
+    .split(';')
+    .map((l) => Number(l.split(',')[4]));
+  return legs.map((leg, k) => {
+    const { departures, truncated } = leg as {
+      departures: { boardAt: string }[];
+      truncated: boolean;
+    };
+    const from = departAt + fromMins[k] * 60000;
+    return {
+      departures: departures.filter((d) => new Date(d.boardAt).getTime() >= from),
+      truncated,
+    };
+  });
+};
+
 interface Harness {
   measurer: CandidateMeasurer;
   api: TransitApiClient;
@@ -112,7 +130,7 @@ function harness(o: {
     if (url.pathname === '/rideDepartures') {
       return o.packLegs === null || o.packLegs === undefined
         ? jsonResponse({ error: 'not found' }, 404)
-        : jsonResponse({ legs: o.packLegs, feeds: [] });
+        : jsonResponse({ legs: withinWindow(url, o.packLegs), feeds: [] });
     }
     if (url.pathname.includes('guidance/plan')) {
       return jsonResponse(o.guidance?.() ?? { plans: [] });
@@ -174,8 +192,28 @@ describe('resolveBoardingTimes: 時刻表パックで乗車時刻を確定する
 
     const q = h.urls.find((u) => u.pathname === '/rideDepartures')!.searchParams;
     expect(q.get('departAt')).toEqual('2026-11-26T09:00:00+09:00');
-    expect(q.get('legs')).toEqual('35.0,139.0,35.0,139.05,5;35.0,139.051,35.0,139.1,18');
+    expect(q.get('legs')).toEqual('35.0,139.0,35.0,139.05,5;35.0,139.051,35.0,139.1,8');
     expect(Number(q.get('untilMin'))).toBeGreaterThanOrEqual(28);
+  });
+
+  it('前の区間が見込みより早く着いても、後ろの区間の乗れる列車を取りこぼさない', async () => {
+    const h = harness({
+      rideDepartures: true,
+      packLegs: [
+        { departures: [dep('甲線', [9, 6], [9, 9])], truncated: false },
+        {
+          departures: [dep('乙線', [9, 13], [9, 21]), dep('乙線', [9, 30], [9, 38])],
+          truncated: false,
+        },
+      ],
+    });
+
+    const out = await h.measurer.resolveBoardingTimes(
+      candidate([walk(5), ride('甲線', A, B, 20), walk(3), ride('乙線', B2, C, 8)]),
+      departureAt,
+    );
+
+    expect(rides(out).map((s) => hm(s.depTime))).toEqual(['9:06', '9:13']);
   });
 
   it('乗れる列車のうち、着くのがいちばん早い列車を採る（後発の急行が先着するとき）', async () => {
