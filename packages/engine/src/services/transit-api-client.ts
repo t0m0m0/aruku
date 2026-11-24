@@ -5,13 +5,15 @@ import { SearchCanceledException, type CancellationToken } from './cancellation'
 import { TimeoutException, type HttpClient, type HttpResponse } from './http-client';
 import { RouteException } from './route-service';
 import { SearchDeadline } from './search-deadline';
-import { durationZero, type Duration } from '../time';
+import { durationZero, seconds, type Duration } from '../time';
 
 const avoidModesTrainOnly = ['bus', 'ferry', 'air'];
 
 const avoidModesAllowBus = ['ferry', 'air'];
 
 const numItineraries = 5;
+
+const rideDepartureTimeout: Duration = seconds(3);
 
 const guidancePurposes = ['initial', 'arrival', 'boarding', 'names', 'boardSearch', 'bus'] as const;
 
@@ -247,25 +249,24 @@ export class TransitApiClient {
     );
   }
 
-  fetchRideDepartures(
-    departureAt: Date,
-    untilMin: number,
-    legs: readonly { board: GeoPoint; alight: GeoPoint; fromMin: number }[],
+  fetchRideDeparture(
+    at: Date,
+    board: GeoPoint,
+    alight: GeoPoint,
+    names: { boardName: string; alightName: string; line: string },
   ): Promise<JsonMap> {
     return this.fetchProxy(
       'rideDepartures',
       {
-        departAt: formatJstInstant(departureAt),
-        untilMin: `${untilMin}`,
-        legs: legs
-          .map(
-            ({ board, alight, fromMin }) =>
-              `${dartDouble(board.lat)},${dartDouble(board.lng)},` +
-              `${dartDouble(alight.lat)},${dartDouble(alight.lng)},${fromMin}`,
-          )
-          .join(';'),
+        at: formatJstInstant(at),
+        board: `${dartDouble(board.lat)},${dartDouble(board.lng)}`,
+        alight: `${dartDouble(alight.lat)},${dartDouble(alight.lng)}`,
+        boardName: names.boardName,
+        alightName: names.alightName,
+        line: names.line,
       },
       () => this.rideDepartureCallCount++,
+      rideDepartureTimeout,
     );
   }
 
@@ -273,9 +274,11 @@ export class TransitApiClient {
     path: string,
     params: Record<string, string>,
     onIssued: () => void,
+    timeout?: Duration,
   ): Promise<JsonMap> {
     const res = await this.getOrTimeout(this.proxy, buildUri(this.proxyBase, `/${path}`, params), {
       deadlineApplies: false,
+      timeout,
       onIssued,
     });
     if (res.statusCode !== 200) {
@@ -306,7 +309,7 @@ export class TransitApiClient {
   private getOrTimeout(
     client: HttpClient | null,
     uri: URL,
-    options: { deadlineApplies?: boolean; onIssued?: () => void },
+    options: { deadlineApplies?: boolean; timeout?: Duration; onIssued?: () => void },
   ): Promise<HttpResponse> {
     const recorded = this.recorded;
     if (recorded === null) return this.issue(client, uri, options);
@@ -329,10 +332,11 @@ export class TransitApiClient {
   private async issue(
     client: HttpClient | null,
     uri: URL,
-    options: { deadlineApplies?: boolean; onIssued?: () => void },
+    options: { deadlineApplies?: boolean; timeout?: Duration; onIssued?: () => void },
   ): Promise<HttpResponse> {
     this.cancellation?.throwIfCanceled();
-    const remaining = (options.deadlineApplies ?? true) ? this.deadline.remaining : null;
+    const remaining =
+      (options.deadlineApplies ?? true) ? this.deadline.remaining : (options.timeout ?? null);
     if (remaining === durationZero) throw new RouteException('TIMEOUT');
     if (client === null) {
       throw new Error('TransitApiClient: no HTTP client was injected');

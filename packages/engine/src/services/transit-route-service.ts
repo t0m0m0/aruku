@@ -541,7 +541,7 @@ export class TransitRouteService implements SearchEngine {
       fromName: ctx.fromName,
       toName: ctx.toName,
       standardTransit: ctx.standardTransit,
-      timetableSources: sources,
+      timetableSources: mergeTimetableSources(sources, this.measurer.packTimetableSources),
     });
   }
 
@@ -1427,4 +1427,15 @@ function coordKey(p: GeoPoint | null): string {
 
 function isoOrEmpty(d: Date | null): string {
   return d === null ? '' : d.toISOString();
+}
+
+function mergeTimetableSources(...lists: (readonly TimetableSource[])[]): TimetableSource[] {
+  const byFeed = new Map<string, TimetableSource>();
+  for (const s of lists.flat()) {
+    const seen = byFeed.get(s.feedId);
+    if (seen === undefined || seen.fetchedAt.getTime() < s.fetchedAt.getTime()) {
+      byFeed.set(s.feedId, s);
+    }
+  }
+  return [...byFeed.values()];
 }

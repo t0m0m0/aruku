@@ -142,6 +142,8 @@ node scripts/replay-report.mjs .replay/base.jsonl .replay/ride.jsonl
 
 - 見るのは用途別の「乗車時刻の確定」の本数と `totalMs`、経路が同じか。各行の `metrics.packBoardingLegs` が
   パックで確定した区間の数、`metrics.rideDepartureCalls` がエンドポイントを呼んだ回数
+- 乗車区間ごとに 1 回呼ぶ（`metrics.rideDepartureCalls`）。応答の遅延は `--ride-delay-ms` で置く。本番の
+  `request_latency`（`endpoint="rideDepartures"`）とずれていれば、そちらに合わせる
 - パックで確定すると Transit とは別の便を採ることがあり、その先の照会が録画に無いので `misses` が立つ。
   厳密走査と同じく、`misses 0` になるまで出力を消して再生し直す
 - 手元のパックが mini-tokyo-3d だけなら、JR・東京メトロ・都営などの区間は Transit に戻ったままで、
