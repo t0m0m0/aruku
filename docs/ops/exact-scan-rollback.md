@@ -3,6 +3,13 @@
 本番の厳密走査（`exactWalkMax`）を止める手順。Web のビルド時の
 フラグ `VITE_EXACT_WALK_MAX=1` で有効にしているので、止めるのは Web の配信であって Functions ではない。
 
+乗車時刻の確定に時刻表パックを使うこと（`rideDepartures`・#551）も、同じく Web のビルド時のフラグ
+`VITE_RIDE_DEPARTURES=1` で有効にしている。止め方は同じで、下の手順の `VITE_EXACT_WALK_MAX` を
+`VITE_RIDE_DEPARTURES` に、テスト名を `本番では乗車時刻の確定に時刻表パックを使う (#551)` に、ログの
+確かめ方を `request_latency` の `endpoint="rideDepartures"` に読み替える。`rideDepartures` の失敗は
+その区間を Transit で確定し直すだけなので、検索は壊れない。止めるのは、実在しない便を案内している
+ときと、ライセンスの条件で公開を止める必要があるとき。
+
 ## いつ切り戻すか
 
 厳密走査の失敗は検索を壊さない（空の候補として続行する）。503・タイムアウトが出ているだけなら、
