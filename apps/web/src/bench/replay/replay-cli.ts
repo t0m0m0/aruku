@@ -93,7 +93,9 @@ export async function runReplay(args: ReplayArgs): Promise<number> {
             transitBaseUrl: defaultTransitApiBaseUrl,
           });
           return standardTotalMin(
-            parseGuidancePlan(await api.fetchGuidanceAt(origin, goal, departureAt)),
+            parseGuidancePlan(
+              await api.fetchGuidanceAt(origin, goal, departureAt, { purpose: 'initial' }),
+            ),
             departureAt,
           );
         } finally {

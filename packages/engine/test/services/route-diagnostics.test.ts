@@ -322,6 +322,12 @@ describe('RouteSearchMetrics.toLogLine', () => {
     m.guidanceCalls = 3;
     m.guidanceDupCalls = 1;
     m.guidanceCacheHits = 6;
+    m.guidanceInitial = 1;
+    m.guidanceArrival = 1;
+    m.guidanceBoarding = 0;
+    m.guidanceNames = 0;
+    m.guidanceBoardSearch = 1;
+    m.guidanceBus = 0;
     m.walkCalls = 10;
     m.matrixCalls = 2;
     m.matrixElements = 31;
@@ -394,6 +400,8 @@ describe('RouteSearchMetrics.toLogLine', () => {
         'exactCalls=1 ' +
         'guidanceDupCalls=1 ' +
         'guidanceCacheHits=6 ' +
+        'guidanceInitial=1 guidanceArrival=1 guidanceBoarding=0 guidanceNames=0 ' +
+        'guidanceBoardSearch=1 guidanceBus=0 ' +
         'arrivalWaveOutcome=0 arrivalWaveOptions=2 ' +
         'arrivalWaveBaseUsed=1 arrivalWaveWon=1 ' +
         'exactMs=800 exactCandidates=3 exactCapped=1 exactWon=1 ' +
@@ -575,6 +583,8 @@ describe('RouteSearchMetrics.toLogLine', () => {
         'exactCalls=0 ' +
         'guidanceDupCalls=0 ' +
         'guidanceCacheHits=0 ' +
+        'guidanceInitial=0 guidanceArrival=0 guidanceBoarding=0 guidanceNames=0 ' +
+        'guidanceBoardSearch=0 guidanceBus=0 ' +
         'arrivalWaveOutcome=-1 arrivalWaveOptions=0 ' +
         'arrivalWaveBaseUsed=0 arrivalWaveWon=0 ' +
         'exactMs=0 exactCandidates=-1 exactCapped=0 exactWon=0 ' +

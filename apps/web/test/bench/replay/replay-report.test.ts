@@ -24,7 +24,13 @@ const record = (
   pair: string,
   ratio: number,
   totalMs: number,
-  opts: { walk?: number; line?: string; guidance?: number; error?: string } = {},
+  opts: {
+    walk?: number;
+    line?: string;
+    guidance?: number;
+    error?: string;
+    byPurpose?: Record<string, number>;
+  } = {},
 ): ReplayRecord => ({
   label: 'x',
   pair,
@@ -33,7 +39,10 @@ const record = (
   ratio,
   standardMin: 30,
   budgetMin: 36,
-  metrics: opts.error !== undefined ? null : { totalMs, guidanceCalls: opts.guidance ?? 10 },
+  metrics:
+    opts.error !== undefined
+      ? null
+      : { totalMs, guidanceCalls: opts.guidance ?? 10, ...opts.byPurpose },
   plan:
     opts.error !== undefined
       ? null
@@ -102,6 +111,57 @@ describe('replayReport', () => {
     expect(md).toContain('| p90 | 28.0s | 27.8s |');
     expect(md).toContain('| guidance 合計 | 30 | 29 |');
     expect(md).toContain('経路が同じ: 1 / 2');
+  });
+
+  it('guidance の本数を用途別に合計して版ごとに並べる (#546)', () => {
+    const purposes = (boarding: number, boardSearch: number) => ({
+      guidanceInitial: 1,
+      guidanceArrival: 1,
+      guidanceBoarding: boarding,
+      guidanceNames: 1,
+      guidanceBoardSearch: boardSearch,
+      guidanceBus: 0,
+    });
+    const md = replayReport(
+      [
+        record('p', 1.2, 1, { guidance: 6, byPurpose: purposes(3, 0) }),
+        record('q', 1.2, 1, { guidance: 9, byPurpose: purposes(2, 4) }),
+      ],
+      [
+        record('p', 1.2, 1, { guidance: 3, byPurpose: purposes(0, 0) }),
+        record('q', 1.2, 1, { guidance: 7, byPurpose: purposes(0, 4) }),
+      ],
+      { a: 'main', b: 'head' },
+    );
+
+    expect(md).toContain('| guidance の用途 | main | head |');
+    expect(md).toContain('| 初回照会 | 2 | 2 |');
+    expect(md).toContain('| 到着時刻照会 | 2 | 2 |');
+    expect(md).toContain('| 乗車時刻の確定 | 5 | 0 |');
+    expect(md).toContain('| 駅名の補完 | 2 | 2 |');
+    expect(md).toContain('| board-search | 4 | 4 |');
+    expect(md).toContain('| バスの最終手段 | 0 | 0 |');
+  });
+
+  it('用途別の本数を持たない記録が 1 件でもあれば、その版の欄を — にする (#546)', () => {
+    const counted = {
+      guidance: 2,
+      byPurpose: {
+        guidanceInitial: 1,
+        guidanceArrival: 1,
+        guidanceBoarding: 0,
+        guidanceNames: 0,
+        guidanceBoardSearch: 0,
+        guidanceBus: 0,
+      },
+    };
+    const md = replayReport(
+      [record('p', 1.2, 1), record('q', 1.2, 1, counted)],
+      [record('p', 1.2, 1, counted), record('q', 1.2, 1, counted)],
+      { a: 'old', b: 'new' },
+    );
+
+    expect(md).toContain('| 初回照会 | — | 2 |');
   });
 
   it('経路が違う検索は、両方の徒歩分と乗車区間を書き出す', () => {

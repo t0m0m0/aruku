@@ -61,6 +61,7 @@ const run = (date: Date, hooks: BenchHooks): Promise<void> =>
               new GeoPoint(pair.origin.lat, pair.origin.lng),
               new GeoPoint(pair.destination.lat, pair.destination.lng),
               departureAt,
+              { purpose: 'initial' },
             ),
           ),
           departureAt,

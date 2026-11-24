@@ -75,6 +75,20 @@ const signedSec = (ms: number): string =>
 const present = (xs: readonly (number | null)[]): number[] =>
   xs.filter((x): x is number => x !== null);
 
+const guidancePurposeRows: readonly (readonly [string, string])[] = [
+  ['guidanceInitial', '初回照会'],
+  ['guidanceArrival', '到着時刻照会'],
+  ['guidanceBoarding', '乗車時刻の確定'],
+  ['guidanceNames', '駅名の補完'],
+  ['guidanceBoardSearch', 'board-search'],
+  ['guidanceBus', 'バスの最終手段'],
+];
+
+const totalOf = (records: readonly BenchRecord[], key: string): string => {
+  const xs = records.map((r) => metric(r, key));
+  return xs.some((x) => x === null) ? '—' : `${present(xs).reduce((s, x) => s + x, 0)}`;
+};
+
 const describeRoute = (r: BenchRecord): string =>
   r.plan === null
     ? `エラー（${r.error ?? '不明'}）`
@@ -112,6 +126,14 @@ export function replayReport(
   lines.push(
     `| guidance 合計 | ${sum(rows.map((r) => r.guidanceA))} | ${sum(rows.map((r) => r.guidanceB))} |`,
   );
+  lines.push('');
+  lines.push(`| guidance の用途 | ${labels.a} | ${labels.b} |`);
+  lines.push('|---|---|---|');
+  const recordsA = rows.map((r) => r.a);
+  const recordsB = rows.map((r) => r.b);
+  for (const [key, name] of guidancePurposeRows) {
+    lines.push(`| ${name} | ${totalOf(recordsA, key)} | ${totalOf(recordsB, key)} |`);
+  }
   lines.push('');
   lines.push(`経路が同じ: ${rows.filter((r) => r.sameRoute).length} / ${rows.length}`);
 

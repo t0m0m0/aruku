@@ -202,7 +202,9 @@ export class TransitRouteService implements SearchEngine {
     }
 
     const guidanceSw = startedStopwatch();
-    const body = await this.api.fetchGuidanceAt(origin, destinationLatLng, departureAt);
+    const body = await this.api.fetchGuidanceAt(origin, destinationLatLng, departureAt, {
+      purpose: 'initial',
+    });
     metrics.guidanceMs = guidanceSw.elapsedMilliseconds;
     const options = parseGuidancePlan(body);
     if (options.length === 0) throw new RouteException('ZERO_RESULTS');
@@ -241,6 +243,13 @@ export class TransitRouteService implements SearchEngine {
     metrics.guidanceCalls = this.api.guidanceCalls;
     metrics.guidanceDupCalls = this.api.guidanceDupCalls;
     metrics.guidanceCacheHits = this.api.guidanceCacheHits;
+    const byPurpose = this.api.guidanceCallsByPurpose;
+    metrics.guidanceInitial = byPurpose.initial;
+    metrics.guidanceArrival = byPurpose.arrival;
+    metrics.guidanceBoarding = byPurpose.boarding;
+    metrics.guidanceNames = byPurpose.names;
+    metrics.guidanceBoardSearch = byPurpose.boardSearch;
+    metrics.guidanceBus = byPurpose.bus;
     metrics.walkCalls = this.api.walkCalls;
     metrics.matrixCalls = this.api.matrixCalls;
     metrics.matrixElements = this.api.matrixElements;
@@ -712,6 +721,7 @@ export class TransitRouteService implements SearchEngine {
     try {
       body = await this.api.fetchGuidanceAt(origin, goal, departureAt, {
         allowBus: true,
+        purpose: 'bus',
       });
     } catch (error) {
       if (!(error instanceof RouteException)) throw error;
@@ -1302,6 +1312,7 @@ export class TransitRouteService implements SearchEngine {
     try {
       body = await this.api.fetchGuidanceAt(x, goal, at, {
         allowBus: options.allowBus ?? false,
+        purpose: 'boardSearch',
       });
     } catch (error) {
       if (!(error instanceof RouteException)) throw error;

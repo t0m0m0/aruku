@@ -423,7 +423,7 @@ export class CandidateMeasurer {
         seg.polyline[0],
         seg.polyline[seg.polyline.length - 1],
         boardAt,
-        { type: seg.type, line: seg.line },
+        { purpose: 'boarding', type: seg.type, line: seg.line },
       );
       if (ep === null || ep.dep === null) continue;
       if (ep.dep.getTime() < boardAt.getTime()) continue;
@@ -449,12 +449,13 @@ export class CandidateMeasurer {
     alight: GeoPoint,
     at: Date,
     options: {
+      purpose: 'boarding' | 'names';
       type?: SegmentType;
       line?: string | null;
       needFrom?: boolean;
       needTo?: boolean;
       requireTimetable?: boolean;
-    } = {},
+    },
   ): Promise<{
     from: string;
     to: string;
@@ -471,6 +472,7 @@ export class CandidateMeasurer {
     try {
       body = await this.api.fetchGuidanceAt(board, alight, at, {
         allowBus: type === SegmentType.bus,
+        purpose: options.purpose,
       });
     } catch (error) {
       if (!(error instanceof RouteException)) throw error;
@@ -526,6 +528,7 @@ export class CandidateMeasurer {
           segs[i].polyline[segs[i].polyline.length - 1],
           departureAt,
           {
+            purpose: 'names',
             type: segs[i].type,
             line: segs[i].line,
             needFrom: segs[i].fromName.length === 0,
