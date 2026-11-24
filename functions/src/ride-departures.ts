@@ -1,5 +1,4 @@
 import type { CompiledTimetable, LatLng, TimetableStop } from './exact-scan';
-import type { RideDepartureOutcome } from './metrics';
 import {
   formatJst,
   isDepartAtInRange,
@@ -9,6 +8,9 @@ import {
   toServiceTime,
   type FeedFetchedAt,
 } from './exact-walk-max';
+
+export type RideDepartureOutcome =
+  'ride' | 'no_board_station' | 'no_alight_station' | 'no_train' | 'beyond_lookahead';
 
 export const RIDE_LOOKAHEAD_MIN = 120;
 const STOP_RADIUS_M = 1000;
