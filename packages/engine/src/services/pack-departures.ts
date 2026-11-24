@@ -1,6 +1,6 @@
 import { isRecord, type JsonMap } from '../json';
 import type { TimetableSource } from '../models/route-plan';
-import { timetableSources } from './exact-walk-candidates';
+import { jstWallClock, timetableSources } from './exact-walk-candidates';
 
 export interface PackRide {
   readonly from: string;
@@ -21,10 +21,9 @@ export function parsePackRide(body: JsonMap): PackRideAnswer | null {
   if (!isRecord(raw)) return null;
   const { from, to, boardAt, alightAt } = raw;
   if (typeof from !== 'string' || typeof to !== 'string') return null;
-  if (typeof boardAt !== 'string' || typeof alightAt !== 'string') return null;
-  const dep = new Date(boardAt);
-  const arr = new Date(alightAt);
-  if (Number.isNaN(dep.getTime()) || Number.isNaN(arr.getTime())) return null;
+  const dep = jstWallClock(boardAt);
+  const arr = jstWallClock(alightAt);
+  if (dep === null || arr === null) return null;
   if (arr.getTime() < dep.getTime()) return null;
   return { ride: { from, to, dep, arr }, sources: timetableSources(body) };
 }

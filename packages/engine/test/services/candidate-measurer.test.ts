@@ -10,6 +10,7 @@ import { RouteDiagnostics } from '../../src/services/route-diagnostics';
 import { TransitApiClient } from '../../src/services/transit-api-client';
 import { dateTime } from '../../src/time';
 import { jsonResponse, mockClient } from '../support/mock-client';
+import { inTimeZone } from '../support/time-zone';
 
 const departureAt = dateTime(2026, 11, 26, 9, 0);
 const A = new GeoPoint(35.0, 139.0);
@@ -169,6 +170,24 @@ describe('resolveBoardingTimes: 時刻表パックで乗車時刻を確定する
     expect(h.api.rideDepartureCalls).toEqual(2);
     expect(h.api.guidanceCalls).toEqual(0);
     expect(h.measurer.packBoardingLegs).toEqual(2);
+  });
+
+  it('パックの時刻は日本の壁時計として読む（ブラウザの時間帯が日本でなくてもずれない）', async () => {
+    await inTimeZone('Australia/Brisbane', async () => {
+      const at = dateTime(2026, 11, 26, 9, 0);
+      const h = harness({
+        rideDepartures: true,
+        pack: byLine({ 甲線: packRide('甲線', [9, 8], [9, 18]) }),
+      });
+
+      const out = await h.measurer.resolveBoardingTimes(
+        candidate([walk(5), ride('甲線', A, B, 10)]),
+        at,
+      );
+
+      expect(rides(out).map((s) => [hm(s.depTime), hm(s.arrTime)])).toEqual([['9:08', '9:18']]);
+      expect(h.measurer.packBoardingLegs).toEqual(1);
+    });
   });
 
   it('乗降駅の座標と名前・路線名を渡す', async () => {
