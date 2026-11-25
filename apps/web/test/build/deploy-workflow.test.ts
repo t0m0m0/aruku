@@ -62,8 +62,8 @@ describe('deploy-web.yml とアプリの設定', () => {
     expect(workflow).toMatch(/^\s+VITE_EXACT_WALK_MAX: '1'$/m);
   });
 
-  it('本番では乗車時刻の確定に時刻表パックを使う (#551)', () => {
-    expect(workflow).toMatch(/^\s+VITE_RIDE_DEPARTURES: '1'$/m);
+  it('本番では乗車時刻の確定に時刻表パックを使わない（駅までの徒歩を足すまで・#553）', () => {
+    expect(workflow).not.toMatch(/VITE_RIDE_DEPARTURES/);
   });
 
   it('App Check のデバッグトークンは渡さない', () => {

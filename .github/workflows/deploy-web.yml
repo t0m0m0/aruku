@@ -70,7 +70,6 @@ jobs:
       # vars にしないのは、値が消えても配信が通り、厳密走査だけが黙って切れるため。
       # 切り戻しは docs/ops/exact-scan-rollback.md。
       VITE_EXACT_WALK_MAX: '1'
-      VITE_RIDE_DEPARTURES: '1'
     steps:
       - uses: actions/checkout@v6
 
@@ -86,8 +85,7 @@ jobs:
           missing=()
           for name in VITE_FIREBASE_WEB_API_KEY VITE_FIREBASE_WEB_APP_ID \
                       VITE_RECAPTCHA_SITE_KEY VITE_MAPS_WEB_API_KEY \
-                      VITE_PROXY_BASE_URL VITE_EXACT_WALK_MAX \
-                      VITE_RIDE_DEPARTURES; do
+                      VITE_PROXY_BASE_URL VITE_EXACT_WALK_MAX; do
             [ -n "${!name}" ] || missing+=("$name")
           done
           if [ ${#missing[@]} -ne 0 ]; then
