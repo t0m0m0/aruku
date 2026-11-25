@@ -51,6 +51,22 @@ describe('parseReplayArgs', () => {
     );
   });
 
+  it('--ride-verify 1 で、パックの答えを Transit と突き合わせる（#553）', () => {
+    expect(parseReplayArgs(required).rideVerify).toBe(false);
+    expect(
+      parseReplayArgs([...required, '--ride-packs', '.odpt', '--ride-verify', '1']).rideVerify,
+    ).toBe(true);
+    expect(() => parseReplayArgs([...required, '--ride-verify', 'yes'])).toThrow(
+      'bad --ride-verify: yes',
+    );
+  });
+
+  it('--ride-verify はパックを渡したときだけ受ける（#553）', () => {
+    expect(() => parseReplayArgs([...required, '--ride-verify', '1'])).toThrow(
+      '--ride-verify needs --ride-packs',
+    );
+  });
+
   it('厳密走査の遅延は 0 以上の整数だけを受ける', () => {
     expect(() => parseReplayArgs([...required, '--exact-delay-ms', '-1'])).toThrow(
       'bad --exact-delay-ms: -1',

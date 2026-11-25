@@ -149,6 +149,21 @@ node scripts/replay-report.mjs .replay/base.jsonl .replay/ride.jsonl
 - 手元のパックが mini-tokyo-3d だけなら、JR・東京メトロ・都営などの区間は Transit に戻ったままで、
   効果は本番より小さく出る
 
+### パックの答えを Transit と突き合わせる（#553）
+
+`--ride-verify 1`（`--ride-packs` と一緒に渡す）で、パックで確定した区間についても Transit で確定し直し、
+発着が一致したか（`metrics.packVerifiedLegs`）・食い違ったか（`metrics.packMismatchLegs`）・Transit で
+確定できなかったか（`metrics.packUnverifiedLegs`）を数える。経路にはパックの答えを使うので、検索の結果は
+`--ride-verify` なしと同じ。食い違いの中身（行き先・路線・パックと Transit の駅と発着）は、stderr に
+`ride-mismatch {...}` の 1 行ずつで出る。
+
+- 比べるのは、Transit が同じ路線で、その時刻に乗れる列車を返した区間だけ。無ければ、別の路線や
+  乗れない列車と比べず「確定できず」に数える
+- 突き合わせは検索とは別の Transit のクライアント（キャッシュも締め切りも別）で、検索と並行して走る。
+  検索はその応答を待たないので、経路・用途別の本数・`totalMs` は `--ride-verify` なしと変わらない
+  （検索の終わりで突き合わせの応答を待つが、`totalMs` を測ったあと）
+- 突き合わせの照会は録画に無いことが多く、初回は `misses` が立つ。`misses 0` になるまで再生し直す
+
 ## 引き直しの上限を模擬する（#503）
 
 ```sh

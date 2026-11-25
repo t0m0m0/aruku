@@ -6,7 +6,8 @@ import type { Response } from 'express';
 
 import { PACK_FORMAT_VERSION, type TimetablePack } from '../src/timetable-pack/pack';
 
-const { httpsRequestMock, verifyTokenMock, downloadMock, MockAgent } = vi.hoisted(() => ({
+const { httpsRequestMock, verifyTokenMock, downloadMock, MockAgent, infoSpy } = vi.hoisted(() => ({
+  infoSpy: vi.fn(),
   httpsRequestMock: vi.fn(),
   verifyTokenMock: vi.fn(),
   downloadMock: vi.fn<(path: string) => Promise<[Buffer]>>(),
@@ -19,6 +20,11 @@ vi.mock('https', () => ({
   default: { request: httpsRequestMock, Agent: MockAgent },
   request: httpsRequestMock,
   Agent: MockAgent,
+}));
+
+vi.mock('../src/metrics', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/metrics')>()),
+  logRideDeparture: infoSpy,
 }));
 
 vi.mock('firebase-admin/app-check', () => ({
@@ -138,6 +144,7 @@ describe('rideDepartures', () => {
     httpsRequestMock.mockReset();
     verifyTokenMock.mockReset();
     downloadMock.mockReset();
+    infoSpy.mockReset();
     vi.stubEnv('FUNCTIONS_EMULATOR', 'true');
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-23T00:30:00Z'));
@@ -212,6 +219,27 @@ describe('rideDepartures', () => {
       feeds: [{ id: 'Toei', fetchedAt: '2026-10-22T19:23:00.000Z' }],
     });
     expect(httpsRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('要求ごとに結果をログに出し、座標・時刻・駅名の値は出さない (#553)', async () => {
+    storageHas(PACK);
+
+    await invoke(QUERY);
+    await invoke({ ...QUERY, boardName: '' });
+
+    expect(infoSpy.mock.calls).toEqual([
+      [{ outcome: 'ride', line: 'テスト線', boardNamed: true, alightNamed: true }],
+      [{ outcome: 'ride', line: 'テスト線', boardNamed: false, alightNamed: true }],
+    ]);
+  });
+
+  it('入力が読めないときとパックが無いときは、結果のログを出さない (#553)', async () => {
+    storageHas(null);
+
+    await invoke({ ...QUERY, line: '' });
+    await invoke(QUERY);
+
+    expect(infoSpy).not.toHaveBeenCalled();
   });
 
   it('読めるパックが無ければ 503 を返す', async () => {

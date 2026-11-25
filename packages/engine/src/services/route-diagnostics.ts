@@ -297,6 +297,12 @@ export class RouteSearchMetrics {
 
   packBoardingLegs = 0;
 
+  packVerifiedLegs = 0;
+
+  packMismatchLegs = 0;
+
+  packUnverifiedLegs = 0;
+
   get httpRoundTrips(): number {
     return (
       this.guidanceCalls +
@@ -368,6 +374,8 @@ export class RouteSearchMetrics {
       `guidanceBoarding=${this.guidanceBoarding} guidanceNames=${this.guidanceNames} ` +
       `guidanceBoardSearch=${this.guidanceBoardSearch} guidanceBus=${this.guidanceBus} ` +
       `rideDepartureCalls=${this.rideDepartureCalls} packBoardingLegs=${this.packBoardingLegs} ` +
+      `packVerifiedLegs=${this.packVerifiedLegs} packMismatchLegs=${this.packMismatchLegs} ` +
+      `packUnverifiedLegs=${this.packUnverifiedLegs} ` +
       `arrivalWaveOutcome=${this.arrivalWaveOutcome ?? -1} ` +
       `arrivalWaveOptions=${this.arrivalWaveOptions} ` +
       `arrivalWaveBaseUsed=${flag(this.arrivalWaveBaseUsed)} ` +

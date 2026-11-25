@@ -24,6 +24,7 @@ import {
   isComparableOption,
   maxMeasureShortlist,
   type Selection,
+  type PackMismatch,
 } from './candidate-measurer';
 import { SearchCanceledException, type CancellationToken } from './cancellation';
 import {
@@ -104,6 +105,10 @@ export interface TransitRouteServiceInit {
   exactWalkMaxAb?: boolean;
 
   rideDepartures?: boolean;
+
+  verifyRideDepartures?: boolean;
+
+  onPackMismatch?: (mismatch: PackMismatch) => void;
 }
 
 export const defaultArrivalWaveGrace: Duration = seconds(5);
@@ -151,6 +156,14 @@ export class TransitRouteService implements SearchEngine {
     this.onMetrics = init.onMetrics ?? null;
     this.measurer = new CandidateMeasurer(this.api, this.diag, {
       rideDepartures: init.rideDepartures ?? false,
+      verifyApi:
+        init.verifyRideDepartures === true
+          ? new TransitApiClient({
+              transitClient: init.transitClient,
+              transitBaseUrl: init.transitBaseUrl,
+            })
+          : null,
+      onPackMismatch: init.onPackMismatch,
     });
   }
 
@@ -244,6 +257,7 @@ export class TransitRouteService implements SearchEngine {
     });
 
     metrics.totalMs = totalSw.elapsedMilliseconds;
+    await this.measurer.settleVerifications();
     metrics.guidanceCalls = this.api.guidanceCalls;
     metrics.guidanceDupCalls = this.api.guidanceDupCalls;
     metrics.guidanceCacheHits = this.api.guidanceCacheHits;
@@ -260,6 +274,9 @@ export class TransitRouteService implements SearchEngine {
     metrics.exactCalls = this.api.exactCalls;
     metrics.rideDepartureCalls = this.api.rideDepartureCalls;
     metrics.packBoardingLegs = this.measurer.packBoardingLegs;
+    metrics.packVerifiedLegs = this.measurer.packVerifiedLegs;
+    metrics.packMismatchLegs = this.measurer.packMismatchLegs;
+    metrics.packUnverifiedLegs = this.measurer.packUnverifiedLegs;
     if (exactWave !== null) metrics.exactMs = exactSw.elapsedMilliseconds;
     this.diag.logMetrics(metrics);
     this.onMetrics?.(metrics);

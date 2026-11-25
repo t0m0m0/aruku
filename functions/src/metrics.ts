@@ -1,3 +1,4 @@
+import type { RideDepartureOutcome } from './ride-departures';
 import { logger } from 'firebase-functions';
 
 export type RequestStatus = 'success' | 'failure';
@@ -101,4 +102,15 @@ export interface ExactWalkMaxParams {
 
 export function logExactWalkMax(params: ExactWalkMaxParams): void {
   logger.info('exact_walk_max', { event: 'exact_walk_max', ...params });
+}
+
+export interface RideDepartureLogParams {
+  outcome: RideDepartureOutcome;
+  line: string;
+  boardNamed: boolean;
+  alightNamed: boolean;
+}
+
+export function logRideDeparture(params: RideDepartureLogParams): void {
+  logger.info('ride_departure', { event: 'ride_departure', ...params });
 }
