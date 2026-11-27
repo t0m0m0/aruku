@@ -164,6 +164,23 @@ node scripts/replay-report.mjs .replay/base.jsonl .replay/ride.jsonl
   （検索の終わりで突き合わせの応答を待つが、`totalMs` を測ったあと）
 - 突き合わせの照会は録画に無いことが多く、初回は `misses` が立つ。`misses 0` になるまで再生し直す
 
+## 到着時刻照会をやめた場合と比べる（#557）
+
+`--no-arrival-wave 1` で、到着時刻照会（到着アンカー第2波・#376）を出さずに再生する。同じ録画を
+なし・ありで再生して `replay-report.mjs` で比べ、経路・徒歩分・`totalMs` が変わる検索を数える。
+
+```sh
+node scripts/replay.mjs -- --store .replay/rec.json --out .replay/with.jsonl \
+  --date 2026-11-26 --slots 12:00 --ratios 1.5 --label with --exact-packs ../../functions/.odpt/m3d
+node scripts/replay.mjs -- --store .replay/rec.json --out .replay/without.jsonl \
+  --date 2026-11-26 --slots 12:00 --ratios 1.5 --label without --exact-packs ../../functions/.odpt/m3d \
+  --no-arrival-wave 1
+node scripts/replay-report.mjs .replay/with.jsonl .replay/without.jsonl
+```
+
+- 「なし」は録画の部分集合しか引かないので、録画外れ（`misses`）は立たない
+- 経路が変わった検索が、到着時刻照会でしか見つからない候補が勝っていた検索
+
 ## 引き直しの上限を模擬する（#503）
 
 ```sh

@@ -19,6 +19,7 @@ export interface ReplayArgs {
   readonly ridePacks: string | null;
   readonly rideDelayMs: number;
   readonly rideVerify: boolean;
+  readonly arrivalWave: boolean;
 }
 
 const flags = [
@@ -37,6 +38,7 @@ const flags = [
   'ride-packs',
   'ride-delay-ms',
   'ride-verify',
+  'no-arrival-wave',
 ] as const;
 type Flag = (typeof flags)[number];
 
@@ -48,7 +50,7 @@ export const replayUsage =
   'usage: --store <rec.json> --out <out.jsonl> --date YYYY-MM-DD ' +
   '[--mode record|replay] [--slots 12:00,22:00] [--ratios 1.2,1.5,2] [--pairs <regex>] ' +
   '[--refetch-limit-ms <ms>] [--url-log <path>] [--label <name>] ' +
-  '[--exact-packs <dir>] [--exact-delay-ms <ms>] [--ride-packs <dir>] [--ride-delay-ms <ms>] [--ride-verify 1]';
+  '[--exact-packs <dir>] [--exact-delay-ms <ms>] [--ride-packs <dir>] [--ride-delay-ms <ms>] [--ride-verify 1] [--no-arrival-wave 1]';
 
 export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
   const raw = new Map<Flag, string>();
@@ -76,6 +78,10 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
   const exactDelayMs = raw.get('exact-delay-ms');
   const rideDelayMs = raw.get('ride-delay-ms');
   const rideVerify = raw.get('ride-verify');
+  const noArrivalWave = raw.get('no-arrival-wave');
+  if (noArrivalWave !== undefined && noArrivalWave !== '1') {
+    throw new Error(`bad --no-arrival-wave: ${noArrivalWave}`);
+  }
   if (rideVerify !== undefined && rideVerify !== '1') {
     throw new Error(`bad --ride-verify: ${rideVerify}`);
   }
@@ -98,6 +104,7 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
       exactDelayMs === undefined ? syntheticMatrixDelayMs : parseDelay(exactDelayMs, 'exact'),
     ridePacks: raw.get('ride-packs') ?? null,
     rideVerify: rideVerify === '1',
+    arrivalWave: noArrivalWave !== '1',
     rideDelayMs:
       rideDelayMs === undefined ? syntheticRouteDelayMs : parseDelay(rideDelayMs, 'ride'),
   };

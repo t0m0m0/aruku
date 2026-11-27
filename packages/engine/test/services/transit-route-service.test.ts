@@ -336,6 +336,7 @@ const service = (
     exactWalkMax?: boolean;
     exactWalkMaxGrace?: number | null;
     exactWalkMaxAb?: boolean;
+    arrivalWave?: boolean;
   } = {},
 ): TransitRouteService =>
   new TransitRouteService({
@@ -349,6 +350,7 @@ const service = (
     exactWalkMax: o.exactWalkMax,
     exactWalkMaxGrace: o.exactWalkMaxGrace,
     exactWalkMaxAb: o.exactWalkMaxAb,
+    arrivalWave: o.arrivalWave,
   });
 
 const origin = new GeoPoint(35.68, 139.76);
@@ -596,6 +598,33 @@ describe('plan: 標準乗換', () => {
     expect(m.boardSearchMs).toEqual(0);
     expect(m.guidanceCalls).toBeGreaterThanOrEqual(1);
     expect(m.httpRoundTrips).toBeGreaterThanOrEqual(1);
+  });
+
+  it('到着時刻照会を無効にすると 1 本も出さず、初回照会だけで経路を返す (#557)', async () => {
+    let captured: RouteSearchMetrics | null = null;
+    const log: URL[] = [];
+    const svc = service(
+      recording(
+        mock({
+          transit: guidance([singleTrainOption({ dep: 33300, arr: 35100 })]),
+        }),
+        log,
+      ),
+      { onMetrics: (m) => (captured = m), arrivalWave: false },
+    );
+    const plan = await svc.plan({
+      destination: '新宿駅',
+      destinationLatLng: goal,
+      departure: new TimeValue({ h: 9, m: 0 }),
+      arrival: new TimeValue({ h: 9, m: 50 }),
+      origin,
+      originName: '東京駅',
+    });
+
+    expect(log.filter((u) => u.searchParams.get('type') === 'arrival')).toHaveLength(0);
+    expect(captured!.guidanceArrival).toEqual(0);
+    expect(captured!.arrivalWaveOutcome).toBeNull();
+    expect(plan.segments.length).toBeGreaterThan(0);
   });
 
   it('guidance の本数を用途別に記録し、合計は guidanceCalls と一致する (#546)', async () => {

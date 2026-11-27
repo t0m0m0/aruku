@@ -121,6 +121,7 @@ export async function runReplay(args: ReplayArgs): Promise<number> {
               exactWalkMax: args.exactPacks !== null,
               rideDepartures: args.ridePacks !== null,
               verifyRideDepartures: args.rideVerify,
+              arrivalWave: args.arrivalWave,
               onPackMismatch: (m) =>
                 console.error(
                   `ride-mismatch ${JSON.stringify({
