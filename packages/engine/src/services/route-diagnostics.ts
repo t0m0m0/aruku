@@ -313,9 +313,9 @@ export class RouteSearchMetrics {
     );
   }
 
-  recordSpeculationWaste(stats: BoardSearchStats): void {
+  recordSpeculationWaste(searches: readonly BoardSearchStats[]): void {
     this.boardSearchSpeculationWasted = true;
-    this.boardSearchSpeculationProbes = stats.probes;
+    this.boardSearchSpeculationProbes = searches.reduce((n, s) => n + s.probes, 0);
   }
 
   recordBoardSearches(searches: readonly BoardSearchStats[]): void {

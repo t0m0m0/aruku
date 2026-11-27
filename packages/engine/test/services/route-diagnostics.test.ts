@@ -367,11 +367,11 @@ describe('RouteSearchMetrics.toLogLine', () => {
     m.boardSearchProbeSerialMs = 21000;
     m.boardSearchProbeParallelMs = 18000;
     m.boardSearchSpeculated = true;
-    m.recordSpeculationWaste(
+    m.recordSpeculationWaste([
       cascade(new BoardSearchStats(), (s) => {
         s.probes = 7;
       }),
-    );
+    ]);
     m.recordEnrich(
       cascade(new EnrichLatencyLedger(), (l) => {
         l.record({ chainMs: 12000, walkMs: 3000, resolveSteps: 2 });
@@ -663,13 +663,23 @@ describe('RouteSearchMetrics: 投機 board-search の空振り計上 (#341)', ()
   it('空振りの対価は壁時計ではなく打ち上げた probe 本数で計上する', () => {
     const m = new RouteSearchMetrics();
     m.boardSearchSpeculated = true;
-    m.recordSpeculationWaste(
+    m.recordSpeculationWaste([
       cascade(new BoardSearchStats(), (s) => {
         s.probes = 5;
       }),
-    );
+    ]);
     expect(m.boardSearchSpeculationWasted).toBe(true);
     expect(m.boardSearchSpeculationProbes).toEqual(5);
+  });
+
+  it('board-search を複数の base で走らせたら、空振りの probe 本数は合計する（#560）', () => {
+    const m = new RouteSearchMetrics();
+    const probes = (n: number): BoardSearchStats =>
+      cascade(new BoardSearchStats(), (s) => {
+        s.probes = n;
+      });
+    m.recordSpeculationWaste([probes(5), probes(3)]);
+    expect(m.boardSearchSpeculationProbes).toEqual(8);
   });
 
   it('投機しただけで空振りしていなければ wasted は立たない', () => {

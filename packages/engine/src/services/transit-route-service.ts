@@ -135,6 +135,7 @@ const maxScanMatrixDests = 25;
 const maxCorridorStops = 60;
 
 const maxHybridBases = 3;
+const maxArrivalWaveBases = 1;
 
 const corridorFingerprintSamples = 8;
 
@@ -370,7 +371,11 @@ export class TransitRouteService implements SearchEngine {
     const { provenance } = session;
     const search: SearchFrame = { origin, goal, budgetMin, departureAt, metrics, session };
 
-    const { candidates, base } = await this.initialCandidates(options, arrivalWaveOptions, search);
+    const { candidates, base, trainBases } = await this.initialCandidates(
+      options,
+      arrivalWaveOptions,
+      search,
+    );
 
     let sources: TimetableSource[] = [];
     const takeExact = async (wave: Promise<JsonMap>): Promise<RouteCandidate[]> => {
@@ -426,21 +431,16 @@ export class TransitRouteService implements SearchEngine {
     const preCollapse =
       base !== null && estWithin && this.isCollapse(estWinner, options, budgetMin, departureAt);
 
-    const trainBoardSearch = new BoardSearchStats();
+    const trainBoardSearches = trainBases.map(() => new BoardSearchStats());
     let speculationAbandoned = false;
-    let trainBoardSearchFuture: Promise<RouteCandidate[]> | null = null;
+    let trainBoardSearchFuture: Promise<RouteCandidate[][]> | null = null;
     if (base !== null && preCollapse) {
       this.diag.log(() => 'preCollapse=true → 電車系 board-search を enrich と並行に投機起動');
       metrics.boardSearchSpeculated = true;
-      trainBoardSearchFuture = this.buildBoardSearchCandidate(
-        base,
-        origin,
-        goal,
-        budgetMin,
-        departureAt,
-        session.walkCache,
-        trainBoardSearch,
-        provenance.boardSearchRound,
+      trainBoardSearchFuture = this.trainBoardSearch(
+        trainBases,
+        trainBoardSearches,
+        search,
         () => speculationAbandoned,
       );
       ignore(trainBoardSearchFuture);
@@ -471,7 +471,7 @@ export class TransitRouteService implements SearchEngine {
       const boardSw = startedStopwatch();
       this.diag.log(() => 'collapse=true → board-search フォールバック起動');
       const extra = await this.collapseBoardSearch(
-        { base, busBase, trainBoardSearchFuture, trainBoardSearch, arrivalWaveOptions },
+        { trainBases, busBase, trainBoardSearchFuture, trainBoardSearches, arrivalWaveOptions },
         search,
       );
       if (extra.length > 0) {
@@ -550,8 +550,10 @@ export class TransitRouteService implements SearchEngine {
     else metrics.abMs = abSw.elapsedMilliseconds;
     metrics.finalWalkMinutes = named.walkMinutes;
     if (speculationAbandoned) {
-      metrics.recordSpeculationWaste(trainBoardSearch);
-      this.diag.log(() => `投機 board-search 空振りの対価: probe ${trainBoardSearch.probes}本`);
+      metrics.recordSpeculationWaste(trainBoardSearches);
+      this.diag.log(
+        () => `投機 board-search 空振りの対価: probe ${metrics.boardSearchSpeculationProbes}本`,
+      );
     }
     this.diag.log(() => `=== FINAL: ${this.diag.candLine(named, budgetMin, departureAt)} ===`);
 
@@ -567,7 +569,11 @@ export class TransitRouteService implements SearchEngine {
     options: TransitOption[],
     arrivalWaveOptions: Set<TransitOption>,
     search: SearchFrame,
-  ): Promise<{ candidates: RouteCandidate[]; base: TransitOption | null }> {
+  ): Promise<{
+    candidates: RouteCandidate[];
+    base: TransitOption | null;
+    trainBases: TransitOption[];
+  }> {
     const { origin, goal, budgetMin, departureAt, metrics, session } = search;
     const { provenance } = session;
 
@@ -582,7 +588,7 @@ export class TransitRouteService implements SearchEngine {
       if (arrivalWaveOptions.has(options[i])) provenance.arrivalWave.add(candidates[i]);
     }
 
-    const bases = this.basesForHybrid(options);
+    const bases = this.basesForHybrid(options, arrivalWaveOptions);
     const base = bases.length === 0 ? null : bases[0];
     metrics.arrivalWaveBaseUsed = bases.some((b) => arrivalWaveOptions.has(b));
     const hybridSw = startedStopwatch();
@@ -624,7 +630,7 @@ export class TransitRouteService implements SearchEngine {
     );
     candidates.push(allWalk);
     this.diag.log(() => `allWalk: ${this.diag.candLine(allWalk, budgetMin, departureAt)}`);
-    return { candidates, base };
+    return { candidates, base, trainBases: this.boardSearchBases(bases) };
   }
 
   private async prewarm(
@@ -664,36 +670,48 @@ export class TransitRouteService implements SearchEngine {
     );
   }
 
+  private trainBoardSearch(
+    bases: readonly TransitOption[],
+    stats: readonly BoardSearchStats[],
+    search: SearchFrame,
+    abandoned?: () => boolean,
+  ): Promise<RouteCandidate[][]> {
+    const { origin, goal, budgetMin, departureAt, session } = search;
+    if (bases.length > 1) this.diag.log(() => '到着時刻照会の base でも board-search（#560）');
+    return Promise.all(
+      bases.map((b, i) =>
+        this.buildBoardSearchCandidate(
+          b,
+          origin,
+          goal,
+          budgetMin,
+          departureAt,
+          session.walkCache,
+          stats[i],
+          session.provenance.boardSearchRound,
+          abandoned,
+        ),
+      ),
+    );
+  }
+
   private async collapseBoardSearch(
     a: {
-      base: TransitOption | null;
+      trainBases: TransitOption[];
       busBase: TransitOption | null;
-      trainBoardSearchFuture: Promise<RouteCandidate[]> | null;
-      trainBoardSearch: BoardSearchStats;
+      trainBoardSearchFuture: Promise<RouteCandidate[][]> | null;
+      trainBoardSearches: BoardSearchStats[];
       arrivalWaveOptions: Set<TransitOption>;
     },
     search: SearchFrame,
   ): Promise<RouteCandidate[]> {
-    const { base, busBase, trainBoardSearch } = a;
+    const { trainBases, busBase, trainBoardSearches } = a;
     const { origin, goal, budgetMin, departureAt, metrics, session } = search;
     const { provenance } = session;
     const busBoardSearch = new BoardSearchStats();
+    const train =
+      a.trainBoardSearchFuture ?? this.trainBoardSearch(trainBases, trainBoardSearches, search);
     const systems: Promise<RouteCandidate[]>[] = [];
-    if (base !== null) {
-      systems.push(
-        a.trainBoardSearchFuture ??
-          this.buildBoardSearchCandidate(
-            base,
-            origin,
-            goal,
-            budgetMin,
-            departureAt,
-            session.walkCache,
-            trainBoardSearch,
-            provenance.boardSearchRound,
-          ),
-      );
-    }
     if (busBase !== null) {
       systems.push(
         (async (): Promise<RouteCandidate[]> => {
@@ -724,15 +742,15 @@ export class TransitRouteService implements SearchEngine {
         })(),
       );
     }
-    const builtPerSystem = await Promise.all(systems);
-    if (base !== null && a.arrivalWaveOptions.has(base)) {
-      for (const c of builtPerSystem[0]) provenance.arrivalWave.add(c);
-    }
+    const [trainBuilt, busBuilt] = await Promise.all([train, Promise.all(systems)]);
+    trainBases.forEach((b, i) => {
+      if (a.arrivalWaveOptions.has(b)) for (const c of trainBuilt[i]) provenance.arrivalWave.add(c);
+    });
     metrics.recordBoardSearches([
-      ...(base !== null ? [trainBoardSearch] : []),
+      ...trainBoardSearches,
       ...(busBase !== null ? [busBoardSearch] : []),
     ]);
-    return builtPerSystem.flat();
+    return [...trainBuilt.flat(), ...busBuilt.flat()];
   }
 
   private async fetchBusOptions(
@@ -1221,24 +1239,48 @@ export class TransitRouteService implements SearchEngine {
     return best;
   }
 
-  basesForHybrid(options: TransitOption[]): TransitOption[] {
-    const repByFamily = new Map<string, { option: TransitOption; min: number; index: number }>();
+  basesForHybrid(
+    options: TransitOption[],
+    arrivalWave: ReadonlySet<TransitOption> = new Set(),
+  ): TransitOption[] {
+    const departure = this.familyRepresentatives(options.filter((o) => !arrivalWave.has(o)));
+    const chosen = departure.slice(0, maxHybridBases);
+    const families = new Set(departure.map((r) => r.key));
+    const added = this.familyRepresentatives(options.filter((o) => arrivalWave.has(o)))
+      .filter((r) => !families.has(r.key))
+      .slice(0, chosen.length === 0 ? maxHybridBases : maxArrivalWaveBases);
+    return [...chosen, ...added].map((r) => r.option);
+  }
+
+  boardSearchBases(bases: readonly TransitOption[]): TransitOption[] {
+    if (bases.length === 0) return [];
+    let shortest = bases[0];
+    for (const b of bases) if (rideMinutes(b) < rideMinutes(shortest)) shortest = b;
+    return shortest === bases[0] ? [bases[0]] : [bases[0], shortest];
+  }
+
+  private familyRepresentatives(
+    options: TransitOption[],
+  ): { option: TransitOption; key: string; min: number; index: number }[] {
+    const repByFamily = new Map<
+      string,
+      { option: TransitOption; key: string; min: number; index: number }
+    >();
     for (let i = 0; i < options.length; i++) {
       const o = options[i];
       if (o.corridors.every((c) => c.coords.length < 2)) continue;
       if (o.segments.some((s) => s.type === SegmentType.bus)) continue;
       const key = this.routeFamilyKey(o);
-      const min = o.segments.reduce((a, s) => a + s.minutes, 0);
+      const min = rideMinutes(o);
       const current = repByFamily.get(key);
       if (current === undefined || min < current.min) {
-        repByFamily.set(key, { option: o, min, index: i });
+        repByFamily.set(key, { option: o, key, min, index: i });
       }
     }
-    const reps = [...repByFamily.values()].sort((a, b) => {
+    return [...repByFamily.values()].sort((a, b) => {
       const byMin = a.min - b.min;
       return byMin !== 0 ? byMin : a.index - b.index;
     });
-    return reps.slice(0, maxHybridBases).map((r) => r.option);
   }
 
   private routeFamilyKey(o: TransitOption): string {
@@ -1456,4 +1498,8 @@ function mergeTimetableSources(...lists: (readonly TimetableSource[])[]): Timeta
     }
   }
   return [...byFeed.values()];
+}
+
+function rideMinutes(o: TransitOption): number {
+  return o.segments.reduce((a, s) => a + s.minutes, 0);
 }
