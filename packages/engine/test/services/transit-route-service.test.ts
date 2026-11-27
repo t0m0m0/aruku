@@ -1010,6 +1010,21 @@ describe('basesForHybrid: 路線ファミリ別 base 選定 (#292)', () => {
     expect(lines(svc.basesForHybrid([opt('A', 30), x, y], new Set([x, y])))).toEqual(['A', 'Y']);
   });
 
+  it('先頭より短い到着時刻照会の base は、board-search の起点にも加える（#560）', () => {
+    const svc = service(mock({ transit: guidance([]) }));
+    const x = opt('X', 5);
+    const bases = svc.basesForHybrid([opt('A', 30), opt('B', 40), x], new Set([x]));
+    expect(lines(svc.boardSearchBases(bases))).toEqual(['A', 'X']);
+  });
+
+  it('到着時刻照会の base が先頭より短くなければ、board-search の起点は先頭だけ（#560）', () => {
+    const svc = service(mock({ transit: guidance([]) }));
+    const x = opt('X', 30);
+    const bases = svc.basesForHybrid([opt('A', 10), opt('B', 20), x], new Set([x]));
+    expect(lines(svc.boardSearchBases(bases))).toEqual(['A']);
+    expect(svc.boardSearchBases([])).toEqual([]);
+  });
+
   it('出発時刻照会に base になる経路が無ければ、到着時刻照会の経路を base にする（#560）', () => {
     const svc = service(mock({ transit: guidance([]) }));
     const x = opt('X', 5);
