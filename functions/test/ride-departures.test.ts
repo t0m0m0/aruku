@@ -111,7 +111,7 @@ describe('findRideDeparture', () => {
     expect(res?.ride?.boardAt).toEqual('2026-11-26T12:20:00+09:00');
   });
 
-  it('区間の始点から乗車駅まで歩く時間を足し、それより前に出る列車には乗らない (#553)', async () => {
+  it('区間の始点から乗車駅まで、Transit と同じ秒速 0.96m で歩く時間を足し、それより前に出る列車には乗らない (#553)', async () => {
     const day = dayOf(
       [
         { name: 'A', km: 0 },
@@ -125,8 +125,8 @@ describe('findRideDeparture', () => {
     const at = new Date('2026-11-26T12:08:00+09:00');
     const ab = { alight: pointAtKm(5), boardName: 'A', alightName: 'B', at };
 
-    const near = await findRideDeparture(req({ ...ab, board: pointAtKm(0.3) }), deps(day));
-    const far = await findRideDeparture(req({ ...ab, board: pointAtKm(0.6) }), deps(day));
+    const near = await findRideDeparture(req({ ...ab, board: pointAtKm(0.28) }), deps(day));
+    const far = await findRideDeparture(req({ ...ab, board: pointAtKm(0.3) }), deps(day));
 
     expect(near?.ride?.boardAt).toEqual('2026-11-26T12:13:00+09:00');
     expect(far?.ride?.boardAt).toEqual('2026-11-26T12:19:00+09:00');

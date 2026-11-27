@@ -1,9 +1,4 @@
-import {
-  WALK_METERS_PER_MINUTE,
-  type CompiledTimetable,
-  type LatLng,
-  type TimetableStop,
-} from './exact-scan';
+import type { CompiledTimetable, LatLng, TimetableStop } from './exact-scan';
 import {
   formatJst,
   isDepartAtInRange,
@@ -18,6 +13,7 @@ export type RideDepartureOutcome =
   'ride' | 'no_board_station' | 'no_alight_station' | 'no_train' | 'beyond_lookahead';
 
 export const RIDE_LOOKAHEAD_MIN = 120;
+const TRANSIT_WALK_METERS_PER_SEC = 0.96;
 const STOP_RADIUS_M = 1000;
 const MAX_TEXT_LENGTH = 64;
 const EARTH_RADIUS_M = 6371008.8;
@@ -227,7 +223,7 @@ function isSameLine(route: string, line: string): boolean {
 }
 
 function accessWalkSec(meters: number): number {
-  return Math.ceil((meters / WALK_METERS_PER_MINUTE) * 60);
+  return Math.ceil(meters / TRANSIT_WALK_METERS_PER_SEC);
 }
 
 function metersBetween(p: LatLng, lat: number, lng: number): number {
