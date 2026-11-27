@@ -13,6 +13,7 @@ export type RideDepartureOutcome =
   'ride' | 'no_board_station' | 'no_alight_station' | 'no_train' | 'beyond_lookahead';
 
 export const RIDE_LOOKAHEAD_MIN = 120;
+const TRANSIT_WALK_METERS_PER_SEC = 0.96;
 const STOP_RADIUS_M = 1000;
 const MAX_TEXT_LENGTH = 64;
 const EARTH_RADIUS_M = 6371008.8;
@@ -108,9 +109,11 @@ export async function resolveRideDeparture(
   const alightMeters = new Map<number, number>();
   let departures = 0;
   for (const board of boards) {
+    const earliest =
+      sec + accessWalkSec(metersBetween(req.board, ct.stopLat[board], ct.stopLng[board]));
     for (let i = ct.departureStart[board]; i < ct.departureStart[board + 1]; i++) {
       const dep = ct.departureAt[i];
-      if (dep < sec) continue;
+      if (dep < earliest) continue;
       if (dep > untilSec) break;
       const trip = ct.departureTrip[i];
       if (!onLine(trip)) continue;
@@ -217,6 +220,10 @@ function isSameLine(route: string, line: string): boolean {
   const b = line.replace(/\s/g, '');
   if (a === '' || b === '') return false;
   return a === b || b.endsWith(a) || a.endsWith(b);
+}
+
+function accessWalkSec(meters: number): number {
+  return Math.ceil(meters / TRANSIT_WALK_METERS_PER_SEC);
 }
 
 function metersBetween(p: LatLng, lat: number, lng: number): number {
