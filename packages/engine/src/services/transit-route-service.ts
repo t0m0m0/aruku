@@ -98,6 +98,8 @@ export interface TransitRouteServiceInit {
 
   arrivalWaveGrace?: Duration | null;
 
+  arrivalWave?: boolean;
+
   exactWalkMax?: boolean;
 
   exactWalkMaxGrace?: Duration | null;
@@ -139,6 +141,7 @@ const corridorFingerprintSamples = 8;
 export class TransitRouteService implements SearchEngine {
   constructor(init: TransitRouteServiceInit = {}) {
     this.arrivalWaveGrace = init.arrivalWaveGrace ?? defaultArrivalWaveGrace;
+    this.arrivalWave = init.arrivalWave ?? true;
     this.exactWalkMax = init.exactWalkMax ?? false;
     this.exactWalkMaxGrace = init.exactWalkMaxGrace ?? defaultExactWalkMaxGrace;
     this.exactWalkMaxAb = init.exactWalkMaxAb ?? false;
@@ -172,6 +175,7 @@ export class TransitRouteService implements SearchEngine {
 
   private readonly deadline: SearchDeadline;
   private readonly arrivalWaveGrace: Duration;
+  private readonly arrivalWave: boolean;
   private readonly exactWalkMax: boolean;
   private readonly exactWalkMaxGrace: Duration;
   private readonly exactWalkMaxAb: boolean;
@@ -196,13 +200,10 @@ export class TransitRouteService implements SearchEngine {
     onProgress?.(RoutePhase.routing);
 
     const departureAt = this.departureDateTime(departure);
-    const arrivalWave = this.api.fetchGuidanceArrivalAt(
-      origin,
-      destinationLatLng,
-      departureAt,
-      budgetMin,
-    );
-    ignore(arrivalWave);
+    const arrivalWave = this.arrivalWave
+      ? this.api.fetchGuidanceArrivalAt(origin, destinationLatLng, departureAt, budgetMin)
+      : null;
+    if (arrivalWave !== null) ignore(arrivalWave);
     const exactWave =
       this.exactWalkMax || this.exactWalkMaxAb
         ? this.api.fetchExactWalkMax(origin, destinationLatLng, departureAt, budgetMin, {
@@ -237,10 +238,10 @@ export class TransitRouteService implements SearchEngine {
       );
     }
 
-    const wave = await this.arrivalWaveOptions(
-      withGrace(arrivalWave, this.arrivalWaveGrace),
-      options,
-    );
+    const wave =
+      arrivalWave === null
+        ? { outcome: null, fresh: [] }
+        : await this.arrivalWaveOptions(withGrace(arrivalWave, this.arrivalWaveGrace), options);
     metrics.arrivalWaveOutcome = wave.outcome;
     metrics.arrivalWaveOptions = wave.fresh.length;
 

@@ -67,6 +67,14 @@ describe('parseReplayArgs', () => {
     );
   });
 
+  it('--no-arrival-wave 1 で到着時刻照会を出さない（既定は出す・#557）', () => {
+    expect(parseReplayArgs(required).arrivalWave).toBe(true);
+    expect(parseReplayArgs([...required, '--no-arrival-wave', '1']).arrivalWave).toBe(false);
+    expect(() => parseReplayArgs([...required, '--no-arrival-wave', 'yes'])).toThrow(
+      'bad --no-arrival-wave: yes',
+    );
+  });
+
   it('厳密走査の遅延は 0 以上の整数だけを受ける', () => {
     expect(() => parseReplayArgs([...required, '--exact-delay-ms', '-1'])).toThrow(
       'bad --exact-delay-ms: -1',
