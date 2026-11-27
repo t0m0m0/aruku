@@ -976,6 +976,46 @@ describe('basesForHybrid: 路線ファミリ別 base 選定 (#292)', () => {
     expect(lines(bases)).toEqual(['B', 'C', 'D']);
   });
 
+  it('到着時刻照会の経路は、出発時刻照会の経路から選んだ base を押し出さない（#560）', () => {
+    const svc = service(mock({ transit: guidance([]) }));
+    const arrival = opt('X', 5);
+    const bases = svc.basesForHybrid(
+      [opt('A', 40), opt('B', 10), opt('C', 20), opt('D', 30), arrival],
+      new Set([arrival]),
+    );
+    expect(lines(bases)).toEqual(['B', 'C', 'D', 'X']);
+  });
+
+  it('先頭の base は、到着時刻照会の経路の方が短くても出発時刻照会の経路から選ぶ（#560）', () => {
+    const svc = service(mock({ transit: guidance([]) }));
+    const arrival = opt('X', 5);
+    expect(lines(svc.basesForHybrid([opt('A', 30), arrival], new Set([arrival])))).toEqual([
+      'A',
+      'X',
+    ]);
+  });
+
+  it('到着時刻照会の経路は、出発時刻照会と同じファミリなら base を足さない（#560）', () => {
+    const svc = service(mock({ transit: guidance([]) }));
+    const arrival = opt('A', 5);
+    const bases = svc.basesForHybrid([opt('A', 30), arrival], new Set([arrival]));
+    expect(lines(bases)).toEqual(['A']);
+    expect(first(bases[0].segments).minutes).toEqual(30);
+  });
+
+  it('到着時刻照会の経路から足す base は1家系まで（#560）', () => {
+    const svc = service(mock({ transit: guidance([]) }));
+    const x = opt('X', 5);
+    const y = opt('Y', 3);
+    expect(lines(svc.basesForHybrid([opt('A', 30), x, y], new Set([x, y])))).toEqual(['A', 'Y']);
+  });
+
+  it('出発時刻照会に base になる経路が無ければ、到着時刻照会の経路を base にする（#560）', () => {
+    const svc = service(mock({ transit: guidance([]) }));
+    const x = opt('X', 5);
+    expect(lines(svc.basesForHybrid([x], new Set([x])))).toEqual(['X']);
+  });
+
   const optAt = (line: string | null, minutes: number, coords: GeoPoint[]): TransitOption =>
     new TransitOption({
       from: '出発',

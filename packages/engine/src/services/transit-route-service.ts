@@ -135,6 +135,7 @@ const maxScanMatrixDests = 25;
 const maxCorridorStops = 60;
 
 const maxHybridBases = 3;
+const maxArrivalWaveBases = 1;
 
 const corridorFingerprintSamples = 8;
 
@@ -582,7 +583,7 @@ export class TransitRouteService implements SearchEngine {
       if (arrivalWaveOptions.has(options[i])) provenance.arrivalWave.add(candidates[i]);
     }
 
-    const bases = this.basesForHybrid(options);
+    const bases = this.basesForHybrid(options, arrivalWaveOptions);
     const base = bases.length === 0 ? null : bases[0];
     metrics.arrivalWaveBaseUsed = bases.some((b) => arrivalWaveOptions.has(b));
     const hybridSw = startedStopwatch();
@@ -1221,8 +1222,26 @@ export class TransitRouteService implements SearchEngine {
     return best;
   }
 
-  basesForHybrid(options: TransitOption[]): TransitOption[] {
-    const repByFamily = new Map<string, { option: TransitOption; min: number; index: number }>();
+  basesForHybrid(
+    options: TransitOption[],
+    arrivalWave: ReadonlySet<TransitOption> = new Set(),
+  ): TransitOption[] {
+    const departure = this.familyRepresentatives(options.filter((o) => !arrivalWave.has(o)));
+    const chosen = departure.slice(0, maxHybridBases);
+    const families = new Set(departure.map((r) => r.key));
+    const added = this.familyRepresentatives(options.filter((o) => arrivalWave.has(o)))
+      .filter((r) => !families.has(r.key))
+      .slice(0, chosen.length === 0 ? maxHybridBases : maxArrivalWaveBases);
+    return [...chosen, ...added].map((r) => r.option);
+  }
+
+  private familyRepresentatives(
+    options: TransitOption[],
+  ): { option: TransitOption; key: string; min: number; index: number }[] {
+    const repByFamily = new Map<
+      string,
+      { option: TransitOption; key: string; min: number; index: number }
+    >();
     for (let i = 0; i < options.length; i++) {
       const o = options[i];
       if (o.corridors.every((c) => c.coords.length < 2)) continue;
@@ -1231,14 +1250,13 @@ export class TransitRouteService implements SearchEngine {
       const min = o.segments.reduce((a, s) => a + s.minutes, 0);
       const current = repByFamily.get(key);
       if (current === undefined || min < current.min) {
-        repByFamily.set(key, { option: o, min, index: i });
+        repByFamily.set(key, { option: o, key, min, index: i });
       }
     }
-    const reps = [...repByFamily.values()].sort((a, b) => {
+    return [...repByFamily.values()].sort((a, b) => {
       const byMin = a.min - b.min;
       return byMin !== 0 ? byMin : a.index - b.index;
     });
-    return reps.slice(0, maxHybridBases).map((r) => r.option);
   }
 
   private routeFamilyKey(o: TransitOption): string {
